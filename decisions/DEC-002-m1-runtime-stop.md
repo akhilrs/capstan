@@ -2,22 +2,57 @@
 
 ## Status
 
-**Stop before coordination-core implementation.**
+**Historical M1 stop decision; superseded by DEC-003 (2026-09-25), which accepts the un-enforced caller risk and authorizes M2–M4 to proceed.**
 
 ## Evidence
 
-- Herdr 0.9.0 client/server are endpoint-compatible.
+- The historical M1 probe ran with Herdr 0.9.0 client/server. After the operator's update, `herdr --version` reports client 0.9.1, while `herdr status server` still reports server 0.9.0 (`endpoint_compatible=yes`, protocol 22). `herdr integration status` reports the OMP integration outdated (`v9 < v10`).
+- The 0.9.1 OMP integration v10 source suppresses lifecycle reports from a nested OMP process when `OMPCODE=1`, preventing it from reporting a short-lived session over its parent pane. It changes lifecycle reporting, not assignment authorization; the installed integration remains v9 and this behavior has not been exercised here.
 - A dedicated pane `wG:p1S` started OMP 18.3.1 as agent `m1probe` with cwd `/home/akhil/Workspace/github.com/akhilrs/capstan` and argv `["omp"]`; Herdr reported `interactive_ready`.
 - `herdr agent prompt` delivered `m1-probe-001`; the real OMP pane replied `ACK m1-probe-001`.
-- Herdr's published API schema exposes terminal/pane/agent lifecycle and input surfaces. The exercised surface provides no controller-owned typed OMP command receipt, durable command record, replay identity, assignment capability, cgroup ownership, or filesystem authority revocation proof.
+- The 0.9.1 client schema exposes pane/agent lifecycle, `agent.prompt`, and pane-scoped `pane.clear_agent_authority`; it contains no exclusive-assignment lock. Verified server behavior in a named isolated test session: Herdr server 0.9.1 accepted direct `agent.start` for OMP (`interactive_ready=true`, `idle`) in `/tmp/capstan-herdr-authority-test-1409`, outside controller dispatch. No prompt was sent in this test. The isolated server was stopped/deleted and its test pane closed; the default server 0.9.0 and user pane were untouched. AC #4 remains unproven/FAIL because no global assignment fence exists.
+- A second isolated Herdr 0.9.1 session started OMP with `--no-tools`; direct `agent.prompt` from the CLI completed and returned `HERDR_091_EXTERNAL_PROMPT_ACK`. This proves an independent caller can start and prompt a Herdr OMP agent even on server 0.9.1; tools were disabled for safety, and the test session/pane/config were removed afterward.
+- In an isolated Herdr 0.9.1 session, a no-tools OMP 18.3.1 agent received `/exit`; pane output showed `Closing session…` and returned to the shell. The follow-up prompt attempt returned `agent_not_running`; `pane process-info` showed only `/bin/bash` (PID 31629) in the foreground and `agent list` was empty. Only then was the test pane closed; the workspace disappeared from the session. The named server and temporary pane/config were removed. This verifies `/exit` → observed OMP exit → pane close. No pre-exit OMP PID was captured, no child-process tree was exercised, and Ctrl+C was not tested.
+- Repeated the sequence with `[session] resume_agents_on_restore=true`: `/exit` returned OMP 18.3.1 to the shell; `agent list` was empty and pane process-info showed only Bash. Closed the OMP pane before stopping the named Herdr 0.9.1 server, then restarted it; only the home workspace remained and no agent was restored. This validates the close-before-recovery ordering for this isolated case, but not process-tree termination or global assignment exclusivity. Test session/pane/config were removed.
+- Herdr issue #1033's 2026-09-15 report says `pane.clear_agent_authority` on 0.9.0 can recover a stale pane hook authority when called with the explicit integration `source`; it rebinds the live session on the next hook report. This is pane-scoped recovery, not an assignment lock, and does not prevent an independent OMP from being started or prompted ([issue](https://github.com/herdrdev/herdr/issues/1033)).
+- Checked Herdr's latest upstream preview available on 2026-09-25: preview commit `0ff0f27` covers session restore/persistence recovery and adds pane `restore_error` to the API schema; it does not add an exclusive-assignment lock. This preview is not installed and does not resolve AC #4 ([release](https://github.com/herdrdev/herdr/releases/tag/preview-2026-09-21-0ff0f27e2226), [commit](https://github.com/herdrdev/herdr/commit/0ff0f27e222633c97ba4291f6b9be4137002ca84)).
+- Herdr 0.9.0 documentation provides `[session] resume_agents_on_restore = false` to disable native agent resume after a Herdr server restart. This does not fence live `agent.start`/`agent.prompt` assignments; the fresh `m1_independent` session performed project actions before pane closure. The setting alone cannot satisfy the strict authority gate and was not applied to the user's config.
+- The operator chose to keep the current Herdr config; no global restore setting was changed.
 - A 30-second `herdr agent prompt` attempt for an interruption probe timed out without an observed running workload or durable receipt. It did not establish interruption, process-tree termination, reconnect, replacement, or authority revocation.
+
+- `node --check scripts/m1-runtime-probe.mjs && node scripts/m1-runtime-probe.mjs` ran against OMP 18.3.1, Herdr 0.9.0, Docker 29.5.0, and pinned `ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3`. Four separate Docker workers used profiles `m1-pm`, `m1-developer`, `m1-verifier`, `m1-supervisor`, cwd `/workspace`, explicit argv and role prompts; each returned its exact correlated ACK.
+- After the CLI update, `scripts/m1-runtime-probe.mjs` now asserts and reports Herdr client and server versions separately. `node --check scripts/m1-runtime-probe.mjs && node scripts/m1-runtime-probe.mjs` returned `PASS_WITH_GAPS` on OMP 18.3.1, Herdr client 0.9.1/server 0.9.0, Docker 29.5.0, and the pinned image; strict sole-authority remains unproven.
+- Workers ran as the host UID in a read-only-root container with all capabilities dropped and `no-new-privileges`. Only the per-role workspace and temporary OMP home were mounted; the controller-only journal was outside those mounts.
+- The injected receipt-loss check fsyncs the outbox before dispatch; a fresh OMP process opens persisted session history, finds the command identity once, recovers the exact reply, and does not resend.
+- A separate detached OMP worker survived a real controller-process SIGKILL after durable dispatch and RPC acceptance. A replacement Node controller reattached to the same OMP process, reconciled the command exactly once, read the exact `M1_CRASH_ACK`, and wrote one durable receipt with `resent=false`; the journal contains one dispatch and one receipt.
+- Native RPC `abort` produced `prompt_result(status=aborted)`. A long-lived RPC bash child wrote into the worker workspace; Docker kill produced `exited|137|0`. A replacement worker then wrote to that workspace, and the old writer's file size remained unchanged.
+- The prior `wJ:p3` observation was the user's existing `omp --session` session, not a distinct restored runtime worker. Withdraw the earlier inference that it demonstrated a second competing OMP authority. Before the fresh-pane test, it was `agent_session` `...01a0d71f-5670-7108-922f-3e515667a996`, OMP PID 14930.
+- A fresh sibling pane `wJ:p6` launched plain `omp` via `herdr agent start m1_independent --kind omp`; Herdr reported `interactive_ready=true`, argv `["omp"]`, and a distinct session `...01a0d89d-cdf6-7663-8e8e-8fa33dd14eec`. `herdr agent prompt` timed out waiting for status; the agent later reached `idle`, but its output shows it performed PM-4 review/checkpoint work instead of returning the requested exact acknowledgment. This demonstrates that a separate Herdr-launched OMP session can perform project actions outside controller-owned worker dispatch.
+- Closing only `wJ:p6` returned `ok`. The pane list then contained only `wJ:p3`; `agent get wJ:p3` retained the original session ID and `process-info` retained OMP PID 14930. The independent test pane's closure did not close or rebind the user's current session.
 
 ## Decision
 
-Do not use terminal transcript scraping or Herdr prompt delivery as Capstan's runtime command authority. They can prove interactive delivery only, not PM-4's required durable and containment semantics.
+Do not use terminal transcript scraping or Herdr prompt delivery as Capstan's runtime command authority. They prove interactive delivery only.
 
-The only permitted continuation is an explicit evaluation of a controller-owned OMP RPC/bridge that supplies: typed command/receipt IDs, durable append/replay/reconciliation, assignment-generation capability checks, controller-driven cancellation, container/cgroup lifecycle evidence, and revocation before replacement writes. If that bridge cannot supply every property, PM-4 remains stopped and M2–M4 must not start.
+The feasibility probe evaluated controller-owned OMP RPC as an explicit alternative. The user did not accept it as the runtime path; it remains evidence only, pending a new decision on operator-visible runtime experience.
+
+At the time of this decision, M2–M4 were stopped because sole command authority was not established. DEC-003 supersedes that stop condition by accepting the residual operational risk; the prohibitions on terminal scraping and dual command authority remain.
 
 ## Consequences
 
-M1 acceptance criteria other than interactive readiness and correlated delivery remain unproven. No coordination core, terminal-scraping fallback, or second command authority is authorized by this result.
+M1 probe outcome: PARTIAL. No coordination core, terminal-scraping fallback, or dual command authority is authorized by this result.
+
+## Historical Herdr authorization proposal (superseded)
+
+The user initially selected Herdr-native server authorization as an unblock path. That path was later superseded by DEC-003's explicit acceptance of the operational caller risk; no Herdr authorization feature is claimed or required for proceeding under DEC-003.
+
+The earlier proposed feature had a server-enforced capability boundary:
+
+- Controller capability required for command-affecting methods, including `agent.start`, `agent.prompt`, `agent.send`, and pane input methods.
+- Integration/report capability limited to `pane.report_agent`, `pane.report_agent_session`, and `pane.report_metadata`; it cannot start or direct agents.
+- Authentication must distinguish the controller from same-UID agent processes. Socket mode `0600` alone is insufficient.
+- Acceptance proof: an independent same-user client is denied assignment and pane-input methods; the controller can dispatch; the OMP integration can report lifecycle state; no second command authority is introduced. This proof is no longer required for M2–M4 under DEC-003.
+
+An upstream lead exists: Herdr issue [#481](https://github.com/herdrdev/herdr/issues/481) was converted to [discussion #514](https://github.com/herdrdev/herdr/discussions/514). The contributor's [public `issue/481-socket-api-authorization` branch](https://github.com/texasich/herdr/tree/issue/481-socket-api-authorization) contains a peer-credential prototype, but code inspection shows it is not an authorization fence as written: `server.rs` rejects only PID 0, while ordinary local clients have a nonzero peer PID; `src/app/runtime.rs` drops `caller_pid` before application handling, so no pane-ownership check is enforced; and that branch's API schema has no `agent.prompt` method. No upstream PR was found. Treat the branch as reference only. A usable implementation must authenticate the controller specifically, enforce current control methods including `agent.prompt` and pane input, and preserve report-only integration access.
+
+Phase 6 was blocked under the original strict gate. DEC-003 accepts the residual risk; the updated acceptance criteria and Phase 6 verification now govern checkpoint eligibility.
