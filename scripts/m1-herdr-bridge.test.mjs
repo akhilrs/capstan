@@ -33,12 +33,13 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m1-bridge-dispatch-error-"))
 const bridgeSocket = path.join(temp, "bridge.sock");
 const receiptSocket = path.join(temp, "receipt.sock");
 const journal = path.join(temp, "bridge.jsonl");
-const journalFd = fs.openSync(journal, "wx", 0o600);
+let journalFd = fs.openSync(journal, "wx", 0o600);
 const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_SOCKET", "CAPSTAN_BRIDGE_JOURNAL", "CAPSTAN_BRIDGE_RECEIPT_SOCKET"].map((key) => [key, process.env[key]]));
 let receiptSequence = 0;
 let sendCount = 0;
+let failDispatchError = false;
 let dispatchErrorSeen;
-const dispatchErrorDurable = new Promise((resolve) => { dispatchErrorSeen = resolve; });
+let dispatchErrorDurable = new Promise((resolve) => { dispatchErrorSeen = resolve; });
 const receiptServer = net.createServer((socket) => {
   let pending = Buffer.alloc(0);
   socket.on("data", (chunk) => {
@@ -47,6 +48,11 @@ const receiptServer = net.createServer((socket) => {
     if (newline < 0) return;
     const entry = JSON.parse(pending.subarray(0, newline).toString("utf8"));
     assert.equal(entry.sequence, receiptSequence + 1);
+    if (entry.type === "dispatch_error" && failDispatchError) {
+      socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected durable receipt failure" })}\n`);
+      dispatchErrorSeen();
+      return;
+    }
     const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
     fs.writeSync(journalFd, bytes);
     fs.fsyncSync(journalFd);
@@ -88,6 +94,28 @@ try {
   assert.deepEqual(fs.readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line).type), ["accepted", "dispatch_error"]);
   await handlers.get("session_shutdown")();
   console.log("PASS dispatch_error becomes unknown after durable receipt; get/retry/abort do not re-execute");
+  const failedBridgeSocket = path.join(temp, "bridge-receipt-fails.sock");
+  const failedJournal = path.join(temp, "bridge-receipt-fails.jsonl");
+  fs.closeSync(journalFd);
+  journalFd = fs.openSync(failedJournal, "wx", 0o600);
+  receiptSequence = 0;
+  failDispatchError = true;
+  dispatchErrorDurable = new Promise((resolve) => { dispatchErrorSeen = resolve; });
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: failedBridgeSocket, CAPSTAN_BRIDGE_JOURNAL: failedJournal });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  const failedReceiptCommand = { ...command, commandId: "dispatch-receipt-fails", assignmentId: "assignment-2" };
+  assert.equal((await request(failedBridgeSocket, failedReceiptCommand)).state, "acknowledged");
+  await dispatchErrorDurable;
+  assert.equal((await request(failedBridgeSocket, { type: "get", commandId: failedReceiptCommand.commandId })).state, "unknown");
+  assert.equal((await request(failedBridgeSocket, failedReceiptCommand)).state, "unknown");
+  const nextCommand = { ...failedReceiptCommand, commandId: "new-command", assignmentId: "assignment-3" };
+  assert.equal((await request(failedBridgeSocket, nextCommand)).type, "error", "an unresolved failed dispatch must block replacement work");
+  assert.equal(sendCount, 2, "neither failed command may be submitted twice");
+  assert.deepEqual(fs.readFileSync(failedJournal, "utf8").trim().split("\n").map((line) => JSON.parse(line).type), ["accepted"]);
+  await handlers.get("session_shutdown")();
+  console.log("PASS dispatch failure stays unknown and fail-closed when error receipt persistence fails");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;

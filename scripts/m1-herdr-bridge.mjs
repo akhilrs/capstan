@@ -132,7 +132,7 @@ export default function herdrBridge(pi) {
         response = await new Promise((resolve, reject) => {
           let pending = "";
           const timer = setTimeout(() => { socket.destroy(); reject(new Error("Controller receipt acknowledgement timed out")); }, 2_000);
-          socket.once("connect", () => socket.write(line));
+          socket.once("connect", () => socket.end(line));
           socket.on("data", (chunk) => {
             pending += chunk.toString("utf8");
             const end = pending.indexOf("\n");
@@ -232,10 +232,16 @@ export default function herdrBridge(pi) {
         pi.sendUserMessage(active.prompt);
         await append("submitted", { ...identity(active) });
       } catch (error) {
-        // Preserve the accepted identity: a restart/retry must reconcile, never submit it blindly.
-        await append("dispatch_error", { ...identity(active), error: String(error?.message ?? error).slice(0, 2048) });
-        rows.get(active.commandId).state = "unknown";
-        active = null;
+        const failedCommand = active;
+        failedCommand.dispatchFailed = true;
+        agentStarted = false;
+        rows.get(failedCommand.commandId).state = "unknown";
+        try {
+          await append("dispatch_error", { ...identity(failedCommand), error: String(error?.message ?? error).slice(0, 2048) });
+          active = null;
+        } catch (receiptError) {
+          console.error(`[m1-herdr-bridge] failed dispatch remains unknown; dispatch_error receipt unavailable: ${receiptError?.message ?? receiptError}`);
+        }
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
       }
     }).catch((error) => {
@@ -317,9 +323,9 @@ export default function herdrBridge(pi) {
   });
 
   pi.on("agent_start", async () => enqueueEvent(async () => {
+    if (active?.dispatchFailed) return;
     agentStarted = true;
     if (!active) return;
-    await append("working", { ...identity(active) });
     rows.get(active.commandId).state = "working";
     const workingAck = { type: "ack", commandId: active.commandId, durable: true, state: "working" };
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(workingAck)}\n`);

@@ -348,17 +348,24 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     let writing = false;
     let replied = false;
     const frameBuffer = createReceiptFrameBuffer(1_048_576);
+    let pendingLine;
+    let framingError;
     socket.on("data", (chunk) => {
       if (replied) { socket.destroy(); return; }
-      let line;
-      try { line = frameBuffer.push(chunk); }
-      catch (error) {
-        replied = true;
+      if (framingError) return;
+      try {
+        const line = frameBuffer.push(chunk);
+        if (line !== null) pendingLine = line;
+      } catch (error) { framingError = error; }
+    });
+    socket.once("end", () => {
+      if (replied) return;
+      replied = true;
+      if (framingError || pendingLine === undefined) {
+        const error = framingError ?? new Error("receipt frame ended before newline delimiter");
         socket.end(`${JSON.stringify({ ok: false, error: String(error?.message ?? error) })}\n`);
         return;
       }
-      if (line === null) return;
-      replied = true;
       try {
         if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
         const entry = JSON.parse(line);
