@@ -37,15 +37,15 @@ function readJournal(file) {
     }
   }
   if (committedEnd === 0) return [];
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, committedEnd))
-    .split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, committedEnd))
+    .slice(0, -1).split("\n").map((line) => JSON.parse(line));
 }
 
 function connect(container) {
   const proc = spawn("docker", ["attach", "--sig-proxy=false", container], { stdio: ["pipe", "pipe", "ignore"] });
   const frames = [];
   const waiters = [];
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   let pending = "";
   let closed = false;
   let wireError;
@@ -72,11 +72,13 @@ function connect(container) {
       while ((end = pending.indexOf("\n")) !== -1) {
         const line = pending.slice(0, end);
         pending = pending.slice(end + 1);
+        if (line.length > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
         const frame = JSON.parse(line);
         const index = waiters.findIndex((waiter) => waiter.predicate(frame));
         if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
         else frames.push(frame);
       }
+      if (pending.length > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
     } catch (error) { failWire(error); }
   });
   const waitFrame = (predicate, timeoutMs = 45_000) => {

@@ -148,7 +148,7 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
   });
   const frames = [];
   const waiters = [];
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   let pending = "";
   let closed = false;
   let exitCode = null;
@@ -177,6 +177,7 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
       while ((end = pending.indexOf("\n")) !== -1) {
         const line = pending.slice(0, end);
         pending = pending.slice(end + 1);
+        if (line.length > 1_048_576) throw new Error(`${role} RPC frame exceeds 1 MiB`);
         const frame = JSON.parse(line);
         if (frame.id !== suppressedReceiptId) {
           journal({ event: "rpc_frame", role, name, type: frame.type, id: frame.id, success: frame.success, status: frame.status });
@@ -185,6 +186,7 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
         if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
         else frames.push(frame);
       }
+      if (pending.length > 1_048_576) throw new Error(`${role} RPC frame exceeds 1 MiB`);
     } catch (error) { failWire(error); }
   });
   const waitFrame = (predicate, timeoutMs = 45_000) => {
@@ -218,7 +220,13 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
     },
     async finish() {
       if (!closed) proc.stdin.end();
-      if (!closed) await new Promise((resolve) => proc.once("close", resolve));
+      if (!closed) await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          proc.kill("SIGKILL");
+          reject(new Error(`${role} worker did not close after RPC shutdown`));
+        }, 30_000);
+        proc.once("close", () => { clearTimeout(timer); resolve(); });
+      });
       if (wireError) throw wireError;
       if (exitCode !== 0) throw new Error(`${role} OMP worker exit ${exitCode}`);
     },
