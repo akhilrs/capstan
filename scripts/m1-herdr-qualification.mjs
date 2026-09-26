@@ -10,7 +10,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createReceiptFrameBuffer } from "./m1-receipt-frame.mjs";
-import { isReceiptType, isTerminalReceipt, replayReceiptState } from "./m1-receipt-journal.mjs";
+import { isReceiptType, isTerminalReceipt, recoverAbortIntents, replayReceiptState } from "./m1-receipt-journal.mjs";
 process.umask(0o077);
 
 const SELF = fileURLToPath(import.meta.url);
@@ -675,13 +675,20 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       lastReceipt = recovered.lastReceipt;
       receiptFailed = false;
       authorizedAborts.clear();
-      if (existsSync(abortIntentPath)) for (const line of readFileSync(abortIntentPath, "utf8").trim().split("\n")) {
-        const intent = JSON.parse(line);
-        const dispatch = dispatched.get(intent.commandId);
-        if (!dispatch || intent.assignmentId !== dispatch.assignmentId || intent.attempt !== dispatch.attempt
-          || intent.generation !== dispatch.generation || authorizedAborts.has(intent.commandId))
-          throw new Error("Invalid durable abort intent during controller recovery");
-        authorizedAborts.add(intent.commandId);
+      if (existsSync(abortIntentPath)) {
+        const fd = openSync(abortIntentPath, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_CLOEXEC);
+        try {
+          const stat = fstatSync(fd);
+          if (!stat.isFile() || stat.nlink !== 1) throw new Error("Controller abort intent is not a private regular file");
+          const bytes = readFileSync(fd);
+          const { authorized, completeEnd } = recoverAbortIntents(bytes, dispatched);
+          if (completeEnd !== bytes.length) {
+            ftruncateSync(fd, completeEnd);
+            fsyncSync(fd);
+            record("controller_abort_intent_tail_repaired", { file: abortIntentPath, truncatedBytes: bytes.length - completeEnd });
+          }
+          for (const id of authorized) authorizedAborts.add(id);
+        } finally { closeSync(fd); }
       }
       receiptFd = openSync(spec.journal, "a", 0o600);
       const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
@@ -925,7 +932,7 @@ async function main() {
     compiler: run("cc", ["--version"]).split("\n")[0] });
   process.env.M1_EGRESS_HELPER ??= path.join(path.dirname(SELF), "m1-egress-helper.mjs");
   if (!existsSync(process.env.M1_EGRESS_HELPER)) throw new Error("M1_EGRESS_HELPER must point to the live packet-level firewall/proxy helper");
-  if (!process.env.M1_PROVIDER_HOST || !/^[a-z0-9.-]+$/.test(process.env.M1_PROVIDER_HOST)) throw new Error("M1_PROVIDER_HOST must name the exact lower-case predeclared provider host");
+  if (!process.env.M1_PROVIDER_HOST || !/^[a-z0-9.-]+$/i.test(process.env.M1_PROVIDER_HOST)) throw new Error("M1_PROVIDER_HOST must name the exact predeclared provider host");
   record("runtime_binary_digests", { nodeSha256: sha256(readFileSync(runtime.node)), herdrSha256: sha256(readFileSync(runtime.herdr)), ompSha256: sha256(readFileSync(runtime.omp)), addonSha256: sha256(readFileSync(runtime.addon)), bridgeSha256: sha256(readFileSync(path.join(path.dirname(SELF), "m1-herdr-bridge.mjs"))) });
   record("run_policy_frozen", {
     image: IMAGE, node: NODE_VERSION, omp: OMP_VERSION, herdr: HERDR_VERSION,

@@ -192,7 +192,7 @@ try {
   const unknownCommand = { ...command, commandId: "dispatch-no-current-reply", assignmentId: "assignment-5" };
   await request(unknownBridgeSocket, unknownCommand);
   await handlers.get("agent_start")();
-  handlers.get("turn_end")({ message: { role: "assistant", content: [] } });
+  handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: " \t\n " }] } });
   await handlers.get("agent_end")({ willContinue: false, messages: [{ role: "assistant", content: [{ type: "text", text: "STALE_RESULT" }] }] });
   const unknownRows = await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply"]);
   assert.equal(unknownRows.at(-1).commandId, unknownCommand.commandId);

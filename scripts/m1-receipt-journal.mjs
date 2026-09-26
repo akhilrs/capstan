@@ -12,6 +12,25 @@ export function isTerminalReceipt(type) {
   return terminalReceiptTypes.has(type);
 }
 
+export function recoverAbortIntents(bytes, dispatched) {
+  const completeEnd = bytes.lastIndexOf(0x0a) + 1;
+  const authorized = new Set();
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  for (let start = 0; start < completeEnd;) {
+    const end = bytes.indexOf(0x0a, start);
+    let intent;
+    try { intent = JSON.parse(decoder.decode(bytes.subarray(start, end))); }
+    catch { throw new Error(`Malformed complete abort intent at byte ${start}`); }
+    const dispatch = dispatched.get(intent?.commandId);
+    if (!dispatch || intent.assignmentId !== dispatch.assignmentId || intent.attempt !== dispatch.attempt
+      || intent.generation !== dispatch.generation || authorized.has(intent.commandId))
+      throw new Error("Invalid durable abort intent during controller recovery");
+    authorized.add(intent.commandId);
+    start = end + 1;
+  }
+  return { authorized, completeEnd };
+}
+
 export function replayReceiptState(entries) {
   const commands = new Map();
   let active = null;

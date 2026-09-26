@@ -404,7 +404,7 @@ export default function herdrBridge(pi) {
     lastTurnMessage = null;
     const content = Array.isArray(assistant?.content) ? assistant.content : [];
     const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
-    if (!assistant || reply.length === 0) {
+    if (!assistant || reply.trim().length === 0) {
       // Unknown is not proof of containment; keep the slot reserved until a terminal receipt is durable.
       command.dispatchFailed = true;
       const row = rows.get(command.commandId);

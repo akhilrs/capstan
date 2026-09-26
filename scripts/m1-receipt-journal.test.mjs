@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isReceiptType, isTerminalReceipt, replayReceiptState } from "./m1-receipt-journal.mjs";
+import { isReceiptType, isTerminalReceipt, recoverAbortIntents, replayReceiptState } from "./m1-receipt-journal.mjs";
 
 const identity = { commandId: "ended-without-reply", assignmentId: "assignment-1", attempt: 1, generation: 1 };
 const accepted = { type: "accepted", ...identity, prompt: "do work" };
@@ -27,4 +27,13 @@ const completed = replayReceiptState([accepted, submitted, working, { type: "com
 assert.equal(completed.active, null, "only durable terminal outcomes release the dispatch");
 assert.equal(completed.commands.get(identity.commandId).state, "completed");
 assert.throws(() => replayReceiptState([accepted, { ...ended, assignmentId: "other" }]), /Orphan or mismatched receipt/);
+
+const intent = { commandId: identity.commandId, assignmentId: identity.assignmentId, attempt: identity.attempt, generation: identity.generation };
+const intentLine = Buffer.from(`${JSON.stringify(intent)}\n`);
+const dispatches = new Map([[identity.commandId, intent]]);
+assert.deepEqual(recoverAbortIntents(Buffer.alloc(0), dispatches), { authorized: new Set(), completeEnd: 0 });
+assert.deepEqual(recoverAbortIntents(Buffer.from('{"commandId":'), dispatches), { authorized: new Set(), completeEnd: 0 });
+const tornTail = Buffer.concat([intentLine, Buffer.from('{"commandId":')]);
+assert.deepEqual(recoverAbortIntents(tornTail, dispatches), { authorized: new Set([identity.commandId]), completeEnd: intentLine.length });
+assert.throws(() => recoverAbortIntents(Buffer.from('{"commandId":\n'), dispatches), /Malformed complete abort intent/);
 console.log("PASS receipt journal keeps ambiguous completions locked through recovery");

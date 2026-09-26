@@ -201,7 +201,7 @@ function appendAudit(file, record) {
 async function serve() {
   const gateway = option("gateway");
   const port = validPort(option("proxy-port"), true);
-  const host = option("provider-host");
+  const host = option("provider-host").toLowerCase();
   const providerPort = validPort(option("provider-port"));
   const containerIp = option("container-ip");
   const audit = option("audit");
@@ -222,6 +222,11 @@ async function serve() {
       return;
     }
     client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    const helloDeadline = setTimeout(() => {
+      appendAudit(audit, { event: "tls_denied", at: new Date().toISOString(), reason: "TLS ClientHello deadline exceeded" });
+      client.destroy();
+    }, 10_000);
+    client.once("close", () => clearTimeout(helloDeadline));
     let buffered = head;
     const receive = async (chunk) => {
       try {
@@ -230,6 +235,7 @@ async function serve() {
         const sni = sniFromHello(buffered);
         if (sni === null) return;
         if (!sniMatchesHost(sni, host)) throw new Error("TLS SNI target denied");
+        clearTimeout(helloDeadline);
         client.removeListener("data", receive);
         client.pause();
         const resolved = await lookup(host, { family: 4 });
@@ -263,7 +269,7 @@ async function prepare() {
   const container = validatedContainer();
   const containerIp = option("container-ip");
   if (net.isIP(containerIp) !== 4) throw new Error("Expected container IPv4 address");
-  const host = option("provider-host");
+  const host = option("provider-host").toLowerCase();
   if (!/^[a-z0-9.-]+$/.test(host) || host.startsWith(".") || host.endsWith(".")) throw new Error("Invalid provider host");
   const providerPort = validPort(option("provider-port"));
   const desiredPort = validPort(option("proxy-port"), true);
