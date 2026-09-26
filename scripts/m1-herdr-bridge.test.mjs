@@ -69,6 +69,7 @@ let failDispatchError = false;
 let failSubmitted = false;
 let failWorking = false;
 let failCompleted = false;
+let failNoReply = false;
 let authorizeAbort = false;
 let failSend = true;
 let dispatchErrorSeen;
@@ -86,7 +87,9 @@ const receiptServer = net.createServer((socket) => {
       dispatchErrorSeen();
       return;
     }
-    if ((entry.type === "working" && failWorking) || (entry.type === "submitted" && failSubmitted) || (entry.type === "completed" && failCompleted)) {
+    if ((entry.type === "agent_end_without_reply" && failNoReply)
+      || (entry.type === "working" && failWorking) || (entry.type === "submitted" && failSubmitted)
+      || (entry.type === "completed" && failCompleted)) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: `injected ${entry.type} receipt failure` })}\n`);
       return;
     }
@@ -340,6 +343,20 @@ try {
   const afterRevocation = { ...racedCommand, commandId: "after-raced-abort", assignmentId: "assignment-12" };
   assert.equal((await request(revokedBeforeSend.socket, afterRevocation)).type, "error");
   raceSocket.destroy();
+  await handlers.get("session_shutdown")();
+
+  const noReplyFailure = await isolated("bridge-no-reply-receipt-failure");
+  const noReplyCommand = { ...unknownCommand, commandId: "no-reply-receipt-fails", assignmentId: "assignment-13" };
+  const notices = requestFrames(noReplyFailure.socket, noReplyCommand, 3);
+  await waitForJournal(noReplyFailure.file, ["accepted", "submitted"]);
+  await handlers.get("agent_start")();
+  await waitForJournal(noReplyFailure.file, ["accepted", "submitted", "working"]);
+  failNoReply = true;
+  handlers.get("turn_end")({ message: { role: "assistant", content: [] } });
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.deepEqual((await notices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "unknown"]);
+  assert.equal((await request(noReplyFailure.socket, { type: "get", commandId: noReplyCommand.commandId })).state, "unknown");
+  assert.equal((await request(noReplyFailure.socket, afterRevocation)).type, "error");
   await handlers.get("session_shutdown")();
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {

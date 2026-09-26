@@ -428,9 +428,14 @@ export default function herdrBridge(pi) {
       command.dispatchFailed = true;
       const row = rows.get(command.commandId);
       row.state = "unknown";
-      const entry = await append("agent_end_without_reply", { ...identity(command) });
-      row.evidenceRef = evidence(entry);
-      const unknown = { type: "unknown", ...identity(command), evidenceRef: row.evidenceRef };
+      try {
+        const entry = await append("agent_end_without_reply", { ...identity(command) });
+        row.evidenceRef = evidence(entry);
+      } catch (error) {
+        console.error(`[m1-herdr-bridge] no-reply receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
+      }
+      const unknown = { type: "unknown", ...identity(command) };
+      if (row.evidenceRef) unknown.evidenceRef = row.evidenceRef;
       for (const socket of commandSockets.get(command.commandId) ?? []) {
         if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
       }

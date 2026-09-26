@@ -33,6 +33,7 @@ const evidenceRoot = path.join(root, "evidence");
 const controllerRoot = path.join(root, "controller-only");
 const journalPath = path.join(evidenceRoot, "qualification.jsonl");
 const journalFd = (() => { mkdirSync(evidenceRoot, { recursive: true, mode: 0o700 }); return openSync(journalPath, "a", 0o600); })();
+let selectedEgressHelper;
 const containers = new Set();
 const containerIds = new Map();
 const networks = new Set();
@@ -57,7 +58,7 @@ function run(bin, args, options = {}) {
   return (r.stdout ?? "").trim();
 }
 function egress(action, args) {
-  const output = run(process.execPath, [EGRESS_HELPER, action, ...args]);
+  const output = run(process.execPath, [selectedEgressHelper, action, ...args]);
   let data;
   try { data = JSON.parse(output); } catch { throw new Error(`Egress helper ${action} returned malformed JSON`); }
   record("egress_policy", { action, result: data });
@@ -913,6 +914,15 @@ function preserveEvidence() {
 
 async function main() {
   mkdirSync(controllerRoot, { recursive: true, mode: 0o700 });
+  if (!existsSync(EGRESS_HELPER)) throw new Error("Selected egress firewall/proxy helper is unavailable");
+  const stagedHelper = path.join(controllerRoot, "m1-egress-helper.mjs");
+  const stagedTls = path.join(controllerRoot, "m1-egress-tls.mjs");
+  copyFileSync(EGRESS_HELPER, stagedHelper);
+  copyFileSync(path.join(path.dirname(SELF), "m1-egress-tls.mjs"), stagedTls);
+  chmodSync(stagedHelper, 0o600);
+  chmodSync(stagedTls, 0o600);
+  selectedEgressHelper = stagedHelper;
+  record("egress_helper_staged", { helperSha256: sha256(readFileSync(stagedHelper)), tlsSha256: sha256(readFileSync(stagedTls)), path: stagedHelper });
   const runtime = ensureRuntime();
   runtime.node = executable(process.env.M1_NODE_BIN ?? process.execPath, "Node");
   if (run(runtime.node, ["--version"]) !== NODE_VERSION) throw new Error(`Worker Node must be ${NODE_VERSION}`);
@@ -929,9 +939,8 @@ async function main() {
   record("egress_pidfd_verifier_compiled", { sourceSha256: sha256(readFileSync(egressKillSource)), binarySha256: sha256(readFileSync(egressKillBinary)) });
   record("receipt_peer_auth_verified", { sourceSha256: sha256(readFileSync(peerSource)), binarySha256: sha256(readFileSync(peerBinary)),
     compiler: run("cc", ["--version"]).split("\n")[0] });
-  if (!existsSync(EGRESS_HELPER)) throw new Error("Selected egress firewall/proxy helper is unavailable");
   if (!process.env.M1_PROVIDER_HOST || !/^[a-z0-9.-]+$/i.test(process.env.M1_PROVIDER_HOST)) throw new Error("M1_PROVIDER_HOST must name the exact predeclared provider host");
-  record("runtime_binary_digests", { nodeSha256: sha256(readFileSync(runtime.node)), herdrSha256: sha256(readFileSync(runtime.herdr)), ompSha256: sha256(readFileSync(runtime.omp)), addonSha256: sha256(readFileSync(runtime.addon)), bridgeSha256: sha256(readFileSync(path.join(path.dirname(SELF), "m1-herdr-bridge.mjs"))), egressHelperSha256: sha256(readFileSync(EGRESS_HELPER)) });
+  record("runtime_binary_digests", { nodeSha256: sha256(readFileSync(runtime.node)), herdrSha256: sha256(readFileSync(runtime.herdr)), ompSha256: sha256(readFileSync(runtime.omp)), addonSha256: sha256(readFileSync(runtime.addon)), bridgeSha256: sha256(readFileSync(path.join(path.dirname(SELF), "m1-herdr-bridge.mjs"))), egressHelperSha256: sha256(readFileSync(stagedHelper)), egressTlsSha256: sha256(readFileSync(stagedTls)) });
   record("run_policy_frozen", {
     image: IMAGE, node: NODE_VERSION, omp: OMP_VERSION, herdr: HERDR_VERSION,
     provider: PROVIDER, providerHost: process.env.M1_PROVIDER_HOST, providerPort: process.env.M1_PROVIDER_PORT ?? "443",

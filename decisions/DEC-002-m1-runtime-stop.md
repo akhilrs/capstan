@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PASS.** Final-source selected-path 10/10/10 PASS against runtime commit `3748005` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-MHBvpD/qualification.jsonl`. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-MHBvpD/qualification.jsonl` predates staged helper provenance and failed no-reply receipt notification. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -43,11 +43,11 @@
 - After OMP dispatch initiation throws, the bridge persists `dispatch_error` and marks the command `unknown`; because a throw does not prove no side effects, the active slot remains locked through recovery until worker containment. Status lookup and duplicate delivery reconcile without resending; subscribers receive an unknown notification. A queued authorized abort suppresses a deferred send before it begins. `scripts/m1-herdr-bridge.test.mjs` exercises both boundaries.
 - The bridge fsyncs a `working` receipt before it publishes `durable: true, state: working`; `scripts/m1-herdr-bridge.test.mjs` verifies the accepted → submitted → working journal order.
 
-- Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing, empty, or whitespace-only current-turn text is recorded as nonterminal `agent_end_without_reply`; status becomes unknown and the active slot stays locked across receipt replay/restart. Controller-authorized `aborted` records revocation intent but does not release the slot before worker containment. An unaccepted abort fails closed. Failed `submitted`, `working`, or `completed` receipt persistence similarly retains unknown state. Unknown does not prove process containment.
+- Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing, empty, or whitespace-only current-turn text records nonterminal `agent_end_without_reply` when possible; receipt failure still sends unknown to subscribers and retains the active slot across replay/restart. Controller-authorized `aborted` records revocation intent but does not release the slot before worker containment. An unaccepted abort fails closed. Failed `submitted`, `working`, or `completed` receipt persistence similarly retains unknown state. Unknown does not prove process containment.
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Final-source qualification PASS against runtime commit `3748005`: acknowledgements 9,518.533–10,806.133 ms; maximum progress silence 20,076.430 ms; replacement containment 3,160.342–3,294.722 ms; quiescence 9,884.166 ms. All 10 samples passed with clean cleanup; Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0 and pinned Ubuntu image. A previous attempt on commit `22ad05d` failed at replacement 9 when the model chose Read instead of Bash; diagnostics remain at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-OILDh5/qualification.jsonl`.
+- Prior-source qualification PASS against runtime commit `3748005`: acknowledgements 9,518.533–10,806.133 ms; maximum progress silence 20,076.430 ms; replacement containment 3,160.342–3,294.722 ms; quiescence 9,884.166 ms. All 10 samples passed with clean cleanup; subsequent staged-helper and no-reply subscriber fixes require a rerun.
 
 ## Decision
 
