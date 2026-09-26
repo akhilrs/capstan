@@ -20,7 +20,8 @@ const stillWorking = replayReceiptState([accepted, submitted, working]);
 assert.equal(stillWorking.active.commandId, identity.commandId, "nonterminal records must keep an uncertain dispatch active");
 
 const aborted = replayReceiptState([accepted, submitted, working, ended, { type: "aborted", ...identity }]);
-assert.equal(aborted.active, null, "only a later durable terminal abort may release an assistant-less dispatch");
+assert.equal(aborted.active.commandId, identity.commandId, "abort intent alone cannot prove process containment");
+assert.equal(aborted.active.state, "unknown");
 assert.equal(aborted.commands.get(identity.commandId).state, "unknown");
 
 const completed = replayReceiptState([accepted, submitted, working, { type: "completed", ...identity, reply: "done", evidenceRef: {} }]);

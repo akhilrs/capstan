@@ -49,6 +49,7 @@ let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
 let failSubmitted = false;
+let failWorking = false;
 let failCompleted = false;
 let authorizeAbort = false;
 let failSend = true;
@@ -67,7 +68,7 @@ const receiptServer = net.createServer((socket) => {
       dispatchErrorSeen();
       return;
     }
-    if ((entry.type === "submitted" && failSubmitted) || (entry.type === "completed" && failCompleted)) {
+    if ((entry.type === "working" && failWorking) || (entry.type === "submitted" && failSubmitted) || (entry.type === "completed" && failCompleted)) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: `injected ${entry.type} receipt failure` })}\n`);
       return;
     }
@@ -209,7 +210,7 @@ try {
   Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredBridgeSocket });
   handlers.clear();
   herdrBridge(pi);
-  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() { throw new Error("injected abort failure"); } });
   assert.equal((await request(recoveredBridgeSocket, { type: "get", commandId: unknownCommand.commandId })).state, "unknown");
   assert.equal((await request(recoveredBridgeSocket, afterUnknown)).type, "error", "recovered unknown work must remain locked");
   assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).type, "error",
@@ -217,61 +218,91 @@ try {
   authorizeAbort = true;
   assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).state, "unknown");
   await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted"]);
-  failCompleted = true;
-  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "acknowledged");
-  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted"]);
-  await handlers.get("agent_start")();
-  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working"]);
-  handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "UNPERSISTED_RESULT" }] } });
-  await handlers.get("agent_end")({ willContinue: false, messages: [] });
-  assert.equal((await request(recoveredBridgeSocket, { type: "get", commandId: afterUnknown.commandId })).state, "unknown",
-    "completion receipt failure must not leave status working");
-  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "unknown");
-  const afterCompletionFailure = { ...afterUnknown, commandId: "dispatch-after-completion-failure", assignmentId: "assignment-7" };
-  assert.equal((await request(recoveredBridgeSocket, afterCompletionFailure)).type, "error",
-    "completion persistence failure must keep the active slot locked");
+  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).type, "error", "abort acknowledgement cannot establish worker containment");
+  assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).state, "unknown");
   await handlers.get("session_shutdown")();
 
-  const recoveredCompletionBridgeSocket = path.join(temp, "bridge-completion-failure-recovered.sock");
-  fs.closeSync(journalFd);
-  journalFd = fs.openSync(unknownJournal, "a", 0o600);
+  const abortedBridgeSocket = path.join(temp, "bridge-aborted-recovered.sock");
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: abortedBridgeSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  assert.equal((await request(abortedBridgeSocket, afterUnknown)).type, "error", "restart cannot reuse a seat after abort without containment");
+  await handlers.get("session_shutdown")();
+
+  async function isolated(label) {
+    const socket = path.join(temp, `${label}.sock`);
+    const file = path.join(temp, `${label}.jsonl`);
+    fs.closeSync(journalFd);
+    journalFd = fs.openSync(file, "wx", 0o600);
+    receiptSequence = 0;
+    Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: socket, CAPSTAN_BRIDGE_JOURNAL: file });
+    handlers.clear();
+    herdrBridge(pi);
+    await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+    return { socket, file };
+  }
+
+  const workingFailure = await isolated("bridge-working-failure");
+  const workingUnknown = { ...unknownCommand, commandId: "dispatch-working-receipt-fails", assignmentId: "assignment-6" };
+  await request(workingFailure.socket, workingUnknown);
+  await waitForJournal(workingFailure.file, ["accepted", "submitted"]);
+  failWorking = true;
+  await handlers.get("agent_start")();
+  assert.equal((await request(workingFailure.socket, { type: "get", commandId: workingUnknown.commandId })).state, "unknown");
+  assert.equal((await request(workingFailure.socket, afterUnknown)).type, "error");
+  await handlers.get("session_shutdown")();
+  failWorking = false;
+  const recoveredWorkingSocket = path.join(temp, "bridge-working-recovered.sock");
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredWorkingSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  assert.equal((await request(recoveredWorkingSocket, afterUnknown)).type, "error", "failed working receipt keeps replay locked");
+  await handlers.get("session_shutdown")();
+
+  const completionFailure = await isolated("bridge-completion-failure");
+  const completedUnknown = { ...unknownCommand, commandId: "dispatch-completion-receipt-fails", assignmentId: "assignment-7" };
+  await request(completionFailure.socket, completedUnknown);
+  await handlers.get("agent_start")();
+  await waitForJournal(completionFailure.file, ["accepted", "submitted", "working"]);
+  failCompleted = true;
+  handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "UNPERSISTED_RESULT" }] } });
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.equal((await request(completionFailure.socket, { type: "get", commandId: completedUnknown.commandId })).state, "unknown");
+  const afterCompletionFailure = { ...completedUnknown, commandId: "dispatch-after-completion-failure", assignmentId: "assignment-8" };
+  assert.equal((await request(completionFailure.socket, afterCompletionFailure)).type, "error");
+  await handlers.get("session_shutdown")();
+  failCompleted = false;
+  const recoveredCompletionBridgeSocket = path.join(temp, "bridge-completion-recovered.sock");
   Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredCompletionBridgeSocket });
   handlers.clear();
   herdrBridge(pi);
   await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
-  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "get", commandId: afterUnknown.commandId })).state, "unknown");
   assert.equal((await request(recoveredCompletionBridgeSocket, afterCompletionFailure)).type, "error");
-  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "abort", commandId: afterUnknown.commandId })).state, "unknown");
-  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted"]);
-
-  failCompleted = false;
-  failSubmitted = true;
-  const submittedUnknown = { ...afterUnknown, commandId: "dispatch-submitted-receipt-fails", assignmentId: "assignment-8" };
-  const sendsBeforeSubmittedFailure = sendCount;
-  assert.equal((await request(recoveredCompletionBridgeSocket, submittedUnknown)).state, "acknowledged");
-  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted", "accepted"]);
-  assert.equal(sendCount, sendsBeforeSubmittedFailure + 1, "a failed submitted receipt follows exactly one send");
-  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "get", commandId: submittedUnknown.commandId })).state, "unknown");
-  assert.equal((await request(recoveredCompletionBridgeSocket, submittedUnknown)).state, "unknown");
-  const afterSubmittedFailure = { ...submittedUnknown, commandId: "dispatch-after-submitted-failure", assignmentId: "assignment-9" };
-  assert.equal((await request(recoveredCompletionBridgeSocket, afterSubmittedFailure)).type, "error");
   await handlers.get("session_shutdown")();
 
-  const recoveredSubmittedBridgeSocket = path.join(temp, "bridge-submitted-failure-recovered.sock");
-  fs.closeSync(journalFd);
-  journalFd = fs.openSync(unknownJournal, "a", 0o600);
+  const submittedFailure = await isolated("bridge-submitted-failure");
+  failSubmitted = true;
+  const submittedUnknown = { ...unknownCommand, commandId: "dispatch-submitted-receipt-fails", assignmentId: "assignment-9" };
+  const sendsBeforeSubmittedFailure = sendCount;
+  assert.equal((await request(submittedFailure.socket, submittedUnknown)).state, "acknowledged");
+  await waitForJournal(submittedFailure.file, ["accepted"]);
+  assert.equal(sendCount, sendsBeforeSubmittedFailure + 1);
+  assert.equal((await request(submittedFailure.socket, submittedUnknown)).state, "unknown");
+  const afterSubmittedFailure = { ...submittedUnknown, commandId: "dispatch-after-submitted-failure", assignmentId: "assignment-10" };
+  assert.equal((await request(submittedFailure.socket, afterSubmittedFailure)).type, "error");
+  await handlers.get("session_shutdown")();
   failSubmitted = false;
+  const recoveredSubmittedBridgeSocket = path.join(temp, "bridge-submitted-recovered.sock");
   Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredSubmittedBridgeSocket });
   handlers.clear();
   herdrBridge(pi);
   await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
   const sendsBeforeRestartQuery = sendCount;
-  assert.equal((await request(recoveredSubmittedBridgeSocket, { type: "get", commandId: submittedUnknown.commandId })).state, "unknown");
   assert.equal((await request(recoveredSubmittedBridgeSocket, submittedUnknown)).state, "unknown");
   assert.equal((await request(recoveredSubmittedBridgeSocket, afterSubmittedFailure)).type, "error");
   assert.equal(sendCount, sendsBeforeRestartQuery, "recovered ambiguous send must never be blindly resubmitted");
-  assert.equal((await request(recoveredSubmittedBridgeSocket, { type: "abort", commandId: submittedUnknown.commandId })).state, "unknown");
-  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted", "accepted", "aborted"]);
   await handlers.get("session_shutdown")();
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {

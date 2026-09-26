@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PASS.** Final-source selected-path 10/10/10 PASS against runtime commit `3b840d9` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-eCMDnU/qualification.jsonl`. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-eCMDnU/qualification.jsonl` predates fail-closed working-receipt and abort containment changes. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -43,11 +43,11 @@
 - After an OMP dispatch-initiation failure, the bridge persists the `dispatch_error` receipt before marking the in-memory command `unknown`. Status lookup and duplicate delivery therefore reconcile the failed accepted identity without returning a false acknowledged state or resending. `scripts/m1-herdr-bridge.test.mjs` exercises this transition and asserts one send only.
 - The bridge fsyncs a `working` receipt before it publishes `durable: true, state: working`; `scripts/m1-herdr-bridge.test.mjs` verifies the accepted → submitted → working journal order.
 
-- Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing, empty, or whitespace-only current-turn text is recorded as nonterminal `agent_end_without_reply`; status becomes unknown and the active slot stays locked across receipt replay/restart until a controller-authorized terminal abort receipt is durable. An unaccepted abort fails closed. The bridge similarly retains unknown state when `submitted` or `completed` receipt persistence fails, rather than releasing or reporting indefinite `working`. Controller recovery drops only an incomplete abort-intent tail and rejects malformed complete records. Unknown does not prove process containment.
+- Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing, empty, or whitespace-only current-turn text is recorded as nonterminal `agent_end_without_reply`; status becomes unknown and the active slot stays locked across receipt replay/restart. Controller-authorized `aborted` records revocation intent but does not release the slot before worker containment. An unaccepted abort fails closed. Failed `submitted`, `working`, or `completed` receipt persistence similarly retains unknown state. Unknown does not prove process containment.
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Final-source qualification PASS against runtime commit `3b840d9`: acknowledgements 9,154.339–9,525.819 ms; maximum progress silence 20,067.189 ms; replacement containment 3,000.117–3,195.111 ms; quiescence 9,585.334 ms. All 10 samples passed in each category. Cleanup reported no remaining containers, policies, networks, or cleanup errors; Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0 and the pinned Ubuntu image.
+- Prior-source qualification PASS against runtime commit `3b840d9`: acknowledgements 9,154.339–9,525.819 ms; maximum progress silence 20,067.189 ms; replacement containment 3,000.117–3,195.111 ms; quiescence 9,585.334 ms. All 10 samples passed in each category with clean cleanup; subsequent working-receipt and abort containment fixes require a rerun.
 
 ## Decision
 

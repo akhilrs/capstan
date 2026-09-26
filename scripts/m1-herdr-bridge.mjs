@@ -100,8 +100,9 @@ function recoverJournal(file, role) {
         || entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply") {
         row.state = entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply"
           ? "unknown" : "working";
-        if (entry.type === "agent_end_without_reply") currentActive.state = "unknown";
-        if (entry.type === "aborted" || entry.type === "dispatch_error") currentActive = null;
+        if (entry.type === "agent_end_without_reply" || entry.type === "aborted") currentActive.state = "unknown";
+        if (entry.type === "aborted") row.aborted = true;
+        if (entry.type === "dispatch_error") currentActive = null;
       } else {
         throw new Error(`unknown journal record type at byte ${offset}`);
       }
@@ -215,11 +216,13 @@ export default function herdrBridge(pi) {
     if (request.type === "abort") {
       if (!row) return { type: "ack", commandId: request.commandId, durable: true, state: "unknown" };
       if (row.state === "completed" || (row.state === "unknown" && active?.commandId !== request.commandId)) return snapshot(request.commandId);
-      if (active?.commandId === request.commandId) {
+      if (active?.commandId === request.commandId && !row.aborted) {
         await append("aborted", { ...identity(active) });
         row.state = "unknown";
-        active = null;
-        try { ctxRef.abort(); } catch (error) { console.error(`[m1-herdr-bridge] abort failed: ${error?.message ?? error}`); }
+        row.aborted = true;
+        active.dispatchFailed = true;
+        agentStarted = false;
+        try { await ctxRef.abort(); } catch (error) { console.error(`[m1-herdr-bridge] abort failed; assignment remains locked: ${error?.message ?? error}`); }
       }
       return snapshot(request.commandId);
     }
@@ -355,10 +358,22 @@ export default function herdrBridge(pi) {
     lastTurnMessage = null;
     agentStarted = true;
     if (!active) return;
-    await append("working", { ...identity(active) });
-    rows.get(active.commandId).state = "working";
-    const workingAck = { type: "ack", commandId: active.commandId, durable: true, state: "working" };
-    for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(workingAck)}\n`);
+    const command = active;
+    try {
+      await append("working", { ...identity(command) });
+    } catch (error) {
+      command.dispatchFailed = true;
+      agentStarted = false;
+      rows.get(command.commandId).state = "unknown";
+      const unknown = { type: "unknown", ...identity(command) };
+      for (const socket of commandSockets.get(command.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
+      commandSockets.delete(command.commandId);
+      console.error(`[m1-herdr-bridge] working receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
+      return;
+    }
+    rows.get(command.commandId).state = "working";
+    const workingAck = { type: "ack", commandId: command.commandId, durable: true, state: "working" };
+    for (const socket of commandSockets.get(command.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(workingAck)}\n`);
   }));
 
   pi.on("tool_execution_start", async (event) => enqueueEvent(async () => {
