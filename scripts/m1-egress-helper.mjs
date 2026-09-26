@@ -84,6 +84,19 @@ function syncFile(file, content) {
   const parent = openSync(DIR, "r");
   try { fsyncSync(parent); } finally { closeSync(parent); }
 }
+function proxyIdentity(pid, startTicks, mode) {
+  const killer = process.env.M1_EGRESS_KILLER;
+  if (!killer || !existsSync(killer)) throw new Error("Pidfd-safe egress proxy verifier is unavailable");
+  const result = spawnSync(killer, [mode, String(pid), String(startTicks), SELF], { encoding: "utf8", timeout: 5_000 });
+  if (result.error || result.status !== 0) throw new Error(`Egress proxy process identity check failed: ${(result.stderr ?? result.error?.message ?? "").trim()}`);
+}
+function procStartTicks(pid) {
+  const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+  const startTicks = fields[19];
+  if (!/^\d+$/.test(startTicks ?? "")) throw new Error("Cannot read egress proxy process start identity");
+  return startTicks;
+}
 function readState(id, policyId) {
   const state = JSON.parse(readFileSync(location(id), "utf8"));
   if (state.policyId !== policyId || state.container !== id) throw new Error("Egress policy identity mismatch");
@@ -94,7 +107,7 @@ function removePolicy(state) {
   deleteAll(inputRejectArgs(state));
   deleteAll(acceptArgs(state));
   deleteAll(rejectArgs(state));
-  try { process.kill(state.pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+  proxyIdentity(state.pid, state.startTicks, "--terminate");
   rmSync(location(state.container), { force: true });
   rmSync(state.audit, { force: true });
   const fd = openSync(DIR, "r");
@@ -254,6 +267,7 @@ async function prepare() {
     "--provider-port", String(providerPort), "--container-ip", containerIp, "--audit", audit], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
   let startupTimer;
   let port;
+  let startTicks;
   try {
     port = await new Promise((resolve, reject) => {
       let buffer = "";
@@ -264,6 +278,7 @@ async function prepare() {
         try { resolve(validPort(JSON.parse(buffer.slice(0, buffer.indexOf("\n"))).port)); } catch (error) { reject(error); }
       } });
     });
+    startTicks = procStartTicks(child.pid);
   } catch (error) {
     if (child.pid && child.exitCode === null && child.signalCode === null) {
       const exited = new Promise((resolve) => child.once("exit", resolve));
@@ -281,7 +296,7 @@ async function prepare() {
     child.stdout.destroy();
   }
   child.unref();
-  const state = { container, containerIp, gateway, port, host, providerPort, policyId, pid: child.pid, audit };
+  const state = { container, containerIp, gateway, port, host, providerPort, policyId, pid: child.pid, startTicks, audit };
   try {
     syncFile(location(container), JSON.stringify(state));
     installPolicy(state);
@@ -353,7 +368,7 @@ async function verifyState(state) {
   }
   verifyChainOrder("DOCKER-USER", state);
   verifyChainOrder("INPUT", state);
-  try { process.kill(state.pid, 0); } catch { throw new Error("Egress proxy process is absent"); }
+  proxyIdentity(state.pid, state.startTicks, "--check");
   let providerConnections = 0;
   const proxyEvents = [];
   if (existsSync(state.audit)) {

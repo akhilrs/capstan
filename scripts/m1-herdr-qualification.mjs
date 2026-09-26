@@ -910,6 +910,12 @@ async function main() {
   run("cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", peerSource, "-o", peerBinary]);
   chmodSync(peerBinary, 0o700);
   runtime.peerAuth = peerBinary;
+  const egressKillSource = path.join(path.dirname(SELF), "m1-egress-kill.c");
+  const egressKillBinary = path.join(controllerRoot, "egress-kill");
+  run("cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", egressKillSource, "-o", egressKillBinary]);
+  chmodSync(egressKillBinary, 0o700);
+  process.env.M1_EGRESS_KILLER = egressKillBinary;
+  record("egress_pidfd_verifier_compiled", { sourceSha256: sha256(readFileSync(egressKillSource)), binarySha256: sha256(readFileSync(egressKillBinary)) });
   record("receipt_peer_auth_verified", { sourceSha256: sha256(readFileSync(peerSource)), binarySha256: sha256(readFileSync(peerBinary)),
     compiler: run("cc", ["--version"]).split("\n")[0] });
   process.env.M1_EGRESS_HELPER ??= path.join(path.dirname(SELF), "m1-egress-helper.mjs");
@@ -1180,7 +1186,7 @@ async function finish() {
         record("container_cleanup_deferred", { name, reason: error.message });
       }
     }
-    while (containers.size) {
+    for (let attempt = 0; containers.size && attempt < 30; attempt++) {
       for (const name of [...containers]) {
         try {
           const id = containerIds.get(name);
@@ -1195,14 +1201,15 @@ async function finish() {
           run("docker", ["rm", "-f", name]);
           containers.delete(name);
           containerIds.delete(name);
-          record("container_emergency_containment_complete", { name, id });
+          record("container_emergency_containment_complete", { name, id, attempt: attempt + 1 });
         } catch (error) {
-          record("container_emergency_containment_retry", { name, reason: error.message });
+          record("container_emergency_containment_retry", { name, attempt: attempt + 1, reason: error.message });
           try { saveEvidence(); } catch {}
         }
       }
-      if (containers.size) await new Promise((resolve) => setTimeout(resolve, 1_000));
+      if (containers.size && attempt < 29) await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
+    for (const name of containers) cleanupErrors.push(`container ${name} remains after bounded emergency containment retries`);
     for (const [name, policy] of [...egressPolicies]) {
       if (containers.has(name)) continue;
       try {

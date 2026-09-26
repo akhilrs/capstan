@@ -20,6 +20,10 @@
     {
       "name": "m1-herdr-qualification-syntax",
       "command": "node --check scripts/m1-herdr-qualification.mjs"
+    },
+    {
+      "name": "m1-native-helpers-syntax",
+      "command": "cc -std=c11 -O2 -Wall -Wextra -Werror -fsyntax-only scripts/m1-receipt-peer.c scripts/m1-egress-kill.c"
     }
   ]
 }
