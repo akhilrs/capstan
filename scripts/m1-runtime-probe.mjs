@@ -127,7 +127,8 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
     "/usr/local/bin/omp", "--mode", "rpc", "--model", MODEL,
     "--profile", profile, "--cwd", "/workspace", "--session-dir", sessionDir,
     "--system-prompt", `You are the ${role} seat. Follow only the current user request.`,
-    "--no-ui", "--no-extensions", "--no-skills", "--no-rules", "--no-tools",
+    "--no-ui", "--no-extensions", "--no-skills", "--no-rules",
+    ...(role === "Cancel" ? [] : ["--no-tools"]),
   ];
   const argv = [
     "run", "--interactive", "--name", name, "--label", "capstan.m1.probe=true",
@@ -317,9 +318,14 @@ async function main() {
   const cancel = startWorker("Cancel", cancelWorkspace, cancelHome, cancelSession);
   await cancel.ready();
   const cancelId = "pm4-cancel-probe";
-  await request(cancel, { id: cancelId, role: "Cancel", type: "prompt", message: "Write a detailed 3000-word explanation of JSON. Keep going." }, cancelId);
-  await cancel.waitFrame((frame) => frame.type === "turn_start");
-  journal({ event: "prompt_active", commandId: cancelId });
+  await request(cancel, { id: cancelId, role: "Cancel", type: "prompt", message: "Use the bash tool to run this exact foreground command: printf started > /workspace/cancel.started; sleep 120. Do not answer until the command finishes." }, cancelId);
+  const cancelStarted = path.join(cancelWorkspace, "cancel.started");
+  const activeDeadline = Date.now() + 60_000;
+  while (!existsSync(cancelStarted) && Date.now() < activeDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!existsSync(cancelStarted)) throw new Error("Cancelable prompt never reached the blocking bash command");
+  journal({ event: "prompt_active", commandId: cancelId, blockingToolStarted: true });
   const abortId = "pm4-abort-probe";
   await request(cancel, { id: abortId, role: "Cancel", type: "abort" }, abortId);
   const aborted = await cancel.waitFrame((frame) => frame.type === "prompt_result" && frame.id === cancelId);
