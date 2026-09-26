@@ -31,6 +31,7 @@ const controllerRoot = path.join(root, "controller-only");
 const journalPath = path.join(evidenceRoot, "qualification.jsonl");
 const journalFd = (() => { mkdirSync(evidenceRoot, { recursive: true, mode: 0o700 }); return openSync(journalPath, "a", 0o600); })();
 const containers = new Set();
+const containerIds = new Map();
 const networks = new Set();
 const egressPolicies = new Map();
 const diagnosticPanes = new Map();
@@ -62,6 +63,15 @@ function egress(action, args) {
   return data;
 }
 function monotonicMs() { return Number(process.hrtime.bigint()) / 1e6; }
+function retireSeatPolicy(name, containerId) {
+  const state = JSON.parse(run("docker", ["inspect", "--format", "{{json .State}}", name]));
+  if (state.Running && !state.Paused) run("docker", ["pause", name]);
+  const result = egress("cleanup-container", ["--container", containerId]);
+  if (result.removed !== true) throw new Error("Egress helper did not confirm policy cleanup");
+  egressPolicies.delete(name);
+  record("seat_policy_retired_before_removal", { container: name, containerId, paused: state.Running && !state.Paused, result });
+  return result;
+}
 function safeName(tag) { return `capstan-m1hq-${process.pid}-${++serial}-${tag.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`; }
 function fsyncFile(file) { const fd = openSync(file, "r"); try { fsyncSync(fd); } finally { closeSync(fd); } }
 function independentReconcileClientGet(socketPath, commandId) {
@@ -494,9 +504,9 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     "--env", `CAPSTAN_BRIDGE_ROLE=${spec.role}`, "--env", "OPENAI_CODEX_OAUTH_TOKEN",
     IMAGE, "sh", "-c", ignoreStop ? "umask 077; trap '' TERM; while :; do sleep 60 & wait; done" : "umask 077; exec sleep infinity",
   ];
-  run("docker", args, { env: { ...process.env, OPENAI_CODEX_OAUTH_TOKEN: runtime.token } });
+  const containerId = run("docker", args, { env: { ...process.env, OPENAI_CODEX_OAUTH_TOKEN: runtime.token } });
   containers.add(name);
-  const containerId = run("docker", ["inspect", "--format", "{{.Id}}", name]);
+  containerIds.set(name, containerId);
   const containerIp = run("docker", ["inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", name]);
   const prepared = egress("prepare", ["--container", containerId, "--container-ip", containerIp, "--provider-host", providerHost, "--provider-port", providerPort, "--proxy-port", "0"]);
   if (typeof prepared.proxy !== "string" || !/^http:\/\/[^/]+:\d+$/.test(prepared.proxy) || typeof prepared.policyId !== "string") throw new Error("Egress helper returned invalid proxy/policy identity");
@@ -596,10 +606,9 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
       record("startup_diagnostic_preserved", { name, label, sha256: sha256(bytes), path: file });
     }
-    try { run("docker", ["rm", "-f", name]); containers.delete(name); } catch {}
     try {
-      const policy = egressPolicies.get(name);
-      if (policy) { egress("cleanup", ["--container", policy.containerId, "--policy-id", policy.policyId]); egressPolicies.delete(name); }
+      retireSeatPolicy(name, containerId);
+      run("docker", ["rm", "-f", name]); containers.delete(name); containerIds.delete(name);
       run("docker", ["network", "rm", network]); networks.delete(network);
     } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Seat startup and cleanup failed"); }
     throw error;
@@ -735,6 +744,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       const bytes = Buffer.from(`${JSON.stringify({ commandId, ...dispatched.get(commandId) })}\n`);
       const fd = openSync(abortIntentPath, "a", 0o600);
       try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      syncDir(controllerRoot);
       authorizedAborts.add(commandId);
       record("controller_abort_authorized", { container: name, commandId, intentPath: abortIntentPath });
       send({ type: "abort", commandId });
@@ -825,16 +835,14 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       const bridgeConnectionClosed = await Promise.race([socketClosed, new Promise((resolve) => { closeTimeout = setTimeout(() => resolve(false), 5_000); })]);
       clearTimeout(closeTimeout);
       if (!bridgeConnectionClosed) throw new Error("Herdr bridge connection did not close with worker/container exit");
-      const containerId = run("docker", ["inspect", "--format", "{{.Id}}", name]);
+      const containerId = containerIds.get(name);
+      if (!containerId || !egressPolicies.has(name)) throw new Error("Missing container identity or egress policy before removal");
+      const policyRemoval = retireSeatPolicy(name, containerId);
       run("docker", ["rm", name]);
       containers.delete(name);
+      containerIds.delete(name);
       const removed = spawnSync("docker", ["inspect", containerId], { encoding: "utf8" });
       if (removed.status === 0) throw new Error("Docker container still exists after mount removal");
-      const policy = egressPolicies.get(name);
-      if (!policy) throw new Error("Missing egress firewall cleanup receipt");
-      const policyRemoval = egress("cleanup", ["--container", policy.containerId, "--policy-id", policy.policyId]);
-      if (policyRemoval.removed !== true) throw new Error("Egress rules/proxy cleanup was not confirmed");
-      egressPolicies.delete(name);
       run("docker", ["network", "rm", network]);
       networks.delete(network);
       const staleEndpoint = existsSync(socketPath);
@@ -1064,15 +1072,17 @@ async function main() {
     const replacement = await createSeat(runtime, replacementSpec);
     const replacementId = `${id}-restore`;
     const replacementAssignment = `m1-assignment-${replacementId}`;
-    const replacementPrompt = "Use the bash tool to write exactly M1_REPLACEMENT_READY followed by a newline to /workspace/replacement.started, then reply exactly M1_REPLACEMENT_READY.";
+    const replacementPrompt = "Use a tool to write exactly M1_REPLACEMENT_READY followed by a newline to /workspace/replacement.started, then reply exactly M1_REPLACEMENT_READY.";
     const replacementDispatch = { type: "dispatch", commandId: replacementId, assignmentId: replacementAssignment, attempt: 1, generation: 1, prompt: replacementPrompt };
     await replacement.command(replacementDispatch);
     const restoredStart = await replacement.waitFrame((x) => x.type === "tool_started" && x.commandId === replacementId, 60_000);
     const restoredTool = await replacement.waitFrame((x) => x.type === "tool_completed" && x.commandId === replacementId, 60_000);
     const restoredResult = await replacement.completed(replacementId, 60_000);
-    if (restoredStart.assignmentId !== replacementAssignment || restoredStart.attempt !== 1 || restoredStart.generation !== 1 || restoredStart.toolName !== "bash" || !restoredStart.evidenceRef
+    if (restoredStart.assignmentId !== replacementAssignment || restoredStart.attempt !== 1 || restoredStart.generation !== 1
+      || typeof restoredStart.toolName !== "string" || !restoredStart.toolName || !restoredStart.evidenceRef
       || restoredTool.assignmentId !== replacementAssignment || restoredTool.attempt !== 1 || restoredTool.generation !== 1
-      || restoredTool.toolCallId !== restoredStart.toolCallId || restoredTool.toolName !== "bash" || !restoredTool.evidenceRef
+      || restoredTool.toolCallId !== restoredStart.toolCallId || restoredTool.toolName !== restoredStart.toolName
+      || restoredTool.isError === true || !restoredTool.evidenceRef
       || JSON.stringify(restoredStart.evidenceRef) === JSON.stringify(restoredTool.evidenceRef)
       || restoredResult.reply !== "M1_REPLACEMENT_READY") throw new Error("Replacement Herdr seat did not complete correlated restoration action");
     if (readFileSync(path.join(replacementSpec.workspace, "replacement.started"), "utf8") !== "M1_REPLACEMENT_READY\n") throw new Error("Restored Herdr seat wrote outside its assigned workspace or produced wrong bytes");
@@ -1139,18 +1149,24 @@ async function finish() {
           } catch (error) { cleanupErrors.push(`diagnostic ${name}/${label}: ${error.message}`); }
         }
       }
-      const r = spawnSync("docker", ["rm", "-f", name], { encoding: "utf8", maxBuffer: 1_000_000 });
-      if (r.error || (r.status !== 0 && !`${r.stderr}${r.stdout}`.includes("No such container"))) cleanupErrors.push(`container ${name}: ${r.stderr ?? r.error ?? r.stdout}`);
-      else containers.delete(name);
+      const id = containerIds.get(name);
+      if (!id) { cleanupErrors.push(`container ${name}: no durable container ID for policy cleanup`); continue; }
+      try {
+        retireSeatPolicy(name, id);
+        run("docker", ["rm", "-f", name]);
+        containers.delete(name);
+        containerIds.delete(name);
+      } catch (error) {
+        cleanupErrors.push(`container ${name} retained until policy cleanup succeeds: ${error.message}`);
+      }
     }
     for (const [name, policy] of [...egressPolicies]) {
-      try { egress("verify", ["--container", policy.containerId, "--policy-id", policy.policyId]); }
-      catch (error) { record("egress_diagnostic_unavailable", { name, reason: error.message }); }
+      if (containers.has(name)) continue;
       try {
-        const result = egress("cleanup", ["--container", policy.containerId, "--policy-id", policy.policyId]);
+        const result = egress("cleanup-container", ["--container", policy.containerId]);
         if (result.removed !== true) throw new Error("helper did not confirm policy removal");
         egressPolicies.delete(name);
-      } catch (error) { cleanupErrors.push(`egress policy ${policy.policyId}: ${error.message}`); }
+      } catch (error) { cleanupErrors.push(`orphan egress policy ${policy.policyId}: ${error.message}`); }
     }
     for (const network of [...networks]) {
       try { run("docker", ["network", "rm", network]); networks.delete(network); }
