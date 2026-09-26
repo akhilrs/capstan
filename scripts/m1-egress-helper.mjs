@@ -237,8 +237,10 @@ async function prepare() {
     throw new Error("Container network identity mismatch");
   }
   const network = JSON.parse(docker("network", "inspect", networks[0][0]))[0];
-  if (network.Internal !== true || network.IPAM?.Config?.length !== 1 || net.isIP(network.IPAM.Config[0].Gateway) !== 4) {
-    throw new Error("Expected one isolated internal network with IPv4 gateway");
+  if (network.Internal !== true || network.EnableIPv6 !== false
+    || networks[0][1].GlobalIPv6Address || networks[0][1].IPv6Gateway
+    || network.IPAM?.Config?.length !== 1 || net.isIP(network.IPAM.Config[0].Gateway) !== 4) {
+    throw new Error("Expected one isolated IPv4-only internal network with IPv4 gateway");
   }
   const gateway = network.IPAM.Config[0].Gateway;
   mkdirSync(DIR, { recursive: true, mode: 0o700 });
@@ -265,7 +267,13 @@ async function prepare() {
     installPolicy(state);
     await verifyState(state);
   } catch (error) {
-    try { removePolicy(state); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Egress preparation and cleanup both failed"); }
+    try {
+      const status = JSON.parse(docker("inspect", container))[0]?.State;
+      if (status?.Running && !status.Paused) docker("pause", container);
+    } catch (pauseError) {
+      throw new AggregateError([error, pauseError], "Egress verification failed; worker could not be paused, preserving firewall rules");
+    }
+    try { removePolicy(state); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Egress preparation failed after worker pause and cleanup failed"); }
     throw error;
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
