@@ -720,6 +720,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       if (duplicateResult.type === "unknown") throw new Error(`Duplicate dispatch ${dispatch.commandId} is unknown`);
       verifyCompletionFrame(duplicateResult, spec);
       if (JSON.stringify(duplicateResult.evidenceRef) !== JSON.stringify(expectedEvidenceRef)) throw new Error("Duplicate dispatch changed durable evidence identity");
+      await this.reconnectController();
       const replay = await this.query(dispatch.commandId, 10_000, "completed");
       if (JSON.stringify(replay.evidenceRef) !== JSON.stringify(expectedEvidenceRef)) throw new Error("get replay changed durable result identity");
       return { result: duplicateResult, replay };
