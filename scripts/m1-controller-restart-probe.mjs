@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -22,6 +22,23 @@ function appendDurably(file, entry) {
   } finally {
     closeSync(fd);
   }
+}
+
+function readJournal(file) {
+  const bytes = readFileSync(file);
+  const committedEnd = bytes.lastIndexOf(10) + 1;
+  if (committedEnd !== bytes.length) {
+    const fd = openSync(file, "r+");
+    try {
+      ftruncateSync(fd, committedEnd);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+  if (committedEnd === 0) return [];
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, committedEnd))
+    .split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
 function connect(container) {
@@ -80,10 +97,17 @@ async function controller(mode) {
       await new Promise(() => {});
     }
     if (mode !== "recover") throw new Error(`Unknown controller mode ${mode}`);
-    const records = readFileSync(journalPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const records = readJournal(journalPath);
     const dispatches = records.filter((entry) => entry.event === "dispatch" && entry.commandId === COMMAND_ID);
-    const prematureReceipts = records.filter((entry) => entry.commandId === COMMAND_ID && entry.event === "receipt");
-    if (dispatches.length !== 1 || prematureReceipts.length !== 0) throw new Error("Restart did not find exactly one pending durable outbox entry");
+    const receipts = records.filter((entry) => entry.commandId === COMMAND_ID && entry.event === "receipt");
+    if (dispatches.length !== 1 || receipts.length > 1) throw new Error("Restart did not find exactly one durable dispatch and at most one receipt");
+    if (receipts.length === 1) {
+      if (receipts[0].reconciled !== true || receipts[0].matchingHistoryEntries !== 1 || receipts[0].resent !== false) {
+        throw new Error("Existing recovery receipt is invalid");
+      }
+      process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: 1, exactReply: true, resent: false, alreadyReconciled: true }) + "\n");
+      return;
+    }
 
     const deadline = Date.now() + 90_000;
     let matchingEntries = 0;
@@ -130,6 +154,22 @@ function runChild(mode, container, journalPath) {
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => { child.diagnostic += chunk; });
   return child;
+}
+
+function awaitRecovery(child) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timeout = setTimeout(() => reject(new Error("Replacement controller reconciliation timed out")), 120_000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.once("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) reject(new Error(`Replacement controller failed (${code}): ${child.diagnostic.trim()}`));
+      else {
+        try { resolve(JSON.parse(output.trim())); } catch { reject(new Error("Replacement controller returned invalid result")); }
+      }
+    });
+  });
 }
 
 export async function runControllerRestartProbe({ image, omp, addon, model, token, root }) {
@@ -188,26 +228,28 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
     const state = spawnSync("docker", ["inspect", "--format", "{{.State.Status}}", name], { encoding: "utf8" });
     if (state.status !== 0 || state.stdout.trim() !== "running") throw new Error("OMP worker did not survive controller SIGKILL");
 
+    const tornFd = openSync(journalPath, "a");
+    try {
+      writeSync(tornFd, '{"event":"receipt"');
+      fsyncSync(tornFd);
+    } finally {
+      closeSync(tornFd);
+    }
     recoveryController = runChild("recover", name, journalPath);
-    const result = await new Promise((resolve, reject) => {
-      let output = "";
-      const timeout = setTimeout(() => reject(new Error("Replacement controller reconciliation timed out")), 120_000);
-      recoveryController.stdout.setEncoding("utf8");
-      recoveryController.stdout.on("data", (chunk) => { output += chunk; });
-      recoveryController.once("close", (code) => {
-        clearTimeout(timeout);
-        if (code !== 0) reject(new Error(`Replacement controller failed (${code}): ${recoveryController.diagnostic.trim()}`));
-        else {
-          try { resolve(JSON.parse(output.trim())); } catch { reject(new Error("Replacement controller returned invalid result")); }
-        }
-      });
-    });
-    const records = readFileSync(journalPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const result = await awaitRecovery(recoveryController);
+    recoveryController = runChild("recover", name, journalPath);
+    const repeated = await awaitRecovery(recoveryController);
+    if (!repeated.alreadyReconciled || !repeated.recovered || !repeated.exactReply || repeated.resent) {
+      throw new Error("Second recovery did not reuse the durable receipt");
+    }
+    const journalText = readFileSync(journalPath, "utf8");
+    if (!journalText.endsWith("\n")) throw new Error("Torn journal tail remained after recovery");
+    const records = readJournal(journalPath);
     if (records.filter((entry) => entry.event === "dispatch" && entry.commandId === COMMAND_ID).length !== 1
       || records.filter((entry) => entry.event === "receipt" && entry.commandId === COMMAND_ID).length !== 1) {
       throw new Error("Crash journal did not retain one dispatch and one reconciled receipt");
     }
-    return { controllerKilled: true, workerSurvived: true, ...result };
+    return { controllerKilled: true, workerSurvived: true, tornTailRecovered: true, idempotentRecovery: true, ...result };
   } finally {
     if (firstController?.exitCode === null) {
       try { process.kill(-firstController.pid, "SIGKILL"); } catch {}
