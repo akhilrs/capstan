@@ -7,11 +7,17 @@ import { fileURLToPath } from "node:url";
 
 const SELF = fileURLToPath(import.meta.url);
 const COMMAND_ID = "pm4-controller-crash-001";
+const PROMPT = `Command identity ${COMMAND_ID}. Reply exactly M1_CRASH_ACK. Do not run tools.`;
 
 function appendDurably(file, entry) {
   const fd = openSync(file, "a", 0o600);
   try {
-    writeSync(fd, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+    const bytes = Buffer.from(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+    for (let offset = 0; offset < bytes.length;) {
+      const written = writeSync(fd, bytes, offset, bytes.length - offset);
+      if (written <= 0) throw new Error("Crash journal write made no progress");
+      offset += written;
+    }
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -66,7 +72,7 @@ async function controller(mode) {
     if (!state.success) throw new Error("OMP RPC transport readiness check failed");
     if (mode === "dispatch") {
       appendDurably(journalPath, { event: "dispatch", commandId: COMMAND_ID, rpcId: COMMAND_ID, type: "prompt" });
-      rpc.send({ id: COMMAND_ID, type: "prompt", message: `Command identity ${COMMAND_ID}. Reply exactly M1_CRASH_ACK. Do not run tools.` });
+      rpc.send({ id: COMMAND_ID, type: "prompt", message: PROMPT });
       const response = await rpc.waitFrame((frame) => frame.type === "response" && frame.id === COMMAND_ID);
       if (!response.success) throw new Error("OMP rejected the crash-boundary prompt");
       rpc.lines.pause();
@@ -81,24 +87,31 @@ async function controller(mode) {
 
     const deadline = Date.now() + 90_000;
     let matchingEntries = 0;
+    let linkedReplies = 0;
     let reply;
     while (Date.now() < deadline) {
       const id = `reconcile-${Date.now()}`;
       rpc.send({ id, type: "get_entries" });
       const response = await rpc.waitFrame((frame) => frame.type === "response" && frame.id === id);
       if (!response.success) throw new Error("OMP history reconciliation failed");
-      const entries = response.data?.entries ?? [];
-      matchingEntries = JSON.stringify(entries).split(COMMAND_ID).length - 1;
+      const entries = response.data?.entries;
+      if (!Array.isArray(entries)) throw new Error("OMP returned no crash-recovery history");
+      const matchingUsers = entries.filter((entry) => entry.type === "message" && entry.message?.role === "user"
+        && entry.message.content?.some((part) => part.type === "text" && part.text === PROMPT));
+      matchingEntries = matchingUsers.length;
+      linkedReplies = matchingEntries === 1 ? entries.filter((entry) => entry.type === "message"
+        && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"
+        && entry.message.content?.some((part) => part.type === "text" && part.text === "M1_CRASH_ACK")).length : 0;
       const readbackId = `${id}-last`;
       rpc.send({ id: readbackId, type: "get_last_assistant_text" });
       const readback = await rpc.waitFrame((frame) => frame.type === "response" && frame.id === readbackId);
       if (!readback.success) throw new Error("OMP assistant readback failed");
       reply = readback.data?.text;
-      if (matchingEntries === 1 && reply === "M1_CRASH_ACK") break;
+      if (matchingEntries === 1 && linkedReplies === 1 && reply === "M1_CRASH_ACK") break;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    if (matchingEntries !== 1 || reply !== "M1_CRASH_ACK") {
-      throw new Error(`Restart reconciliation mismatch (command occurrences=${matchingEntries}, exact reply=${reply === "M1_CRASH_ACK"})`);
+    if (matchingEntries !== 1 || linkedReplies !== 1 || reply !== "M1_CRASH_ACK") {
+      throw new Error(`Restart reconciliation mismatch (user entries=${matchingEntries}, linked replies=${linkedReplies}, exact last reply=${reply === "M1_CRASH_ACK"})`);
     }
     appendDurably(journalPath, { event: "receipt", commandId: COMMAND_ID, reconciled: true, resent: false, matchingHistoryEntries: matchingEntries });
     process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: matchingEntries, exactReply: true, resent: false }) + "\n");

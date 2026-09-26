@@ -19,8 +19,18 @@ import readline from "node:readline";
 import { runControllerRestartProbe } from "./m1-controller-restart-probe.mjs";
 
 function preserveJournals() {
-  const stateRoot = path.join(os.homedir(), ".local", "state", "capstan", "m1-probe");
-  mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+  let parent = os.homedir();
+  for (const segment of [".local", "state", "capstan", "m1-probe"]) {
+    const child = path.join(parent, segment);
+    if (!existsSync(child)) {
+      mkdirSync(child, { mode: 0o700 });
+      const fd = openSync(parent, "r");
+      fsyncSync(fd);
+      closeSync(fd);
+    }
+    parent = child;
+  }
+  const stateRoot = parent;
   const evidenceDir = mkdtempSync(path.join(stateRoot, "run-"));
   for (const [source, name] of [
     [journalPath, "controller.jsonl"],
@@ -93,7 +103,12 @@ function fail(message) {
 }
 
 function journal(entry) {
-  writeSync(journalFd, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  const bytes = Buffer.from(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  for (let offset = 0; offset < bytes.length;) {
+    const written = writeSync(journalFd, bytes, offset, bytes.length - offset);
+    if (written <= 0) throw new Error("Journal write made no progress");
+    offset += written;
+  }
   fsyncSync(journalFd);
 }
 
@@ -196,11 +211,15 @@ async function request(worker, command, id, persistReceipt = true) {
   return response;
 }
 
+function promptText(commandId, expected) {
+  return `Command identity ${commandId}. Reply exactly ${expected}. Do not run tools.`;
+}
+
 async function completePrompt(role, expected, workspace, home, hostSessionDir, simulateReceiptLoss = false) {
   const commandId = `pm4-${role.toLowerCase()}-${expected.toLowerCase()}`;
   const worker = startWorker(role, workspace, home, hostSessionDir, simulateReceiptLoss ? commandId : null);
   await worker.ready();
-  const prompt = `Command identity ${commandId}. Reply exactly ${expected}. Do not run tools.`;
+  const prompt = promptText(commandId, expected);
   await request(worker, { id: commandId, role, type: "prompt", message: prompt }, commandId, !simulateReceiptLoss);
   const result = await worker.waitFrame((frame) => frame.type === "prompt_result" && frame.id === commandId);
   if (result.status !== "completed" || !result.sessionSettled) throw new Error(`${role} prompt did not settle successfully`);
@@ -248,12 +267,18 @@ async function main() {
   if (!opened.data?.resumed) throw new Error("OMP did not resume the existing session");
   const entriesId = "pm4-reconcile-entries";
   const entriesResponse = await request(reconnect, { id: entriesId, role: "PM", type: "get_entries" }, entriesId);
-  const history = JSON.stringify(entriesResponse.data?.entries ?? []);
-  const occurrences = history.split(pm.commandId).length - 1;
+  const entries = entriesResponse.data?.entries;
+  if (!Array.isArray(entries)) throw new Error("OMP returned no session history");
+  const matchingUsers = entries.filter((entry) => entry.type === "message" && entry.message?.role === "user"
+    && entry.message.content?.some((part) => part.type === "text" && part.text === promptText(pm.commandId, "M1_PM_ACK")));
+  const occurrences = matchingUsers.length;
+  const matchingReplies = occurrences === 1 ? entries.filter((entry) => entry.type === "message"
+    && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"
+    && entry.message.content?.some((part) => part.type === "text" && part.text === "M1_PM_ACK")) : [];
   const lastTextId = "pm4-reconcile-text";
   const textResponse = await request(reconnect, { id: lastTextId, role: "PM", type: "get_last_assistant_text" }, lastTextId);
-  if (occurrences !== 1 || textResponse.data?.text !== "M1_PM_ACK") {
-    throw new Error(`Reconnected history mismatch (identity occurrences=${occurrences}, exact reply=${textResponse.data?.text === "M1_PM_ACK"})`);
+  if (occurrences !== 1 || matchingReplies.length !== 1 || textResponse.data?.text !== "M1_PM_ACK") {
+    throw new Error(`Reconnected history mismatch (user entries=${occurrences}, linked replies=${matchingReplies.length}, exact last reply=${textResponse.data?.text === "M1_PM_ACK"})`);
   }
   journal({ event: "receipt", role: "PM", commandId: pm.commandId, reconciled: true, matchingHistoryEntries: occurrences, resent: false });
   await reconnect.finish();
