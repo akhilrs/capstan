@@ -126,6 +126,12 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
   mkdirSync(home, { recursive: true, mode: 0o700 });
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
   const journalPath = path.join(dir, "rpc-journal.jsonl");
+  const journalFd = openSync(journalPath, "a", 0o600);
+  fsyncSync(journalFd);
+  closeSync(journalFd);
+  const dirFd = openSync(dir, "r");
+  fsyncSync(dirFd);
+  closeSync(dirFd);
   const name = `capstan-m1-restart-${process.pid}`;
   const runtimeArgv = [
     "/usr/local/bin/omp", "--mode", "rpc", "--model", model,

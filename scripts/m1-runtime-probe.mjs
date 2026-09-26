@@ -196,6 +196,7 @@ function dockerText(args) {
 }
 
 async function main() {
+  journal({ event: "probe_started", omp: VERSION, herdrClient: HERDR_CLIENT_VERSION, herdrServer: HERDR_SERVER_VERSION, image: IMAGE });
   const roles = ["PM", "Developer", "Verifier", "Supervisor"];
   const sessions = new Map();
   for (const role of roles) {
@@ -308,21 +309,38 @@ async function main() {
     authority: "Docker-owned OMP stdio RPC; workers are not Herdr-managed and Herdr auto-restore has no worker target",
     limitations: [
       "The injected receipt-loss check runs with the controller alive; the separate controller SIGKILL/restart boundary is reported below.",
-      "A live Herdr OMP agent remains in the Capstan workspace, so sole-command-authority is unproven.",
+      "History identity and last-assistant-text readback are observations, not an OMP command-bound receipt or a selected-bridge deduplication guarantee.",
+      "The single writer-kill/replacement smoke does not satisfy the ten-run cgroup, mount-removal, and quiescence qualification gate frozen in docs/m0-experiment.md.",
+      "Herdr independent-caller risk is accepted in DEC-003; the selected Herdr-hosted bridge is still unproven.",
       "Workers receive the model OAuth token and unrestricted bridge egress; hostile-worker credential exfiltration and network policy are not tested.",
     ],
   }));
 }
 
+let failed = false;
 try {
   await main();
 } catch (error) {
-  console.error(JSON.stringify({ result: "FAIL", reason: error instanceof Error ? error.message : String(error) }));
+  failed = true;
+  const reason = error instanceof Error ? error.message : String(error);
+  try { journal({ event: "probe_failed", reason }); } catch {}
+  console.error(JSON.stringify({ result: "FAIL", reason }));
   process.exitCode = 1;
 } finally {
   try { closeSync(journalFd); } catch {}
+  const cleanupFailures = [];
   for (const name of containers) {
-    try { spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" }); } catch {}
+    const removed = spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+    if (removed.status !== 0) cleanupFailures.push(name);
   }
-  rmSync(root, { recursive: true, force: true });
+  if (cleanupFailures.length) {
+    failed = true;
+    process.exitCode = 1;
+    console.error(JSON.stringify({ result: "FAIL", reason: "Docker cleanup incomplete", containers: cleanupFailures }));
+  }
+  if (failed) {
+    console.error(JSON.stringify({ evidenceRoot: root, warning: "Probe workspaces and OMP sessions may contain sensitive data; remove after inspection." }));
+  } else {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
