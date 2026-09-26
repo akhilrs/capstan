@@ -59,6 +59,7 @@ function recoverJournal(file, role) {
   const rows = new Map();
   let offset = 0;
   let sequence = 0;
+  let currentActive = null;
   while (offset < bytes.length) {
     const newline = bytes.indexOf(0x0a, offset);
     if (newline < 0) break;
@@ -75,27 +76,41 @@ function recoverJournal(file, role) {
     sequence = entry.sequence;
     if (entry.type === "accepted") {
       validId(entry.commandId, "journal commandId");
-      if (rows.has(entry.commandId) || typeof entry.assignmentId !== "string" || !Number.isSafeInteger(entry.attempt) || !Number.isSafeInteger(entry.generation) || typeof entry.prompt !== "string") throw new Error(`invalid accepted journal record at byte ${offset}`);
-      rows.set(entry.commandId, { accepted: entry, state: "acknowledged" });
-    } else if (entry.type === "submitted" || entry.type === "working" || entry.type === "tool_started" || entry.type === "tool_completed" || entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_assistant") {
-      const row = rows.get(entry.commandId);
-      if (!row) throw new Error(`orphan journal record at byte ${offset}`);
-      if (row.state !== "completed") {
-        row.state = entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_assistant" ? "unknown" : "working";
+      if (currentActive || rows.has(entry.commandId) || typeof entry.assignmentId !== "string"
+        || !Number.isSafeInteger(entry.attempt) || !Number.isSafeInteger(entry.generation) || typeof entry.prompt !== "string") {
+        throw new Error(`invalid accepted journal record at byte ${offset}`);
       }
-    } else if (entry.type === "completed") {
-      const row = rows.get(entry.commandId);
-      if (!row || typeof entry.reply !== "string" || !entry.evidenceRef) throw new Error(`invalid completion journal record at byte ${offset}`);
-      row.state = "completed";
-      row.result = entry.reply;
-      row.evidenceRef = entry.evidenceRef;
+      rows.set(entry.commandId, { accepted: entry, state: "acknowledged" });
+      currentActive = { commandId: entry.commandId, assignmentId: entry.assignmentId, attempt: entry.attempt,
+        generation: entry.generation, prompt: entry.prompt };
     } else {
-      throw new Error(`unknown journal record type at byte ${offset}`);
+      const row = rows.get(entry.commandId);
+      if (!row || !currentActive || currentActive.commandId !== entry.commandId
+        || currentActive.assignmentId !== entry.assignmentId || currentActive.attempt !== entry.attempt
+        || currentActive.generation !== entry.generation) {
+        throw new Error(`orphan or mismatched journal record at byte ${offset}`);
+      }
+      if (entry.type === "completed") {
+        if (typeof entry.reply !== "string" || !entry.evidenceRef) throw new Error(`invalid completion journal record at byte ${offset}`);
+        row.state = "completed";
+        row.result = entry.reply;
+        row.evidenceRef = entry.evidenceRef;
+        currentActive = null;
+      } else if (entry.type === "submitted" || entry.type === "working" || entry.type === "tool_started" || entry.type === "tool_completed"
+        || entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply") {
+        row.state = entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply"
+          ? "unknown" : "working";
+        if (entry.type === "agent_end_without_reply") currentActive.state = "unknown";
+        if (entry.type === "aborted" || entry.type === "dispatch_error") currentActive = null;
+      } else {
+        throw new Error(`unknown journal record type at byte ${offset}`);
+      }
     }
+    offset = newline + 1;
   }
   // The controller owns and repairs its journal. A partial tail is ignored on
   // replay; a worker must never truncate or otherwise mutate this read-only file.
-  return { rows, sequence };
+  return { rows, sequence, active: currentActive };
 }
 
 export default function herdrBridge(pi) {
@@ -110,6 +125,7 @@ export default function herdrBridge(pi) {
   let rows = new Map();
   let active = null;
   let agentStarted = false;
+  let lastTurnMessage = null;
   let shuttingDown = false;
   let queue = Promise.resolve();
   let clients = new Set();
@@ -309,7 +325,9 @@ export default function herdrBridge(pi) {
     const recovered = recoverJournal(journalPath, role);
     rows = recovered.rows;
     sequence = recovered.sequence;
-    // Anything accepted without durable completion before this process came up is unknown.
+    active = recovered.active;
+    // An accepted command without durable completion remains locked until external recovery contains its runtime.
+    if (active) active.dispatchFailed = true;
     for (const item of rows.values()) if (item.state !== "completed") item.state = "unknown";
     await clearStaleSocket(socketPath);
     server = net.createServer(serveSocket);
@@ -326,6 +344,7 @@ export default function herdrBridge(pi) {
 
   pi.on("agent_start", async () => enqueueEvent(async () => {
     if (active?.dispatchFailed) return;
+    lastTurnMessage = null;
     agentStarted = true;
     if (!active) return;
     await append("working", { ...identity(active) });
@@ -358,33 +377,39 @@ export default function herdrBridge(pi) {
     const progress = { type: "tool_completed", ...identity(active), toolName, toolCallId, isError: event?.isError === true, evidenceRef: evidence(entry) };
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(progress)}\n`);
   }));
+  pi.on("turn_end", async (event) => enqueueEvent(async () => {
+    if (!active || !agentStarted) return;
+    lastTurnMessage = event?.message?.role === "assistant" ? event.message : null;
+  }));
+
 
   pi.on("agent_end", async (event) => enqueueEvent(async () => {
-    if (event?.willContinue === true) return;
+    if (event?.willContinue === true) {
+      lastTurnMessage = null;
+      return;
+    }
     const completedRun = agentStarted;
     agentStarted = false;
     if (!active || !completedRun) return;
     const command = active;
-    const messages = Array.isArray(event?.messages) ? event.messages : [];
-    let assistant;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "assistant") { assistant = messages[i]; break; }
-    }
-    if (!assistant) {
+    const assistant = lastTurnMessage;
+    lastTurnMessage = null;
+    const content = Array.isArray(assistant?.content) ? assistant.content : [];
+    const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
+    if (!assistant || reply.length === 0) {
+      // Unknown is not proof of containment; keep the slot reserved until a terminal receipt is durable.
+      command.dispatchFailed = true;
       const row = rows.get(command.commandId);
       row.state = "unknown";
-      const entry = await append("agent_end_without_assistant", { ...identity(command) });
+      const entry = await append("agent_end_without_reply", { ...identity(command) });
       row.evidenceRef = evidence(entry);
       const unknown = { type: "unknown", ...identity(command), evidenceRef: row.evidenceRef };
       for (const socket of commandSockets.get(command.commandId) ?? []) {
         if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
       }
       commandSockets.delete(command.commandId);
-      active = null;
       return;
     }
-    const content = Array.isArray(assistant.content) ? assistant.content : [];
-    const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
     const entry = await append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
     const row = rows.get(command.commandId);
     row.state = "completed";

@@ -1041,7 +1041,7 @@ async function main() {
     const seat = await createSeat(runtime, spec, { ignoreStop: i === 0 });
     const id = `m1-replace-${i + 1}`;
     const assignmentId = `m1-assignment-${id}`;
-    const prompt = "Use the bash tool to run this foreground command and do not return: trap '' TERM; while :; do printf x >> /workspace/writer.log; sleep 0.1; done";
+    const prompt = "Use the bash tool to run this bounded foreground command and do not return before it starts: trap '' TERM; for i in $(seq 1 300); do printf x >> /workspace/writer.log; sleep 0.1; done. This loop writes at most 300 bytes and exits after at most 30 seconds; its TERM-ignoring process must be contained before restoring the workspace.";
     const dispatch = { type: "dispatch", commandId: id, assignmentId, attempt: 1, generation: 1, prompt };
     await seat.command(dispatch);
     const started = await seat.waitFrame((x) => x.type === "tool_started" && x.commandId === id, 60_000);
