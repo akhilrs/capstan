@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-rx4dao/qualification.jsonl` predates subsequent review fixes. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PASS.** Final-source selected-path 10/10/10 PASS against runtime commit `3b840d9` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-eCMDnU/qualification.jsonl`. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -47,7 +47,7 @@
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Prior-source qualification PASS against bridge commit `42947e1`: acknowledgements 9,067.612–9,563.535 ms; maximum progress silence 20,122.820 ms; replacement containment 3,013.799–3,139.762 ms; quiescence 9,419.287 ms. All 10 samples passed in each category and cleanup was clean. This run predates torn-intent recovery, whitespace-only assistant handling, provider-host normalization, and idle CONNECT deadline fixes.
+- Final-source qualification PASS against runtime commit `3b840d9`: acknowledgements 9,154.339–9,525.819 ms; maximum progress silence 20,067.189 ms; replacement containment 3,000.117–3,195.111 ms; quiescence 9,585.334 ms. All 10 samples passed in each category. Cleanup reported no remaining containers, policies, networks, or cleanup errors; Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0 and the pinned Ubuntu image.
 
 ## Decision
 
