@@ -72,13 +72,16 @@ function connect(container) {
       while ((end = pending.indexOf("\n")) !== -1) {
         const line = pending.slice(0, end);
         pending = pending.slice(end + 1);
-        if (line.length > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
+        if (Buffer.byteLength(line, "utf8") > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
         const frame = JSON.parse(line);
         const index = waiters.findIndex((waiter) => waiter.predicate(frame));
         if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
-        else frames.push(frame);
+        else {
+          if (frames.length >= 64) throw new Error("Too many queued RPC frames");
+          frames.push(frame);
+        }
       }
-      if (pending.length > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
+      if (Buffer.byteLength(pending, "utf8") > 1_048_576) throw new Error("RPC frame exceeds 1 MiB");
     } catch (error) { failWire(error); }
   });
   const waitFrame = (predicate, timeoutMs = 45_000) => {
@@ -110,9 +113,14 @@ async function controller(mode) {
     const records = readJournal(journalPath);
     const dispatches = records.filter((entry) => entry.event === "dispatch" && entry.commandId === COMMAND_ID);
     const receipts = records.filter((entry) => entry.commandId === COMMAND_ID && entry.event === "receipt");
-    if (dispatches.length !== 1 || receipts.length > 1) throw new Error("Restart did not find exactly one durable dispatch and at most one receipt");
+    if (dispatches.length !== 1 || receipts.length > 1
+      || dispatches[0].rpcId !== COMMAND_ID || dispatches[0].type !== "prompt") {
+      throw new Error("Restart did not find one valid durable prompt dispatch and at most one receipt");
+    }
     if (receipts.length === 1) {
-      if (receipts[0].reconciled !== true || receipts[0].matchingHistoryEntries !== 1 || receipts[0].resent !== false) {
+      if (records.indexOf(receipts[0]) <= records.indexOf(dispatches[0])
+        || receipts[0].rpcId !== dispatches[0].rpcId || receipts[0].type !== dispatches[0].type
+        || receipts[0].reconciled !== true || receipts[0].matchingHistoryEntries !== 1 || receipts[0].resent !== false) {
         throw new Error("Existing recovery receipt is invalid");
       }
       process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: 1, exactReply: true, resent: false, alreadyReconciled: true }) + "\n");
@@ -169,7 +177,7 @@ async function controller(mode) {
     if (matchingEntries !== 1 || linkedReplies !== 1 || reply !== "M1_CRASH_ACK") {
       throw new Error(`Restart reconciliation mismatch (user entries=${matchingEntries}, linked replies=${linkedReplies}, exact last reply=${reply === "M1_CRASH_ACK"})`);
     }
-    appendDurably(journalPath, { event: "receipt", commandId: COMMAND_ID, reconciled: true, resent: false, matchingHistoryEntries: matchingEntries });
+    appendDurably(journalPath, { event: "receipt", commandId: COMMAND_ID, rpcId: COMMAND_ID, type: "prompt", reconciled: true, resent: false, matchingHistoryEntries: matchingEntries });
     process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: matchingEntries, exactReply: true, resent: false }) + "\n");
   } finally {
     rpc.proc.kill("SIGKILL");
