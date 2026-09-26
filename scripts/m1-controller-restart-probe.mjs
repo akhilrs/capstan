@@ -140,22 +140,21 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
     "--system-prompt", "You are the PM seat. Follow only the current user request.",
     "--no-ui", "--no-extensions", "--no-skills", "--no-rules", "--no-tools",
   ];
-  const started = spawnSync("docker", [
-    "run", "--detach", "--interactive", "--name", name, "--label", "capstan.m1.probe=true",
-    "--network", "bridge", "--user", `${process.getuid()}:${process.getgid()}`,
-    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-    "--mount", `type=bind,src=${home},dst=/home/worker`,
-    "--mount", `type=bind,src=${workspace},dst=/workspace`,
-    "--mount", `type=bind,src=${omp},dst=/usr/local/bin/omp,readonly`,
-    "--mount", `type=bind,src=${addon},dst=/usr/local/bin/pi_natives.linux-x64-baseline.node,readonly`,
-    "--tmpfs", "/tmp:rw,nosuid,nodev", "--env", "HOME=/home/worker", "--env", "OPENAI_CODEX_OAUTH_TOKEN",
-    image, ...runtimeArgv,
-  ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, OPENAI_CODEX_OAUTH_TOKEN: token } });
-  if (started.status !== 0 || !started.stdout.trim()) throw new Error("Could not start persistent crash-recovery OMP worker");
-
   let firstController;
   let recoveryController;
   try {
+    const started = spawnSync("docker", [
+      "run", "--detach", "--interactive", "--name", name, "--label", "capstan.m1.probe=true",
+      "--network", "bridge", "--user", `${process.getuid()}:${process.getgid()}`,
+      "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+      "--mount", `type=bind,src=${home},dst=/home/worker`,
+      "--mount", `type=bind,src=${workspace},dst=/workspace`,
+      "--mount", `type=bind,src=${omp},dst=/usr/local/bin/omp,readonly`,
+      "--mount", `type=bind,src=${addon},dst=/usr/local/bin/pi_natives.linux-x64-baseline.node,readonly`,
+      "--tmpfs", "/tmp:rw,nosuid,nodev", "--env", "HOME=/home/worker", "--env", "OPENAI_CODEX_OAUTH_TOKEN",
+      image, ...runtimeArgv,
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, OPENAI_CODEX_OAUTH_TOKEN: token } });
+    if (started.status !== 0 || !started.stdout.trim()) throw new Error("Could not start persistent crash-recovery OMP worker");
     firstController = runChild("dispatch", name, journalPath);
     const dispatched = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Initial controller did not reach the dispatch boundary")), 60_000);
@@ -203,7 +202,10 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
     if (recoveryController?.exitCode === null) {
       try { process.kill(-recoveryController.pid, "SIGKILL"); } catch {}
     }
-    spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+    const removed = spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+    if (removed.status !== 0 && spawnSync("docker", ["inspect", name], { stdio: "ignore" }).status === 0) {
+      throw new Error(`Could not remove crash-recovery worker ${name}`);
+    }
   }
 }
 

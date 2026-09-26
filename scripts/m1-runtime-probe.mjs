@@ -36,6 +36,9 @@ function preserveJournals() {
   const dirFd = openSync(evidenceDir, "r");
   fsyncSync(dirFd);
   closeSync(dirFd);
+  const parentFd = openSync(stateRoot, "r");
+  fsyncSync(parentFd);
+  closeSync(parentFd);
   return evidenceDir;
 }
 
@@ -307,7 +310,7 @@ async function main() {
   const pmDispatches = records.filter((entry) => entry.event === "dispatch" && entry.commandId === pm.commandId).length;
   const recoveredReceipts = records.filter((entry) => entry.event === "receipt" && entry.commandId === pm.commandId && entry.reconciled === true).length;
   if (pmDispatches !== 1 || recoveredReceipts !== 1) throw new Error(`Expected one durable dispatch and recovered receipt, found ${pmDispatches} dispatches and ${recoveredReceipts} receipts`);
-  console.log(JSON.stringify({
+  return {
     result: "PASS_WITH_GAPS",
     versions: { omp: VERSION, herdrClient: HERDR_CLIENT_VERSION, herdrServer: HERDR_SERVER_VERSION, docker: dockerVersion.stdout.trim(), image: IMAGE },
     roles: roles.map((role) => ({
@@ -338,12 +341,14 @@ async function main() {
       "Herdr independent-caller risk is accepted in DEC-003; the selected Herdr-hosted bridge is still unproven.",
       "Workers receive the model OAuth token and unrestricted bridge egress; hostile-worker credential exfiltration and network policy are not tested.",
     ],
-  }));
+  };
 }
 
 let failed = false;
+let summary;
+let evidenceDir;
 try {
-  await main();
+  summary = await main();
 } catch (error) {
   failed = true;
   const reason = error instanceof Error ? error.message : String(error);
@@ -363,7 +368,8 @@ try {
     console.error(JSON.stringify({ result: "FAIL", reason: "Docker cleanup incomplete", containers: cleanupFailures }));
   }
   try {
-    console.error(JSON.stringify({ evidenceDir: preserveJournals() }));
+    evidenceDir = preserveJournals();
+    console.error(JSON.stringify({ evidenceDir }));
   } catch (error) {
     failed = true;
     process.exitCode = 1;
@@ -375,3 +381,4 @@ try {
     rmSync(root, { recursive: true, force: true });
   }
 }
+if (!failed) console.log(JSON.stringify({ ...summary, evidenceDir }));
