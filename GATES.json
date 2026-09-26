@@ -8,6 +8,18 @@
     {
       "name": "m1-controller-restart-probe-syntax",
       "command": "node --check scripts/m1-controller-restart-probe.mjs"
+    },
+    {
+      "name": "m1-herdr-bridge-syntax",
+      "command": "node --check scripts/m1-herdr-bridge.mjs"
+    },
+    {
+      "name": "m1-egress-helper-syntax",
+      "command": "node --check scripts/m1-egress-helper.mjs"
+    },
+    {
+      "name": "m1-herdr-qualification-syntax",
+      "command": "node --check scripts/m1-herdr-qualification.mjs"
     }
   ]
 }

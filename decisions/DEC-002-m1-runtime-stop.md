@@ -2,7 +2,7 @@
 
 ## Status
 
-**Historical M1 stop decision; superseded by DEC-003 (2026-09-25), which accepts the un-enforced caller risk and authorizes M2–M4 to proceed.**
+**Historical M1 stop decision; DEC-003 (2026-09-25) accepts the un-enforced caller risk. The selected Herdr-hosted OMP path subsequently passed the frozen M1 runtime qualification; neither decision grants technical exclusive-caller enforcement.**
 
 ## Evidence
 
@@ -29,7 +29,15 @@
 - The prior `wJ:p3` observation was the user's existing `omp --session` session, not a distinct restored runtime worker. Withdraw the earlier inference that it demonstrated a second competing OMP authority. Before the fresh-pane test, it was `agent_session` `...01a0d71f-5670-7108-922f-3e515667a996`, OMP PID 14930.
 - A fresh sibling pane `wJ:p6` launched plain `omp` via `herdr agent start m1_independent --kind omp`; Herdr reported `interactive_ready=true`, argv `["omp"]`, and a distinct session `...01a0d89d-cdf6-7663-8e8e-8fa33dd14eec`. `herdr agent prompt` timed out waiting for status; the agent later reached `idle`, but its output shows it performed PM-4 review/checkpoint work instead of returning the requested exact acknowledgment. This demonstrates that a separate Herdr-launched OMP session can perform project actions outside controller-owned worker dispatch.
 - Closing only `wJ:p6` returned `ok`. The pane list then contained only `wJ:p3`; `agent get wJ:p3` retained the original session ID and `process-info` retained OMP PID 14930. The independent test pane's closure did not close or rebind the user's current session.
-- The current probe preserves fsynced controller JSONL journals under `~/.local/state/capstan/m1-probe/` on success and failure. A failure also preserves its workspace/session root, which may contain sensitive material and requires operator cleanup. The selected Herdr-hosted bridge and its command-bound receipts, restart behavior, and containment remain unproven; DEC-003 accepts only independent-caller risk, not those gaps.
+- The earlier Docker RPC probe preserves fsynced controller JSONL journals under `~/.local/state/capstan/m1-probe/` on success and failure. A failure also retains its temporary workspace/session root for diagnosis. At the time of that probe, the selected Herdr bridge, command-bound receipts, and containment were still unproven; the separate qualification below addresses those gaps.
+
+## Selected-path qualification
+
+- `scripts/m1-herdr-qualification.mjs` returned PASS with pinned Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, and Ubuntu image `ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3`. The final fsynced run-policy and measurement evidence is `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-yHP3Ib/qualification.jsonl`; a prior independent PASS remains at `capstan-m1-herdr-d48IwU/qualification.jsonl`. Failed/censored attempts were preserved separately and did not replace either successful sample set.
+- The final ten independent clean launch-to-ack samples ranged from 7,359.358 to 7,756.788 ms (<120,000 ms). Ten declared Bash progress samples had maximum silence 20,112.022 ms (<900,000 ms), with durable command/assignment/attempt/generation-correlated tool-start, tool-completion, and final-completion evidence and exact `1,2,3` workspace progress. Ten capability-revocation-to-containment samples ranged from 2,842.873 to 2,931.887 ms (<30,000 ms); the first worker deliberately ignored TERM and required KILL, exiting 137.
+- Each worker ran in a separate Docker PID namespace/cgroup with read-only root, dropped capabilities, no-new-privileges, and only `/workspace` and `/bridge` writable binds. The run checked exact mount sources and tmpfs layout, stopped PID/cgroup removal or empty population, bridge disconnect, Docker mount removal, no-follow fd-rooted manifests, 30-second pre-replacement old-writer quiescence, and unchanged old manifests after replacement. The selected quiescence was 8,795.662 ms; the frozen acknowledgement deadline was 30,000 ms and progress window 120,000 ms. All ten retired manifests remained unchanged across the selected final interval.
+- Run-scoped internal Docker networks and DOCKER-USER rules rejected direct out-of-policy egress. The gateway proxy allowed only predeclared `chatgpt.com:443`, checked CONNECT and TLS SNI against that host, and recorded actual provider connections; startup attempts to unrelated hosts were denied. The controller journal reconciled a completed command from a fresh process and a duplicate delivery without a second OMP execution.
+- This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
 ## Decision
 
@@ -41,7 +49,7 @@ At the time of this decision, M2–M4 were stopped because sole command authorit
 
 ## Consequences
 
-M1 probe outcome: PARTIAL. No coordination core, terminal-scraping fallback, or dual command authority is authorized by this result.
+The historical probe outcome was PARTIAL; the selected Herdr-hosted path now has a separate PASS against M1's frozen runtime thresholds. No terminal-scraping fallback, dual command authority, enforced exclusive-caller claim, or M0 efficiency conclusion follows.
 
 ## Historical Herdr authorization proposal (superseded)
 
