@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-9XEFO0/qualification.jsonl` predates egress-helper provenance, failed-Bash exclusion, and subscriber notification fixes. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PASS.** Final-source selected-path 10/10/10 PASS against runtime commit `3748005` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-MHBvpD/qualification.jsonl`. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -47,7 +47,7 @@
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Prior-source qualification PASS against runtime commit `22ad05d`: acknowledgements 9,300.560–9,741.176 ms; maximum progress silence 20,073.752 ms; replacement containment 3,126.278–3,294.573 ms; quiescence 9,883.720 ms. All 10 samples passed with clean cleanup; subsequent helper provenance, failed-Bash exclusion, and subscriber notification fixes require a rerun. An earlier attempt on that commit failed at replacement 9 when the model chose a Read tool instead of the required Bash start; diagnostics are retained at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-OILDh5/qualification.jsonl`.
+- Final-source qualification PASS against runtime commit `3748005`: acknowledgements 9,518.533–10,806.133 ms; maximum progress silence 20,076.430 ms; replacement containment 3,160.342–3,294.722 ms; quiescence 9,884.166 ms. All 10 samples passed with clean cleanup; Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0 and pinned Ubuntu image. A previous attempt on commit `22ad05d` failed at replacement 9 when the model chose Read instead of Bash; diagnostics remain at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-OILDh5/qualification.jsonl`.
 
 ## Decision
 
