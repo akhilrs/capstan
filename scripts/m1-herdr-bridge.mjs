@@ -138,7 +138,7 @@ export default function herdrBridge(pi) {
         socket.end();
       });
       socket.once("error", (error) => { clearTimeout(timer); reject(error); });
-      socket.once("close", () => { clearTimeout(timer); });
+      socket.once("close", () => { clearTimeout(timer); reject(new Error("Controller receipt socket closed without durable acknowledgement")); });
     });
     if (response?.ok !== true || response.sequence !== entry.sequence) throw new Error("Controller did not durably acknowledge bridge receipt");
     sequence = entry.sequence;

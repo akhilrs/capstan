@@ -285,7 +285,12 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   let receiptServer;
   let receiptFd = openSync(spec.journal, "a", 0o600);
   const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
+  const receiptSockets = new Set();
   receiptServer = createServer((socket) => {
+    receiptSockets.add(socket);
+    socket.once("close", () => receiptSockets.delete(socket));
+    socket.setTimeout(10_000, () => socket.destroy(new Error("Receipt request timed out")));
+    socket.on("error", () => {});
     let writing = false;
     let pending = "";
     let replied = false;
@@ -345,7 +350,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     throw error;
   }
   receiptServer.on("error", () => { receiptFailed = true; });
-  receiptDaemons.add({ server: receiptServer, fd: receiptFd, path: receiptPath, journal: spec.journal });
+  receiptDaemons.add({ server: receiptServer, fd: receiptFd, path: receiptPath, journal: spec.journal, sockets: receiptSockets });
   const frames = [];
   const waiters = [];
   let socketError;
@@ -551,6 +556,18 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   }
   return {
     async restartReceiptDaemon() {
+      const idleClient = createConnection(receiptPath);
+      idleClient.on("error", () => {});
+      await new Promise((resolve, reject) => { idleClient.once("connect", resolve); idleClient.once("error", reject); });
+      const idleClosed = new Promise((resolve) => idleClient.once("close", resolve));
+      for (const socket of receiptSockets) socket.destroy();
+      let idleTimeout;
+      try {
+        await Promise.race([idleClosed, new Promise((_, reject) => {
+          idleTimeout = setTimeout(() => reject(new Error("Idle receipt connection survived daemon restart")), 5_000);
+        })]);
+      } finally { clearTimeout(idleTimeout); }
+      record("idle_receipt_connection_contained", { container: name });
       await new Promise((resolve) => receiptServer.close(resolve));
       if (existsSync(receiptPath)) unlinkSync(receiptPath);
       closeSync(receiptFd);
@@ -692,6 +709,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       const mountRemoval = { containerId, dockerInspectAbsent: removed.status !== 0, mountSources: [spec.workspace, spec.bridge], staleEndpointRemoved: staleEndpoint };
       const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
       if (receipt) {
+        for (const socket of receipt.sockets) socket.destroy();
         await new Promise((resolve) => receipt.server.close(resolve));
         if (existsSync(receipt.path)) unlinkSync(receipt.path);
         closeSync(receipt.fd);
@@ -979,6 +997,7 @@ async function finish() {
     }
     for (const receipt of [...receiptDaemons]) {
       try {
+        for (const socket of receipt.sockets) socket.destroy();
         await new Promise((resolve) => receipt.server.close(resolve));
         closeSync(receipt.fd);
         try { unlinkSync(receipt.path); } catch (error) { if (error?.code !== "ENOENT") throw error; }

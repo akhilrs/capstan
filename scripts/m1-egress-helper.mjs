@@ -270,21 +270,28 @@ async function prepare() {
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
 }
+function verifyChainOrder(chain, state) {
+  const lines = firewall("-S", chain).split("\n").filter((line) => line.startsWith("-A "));
+  const positions = lines.flatMap((line, index) => line.includes(state.policyId) ? [index] : []);
+  if (positions.length !== 2 || positions[1] !== positions[0] + 1
+    || !lines[positions[0]].endsWith("-j ACCEPT") || !lines[positions[1]].includes(" -j REJECT"))
+    throw new Error(`${chain} scoped accept/reject rules are missing or out of order`);
+  for (const line of lines.slice(0, positions[0])) {
+    if (!/ -j (?:ACCEPT|RETURN)$/.test(line)) continue;
+    const source = line.match(/(?:^| )-s (\S+)/)?.[1];
+    if (!source || source === state.containerIp || source === `${state.containerIp}/32`
+      || !/--comment "?capstan-m1-[0-9a-f]{24}"? /.test(line))
+      throw new Error(`${chain} has a preceding rule that can bypass the scoped policy`);
+  }
+}
+
 async function verifyState(state) {
   if (!hasRule(acceptArgs(state)) || !hasRule(rejectArgs(state))
     || !hasRule(inputAcceptArgs(state)) || !hasRule(inputRejectArgs(state))) {
     throw new Error("Egress firewall rules are absent");
   }
-  const dockerLines = firewall("-S", "DOCKER-USER").split("\n").filter((line) => line.startsWith("-A "));
-  if (!dockerLines[0]?.includes(state.policyId) || !dockerLines[0]?.endsWith("-j ACCEPT")
-    || !dockerLines[1]?.includes(state.policyId) || !dockerLines[1]?.includes(" -j REJECT")) {
-    throw new Error("Egress rules do not precede other Docker forwarding rules");
-  }
-  const inputLines = firewall("-S", "INPUT").split("\n").filter((line) => line.startsWith("-A "));
-  if (!inputLines[0]?.includes(state.policyId) || !inputLines[0]?.endsWith("-j ACCEPT")
-    || !inputLines[1]?.includes(state.policyId) || !inputLines[1]?.includes(" -j REJECT")) {
-    throw new Error("Host INPUT rules do not precede broader host rules");
-  }
+  verifyChainOrder("DOCKER-USER", state);
+  verifyChainOrder("INPUT", state);
   try { process.kill(state.pid, 0); } catch { throw new Error("Egress proxy process is absent"); }
   let providerConnections = 0;
   const proxyEvents = [];
