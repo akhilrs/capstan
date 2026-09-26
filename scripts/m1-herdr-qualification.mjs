@@ -368,7 +368,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       }
       try {
         if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
-        const entry = JSON.parse(line);
+        const entry = JSON.parse(pendingLine);
         if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== spec.role
           || !receiptTypes.has(entry.type) || typeof entry.commandId !== "string")
           throw new Error("invalid receipt type/role/identity");
