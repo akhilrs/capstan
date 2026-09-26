@@ -128,9 +128,12 @@ async function controller(mode) {
           && contents.length === 1 && contents[0].type === "text" && contents[0].text === PROMPT;
       });
       matchingEntries = matchingUsers.length;
-      linkedReplies = matchingEntries === 1 ? entries.filter((entry) => entry.type === "message"
-        && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"
-        && entry.message.content?.some((part) => part.type === "text" && part.text === "M1_CRASH_ACK")).length : 0;
+      linkedReplies = matchingEntries === 1 ? entries.filter((entry) => {
+        const contents = entry.message?.content;
+        return entry.type === "message" && entry.parentId === matchingUsers[0].id
+          && entry.message?.role === "assistant" && Array.isArray(contents) && contents.length === 1
+          && contents[0].type === "text" && contents[0].text === "M1_CRASH_ACK";
+      }).length : 0;
       const readbackId = `${id}-last`;
       rpc.send({ id: readbackId, type: "get_last_assistant_text" });
       const readback = await rpc.waitFrame((frame) => frame.type === "response" && frame.id === readbackId);
@@ -150,7 +153,7 @@ async function controller(mode) {
 }
 
 function runChild(mode, container, journalPath) {
-  const child = spawn(process.execPath, [SELF, mode], {
+  const child = spawn("flock", ["-x", "-w", "110", journalPath, process.execPath, SELF, mode], {
     detached: true,
     env: { ...process.env, M1_CRASH_CONTAINER: container, M1_CRASH_JOURNAL: journalPath },
     stdio: ["ignore", "pipe", "pipe"],
@@ -200,6 +203,7 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
   ];
   let firstController;
   let recoveryController;
+  let competingController;
   try {
     const started = spawnSync("docker", [
       "run", "--detach", "--interactive", "--name", name, "--label", "capstan.m1.probe=true",
@@ -241,7 +245,11 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
       closeSync(tornFd);
     }
     recoveryController = runChild("recover", name, journalPath);
-    const result = await awaitRecovery(recoveryController);
+    competingController = runChild("recover", name, journalPath);
+    const [result, concurrent] = await Promise.all([awaitRecovery(recoveryController), awaitRecovery(competingController)]);
+    if (Number(result.alreadyReconciled === true) + Number(concurrent.alreadyReconciled === true) !== 1) {
+      throw new Error("Concurrent recovery did not serialize into one receipt writer and one reader");
+    }
     const stoppedWorker = spawnSync("docker", ["kill", "--signal", "KILL", name], { stdio: "ignore" });
     if (stoppedWorker.status !== 0) throw new Error("Could not stop worker before repeated recovery");
     recoveryController = runChild("recover", name, journalPath);
@@ -263,6 +271,9 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
     }
     if (recoveryController?.exitCode === null) {
       try { process.kill(-recoveryController.pid, "SIGKILL"); } catch {}
+    }
+    if (competingController?.exitCode === null) {
+      try { process.kill(-competingController.pid, "SIGKILL"); } catch {}
     }
     const removed = spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
     if (removed.status !== 0) {

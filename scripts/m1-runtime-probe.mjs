@@ -275,9 +275,12 @@ async function main() {
       && contents.length === 1 && contents[0].type === "text" && contents[0].text === promptText(pm.commandId, "M1_PM_ACK");
   });
   const occurrences = matchingUsers.length;
-  const matchingReplies = occurrences === 1 ? entries.filter((entry) => entry.type === "message"
-    && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"
-    && entry.message.content?.some((part) => part.type === "text" && part.text === "M1_PM_ACK")) : [];
+  const matchingReplies = occurrences === 1 ? entries.filter((entry) => {
+    const contents = entry.message?.content;
+    return entry.type === "message" && entry.parentId === matchingUsers[0].id
+      && entry.message?.role === "assistant" && Array.isArray(contents) && contents.length === 1
+      && contents[0].type === "text" && contents[0].text === "M1_PM_ACK";
+  }) : [];
   const lastTextId = "pm4-reconcile-text";
   const textResponse = await request(reconnect, { id: lastTextId, role: "PM", type: "get_last_assistant_text" }, lastTextId);
   if (occurrences !== 1 || matchingReplies.length !== 1 || textResponse.data?.text !== "M1_PM_ACK") {
