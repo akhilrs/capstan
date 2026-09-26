@@ -145,6 +145,10 @@ try {
   await handlers.get("agent_start")();
   const workingRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working"]);
   assert.equal(workingRows.at(-1).commandId, workingCommand.commandId);
+  assert.equal((await request(workingBridgeSocket, { type: "get", commandId: workingCommand.commandId })).state, "working");
+  const sendsWhileWorking = sendCount;
+  assert.equal((await request(workingBridgeSocket, workingCommand)).state, "working", "duplicate dispatch must expose working state");
+  assert.equal(sendCount, sendsWhileWorking, "duplicate dispatch while working must not resend");
   await handlers.get("agent_end")({ willContinue: false, messages: [] });
   const endedRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working", "agent_end_without_assistant"]);
   assert.equal(endedRows.at(-1).commandId, workingCommand.commandId);
