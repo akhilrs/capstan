@@ -219,7 +219,7 @@ function replayReceiptState(entries) {
       if (["completed", "aborted", "dispatch_error"].includes(entry.type)) active = null;
     }
   }
-  return { commands, active, sequence: entries.length };
+  return { commands, active, sequence: entries.length, lastReceipt: entries.at(-1) ?? null };
 }
 
 function makeWorkspace(role, label) {
@@ -281,12 +281,30 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   const dispatched = new Map();
   let currentDispatch = null;
   let receiptSequence = 0;
+  let lastReceipt = null;
+  let injectCompletionDrop = spec.label === "progress-01";
   let receiptFailed = false;
   let receiptServer;
+  let expectedOMPHostPid = null;
+  let deniedPeerCount = 0;
   let receiptFd = openSync(spec.journal, "a", 0o600);
   const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
   const receiptSockets = new Set();
   receiptServer = createServer((socket) => {
+    const acceptedFd = socket._handle?.fd;
+    if (!Number.isSafeInteger(acceptedFd) || acceptedFd < 0 || !expectedOMPHostPid) {
+      socket.destroy();
+      return;
+    }
+    const peer = spawnSync(runtime.peerAuth, [], { stdio: ["ignore", "pipe", "pipe", acceptedFd], encoding: "utf8", timeout: 5_000 });
+    const observedPid = Number(peer.stdout?.trim());
+    if (peer.status !== 0 || !Number.isSafeInteger(observedPid) || observedPid !== expectedOMPHostPid) {
+      deniedPeerCount++;
+      record("receipt_peer_denied", { container: name, observedPid: Number.isSafeInteger(observedPid) ? observedPid : null,
+        expectedOMPHostPid, diagnostic: peer.stderr?.trim().slice(0, 200) });
+      socket.destroy();
+      return;
+    }
     receiptSockets.add(socket);
     socket.once("close", () => receiptSockets.delete(socket));
     socket.setTimeout(10_000, () => socket.destroy(new Error("Receipt request timed out")));
@@ -307,8 +325,15 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
         const entry = JSON.parse(pending.slice(0, end));
         if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== spec.role
-          || !receiptTypes.has(entry.type) || entry.sequence !== receiptSequence + 1
-          || typeof entry.commandId !== "string") throw new Error("invalid receipt sequence/type/role/identity");
+          || !receiptTypes.has(entry.type) || typeof entry.commandId !== "string")
+          throw new Error("invalid receipt type/role/identity");
+        if (entry.sequence === receiptSequence && lastReceipt && JSON.stringify(entry) === JSON.stringify(lastReceipt)) {
+          writing = true;
+          fsyncSync(receiptFd);
+          socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
+          return;
+        }
+        if (entry.sequence !== receiptSequence + 1) throw new Error("invalid receipt sequence");
         const identity = { commandId: entry.commandId, assignmentId: entry.assignmentId, attempt: entry.attempt, generation: entry.generation };
         const dispatchedIdentity = dispatched.get(entry.commandId);
         if (!dispatchedIdentity || identity.commandId !== dispatchedIdentity.commandId
@@ -320,6 +345,12 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
           if (typeof entry.prompt !== "string" || entry.prompt !== currentDispatch.prompt) throw new Error("accepted receipt payload mismatch");
           dispatchedIdentity.accepted = true;
         } else if (!dispatchedIdentity.accepted) throw new Error("receipt precedes accepted dispatch");
+        if (entry.type === "completed" && injectCompletionDrop) {
+          injectCompletionDrop = false;
+          record("completion_receipt_transport_dropped", { container: name, commandId: entry.commandId, sequence: entry.sequence });
+          socket.destroy();
+          return;
+        }
         const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
         writing = true;
         for (let offset = 0; offset < bytes.length;) {
@@ -329,6 +360,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         }
         fsyncSync(receiptFd);
         receiptSequence = entry.sequence;
+        lastReceipt = entry;
         if (entry.type === "completed" || entry.type === "aborted" || entry.type === "dispatch_error") currentDispatch = null;
         socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
       } catch (error) {
@@ -486,6 +518,25 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     const start = ["/usr/local/bin/herdr", "agent", "start", `m1_${spec.label}`, "--kind", "omp", "--pane", pane, "--", "--model", MODEL, "--profile", `m1-${spec.role.toLowerCase()}`, "--cwd", "/workspace", "--extension", ext];
     exec(start);
     await connectController();
+    const processRows = run("docker", ["top", name, "-eo", "pid,args"]).split("\n");
+    const ompRows = processRows.slice(1).filter((line) => line.includes(ext) && /\somp --model /.test(line)
+      && line.includes(`--profile m1-${spec.role.toLowerCase()}`));
+    if (ompRows.length !== 1) throw new Error(`Expected one Herdr-hosted OMP process for receipt authentication: ${JSON.stringify(processRows)}`);
+    expectedOMPHostPid = Number(ompRows[0].trim().split(/\s+/, 1)[0]);
+    if (!Number.isSafeInteger(expectedOMPHostPid) || expectedOMPHostPid <= 0) throw new Error("Invalid OMP host PID for receipt authentication");
+    record("receipt_peer_bound", { container: name, hostPid: expectedOMPHostPid, extension: ext });
+    const probePeer = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
+      "/usr/local/bin/node", "-e",
+      "const s=require('node:net').createConnection('/receipt/receipt.sock'); s.on('error',()=>{}); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(2),3000);"],
+    { stdio: "ignore" });
+    const probeExit = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { probePeer.kill(); reject(new Error("Worker peer-denial probe timed out")); }, 5_000);
+      probePeer.once("error", (error) => { clearTimeout(timer); reject(error); });
+      probePeer.once("exit", (code) => { clearTimeout(timer); resolve(code); });
+    });
+    if (probeExit !== 0 || deniedPeerCount !== 1 || statSync(spec.journal).size !== 0)
+      throw new Error("A same-UID worker process was not denied receipt authority by Unix peer PID");
+    record("worker_receipt_peer_denied", { container: name, expectedOMPHostPid, denials: deniedPeerCount });
   } catch (error) {
     const pane = diagnosticPanes.get(name);
     if (pane) {
@@ -576,6 +627,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       for (const [id, command] of recovered.commands) dispatched.set(id, command);
       currentDispatch = recovered.active;
       receiptSequence = recovered.sequence;
+      lastReceipt = recovered.lastReceipt;
       receiptFailed = false;
       receiptFd = openSync(spec.journal, "a", 0o600);
       const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
@@ -751,6 +803,13 @@ async function main() {
   const runtime = ensureRuntime();
   runtime.node = executable(process.env.M1_NODE_BIN ?? process.execPath, "Node");
   if (run(runtime.node, ["--version"]) !== NODE_VERSION) throw new Error(`Worker Node must be ${NODE_VERSION}`);
+  const peerSource = path.join(path.dirname(SELF), "m1-receipt-peer.c");
+  const peerBinary = path.join(controllerRoot, "receipt-peer");
+  run("cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", peerSource, "-o", peerBinary]);
+  chmodSync(peerBinary, 0o700);
+  runtime.peerAuth = peerBinary;
+  record("receipt_peer_auth_verified", { sourceSha256: sha256(readFileSync(peerSource)), binarySha256: sha256(readFileSync(peerBinary)),
+    compiler: run("cc", ["--version"]).split("\n")[0] });
   process.env.M1_EGRESS_HELPER ??= path.join(path.dirname(SELF), "m1-egress-helper.mjs");
   if (!existsSync(process.env.M1_EGRESS_HELPER)) throw new Error("M1_EGRESS_HELPER must point to the live packet-level firewall/proxy helper");
   if (!process.env.M1_PROVIDER_HOST || !/^[a-z0-9.-]+$/.test(process.env.M1_PROVIDER_HOST)) throw new Error("M1_PROVIDER_HOST must name the exact lower-case predeclared provider host");

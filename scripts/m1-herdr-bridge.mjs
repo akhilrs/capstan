@@ -123,26 +123,37 @@ export default function herdrBridge(pi) {
 
   async function append(type, fields) {
     const entry = { sequence: sequence + 1, timestamp: new Date().toISOString(), type, role, ...fields };
-    const socket = net.createConnection(receiptSocketPath);
     const line = `${JSON.stringify(entry)}\n`;
-    const response = await new Promise((resolve, reject) => {
-      let pending = "";
-      const timer = setTimeout(() => { socket.destroy(); reject(new Error("Controller receipt acknowledgement timed out")); }, 10_000);
-      socket.once("connect", () => socket.write(line));
-      socket.on("data", (chunk) => {
-        pending += chunk.toString("utf8");
-        const end = pending.indexOf("\n");
-        if (end < 0) return;
-        clearTimeout(timer);
-        try { resolve(JSON.parse(pending.slice(0, end))); } catch (error) { reject(error); }
-        socket.end();
-      });
-      socket.once("error", (error) => { clearTimeout(timer); reject(error); });
-      socket.once("close", () => { clearTimeout(timer); reject(new Error("Controller receipt socket closed without durable acknowledgement")); });
-    });
-    if (response?.ok !== true || response.sequence !== entry.sequence) throw new Error("Controller did not durably acknowledge bridge receipt");
-    sequence = entry.sequence;
-    return entry;
+    const deadline = Date.now() + 12_000;
+    while (true) {
+      const socket = net.createConnection(receiptSocketPath);
+      let response;
+      try {
+        response = await new Promise((resolve, reject) => {
+          let pending = "";
+          const timer = setTimeout(() => { socket.destroy(); reject(new Error("Controller receipt acknowledgement timed out")); }, 2_000);
+          socket.once("connect", () => socket.write(line));
+          socket.on("data", (chunk) => {
+            pending += chunk.toString("utf8");
+            const end = pending.indexOf("\n");
+            if (end < 0) return;
+            clearTimeout(timer);
+            try { resolve(JSON.parse(pending.slice(0, end))); } catch (error) { reject(error); }
+            socket.end();
+          });
+          socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+          socket.once("close", () => { clearTimeout(timer); reject(new Error("Controller receipt socket closed without durable acknowledgement")); });
+        });
+      } catch (error) {
+        socket.destroy();
+        if (Date.now() >= deadline || shuttingDown) throw new Error(`Controller receipt unavailable; assignment state unknown: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      if (response?.ok !== true || response.sequence !== entry.sequence) throw new Error("Controller did not durably acknowledge bridge receipt");
+      sequence = entry.sequence;
+      return entry;
+    }
   }
 
   function evidence(entry) {
