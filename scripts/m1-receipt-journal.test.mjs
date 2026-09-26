@@ -19,6 +19,10 @@ assert.equal(recovered.lastReceipt.type, "agent_end_without_reply");
 const stillWorking = replayReceiptState([accepted, submitted, working]);
 assert.equal(stillWorking.active.commandId, identity.commandId, "nonterminal records must keep an uncertain dispatch active");
 
+const aborted = replayReceiptState([accepted, submitted, working, ended, { type: "aborted", ...identity }]);
+assert.equal(aborted.active, null, "only a later durable terminal abort may release an assistant-less dispatch");
+assert.equal(aborted.commands.get(identity.commandId).state, "unknown");
+
 const completed = replayReceiptState([accepted, submitted, working, { type: "completed", ...identity, reply: "done", evidenceRef: {} }]);
 assert.equal(completed.active, null, "only durable terminal outcomes release the dispatch");
 assert.equal(completed.commands.get(identity.commandId).state, "completed");

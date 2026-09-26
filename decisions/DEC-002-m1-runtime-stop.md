@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PENDING for the latest review fixes.** The previous selected-path 10/10/10 PASS predates changes to egress cleanup guards, firewall rule parsing, IPv4 classification, SNI comparison, and assistant-less completion reconciliation; rerun the complete qualification before claiming the current source passes. DEC-003 (2026-09-25) accepts the un-enforced same-user caller risk; this is not technical exclusive-caller enforcement.
+**Qualification status: PENDING for the current source.** The latest selected-path PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-McqzBV/qualification.jsonl` tested bridge commit `57991c4`; subsequent controller-authorized terminal-abort and empty-reply regression changes require a new run. DEC-003 (2026-09-25) accepts the un-enforced same-user caller risk; this is not technical exclusive-caller enforcement.
 
 ## Evidence
 
@@ -46,6 +46,8 @@
 - Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing or empty current-turn text is recorded as nonterminal `agent_end_without_reply`; status becomes unknown and the active slot remains locked across receipt replay and bridge restart until a durable terminal receipt is present. This unknown state is not evidence of runtime containment.
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
+
+- Previous-source qualification PASS (commit `57991c4`): acknowledgements 9,203.501–9,682.721 ms; maximum progress silence 20,092.000 ms; replacement containment 3,035.310–3,148.206 ms; quiescence 9,444.618 ms. All 10 samples passed in each category. Cleanup reported no remaining containers, policies, networks, or cleanup errors. This does not qualify the subsequent abort-path change.
 
 ## Decision
 

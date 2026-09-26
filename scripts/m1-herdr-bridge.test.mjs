@@ -48,6 +48,7 @@ const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_S
 let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
+let authorizeAbort = false;
 let failSend = true;
 let dispatchErrorSeen;
 let dispatchErrorDurable = new Promise((resolve) => { dispatchErrorSeen = resolve; });
@@ -62,6 +63,10 @@ const receiptServer = net.createServer((socket) => {
     if (entry.type === "dispatch_error" && failDispatchError) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected durable receipt failure" })}\n`);
       dispatchErrorSeen();
+      return;
+    }
+    if (entry.type === "aborted" && !authorizeAbort) {
+      socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "abort lacks durable controller authorization" })}\n`);
       return;
     }
     const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
@@ -181,10 +186,12 @@ try {
   const unknownCommand = { ...command, commandId: "dispatch-no-current-reply", assignmentId: "assignment-5" };
   await request(unknownBridgeSocket, unknownCommand);
   await handlers.get("agent_start")();
+  handlers.get("turn_end")({ message: { role: "assistant", content: [] } });
   await handlers.get("agent_end")({ willContinue: false, messages: [{ role: "assistant", content: [{ type: "text", text: "STALE_RESULT" }] }] });
   const unknownRows = await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply"]);
   assert.equal(unknownRows.at(-1).commandId, unknownCommand.commandId);
-  assert.equal((await request(unknownBridgeSocket, { type: "get", commandId: unknownCommand.commandId })).state, "unknown");
+  assert.equal((await request(unknownBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).type, "error",
+    "an untrusted abort cannot terminalize an uncertain assignment");
   assert.equal((await request(unknownBridgeSocket, unknownCommand)).state, "unknown");
   const afterUnknown = { ...unknownCommand, commandId: "dispatch-after-unknown", assignmentId: "assignment-6" };
   assert.equal((await request(unknownBridgeSocket, afterUnknown)).type, "error", "unknown work must retain the active slot");
@@ -199,6 +206,14 @@ try {
   await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
   assert.equal((await request(recoveredBridgeSocket, { type: "get", commandId: unknownCommand.commandId })).state, "unknown");
   assert.equal((await request(recoveredBridgeSocket, afterUnknown)).type, "error", "recovered unknown work must remain locked");
+  assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).type, "error",
+    "recovered unknown work requires durable controller authorization before release");
+  authorizeAbort = true;
+  assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).state, "unknown");
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted"]);
+  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "acknowledged",
+    "a durable controller-authorized terminal abort releases the recovered slot");
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted"]);
   await handlers.get("session_shutdown")();
   console.log("PASS current-turn completion and fail-closed unknown recovery");
 } finally {

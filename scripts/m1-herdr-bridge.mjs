@@ -214,7 +214,7 @@ export default function herdrBridge(pi) {
     const row = rows.get(request.commandId);
     if (request.type === "abort") {
       if (!row) return { type: "ack", commandId: request.commandId, durable: true, state: "unknown" };
-      if (row.state === "completed" || row.state === "unknown") return snapshot(request.commandId);
+      if (row.state === "completed" || (row.state === "unknown" && active?.commandId !== request.commandId)) return snapshot(request.commandId);
       if (active?.commandId === request.commandId) {
         await append("aborted", { ...identity(active) });
         row.state = "unknown";
