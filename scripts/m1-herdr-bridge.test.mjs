@@ -28,6 +28,22 @@ function request(socketPath, message) {
     socket.once("error", reject);
   });
 }
+
+function rawRequest(socketPath, bytes) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let pending = Buffer.alloc(0);
+    socket.once("connect", () => socket.end(bytes));
+    socket.on("data", (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      const newline = pending.indexOf(0x0a);
+      if (newline < 0) return;
+      resolve(JSON.parse(pending.subarray(0, newline).toString("utf8")));
+      socket.destroy();
+    });
+    socket.once("error", reject);
+  });
+}
 function requestFrames(socketPath, message, count) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
@@ -132,6 +148,13 @@ try {
   assert.equal(absentStatus.durable, false, "a missing command has no durable acceptance receipt");
   assert.equal((await request(bridgeSocket, { type: "abort", commandId: "never-accepted-command" })).durable, false,
     "an abort response cannot imply acceptance for a missing command");
+  const maximumLine = Buffer.from(JSON.stringify({ type: "get", commandId: "wire-boundary" }));
+  const maximumFrameBytes = 1_048_576;
+  const exactFrame = Buffer.concat([maximumLine, Buffer.alloc(maximumFrameBytes - maximumLine.length - 1, 0x20), Buffer.from("\n")]);
+  assert.equal(exactFrame.length, maximumFrameBytes);
+  assert.equal((await rawRequest(bridgeSocket, exactFrame)).durable, false, "a frame exactly at the byte limit is accepted");
+  const oversizedFrame = Buffer.concat([maximumLine, Buffer.alloc(maximumFrameBytes - maximumLine.length, 0x20), Buffer.from("\n")]);
+  assert.equal((await rawRequest(bridgeSocket, oversizedFrame)).type, "error", "the delimiter counts toward the wire-frame limit");
   const command = { type: "dispatch", commandId: "dispatch-fails", assignmentId: "assignment-1", attempt: 1, generation: 1, prompt: "run once" };
   const [initialAck, dispatchUnknown] = await requestFrames(bridgeSocket, command, 2);
   assert.deepEqual(initialAck, { type: "ack", commandId: command.commandId, durable: true, state: "acknowledged" });

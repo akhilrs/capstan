@@ -243,9 +243,13 @@ export default function herdrBridge(pi) {
     return { commandId: command.commandId, assignmentId: command.assignmentId, attempt: command.attempt, generation: command.generation };
   }
 
-  function reply(socket, payload) {
+  function reply(socket, payload, closeAfterReply = false) {
     const { _dispatch, ...wire } = payload;
-    if (!socket.destroyed) socket.write(`${JSON.stringify(wire)}\n`);
+    const frame = `${JSON.stringify(wire)}\n`;
+    if (!socket.destroyed) {
+      if (closeAfterReply) socket.end(frame);
+      else socket.write(frame);
+    }
     if (_dispatch) enqueue(async () => {
       if (shuttingDown || active?.commandId !== payload.commandId || active.dispatchFailed) return;
       const command = active;
@@ -260,9 +264,7 @@ export default function herdrBridge(pi) {
         } catch (receiptError) {
           console.error(`[m1-herdr-bridge] failed dispatch remains unknown; dispatch_error receipt unavailable: ${receiptError?.message ?? receiptError}`);
         }
-        const unknown = { type: "unknown", ...identity(command) };
-        for (const subscriber of commandSockets.get(command.commandId) ?? []) if (!subscriber.destroyed) subscriber.write(`${JSON.stringify(unknown)}\n`);
-        commandSockets.delete(command.commandId);
+        notifyUnknown(command);
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
         return;
       }
@@ -273,13 +275,27 @@ export default function herdrBridge(pi) {
         agentStarted = false;
         rows.get(command.commandId).state = "unknown";
         console.error(`[m1-herdr-bridge] submitted receipt unavailable; dispatch may be running, assignment remains unknown: ${error?.message ?? error}`);
-        const unknown = { type: "unknown", ...identity(command) };
-        for (const subscriber of commandSockets.get(command.commandId) ?? []) if (!subscriber.destroyed) subscriber.write(`${JSON.stringify(unknown)}\n`);
-        commandSockets.delete(command.commandId);
+        notifyUnknown(command);
       }
     }).catch((error) => {
       console.error(`[m1-herdr-bridge] dispatch failure: ${error?.message ?? error}`);
     });
+  }
+
+  function notify(commandId, payload, close = false) {
+    const frame = `${JSON.stringify(payload)}\n`;
+    for (const socket of commandSockets.get(commandId) ?? []) {
+      if (socket.destroyed) continue;
+      if (close) socket.end(frame);
+      else socket.write(frame);
+    }
+    if (close) commandSockets.delete(commandId);
+  }
+
+  function notifyUnknown(command, evidenceRef) {
+    const frame = { type: "unknown", ...identity(command) };
+    if (evidenceRef) frame.evidenceRef = evidenceRef;
+    notify(command.commandId, frame, true);
   }
 
   function serveSocket(socket) {
@@ -287,6 +303,7 @@ export default function herdrBridge(pi) {
       socket.end(`${JSON.stringify({ type: "error", error: "too many bridge clients" })}\n`);
       return;
     }
+    socket.setTimeout(10_000, () => socket.destroy());
     let failed = false;
     clients.add(socket);
     socket.once("close", () => clients.delete(socket));
@@ -310,14 +327,16 @@ export default function herdrBridge(pi) {
         try {
           const parsed = JSON.parse(decoder.decode(line));
           const normalized = requestShape(parsed);
+          socket.setTimeout(0);
           enqueue(() => handle(normalized)).then((response) => {
-            if (normalized.type === "dispatch") {
+            const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
+            if (liveDispatch) {
               let subscribers = commandSockets.get(normalized.commandId);
               if (!subscribers) commandSockets.set(normalized.commandId, (subscribers = new Set()));
               subscribers.add(socket);
               socket.once("close", () => subscribers.delete(socket));
             }
-            reply(socket, response);
+            reply(socket, response, !liveDispatch);
           }).catch((error) => {
             if (!socket.destroyed) socket.write(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
           });
@@ -342,11 +361,7 @@ export default function herdrBridge(pi) {
     command.dispatchFailed = true;
     agentStarted = false;
     rows.get(command.commandId).state = "unknown";
-    const unknown = { type: "unknown", ...identity(command) };
-    for (const socket of commandSockets.get(command.commandId) ?? []) {
-      if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
-    }
-    commandSockets.delete(command.commandId);
+    notifyUnknown(command);
     console.error(`[m1-herdr-bridge] ${type} receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
   }
 
@@ -391,9 +406,7 @@ export default function herdrBridge(pi) {
       command.dispatchFailed = true;
       agentStarted = false;
       rows.get(command.commandId).state = "unknown";
-      const unknown = { type: "unknown", ...identity(command) };
-      for (const socket of commandSockets.get(command.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
-      commandSockets.delete(command.commandId);
+      notifyUnknown(command);
       console.error(`[m1-herdr-bridge] working receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
       return;
     }
@@ -475,12 +488,7 @@ export default function herdrBridge(pi) {
       } catch (error) {
         console.error(`[m1-herdr-bridge] no-reply receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
       }
-      const unknown = { type: "unknown", ...identity(command) };
-      if (row.evidenceRef) unknown.evidenceRef = row.evidenceRef;
-      for (const socket of commandSockets.get(command.commandId) ?? []) {
-        if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
-      }
-      commandSockets.delete(command.commandId);
+      notifyUnknown(command, row.evidenceRef);
       return;
     }
     let entry;
@@ -489,11 +497,7 @@ export default function herdrBridge(pi) {
     } catch (error) {
       command.dispatchFailed = true;
       rows.get(command.commandId).state = "unknown";
-      const unknown = { type: "unknown", ...identity(command) };
-      for (const socket of commandSockets.get(command.commandId) ?? []) {
-        if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
-      }
-      commandSockets.delete(command.commandId);
+      notifyUnknown(command);
       console.error(`[m1-herdr-bridge] completion receipt unavailable; result remains unknown: ${error?.message ?? error}`);
       return;
     }
@@ -502,10 +506,7 @@ export default function herdrBridge(pi) {
     row.result = reply;
     row.evidenceRef = evidence(entry);
     const completion = { type: "completed", ...identity(command), reply, evidenceRef: row.evidenceRef };
-    for (const socket of commandSockets.get(command.commandId) ?? []) {
-      if (!socket.destroyed) socket.write(`${JSON.stringify(completion)}\n`);
-    }
-    commandSockets.delete(command.commandId);
+    notify(command.commandId, completion, true);
     active = null;
   }));
 

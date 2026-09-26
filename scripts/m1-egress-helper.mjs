@@ -107,9 +107,12 @@ export function isContainerQuiesced(state) {
   return Boolean(state && (!state.Running || state.Paused));
 }
 function assertContainerQuiesced(container) {
-  const state = JSON.parse(docker("inspect", container))[0]?.State;
-  if (!isContainerQuiesced(state)) {
-    throw new Error("Refusing to remove egress policy while the worker is live and unpaused");
+  let state = JSON.parse(docker("inspect", container))[0]?.State;
+  if (state?.Running && !state.Paused) throw new Error("Refusing to remove egress policy while the worker is live and unpaused");
+  if (state?.Paused) {
+    docker("stop", "--time", "0", container);
+    state = JSON.parse(docker("inspect", container))[0]?.State;
+    if (state?.Running || state?.Paused) throw new Error("Worker did not stop before egress policy removal");
   }
 }
 function removePolicy(state) {
@@ -402,12 +405,30 @@ function verifyChainOrder(chain, state) {
   }
 }
 
+export function verifyForwardRouteRules(forwardRules) {
+  const rules = forwardRules.split("\n").filter((line) => line.startsWith("-A ")).map((line) => {
+    const words = shellWords(line);
+    return { words, ...ruleTarget(line) };
+  });
+  const userIndex = rules.findIndex((rule) => rule.kind === "-j" && rule.target === "DOCKER-USER");
+  if (userIndex < 0) throw new Error("FORWARD does not route worker traffic through DOCKER-USER");
+  for (const rule of rules.slice(0, userIndex)) {
+    if (rule.kind === "-g" || !["DROP", "REJECT"].includes(rule.target)) {
+      throw new Error("FORWARD has a preceding rule that can bypass DOCKER-USER for worker traffic");
+    }
+  }
+}
+function verifyForwardRoute(state) {
+  verifyForwardRouteRules(firewall("-S", "FORWARD"));
+}
+
 async function verifyState(state) {
   if (!hasRule(acceptArgs(state)) || !hasRule(rejectArgs(state))
     || !hasRule(inputAcceptArgs(state)) || !hasRule(inputRejectArgs(state))) {
     throw new Error("Egress firewall rules are absent");
   }
   verifyChainOrder("DOCKER-USER", state);
+  verifyForwardRoute(state);
   verifyChainOrder("INPUT", state);
   proxyIdentity(state.pid, state.startTicks, "--check");
   let providerConnections = 0;

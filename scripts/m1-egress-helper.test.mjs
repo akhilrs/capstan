@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isContainerQuiesced, publicIPv4, ruleTarget, sniMatchesHost } from "./m1-egress-helper.mjs";
+import { isContainerQuiesced, publicIPv4, ruleTarget, sniMatchesHost, verifyForwardRouteRules } from "./m1-egress-helper.mjs";
 
 assert.equal(isContainerQuiesced({ Running: false, Paused: false }), true);
 assert.equal(isContainerQuiesced({ Running: true, Paused: true }), true);
@@ -17,6 +17,10 @@ assert.deepEqual(
   { kind: "-j", target: "ACCEPT" },
 );
 assert.deepEqual(ruleTarget("-A DOCKER-USER -g CAPSTAN_CHAIN"), { kind: "-g", target: "CAPSTAN_CHAIN" });
+verifyForwardRouteRules("-A FORWARD -j DOCKER-USER\n");
+assert.throws(() => verifyForwardRouteRules("-A FORWARD -j ACCEPT\n-A FORWARD -j DOCKER-USER\n"), /bypass/);
+assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-ISOLATION\n-A FORWARD -j DOCKER-USER\n"), /bypass/);
+assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-FORWARD\n"), /does not route/);
 assert.throws(() => ruleTarget('-A DOCKER-USER -m comment --comment "unterminated -j DROP'), /Malformed quoted/);
 
 assert.equal(sniMatchesHost("CHATGPT.COM", "chatgpt.com"), true);

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <poll.h>
 #include <unistd.h>
 
 static int matches_process(pid_t pid, const char *expected_start, const char *expected_script) {
@@ -61,9 +62,27 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "--check") == 0) { close(pidfd); return 0; }
     int result = (int)syscall(SYS_pidfd_send_signal, pidfd, SIGTERM, NULL, 0);
     int signal_error = errno;
+    if (result != 0 && signal_error != ESRCH) {
+        close(pidfd);
+        errno = signal_error;
+        perror("pidfd_send_signal");
+        return 1;
+    }
+    struct pollfd descriptor = { .fd = pidfd, .events = POLLIN };
+    int exited = poll(&descriptor, 1, 5000);
+    if (exited == 0) {
+        if (syscall(SYS_pidfd_send_signal, pidfd, SIGKILL, NULL, 0) != 0 && errno != ESRCH) {
+            perror("pidfd_send_signal SIGKILL");
+            close(pidfd);
+            return 1;
+        }
+        exited = poll(&descriptor, 1, 5000);
+    }
     close(pidfd);
-    if (result == 0 || signal_error == ESRCH) return 0;
-    errno = signal_error;
-    perror("pidfd_send_signal");
-    return 1;
+    if (exited <= 0) {
+        if (exited < 0) perror("poll pidfd");
+        else fputs("Timed out waiting for egress proxy exit\n", stderr);
+        return 1;
+    }
+    return 0;
 }
