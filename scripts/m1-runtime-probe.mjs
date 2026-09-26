@@ -269,8 +269,11 @@ async function main() {
   const entriesResponse = await request(reconnect, { id: entriesId, role: "PM", type: "get_entries" }, entriesId);
   const entries = entriesResponse.data?.entries;
   if (!Array.isArray(entries)) throw new Error("OMP returned no session history");
-  const matchingUsers = entries.filter((entry) => entry.type === "message" && entry.message?.role === "user"
-    && entry.message.content?.some((part) => part.type === "text" && part.text === promptText(pm.commandId, "M1_PM_ACK")));
+  const matchingUsers = entries.filter((entry) => {
+    const contents = entry.message?.content;
+    return entry.type === "message" && entry.message?.role === "user" && Array.isArray(contents)
+      && contents.length === 1 && contents[0].type === "text" && contents[0].text === promptText(pm.commandId, "M1_PM_ACK");
+  });
   const occurrences = matchingUsers.length;
   const matchingReplies = occurrences === 1 ? entries.filter((entry) => entry.type === "message"
     && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"

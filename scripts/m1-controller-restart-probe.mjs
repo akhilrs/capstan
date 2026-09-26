@@ -81,6 +81,20 @@ async function controller(mode) {
   const container = process.env.M1_CRASH_CONTAINER;
   const journalPath = process.env.M1_CRASH_JOURNAL;
   if (!container || !journalPath) throw new Error("Crash controller environment is incomplete");
+  if (mode !== "dispatch" && mode !== "recover") throw new Error(`Unknown controller mode ${mode}`);
+  if (mode === "recover") {
+    const records = readJournal(journalPath);
+    const dispatches = records.filter((entry) => entry.event === "dispatch" && entry.commandId === COMMAND_ID);
+    const receipts = records.filter((entry) => entry.commandId === COMMAND_ID && entry.event === "receipt");
+    if (dispatches.length !== 1 || receipts.length > 1) throw new Error("Restart did not find exactly one durable dispatch and at most one receipt");
+    if (receipts.length === 1) {
+      if (receipts[0].reconciled !== true || receipts[0].matchingHistoryEntries !== 1 || receipts[0].resent !== false) {
+        throw new Error("Existing recovery receipt is invalid");
+      }
+      process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: 1, exactReply: true, resent: false, alreadyReconciled: true }) + "\n");
+      return;
+    }
+  }
   const rpc = connect(container);
   try {
     const stateId = `controller-${mode}-ready`;
@@ -96,18 +110,6 @@ async function controller(mode) {
       process.stdout.write("DISPATCHED\n");
       await new Promise(() => {});
     }
-    if (mode !== "recover") throw new Error(`Unknown controller mode ${mode}`);
-    const records = readJournal(journalPath);
-    const dispatches = records.filter((entry) => entry.event === "dispatch" && entry.commandId === COMMAND_ID);
-    const receipts = records.filter((entry) => entry.commandId === COMMAND_ID && entry.event === "receipt");
-    if (dispatches.length !== 1 || receipts.length > 1) throw new Error("Restart did not find exactly one durable dispatch and at most one receipt");
-    if (receipts.length === 1) {
-      if (receipts[0].reconciled !== true || receipts[0].matchingHistoryEntries !== 1 || receipts[0].resent !== false) {
-        throw new Error("Existing recovery receipt is invalid");
-      }
-      process.stdout.write(JSON.stringify({ recovered: true, matchingHistoryEntries: 1, exactReply: true, resent: false, alreadyReconciled: true }) + "\n");
-      return;
-    }
 
     const deadline = Date.now() + 90_000;
     let matchingEntries = 0;
@@ -120,8 +122,11 @@ async function controller(mode) {
       if (!response.success) throw new Error("OMP history reconciliation failed");
       const entries = response.data?.entries;
       if (!Array.isArray(entries)) throw new Error("OMP returned no crash-recovery history");
-      const matchingUsers = entries.filter((entry) => entry.type === "message" && entry.message?.role === "user"
-        && entry.message.content?.some((part) => part.type === "text" && part.text === PROMPT));
+      const matchingUsers = entries.filter((entry) => {
+        const contents = entry.message?.content;
+        return entry.type === "message" && entry.message?.role === "user" && Array.isArray(contents)
+          && contents.length === 1 && contents[0].type === "text" && contents[0].text === PROMPT;
+      });
       matchingEntries = matchingUsers.length;
       linkedReplies = matchingEntries === 1 ? entries.filter((entry) => entry.type === "message"
         && entry.parentId === matchingUsers[0].id && entry.message?.role === "assistant"
@@ -237,6 +242,8 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
     }
     recoveryController = runChild("recover", name, journalPath);
     const result = await awaitRecovery(recoveryController);
+    const stoppedWorker = spawnSync("docker", ["kill", "--signal", "KILL", name], { stdio: "ignore" });
+    if (stoppedWorker.status !== 0) throw new Error("Could not stop worker before repeated recovery");
     recoveryController = runChild("recover", name, journalPath);
     const repeated = await awaitRecovery(recoveryController);
     if (!repeated.alreadyReconciled || !repeated.recovered || !repeated.exactReply || repeated.resent) {
@@ -258,8 +265,9 @@ export async function runControllerRestartProbe({ image, omp, addon, model, toke
       try { process.kill(-recoveryController.pid, "SIGKILL"); } catch {}
     }
     const removed = spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
-    if (removed.status !== 0 && spawnSync("docker", ["inspect", name], { stdio: "ignore" }).status === 0) {
-      throw new Error(`Could not remove crash-recovery worker ${name}`);
+    if (removed.status !== 0) {
+      const remaining = spawnSync("docker", ["ps", "--all", "--filter", `name=^/${name}$`, "--format", "{{.ID}}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      if (remaining.status !== 0 || remaining.stdout.trim()) throw new Error(`Could not prove crash-recovery worker ${name} was removed`);
     }
   }
 }
