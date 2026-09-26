@@ -326,7 +326,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   let receiptFd = openSync(spec.journal, "a", 0o600);
   const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
   const receiptSockets = new Set();
-  receiptServer = createServer((socket) => {
+  receiptServer = createServer({ allowHalfOpen: true }, (socket) => {
     const acceptedFd = socket._handle?.fd;
     if (!Number.isSafeInteger(acceptedFd) || acceptedFd < 0 || !expectedOMPHostPid) {
       socket.destroy();
