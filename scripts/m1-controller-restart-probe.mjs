@@ -43,22 +43,44 @@ function readJournal(file) {
 
 function connect(container) {
   const proc = spawn("docker", ["attach", "--sig-proxy=false", container], { stdio: ["pipe", "pipe", "ignore"] });
-  const lines = readline.createInterface({ input: proc.stdout });
   const frames = [];
   const waiters = [];
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let pending = "";
   let closed = false;
+  let wireError;
+  const failWire = (error) => {
+    wireError ??= error;
+    for (const waiter of waiters.splice(0)) waiter.reject(wireError);
+    proc.kill();
+  };
+  proc.on("error", failWire);
+  proc.stdin.on("error", failWire);
+  proc.stdout.on("error", failWire);
   proc.on("close", (code) => {
+    try {
+      pending += decoder.decode();
+      if (pending) throw new Error("Unterminated RPC frame");
+    } catch (error) { wireError ??= error; }
     closed = true;
-    for (const waiter of waiters.splice(0)) waiter.reject(new Error(`RPC attach closed (${code})`));
+    for (const waiter of waiters.splice(0)) waiter.reject(wireError ?? new Error(`RPC attach closed (${code})`));
   });
-  lines.on("line", (line) => {
-    let frame;
-    try { frame = JSON.parse(line); } catch { return; }
-    const index = waiters.findIndex((waiter) => waiter.predicate(frame));
-    if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
-    else frames.push(frame);
+  proc.stdout.on("data", (chunk) => {
+    try {
+      pending += decoder.decode(chunk, { stream: true });
+      let end;
+      while ((end = pending.indexOf("\n")) !== -1) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        const frame = JSON.parse(line);
+        const index = waiters.findIndex((waiter) => waiter.predicate(frame));
+        if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
+        else frames.push(frame);
+      }
+    } catch (error) { failWire(error); }
   });
   const waitFrame = (predicate, timeoutMs = 45_000) => {
+    if (wireError) return Promise.reject(wireError);
     const index = frames.findIndex(predicate);
     if (index >= 0) return Promise.resolve(frames.splice(index, 1)[0]);
     if (closed) return Promise.reject(new Error("RPC attach is closed"));
@@ -74,7 +96,7 @@ function connect(container) {
       waiters.push(waiter);
     });
   };
-  return { proc, lines, waitFrame, send: (command) => proc.stdin.write(`${JSON.stringify(command)}\n`) };
+  return { proc, waitFrame, send: (command) => proc.stdin.write(`${JSON.stringify(command)}\n`) };
 }
 
 async function controller(mode) {
@@ -106,7 +128,7 @@ async function controller(mode) {
       rpc.send({ id: COMMAND_ID, type: "prompt", message: PROMPT });
       const response = await rpc.waitFrame((frame) => frame.type === "response" && frame.id === COMMAND_ID);
       if (!response.success) throw new Error("OMP rejected the crash-boundary prompt");
-      rpc.lines.pause();
+      rpc.proc.stdout.pause();
       process.stdout.write("DISPATCHED\n");
       await new Promise(() => {});
     }
@@ -161,6 +183,7 @@ function runChild(mode, container, journalPath) {
   child.diagnostic = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => { child.diagnostic += chunk; });
+  child.on("error", (error) => { child.diagnostic += error.message; });
   return child;
 }
 

@@ -15,7 +15,6 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 import { runControllerRestartProbe } from "./m1-controller-restart-probe.mjs";
 
 function preserveJournals() {
@@ -146,27 +145,49 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
     env: { ...process.env, OPENAI_CODEX_OAUTH_TOKEN: tokenResult.stdout.trim() },
     stdio: ["pipe", "pipe", "ignore"],
   });
-  const lines = readline.createInterface({ input: proc.stdout });
   const frames = [];
   const waiters = [];
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let pending = "";
   let closed = false;
   let exitCode = null;
+  let wireError;
+  const failWire = (error) => {
+    wireError ??= error;
+    for (const waiter of waiters.splice(0)) waiter.reject(wireError);
+    proc.kill();
+  };
+  proc.on("error", failWire);
+  proc.stdin.on("error", failWire);
+  proc.stdout.on("error", failWire);
   proc.on("close", (code) => {
+    try {
+      pending += decoder.decode();
+      if (pending) throw new Error("Unterminated RPC frame");
+    } catch (error) { wireError ??= error; }
     closed = true;
     exitCode = code;
-    for (const waiter of waiters.splice(0)) waiter.reject(new Error(`${role} worker exited before correlated frame (${code})`));
+    for (const waiter of waiters.splice(0)) waiter.reject(wireError ?? new Error(`${role} worker exited before correlated frame (${code})`));
   });
-  lines.on("line", (line) => {
-    let frame;
-    try { frame = JSON.parse(line); } catch { return; }
-    if (frame.id !== suppressedReceiptId) {
-      journal({ event: "rpc_frame", role, name, type: frame.type, id: frame.id, success: frame.success, status: frame.status });
-    }
-    const index = waiters.findIndex((waiter) => waiter.predicate(frame));
-    if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
-    else frames.push(frame);
+  proc.stdout.on("data", (chunk) => {
+    try {
+      pending += decoder.decode(chunk, { stream: true });
+      let end;
+      while ((end = pending.indexOf("\n")) !== -1) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        const frame = JSON.parse(line);
+        if (frame.id !== suppressedReceiptId) {
+          journal({ event: "rpc_frame", role, name, type: frame.type, id: frame.id, success: frame.success, status: frame.status });
+        }
+        const index = waiters.findIndex((waiter) => waiter.predicate(frame));
+        if (index >= 0) waiters.splice(index, 1)[0].resolve(frame);
+        else frames.push(frame);
+      }
+    } catch (error) { failWire(error); }
   });
   const waitFrame = (predicate, timeoutMs = 45_000) => {
+    if (wireError) return Promise.reject(wireError);
     const index = frames.findIndex(predicate);
     if (index >= 0) return Promise.resolve(frames.splice(index, 1)[0]);
     if (closed) return Promise.reject(new Error(`${role} worker already exited (${exitCode})`));
@@ -197,6 +218,7 @@ function startWorker(role, workspace, home, hostSessionDir, suppressedReceiptId 
     async finish() {
       if (!closed) proc.stdin.end();
       if (!closed) await new Promise((resolve) => proc.once("close", resolve));
+      if (wireError) throw wireError;
       if (exitCode !== 0) throw new Error(`${role} OMP worker exit ${exitCode}`);
     },
   };
