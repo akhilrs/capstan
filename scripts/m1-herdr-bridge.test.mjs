@@ -115,9 +115,11 @@ try {
   }
   assert.equal(status.state, "unknown", "durably failed dispatch must not remain acknowledged");
   assert.equal((await request(bridgeSocket, command)).state, "unknown", "duplicate dispatch must reconcile, not resend");
-  assert.equal((await request(bridgeSocket, { type: "abort", commandId: command.commandId })).state, "unknown");
+  assert.equal((await request(bridgeSocket, { type: "abort", commandId: command.commandId })).type, "error");
   assert.equal(sendCount, 1, "the failed dispatch must never be blindly executed a second time");
   assert.deepEqual(fs.readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line).type), ["accepted", "dispatch_error"]);
+  const afterDispatchError = { ...command, commandId: "after-dispatch-error", assignmentId: "assignment-after-failure" };
+  assert.equal((await request(bridgeSocket, afterDispatchError)).type, "error", "a throwing dispatch may already have started work");
   await handlers.get("session_shutdown")();
   console.log("PASS dispatch_error becomes unknown after durable receipt; get/retry/abort do not re-execute");
   const failedBridgeSocket = path.join(temp, "bridge-receipt-fails.sock");
@@ -303,6 +305,19 @@ try {
   assert.equal((await request(recoveredSubmittedBridgeSocket, submittedUnknown)).state, "unknown");
   assert.equal((await request(recoveredSubmittedBridgeSocket, afterSubmittedFailure)).type, "error");
   assert.equal(sendCount, sendsBeforeRestartQuery, "recovered ambiguous send must never be blindly resubmitted");
+  await handlers.get("session_shutdown")();
+
+  const revokedBeforeSend = await isolated("bridge-abort-before-send");
+  const racedCommand = { ...unknownCommand, commandId: "abort-before-deferred-send", assignmentId: "assignment-11" };
+  const sendsBeforeAbort = sendCount;
+  const raceSocket = net.createConnection(revokedBeforeSend.socket);
+  await new Promise((resolve, reject) => { raceSocket.once("connect", resolve); raceSocket.once("error", reject); });
+  raceSocket.write(`${JSON.stringify(racedCommand)}\n${JSON.stringify({ type: "abort", commandId: racedCommand.commandId })}\n`);
+  await waitForJournal(revokedBeforeSend.file, ["accepted", "aborted"]);
+  assert.equal(sendCount, sendsBeforeAbort, "an abort queued before the deferred send must suppress dispatch");
+  const afterRevocation = { ...racedCommand, commandId: "after-raced-abort", assignmentId: "assignment-12" };
+  assert.equal((await request(revokedBeforeSend.socket, afterRevocation)).type, "error");
+  raceSocket.destroy();
   await handlers.get("session_shutdown")();
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {

@@ -2,7 +2,7 @@ const receiptTypes = new Set([
   "accepted", "submitted", "working", "tool_started", "tool_completed", "aborted",
   "dispatch_error", "completed", "agent_end_without_reply",
 ]);
-const terminalReceiptTypes = new Set(["dispatch_error", "completed"]);
+const terminalReceiptTypes = new Set(["completed"]);
 
 export function isReceiptType(type) {
   return receiptTypes.has(type);
@@ -51,7 +51,7 @@ export function replayReceiptState(entries) {
       }
       command.state = entry.type === "completed" ? "completed"
         : entry.type === "agent_end_without_reply" || entry.type === "aborted" || entry.type === "dispatch_error" ? "unknown" : "working";
-      if (entry.type === "agent_end_without_reply" || entry.type === "aborted") active.state = "unknown";
+      if (entry.type === "agent_end_without_reply" || entry.type === "aborted" || entry.type === "dispatch_error") active.state = "unknown";
       if (isTerminalReceipt(entry.type)) active = null;
     }
   }

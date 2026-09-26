@@ -100,9 +100,8 @@ function recoverJournal(file, role) {
         || entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply") {
         row.state = entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_reply"
           ? "unknown" : "working";
-        if (entry.type === "agent_end_without_reply" || entry.type === "aborted") currentActive.state = "unknown";
+        if (entry.type === "agent_end_without_reply" || entry.type === "aborted" || entry.type === "dispatch_error") currentActive.state = "unknown";
         if (entry.type === "aborted") row.aborted = true;
-        if (entry.type === "dispatch_error") currentActive = null;
       } else {
         throw new Error(`unknown journal record type at byte ${offset}`);
       }
@@ -248,7 +247,7 @@ export default function herdrBridge(pi) {
     const { _dispatch, ...wire } = payload;
     if (!socket.destroyed) socket.write(`${JSON.stringify(wire)}\n`);
     if (_dispatch) enqueue(async () => {
-      if (shuttingDown || active?.commandId !== payload.commandId) return;
+      if (shuttingDown || active?.commandId !== payload.commandId || active.dispatchFailed) return;
       const command = active;
       try {
         pi.sendUserMessage(command.prompt);
@@ -258,7 +257,6 @@ export default function herdrBridge(pi) {
         rows.get(command.commandId).state = "unknown";
         try {
           await append("dispatch_error", { ...identity(command), error: String(error?.message ?? error).slice(0, 2048) });
-          if (active?.commandId === command.commandId) active = null;
         } catch (receiptError) {
           console.error(`[m1-herdr-bridge] failed dispatch remains unknown; dispatch_error receipt unavailable: ${receiptError?.message ?? receiptError}`);
         }

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PASS.** Final-source selected-path 10/10/10 PASS against runtime commit `368b316` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-A8z8iq/qualification.jsonl`. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-A8z8iq/qualification.jsonl` predates dispatch-initiation ambiguity and queued-abort fixes. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -40,14 +40,14 @@
 - An intermediate post-parser rerun returned PASS with pinned Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, and the pinned Ubuntu image at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-gnEUjZ/qualification.jsonl`. It predates subsequent dispatch, receipt framing, half-close, and working-state changes and is not qualification evidence for the current revision.
 - Previous review-hardened qualification PASS: ten acknowledgements 9,176.168–9,545.674 ms; ten progress samples maxed at 20,093.501 ms; ten replacements 3,064.447–3,203.118 ms; quiescence 9,609.354 ms. Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Ubuntu image `sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3`. Evidence at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-cqJuge/qualification.jsonl`. This run predates the latest review fixes and is not evidence for the current source.
 - Post-review hardening keeps receipt frames as bytes until the line boundary, enforces a 1 MiB wire-byte limit, rejects invalid UTF-8/trailing frames, and parses the complete TLS extension list before accepting exactly one ASCII SNI hostname. `scripts/m1-receipt-frame.test.mjs` exercises split multibyte UTF-8 and malformed/oversized/multiple frames; `scripts/m1-egress-tls.test.mjs` exercises non-ASCII SNI and duplicate SNI extensions.
-- After an OMP dispatch-initiation failure, the bridge persists the `dispatch_error` receipt before marking the in-memory command `unknown`. Status lookup and duplicate delivery therefore reconcile the failed accepted identity without returning a false acknowledged state or resending. `scripts/m1-herdr-bridge.test.mjs` exercises this transition and asserts one send only.
+- After OMP dispatch initiation throws, the bridge persists `dispatch_error` and marks the command `unknown`; because a throw does not prove no side effects, the active slot remains locked through recovery until worker containment. Status lookup and duplicate delivery reconcile without resending. A queued authorized abort suppresses a deferred send before it begins. `scripts/m1-herdr-bridge.test.mjs` exercises both boundaries.
 - The bridge fsyncs a `working` receipt before it publishes `durable: true, state: working`; `scripts/m1-herdr-bridge.test.mjs` verifies the accepted → submitted → working journal order.
 
 - Completion uses the latest assistant `turn_end` observed after `agent_start`, never the aggregate `agent_end.messages` list, which may contain stale output. Missing, empty, or whitespace-only current-turn text is recorded as nonterminal `agent_end_without_reply`; status becomes unknown and the active slot stays locked across receipt replay/restart. Controller-authorized `aborted` records revocation intent but does not release the slot before worker containment. An unaccepted abort fails closed. Failed `submitted`, `working`, or `completed` receipt persistence similarly retains unknown state. Unknown does not prove process containment.
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Final-source qualification PASS against runtime commit `368b316`: acknowledgements 9,014.489–9,481.352 ms; maximum progress silence 20,077.526 ms; replacement containment 3,068.274–3,189.007 ms; quiescence 9,567.021 ms. All 10 samples passed in each category with clean cleanup; Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0 and pinned Ubuntu image.
+- Prior-source qualification PASS against runtime commit `368b316`: acknowledgements 9,014.489–9,481.352 ms; maximum progress silence 20,077.526 ms; replacement containment 3,068.274–3,189.007 ms; quiescence 9,567.021 ms. All 10 samples passed with clean cleanup; subsequent dispatch-initiation ambiguity and abort race fixes require a rerun.
 
 ## Decision
 

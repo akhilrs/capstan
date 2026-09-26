@@ -24,6 +24,10 @@ assert.equal(aborted.active.commandId, identity.commandId, "abort intent alone c
 assert.equal(aborted.active.state, "unknown");
 assert.equal(aborted.commands.get(identity.commandId).state, "unknown");
 
+const dispatchError = replayReceiptState([accepted, { type: "dispatch_error", ...identity, error: "send threw" }]);
+assert.equal(dispatchError.active.commandId, identity.commandId, "a throwing send does not prove the old worker stopped");
+assert.equal(dispatchError.active.state, "unknown");
+
 const completed = replayReceiptState([accepted, submitted, working, { type: "completed", ...identity, reply: "done", evidenceRef: {} }]);
 assert.equal(completed.active, null, "only durable terminal outcomes release the dispatch");
 assert.equal(completed.commands.get(identity.commandId).state, "completed");
