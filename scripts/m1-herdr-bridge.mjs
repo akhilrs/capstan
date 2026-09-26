@@ -102,6 +102,7 @@ export default function herdrBridge(pi) {
   let ctxRef;
   let journalPath;
   let socketPath;
+  let receiptSocketPath;
   let role;
   let sequence = 0;
   let rows = new Map();
@@ -122,7 +123,7 @@ export default function herdrBridge(pi) {
 
   async function append(type, fields) {
     const entry = { sequence: sequence + 1, timestamp: new Date().toISOString(), type, role, ...fields };
-    const socket = net.createConnection(path.join(path.dirname(socketPath), "receipt.sock"));
+    const socket = net.createConnection(receiptSocketPath);
     const line = `${JSON.stringify(entry)}\n`;
     const response = await new Promise((resolve, reject) => {
       let pending = "";
@@ -280,8 +281,10 @@ export default function herdrBridge(pi) {
     role = process.env.CAPSTAN_BRIDGE_ROLE;
     socketPath = process.env.CAPSTAN_BRIDGE_SOCKET;
     journalPath = process.env.CAPSTAN_BRIDGE_JOURNAL;
+    receiptSocketPath = process.env.CAPSTAN_BRIDGE_RECEIPT_SOCKET;
     if (!ROLES.has(role)) throw new Error("CAPSTAN_BRIDGE_ROLE must be PM, Developer, Verifier, or Supervisor");
-    if (typeof socketPath !== "string" || !path.isAbsolute(socketPath) || typeof journalPath !== "string" || !path.isAbsolute(journalPath)) throw new Error("CAPSTAN_BRIDGE_SOCKET and CAPSTAN_BRIDGE_JOURNAL must be absolute paths");
+    if (typeof socketPath !== "string" || !path.isAbsolute(socketPath) || typeof journalPath !== "string" || !path.isAbsolute(journalPath)
+      || typeof receiptSocketPath !== "string" || !path.isAbsolute(receiptSocketPath)) throw new Error("Bridge socket, receipt socket, and journal paths must be absolute");
     const recovered = recoverJournal(journalPath, role);
     rows = recovered.rows;
     sequence = recovered.sequence;

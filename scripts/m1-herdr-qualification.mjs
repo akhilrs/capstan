@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer, createConnection } from "node:net";
 import {
   chmodSync, closeSync, constants, copyFileSync, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync,
-  mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeSync,
+  ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -171,22 +171,74 @@ function scanTree(rootDir) {
   return { entries, sha256: sha256(Buffer.from(JSON.stringify(entries))) };
 }
 
+function recoverControllerJournal(file, role) {
+  const fd = openSync(file, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_CLOEXEC);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.nlink !== 1) throw new Error("Controller receipt journal is not a private regular file");
+    const bytes = readFileSync(fd);
+    const completeEnd = bytes.lastIndexOf(0x0a) + 1;
+    const entries = [];
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    for (let start = 0; start < completeEnd;) {
+      const end = bytes.indexOf(0x0a, start);
+      let entry;
+      try { entry = JSON.parse(decoder.decode(bytes.subarray(start, end))); }
+      catch { throw new Error(`Malformed complete receipt journal record at byte ${start}`); }
+      if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== role
+        || entry.sequence !== entries.length + 1 || typeof entry.commandId !== "string"
+        || !["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"].includes(entry.type))
+        throw new Error(`Invalid receipt journal record at byte ${start}`);
+      entries.push(entry);
+      start = end + 1;
+    }
+    if (completeEnd !== bytes.length) {
+      ftruncateSync(fd, completeEnd);
+      fsyncSync(fd);
+      record("controller_receipt_tail_repaired", { file, truncatedBytes: bytes.length - completeEnd, survivingSequence: entries.length });
+    }
+    return entries;
+  } finally { closeSync(fd); }
+}
+
+function replayReceiptState(entries) {
+  const commands = new Map();
+  let active = null;
+  for (const entry of entries) {
+    if (entry.type === "accepted") {
+      if (active || commands.has(entry.commandId) || typeof entry.prompt !== "string"
+        || !Number.isSafeInteger(entry.attempt) || !Number.isSafeInteger(entry.generation))
+        throw new Error("Invalid or overlapping accepted receipt during controller recovery");
+      active = { commandId: entry.commandId, assignmentId: entry.assignmentId, attempt: entry.attempt,
+        generation: entry.generation, prompt: entry.prompt };
+      commands.set(entry.commandId, { ...active, accepted: true });
+    } else {
+      if (!active || entry.commandId !== active.commandId || entry.assignmentId !== active.assignmentId
+        || entry.attempt !== active.attempt || entry.generation !== active.generation)
+        throw new Error("Orphan or mismatched receipt during controller recovery");
+      if (["completed", "aborted", "dispatch_error"].includes(entry.type)) active = null;
+    }
+  }
+  return { commands, active, sequence: entries.length };
+}
+
 function makeWorkspace(role, label) {
   const base = path.join(root, label);
   const workspace = path.join(base, "workspace");
   const bridge = path.join(base, "bridge");
   const journal = path.join(controllerRoot, `${label}.bridge.jsonl`);
+  const receiptDir = path.join(controllerRoot, `${label}.receipt`);
   mkdirSync(controllerRoot, { recursive: true, mode: 0o700 });
-  mkdirSync(path.dirname(journal), { recursive: true, mode: 0o700 });
   const journalFd = openSync(journal, "wx", 0o600);
   fsyncSync(journalFd);
   closeSync(journalFd);
+  mkdirSync(receiptDir, { mode: 0o700 });
   syncDir(controllerRoot);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
   mkdirSync(path.join(workspace, ".home"), { mode: 0o700 });
   mkdirSync(bridge, { recursive: true, mode: 0o700 });
   if (workspace.startsWith(controllerRoot)) throw new Error("Controller state mount boundary failure");
-  return { workspace, bridge, journal, role, label };
+  return { workspace, bridge, journal, receiptDir, role, label };
 }
 
 function cgroupPathFor(container) {
@@ -225,13 +277,13 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   if (!providerHost || !/^[a-z0-9.-]+$/i.test(providerHost) || !/^\d+$/.test(providerPort) || Number(providerPort) < 1 || Number(providerPort) > 65535) throw new Error("Set exact M1_PROVIDER_HOST and valid M1_PROVIDER_PORT for provider allowlisting");
   const socketPath = path.join(spec.bridge, "seat.sock");
   let bridgeSocket;
-  const receiptPath = path.join(spec.bridge, "receipt.sock");
+  const receiptPath = path.join(spec.receiptDir, "receipt.sock");
   const dispatched = new Map();
   let currentDispatch = null;
   let receiptSequence = 0;
   let receiptFailed = false;
   let receiptServer;
-  const receiptFd = openSync(spec.journal, "a", 0o600);
+  let receiptFd = openSync(spec.journal, "a", 0o600);
   const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
   receiptServer = createServer((socket) => {
     let writing = false;
@@ -360,6 +412,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "256",
     "--mount", `${wsMount},bind-propagation=rprivate`, "--mount", `${bridgeMount},bind-propagation=rprivate`,
     "--mount", `type=bind,src=${spec.journal},dst=/workspace/.home/bridge.jsonl,readonly,bind-propagation=rprivate`,
+    "--mount", `type=bind,src=${spec.receiptDir},dst=/receipt,readonly,bind-propagation=rprivate`,
     "--tmpfs", `/home/worker:rw,nosuid,nodev,size=256m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
     "--mount", `type=bind,src=${runtime.herdr},dst=/usr/local/bin/herdr,readonly`,
     "--mount", `type=bind,src=${runtime.omp},dst=/usr/local/bin/omp,readonly`,
@@ -371,6 +424,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     "--env", "HOME=/home/worker", "--env", "PATH=/usr/local/bin:/usr/bin:/bin",
     "--env", "LC_ALL=C", "--env", "LANG=C", "--env", "TZ=UTC", "--env", "TMPDIR=/tmp", "--env", "HERDR_ENV=1",
     "--env", "CAPSTAN_BRIDGE_SOCKET=/bridge/seat.sock", "--env", "CAPSTAN_BRIDGE_JOURNAL=/workspace/.home/bridge.jsonl",
+    "--env", "CAPSTAN_BRIDGE_RECEIPT_SOCKET=/receipt/receipt.sock",
     "--env", `CAPSTAN_BRIDGE_ROLE=${spec.role}`, "--env", "OPENAI_CODEX_OAUTH_TOKEN",
     IMAGE, "sh", "-c", ignoreStop ? "umask 077; trap '' TERM; while :; do sleep 60 & wait; done" : "umask 077; exec sleep infinity",
   ];
@@ -397,6 +451,11 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       || statSync(spec.journal).size !== 0) throw new Error("Worker could alter the controller-owned receipt journal");
     record("worker_receipt_mutation_denied", { container: name, journal: spec.journal, exitCode: tamper.status });
     if (exec(["/usr/local/bin/node", "--version"]) !== NODE_VERSION) throw new Error("Container Node version mismatch");
+    const replaceSocket = spawnSync("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
+      "/bin/rm", "/receipt/receipt.sock"], { encoding: "utf8", timeout: 5_000 });
+    if (replaceSocket.status === 0 || !/Read-only file system/i.test(replaceSocket.stderr)
+      || !lstatSync(receiptPath).isSocket()) throw new Error("Worker could replace the controller-owned receipt socket");
+    record("worker_receipt_socket_mutation_denied", { container: name, receiptPath, exitCode: replaceSocket.status });
     if (exec(["/usr/local/bin/herdr", "--version"]) !== `herdr ${HERDR_VERSION}`) throw new Error("Container Herdr version mismatch");
     if (!exec(["/usr/local/bin/omp", "--help"]).startsWith(`omp v${OMP_VERSION}\n`)) throw new Error("Container OMP version mismatch");
     exec(["/bin/mkdir", "-p", "/home/worker/.omp/agent/extensions"]);
@@ -491,6 +550,28 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     return observed;
   }
   return {
+    async restartReceiptDaemon() {
+      await new Promise((resolve) => receiptServer.close(resolve));
+      if (existsSync(receiptPath)) unlinkSync(receiptPath);
+      closeSync(receiptFd);
+      const recovered = replayReceiptState(recoverControllerJournal(spec.journal, spec.role));
+      dispatched.clear();
+      for (const [id, command] of recovered.commands) dispatched.set(id, command);
+      currentDispatch = recovered.active;
+      receiptSequence = recovered.sequence;
+      receiptFailed = false;
+      receiptFd = openSync(spec.journal, "a", 0o600);
+      const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
+      if (!receipt) throw new Error("Controller receipt daemon not registered for restart");
+      receipt.fd = receiptFd;
+      await new Promise((resolve, reject) => {
+        receiptServer.once("error", reject);
+        receiptServer.listen(receiptPath, () => { receiptServer.off("error", reject); resolve(); });
+      });
+      chmodSync(receiptPath, 0o600);
+      record("controller_receipt_daemon_restarted", { container: name, journal: spec.journal,
+        sequence: receiptSequence, activeCommandId: currentDispatch?.commandId ?? null, recoveredCommands: dispatched.size });
+    },
     controllerConnectedAt,
     name, spec, waitFrame, send, launchedAt,
     async reconnectController() {
@@ -537,6 +618,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       const bindMappings = new Map([
         [spec.workspace, "/workspace"], [spec.bridge, "/bridge"],
         [spec.journal, "/workspace/.home/bridge.jsonl"],
+        [spec.receiptDir, "/receipt"],
         [runtime.herdr, "/usr/local/bin/herdr"], [runtime.omp, "/usr/local/bin/omp"],
         [runtime.addon, "/usr/local/bin/pi_natives.linux-x64-baseline.node"],
         [runtime.node, "/usr/local/bin/node"],
@@ -664,6 +746,22 @@ async function main() {
     samples: { acknowledgement: ACK_COUNT, bashProgress: PROGRESS_COUNT, replacement: REPLACEMENT_COUNT },
     limits: LIMITS,
   });
+  const tornPath = path.join(controllerRoot, "torn-tail-probe.jsonl");
+  const acceptedProbe = { sequence: 1, role: "PM", type: "accepted", commandId: "torn-probe",
+    assignmentId: "torn-assignment", attempt: 1, generation: 1, prompt: "probe" };
+  const tornFd = openSync(tornPath, "wx", 0o600);
+  try {
+    const bytes = Buffer.from(`${JSON.stringify(acceptedProbe)}\n{\"sequence\":2`);
+    writeSync(tornFd, bytes);
+    fsyncSync(tornFd);
+  } finally { closeSync(tornFd); }
+  const recoveredProbe = replayReceiptState(recoverControllerJournal(tornPath, "PM"));
+  if (recoveredProbe.sequence !== 1 || recoveredProbe.active?.commandId !== "torn-probe"
+    || readFileSync(tornPath, "utf8") !== `${JSON.stringify(acceptedProbe)}\n`)
+    throw new Error("Controller failed to repair torn receipt tail before resuming append");
+  record("torn_receipt_recovery_proven", { repairedSequence: recoveredProbe.sequence, survivingSha256: sha256(readFileSync(tornPath)) });
+  unlinkSync(tornPath);
+  syncDir(controllerRoot);
   const runs = { ack: [], progress: [], replacements: [] };
 
   // Ack probes measure launch through the receiver's fsynced identity acknowledgement.
@@ -724,6 +822,7 @@ async function main() {
       const observation = { at: observedAt, type: event.type, toolName: event.toolName, toolCallId: event.toolCallId, evidenceRef: event.evidenceRef };
       qualifying.push(observation);
       record("progress_observation", { id, role, observation });
+      if (i === 0 && event.type === "tool_started") await seat.restartReceiptDaemon();
       if (event.type === "completed") break;
     }
     if (qualifying.map((x) => x.type).join(",") !== "tool_started,tool_completed,completed") throw new Error("Progress lifecycle was incomplete or included non-advancing events");
