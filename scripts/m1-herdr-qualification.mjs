@@ -731,6 +731,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       if (dispatched.has(commandId) || currentDispatch) throw new Error("Controller already owns an active or previously dispatched command identity");
       await ensureBridgeConnected();
       send(dispatch);
+      const ack = await waitFrame((x) => x.type === "ack" && x.commandId === commandId, deadlineMs);
       if (ack.durable !== true || !["acknowledged", "working", "completed"].includes(ack.state)) throw new Error(`Non-durable/invalid acknowledgement for ${commandId}`);
       const ackMs = monotonicMs() - started;
       record("ack_sample", { commandId, role: spec.role, assignmentId, attempt, generation, milliseconds: ackMs, durable: ack.durable, state: ack.state });
