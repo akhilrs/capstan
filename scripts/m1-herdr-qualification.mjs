@@ -743,7 +743,21 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         throw new Error("Abort requires one active controller dispatch");
       const bytes = Buffer.from(`${JSON.stringify({ commandId, ...dispatched.get(commandId) })}\n`);
       const fd = openSync(abortIntentPath, "a", 0o600);
-      try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      try {
+        const originalSize = fstatSync(fd).size;
+        try {
+          for (let offset = 0; offset < bytes.length;) {
+            const written = writeSync(fd, bytes, offset, bytes.length - offset);
+            if (written <= 0) throw new Error("Abort-intent write made no progress");
+            offset += written;
+          }
+          fsyncSync(fd);
+        } catch (error) {
+          try { ftruncateSync(fd, originalSize); fsyncSync(fd); }
+          catch (rollbackError) { throw new AggregateError([error, rollbackError], "Abort-intent write failed and partial-tail rollback failed"); }
+          throw error;
+        }
+      } finally { closeSync(fd); }
       syncDir(controllerRoot);
       authorizedAborts.add(commandId);
       record("controller_abort_authorized", { container: name, commandId, intentPath: abortIntentPath });

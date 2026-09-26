@@ -246,21 +246,29 @@ export default function herdrBridge(pi) {
     if (!socket.destroyed) socket.write(`${JSON.stringify(wire)}\n`);
     if (_dispatch) enqueue(async () => {
       if (shuttingDown || active?.commandId !== payload.commandId) return;
+      const command = active;
       try {
-        pi.sendUserMessage(active.prompt);
-        await append("submitted", { ...identity(active) });
+        pi.sendUserMessage(command.prompt);
       } catch (error) {
-        const failedCommand = active;
-        failedCommand.dispatchFailed = true;
+        command.dispatchFailed = true;
         agentStarted = false;
-        rows.get(failedCommand.commandId).state = "unknown";
+        rows.get(command.commandId).state = "unknown";
         try {
-          await append("dispatch_error", { ...identity(failedCommand), error: String(error?.message ?? error).slice(0, 2048) });
-          active = null;
+          await append("dispatch_error", { ...identity(command), error: String(error?.message ?? error).slice(0, 2048) });
+          if (active?.commandId === command.commandId) active = null;
         } catch (receiptError) {
           console.error(`[m1-herdr-bridge] failed dispatch remains unknown; dispatch_error receipt unavailable: ${receiptError?.message ?? receiptError}`);
         }
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
+        return;
+      }
+      try {
+        await append("submitted", { ...identity(command) });
+      } catch (error) {
+        command.dispatchFailed = true;
+        agentStarted = false;
+        rows.get(command.commandId).state = "unknown";
+        console.error(`[m1-herdr-bridge] submitted receipt unavailable; dispatch may be running, assignment remains unknown: ${error?.message ?? error}`);
       }
     }).catch((error) => {
       console.error(`[m1-herdr-bridge] dispatch failure: ${error?.message ?? error}`);
@@ -410,7 +418,20 @@ export default function herdrBridge(pi) {
       commandSockets.delete(command.commandId);
       return;
     }
-    const entry = await append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    let entry;
+    try {
+      entry = await append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    } catch (error) {
+      command.dispatchFailed = true;
+      rows.get(command.commandId).state = "unknown";
+      const unknown = { type: "unknown", ...identity(command) };
+      for (const socket of commandSockets.get(command.commandId) ?? []) {
+        if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
+      }
+      commandSockets.delete(command.commandId);
+      console.error(`[m1-herdr-bridge] completion receipt unavailable; result remains unknown: ${error?.message ?? error}`);
+      return;
+    }
     const row = rows.get(command.commandId);
     row.state = "completed";
     row.result = reply;

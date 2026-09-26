@@ -48,6 +48,8 @@ const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_S
 let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
+let failSubmitted = false;
+let failCompleted = false;
 let authorizeAbort = false;
 let failSend = true;
 let dispatchErrorSeen;
@@ -63,6 +65,10 @@ const receiptServer = net.createServer((socket) => {
     if (entry.type === "dispatch_error" && failDispatchError) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected durable receipt failure" })}\n`);
       dispatchErrorSeen();
+      return;
+    }
+    if ((entry.type === "submitted" && failSubmitted) || (entry.type === "completed" && failCompleted)) {
+      socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: `injected ${entry.type} receipt failure` })}\n`);
       return;
     }
     if (entry.type === "aborted" && !authorizeAbort) {
@@ -211,11 +217,63 @@ try {
   authorizeAbort = true;
   assert.equal((await request(recoveredBridgeSocket, { type: "abort", commandId: unknownCommand.commandId })).state, "unknown");
   await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted"]);
-  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "acknowledged",
-    "a durable controller-authorized terminal abort releases the recovered slot");
+  failCompleted = true;
+  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "acknowledged");
   await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted"]);
+  await handlers.get("agent_start")();
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working"]);
+  handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "UNPERSISTED_RESULT" }] } });
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.equal((await request(recoveredBridgeSocket, { type: "get", commandId: afterUnknown.commandId })).state, "unknown",
+    "completion receipt failure must not leave status working");
+  assert.equal((await request(recoveredBridgeSocket, afterUnknown)).state, "unknown");
+  const afterCompletionFailure = { ...afterUnknown, commandId: "dispatch-after-completion-failure", assignmentId: "assignment-7" };
+  assert.equal((await request(recoveredBridgeSocket, afterCompletionFailure)).type, "error",
+    "completion persistence failure must keep the active slot locked");
   await handlers.get("session_shutdown")();
-  console.log("PASS current-turn completion and fail-closed unknown recovery");
+
+  const recoveredCompletionBridgeSocket = path.join(temp, "bridge-completion-failure-recovered.sock");
+  fs.closeSync(journalFd);
+  journalFd = fs.openSync(unknownJournal, "a", 0o600);
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredCompletionBridgeSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "get", commandId: afterUnknown.commandId })).state, "unknown");
+  assert.equal((await request(recoveredCompletionBridgeSocket, afterCompletionFailure)).type, "error");
+  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "abort", commandId: afterUnknown.commandId })).state, "unknown");
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted"]);
+
+  failCompleted = false;
+  failSubmitted = true;
+  const submittedUnknown = { ...afterUnknown, commandId: "dispatch-submitted-receipt-fails", assignmentId: "assignment-8" };
+  const sendsBeforeSubmittedFailure = sendCount;
+  assert.equal((await request(recoveredCompletionBridgeSocket, submittedUnknown)).state, "acknowledged");
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted", "accepted"]);
+  assert.equal(sendCount, sendsBeforeSubmittedFailure + 1, "a failed submitted receipt follows exactly one send");
+  assert.equal((await request(recoveredCompletionBridgeSocket, { type: "get", commandId: submittedUnknown.commandId })).state, "unknown");
+  assert.equal((await request(recoveredCompletionBridgeSocket, submittedUnknown)).state, "unknown");
+  const afterSubmittedFailure = { ...submittedUnknown, commandId: "dispatch-after-submitted-failure", assignmentId: "assignment-9" };
+  assert.equal((await request(recoveredCompletionBridgeSocket, afterSubmittedFailure)).type, "error");
+  await handlers.get("session_shutdown")();
+
+  const recoveredSubmittedBridgeSocket = path.join(temp, "bridge-submitted-failure-recovered.sock");
+  fs.closeSync(journalFd);
+  journalFd = fs.openSync(unknownJournal, "a", 0o600);
+  failSubmitted = false;
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredSubmittedBridgeSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  const sendsBeforeRestartQuery = sendCount;
+  assert.equal((await request(recoveredSubmittedBridgeSocket, { type: "get", commandId: submittedUnknown.commandId })).state, "unknown");
+  assert.equal((await request(recoveredSubmittedBridgeSocket, submittedUnknown)).state, "unknown");
+  assert.equal((await request(recoveredSubmittedBridgeSocket, afterSubmittedFailure)).type, "error");
+  assert.equal(sendCount, sendsBeforeRestartQuery, "recovered ambiguous send must never be blindly resubmitted");
+  assert.equal((await request(recoveredSubmittedBridgeSocket, { type: "abort", commandId: submittedUnknown.commandId })).state, "unknown");
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "accepted", "submitted", "working", "aborted", "accepted", "aborted"]);
+  await handlers.get("session_shutdown")();
+  console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
