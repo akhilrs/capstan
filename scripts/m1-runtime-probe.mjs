@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   closeSync,
   existsSync,
   fsyncSync,
@@ -16,6 +17,27 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { runControllerRestartProbe } from "./m1-controller-restart-probe.mjs";
+
+function preserveJournals() {
+  const stateRoot = path.join(os.homedir(), ".local", "state", "capstan", "m1-probe");
+  mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+  const evidenceDir = mkdtempSync(path.join(stateRoot, "run-"));
+  for (const [source, name] of [
+    [journalPath, "controller.jsonl"],
+    [path.join(root, "controller-crash", "rpc-journal.jsonl"), "controller-crash.jsonl"],
+  ]) {
+    if (!existsSync(source)) continue;
+    const destination = path.join(evidenceDir, name);
+    copyFileSync(source, destination);
+    const fd = openSync(destination, "r");
+    fsyncSync(fd);
+    closeSync(fd);
+  }
+  const dirFd = openSync(evidenceDir, "r");
+  fsyncSync(dirFd);
+  closeSync(dirFd);
+  return evidenceDir;
+}
 
 const IMAGE = "ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3";
 const VERSION = "18.3.1";
@@ -240,6 +262,8 @@ async function main() {
   await cancel.ready();
   const cancelId = "pm4-cancel-probe";
   await request(cancel, { id: cancelId, role: "Cancel", type: "prompt", message: "Write a detailed 3000-word explanation of JSON. Keep going." }, cancelId);
+  await cancel.waitFrame((frame) => frame.type === "turn_start");
+  journal({ event: "prompt_active", commandId: cancelId });
   const abortId = "pm4-abort-probe";
   await request(cancel, { id: abortId, role: "Cancel", type: "abort" }, abortId);
   const aborted = await cancel.waitFrame((frame) => frame.type === "prompt_result" && frame.id === cancelId);
@@ -337,6 +361,13 @@ try {
     failed = true;
     process.exitCode = 1;
     console.error(JSON.stringify({ result: "FAIL", reason: "Docker cleanup incomplete", containers: cleanupFailures }));
+  }
+  try {
+    console.error(JSON.stringify({ evidenceDir: preserveJournals() }));
+  } catch (error) {
+    failed = true;
+    process.exitCode = 1;
+    console.error(JSON.stringify({ result: "FAIL", reason: `Could not preserve probe journals: ${error instanceof Error ? error.message : String(error)}` }));
   }
   if (failed) {
     console.error(JSON.stringify({ evidenceRoot: root, warning: "Probe workspaces and OMP sessions may contain sensitive data; remove after inspection." }));

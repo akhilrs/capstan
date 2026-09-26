@@ -112,6 +112,8 @@ If a preferred-path property remains unmet, stop and record the exact gap. Conti
 
 The current PM-4 probe is **feasibility evidence, not an M1 qualification pass**. It does not exercise command-bound receipts, restart reconciliation, or the frozen containment/quiescence sequence through the selected Herdr-hosted bridge. DEC-003 accepts only independent-caller risk; it does not waive these properties. M2 implementation may build the missing bridge, but no measured run or M1 gate pass may be claimed until the selected path and the ten-run thresholds in `docs/m0-experiment.md` are verified, or each remaining gap receives a separate explicit acceptance.
 
+The M1 probe preserves its controller JSONL journals under the operator's `~/.local/state/capstan/m1-probe/` after each run. On failure it also retains the temporary workspace/session root for diagnosis and prints its path; inspect and remove that potentially sensitive root after diagnosis. These journals document the probe observations, not selected-bridge delivery receipts.
+
 Pin the tested OMP and Herdr versions in the evidence report. Earlier research observed OMP 18.3.0 and Herdr 0.9.0; those observations are not a compatibility promise for this project.
 
 ## 6. Minimum implementation contracts
