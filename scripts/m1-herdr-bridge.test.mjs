@@ -70,6 +70,8 @@ let failSubmitted = false;
 let failWorking = false;
 let failCompleted = false;
 let failNoReply = false;
+let failToolStarted = false;
+let failToolCompleted = false;
 let authorizeAbort = false;
 let failSend = true;
 let dispatchErrorSeen;
@@ -87,7 +89,8 @@ const receiptServer = net.createServer((socket) => {
       dispatchErrorSeen();
       return;
     }
-    if ((entry.type === "agent_end_without_reply" && failNoReply)
+    if ((entry.type === "agent_end_without_reply" && failNoReply) || (entry.type === "tool_started" && failToolStarted)
+      || (entry.type === "tool_completed" && failToolCompleted)
       || (entry.type === "working" && failWorking) || (entry.type === "submitted" && failSubmitted)
       || (entry.type === "completed" && failCompleted)) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: `injected ${entry.type} receipt failure` })}\n`);
@@ -358,6 +361,38 @@ try {
   assert.equal((await request(noReplyFailure.socket, { type: "get", commandId: noReplyCommand.commandId })).state, "unknown");
   assert.equal((await request(noReplyFailure.socket, afterRevocation)).type, "error");
   await handlers.get("session_shutdown")();
+
+  const toolStartFailure = await isolated("bridge-tool-start-failure");
+  const toolStartCommand = { ...unknownCommand, commandId: "tool-start-receipt-fails", assignmentId: "assignment-15" };
+  const startNotices = requestFrames(toolStartFailure.socket, toolStartCommand, 3);
+  await waitForJournal(toolStartFailure.file, ["accepted", "submitted"]);
+  await handlers.get("agent_start")();
+  await waitForJournal(toolStartFailure.file, ["accepted", "submitted", "working"]);
+  failToolStarted = true;
+  await handlers.get("tool_execution_start")({ toolName: "bash", toolCallId: "tool-start-1" });
+  assert.deepEqual((await startNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "unknown"]);
+  assert.equal((await request(toolStartFailure.socket, { type: "get", commandId: toolStartCommand.commandId })).state, "unknown");
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.equal((await request(toolStartFailure.socket, { ...toolStartCommand, commandId: "after-tool-start-failure" })).type, "error");
+  await handlers.get("session_shutdown")();
+  failToolStarted = false;
+
+  const toolEndFailure = await isolated("bridge-tool-end-failure");
+  const toolEndCommand = { ...unknownCommand, commandId: "tool-end-receipt-fails", assignmentId: "assignment-16" };
+  const endNotices = requestFrames(toolEndFailure.socket, toolEndCommand, 4);
+  await waitForJournal(toolEndFailure.file, ["accepted", "submitted"]);
+  await handlers.get("agent_start")();
+  await waitForJournal(toolEndFailure.file, ["accepted", "submitted", "working"]);
+  await handlers.get("tool_execution_start")({ toolName: "bash", toolCallId: "tool-end-1" });
+  await waitForJournal(toolEndFailure.file, ["accepted", "submitted", "working", "tool_started"]);
+  failToolCompleted = true;
+  await handlers.get("tool_execution_end")({ toolName: "bash", toolCallId: "tool-end-1", isError: false });
+  assert.deepEqual((await endNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "tool_started", "unknown"]);
+  assert.equal((await request(toolEndFailure.socket, { type: "get", commandId: toolEndCommand.commandId })).state, "unknown");
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.equal((await request(toolEndFailure.socket, { ...toolEndCommand, commandId: "after-tool-end-failure" })).type, "error");
+  await handlers.get("session_shutdown")();
+  failToolCompleted = false;
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {

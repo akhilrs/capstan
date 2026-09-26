@@ -328,6 +328,18 @@ export default function herdrBridge(pi) {
     console.error(`[m1-herdr-bridge] event failed: ${error?.message ?? error}`);
   });
 
+  function toolReceiptUnavailable(command, type, error) {
+    command.dispatchFailed = true;
+    agentStarted = false;
+    rows.get(command.commandId).state = "unknown";
+    const unknown = { type: "unknown", ...identity(command) };
+    for (const socket of commandSockets.get(command.commandId) ?? []) {
+      if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
+    }
+    commandSockets.delete(command.commandId);
+    console.error(`[m1-herdr-bridge] ${type} receipt unavailable; assignment remains unknown: ${error?.message ?? error}`);
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     ctxRef = ctx;
     role = process.env.CAPSTAN_BRIDGE_ROLE;
@@ -384,7 +396,13 @@ export default function herdrBridge(pi) {
     if (!active || !agentStarted) return;
     const toolName = typeof event?.toolName === "string" ? event.toolName : "unknown";
     const toolCallId = typeof event?.toolCallId === "string" ? event.toolCallId : "unknown";
-    const entry = await append("tool_started", { ...identity(active), toolName, toolCallId, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    let entry;
+    try {
+      entry = await append("tool_started", { ...identity(active), toolName, toolCallId, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    } catch (error) {
+      toolReceiptUnavailable(active, "tool_started", error);
+      return;
+    }
     active.toolCalls ??= new Map();
     active.toolCalls.set(toolCallId, { toolName, startSequence: entry.sequence });
     const progress = { type: "tool_started", ...identity(active), toolName, toolCallId, evidenceRef: evidence(entry) };
@@ -397,7 +415,13 @@ export default function herdrBridge(pi) {
     const toolCallId = typeof event?.toolCallId === "string" ? event.toolCallId : "unknown";
     const prior = active.toolCalls?.get(toolCallId);
     if (!prior || prior.toolName !== toolName) return;
-    const entry = await append("tool_completed", { ...identity(active), toolName, toolCallId, startSequence: prior.startSequence, isError: event?.isError === true, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    let entry;
+    try {
+      entry = await append("tool_completed", { ...identity(active), toolName, toolCallId, startSequence: prior.startSequence, isError: event?.isError === true, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    } catch (error) {
+      toolReceiptUnavailable(active, "tool_completed", error);
+      return;
+    }
     active.toolCalls.delete(toolCallId);
     // Store evidence identity on the corresponding durable row for audit consumers.
     rows.get(active.commandId).lastToolEvidenceRef = evidence(entry);

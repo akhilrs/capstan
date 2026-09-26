@@ -733,7 +733,8 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       return { ack, ackMs };
     },
     async completed(commandId, timeoutMs = 900_000) {
-      const frame = await waitFrame((x) => x.type === "completed" && x.commandId === commandId, timeoutMs);
+      const frame = await waitFrame((x) => x.commandId === commandId && ["completed", "unknown"].includes(x.type), timeoutMs);
+      if (frame.type === "unknown") throw new Error(`Command ${commandId} became unknown before completion`);
       if (typeof frame.reply !== "string" || !frame.reply.length || !frame.evidenceRef || typeof frame.evidenceRef !== "object") throw new Error(`Completion missing reply/evidenceRef for ${commandId}`);
       verifyCompletionFrame(frame, spec);
       return frame;
@@ -1046,8 +1047,8 @@ async function main() {
       if (event.type === "completed") break;
     }
     if (qualifying.map((x) => x.type).join(",") !== "tool_started,tool_completed,completed") throw new Error("Progress lifecycle was incomplete or included non-advancing events");
-    const progressLines = readFileSync(path.join(spec.workspace, "progress.jsonl"), "utf8").trimEnd().split("\n");
-    if (progressLines.join(",") !== "1,2,3") throw new Error("Declared bash work counter did not advance exactly through the three requested milestones");
+    const progressBytes = readFileSync(path.join(spec.workspace, "progress.jsonl"), "utf8");
+    if (progressBytes !== "1\n2\n3\n") throw new Error("Declared bash work counter did not advance exactly through the three requested milestones");
     const progressManifest = scanTree(spec.workspace);
     record("progress_manifest", { id, sha256: progressManifest.sha256, entries: progressManifest.entries });
     const points = [ackAt, ...qualifying.map((x) => x.at)];
