@@ -234,6 +234,7 @@ export default function herdrBridge(pi) {
       } catch (error) {
         // Preserve the accepted identity: a restart/retry must reconcile, never submit it blindly.
         await append("dispatch_error", { ...identity(active), error: String(error?.message ?? error).slice(0, 2048) });
+        rows.get(active.commandId).state = "unknown";
         active = null;
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
       }

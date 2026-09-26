@@ -14,6 +14,10 @@
       "command": "node --check scripts/m1-herdr-bridge.mjs"
     },
     {
+      "name": "m1-herdr-bridge-dispatch-error-regression",
+      "command": "node scripts/m1-herdr-bridge.test.mjs"
+    },
+    {
       "name": "m1-egress-helper-syntax",
       "command": "node --check scripts/m1-egress-helper.mjs"
     },
