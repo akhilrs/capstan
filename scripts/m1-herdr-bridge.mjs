@@ -130,6 +130,7 @@ export default function herdrBridge(pi) {
   let queue = Promise.resolve();
   let clients = new Set();
   let commandSockets = new Map();
+  let pendingRequests = 0;
 
   const enqueue = (fn) => {
     const next = queue.then(fn, fn);
@@ -308,17 +309,11 @@ export default function herdrBridge(pi) {
     clients.add(socket);
     socket.once("close", () => clients.delete(socket));
     let pending = Buffer.alloc(0);
-    let receivedFrames = 0;
     socket.on("data", (chunk) => {
       if (failed) return;
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let at;
       while ((at = pending.indexOf(0x0a)) !== -1) {
-        if (++receivedFrames > 2) {
-          failed = true;
-          socket.end(`${JSON.stringify({ type: "error", error: "too many requests on one connection" })}\n`);
-          return;
-        }
         const line = pending.subarray(0, at);
         pending = pending.subarray(at + 1);
         if (!line.length || line.length + 1 > MAX_LINE_BYTES) {
@@ -327,7 +322,13 @@ export default function herdrBridge(pi) {
         try {
           const parsed = JSON.parse(decoder.decode(line));
           const normalized = requestShape(parsed);
+          if (pendingRequests >= 128) {
+            failed = true;
+            socket.end(`${JSON.stringify({ type: "error", error: "bridge request queue is full" })}\n`);
+            return;
+          }
           socket.setTimeout(0);
+          pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
             const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
             if (liveDispatch) {
@@ -338,8 +339,8 @@ export default function herdrBridge(pi) {
             }
             reply(socket, response, !liveDispatch);
           }).catch((error) => {
-            if (!socket.destroyed) socket.write(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
-          });
+            if (!socket.destroyed) socket.end(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
+          }).finally(() => { pendingRequests -= 1; });
         } catch (error) {
           failed = true;
           socket.end(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
