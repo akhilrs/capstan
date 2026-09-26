@@ -412,7 +412,7 @@ async function verifyState(state) {
     for (const line of audit.slice(0, -1).split("\n")) {
       const entry = JSON.parse(line);
       if (entry.event === "provider_connect") {
-        if (entry.host !== state.host || entry.sni !== state.host || entry.port !== state.providerPort || !publicIPv4(entry.address)) {
+        if (entry.host !== state.host || !sniMatchesHost(entry.sni, state.host) || entry.port !== state.providerPort || !publicIPv4(entry.address)) {
           throw new Error("Provider connection audit does not match policy");
         }
         providerConnections += 1;

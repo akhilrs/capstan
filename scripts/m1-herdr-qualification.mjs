@@ -10,6 +10,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createReceiptFrameBuffer } from "./m1-receipt-frame.mjs";
+import { isReceiptType, isTerminalReceipt, replayReceiptState } from "./m1-receipt-journal.mjs";
 process.umask(0o077);
 
 const SELF = fileURLToPath(import.meta.url);
@@ -208,7 +209,7 @@ function recoverControllerJournal(file, role) {
       catch { throw new Error(`Malformed complete receipt journal record at byte ${start}`); }
       if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== role
         || entry.sequence !== entries.length + 1 || typeof entry.commandId !== "string"
-        || !["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"].includes(entry.type))
+        || !isReceiptType(entry.type))
         throw new Error(`Invalid receipt journal record at byte ${start}`);
       entries.push(entry);
       start = end + 1;
@@ -222,26 +223,6 @@ function recoverControllerJournal(file, role) {
   } finally { closeSync(fd); }
 }
 
-function replayReceiptState(entries) {
-  const commands = new Map();
-  let active = null;
-  for (const entry of entries) {
-    if (entry.type === "accepted") {
-      if (active || commands.has(entry.commandId) || typeof entry.prompt !== "string"
-        || !Number.isSafeInteger(entry.attempt) || !Number.isSafeInteger(entry.generation))
-        throw new Error("Invalid or overlapping accepted receipt during controller recovery");
-      active = { commandId: entry.commandId, assignmentId: entry.assignmentId, attempt: entry.attempt,
-        generation: entry.generation, prompt: entry.prompt };
-      commands.set(entry.commandId, { ...active, accepted: true });
-    } else {
-      if (!active || entry.commandId !== active.commandId || entry.assignmentId !== active.assignmentId
-        || entry.attempt !== active.attempt || entry.generation !== active.generation)
-        throw new Error("Orphan or mismatched receipt during controller recovery");
-      if (["completed", "aborted", "dispatch_error"].includes(entry.type)) active = null;
-    }
-  }
-  return { commands, active, sequence: entries.length, lastReceipt: entries.at(-1) ?? null };
-}
 function verifyCompletionFrame(frame, spec) {
   if (frame?.type !== "completed" || frame.evidenceRef?.journal !== "/workspace/.home/bridge.jsonl"
     || !Number.isSafeInteger(frame.evidenceRef.sequence) || frame.evidenceRef.sequence < 1)
@@ -324,7 +305,6 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   let expectedOMPHostPid = null;
   let deniedPeerCount = 0;
   let receiptFd = openSync(spec.journal, "a", 0o600);
-  const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
   const receiptSockets = new Set();
   receiptServer = createServer({ allowHalfOpen: true }, (socket) => {
     const acceptedFd = socket._handle?.fd;
@@ -370,7 +350,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
         const entry = JSON.parse(pendingLine);
         if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== spec.role
-          || !receiptTypes.has(entry.type) || typeof entry.commandId !== "string")
+          || !isReceiptType(entry.type) || typeof entry.commandId !== "string")
           throw new Error("invalid receipt type/role/identity");
         if (entry.sequence === receiptSequence && lastReceipt && JSON.stringify(entry) === JSON.stringify(lastReceipt)) {
           writing = true;
@@ -408,7 +388,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         fsyncSync(receiptFd);
         receiptSequence = entry.sequence;
         lastReceipt = entry;
-        if (entry.type === "completed" || entry.type === "aborted" || entry.type === "dispatch_error") currentDispatch = null;
+        if (isTerminalReceipt(entry.type)) currentDispatch = null;
         socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
       } catch (error) {
         if (writing) receiptFailed = true;

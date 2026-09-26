@@ -30,6 +30,10 @@
       "command": "node --check scripts/m1-herdr-qualification.mjs"
     },
     {
+      "name": "m1-receipt-journal-regression",
+      "command": "node scripts/m1-receipt-journal.test.mjs"
+    },
+    {
       "name": "m1-egress-tls-sni-regression",
       "command": "node scripts/m1-egress-tls.test.mjs"
     },
