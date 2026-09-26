@@ -14,6 +14,7 @@ import { isReceiptType, isTerminalReceipt, recoverAbortIntents, replayReceiptSta
 process.umask(0o077);
 
 const SELF = fileURLToPath(import.meta.url);
+const EGRESS_HELPER = path.join(path.dirname(SELF), "m1-egress-helper.mjs");
 const HERDR_VERSION = "0.9.0";
 const HERDR_SHA256 = "4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f";
 const HERDR_URL = "https://github.com/herdrdev/herdr/releases/download/v0.9.0/herdr-linux-x86_64";
@@ -56,9 +57,7 @@ function run(bin, args, options = {}) {
   return (r.stdout ?? "").trim();
 }
 function egress(action, args) {
-  const helper = process.env.M1_EGRESS_HELPER;
-  if (!helper) throw new Error("Required run-scoped egress firewall/proxy helper is unavailable");
-  const output = run(process.execPath, [executable(helper, "egress policy helper"), action, ...args]);
+  const output = run(process.execPath, [EGRESS_HELPER, action, ...args]);
   let data;
   try { data = JSON.parse(output); } catch { throw new Error(`Egress helper ${action} returned malformed JSON`); }
   record("egress_policy", { action, result: data });
@@ -930,10 +929,9 @@ async function main() {
   record("egress_pidfd_verifier_compiled", { sourceSha256: sha256(readFileSync(egressKillSource)), binarySha256: sha256(readFileSync(egressKillBinary)) });
   record("receipt_peer_auth_verified", { sourceSha256: sha256(readFileSync(peerSource)), binarySha256: sha256(readFileSync(peerBinary)),
     compiler: run("cc", ["--version"]).split("\n")[0] });
-  process.env.M1_EGRESS_HELPER ??= path.join(path.dirname(SELF), "m1-egress-helper.mjs");
-  if (!existsSync(process.env.M1_EGRESS_HELPER)) throw new Error("M1_EGRESS_HELPER must point to the live packet-level firewall/proxy helper");
+  if (!existsSync(EGRESS_HELPER)) throw new Error("Selected egress firewall/proxy helper is unavailable");
   if (!process.env.M1_PROVIDER_HOST || !/^[a-z0-9.-]+$/i.test(process.env.M1_PROVIDER_HOST)) throw new Error("M1_PROVIDER_HOST must name the exact predeclared provider host");
-  record("runtime_binary_digests", { nodeSha256: sha256(readFileSync(runtime.node)), herdrSha256: sha256(readFileSync(runtime.herdr)), ompSha256: sha256(readFileSync(runtime.omp)), addonSha256: sha256(readFileSync(runtime.addon)), bridgeSha256: sha256(readFileSync(path.join(path.dirname(SELF), "m1-herdr-bridge.mjs"))) });
+  record("runtime_binary_digests", { nodeSha256: sha256(readFileSync(runtime.node)), herdrSha256: sha256(readFileSync(runtime.herdr)), ompSha256: sha256(readFileSync(runtime.omp)), addonSha256: sha256(readFileSync(runtime.addon)), bridgeSha256: sha256(readFileSync(path.join(path.dirname(SELF), "m1-herdr-bridge.mjs"))), egressHelperSha256: sha256(readFileSync(EGRESS_HELPER)) });
   record("run_policy_frozen", {
     image: IMAGE, node: NODE_VERSION, omp: OMP_VERSION, herdr: HERDR_VERSION,
     provider: PROVIDER, providerHost: process.env.M1_PROVIDER_HOST, providerPort: process.env.M1_PROVIDER_PORT ?? "443",
@@ -1027,7 +1025,7 @@ async function main() {
         if (activeToolCall || event.toolName !== "bash" || typeof event.toolCallId !== "string") throw new Error("Progress probe did not start exactly one declared bash action");
         activeToolCall = event.toolCallId;
       } else if (event.type === "tool_completed") {
-        if (!activeToolCall || event.toolName !== "bash" || event.toolCallId !== activeToolCall) throw new Error("Progress completion did not match the active bash action");
+        if (!activeToolCall || event.toolName !== "bash" || event.toolCallId !== activeToolCall || event.isError === true) throw new Error("Progress completion did not confirm a successful active bash action");
       } else if (!activeToolCall || event.reply !== "M1_PROGRESS_DONE") {
         throw new Error("Progress probe did not finish with the accepted exact reply");
       }

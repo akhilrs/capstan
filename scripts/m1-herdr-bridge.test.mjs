@@ -28,6 +28,24 @@ function request(socketPath, message) {
     socket.once("error", reject);
   });
 }
+function requestFrames(socketPath, message, count) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let pending = "";
+    const frames = [];
+    socket.once("connect", () => socket.write(`${JSON.stringify(message)}\n`));
+    socket.on("data", (chunk) => {
+      pending += chunk.toString("utf8");
+      for (let at; (at = pending.indexOf("\n")) !== -1;) {
+        frames.push(JSON.parse(pending.slice(0, at)));
+        pending = pending.slice(at + 1);
+        if (frames.length === count) { socket.destroy(); resolve(frames); return; }
+      }
+    });
+    socket.once("error", reject);
+  });
+}
+
 async function waitForJournal(file, expectedTypes) {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (fs.existsSync(file)) {
@@ -105,7 +123,9 @@ try {
   herdrBridge(pi);
   await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
   const command = { type: "dispatch", commandId: "dispatch-fails", assignmentId: "assignment-1", attempt: 1, generation: 1, prompt: "run once" };
-  assert.deepEqual(await request(bridgeSocket, command), { type: "ack", commandId: command.commandId, durable: true, state: "acknowledged" });
+  const [initialAck, dispatchUnknown] = await requestFrames(bridgeSocket, command, 2);
+  assert.deepEqual(initialAck, { type: "ack", commandId: command.commandId, durable: true, state: "acknowledged" });
+  assert.equal(dispatchUnknown.type, "unknown", "the waiting subscriber must learn that dispatch became uncertain");
   await dispatchErrorDurable;
   let status;
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -288,7 +308,9 @@ try {
   failSubmitted = true;
   const submittedUnknown = { ...unknownCommand, commandId: "dispatch-submitted-receipt-fails", assignmentId: "assignment-9" };
   const sendsBeforeSubmittedFailure = sendCount;
-  assert.equal((await request(submittedFailure.socket, submittedUnknown)).state, "acknowledged");
+  const [submittedAck, submittedNotice] = await requestFrames(submittedFailure.socket, submittedUnknown, 2);
+  assert.equal(submittedAck.state, "acknowledged");
+  assert.equal(submittedNotice.type, "unknown");
   await waitForJournal(submittedFailure.file, ["accepted"]);
   assert.equal(sendCount, sendsBeforeSubmittedFailure + 1);
   assert.equal((await request(submittedFailure.socket, submittedUnknown)).state, "unknown");

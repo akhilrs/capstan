@@ -260,6 +260,9 @@ export default function herdrBridge(pi) {
         } catch (receiptError) {
           console.error(`[m1-herdr-bridge] failed dispatch remains unknown; dispatch_error receipt unavailable: ${receiptError?.message ?? receiptError}`);
         }
+        const unknown = { type: "unknown", ...identity(command) };
+        for (const subscriber of commandSockets.get(command.commandId) ?? []) if (!subscriber.destroyed) subscriber.write(`${JSON.stringify(unknown)}\n`);
+        commandSockets.delete(command.commandId);
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
         return;
       }
@@ -270,6 +273,9 @@ export default function herdrBridge(pi) {
         agentStarted = false;
         rows.get(command.commandId).state = "unknown";
         console.error(`[m1-herdr-bridge] submitted receipt unavailable; dispatch may be running, assignment remains unknown: ${error?.message ?? error}`);
+        const unknown = { type: "unknown", ...identity(command) };
+        for (const subscriber of commandSockets.get(command.commandId) ?? []) if (!subscriber.destroyed) subscriber.write(`${JSON.stringify(unknown)}\n`);
+        commandSockets.delete(command.commandId);
       }
     }).catch((error) => {
       console.error(`[m1-herdr-bridge] dispatch failure: ${error?.message ?? error}`);
