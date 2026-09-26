@@ -28,6 +28,16 @@ function request(socketPath, message) {
     socket.once("error", reject);
   });
 }
+async function waitForJournal(file, expectedTypes) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (fs.existsSync(file)) {
+      const rows = fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+      if (rows.map((row) => row.type).join(",") === expectedTypes.join(",")) return rows;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`timed out waiting for durable journal records: ${expectedTypes.join(",")}`);
+}
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m1-bridge-dispatch-error-"));
 const bridgeSocket = path.join(temp, "bridge.sock");
@@ -38,6 +48,7 @@ const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_S
 let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
+let failSend = true;
 let dispatchErrorSeen;
 let dispatchErrorDurable = new Promise((resolve) => { dispatchErrorSeen = resolve; });
 const receiptServer = net.createServer((socket) => {
@@ -65,7 +76,10 @@ const receiptServer = net.createServer((socket) => {
 const handlers = new Map();
 const pi = {
   on(event, handler) { handlers.set(event, handler); },
-  sendUserMessage() { sendCount++; throw new Error("injected dispatch failure"); },
+  sendUserMessage() {
+    sendCount++;
+    if (failSend) throw new Error("injected dispatch failure");
+  },
 };
 
 try {
@@ -115,7 +129,24 @@ try {
   assert.equal(sendCount, 2, "neither failed command may be submitted twice");
   assert.deepEqual(fs.readFileSync(failedJournal, "utf8").trim().split("\n").map((line) => JSON.parse(line).type), ["accepted"]);
   await handlers.get("session_shutdown")();
-  console.log("PASS dispatch failure stays unknown and fail-closed when error receipt persistence fails");
+  const workingBridgeSocket = path.join(temp, "bridge-working.sock");
+  const workingJournal = path.join(temp, "bridge-working.jsonl");
+  fs.closeSync(journalFd);
+  journalFd = fs.openSync(workingJournal, "wx", 0o600);
+  receiptSequence = 0;
+  failDispatchError = false;
+  failSend = false;
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: workingBridgeSocket, CAPSTAN_BRIDGE_JOURNAL: workingJournal });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  const workingCommand = { ...command, commandId: "dispatch-working", assignmentId: "assignment-4" };
+  await request(workingBridgeSocket, workingCommand);
+  await handlers.get("agent_start")();
+  const workingRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working"]);
+  assert.equal(workingRows.at(-1).commandId, workingCommand.commandId);
+  await handlers.get("session_shutdown")();
+  console.log("PASS working acknowledgement follows its durable receipt");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;

@@ -326,7 +326,7 @@ export default function herdrBridge(pi) {
     if (active?.dispatchFailed) return;
     agentStarted = true;
     if (!active) return;
-    rows.get(active.commandId).state = "working";
+    await append("working", { ...identity(active) });
     const workingAck = { type: "ack", commandId: active.commandId, durable: true, state: "working" };
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(workingAck)}\n`);
   }));
