@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-6JyHWT/qualification.jsonl` qualifies runtime commit `46cfe61`; later FORWARD routing, pidfd exit, and bridge-client lifecycle hardening require qualification again. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PENDING final-source rerun.** The previous 10/10/10 PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-6JyHWT/qualification.jsonl` qualifies runtime commit `46cfe61`; later FORWARD routing, pidfd exit, bridge-client lifecycle, and reconnect fixes require qualification again. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 

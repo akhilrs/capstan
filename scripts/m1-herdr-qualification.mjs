@@ -478,6 +478,9 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     }
     throw new Error(`Selected OMP bridge did not expose a connectable Unix socket: ${lastError?.message ?? "no endpoint"}`);
   }
+  async function ensureBridgeConnected() {
+    if (!bridgeSocket || bridgeSocket.destroyed) await connectController();
+  }
   const bridgeExtension = path.resolve(path.dirname(SELF), "m1-herdr-bridge.mjs");
   executable(bridgeExtension, "Selected Herdr bridge extension");
   const bridgeMount = `type=bind,src=${spec.bridge},dst=/bridge`;
@@ -711,8 +714,10 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       await connectController(timeoutMs);
     },
     async reconcileDuplicate(dispatch, expectedEvidenceRef) {
+      await ensureBridgeConnected();
       send(dispatch);
-      const duplicateResult = await waitFrame((x) => x.type === "completed" && x.commandId === dispatch.commandId);
+      const duplicateResult = await waitFrame((x) => x.commandId === dispatch.commandId && ["completed", "unknown"].includes(x.type));
+      if (duplicateResult.type === "unknown") throw new Error(`Duplicate dispatch ${dispatch.commandId} is unknown`);
       verifyCompletionFrame(duplicateResult, spec);
       if (JSON.stringify(duplicateResult.evidenceRef) !== JSON.stringify(expectedEvidenceRef)) throw new Error("Duplicate dispatch changed durable evidence identity");
       const replay = await this.query(dispatch.commandId, 10_000, "completed");
@@ -724,8 +729,8 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       const started = launchedAt;
       const dispatch = { type: "dispatch", commandId, assignmentId, attempt, generation, prompt };
       if (dispatched.has(commandId) || currentDispatch) throw new Error("Controller already owns an active or previously dispatched command identity");
+      await ensureBridgeConnected();
       send(dispatch);
-      const ack = await waitFrame((x) => x.type === "ack" && x.commandId === commandId, deadlineMs);
       if (ack.durable !== true || !["acknowledged", "working", "completed"].includes(ack.state)) throw new Error(`Non-durable/invalid acknowledgement for ${commandId}`);
       const ackMs = monotonicMs() - started;
       record("ack_sample", { commandId, role: spec.role, assignmentId, attempt, generation, milliseconds: ackMs, durable: ack.durable, state: ack.state });
@@ -744,13 +749,16 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       return frame;
     },
     async query(commandId, timeoutMs = 10_000, expectedType = null) {
+      await ensureBridgeConnected();
       send({ type: "get", commandId });
       const frame = await waitFrame((x) => x.commandId === commandId
-        && (expectedType ? x.type === expectedType : ["ack", "completed"].includes(x.type)), timeoutMs);
+        && ((x.type === "ack" && x.state === "unknown") || (expectedType ? x.type === expectedType : ["ack", "completed"].includes(x.type))), timeoutMs);
+      if (frame.type === "ack" && frame.state === "unknown") throw new Error(`Command ${commandId} is unknown`);
       if (frame.type === "completed") verifyCompletionFrame(frame, spec);
       return frame;
     },
-    abort(commandId, timeoutMs = 30_000) {
+    async abort(commandId, timeoutMs = 30_000) {
+      await ensureBridgeConnected();
       if (currentDispatch?.commandId !== commandId || authorizedAborts.has(commandId))
         throw new Error("Abort requires one active controller dispatch");
       const bytes = Buffer.from(`${JSON.stringify({ commandId, ...dispatched.get(commandId) })}\n`);
