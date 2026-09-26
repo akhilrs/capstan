@@ -270,18 +270,50 @@ async function prepare() {
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
 }
+function chainCanAccept(chain, visiting = new Set(), cache = new Map(), knownChains) {
+  if (!knownChains.has(chain)) return true;
+  if (cache.has(chain)) return cache.get(chain);
+  if (visiting.has(chain)) return true;
+  visiting.add(chain);
+  const lines = firewall("-S", chain).split("\n").filter((line) => line.startsWith("-A "));
+  for (const line of lines) {
+    const target = line.match(/(?:^| )-[jg] (\S+)/)?.[1];
+    if (target === "ACCEPT" || line.includes(" -g ")
+      || (target && !["DROP", "REJECT", "RETURN"].includes(target)
+        && chainCanAccept(target, visiting, cache, knownChains))) {
+      visiting.delete(chain);
+      cache.set(chain, true);
+      return true;
+    }
+  }
+  visiting.delete(chain);
+  cache.set(chain, false);
+  return false;
+}
+
 function verifyChainOrder(chain, state) {
   const lines = firewall("-S", chain).split("\n").filter((line) => line.startsWith("-A "));
   const positions = lines.flatMap((line, index) => line.includes(state.policyId) ? [index] : []);
   if (positions.length !== 2 || positions[1] !== positions[0] + 1
     || !lines[positions[0]].endsWith("-j ACCEPT") || !lines[positions[1]].includes(" -j REJECT"))
     throw new Error(`${chain} scoped accept/reject rules are missing or out of order`);
+  const knownChains = new Set(firewall("-S").split("\n").flatMap((line) => {
+    const match = line.match(/^-(?:N|P) (\S+)/);
+    return match ? [match[1]] : [];
+  }));
+  const cache = new Map();
   for (const line of lines.slice(0, positions[0])) {
-    if (!/ -j (?:ACCEPT|RETURN)$/.test(line)) continue;
-    const source = line.match(/(?:^| )-s (\S+)/)?.[1];
-    if (!source || source === state.containerIp || source === `${state.containerIp}/32`
-      || !/--comment "?capstan-m1-[0-9a-f]{24}"? /.test(line))
-      throw new Error(`${chain} has a preceding rule that can bypass the scoped policy`);
+    if (/ -j (?:ACCEPT|RETURN)$/.test(line)) {
+      const source = line.match(/(?:^| )-s (\S+)/)?.[1];
+      if (!source || source === state.containerIp || source === `${state.containerIp}/32`
+        || !/--comment "?capstan-m1-[0-9a-f]{24}"? /.test(line))
+        throw new Error(`${chain} has a preceding rule that can bypass the scoped policy`);
+      continue;
+    }
+    const target = line.match(/(?:^| )-[jg] (\S+)/)?.[1];
+    if (target && (line.includes(" -g ") || (target !== "DROP" && target !== "REJECT"
+      && chainCanAccept(target, new Set(), cache, knownChains))))
+      throw new Error(`${chain} has a preceding jump/goto chain that can accept or bypass traffic before the scoped policy`);
   }
 }
 

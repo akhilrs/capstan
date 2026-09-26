@@ -64,11 +64,11 @@ function egress(action, args) {
 function monotonicMs() { return Number(process.hrtime.bigint()) / 1e6; }
 function safeName(tag) { return `capstan-m1hq-${process.pid}-${++serial}-${tag.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`; }
 function fsyncFile(file) { const fd = openSync(file, "r"); try { fsyncSync(fd); } finally { closeSync(fd); } }
-function independentControllerGet(socketPath, commandId) {
+function independentReconcileClientGet(socketPath, commandId) {
   const source = `const net=require("node:net"); const s=net.createConnection(process.argv[1]); let b=""; const t=setTimeout(()=>process.exit(2),10000); s.on("connect",()=>s.write(JSON.stringify({type:"get",commandId:process.argv[2]})+"\\n")); s.on("data",d=>{b+=d; for(;;){const n=b.indexOf("\\n"); if(n<0)break; const x=JSON.parse(b.slice(0,n)); b=b.slice(n+1); if(x.commandId===process.argv[2]&&x.type==="completed"){clearTimeout(t); process.stdout.write(JSON.stringify(x)); s.end(); return;}}}); s.on("error",e=>{console.error(e.message);process.exit(1)});`;
   const output = run(process.execPath, ["-e", source, socketPath, commandId]);
   const result = JSON.parse(output);
-  if (result.type !== "completed" || result.commandId !== commandId) throw new Error("Fresh controller process could not recover durable completion");
+  if (result.type !== "completed" || result.commandId !== commandId) throw new Error("Fresh reconciliation client could not read durable completion");
   return result;
 }
 function executable(bin, label) { if (!existsSync(bin)) throw new Error(`${label} binary missing: ${bin}`); return realpathSync(bin); }
@@ -221,6 +221,19 @@ function replayReceiptState(entries) {
   }
   return { commands, active, sequence: entries.length, lastReceipt: entries.at(-1) ?? null };
 }
+function verifyCompletionFrame(frame, spec) {
+  if (frame?.type !== "completed" || frame.evidenceRef?.journal !== "/workspace/.home/bridge.jsonl"
+    || !Number.isSafeInteger(frame.evidenceRef.sequence) || frame.evidenceRef.sequence < 1)
+    throw new Error("Completion has no valid controller-owned receipt reference");
+  const journal = recoverControllerJournal(spec.journal, spec.role);
+  const entry = journal[frame.evidenceRef.sequence - 1];
+  if (entry?.type !== "completed" || entry.sequence !== frame.evidenceRef.sequence
+    || entry.commandId !== frame.commandId || entry.assignmentId !== frame.assignmentId
+    || entry.attempt !== frame.attempt || entry.generation !== frame.generation || entry.reply !== frame.reply
+    || JSON.stringify(entry.evidenceRef) !== JSON.stringify(frame.evidenceRef))
+    throw new Error("Completion does not match fsynced controller journal");
+  return frame;
+}
 
 function makeWorkspace(role, label) {
   const base = path.join(root, label);
@@ -280,6 +293,8 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   const receiptPath = path.join(spec.receiptDir, "receipt.sock");
   const dispatched = new Map();
   let currentDispatch = null;
+  const abortIntentPath = path.join(controllerRoot, `${spec.label}.abort-intent.jsonl`);
+  const authorizedAborts = new Set();
   let receiptSequence = 0;
   let lastReceipt = null;
   let injectCompletionDrop = spec.label === "progress-01";
@@ -345,6 +360,8 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
           if (typeof entry.prompt !== "string" || entry.prompt !== currentDispatch.prompt) throw new Error("accepted receipt payload mismatch");
           dispatchedIdentity.accepted = true;
         } else if (!dispatchedIdentity.accepted) throw new Error("receipt precedes accepted dispatch");
+        if (entry.type === "aborted" && !authorizedAborts.has(entry.commandId))
+          throw new Error("abort lacks durable controller authorization");
         if (entry.type === "completed" && injectCompletionDrop) {
           injectCompletionDrop = false;
           record("completion_receipt_transport_dropped", { container: name, commandId: entry.commandId, sequence: entry.sequence });
@@ -429,7 +446,19 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         if (!st.isSocket()) throw new Error("Bridge endpoint is not a Unix socket");
         await new Promise((resolve, reject) => {
           const socket = createConnection(socketPath);
-          socket.once("connect", () => { acceptSocket(socket); resolve(); });
+          socket.once("connect", () => {
+            const fd = socket._handle?.fd;
+            const peer = Number.isSafeInteger(fd) && fd >= 0
+              ? spawnSync(runtime.peerAuth, [], { stdio: ["ignore", "pipe", "pipe", fd], encoding: "utf8", timeout: 5_000 })
+              : null;
+            if (!expectedOMPHostPid || peer?.status !== 0 || Number(peer.stdout?.trim()) !== expectedOMPHostPid) {
+              socket.destroy();
+              reject(new Error("Bridge server peer is not the selected Herdr-hosted OMP process"));
+              return;
+            }
+            acceptSocket(socket);
+            resolve();
+          });
           socket.once("error", reject);
         });
         controllerConnectedAt = monotonicMs();
@@ -517,14 +546,21 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     const ext = "/usr/local/bin/m1-herdr-bridge.mjs";
     const start = ["/usr/local/bin/herdr", "agent", "start", `m1_${spec.label}`, "--kind", "omp", "--pane", pane, "--", "--model", MODEL, "--profile", `m1-${spec.role.toLowerCase()}`, "--cwd", "/workspace", "--extension", ext];
     exec(start);
-    await connectController();
-    const processRows = run("docker", ["top", name, "-eo", "pid,args"]).split("\n");
-    const ompRows = processRows.slice(1).filter((line) => line.includes(ext) && /\somp --model /.test(line)
-      && line.includes(`--profile m1-${spec.role.toLowerCase()}`));
+    const pidDeadline = monotonicMs() + 30_000;
+    let processRows;
+    let ompRows;
+    do {
+      processRows = run("docker", ["top", name, "-eo", "pid,args"]).split("\n");
+      ompRows = processRows.slice(1).filter((line) => line.includes(ext) && /\somp --model /.test(line)
+        && line.includes(`--profile m1-${spec.role.toLowerCase()}`));
+      if (ompRows.length === 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } while (monotonicMs() < pidDeadline);
     if (ompRows.length !== 1) throw new Error(`Expected one Herdr-hosted OMP process for receipt authentication: ${JSON.stringify(processRows)}`);
     expectedOMPHostPid = Number(ompRows[0].trim().split(/\s+/, 1)[0]);
     if (!Number.isSafeInteger(expectedOMPHostPid) || expectedOMPHostPid <= 0) throw new Error("Invalid OMP host PID for receipt authentication");
     record("receipt_peer_bound", { container: name, hostPid: expectedOMPHostPid, extension: ext });
+    await connectController();
     const probePeer = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
       "/usr/local/bin/node", "-e",
       "const s=require('node:net').createConnection('/receipt/receipt.sock'); s.on('error',()=>{}); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(2),3000);"],
@@ -629,6 +665,15 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       receiptSequence = recovered.sequence;
       lastReceipt = recovered.lastReceipt;
       receiptFailed = false;
+      authorizedAborts.clear();
+      if (existsSync(abortIntentPath)) for (const line of readFileSync(abortIntentPath, "utf8").trim().split("\n")) {
+        const intent = JSON.parse(line);
+        const dispatch = dispatched.get(intent.commandId);
+        if (!dispatch || intent.assignmentId !== dispatch.assignmentId || intent.attempt !== dispatch.attempt
+          || intent.generation !== dispatch.generation || authorizedAborts.has(intent.commandId))
+          throw new Error("Invalid durable abort intent during controller recovery");
+        authorizedAborts.add(intent.commandId);
+      }
       receiptFd = openSync(spec.journal, "a", 0o600);
       const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
       if (!receipt) throw new Error("Controller receipt daemon not registered for restart");
@@ -643,15 +688,16 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     },
     controllerConnectedAt,
     name, spec, waitFrame, send, launchedAt,
-    async reconnectController() {
+    async reconnectController(timeoutMs = 30_000) {
       const prior = bridgeSocket;
       bridgeSocket = undefined;
       if (prior && !prior.destroyed) await new Promise((resolve) => { prior.once("close", resolve); prior.destroy(); });
-      await connectController();
+      await connectController(timeoutMs);
     },
     async reconcileDuplicate(dispatch, expectedEvidenceRef) {
       send(dispatch);
       const duplicateResult = await waitFrame((x) => x.type === "completed" && x.commandId === dispatch.commandId);
+      verifyCompletionFrame(duplicateResult, spec);
       if (JSON.stringify(duplicateResult.evidenceRef) !== JSON.stringify(expectedEvidenceRef)) throw new Error("Duplicate dispatch changed durable evidence identity");
       const replay = await this.query(dispatch.commandId, 10_000, "completed");
       if (JSON.stringify(replay.evidenceRef) !== JSON.stringify(expectedEvidenceRef)) throw new Error("get replay changed durable result identity");
@@ -673,10 +719,49 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     async completed(commandId, timeoutMs = 900_000) {
       const frame = await waitFrame((x) => x.type === "completed" && x.commandId === commandId, timeoutMs);
       if (typeof frame.reply !== "string" || !frame.reply.length || !frame.evidenceRef || typeof frame.evidenceRef !== "object") throw new Error(`Completion missing reply/evidenceRef for ${commandId}`);
+      verifyCompletionFrame(frame, spec);
       return frame;
     },
-    query(commandId, timeoutMs = 10_000, expectedType = null) { send({ type: "get", commandId }); return waitFrame((x) => x.commandId === commandId && (expectedType ? x.type === expectedType : ["ack", "completed"].includes(x.type)), timeoutMs); },
-    abort(commandId, timeoutMs = 30_000) { send({ type: "abort", commandId }); return waitFrame((x) => x.commandId === commandId && x.type === "ack" && x.state === "unknown" && x.durable === true, timeoutMs); },
+    async query(commandId, timeoutMs = 10_000, expectedType = null) {
+      send({ type: "get", commandId });
+      const frame = await waitFrame((x) => x.commandId === commandId
+        && (expectedType ? x.type === expectedType : ["ack", "completed"].includes(x.type)), timeoutMs);
+      if (frame.type === "completed") verifyCompletionFrame(frame, spec);
+      return frame;
+    },
+    abort(commandId, timeoutMs = 30_000) {
+      if (currentDispatch?.commandId !== commandId || authorizedAborts.has(commandId))
+        throw new Error("Abort requires one active controller dispatch");
+      const bytes = Buffer.from(`${JSON.stringify({ commandId, ...dispatched.get(commandId) })}\n`);
+      const fd = openSync(abortIntentPath, "a", 0o600);
+      try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      authorizedAborts.add(commandId);
+      record("controller_abort_authorized", { container: name, commandId, intentPath: abortIntentPath });
+      send({ type: "abort", commandId });
+      return waitFrame((x) => x.commandId === commandId && x.type === "ack" && x.state === "unknown" && x.durable === true, timeoutMs);
+    },
+    async probeUnauthorizedAbort(commandId) {
+      if (currentDispatch?.commandId !== commandId || existsSync(abortIntentPath))
+        throw new Error("Unauthorized abort probe requires active work without controller intent");
+      const child = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
+        "/usr/local/bin/node", "-e",
+        "const s=require('node:net').createConnection('/bridge/seat.sock');const timer=setTimeout(()=>process.exit(3),5000);s.on('connect',()=>s.write(JSON.stringify({type:'abort',commandId:process.argv[1]})+'\\n'));s.on('data',b=>{clearTimeout(timer);process.stdout.write(b);s.end()});s.on('error',e=>{console.error(e.message);process.exitCode=2});",
+        commandId], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      let err = "";
+      child.stdout.on("data", (chunk) => { out += chunk; });
+      child.stderr.on("data", (chunk) => { err += chunk; });
+      const exitCode = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", resolve);
+      });
+      let response;
+      try { response = JSON.parse(out.trim()); } catch { throw new Error(`Unauthorized abort produced invalid bridge response: ${out} ${err}`); }
+      if (exitCode !== 0 || response.type !== "error" || !/authorization/.test(response.error)
+        || existsSync(abortIntentPath) || !currentDispatch)
+        throw new Error(`Worker-initiated abort was not rejected: ${out} ${err}`);
+      record("worker_abort_denied", { container: name, commandId, response: response.error });
+    },
     async destroy() {
       const cgroupLocation = cgroupPathFor(name);
       const dockerState = JSON.parse(run("docker", ["inspect", "--format", "{{json .}}", name]));
@@ -857,13 +942,29 @@ async function main() {
     record("ack_completion", { id, role, reply: result.reply, evidenceRef: result.evidenceRef, provider });
     if (i === 0) {
       await seat.reconnectController();
-      const restarted = independentControllerGet(path.join(spec.bridge, "seat.sock"), id);
-      if (JSON.stringify(restarted.evidenceRef) !== JSON.stringify(result.evidenceRef) || restarted.reply !== result.reply) throw new Error("Fresh controller process did not recover exact completion");
+      const restarted = independentReconcileClientGet(path.join(spec.bridge, "seat.sock"), id);
+      if (JSON.stringify(restarted.evidenceRef) !== JSON.stringify(result.evidenceRef) || restarted.reply !== result.reply) throw new Error("Fresh reconciliation client did not read exact completion");
+      verifyCompletionFrame(restarted, spec);
       const duplicate = await seat.reconcileDuplicate(dispatch, result.evidenceRef);
-      record("controller_restart_duplicate_reconciled", { id, freshControllerEvidenceRef: restarted.evidenceRef, duplicateEvidenceRef: duplicate.result.evidenceRef, replayEvidenceRef: duplicate.replay.evidenceRef });
+      record("fresh_client_duplicate_reconciled", { id, freshClientEvidenceRef: restarted.evidenceRef, duplicateEvidenceRef: duplicate.result.evidenceRef, replayEvidenceRef: duplicate.replay.evidenceRef });
     }
     const cleanup = await seat.destroy();
     record("ack_probe_cleaned", { id, cleanup });
+    if (i === 0) {
+      const forged = createServer((socket) => {
+        socket.on("error", () => {});
+        socket.end(`${JSON.stringify({ type: "completed", commandId: id, reply: "FAKE", evidenceRef: result.evidenceRef })}\n`);
+      });
+      await new Promise((resolve, reject) => { forged.once("error", reject); forged.listen(path.join(spec.bridge, "seat.sock"), resolve); });
+      try {
+        let rejected = false;
+        try { await seat.reconnectController(1_000); } catch (error) { rejected = /Bridge server peer/.test(error.message); }
+        if (!rejected) throw new Error("Controller accepted a worker-replaced bridge socket");
+        record("forged_bridge_socket_rejected", { id });
+      } finally {
+        await new Promise((resolve) => forged.close(resolve));
+      }
+    }
   }
 
   // Long-running declared bash actions must emit advancing, command-correlated durable observations.
@@ -937,6 +1038,7 @@ async function main() {
     const writerDeadline = monotonicMs() + 15_000;
     while (!existsSync(writer) && monotonicMs() < writerDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
     if (!existsSync(writer) || statSync(writer).size === 0) throw new Error("Replacement writer never mutated its assigned workspace");
+    if (i === 0) await seat.probeUnauthorizedAbort(id);
     const revocation = monotonicMs();
     const aborted = await seat.abort(id);
     if (aborted.type !== "ack" || aborted.durable !== true || aborted.state !== "unknown") throw new Error("Bridge did not durably revoke the active assignment capability");

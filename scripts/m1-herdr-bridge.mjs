@@ -150,7 +150,8 @@ export default function herdrBridge(pi) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         continue;
       }
-      if (response?.ok !== true || response.sequence !== entry.sequence) throw new Error("Controller did not durably acknowledge bridge receipt");
+      if (response?.ok !== true || response.sequence !== entry.sequence)
+        throw new Error(`Controller did not durably acknowledge bridge receipt: ${String(response?.error ?? "sequence mismatch").slice(0, 256)}`);
       sequence = entry.sequence;
       return entry;
     }
