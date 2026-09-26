@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createReceiptFrameBuffer } from "./m1-receipt-frame.mjs";
 process.umask(0o077);
 
 const SELF = fileURLToPath(import.meta.url);
@@ -98,6 +99,7 @@ function ensureHerdr() {
   else {
     file = path.join(root, "herdr-linux-x86_64");
     run("curl", ["--fail", "--location", "--silent", "--show-error", HERDR_URL, "--output", file]);
+    chmodSync(file, 0o700);
     record("artifact_downloaded", { name: "herdr", url: HERDR_URL });
   }
   const digest = sha256(readFileSync(file));
@@ -344,20 +346,22 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     socket.setTimeout(10_000, () => socket.destroy(new Error("Receipt request timed out")));
     socket.on("error", () => {});
     let writing = false;
-    let pending = "";
     let replied = false;
+    const frameBuffer = createReceiptFrameBuffer(1_048_576);
     socket.on("data", (chunk) => {
-      if (replied) return;
-      pending += chunk.toString("utf8");
-      const end = pending.indexOf("\n");
-      if (end < 0) {
-        if (Buffer.byteLength(pending) > 1_048_576) socket.destroy();
+      if (replied) { socket.destroy(); return; }
+      let line;
+      try { line = frameBuffer.push(chunk); }
+      catch (error) {
+        replied = true;
+        socket.end(`${JSON.stringify({ ok: false, error: String(error?.message ?? error) })}\n`);
         return;
       }
+      if (line === null) return;
       replied = true;
       try {
         if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
-        const entry = JSON.parse(pending.slice(0, end));
+        const entry = JSON.parse(line);
         if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== spec.role
           || !receiptTypes.has(entry.type) || typeof entry.commandId !== "string")
           throw new Error("invalid receipt type/role/identity");

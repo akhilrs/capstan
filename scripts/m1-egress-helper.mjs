@@ -8,6 +8,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sniFromHello } from "./m1-egress-tls.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const DIR = path.join(os.tmpdir(), `capstan-m1-egress-${process.getuid()}`);
@@ -112,44 +113,6 @@ function removePolicy(state) {
   rmSync(state.audit, { force: true });
   const fd = openSync(DIR, "r");
   try { fsyncSync(fd); } finally { closeSync(fd); }
-}
-function sniFromHello(data) {
-  if (data.length < 5) return null;
-  if (data[0] !== 22 || data[1] !== 3) throw new Error("CONNECT did not start with a TLS ClientHello");
-  const recordEnd = 5 + data.readUInt16BE(3);
-  if (recordEnd > MAX_HELLO) throw new Error("TLS ClientHello too large");
-  if (data.length < recordEnd) return null;
-  let cursor = 5;
-  if (data[cursor++] !== 1) throw new Error("Expected a TLS ClientHello");
-  const helloLength = data.readUIntBE(cursor, 3); cursor += 3;
-  if (cursor + helloLength > recordEnd) throw new Error("Fragmented TLS ClientHello is not accepted");
-  const end = cursor + helloLength;
-  const take = (count) => { if (cursor + count > end) throw new Error("Malformed TLS ClientHello"); const at = cursor; cursor += count; return at; };
-  take(2 + 32);
-  const sessionLength = data[take(1)]; take(sessionLength);
-  const cipherLength = data.readUInt16BE(take(2)); take(cipherLength);
-  const compressionLength = data[take(1)]; take(compressionLength);
-  const extensionsLength = data.readUInt16BE(take(2));
-  const extensionsEnd = cursor + extensionsLength;
-  if (extensionsEnd !== end) throw new Error("Malformed TLS extensions");
-  while (cursor < extensionsEnd) {
-    const kind = data.readUInt16BE(take(2));
-    const length = data.readUInt16BE(take(2));
-    const extensionEnd = cursor + length;
-    if (extensionEnd > extensionsEnd) throw new Error("Malformed TLS extension length");
-    if (kind === 0) {
-      const namesLength = data.readUInt16BE(take(2));
-      const namesEnd = cursor + namesLength;
-      if (namesEnd !== extensionEnd) throw new Error("Malformed TLS SNI list");
-      if (data[take(1)] !== 0) throw new Error("TLS SNI is not a hostname");
-      const nameLength = data.readUInt16BE(take(2));
-      const name = data.subarray(take(nameLength), cursor).toString("ascii");
-      if (cursor !== namesEnd) throw new Error("Expected exactly one TLS SNI hostname");
-      return name;
-    }
-    cursor = extensionEnd;
-  }
-  throw new Error("TLS SNI missing");
 }
 function publicIPv4(ip) {
   if (net.isIP(ip) !== 4) return false;
