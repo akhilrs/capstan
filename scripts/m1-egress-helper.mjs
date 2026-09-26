@@ -305,7 +305,8 @@ function verifyChainOrder(chain, state) {
   for (const line of lines.slice(0, positions[0])) {
     if (/ -j (?:ACCEPT|RETURN)$/.test(line)) {
       const source = line.match(/(?:^| )-s (\S+)/)?.[1];
-      if (!source || source === state.containerIp || source === `${state.containerIp}/32`
+      if (!source || !/^(?:\d{1,3}\.){3}\d{1,3}(?:\/32)?$/.test(source)
+        || /(?:^| )! -s /.test(line) || source.split("/")[0] === state.containerIp
         || !/--comment "?capstan-m1-[0-9a-f]{24}"? /.test(line))
         throw new Error(`${chain} has a preceding rule that can bypass the scoped policy`);
       continue;
