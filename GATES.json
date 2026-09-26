@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "name": "m1-runtime-probe-syntax",
+      "command": "node --check scripts/m1-runtime-probe.mjs"
+    },
+    {
+      "name": "m1-controller-restart-probe-syntax",
+      "command": "node --check scripts/m1-controller-restart-probe.mjs"
+    }
+  ]
+}
