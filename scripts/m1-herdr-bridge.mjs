@@ -181,7 +181,7 @@ export default function herdrBridge(pi) {
 
   function snapshot(commandId) {
     const row = rows.get(commandId);
-    if (!row) return { type: "ack", commandId, durable: true, state: "unknown" };
+    if (!row) return { type: "ack", commandId, durable: false, state: "unknown" };
     if (row.state === "completed") return { type: "completed", ...identity(row.accepted), reply: row.result, evidenceRef: row.evidenceRef };
     return { type: "ack", commandId, durable: true, state: row.state };
   }
@@ -213,7 +213,7 @@ export default function herdrBridge(pi) {
     if (request.type === "get") return snapshot(request.commandId);
     const row = rows.get(request.commandId);
     if (request.type === "abort") {
-      if (!row) return { type: "ack", commandId: request.commandId, durable: true, state: "unknown" };
+      if (!row) return snapshot(request.commandId);
       if (row.state === "completed" || (row.state === "unknown" && active?.commandId !== request.commandId)) return snapshot(request.commandId);
       if (active?.commandId === request.commandId && !row.aborted) {
         await append("aborted", { ...identity(active) });
@@ -283,18 +283,28 @@ export default function herdrBridge(pi) {
   }
 
   function serveSocket(socket) {
+    if (clients.size >= 64) {
+      socket.end(`${JSON.stringify({ type: "error", error: "too many bridge clients" })}\n`);
+      return;
+    }
+    let failed = false;
     clients.add(socket);
     socket.once("close", () => clients.delete(socket));
     let pending = Buffer.alloc(0);
-    let failed = false;
+    let receivedFrames = 0;
     socket.on("data", (chunk) => {
       if (failed) return;
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let at;
       while ((at = pending.indexOf(0x0a)) !== -1) {
+        if (++receivedFrames > 2) {
+          failed = true;
+          socket.end(`${JSON.stringify({ type: "error", error: "too many requests on one connection" })}\n`);
+          return;
+        }
         const line = pending.subarray(0, at);
         pending = pending.subarray(at + 1);
-        if (!line.length || line.length > MAX_LINE_BYTES) {
+        if (!line.length || line.length + 1 > MAX_LINE_BYTES) {
           failed = true; socket.end(`${JSON.stringify({ type: "error", error: "invalid request line" })}\n`); return;
         }
         try {
@@ -317,7 +327,7 @@ export default function herdrBridge(pi) {
           return;
         }
       }
-      if (pending.length > MAX_LINE_BYTES) {
+      if (pending.length + 1 > MAX_LINE_BYTES) {
         failed = true; socket.end(`${JSON.stringify({ type: "error", error: "request line too large" })}\n`);
       }
     });
@@ -414,7 +424,10 @@ export default function herdrBridge(pi) {
     const toolName = typeof event?.toolName === "string" ? event.toolName : "unknown";
     const toolCallId = typeof event?.toolCallId === "string" ? event.toolCallId : "unknown";
     const prior = active.toolCalls?.get(toolCallId);
-    if (!prior || prior.toolName !== toolName) return;
+    if (!prior || prior.toolName !== toolName) {
+      toolReceiptUnavailable(active, "unmatched tool_completed", new Error("Tool completion has no matching durable start"));
+      return;
+    }
     let entry;
     try {
       entry = await append("tool_completed", { ...identity(active), toolName, toolCallId, startSequence: prior.startSequence, isError: event?.isError === true, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
@@ -447,6 +460,10 @@ export default function herdrBridge(pi) {
     lastTurnMessage = null;
     const content = Array.isArray(assistant?.content) ? assistant.content : [];
     const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
+    if (command.toolCalls?.size) {
+      toolReceiptUnavailable(command, "unfinished tool", new Error("Agent ended before a durable tool completion"));
+      return;
+    }
     if (!assistant || reply.trim().length === 0) {
       // Unknown is not proof of containment; keep the slot reserved until a terminal receipt is durable.
       command.dispatchFailed = true;

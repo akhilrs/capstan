@@ -732,9 +732,13 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       if (ackMs > LIMITS.ackMs) throw new Error(`Acknowledgement exceeded 120s (${ackMs}ms)`);
       return { ack, ackMs };
     },
+    async lifecycle(commandId, types, timeoutMs) {
+      const frame = await waitFrame((x) => x.commandId === commandId && (x.type === "unknown" || types.includes(x.type)), timeoutMs);
+      if (frame.type === "unknown") throw new Error(`Command ${commandId} became unknown before ${types.join("/")}`);
+      return frame;
+    },
     async completed(commandId, timeoutMs = 900_000) {
-      const frame = await waitFrame((x) => x.commandId === commandId && ["completed", "unknown"].includes(x.type), timeoutMs);
-      if (frame.type === "unknown") throw new Error(`Command ${commandId} became unknown before completion`);
+      const frame = await this.lifecycle(commandId, ["completed"], timeoutMs);
       if (typeof frame.reply !== "string" || !frame.reply.length || !frame.evidenceRef || typeof frame.evidenceRef !== "object") throw new Error(`Completion missing reply/evidenceRef for ${commandId}`);
       verifyCompletionFrame(frame, spec);
       return frame;
@@ -1025,7 +1029,7 @@ async function main() {
     const seenEvidence = new Set();
     let activeToolCall = null;
     while (true) {
-      const event = await seat.waitFrame((x) => x.commandId === id && ["tool_started", "tool_completed", "completed"].includes(x.type), LIMITS.progressMs);
+      const event = await seat.lifecycle(id, ["tool_started", "tool_completed", "completed"], LIMITS.progressMs);
       if (event.assignmentId !== assignmentId || event.attempt !== 1 || event.generation !== 1) throw new Error(`Progress event identity mismatch: ${JSON.stringify(event)}`);
       if (!event.evidenceRef || typeof event.evidenceRef.journal !== "string" || !Number.isSafeInteger(event.evidenceRef.sequence)) throw new Error(`Progress event lacks immutable evidence identity: ${JSON.stringify(event)}`);
       const ref = `${event.evidenceRef.journal}:${event.evidenceRef.sequence}`;
@@ -1073,7 +1077,7 @@ async function main() {
     const prompt = "Use the bash tool to run this bounded foreground command and do not return before it starts: trap '' TERM; for i in $(seq 1 300); do printf x >> /workspace/writer.log; sleep 0.1; done. This loop writes at most 300 bytes and exits after at most 30 seconds; its TERM-ignoring process must be contained before restoring the workspace.";
     const dispatch = { type: "dispatch", commandId: id, assignmentId, attempt: 1, generation: 1, prompt };
     await seat.command(dispatch);
-    const started = await seat.waitFrame((x) => x.type === "tool_started" && x.commandId === id, 60_000);
+    const started = await seat.lifecycle(id, ["tool_started"], 60_000);
     if (started.assignmentId !== assignmentId || started.attempt !== 1 || started.generation !== 1 || started.toolName !== "bash" || typeof started.toolCallId !== "string" || !started.evidenceRef) {
       throw new Error("Replacement writer did not produce qualifying correlated bash-start evidence");
     }
@@ -1112,8 +1116,8 @@ async function main() {
     const replacementPrompt = "Use a tool to write exactly M1_REPLACEMENT_READY followed by a newline to /workspace/replacement.started, then reply exactly M1_REPLACEMENT_READY.";
     const replacementDispatch = { type: "dispatch", commandId: replacementId, assignmentId: replacementAssignment, attempt: 1, generation: 1, prompt: replacementPrompt };
     await replacement.command(replacementDispatch);
-    const restoredStart = await replacement.waitFrame((x) => x.type === "tool_started" && x.commandId === replacementId, 60_000);
-    const restoredTool = await replacement.waitFrame((x) => x.type === "tool_completed" && x.commandId === replacementId, 60_000);
+    const restoredStart = await replacement.lifecycle(replacementId, ["tool_started"], 60_000);
+    const restoredTool = await replacement.lifecycle(replacementId, ["tool_completed"], 60_000);
     const restoredResult = await replacement.completed(replacementId, 60_000);
     if (restoredStart.assignmentId !== replacementAssignment || restoredStart.attempt !== 1 || restoredStart.generation !== 1
       || typeof restoredStart.toolName !== "string" || !restoredStart.toolName || !restoredStart.evidenceRef

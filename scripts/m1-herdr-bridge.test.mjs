@@ -128,6 +128,10 @@ try {
   await listen(receiptServer, receiptSocket);
   herdrBridge(pi);
   await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  const absentStatus = await request(bridgeSocket, { type: "get", commandId: "never-accepted-command" });
+  assert.equal(absentStatus.durable, false, "a missing command has no durable acceptance receipt");
+  assert.equal((await request(bridgeSocket, { type: "abort", commandId: "never-accepted-command" })).durable, false,
+    "an abort response cannot imply acceptance for a missing command");
   const command = { type: "dispatch", commandId: "dispatch-fails", assignmentId: "assignment-1", attempt: 1, generation: 1, prompt: "run once" };
   const [initialAck, dispatchUnknown] = await requestFrames(bridgeSocket, command, 2);
   assert.deepEqual(initialAck, { type: "ack", commandId: command.commandId, durable: true, state: "acknowledged" });
@@ -393,6 +397,20 @@ try {
   assert.equal((await request(toolEndFailure.socket, { ...toolEndCommand, commandId: "after-tool-end-failure" })).type, "error");
   await handlers.get("session_shutdown")();
   failToolCompleted = false;
+
+  const unfinishedTool = await isolated("bridge-unfinished-tool");
+  const unfinishedCommand = { ...unknownCommand, commandId: "agent-ended-before-tool-receipt", assignmentId: "assignment-17" };
+  const unfinishedNotices = requestFrames(unfinishedTool.socket, unfinishedCommand, 4);
+  await waitForJournal(unfinishedTool.file, ["accepted", "submitted"]);
+  await handlers.get("agent_start")();
+  await waitForJournal(unfinishedTool.file, ["accepted", "submitted", "working"]);
+  await handlers.get("tool_execution_start")({ toolName: "bash", toolCallId: "unfinished-1" });
+  await waitForJournal(unfinishedTool.file, ["accepted", "submitted", "working", "tool_started"]);
+  handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "MISLEADING_SUCCESS" }] } });
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  assert.deepEqual((await unfinishedNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "tool_started", "unknown"]);
+  assert.equal((await request(unfinishedTool.socket, { type: "get", commandId: unfinishedCommand.commandId })).state, "unknown");
+  await handlers.get("session_shutdown")();
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {
