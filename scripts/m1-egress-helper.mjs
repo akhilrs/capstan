@@ -46,11 +46,29 @@ function acceptArgs(state) {
 function rejectArgs(state) {
   return ["DOCKER-USER", "-s", state.containerIp, "-m", "comment", "--comment", state.policyId, "-j", "REJECT"];
 }
+function inputAcceptArgs(state) {
+  return ["INPUT", "-s", state.containerIp, "-d", state.gateway, "-p", "tcp", "--dport", String(state.port), "-m", "comment", "--comment", state.policyId, "-j", "ACCEPT"];
+}
+function inputRejectArgs(state) {
+  return ["INPUT", "-s", state.containerIp, "-m", "comment", "--comment", state.policyId, "-j", "REJECT"];
+}
 function hasRule(args) {
   const result = spawnSync("sudo", ["-n", IPTABLES, "-C", ...args], { encoding: "utf8", timeout: 10_000 });
   if (result.status === 0) return true;
   if (result.status === 1 && /Bad rule|does a matching rule exist/i.test(result.stderr)) return false;
   throw new Error(`Could not check firewall rule: ${result.stderr.trim() || result.error?.message || result.status}`);
+}
+function insertIfAbsent(args) {
+  if (!hasRule(args)) firewall("-I", args[0], "1", ...args.slice(1));
+}
+function deleteAll(args) {
+  while (hasRule(args)) firewall("-D", ...args);
+}
+function installPolicy(state) {
+  insertIfAbsent(rejectArgs(state));
+  insertIfAbsent(acceptArgs(state));
+  insertIfAbsent(inputRejectArgs(state));
+  insertIfAbsent(inputAcceptArgs(state));
 }
 function syncFile(file, content) {
   const fd = openSync(file, "wx", 0o600);
@@ -72,8 +90,10 @@ function readState(id, policyId) {
   return state;
 }
 function removePolicy(state) {
-  if (hasRule(acceptArgs(state))) firewall("-D", ...acceptArgs(state));
-  if (hasRule(rejectArgs(state))) firewall("-D", ...rejectArgs(state));
+  deleteAll(inputAcceptArgs(state));
+  deleteAll(inputRejectArgs(state));
+  deleteAll(acceptArgs(state));
+  deleteAll(rejectArgs(state));
   try { process.kill(state.pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; }
   rmSync(location(state.container), { force: true });
   rmSync(state.audit, { force: true });
@@ -242,8 +262,7 @@ async function prepare() {
   const state = { container, containerIp, gateway, port, host, providerPort, policyId, pid: child.pid, audit };
   try {
     syncFile(location(container), JSON.stringify(state));
-    firewall("-I", ...rejectArgs(state).slice(0, 1), "1", ...rejectArgs(state).slice(1));
-    firewall("-I", ...acceptArgs(state).slice(0, 1), "1", ...acceptArgs(state).slice(1));
+    installPolicy(state);
     await verifyState(state);
   } catch (error) {
     try { removePolicy(state); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Egress preparation and cleanup both failed"); }
@@ -252,11 +271,19 @@ async function prepare() {
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
 }
 async function verifyState(state) {
-  if (!hasRule(acceptArgs(state)) || !hasRule(rejectArgs(state))) throw new Error("Egress firewall rules are absent");
-  const lines = firewall("-S", "DOCKER-USER").split("\n").filter((line) => line.startsWith("-A "));
-  if (!lines[0]?.includes(state.policyId) || !lines[0]?.endsWith("-j ACCEPT")
-    || !lines[1]?.includes(state.policyId) || !lines[1]?.includes(" -j REJECT")) {
+  if (!hasRule(acceptArgs(state)) || !hasRule(rejectArgs(state))
+    || !hasRule(inputAcceptArgs(state)) || !hasRule(inputRejectArgs(state))) {
+    throw new Error("Egress firewall rules are absent");
+  }
+  const dockerLines = firewall("-S", "DOCKER-USER").split("\n").filter((line) => line.startsWith("-A "));
+  if (!dockerLines[0]?.includes(state.policyId) || !dockerLines[0]?.endsWith("-j ACCEPT")
+    || !dockerLines[1]?.includes(state.policyId) || !dockerLines[1]?.includes(" -j REJECT")) {
     throw new Error("Egress rules do not precede other Docker forwarding rules");
+  }
+  const inputLines = firewall("-S", "INPUT").split("\n").filter((line) => line.startsWith("-A "));
+  if (!inputLines[0]?.includes(state.policyId) || !inputLines[0]?.endsWith("-j ACCEPT")
+    || !inputLines[1]?.includes(state.policyId) || !inputLines[1]?.includes(" -j REJECT")) {
+    throw new Error("Host INPUT rules do not precede broader host rules");
   }
   try { process.kill(state.pid, 0); } catch { throw new Error("Egress proxy process is absent"); }
   let providerConnections = 0;
@@ -278,7 +305,8 @@ async function verifyState(state) {
     }
   }
   return { container: state.container, policyId: state.policyId, proxy: `http://${state.gateway}:${state.port}`,
-    providerHost: state.host, providerPort: state.providerPort, providerConnections, proxyEvents, firewall: "DOCKER-USER accept-proxy-then-reject" };
+    providerHost: state.host, providerPort: state.providerPort, providerConnections, proxyEvents,
+    firewall: { forwarding: "DOCKER-USER accept-proxy-then-reject", hostInput: "INPUT accept-proxy-then-reject" } };
 }
 async function main() {
   const action = process.argv[2];
@@ -298,7 +326,24 @@ async function main() {
     if (attempt.status === null || attempt.status === 0 || attempt.status === 124 || !/connect:|refused|unreachable|denied/i.test(attempt.stderr)) {
       throw new Error(`Direct outbound probe inconclusive (exit ${attempt.status}): ${attempt.stderr.trim()}`);
     }
-    console.log(JSON.stringify({ denied: true, policyId, attempted: "1.1.1.1:443", exitCode: attempt.status }));
+    const listener = net.createServer((socket) => socket.destroy());
+    await new Promise((resolve, reject) => {
+      listener.once("error", reject);
+      listener.listen(0, state.gateway, resolve);
+    });
+    let hostAttempt;
+    const hostPort = listener.address().port;
+    try {
+      hostAttempt = spawnSync("docker", ["exec", container, "/usr/bin/timeout", "3", "/bin/bash", "-c", `exec 3<>/dev/tcp/${state.gateway}/${hostPort}`],
+        { encoding: "utf8", timeout: 7000 });
+    } finally {
+      await new Promise((resolve) => listener.close(resolve));
+    }
+    if (hostAttempt.status === null || hostAttempt.status === 0 || hostAttempt.status === 124
+      || !/connect:|refused|unreachable|denied/i.test(hostAttempt.stderr)) {
+      throw new Error(`Host INPUT probe inconclusive (exit ${hostAttempt.status}): ${hostAttempt.stderr.trim()}`);
+    }
+    console.log(JSON.stringify({ denied: true, hostDenied: true, policyId, attempted: "1.1.1.1:443", hostAttempted: `${state.gateway}:${hostPort}`, exitCode: attempt.status, hostExitCode: hostAttempt.status }));
     return;
   }
   if (action === "cleanup") { removePolicy(state); console.log(JSON.stringify({ removed: true, policyId })); return; }

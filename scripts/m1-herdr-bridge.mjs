@@ -29,10 +29,6 @@ function byteLength(value) {
   return Buffer.byteLength(value, "utf8");
 }
 
-function syncDirectory(directory) {
-  const fd = fs.openSync(directory, "r");
-  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-}
 async function clearStaleSocket(socketPath) {
   let stat;
   try { stat = fs.lstatSync(socketPath); } catch (error) { if (error?.code === "ENOENT") return; throw error; }
@@ -54,15 +50,14 @@ async function clearStaleSocket(socketPath) {
 }
 
 function recoverJournal(file, role) {
-  const existed = fs.existsSync(file);
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  let fd = fs.openSync(file, "a+", 0o600);
-  if (!existed) syncDirectory(path.dirname(file));
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   let bytes;
-  try { bytes = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error("Bridge journal is not a regular file");
+    bytes = fs.readFileSync(fd);
+  } finally { fs.closeSync(fd); }
   const rows = new Map();
   let offset = 0;
-  let goodEnd = 0;
   let sequence = 0;
   while (offset < bytes.length) {
     const newline = bytes.indexOf(0x0a, offset);
@@ -95,13 +90,9 @@ function recoverJournal(file, role) {
     } else {
       throw new Error(`unknown journal record type at byte ${offset}`);
     }
-    goodEnd = newline + 1;
-    offset = newline + 1;
   }
-  if (goodEnd !== bytes.length) {
-    fd = fs.openSync(file, "r+");
-    try { fs.ftruncateSync(fd, goodEnd); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  }
+  // The controller owns and repairs its journal. A partial tail is ignored on
+  // replay; a worker must never truncate or otherwise mutate this read-only file.
   return { rows, sequence };
 }
 
@@ -129,19 +120,27 @@ export default function herdrBridge(pi) {
     return next;
   };
 
-  function append(type, fields) {
-    const entry = { sequence: ++sequence, timestamp: new Date().toISOString(), type, role, ...fields };
+  async function append(type, fields) {
+    const entry = { sequence: sequence + 1, timestamp: new Date().toISOString(), type, role, ...fields };
+    const socket = net.createConnection(path.join(path.dirname(socketPath), "receipt.sock"));
     const line = `${JSON.stringify(entry)}\n`;
-    const fd = fs.openSync(journalPath, "a", 0o600);
-    try {
-      const bytes = Buffer.from(line);
-      for (let offset = 0; offset < bytes.length;) {
-        const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
-        if (written <= 0) throw new Error("Bridge journal write made no progress");
-        offset += written;
-      }
-      fs.fsyncSync(fd);
-    } finally { fs.closeSync(fd); }
+    const response = await new Promise((resolve, reject) => {
+      let pending = "";
+      const timer = setTimeout(() => { socket.destroy(); reject(new Error("Controller receipt acknowledgement timed out")); }, 10_000);
+      socket.once("connect", () => socket.write(line));
+      socket.on("data", (chunk) => {
+        pending += chunk.toString("utf8");
+        const end = pending.indexOf("\n");
+        if (end < 0) return;
+        clearTimeout(timer);
+        try { resolve(JSON.parse(pending.slice(0, end))); } catch (error) { reject(error); }
+        socket.end();
+      });
+      socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+      socket.once("close", () => { clearTimeout(timer); });
+    });
+    if (response?.ok !== true || response.sequence !== entry.sequence) throw new Error("Controller did not durably acknowledge bridge receipt");
+    sequence = entry.sequence;
     return entry;
   }
 
@@ -186,7 +185,7 @@ export default function herdrBridge(pi) {
       if (!row) return { type: "ack", commandId: request.commandId, durable: true, state: "unknown" };
       if (row.state === "completed" || row.state === "unknown") return snapshot(request.commandId);
       if (active?.commandId === request.commandId) {
-        append("aborted", { ...identity(active) });
+        await append("aborted", { ...identity(active) });
         row.state = "unknown";
         active = null;
         try { ctxRef.abort(); } catch (error) { console.error(`[m1-herdr-bridge] abort failed: ${error?.message ?? error}`); }
@@ -199,7 +198,7 @@ export default function herdrBridge(pi) {
     }
     if (active) fail("another assignment is active");
     if (!ctxRef?.isIdle?.()) fail("OMP session is not idle for a new assignment");
-    const accepted = append("accepted", { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt });
+    const accepted = await append("accepted", { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt });
     const newRow = { accepted, state: "acknowledged" };
     rows.set(request.commandId, newRow);
     active = { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt };
@@ -218,11 +217,10 @@ export default function herdrBridge(pi) {
       if (shuttingDown || active?.commandId !== payload.commandId) return;
       try {
         pi.sendUserMessage(active.prompt);
-        append("submitted", { ...identity(active) });
+        await append("submitted", { ...identity(active) });
       } catch (error) {
         // Preserve the accepted identity: a restart/retry must reconcile, never submit it blindly.
-        append("dispatch_error", { ...identity(active), error: String(error?.message ?? error).slice(0, 2048) });
-        rows.get(active.commandId).state = "unknown";
+        await append("dispatch_error", { ...identity(active), error: String(error?.message ?? error).slice(0, 2048) });
         active = null;
         console.error(`[m1-herdr-bridge] dispatch failed: ${error?.message ?? error}`);
       }
@@ -302,33 +300,33 @@ export default function herdrBridge(pi) {
     fs.chmodSync(socketPath, 0o600);
   });
 
-  pi.on("agent_start", async () => enqueueEvent(() => {
+  pi.on("agent_start", async () => enqueueEvent(async () => {
     agentStarted = true;
     if (!active) return;
-    append("working", { ...identity(active) });
+    await append("working", { ...identity(active) });
     rows.get(active.commandId).state = "working";
     const workingAck = { type: "ack", commandId: active.commandId, durable: true, state: "working" };
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(workingAck)}\n`);
   }));
 
-  pi.on("tool_execution_start", async (event) => enqueueEvent(() => {
+  pi.on("tool_execution_start", async (event) => enqueueEvent(async () => {
     if (!active || !agentStarted) return;
     const toolName = typeof event?.toolName === "string" ? event.toolName : "unknown";
     const toolCallId = typeof event?.toolCallId === "string" ? event.toolCallId : "unknown";
-    const entry = append("tool_started", { ...identity(active), toolName, toolCallId, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    const entry = await append("tool_started", { ...identity(active), toolName, toolCallId, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
     active.toolCalls ??= new Map();
     active.toolCalls.set(toolCallId, { toolName, startSequence: entry.sequence });
     const progress = { type: "tool_started", ...identity(active), toolName, toolCallId, evidenceRef: evidence(entry) };
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(progress)}\n`);
   }));
 
-  pi.on("tool_execution_end", async (event) => enqueueEvent(() => {
+  pi.on("tool_execution_end", async (event) => enqueueEvent(async () => {
     if (!active || !agentStarted) return;
     const toolName = typeof event?.toolName === "string" ? event.toolName : "unknown";
     const toolCallId = typeof event?.toolCallId === "string" ? event.toolCallId : "unknown";
     const prior = active.toolCalls?.get(toolCallId);
     if (!prior || prior.toolName !== toolName) return;
-    const entry = append("tool_completed", { ...identity(active), toolName, toolCallId, startSequence: prior.startSequence, isError: event?.isError === true, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    const entry = await append("tool_completed", { ...identity(active), toolName, toolCallId, startSequence: prior.startSequence, isError: event?.isError === true, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
     active.toolCalls.delete(toolCallId);
     // Store evidence identity on the corresponding durable row for audit consumers.
     rows.get(active.commandId).lastToolEvidenceRef = evidence(entry);
@@ -336,7 +334,7 @@ export default function herdrBridge(pi) {
     for (const socket of commandSockets.get(active.commandId) ?? []) if (!socket.destroyed) socket.write(`${JSON.stringify(progress)}\n`);
   }));
 
-  pi.on("agent_end", async (event) => enqueueEvent(() => {
+  pi.on("agent_end", async (event) => enqueueEvent(async () => {
     if (event?.willContinue === true) return;
     const completedRun = agentStarted;
     agentStarted = false;
@@ -350,7 +348,7 @@ export default function herdrBridge(pi) {
     const content = Array.isArray(assistant.content) ? assistant.content : [];
     const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
     const command = active;
-    const entry = append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
+    const entry = await append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
     const row = rows.get(command.commandId);
     row.state = "completed";
     row.result = reply;

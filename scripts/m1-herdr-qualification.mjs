@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { createConnection } from "node:net";
+import { createServer, createConnection } from "node:net";
 import {
-  closeSync, constants, copyFileSync, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync,
+  chmodSync, closeSync, constants, copyFileSync, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync,
   mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeSync,
 } from "node:fs";
 import os from "node:os";
@@ -34,6 +34,7 @@ const containers = new Set();
 const networks = new Set();
 const egressPolicies = new Map();
 const diagnosticPanes = new Map();
+const receiptDaemons = new Set();
 let serial = 0;
 let failed = false;
 let terminalError = null;
@@ -174,11 +175,18 @@ function makeWorkspace(role, label) {
   const base = path.join(root, label);
   const workspace = path.join(base, "workspace");
   const bridge = path.join(base, "bridge");
+  const journal = path.join(controllerRoot, `${label}.bridge.jsonl`);
+  mkdirSync(controllerRoot, { recursive: true, mode: 0o700 });
+  mkdirSync(path.dirname(journal), { recursive: true, mode: 0o700 });
+  const journalFd = openSync(journal, "wx", 0o600);
+  fsyncSync(journalFd);
+  closeSync(journalFd);
+  syncDir(controllerRoot);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
   mkdirSync(path.join(workspace, ".home"), { mode: 0o700 });
   mkdirSync(bridge, { recursive: true, mode: 0o700 });
   if (workspace.startsWith(controllerRoot)) throw new Error("Controller state mount boundary failure");
-  return { workspace, bridge, role, label };
+  return { workspace, bridge, journal, role, label };
 }
 
 function cgroupPathFor(container) {
@@ -217,11 +225,80 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   if (!providerHost || !/^[a-z0-9.-]+$/i.test(providerHost) || !/^\d+$/.test(providerPort) || Number(providerPort) < 1 || Number(providerPort) > 65535) throw new Error("Set exact M1_PROVIDER_HOST and valid M1_PROVIDER_PORT for provider allowlisting");
   const socketPath = path.join(spec.bridge, "seat.sock");
   let bridgeSocket;
-  let controllerConnectedAt = null;
+  const receiptPath = path.join(spec.bridge, "receipt.sock");
+  const dispatched = new Map();
+  let currentDispatch = null;
+  let receiptSequence = 0;
+  let receiptFailed = false;
+  let receiptServer;
+  const receiptFd = openSync(spec.journal, "a", 0o600);
+  const receiptTypes = new Set(["accepted", "submitted", "working", "tool_started", "tool_completed", "aborted", "dispatch_error", "completed"]);
+  receiptServer = createServer((socket) => {
+    let writing = false;
+    let pending = "";
+    let replied = false;
+    socket.on("data", (chunk) => {
+      if (replied) return;
+      pending += chunk.toString("utf8");
+      const end = pending.indexOf("\n");
+      if (end < 0) {
+        if (Buffer.byteLength(pending) > 1_048_576) socket.destroy();
+        return;
+      }
+      replied = true;
+      try {
+        if (receiptFailed) throw new Error("receipt journal is poisoned after a failed durable write");
+        const entry = JSON.parse(pending.slice(0, end));
+        if (!entry || typeof entry !== "object" || Array.isArray(entry) || entry.role !== spec.role
+          || !receiptTypes.has(entry.type) || entry.sequence !== receiptSequence + 1
+          || typeof entry.commandId !== "string") throw new Error("invalid receipt sequence/type/role/identity");
+        const identity = { commandId: entry.commandId, assignmentId: entry.assignmentId, attempt: entry.attempt, generation: entry.generation };
+        const dispatchedIdentity = dispatched.get(entry.commandId);
+        if (!dispatchedIdentity || identity.commandId !== dispatchedIdentity.commandId
+          || identity.assignmentId !== dispatchedIdentity.assignmentId || identity.attempt !== dispatchedIdentity.attempt
+          || identity.generation !== dispatchedIdentity.generation || currentDispatch?.commandId !== entry.commandId)
+          throw new Error("receipt identity was not the active controller dispatch");
+        if (entry.type === "accepted") {
+          if (dispatchedIdentity.accepted) throw new Error("duplicate accepted receipt");
+          if (typeof entry.prompt !== "string" || entry.prompt !== currentDispatch.prompt) throw new Error("accepted receipt payload mismatch");
+          dispatchedIdentity.accepted = true;
+        } else if (!dispatchedIdentity.accepted) throw new Error("receipt precedes accepted dispatch");
+        const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
+        writing = true;
+        for (let offset = 0; offset < bytes.length;) {
+          const count = writeSync(receiptFd, bytes, offset, bytes.length - offset);
+          if (count <= 0) throw new Error("receipt journal write made no progress");
+          offset += count;
+        }
+        fsyncSync(receiptFd);
+        receiptSequence = entry.sequence;
+        if (entry.type === "completed" || entry.type === "aborted" || entry.type === "dispatch_error") currentDispatch = null;
+        socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
+      } catch (error) {
+        if (writing) receiptFailed = true;
+        socket.end(`${JSON.stringify({ ok: false, error: String(error?.message ?? error) })}\n`);
+      }
+    });
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      receiptServer.once("error", reject);
+      receiptServer.listen(receiptPath, () => { receiptServer.off("error", reject); resolve(); });
+    });
+    chmodSync(receiptPath, 0o600);
+  } catch (error) {
+    if (receiptServer.listening) await new Promise((resolve) => receiptServer.close(resolve));
+    closeSync(receiptFd);
+    try { unlinkSync(receiptPath); } catch (cleanupError) { if (cleanupError?.code !== "ENOENT") throw new AggregateError([error, cleanupError], "Receipt daemon startup and cleanup failed"); }
+    throw error;
+  }
+  receiptServer.on("error", () => { receiptFailed = true; });
+  receiptDaemons.add({ server: receiptServer, fd: receiptFd, path: receiptPath, journal: spec.journal });
   const frames = [];
   const waiters = [];
   let socketError;
   let lineBuffer = "";
+  let controllerConnectedAt;
   const deliver = (frame) => {
     const index = waiters.findIndex((w) => w.predicate(frame));
     if (index !== -1) waiters.splice(index, 1)[0].resolve(frame);
@@ -256,6 +333,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   }
   async function connectController(timeoutMs = 30_000) {
     const deadline = monotonicMs() + timeoutMs;
+    let lastError;
     while (monotonicMs() < deadline) {
       try {
         const st = lstatSync(socketPath);
@@ -268,9 +346,9 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         controllerConnectedAt = monotonicMs();
         record("controller_reconnected", { container: name, socketPath });
         return;
-      } catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
+      } catch (error) { lastError = error; await new Promise((resolve) => setTimeout(resolve, 100)); }
     }
-    throw new Error("Selected OMP bridge did not expose a connectable Unix socket");
+    throw new Error(`Selected OMP bridge did not expose a connectable Unix socket: ${lastError?.message ?? "no endpoint"}`);
   }
   const bridgeExtension = path.resolve(path.dirname(SELF), "m1-herdr-bridge.mjs");
   executable(bridgeExtension, "Selected Herdr bridge extension");
@@ -281,6 +359,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     "--user", `${process.getuid()}:${process.getgid()}`,
     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "256",
     "--mount", `${wsMount},bind-propagation=rprivate`, "--mount", `${bridgeMount},bind-propagation=rprivate`,
+    "--mount", `type=bind,src=${spec.journal},dst=/workspace/.home/bridge.jsonl,readonly,bind-propagation=rprivate`,
     "--tmpfs", `/home/worker:rw,nosuid,nodev,size=256m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
     "--mount", `type=bind,src=${runtime.herdr},dst=/usr/local/bin/herdr,readonly`,
     "--mount", `type=bind,src=${runtime.omp},dst=/usr/local/bin/omp,readonly`,
@@ -303,12 +382,20 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   if (typeof prepared.proxy !== "string" || !/^http:\/\/[^/]+:\d+$/.test(prepared.proxy) || typeof prepared.policyId !== "string") throw new Error("Egress helper returned invalid proxy/policy identity");
   egressPolicies.set(name, { policyId: prepared.policyId, network, providerHost, providerPort, containerId });
   const verified = egress("verify", ["--container", containerId, "--policy-id", prepared.policyId]);
-  if (verified.firewall !== "DOCKER-USER accept-proxy-then-reject" || verified.providerConnections !== 0) throw new Error("Egress policy verification failed before OMP launch");
+  if (verified.firewall?.forwarding !== "DOCKER-USER accept-proxy-then-reject"
+    || verified.firewall?.hostInput !== "INPUT accept-proxy-then-reject" || verified.providerConnections !== 0)
+    throw new Error("Egress policy verification failed before OMP launch");
   const denied = egress("probe-deny", ["--container", containerId, "--policy-id", prepared.policyId]);
-  if (denied.denied !== true) throw new Error("Out-of-policy direct egress probe was not denied");
+  if (denied.denied !== true || denied.hostDenied !== true)
+    throw new Error("Out-of-policy direct egress or host INPUT probe was not denied");
   const proxyArgs = ["--env", `HTTP_PROXY=${prepared.proxy}`, "--env", `HTTPS_PROXY=${prepared.proxy}`, "--env", `http_proxy=${prepared.proxy}`, "--env", `https_proxy=${prepared.proxy}`, "--env", "NODE_USE_ENV_PROXY=1"];
   const exec = (argv, opts = {}) => run("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, "--env", "HOME=/home/worker", ...proxyArgs, name, "/bin/sh", "-c", "umask 077; exec \"$@\"", "m1-qualification", ...argv], opts);
   try {
+    const tamper = spawnSync("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
+      "/bin/sh", "-c", "printf x >> /workspace/.home/bridge.jsonl"], { encoding: "utf8", timeout: 5_000 });
+    if (tamper.status === 0 || !/Read-only file system/i.test(tamper.stderr)
+      || statSync(spec.journal).size !== 0) throw new Error("Worker could alter the controller-owned receipt journal");
+    record("worker_receipt_mutation_denied", { container: name, journal: spec.journal, exitCode: tamper.status });
     if (exec(["/usr/local/bin/node", "--version"]) !== NODE_VERSION) throw new Error("Container Node version mismatch");
     if (exec(["/usr/local/bin/herdr", "--version"]) !== `herdr ${HERDR_VERSION}`) throw new Error("Container Herdr version mismatch");
     if (!exec(["/usr/local/bin/omp", "--help"]).startsWith(`omp v${OMP_VERSION}\n`)) throw new Error("Container OMP version mismatch");
@@ -336,6 +423,28 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     exec(start);
     await connectController();
   } catch (error) {
+    const pane = diagnosticPanes.get(name);
+    if (pane) {
+      const diagnostic = spawnSync("docker", ["exec", name, "/usr/local/bin/herdr", "pane", "read", pane, "--source", "recent-unwrapped", "--lines", "120"],
+        { encoding: "utf8", timeout: 5_000, maxBuffer: 1_000_000 });
+      const file = path.join(evidenceRoot, `${name}.startup-pane.txt`);
+      const bytes = Buffer.from(`${diagnostic.stdout ?? ""}\n${diagnostic.stderr ?? ""}`);
+      const fd = openSync(file, "w", 0o600);
+      try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      record("startup_diagnostic_preserved", { name, sha256: sha256(bytes), path: file });
+    }
+    for (const [label, args] of [
+      ["startup-docker", ["logs", name]],
+      ["startup-access", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name, "/usr/local/bin/node", "-e",
+        "const fs=require('node:fs'); for(const p of ['/workspace/.home/bridge.jsonl','/bridge','/bridge/receipt.sock','/bridge/seat.sock']) {try {const s=fs.lstatSync(p);console.log(p,s.mode.toString(8),s.uid,s.size); if(s.isFile()) console.log('read',fs.readFileSync(p).length);}catch(e){console.log(p,e.code,e.message)}}"]],
+    ]) {
+      const diagnostic = spawnSync("docker", args, { encoding: "utf8", timeout: 5_000, maxBuffer: 1_000_000 });
+      const bytes = Buffer.from(`${diagnostic.stdout ?? ""}\n${diagnostic.stderr ?? ""}`);
+      const file = path.join(evidenceRoot, `${name}.${label}.txt`);
+      const fd = openSync(file, "w", 0o600);
+      try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      record("startup_diagnostic_preserved", { name, label, sha256: sha256(bytes), path: file });
+    }
     try { run("docker", ["rm", "-f", name]); containers.delete(name); } catch {}
     try {
       const policy = egressPolicies.get(name);
@@ -360,14 +469,24 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
   function send(frame) {
     const line = `${JSON.stringify(frame)}\n`;
     if (Buffer.byteLength(line) > 1_048_576) throw new Error("Controller bridge request exceeds 1 MiB");
-    if (!bridgeSocket || bridgeSocket.destroyed) throw new Error("Controller is disconnected from the selected extension socket");
+    if (frame.type === "dispatch") {
+      const identity = { commandId: frame.commandId, assignmentId: frame.assignmentId, attempt: frame.attempt, generation: frame.generation };
+      const prior = dispatched.get(frame.commandId);
+      if (prior && (prior.assignmentId !== identity.assignmentId || prior.attempt !== identity.attempt || prior.generation !== identity.generation)) throw new Error("Controller attempted a conflicting dispatch identity");
+      if (!prior) {
+        dispatched.set(frame.commandId, { ...identity, prompt: frame.prompt, accepted: false });
+        currentDispatch = { ...identity, prompt: frame.prompt };
+      }
+    }
     bridgeSocket.write(line);
   }
   function verifyProvider() {
     const policy = egressPolicies.get(name);
     if (!policy) throw new Error("Missing egress policy identity");
     const observed = egress("verify", ["--container", policy.containerId, "--policy-id", policy.policyId]);
-    if (observed.firewall !== "DOCKER-USER accept-proxy-then-reject" || observed.providerConnections < 1) throw new Error("Selected OMP did not produce an observed allowlisted provider connection through the proxy");
+    if (observed.firewall?.forwarding !== "DOCKER-USER accept-proxy-then-reject"
+      || observed.firewall?.hostInput !== "INPUT accept-proxy-then-reject" || observed.providerConnections < 1)
+      throw new Error("Selected OMP did not produce an observed allowlisted provider connection through the proxy");
     record("provider_egress_proven", { container: policy.containerId, host: policy.providerHost, port: policy.providerPort, observed });
     return observed;
   }
@@ -392,6 +511,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     async command({ commandId, assignmentId, attempt = 1, generation = 1, prompt, deadlineMs = 120_000 }) {
       const started = launchedAt;
       const dispatch = { type: "dispatch", commandId, assignmentId, attempt, generation, prompt };
+      if (dispatched.has(commandId) || currentDispatch) throw new Error("Controller already owns an active or previously dispatched command identity");
       send(dispatch);
       const ack = await waitFrame((x) => x.type === "ack" && x.commandId === commandId, deadlineMs);
       if (ack.durable !== true || !["acknowledged", "working", "completed"].includes(ack.state)) throw new Error(`Non-durable/invalid acknowledgement for ${commandId}`);
@@ -416,9 +536,11 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         || dockerState.HostConfig?.NetworkMode !== network) throw new Error("Container isolation policy differs from the qualification contract");
       const bindMappings = new Map([
         [spec.workspace, "/workspace"], [spec.bridge, "/bridge"],
+        [spec.journal, "/workspace/.home/bridge.jsonl"],
         [runtime.herdr, "/usr/local/bin/herdr"], [runtime.omp, "/usr/local/bin/omp"],
         [runtime.addon, "/usr/local/bin/pi_natives.linux-x64-baseline.node"],
-        [runtime.node, "/usr/local/bin/node"], [path.resolve(path.dirname(SELF), "m1-herdr-bridge.mjs"), "/usr/local/bin/m1-herdr-bridge.mjs"],
+        [runtime.node, "/usr/local/bin/node"],
+        [path.resolve(path.dirname(SELF), "m1-herdr-bridge.mjs"), "/usr/local/bin/m1-herdr-bridge.mjs"],
       ]);
       for (const mount of mounts) {
         if (mount.Type === "bind") {
@@ -433,6 +555,8 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         || Object.keys(tmpfs).some((destination) => !expectedTmpfs.has(destination)))
         throw new Error("Worker tmpfs layout differs from the pinned isolation layout");
       if (mounts.length !== bindMappings.size) throw new Error("Worker bind mount count does not match the pinned isolation layout");
+      const journalMount = mounts.find((mount) => mount.Destination === "/workspace/.home/bridge.jsonl");
+      if (!journalMount || journalMount.Source !== spec.journal || journalMount.RW !== false) throw new Error("Worker journal is not the controller-owned read-only bind");
       record("worker_mounts_verified", { container: name, mounts });
       const workerSocket = bridgeSocket;
       if (!workerSocket) throw new Error("Controller socket was already disconnected before worker exit");
@@ -484,6 +608,17 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       }
       if (existsSync(socketPath)) throw new Error("Bridge socket remained after worker mount removal");
       const mountRemoval = { containerId, dockerInspectAbsent: removed.status !== 0, mountSources: [spec.workspace, spec.bridge], staleEndpointRemoved: staleEndpoint };
+      const receipt = [...receiptDaemons].find((item) => item.path === receiptPath);
+      if (receipt) {
+        await new Promise((resolve) => receipt.server.close(resolve));
+        if (existsSync(receipt.path)) unlinkSync(receipt.path);
+        closeSync(receipt.fd);
+        receiptDaemons.delete(receipt);
+      }
+      const evidenceCopy = path.join(evidenceRoot, path.basename(spec.journal));
+      copyFileSync(spec.journal, evidenceCopy);
+      fsyncFile(evidenceCopy);
+      syncDir(evidenceRoot);
       record("worker_mounts_removed", { container: name, ...mountRemoval, egressPolicyRemoved: policyRemoval.removed, bridgeConnectionClosed });
       return { cgroup, mountRemoval, bridgeConnectionClosed, forcedKill, exitCode: state.ExitCode, stopMs: monotonicMs() - begin };
     },
@@ -562,7 +697,7 @@ async function main() {
     const spec = makeWorkspace(role, `progress-${String(i + 1).padStart(2, "0")}`);
     const seat = await createSeat(runtime, spec);
     const id = `m1-progress-${i + 1}`;
-    const prompt = "Use the bash tool for one foreground command in /workspace: append the exact lines 1, 2, and 3 to progress.jsonl, waiting 10 seconds between each line, then exit. Reply exactly M1_PROGRESS_DONE.";
+    const prompt = "Use the bash tool for exactly one foreground POSIX shell command in /workspace: printf '1\\n' >> progress.jsonl; sleep 10; printf '2\\n' >> progress.jsonl; sleep 10; printf '3\\n' >> progress.jsonl. Do not use Python or another interpreter. Reply exactly M1_PROGRESS_DONE.";
     const assignmentId = `m1-assignment-${id}`;
     const dispatch = { type: "dispatch", commandId: id, assignmentId, attempt: 1, generation: 1, prompt };
     const { ack } = await seat.command(dispatch);
@@ -742,6 +877,18 @@ async function finish() {
     for (const network of [...networks]) {
       try { run("docker", ["network", "rm", network]); networks.delete(network); }
       catch (error) { cleanupErrors.push(`network ${network}: ${error.message}`); }
+    }
+    for (const receipt of [...receiptDaemons]) {
+      try {
+        await new Promise((resolve) => receipt.server.close(resolve));
+        closeSync(receipt.fd);
+        try { unlinkSync(receipt.path); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+        const evidenceCopy = path.join(evidenceRoot, path.basename(receipt.journal));
+        copyFileSync(receipt.journal, evidenceCopy);
+        fsyncFile(evidenceCopy);
+        syncDir(evidenceRoot);
+        receiptDaemons.delete(receipt);
+      } catch (error) { cleanupErrors.push(`receipt daemon ${receipt.path}: ${error.message}`); }
     }
     if (cleanupErrors.length) {
       failed = true;
