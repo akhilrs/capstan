@@ -9,6 +9,7 @@
 | m1-herdr-bridge-syntax | `node --check scripts/m1-herdr-bridge.mjs` |
 | m1-herdr-bridge-dispatch-error-regression | `node scripts/m1-herdr-bridge.test.mjs` |
 | m1-egress-helper-syntax | `node --check scripts/m1-egress-helper.mjs` |
+| m1-egress-helper-boundary-regression | `node scripts/m1-egress-helper.test.mjs` |
 | m1-herdr-qualification-syntax | `node --check scripts/m1-herdr-qualification.mjs` |
 | m1-egress-tls-sni-regression | `node scripts/m1-egress-tls.test.mjs` |
 | m1-receipt-frame-regression | `node scripts/m1-receipt-frame.test.mjs` |

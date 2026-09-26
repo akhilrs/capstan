@@ -145,8 +145,16 @@ try {
   await handlers.get("agent_start")();
   const workingRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working"]);
   assert.equal(workingRows.at(-1).commandId, workingCommand.commandId);
+  await handlers.get("agent_end")({ willContinue: false, messages: [] });
+  const endedRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working", "agent_end_without_assistant"]);
+  assert.equal(endedRows.at(-1).commandId, workingCommand.commandId);
+  assert.equal((await request(workingBridgeSocket, { type: "get", commandId: workingCommand.commandId })).state, "unknown");
+  assert.equal((await request(workingBridgeSocket, workingCommand)).state, "unknown");
+  const afterUnknown = { ...workingCommand, commandId: "dispatch-after-unknown", assignmentId: "assignment-5" };
+  assert.equal((await request(workingBridgeSocket, afterUnknown)).state, "acknowledged", "a durably ended run releases its active slot");
+  await waitForJournal(workingJournal, ["accepted", "submitted", "working", "agent_end_without_assistant", "accepted", "submitted"]);
   await handlers.get("session_shutdown")();
-  console.log("PASS working acknowledgement follows its durable receipt");
+  console.log("PASS working receipt ordering and assistant-less agent_end reconciliation");
 } finally {
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;

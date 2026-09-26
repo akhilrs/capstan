@@ -77,10 +77,12 @@ function recoverJournal(file, role) {
       validId(entry.commandId, "journal commandId");
       if (rows.has(entry.commandId) || typeof entry.assignmentId !== "string" || !Number.isSafeInteger(entry.attempt) || !Number.isSafeInteger(entry.generation) || typeof entry.prompt !== "string") throw new Error(`invalid accepted journal record at byte ${offset}`);
       rows.set(entry.commandId, { accepted: entry, state: "acknowledged" });
-    } else if (entry.type === "submitted" || entry.type === "working" || entry.type === "tool_started" || entry.type === "tool_completed" || entry.type === "aborted" || entry.type === "dispatch_error") {
+    } else if (entry.type === "submitted" || entry.type === "working" || entry.type === "tool_started" || entry.type === "tool_completed" || entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_assistant") {
       const row = rows.get(entry.commandId);
       if (!row) throw new Error(`orphan journal record at byte ${offset}`);
-      if (row.state !== "completed") row.state = entry.type === "aborted" || entry.type === "dispatch_error" ? "unknown" : "working";
+      if (row.state !== "completed") {
+        row.state = entry.type === "aborted" || entry.type === "dispatch_error" || entry.type === "agent_end_without_assistant" ? "unknown" : "working";
+      }
     } else if (entry.type === "completed") {
       const row = rows.get(entry.commandId);
       if (!row || typeof entry.reply !== "string" || !entry.evidenceRef) throw new Error(`invalid completion journal record at byte ${offset}`);
@@ -361,15 +363,27 @@ export default function herdrBridge(pi) {
     const completedRun = agentStarted;
     agentStarted = false;
     if (!active || !completedRun) return;
+    const command = active;
     const messages = Array.isArray(event?.messages) ? event.messages : [];
     let assistant;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i]?.role === "assistant") { assistant = messages[i]; break; }
     }
-    if (!assistant) return;
+    if (!assistant) {
+      const row = rows.get(command.commandId);
+      row.state = "unknown";
+      const entry = await append("agent_end_without_assistant", { ...identity(command) });
+      row.evidenceRef = evidence(entry);
+      const unknown = { type: "unknown", ...identity(command), evidenceRef: row.evidenceRef };
+      for (const socket of commandSockets.get(command.commandId) ?? []) {
+        if (!socket.destroyed) socket.write(`${JSON.stringify(unknown)}\n`);
+      }
+      commandSockets.delete(command.commandId);
+      active = null;
+      return;
+    }
     const content = Array.isArray(assistant.content) ? assistant.content : [];
     const reply = content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("");
-    const command = active;
     const entry = await append("completed", { ...identity(command), reply, evidenceRef: { journal: journalPath, sequence: sequence + 1 } });
     const row = rows.get(command.commandId);
     row.state = "completed";

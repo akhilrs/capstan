@@ -22,6 +22,10 @@
       "command": "node --check scripts/m1-egress-helper.mjs"
     },
     {
+      "name": "m1-egress-helper-boundary-regression",
+      "command": "node scripts/m1-egress-helper.test.mjs"
+    },
+    {
       "name": "m1-herdr-qualification-syntax",
       "command": "node --check scripts/m1-herdr-qualification.mjs"
     },

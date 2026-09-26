@@ -103,7 +103,17 @@ function readState(id, policyId) {
   if (state.policyId !== policyId || state.container !== id) throw new Error("Egress policy identity mismatch");
   return state;
 }
+export function isContainerQuiesced(state) {
+  return Boolean(state && (!state.Running || state.Paused));
+}
+function assertContainerQuiesced(container) {
+  const state = JSON.parse(docker("inspect", container))[0]?.State;
+  if (!isContainerQuiesced(state)) {
+    throw new Error("Refusing to remove egress policy while the worker is live and unpaused");
+  }
+}
 function removePolicy(state) {
+  assertContainerQuiesced(state.container);
   deleteAll(inputAcceptArgs(state));
   deleteAll(inputRejectArgs(state));
   deleteAll(acceptArgs(state));
@@ -114,14 +124,62 @@ function removePolicy(state) {
   const fd = openSync(DIR, "r");
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
-function publicIPv4(ip) {
+const NON_PUBLIC_IPV4 = [
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
+  ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
+  ["192.31.196.0", 24], ["192.52.193.0", 24], ["192.88.99.0", 24],
+  ["192.168.0.0", 16], ["192.175.48.0", 24], ["198.18.0.0", 15],
+  ["198.51.100.0", 24], ["203.0.113.0", 24], ["224.0.0.0", 4], ["240.0.0.0", 4],
+].map(([base, bits]) => {
+  const value = base.split(".").reduce((number, part) => (number * 256) + Number(part), 0) >>> 0;
+  return [value, bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0];
+});
+function shellWords(line) {
+  const words = [];
+  let word = "";
+  let quote = "";
+  let escaped = false;
+  let started = false;
+  for (const character of line) {
+    if (escaped) { word += character; escaped = false; started = true; continue; }
+    if (character === "\\" && quote !== "'") { escaped = true; started = true; continue; }
+    if (quote) {
+      if (character === quote) quote = "";
+      else word += character;
+      started = true;
+      continue;
+    }
+    if (character === "'" || character === '"') { quote = character; started = true; continue; }
+    if (/\s/.test(character)) {
+      if (started) words.push(word);
+      word = "";
+      started = false;
+      continue;
+    }
+    word += character;
+    started = true;
+  }
+  if (escaped || quote) throw new Error("Malformed quoted iptables rule");
+  if (started) words.push(word);
+  return words;
+}
+export function ruleTarget(line) {
+  const words = shellWords(line);
+  for (let index = 0; index < words.length; index++) {
+    if (words[index] === "-j" || words[index] === "-g") {
+      if (!words[index + 1]) throw new Error("iptables rule has a jump without a target");
+      return { kind: words[index], target: words[index + 1] };
+    }
+  }
+  throw new Error("iptables rule has no jump target");
+}
+export function publicIPv4(ip) {
   if (net.isIP(ip) !== 4) return false;
-  const [a, b, c] = ip.split(".").map(Number);
-  return a !== 0 && a !== 10 && a !== 127 && a < 224 && !(a === 169 && b === 254)
-    && !(a === 100 && b >= 64 && b <= 127) && !(a === 172 && b >= 16 && b <= 31)
-    && !(a === 192 && ((b === 0 && (c === 0 || c === 2)) || (b === 88 && c === 99) || b === 168))
-    && !(a === 198 && ((b === 18 || b === 19) || (b === 51 && c === 100)))
-    && !(a === 203 && b === 0 && c === 113);
+  const value = ip.split(".").reduce((number, part) => (number * 256) + Number(part), 0) >>> 0;
+  return NON_PUBLIC_IPV4.every(([base, mask]) => ((value & mask) >>> 0) !== base);
+}
+export function sniMatchesHost(sni, host) {
+  return sni.toLowerCase() === host.toLowerCase();
 }
 function appendAudit(file, record) {
   const existed = existsSync(file);
@@ -171,7 +229,7 @@ async function serve() {
         if (buffered.length > MAX_HELLO) throw new Error("TLS ClientHello exceeds limit");
         const sni = sniFromHello(buffered);
         if (sni === null) return;
-        if (sni !== host) throw new Error("TLS SNI target denied");
+        if (!sniMatchesHost(sni, host)) throw new Error("TLS SNI target denied");
         client.removeListener("data", receive);
         client.pause();
         const resolved = await lookup(host, { family: 4 });
@@ -276,6 +334,11 @@ async function prepare() {
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
 }
+function ruleOption(words, option) {
+  const index = words.indexOf(option);
+  return index < 0 ? undefined : words[index + 1];
+}
+
 function chainCanAccept(chain, visiting = new Set(), cache = new Map(), knownChains) {
   if (!knownChains.has(chain)) return true;
   if (cache.has(chain)) return cache.get(chain);
@@ -283,9 +346,9 @@ function chainCanAccept(chain, visiting = new Set(), cache = new Map(), knownCha
   visiting.add(chain);
   const lines = firewall("-S", chain).split("\n").filter((line) => line.startsWith("-A "));
   for (const line of lines) {
-    const target = line.match(/(?:^| )-[jg] (\S+)/)?.[1];
-    if (target === "ACCEPT" || line.includes(" -g ")
-      || (target && !["DROP", "REJECT", "RETURN"].includes(target)
+    const { kind, target } = ruleTarget(line);
+    if (target === "ACCEPT" || kind === "-g"
+      || (!["DROP", "REJECT", "RETURN"].includes(target)
         && chainCanAccept(target, visiting, cache, knownChains))) {
       visiting.delete(chain);
       cache.set(chain, true);
@@ -299,28 +362,37 @@ function chainCanAccept(chain, visiting = new Set(), cache = new Map(), knownCha
 
 function verifyChainOrder(chain, state) {
   const lines = firewall("-S", chain).split("\n").filter((line) => line.startsWith("-A "));
-  const positions = lines.flatMap((line, index) => line.includes(state.policyId) ? [index] : []);
+  const rules = lines.map((line) => {
+    const words = shellWords(line);
+    return { line, words, ...ruleTarget(line) };
+  });
+  const positions = rules.flatMap((rule, index) => ruleOption(rule.words, "--comment") === state.policyId ? [index] : []);
   if (positions.length !== 2 || positions[1] !== positions[0] + 1
-    || !lines[positions[0]].endsWith("-j ACCEPT") || !lines[positions[1]].includes(" -j REJECT"))
+    || rules[positions[0]].kind !== "-j" || rules[positions[0]].target !== "ACCEPT"
+    || rules[positions[1]].kind !== "-j" || rules[positions[1]].target !== "REJECT") {
     throw new Error(`${chain} scoped accept/reject rules are missing or out of order`);
+  }
   const knownChains = new Set(firewall("-S").split("\n").flatMap((line) => {
     const match = line.match(/^-(?:N|P) (\S+)/);
     return match ? [match[1]] : [];
   }));
   const cache = new Map();
-  for (const line of lines.slice(0, positions[0])) {
-    if (/ -j (?:ACCEPT|RETURN)$/.test(line)) {
-      const source = line.match(/(?:^| )-s (\S+)/)?.[1];
+  for (const rule of rules.slice(0, positions[0])) {
+    const source = ruleOption(rule.words, "-s");
+    const hasNegatedSource = rule.words.some((word, index) => word === "!" && rule.words[index + 1] === "-s");
+    const comment = ruleOption(rule.words, "--comment");
+    if (rule.kind === "-j" && ["ACCEPT", "RETURN"].includes(rule.target)) {
       if (!source || !/^(?:\d{1,3}\.){3}\d{1,3}(?:\/32)?$/.test(source)
-        || /(?:^| )! -s /.test(line) || source.split("/")[0] === state.containerIp
-        || !/--comment "?capstan-m1-[0-9a-f]{24}"? /.test(line))
+        || hasNegatedSource || source.split("/")[0] === state.containerIp
+        || !/^capstan-m1-[0-9a-f]{24}$/.test(comment ?? "")) {
         throw new Error(`${chain} has a preceding rule that can bypass the scoped policy`);
+      }
       continue;
     }
-    const target = line.match(/(?:^| )-[jg] (\S+)/)?.[1];
-    if (target && (line.includes(" -g ") || (target !== "DROP" && target !== "REJECT"
-      && chainCanAccept(target, new Set(), cache, knownChains))))
+    if (rule.kind === "-g" || (!["DROP", "REJECT"].includes(rule.target)
+      && chainCanAccept(rule.target, new Set(), cache, knownChains))) {
       throw new Error(`${chain} has a preceding jump/goto chain that can accept or bypass traffic before the scoped policy`);
+    }
   }
 }
 
@@ -404,4 +476,6 @@ async function main() {
   if (action === "cleanup") { removePolicy(state); console.log(JSON.stringify({ removed: true, policyId })); return; }
   throw new Error(`Unknown egress action ${action}`);
 }
-main().catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
+if (process.argv[1] && path.resolve(process.argv[1]) === SELF) {
+  main().catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
+}
