@@ -65,11 +65,20 @@ function egress(action, args) {
 function monotonicMs() { return Number(process.hrtime.bigint()) / 1e6; }
 function retireSeatPolicy(name, containerId) {
   const state = JSON.parse(run("docker", ["inspect", "--format", "{{json .State}}", name]));
-  if (state.Running && !state.Paused) run("docker", ["pause", name]);
+  if (state.Running && !state.Paused) {
+    try {
+      run("docker", ["pause", name]);
+    } catch (pauseError) {
+      try { run("docker", ["kill", "--signal", "KILL", name]); }
+      catch (killError) { throw new AggregateError([pauseError, killError], `Unable to contain live worker ${name}`); }
+    }
+  }
+  const contained = JSON.parse(run("docker", ["inspect", "--format", "{{json .State}}", name]));
+  if (contained.Running && !contained.Paused) throw new Error(`Worker ${name} remains live before egress policy removal`);
   const result = egress("cleanup-container", ["--container", containerId]);
   if (result.removed !== true) throw new Error("Egress helper did not confirm policy cleanup");
   egressPolicies.delete(name);
-  record("seat_policy_retired_before_removal", { container: name, containerId, paused: state.Running && !state.Paused, result });
+  record("seat_policy_retired_before_removal", { container: name, containerId, paused: contained.Paused, stopped: !contained.Running, result });
   return result;
 }
 function safeName(tag) { return `capstan-m1hq-${process.pid}-${++serial}-${tag.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`; }
@@ -245,9 +254,9 @@ function verifyCompletionFrame(frame, spec) {
   return frame;
 }
 
-function makeWorkspace(role, label) {
+function makeWorkspace(role, label, restoredWorkspace = null) {
   const base = path.join(root, label);
-  const workspace = path.join(base, "workspace");
+  const workspace = restoredWorkspace ?? path.join(base, "workspace");
   const bridge = path.join(base, "bridge");
   const journal = path.join(controllerRoot, `${label}.bridge.jsonl`);
   const receiptDir = path.join(controllerRoot, `${label}.receipt`);
@@ -258,7 +267,7 @@ function makeWorkspace(role, label) {
   mkdirSync(receiptDir, { mode: 0o700 });
   syncDir(controllerRoot);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
-  mkdirSync(path.join(workspace, ".home"), { mode: 0o700 });
+  if (!restoredWorkspace) mkdirSync(path.join(workspace, ".home"), { mode: 0o700 });
   mkdirSync(bridge, { recursive: true, mode: 0o700 });
   if (workspace.startsWith(controllerRoot)) throw new Error("Controller state mount boundary failure");
   return { workspace, bridge, journal, receiptDir, role, label };
@@ -1054,11 +1063,13 @@ async function main() {
     const cleanup = await seat.destroy();
     const stoppedManifest = scanTree(spec.workspace);
     if (!stoppedManifest.entries.some((entry) => entry.path === "writer.log" && entry.type === "file" && entry.size > 0)) throw new Error("No-follow scan did not find writer evidence after worker exit");
+    const stoppedWriterBytes = readFileSync(path.join(spec.workspace, "writer.log"), "utf8");
     const elapsed = monotonicMs() - revocation;
     if (elapsed > LIMITS.replacementMs) throw new Error(`Replacement exceeded 30s (${elapsed}ms)`);
     if (i === 0 && (!cleanup.forcedKill || cleanup.exitCode !== 137)) throw new Error("TERM-ignoring Herdr container was not force-killed");
     runs.replacements.push(elapsed);
-    retiredWorkspaces.push({ id, workspace: spec.workspace, manifestSha256: stoppedManifest.sha256 });
+    const retiredWorkspace = { id, workspace: spec.workspace };
+    retiredWorkspaces.push(retiredWorkspace);
     record("replacement_sample", { id, role, milliseconds: elapsed, stoppedManifestSha256: stoppedManifest.sha256, cgroupEmpty: cleanup.cgroup, mountRemoval: cleanup.mountRemoval, forcedKill: cleanup.forcedKill, exitCode: cleanup.exitCode });
 
     const intervalStart = monotonicMs();
@@ -1068,7 +1079,7 @@ async function main() {
     const quiescenceObservedMs = monotonicMs() - intervalStart;
     record("pre_replacement_quiescence", { id, observedMs: quiescenceObservedMs, oldManifestSha256: stable.sha256 });
 
-    const replacementSpec = makeWorkspace(role, `replacement-next-${String(i + 1).padStart(2, "0")}`);
+    const replacementSpec = makeWorkspace(role, `replacement-next-${String(i + 1).padStart(2, "0")}`, spec.workspace);
     const replacement = await createSeat(runtime, replacementSpec);
     const replacementId = `${id}-restore`;
     const replacementAssignment = `m1-assignment-${replacementId}`;
@@ -1085,8 +1096,14 @@ async function main() {
       || restoredTool.isError === true || !restoredTool.evidenceRef
       || JSON.stringify(restoredStart.evidenceRef) === JSON.stringify(restoredTool.evidenceRef)
       || restoredResult.reply !== "M1_REPLACEMENT_READY") throw new Error("Replacement Herdr seat did not complete correlated restoration action");
-    if (readFileSync(path.join(replacementSpec.workspace, "replacement.started"), "utf8") !== "M1_REPLACEMENT_READY\n") throw new Error("Restored Herdr seat wrote outside its assigned workspace or produced wrong bytes");
+    if (readFileSync(path.join(spec.workspace, "writer.log"), "utf8") !== stoppedWriterBytes) throw new Error("Retired writer mutated its workspace during replacement");
+    if (readFileSync(path.join(spec.workspace, "replacement.started"), "utf8") !== "M1_REPLACEMENT_READY\n") throw new Error("Replacement did not restore onto the revoked writer's workspace with exact bytes");
     const replacementManifest = scanTree(replacementSpec.workspace);
+    const writerEntry = replacementManifest.entries.find((entry) => entry.path === "writer.log" && entry.type === "file");
+    const restoreEntry = replacementManifest.entries.find((entry) => entry.path === "replacement.started" && entry.type === "file");
+    if (!writerEntry?.size || !restoreEntry) throw new Error("Restored workspace is missing prior writer or replacement action evidence");
+    retiredWorkspace.writerLogSha256 = writerEntry.sha256;
+    retiredWorkspace.restorationSha256 = restoreEntry.sha256;
     record("replacement_manifest", { id: replacementId, sha256: replacementManifest.sha256, entries: replacementManifest.entries });
     replacement.verifyProvider();
     const ordering = { capabilityRevokedAtMonotonicMs: revocation, exitCode: cleanup.exitCode, cgroupEmpty: cleanup.cgroup.pids === 0, bridgeConnectionClosed: cleanup.bridgeConnectionClosed, staleEndpointRemoved: cleanup.mountRemoval.staleEndpointRemoved, replacementControllerConnectedAtMonotonicMs: replacement.controllerConnectedAt };
@@ -1106,8 +1123,11 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, quiescenceMs));
   for (const retired of retiredWorkspaces) {
     const manifest = scanTree(retired.workspace);
-    if (manifest.sha256 !== retired.manifestSha256) throw new Error(`Old writer mutation during selected quiescence interval: ${retired.id}`);
-    record("quiescence_manifest", { id: retired.id, intervalMs: monotonicMs() - quiescenceStart, manifestSha256: manifest.sha256, stable: true });
+    const entries = new Map(manifest.entries.map((entry) => [entry.path, entry]));
+    if (entries.get("writer.log")?.sha256 !== retired.writerLogSha256
+      || entries.get("replacement.started")?.sha256 !== retired.restorationSha256)
+      throw new Error(`Old writer or restoration output changed during selected quiescence interval: ${retired.id}`);
+    record("quiescence_manifest", { id: retired.id, intervalMs: monotonicMs() - quiescenceStart, manifestSha256: manifest.sha256, writerLogSha256: retired.writerLogSha256, restorationSha256: retired.restorationSha256, stable: true });
   }
   const quiescenceObservedMs = monotonicMs() - quiescenceStart;
   if (quiescenceObservedMs < quiescenceMs) throw new Error("Selected quiescence interval was censored");
@@ -1157,8 +1177,31 @@ async function finish() {
         containers.delete(name);
         containerIds.delete(name);
       } catch (error) {
-        cleanupErrors.push(`container ${name} retained until policy cleanup succeeds: ${error.message}`);
+        record("container_cleanup_deferred", { name, reason: error.message });
       }
+    }
+    while (containers.size) {
+      for (const name of [...containers]) {
+        try {
+          const id = containerIds.get(name);
+          if (!id) throw new Error("missing container identity");
+          let state = JSON.parse(run("docker", ["inspect", "--format", "{{json .State}}", name]));
+          if (state.Running) {
+            try { run("docker", ["kill", "--signal", "KILL", name]); } catch {}
+            state = JSON.parse(run("docker", ["inspect", "--format", "{{json .State}}", name]));
+          }
+          if (state.Running) continue;
+          retireSeatPolicy(name, id);
+          run("docker", ["rm", "-f", name]);
+          containers.delete(name);
+          containerIds.delete(name);
+          record("container_emergency_containment_complete", { name, id });
+        } catch (error) {
+          record("container_emergency_containment_retry", { name, reason: error.message });
+          try { saveEvidence(); } catch {}
+        }
+      }
+      if (containers.size) await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
     for (const [name, policy] of [...egressPolicies]) {
       if (containers.has(name)) continue;
