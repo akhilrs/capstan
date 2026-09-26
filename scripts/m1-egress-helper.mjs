@@ -140,9 +140,12 @@ function sniFromHello(data) {
 }
 function publicIPv4(ip) {
   if (net.isIP(ip) !== 4) return false;
-  const [a, b] = ip.split(".").map(Number);
-  return a !== 0 && a !== 10 && a !== 127 && a < 224 && a !== 169 && !(a === 172 && b >= 16 && b <= 31)
-    && !(a === 192 && b === 168) && !(a === 100 && b >= 64 && b <= 127) && !(a === 198 && (b === 18 || b === 19));
+  const [a, b, c] = ip.split(".").map(Number);
+  return a !== 0 && a !== 10 && a !== 127 && a < 224 && !(a === 169 && b === 254)
+    && !(a === 100 && b >= 64 && b <= 127) && !(a === 172 && b >= 16 && b <= 31)
+    && !(a === 192 && ((b === 0 && (c === 0 || c === 2)) || (b === 88 && c === 99) || b === 168))
+    && !(a === 198 && ((b === 18 || b === 19) || (b === 51 && c === 100)))
+    && !(a === 203 && b === 0 && c === 113);
 }
 function appendAudit(file, record) {
   const existed = existsSync(file);
@@ -249,17 +252,34 @@ async function prepare() {
   const audit = path.join(DIR, `${container}.events.jsonl`);
   const child = spawn(process.execPath, [SELF, "serve", "--gateway", gateway, "--proxy-port", String(desiredPort), "--provider-host", host,
     "--provider-port", String(providerPort), "--container-ip", containerIp, "--audit", audit], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
-  const port = await new Promise((resolve, reject) => {
-    let buffer = "";
-    const timer = setTimeout(() => reject(new Error("Egress proxy did not start")), 5000);
-    child.on("error", reject);
-    child.on("exit", (code) => reject(new Error(`Egress proxy exited ${code}`)));
-    child.stdout.on("data", (bytes) => { buffer += bytes.toString("utf8"); if (buffer.includes("\n")) {
-      clearTimeout(timer);
-      try { resolve(validPort(JSON.parse(buffer.slice(0, buffer.indexOf("\n"))).port)); } catch (error) { reject(error); }
-    } });
-  });
-  child.stdout.destroy();
+  let startupTimer;
+  let port;
+  try {
+    port = await new Promise((resolve, reject) => {
+      let buffer = "";
+      startupTimer = setTimeout(() => reject(new Error("Egress proxy did not start")), 5000);
+      child.on("error", reject);
+      child.on("exit", (code) => reject(new Error(`Egress proxy exited ${code}`)));
+      child.stdout.on("data", (bytes) => { buffer += bytes.toString("utf8"); if (buffer.includes("\n")) {
+        try { resolve(validPort(JSON.parse(buffer.slice(0, buffer.indexOf("\n"))).port)); } catch (error) { reject(error); }
+      } });
+    });
+  } catch (error) {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      child.kill("SIGTERM");
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1000))]);
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1000))]);
+      if (child.exitCode === null && child.signalCode === null)
+        throw new AggregateError([error], "Egress proxy startup failed and the listener could not be stopped");
+    }
+    rmSync(audit, { force: true });
+    throw error;
+  } finally {
+    clearTimeout(startupTimer);
+    child.stdout.destroy();
+  }
   child.unref();
   const state = { container, containerIp, gateway, port, host, providerPort, policyId, pid: child.pid, audit };
   try {
