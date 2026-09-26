@@ -2,7 +2,7 @@
 
 ## Status
 
-**Qualification status: PENDING.** The latest selected-path PASS at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-oCFzGe/qualification.jsonl` covered bridge commit `2a15f9a`. The accepted R1/R2 fixes for ambiguous `submitted`/`completed` receipt failures and abort-intent short writes require requalification before claiming the current source passes. DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
+**Qualification status: PASS.** Final-source 10/10/10 selected-path PASS against bridge commit `42947e1` is preserved at `~/.local/state/capstan/m1-herdr-qualification/capstan-m1-herdr-rx4dao/qualification.jsonl` (Herdr 0.9.0, OMP 18.3.1, Node 24.6.0, Docker 29.5.0, pinned Ubuntu image). DEC-003 accepts the un-enforced same-user caller risk; this remains operational, not technical exclusivity.
 
 ## Evidence
 
@@ -47,7 +47,7 @@
 - Receipt processing now waits for client half-close before validating and acknowledging the entire one-line request, so a second frame arriving in a later TCP chunk cannot be accepted after the first receipt is already durable. The bridge half-closes after writing its request. Regression coverage checks split-chunk multi-frame rejection.
 - This is a measured runtime-bridge qualification, not a deployed M2 coordination controller or an enforced restriction on independent same-user Herdr callers. DEC-003's residual risk remains. The earlier Docker-owned RPC probes are diagnostic only.
 
-- Previous-source qualification PASS against bridge commit `2a15f9a`: acknowledgements 9,130.719–9,479.436 ms; maximum progress silence 20,071.030 ms; replacement containment 3,028.615–3,186.114 ms; quiescence 9,558.342 ms. All 10 samples passed in each category. Cleanup reported no remaining containers, policies, networks, or cleanup errors. This does not qualify the subsequent receipt-failure fixes.
+- Final-source qualification PASS: acknowledgements 9,067.612–9,563.535 ms; maximum progress silence 20,122.820 ms; replacement containment 3,013.799–3,139.762 ms; quiescence 9,419.287 ms. All 10 samples passed in each category. Cleanup reported no remaining containers, policies, networks, or cleanup errors.
 
 ## Decision
 
