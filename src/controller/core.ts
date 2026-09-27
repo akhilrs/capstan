@@ -1523,6 +1523,7 @@ export class ControllerCore {
             now,
           );
         }
+        const dependencyBindingSources = new Set<string>();
         for (const dependency of dependencies) {
           const candidateBound = dependency.accepted_candidate_id !== null;
           const sourceId = candidateBound
@@ -1535,11 +1536,17 @@ export class ControllerCore {
             throw new ControllerError(
               "accepted dependency source evidence is missing",
             );
+          const inputKind = candidateBound
+            ? "dependency_candidate"
+            : "dependency_report";
+          const bindingKey = `${inputKind}:${sourceId}`;
+          if (dependencyBindingSources.has(bindingKey)) continue;
+          dependencyBindingSources.add(bindingKey);
           bindInput.run(
             this.#projectId,
             assignmentId,
             context.inputRevision,
-            candidateBound ? "dependency_candidate" : "dependency_report",
+            inputKind,
             dependency.input_revision,
             sourceId,
             contentHash,
@@ -3937,19 +3944,22 @@ export class ControllerCore {
             "usage session does not belong to this project",
           );
         if (
-          session?.assignment_id &&
+          session &&
+          input.assignmentId &&
           session.assignment_id !== input.assignmentId
         )
           throw new ControllerError(
             "usage session and assignment do not belong together",
           );
+        if (actor.seatId && !input.sessionId && !input.assignmentId)
+          throw new TransitionAuthorizationError(
+            "worker usage requires a session or assignment binding",
+          );
         if (
           actor.seatId &&
-          ((assignment && assignment.worker_actor_id !== actor.actorId) ||
-            (session &&
-              (session.seat_id !== actor.seatId ||
-                (session.assignment_id !== null &&
-                  session.assignment_id !== input.assignmentId))))
+          session &&
+          (session.seat_id !== actor.seatId ||
+            session.assignment_id !== (input.assignmentId ?? null))
         )
           throw new TransitionAuthorizationError(
             "worker usage must belong to the actor's assigned session",

@@ -2051,6 +2051,42 @@ test("runtime identity observations keep distinct durable identifiers", async ()
       { processStartId: "process-start-1" },
     );
     assert.notEqual(first.observationId, second.observationId);
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "runtime-usage-work",
+      title: "Usage binding",
+      description: "Usage must follow actor authority",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(context(core, info.ownerCredential), "runtime-usage-work");
+    const usageAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "runtime-usage-work",
+      supervisor.seatId,
+    );
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, supervisor.credential), {
+          observationId: "unbound-worker-usage",
+          provider: "herdr",
+          metric: "tokens",
+          availability: "observed",
+          detail: {},
+        }),
+      /worker usage requires a session or assignment binding/,
+    );
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, supervisor.credential), {
+          observationId: "mismatched-worker-usage",
+          sessionId: "runtime-identity-session",
+          assignmentId: usageAssignment.assignmentId,
+          provider: "herdr",
+          metric: "tokens",
+          availability: "observed",
+          detail: {},
+        }),
+      /usage session and assignment do not belong together/,
+    );
     const otherSeat = core.createSeat(context(core, info.ownerCredential), {
       seatId: "other-usage-seat",
       name: "Other Supervisor",
@@ -2719,7 +2755,23 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       "feature",
       candidate.candidateId,
     );
+    core.addDependency(
+      context(core, pm.credential),
+      "candidate-pinned-downstream",
+      "verify-feature",
+    );
     assert.equal(core.readiness("candidate-pinned-downstream").ready, true);
+    core.markReady(
+      context(core, info.ownerCredential),
+      "candidate-pinned-downstream",
+    );
+    assert.ok(
+      core.assignWorkItem(
+        context(core, info.ownerCredential),
+        "candidate-pinned-downstream",
+        developer.seatId,
+      ).commandId,
+    );
   } finally {
     cleanup(value);
   }
