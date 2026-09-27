@@ -13,12 +13,25 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
       throw new TypeError("canonical JSON does not accept circular values");
     ancestors.add(value);
     const normalized: unknown[] = [];
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === "length") continue;
+      if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key))
+        throw new TypeError(
+          "canonical JSON arrays cannot have extra properties",
+        );
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        !descriptor ||
+        "get" in descriptor ||
+        "set" in descriptor ||
+        !descriptor.enumerable
+      )
+        throw new TypeError(
+          "canonical JSON does not accept accessor properties or non-enumerable properties",
+        );
+    }
     for (let index = 0; index < value.length; index += 1) {
       const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (descriptor && ("get" in descriptor || "set" in descriptor))
-        throw new TypeError(
-          "canonical JSON does not accept accessor properties",
-        );
       normalized.push(
         normalizeJson(descriptor ? descriptor.value : null, ancestors),
       );
@@ -37,19 +50,31 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
       string,
       unknown
     >;
-    for (const key of Object.keys(value).sort()) {
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string")
+        throw new TypeError("canonical JSON does not accept symbol properties");
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || "get" in descriptor || "set" in descriptor)
+      if (
+        !descriptor ||
+        "get" in descriptor ||
+        "set" in descriptor ||
+        !descriptor.enumerable
+      )
         throw new TypeError(
-          "canonical JSON does not accept accessor properties",
+          "canonical JSON does not accept accessor properties or non-enumerable properties",
         );
-      const property = descriptor.value;
-      if (property === undefined)
+      if (descriptor.value === undefined)
         throw new TypeError("canonical JSON does not accept undefined values");
-      normalized[key] = normalizeJson(property, ancestors);
+      normalized[key] = normalizeJson(descriptor.value, ancestors);
     }
+    const sorted: Record<string, unknown> = Object.create(null) as Record<
+      string,
+      unknown
+    >;
+    for (const key of Object.keys(normalized).sort())
+      sorted[key] = normalized[key];
     ancestors.delete(value);
-    return normalized;
+    return sorted;
   }
   throw new TypeError(`canonical JSON does not accept ${typeof value}`);
 }

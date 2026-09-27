@@ -1197,6 +1197,7 @@ export class ControllerCore {
               commit_sha: string;
               report_hash: string;
               work_state: string;
+              developer_authority: string;
               is_latest_generation: number;
             }
           | undefined;
@@ -1209,7 +1210,7 @@ export class ControllerCore {
             .prepare(
               `
           SELECT c.candidate_id, a.work_item_id, c.input_revision, c.commit_sha, c.report_hash,
-            w.state AS work_state,
+            w.state AS work_state, a.authority_state AS developer_authority,
             c.generation = (
               SELECT MAX(latest_attempt.generation)
               FROM assignments latest
@@ -1233,6 +1234,7 @@ export class ControllerCore {
             verifierCandidate.work_item_id !== item.parent_work_item_id ||
             verifierCandidate.input_revision !== context.inputRevision ||
             verifierCandidate.work_state !== "awaiting_verification" ||
+            verifierCandidate.developer_authority !== "contained" ||
             verifierCandidate.is_latest_generation !== 1
           ) {
             throw new CandidateBindingError(

@@ -48,6 +48,15 @@ test("canonical JSON rejects accessor-backed values without invoking them", () =
   assert.throws(() => canonicalJson(value), /accessor properties/);
   assert.equal(reads, 0);
 });
+test("canonical JSON rejects non-enumerable and extra array properties", () => {
+  const hidden = Object.defineProperty({ title: "visible" }, "description", {
+    value: "hidden",
+    enumerable: false,
+  });
+  const extra = Object.assign(["criterion"], { hidden: "not serialized" });
+  assert.throws(() => canonicalJson(hidden), /non-enumerable properties/);
+  assert.throws(() => canonicalJson(extra), /extra properties/);
+});
 
 const inputKinds = [
   "project_config",
