@@ -2283,6 +2283,7 @@ export class ControllerCore {
       (actor) => {
         if (
           actor.role !== "Developer" ||
+          input.candidateId.length === 0 ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.commitSha) ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.baseSha) ||
           input.changedScope.some((entry) => typeof entry !== "string") ||

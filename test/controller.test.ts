@@ -2168,6 +2168,18 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       devAssignment.assignmentId,
       "supervisor-confirmed:dev",
     );
+    assert.throws(
+      () =>
+        core.submitCandidate(context(core, developer.credential), {
+          candidateId: "",
+          assignmentId: devAssignment.assignmentId,
+          commitSha: "c".repeat(40),
+          baseSha: "b".repeat(40),
+          changedScope: ["src"],
+          limitations: [],
+        }),
+      CandidateBindingError,
+    );
     const candidate = core.submitCandidate(
       context(core, developer.credential),
       {
