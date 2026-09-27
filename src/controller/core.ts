@@ -1177,6 +1177,7 @@ export class ControllerCore {
               commit_sha: string;
               report_hash: string;
               work_state: string;
+              is_latest_generation: number;
             }
           | undefined;
         if (item.required_role === "Verifier") {
@@ -1187,7 +1188,19 @@ export class ControllerCore {
           verifierCandidate = this.#database
             .prepare(
               `
-          SELECT c.candidate_id, a.work_item_id, c.input_revision, c.commit_sha, c.report_hash, w.state AS work_state
+          SELECT c.candidate_id, a.work_item_id, c.input_revision, c.commit_sha, c.report_hash,
+            w.state AS work_state,
+            c.generation = (
+              SELECT MAX(latest_attempt.generation)
+              FROM assignments latest
+              JOIN assignment_attempts latest_attempt
+                ON latest_attempt.project_id = latest.project_id
+                AND latest_attempt.assignment_id = latest.assignment_id
+              JOIN seats latest_seat
+                ON latest_seat.project_id = latest.project_id AND latest_seat.seat_id = latest.seat_id
+              WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
+                AND latest_seat.role = 'Developer'
+            ) AS is_latest_generation
           FROM candidates c JOIN assignments a
             ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
           JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
@@ -1199,7 +1212,8 @@ export class ControllerCore {
             !verifierCandidate ||
             verifierCandidate.work_item_id !== item.parent_work_item_id ||
             verifierCandidate.input_revision !== context.inputRevision ||
-            verifierCandidate.work_state !== "awaiting_verification"
+            verifierCandidate.work_state !== "awaiting_verification" ||
+            verifierCandidate.is_latest_generation !== 1
           ) {
             throw new CandidateBindingError(
               "Verifier task parent and input revision must match the candidate",
@@ -2355,7 +2369,18 @@ export class ControllerCore {
           .prepare(
             `
         SELECT c.input_revision, c.report_hash, c.created_by, a.work_item_id, a.worker_actor_id,
-          parent.state AS work_state
+          parent.state AS work_state,
+          c.generation = (
+            SELECT MAX(latest_attempt.generation)
+            FROM assignments latest
+            JOIN assignment_attempts latest_attempt
+              ON latest_attempt.project_id = latest.project_id
+              AND latest_attempt.assignment_id = latest.assignment_id
+            JOIN seats latest_seat
+              ON latest_seat.project_id = latest.project_id AND latest_seat.seat_id = latest.seat_id
+            WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
+              AND latest_seat.role = 'Developer'
+          ) AS is_latest_generation
         FROM candidates c JOIN assignments a
           ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
         JOIN work_items parent ON parent.project_id = a.project_id AND parent.work_item_id = a.work_item_id
@@ -2370,6 +2395,7 @@ export class ControllerCore {
               worker_actor_id: string | null;
               work_item_id: string;
               work_state: string;
+              is_latest_generation: number;
             }
           | undefined;
         const verifier = this.#database
@@ -2414,6 +2440,7 @@ export class ControllerCore {
           !candidate ||
           !verifier ||
           candidate.work_state !== "awaiting_verification" ||
+          candidate.is_latest_generation !== 1 ||
           verifier.verifier_work_state !== "awaiting_verification" ||
           actor.actorId !== verifier.worker_actor_id ||
           actor.seatId !== verifier.seat_id ||
@@ -2678,6 +2705,14 @@ export class ControllerCore {
           JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
           JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
           WHERE b.project_id = ? AND b.input_kind = 'candidate' AND b.source_id = ? AND s.role = 'Verifier'
+          AND at.generation = (
+            SELECT MAX(latest_attempt.generation)
+            FROM assignments latest
+            JOIN assignment_attempts latest_attempt
+              ON latest_attempt.project_id = latest.project_id
+              AND latest_attempt.assignment_id = latest.assignment_id
+            WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
+          )
         `,
           )
           .all(this.#projectId, candidateId) as Array<{
@@ -3219,8 +3254,11 @@ export class ControllerCore {
         const assignment = this.#database
           .prepare(
             `
-        SELECT work_item_id, active_generation, authority_state, containment_proof_ref
-        FROM assignments WHERE project_id = ? AND assignment_id = ?
+        SELECT a.work_item_id, a.active_generation, a.authority_state, a.containment_proof_ref,
+          w.state AS work_state, w.state_version AS work_version
+        FROM assignments a JOIN work_items w
+          ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+        WHERE a.project_id = ? AND a.assignment_id = ?
       `,
           )
           .get(this.#projectId, input.assignmentId) as
@@ -3229,6 +3267,8 @@ export class ControllerCore {
               active_generation: number;
               authority_state: string;
               containment_proof_ref: string | null;
+              work_state: string;
+              work_version: number;
             }
           | undefined;
         if (!assignment || assignment.work_item_id !== input.workItemId)
@@ -3287,6 +3327,22 @@ export class ControllerCore {
             assignment.containment_proof_ref !== null);
         const outcome =
           count >= limit || !replacementContained ? "blocked" : "pending";
+        const returnsToBlocked =
+          input.recoveryType === "implementation_remediation" &&
+          outcome === "pending" &&
+          assignment.work_state === "awaiting_verification";
+        if (
+          returnsToBlocked &&
+          !this.#isTransitionAllowed(
+            "work_item",
+            "awaiting_verification",
+            "blocked",
+            actor,
+          )
+        )
+          throw new TransitionAuthorizationError(
+            "transition table rejects implementation remediation",
+          );
         const now = new Date().toISOString();
         this.#database
           .prepare(
@@ -3313,14 +3369,26 @@ export class ControllerCore {
             actor.actorId,
             now,
           );
+        if (returnsToBlocked) {
+          this.#database
+            .prepare(
+              `
+            UPDATE work_items SET state = 'blocked', state_version = state_version + 1
+            WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+          `,
+            )
+            .run(this.#projectId, input.workItemId);
+        }
         return {
           value: { recoveryId: input.recoveryId, outcome, limit },
           event: {
-            entityType: "recovery_attempt",
-            entityId: input.recoveryId,
-            stateVersion: 0,
-            toState: outcome,
+            entityType: returnsToBlocked ? "work_item" : "recovery_attempt",
+            entityId: returnsToBlocked ? input.workItemId : input.recoveryId,
+            stateVersion: returnsToBlocked ? assignment.work_version + 1 : 0,
+            fromState: returnsToBlocked ? "awaiting_verification" : "pending",
+            toState: returnsToBlocked ? "blocked" : outcome,
             details: {
+              recoveryId: input.recoveryId,
               recoveryType: input.recoveryType,
               containmentState: assignment.authority_state,
             },
