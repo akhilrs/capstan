@@ -670,16 +670,25 @@ export class ControllerCore {
         if (!workItem) throw new ControllerError("work item does not exist");
         if (!["pending", "blocked", "ready"].includes(workItem.state))
           throw new MutationConflictError(
-            "dependencies can change only before a work item has an assignment",
+            "dependencies can change only for pending, blocked, or ready work",
           );
         const priorAssignment = this.#database
           .prepare(
             "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? LIMIT 1",
           )
           .get(this.#projectId, workItemId);
-        if (priorAssignment)
+        if (priorAssignment && workItem.state !== "blocked")
           throw new MutationConflictError(
-            "dependencies cannot change after a work item has an assignment",
+            "dependencies can change after assignment only while blocked",
+          );
+        const uncontainedAssignment = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? AND authority_state <> 'contained' LIMIT 1",
+          )
+          .get(this.#projectId, workItemId);
+        if (uncontainedAssignment)
+          throw new MutationConflictError(
+            "dependencies can change only after every prior assignment is contained",
           );
         const cycle = this.#database
           .prepare(
@@ -738,16 +747,25 @@ export class ControllerCore {
         if (!workItem) throw new ControllerError("work item does not exist");
         if (!["pending", "blocked", "ready"].includes(workItem.state))
           throw new MutationConflictError(
-            "dependencies can change only before a work item has an assignment",
+            "dependencies can change only for pending, blocked, or ready work",
           );
         const priorAssignment = this.#database
           .prepare(
             "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? LIMIT 1",
           )
           .get(this.#projectId, workItemId);
-        if (priorAssignment)
+        if (priorAssignment && workItem.state !== "blocked")
           throw new MutationConflictError(
-            "dependencies cannot change after a work item has an assignment",
+            "dependencies can change after assignment only while blocked",
+          );
+        const uncontainedAssignment = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? AND authority_state <> 'contained' LIMIT 1",
+          )
+          .get(this.#projectId, workItemId);
+        if (uncontainedAssignment)
+          throw new MutationConflictError(
+            "dependencies can change only after every prior assignment is contained",
           );
         const result = this.#database
           .prepare(
@@ -931,7 +949,7 @@ export class ControllerCore {
         if (!item) throw new ControllerError("work item does not exist");
         if (!["pending", "blocked", "ready"].includes(item.state)) {
           throw new ControllerError(
-            "only unassigned pending, blocked, or ready work can be rebound",
+            "only pending, blocked, or ready work can be rebound",
           );
         }
         if (item.input_revision === context.inputRevision)
@@ -2227,6 +2245,17 @@ export class ControllerCore {
             "evidence is not bound to this current candidate and reported Verifier assignment",
           );
         }
+        if (typeof input.passed !== "boolean")
+          throw new CandidateBindingError(
+            "candidate evidence pass status must be boolean",
+          );
+        if (
+          typeof input.artifactRef !== "string" ||
+          input.artifactRef.trim().length === 0
+        )
+          throw new CandidateBindingError(
+            "candidate evidence requires a non-empty artifact reference",
+          );
         if (!this.#acceptanceCriteria().includes(input.criterion)) {
           throw new CandidateBindingError(
             "evidence criterion is not in the current acceptance revision",
@@ -3388,31 +3417,33 @@ export class ControllerCore {
         toState === "correcting" ||
         toState === "disputed"
       ) {
-        if (actor.role !== "controller" && !actor.seatId) {
+        const responseAssignment =
+          actor.role === "controller"
+            ? (finding.assignment_id ?? undefined)
+            : actor.seatId
+              ? (
+                  this.#database
+                    .prepare(
+                      `
+                  SELECT a.assignment_id FROM assignments a
+                  JOIN work_items responding_work ON responding_work.project_id = a.project_id
+                    AND responding_work.work_item_id = a.work_item_id
+                  WHERE a.project_id = ? AND responding_work.parent_work_item_id = ?
+                    AND a.seat_id = ? AND a.authority_state = 'active'
+                  ORDER BY a.created_at DESC LIMIT 1
+                `,
+                    )
+                    .get(
+                      this.#projectId,
+                      finding.work_item_id,
+                      actor.seatId,
+                    ) as { assignment_id: string } | undefined
+                )?.assignment_id
+              : undefined;
+        if (!responseAssignment)
           throw new ControllerError(
-            "finding response actor has no assigned seat",
+            "finding response requires a source assignment or active responding seat assignment",
           );
-        }
-        const assignment = this.#database
-          .prepare(
-            `
-          SELECT assignment_id FROM assignments
-          WHERE project_id = ? AND work_item_id = ? AND authority_state = 'active'
-            AND (? IS NULL OR seat_id = ?)
-          ORDER BY created_at DESC LIMIT 1
-        `,
-          )
-          .get(
-            this.#projectId,
-            finding.work_item_id,
-            actor.role === "controller" ? null : (actor.seatId ?? null),
-            actor.role === "controller" ? null : (actor.seatId ?? null),
-          ) as { assignment_id: string } | undefined;
-        if (!assignment)
-          throw new ControllerError(
-            "finding response requires an active assignment for the responding role",
-          );
-        const responseAssignment = assignment.assignment_id;
         const responseType =
           toState === "acknowledged"
             ? "acknowledged"
@@ -3908,8 +3939,8 @@ export class ControllerCore {
         "acceptance criteria must be a non-empty list of non-empty strings",
       );
     }
-    const criteria = rawCriteria.map((entry: string) => entry.trim());
-    if (new Set(criteria).size !== criteria.length)
+    const criteria = rawCriteria as string[];
+    if (new Set(criteria.map((entry) => entry.trim())).size !== criteria.length)
       throw new CandidateBindingError("acceptance criteria must be unique");
     return criteria;
   }

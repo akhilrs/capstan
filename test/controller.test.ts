@@ -400,7 +400,7 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       "Supervisor",
       "supervisor-report",
     );
-    await addSeatAndActor(
+    const reportDependent = await addSeatAndActor(
       core,
       info.ownerCredential,
       "Developer",
@@ -481,6 +481,51 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
     );
     assert.equal(core.readiness("uses-pm-report").ready, true);
     core.markReady(context(core, info.ownerCredential), "uses-pm-report");
+    const dependentAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "uses-pm-report",
+      reportDependent.seatId,
+    );
+    const dependentIdentity = {
+      commandId: dependentAssignment.commandId,
+      assignmentId: dependentAssignment.assignmentId,
+      attempt: dependentAssignment.attempt,
+      generation: dependentAssignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      dependentIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(dependentIdentity, 1, "accepted", "Developer"),
+    );
+    core.recordBridgeReceipt(
+      receipt(dependentIdentity, 2, "dispatch_error", "Developer"),
+    );
+    const versionWithUncontainedAssignment = core.stateVersion;
+    assert.throws(
+      () =>
+        core.removeDependency(
+          context(core, info.ownerCredential),
+          "uses-pm-report",
+          "report-pm",
+        ),
+      MutationConflictError,
+    );
+    assert.equal(core.stateVersion, versionWithUncontainedAssignment);
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      dependentAssignment.assignmentId,
+      "containment:stale-report-dependent",
+    );
+    const recoveryId = "stale-report-dependent-recovery";
+    core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId,
+      workItemId: "uses-pm-report",
+      assignmentId: dependentAssignment.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "Replan after stale accepted prerequisite",
+    });
     core.recordInputRevision(context(core, info.ownerCredential), {
       kind: "policy",
       content: { reportContextChanged: true },
@@ -504,6 +549,112 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       { removed: true },
     );
     assert.equal(core.readiness("uses-pm-report").ready, true);
+    assert.deepEqual(
+      core.markReady(context(core, info.ownerCredential), "uses-pm-report"),
+      { state: "ready" },
+    );
+    const replacementAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "uses-pm-report",
+      reportDependent.seatId,
+      undefined,
+      recoveryId,
+    );
+    assert.equal(replacementAssignment.inputRevision, core.inputRevision);
+    assert.notEqual(
+      replacementAssignment.assignmentId,
+      dependentAssignment.assignmentId,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("finding acknowledgements use the responding seat's active assignment", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "finding-supervisor",
+    );
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "finding-pm",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "finding-supervisor-work",
+      title: "Supervisor report",
+      description: "Create a finding",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "finding-supervisor-work",
+    );
+    const supervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "finding-supervisor-work",
+      supervisor.seatId,
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "finding-1",
+      workItemId: "finding-supervisor-work",
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      fingerprint: "finding-fingerprint",
+      severity: "medium",
+      evidence: { source: "test" },
+      requestedCorrection: "Address the issue",
+      resolutionCondition: "Supervisor confirms correction",
+    });
+    assert.deepEqual(
+      core.transitionFinding(
+        context(core, supervisor.credential),
+        "finding-1",
+        "reported",
+        { report: "Needs correction" },
+      ),
+      { state: "reported" },
+    );
+    const versionBeforeUnassignedAck = core.stateVersion;
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, pm.credential),
+          "finding-1",
+          "acknowledged",
+          { acknowledgment: "I will review" },
+        ),
+      /active responding seat assignment/,
+    );
+    assert.equal(core.stateVersion, versionBeforeUnassignedAck);
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "finding-pm-work",
+      parentWorkItemId: "finding-supervisor-work",
+      title: "PM report",
+      description: "Acknowledge the finding",
+      requiredRole: "PM",
+    });
+    core.markReady(context(core, info.ownerCredential), "finding-pm-work");
+    core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "finding-pm-work",
+      pm.seatId,
+    );
+    assert.deepEqual(
+      core.transitionFinding(
+        context(core, pm.credential),
+        "finding-1",
+        "acknowledged",
+        { acknowledgment: "I will review" },
+      ),
+      { state: "acknowledged" },
+    );
   } finally {
     cleanup(value);
   }
@@ -688,6 +839,10 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       "Developer",
       "dev",
     );
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "acceptance_criteria",
+      content: [" criterion-one "],
+    });
     core.createWorkItem(context(core, pm.credential), {
       workItemId: "feature",
       title: "Feature",
@@ -853,13 +1008,46 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         ),
       CandidateBindingError,
     );
+    const versionBeforeInvalidEvidence = core.stateVersion;
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          verifierAssignment.assignmentId,
+          {
+            evidenceId: "string-pass-evidence",
+            candidateId: candidate.candidateId,
+            criterion: " criterion-one ",
+            passed: "false" as unknown as boolean,
+            artifactRef: "artifact://test/string-pass",
+          },
+        ),
+      CandidateBindingError,
+    );
+    assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          verifierAssignment.assignmentId,
+          {
+            evidenceId: "empty-artifact-evidence",
+            candidateId: candidate.candidateId,
+            criterion: " criterion-one ",
+            passed: true,
+            artifactRef: " \n ",
+          },
+        ),
+      CandidateBindingError,
+    );
+    assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
     core.recordEvidence(
       context(core, verifier.credential),
       verifierAssignment.assignmentId,
       {
         evidenceId: "evidence-1",
         candidateId: candidate.candidateId,
-        criterion: "criterion-one",
+        criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/evidence-1",
       },
