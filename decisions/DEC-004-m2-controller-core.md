@@ -23,6 +23,10 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Bridge receipt sequences are monotonic per project role. The integration must reuse one durable M1 journal and sequence space per role across worker replacement; it must not run independent same-role bridge journals concurrently. PM-6 owns provisioning and enforcement of that lifecycle constraint.
 - The controller receipt socket consumes only the first newline-terminated frame. Its 1 MiB limit applies through that delimiter; suffix bytes are ignored consistently whether coalesced with the frame or delivered later.
 
+- A queued command that remains queued with a created assignment/attempt and no durable start intent was never delivered by this controller; after restart it may be contained with operator proof before any dispatch. Attempting or acknowledged commands retain the existing reconciliation requirements.
+- Readiness requires an active actor on an active role-matching seat, and assignment rechecks that same selected seat. Each seat has at most one active actor so receipt attribution cannot shift during an assignment.
+- A Verifier's failing criterion evidence blocks the awaiting-verification work item; the evidence remains immutable and the controller can use the existing bounded implementation-remediation path after containment.
+
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.
 
 ## Accepted trust boundary

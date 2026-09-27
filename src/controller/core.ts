@@ -417,6 +417,15 @@ export class ControllerCore {
               "actor seat must be active and match its role",
             );
           seatId = input.seatId;
+          const activeActor = this.#database
+            .prepare(
+              "SELECT 1 AS present FROM actors WHERE project_id = ? AND seat_id = ? AND active = 1 AND revoked_at IS NULL LIMIT 1",
+            )
+            .get(this.#projectId, input.seatId);
+          if (activeActor)
+            throw new MutationConflictError(
+              "seat already has an active actor; revoke it before issuing a replacement",
+            );
         } else if (input.seatId) {
           throw new ControllerError(
             "operator and controller actors cannot be attached to a worker seat",
@@ -2444,6 +2453,16 @@ export class ControllerCore {
             actor.actorId,
             new Date().toISOString(),
           );
+        if (!input.passed) {
+          this.#database
+            .prepare(
+              `
+            UPDATE work_items SET state = 'blocked', state_version = state_version + 1
+            WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+          `,
+            )
+            .run(this.#projectId, candidate.work_item_id);
+        }
         return {
           value: { evidenceId: input.evidenceId, evidenceHash },
           event: {
@@ -3127,8 +3146,11 @@ export class ControllerCore {
                     input.workItemId,
                   ) as { count: number }
               ).count;
+        const requiresContainment =
+          input.recoveryType === "worker_replacement" ||
+          input.recoveryType === "implementation_remediation";
         const replacementContained =
-          input.recoveryType !== "worker_replacement" ||
+          !requiresContainment ||
           (assignment.authority_state === "contained" &&
             assignment.containment_proof_ref !== null);
         const outcome =

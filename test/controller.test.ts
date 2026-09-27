@@ -179,11 +179,14 @@ test("actor credentials are issued by the controller and replay exactly", async 
     const actor = core.createActor(request, input);
     assert.equal(actor.credential.length >= 32, true);
     assert.deepEqual(core.createActor(request, input), actor);
-    const second = core.createActor(context(core, info.ownerCredential), {
-      ...input,
-      displayName: "Another PM",
-    });
-    assert.notEqual(second.credential, actor.credential);
+    assert.throws(
+      () =>
+        core.createActor(context(core, info.ownerCredential), {
+          ...input,
+          displayName: "Another PM",
+        }),
+      /seat already has an active actor/,
+    );
     core.createWorkItem(context(core, actor.credential), {
       workItemId: "issued-actor-work",
       title: "Authenticated by issued token",
