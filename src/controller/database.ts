@@ -15,6 +15,14 @@ const migrations: Readonly<
     name: "0001_initial.sql",
     url: new URL("../../migrations/0001_initial.sql", import.meta.url),
   },
+  2: {
+    version: 2,
+    name: "0002_runtime_identity_and_finding_reports.sql",
+    url: new URL(
+      "../../migrations/0002_runtime_identity_and_finding_reports.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

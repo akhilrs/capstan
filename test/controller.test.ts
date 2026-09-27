@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -329,6 +330,132 @@ test("private project ownership survives restart and ambiguous delivery is recon
     rmSync(stateDirectory, { recursive: true, force: true });
   }
 });
+test("restart containment preserves a durable PM report for acceptance", async () => {
+  const value = await fixture();
+  const { stateDirectory, project: info } = value;
+  let core = value.core;
+  try {
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "restart-pm-report",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "restart-pm-report-work",
+      title: "Persisted PM report",
+      description: "Accept a durable report after restart containment",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "restart-pm-report-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "restart-pm-report-work",
+      pm.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "PM"));
+    core.close();
+    core = await ControllerCore.open({ stateDirectory, project: info });
+    assert.equal(core.commandState(assignment.commandId), "completed");
+    const versionBeforeUncontainedAccept = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptNonCandidateReport(
+          context(core, info.ownerCredential),
+          "restart-pm-report-work",
+          assignment.assignmentId,
+        ),
+      /not contained/,
+    );
+    assert.equal(core.stateVersion, versionBeforeUncontainedAccept);
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "restart-containment:pm-report",
+    );
+    assert.deepEqual(
+      core.acceptNonCandidateReport(
+        context(core, info.ownerCredential),
+        "restart-pm-report-work",
+        assignment.assignmentId,
+      ),
+      { acceptedWorkItemId: "restart-pm-report-work" },
+    );
+  } finally {
+    core.close();
+    cleanup(value);
+  }
+});
+test("unstarted command authority cannot be marked contained", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "prestart-containment",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "prestart-containment-work",
+      title: "Unstarted work",
+      description: "Containment cannot predate start",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "prestart-containment-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "prestart-containment-work",
+      developer.seatId,
+    );
+    const versionBeforePrematureContainment = core.stateVersion;
+    assert.throws(
+      () =>
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          assignment.assignmentId,
+          "premature-containment",
+        ),
+      /running or uncertain authority/,
+    );
+    assert.equal(core.stateVersion, versionBeforePrematureContainment);
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    assert.throws(
+      () =>
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          assignment.assignmentId,
+          "pre-start-containment",
+        ),
+      /running or uncertain authority/,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("runs reject completion while work is open", async () => {
   const value = await fixture();
   try {
@@ -570,7 +697,7 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
   }
 });
 
-test("finding acknowledgements use the responding seat's active assignment", async () => {
+test("finding responses persist their reports and require explicit resolution evidence", async () => {
   const value = await fixture();
   try {
     const { core, project: info } = value;
@@ -621,6 +748,30 @@ test("finding acknowledgements use the responding seat's active assignment", asy
       ),
       { state: "reported" },
     );
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+      { readonly: true },
+    );
+    try {
+      const report = db
+        .prepare(
+          "SELECT assignment_id, response_type, content_json FROM finding_responses WHERE project_id = ? AND finding_id = ?",
+        )
+        .get(info.projectId, "finding-1") as
+        | {
+            assignment_id: string;
+            response_type: string;
+            content_json: string;
+          }
+        | undefined;
+      assert.deepEqual(report, {
+        assignment_id: supervisorAssignment.assignmentId,
+        response_type: "report",
+        content_json: '{"report":"Needs correction"}',
+      });
+    } finally {
+      db.close();
+    }
     const versionBeforeUnassignedAck = core.stateVersion;
     assert.throws(
       () =>
@@ -630,7 +781,7 @@ test("finding acknowledgements use the responding seat's active assignment", asy
           "acknowledged",
           { acknowledgment: "I will review" },
         ),
-      /active responding seat assignment/,
+      /active responding child assignment/,
     );
     assert.equal(core.stateVersion, versionBeforeUnassignedAck);
     core.createWorkItem(context(core, info.ownerCredential), {
@@ -655,6 +806,92 @@ test("finding acknowledgements use the responding seat's active assignment", asy
       ),
       { state: "acknowledged" },
     );
+    core.transitionFinding(
+      context(core, info.ownerCredential),
+      "finding-1",
+      "correcting",
+      { correction: "Change is ready for review" },
+    );
+    const versionBeforeInvalidResolution = core.stateVersion;
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          "finding-1",
+          "resolved",
+          null,
+        ),
+      /repeat its condition and include non-empty evidence/,
+    );
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          "finding-1",
+          "resolved",
+          { condition: "different condition", evidence: "evidence://proof" },
+        ),
+      /repeat its condition and include non-empty evidence/,
+    );
+    assert.equal(core.stateVersion, versionBeforeInvalidResolution);
+    assert.deepEqual(
+      core.transitionFinding(
+        context(core, info.ownerCredential),
+        "finding-1",
+        "resolved",
+        {
+          condition: "Supervisor confirms correction",
+          evidence: "evidence://correction-check",
+        },
+      ),
+      { state: "resolved" },
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+test("runtime identity observations keep distinct durable identifiers", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "runtime-identity",
+    );
+    core.createRuntimeSession(context(core, info.ownerCredential), {
+      sessionId: "runtime-identity-session",
+      seatId: supervisor.seatId,
+      provider: "herdr",
+      profile: "runtime-identity-profile",
+      workspace: value.stateDirectory,
+    });
+    const first = core.recordRuntimeIdentity(
+      context(core, info.ownerCredential),
+      "runtime-identity-session",
+      { processStartId: "process-start-1" },
+    );
+    const second = core.recordRuntimeIdentity(
+      context(core, info.ownerCredential),
+      "runtime-identity-session",
+      { processStartId: "process-start-1" },
+    );
+    assert.notEqual(first.observationId, second.observationId);
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+      { readonly: true },
+    );
+    try {
+      const result = db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM runtime_identities WHERE project_id = ? AND session_id = ?",
+        )
+        .get(info.projectId, "runtime-identity-session") as { count: number };
+      assert.equal(result.count, 2);
+    } finally {
+      db.close();
+    }
   } finally {
     cleanup(value);
   }
@@ -1267,6 +1504,17 @@ test("worker replacement limits count consumed recovery records", async () => {
       undefined,
       first.recoveryId,
     );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      replacement.commandId,
+    );
+    const replacementIdentity = {
+      commandId: replacement.commandId,
+      assignmentId: replacement.assignmentId,
+      attempt: replacement.attempt,
+      generation: replacement.generation,
+    };
+    core.recordBridgeReceipt(receipt(replacementIdentity, 2, "aborted"));
     core.confirmContainment(
       context(core, info.ownerCredential),
       replacement.assignmentId,
