@@ -198,15 +198,21 @@ export default function herdrBridge(pi) {
   function requestShape(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) fail("request must be an object");
     if (value.type === "dispatch") {
-      if (Object.keys(value).some((key) => !["type", "commandId", "assignmentId", "attempt", "generation", "prompt"].includes(key))) fail("unexpected dispatch field");
+      if (Object.keys(value).some((key) => !["type", "commandId", "assignmentId", "attempt", "generation", "prompt", "singleResponse"].includes(key))) fail("unexpected dispatch field");
+      if (value.singleResponse !== undefined && typeof value.singleResponse !== "boolean") fail("singleResponse must be a boolean");
       const commandId = validId(value.commandId, "commandId");
       const assignmentId = validId(value.assignmentId, "assignmentId");
       const attempt = positiveInteger(value.attempt, "attempt");
       const generation = positiveInteger(value.generation, "generation");
       if (typeof value.prompt !== "string" || !value.prompt.trim() || byteLength(value.prompt) > MAX_PROMPT_BYTES || Buffer.from(value.prompt, "utf8").toString("utf8") !== value.prompt) fail("invalid prompt");
-      return { type: "dispatch", commandId, assignmentId, attempt, generation, prompt: value.prompt };
+      return { type: "dispatch", commandId, assignmentId, attempt, generation, prompt: value.prompt, singleResponse: value.singleResponse === true };
     }
-    if (value.type === "get" || value.type === "abort" || value.type === "start") {
+    if (value.type === "start") {
+      if (Object.keys(value).some((key) => !["type", "commandId", "singleResponse"].includes(key))) fail("unexpected request field");
+      if (value.singleResponse !== undefined && typeof value.singleResponse !== "boolean") fail("singleResponse must be a boolean");
+      return { type: "start", commandId: validId(value.commandId, "commandId"), singleResponse: value.singleResponse === true };
+    }
+    if (value.type === "get" || value.type === "abort") {
       if (Object.keys(value).some((key) => !["type", "commandId"].includes(key))) fail("unexpected request field");
       return { type: value.type, commandId: validId(value.commandId, "commandId") };
     }
@@ -378,7 +384,7 @@ export default function herdrBridge(pi) {
           awaitingResponse = true;
           pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
-            const liveDispatch = ["dispatch", "start"].includes(normalized.type) && active?.commandId === normalized.commandId && !active.dispatchFailed;
+            const liveDispatch = !normalized.singleResponse && ["dispatch", "start"].includes(normalized.type) && active?.commandId === normalized.commandId && !active.dispatchFailed;
             if (liveDispatch) {
               let subscribers = commandSockets.get(normalized.commandId);
               if (!subscribers) commandSockets.set(normalized.commandId, (subscribers = new Set()));
