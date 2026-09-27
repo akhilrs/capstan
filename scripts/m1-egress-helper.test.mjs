@@ -36,7 +36,7 @@ try {
   const cleanup = spawnSync(process.execPath, [path.join(import.meta.dirname, "m1-egress-helper.mjs"),
     "cleanup-container", "--container", id], { encoding: "utf8", env: { ...process.env, TMPDIR: isolatedTemp } });
   assert.notEqual(cleanup.status, 0, "cleanup cannot claim an absent policy while preparation owns it");
-  assert.match(cleanup.stderr, /preparation still owns/);
+  assert.match(cleanup.stderr, /lifecycle operation already holds/);
 } finally {
   fs.rmSync(isolatedTemp, { recursive: true, force: true });
 }

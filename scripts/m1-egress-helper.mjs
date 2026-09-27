@@ -31,6 +31,15 @@ function validatedContainer() {
   return id;
 }
 function location(id) { return path.join(DIR, `${id}.json`); }
+function reserveContainer(id) {
+  mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  const reservation = `${location(id)}.prepare`;
+  try { mkdirSync(reservation, { mode: 0o700 }); } catch (error) {
+    if (error?.code === "EEXIST") throw new Error("Egress policy lifecycle operation already holds the container reservation");
+    throw error;
+  }
+  return () => rmSync(reservation, { recursive: true, force: true });
+}
 function docker(...args) {
   const result = spawnSync("docker", args, { encoding: "utf8", timeout: 15_000 });
   if (result.status !== 0) throw new Error(`Docker ${args[0]} failed: ${result.stderr.trim()}`);
@@ -289,9 +298,7 @@ async function prepare() {
     throw new Error("Expected one isolated IPv4-only internal network with IPv4 gateway");
   }
   const gateway = network.IPAM.Config[0].Gateway;
-  mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  const reservation = `${location(container)}.prepare`;
-  mkdirSync(reservation, { mode: 0o700 });
+  const releaseReservation = reserveContainer(container);
   try {
     if (existsSync(location(container))) throw new Error("Existing egress policy requires explicit cleanup");
   const policyId = `capstan-m1-${randomBytes(12).toString("hex")}`;
@@ -346,7 +353,7 @@ async function prepare() {
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
   } finally {
-    rmSync(reservation, { recursive: true, force: true });
+    releaseReservation();
   }
 }
 function ruleOption(words, option) {
@@ -465,22 +472,27 @@ async function main() {
   if (action === "serve") { await serve(); return; }
   if (action === "prepare") { await prepare(); return; }
   const container = validatedContainer();
-  if (action === "cleanup-container") {
-    if (existsSync(`${location(container)}.prepare`))
-      throw new Error("Egress preparation still owns this container; cleanup cannot race policy installation");
-    if (!existsSync(location(container))) { console.log(JSON.stringify({ removed: true, alreadyAbsent: true })); return; }
-    const stored = JSON.parse(readFileSync(location(container), "utf8"));
-    if (stored.container !== container || !/^capstan-m1-[0-9a-f]{24}$/.test(stored.policyId))
-      throw new Error("Invalid persisted egress policy identity");
-    removePolicy(stored);
-    console.log(JSON.stringify({ removed: true, policyId: stored.policyId }));
-    return;
+  if (action === "cleanup-container" || action === "cleanup") {
+    const releaseReservation = reserveContainer(container);
+    try {
+      if (!existsSync(location(container))) {
+        console.log(JSON.stringify({ removed: true, alreadyAbsent: true }));
+        return;
+      }
+      const stored = JSON.parse(readFileSync(location(container), "utf8"));
+      if (stored.container !== container || !/^capstan-m1-[0-9a-f]{24}$/.test(stored.policyId))
+        throw new Error("Invalid persisted egress policy identity");
+      if (action === "cleanup" && stored.policyId !== option("policy-id"))
+        throw new Error("Egress cleanup policy ID does not match persisted identity");
+      removePolicy(stored);
+      console.log(JSON.stringify({ removed: true, policyId: stored.policyId }));
+      return;
+    } finally {
+      releaseReservation();
+    }
   }
   const policyId = option("policy-id");
   if (!/^capstan-m1-[0-9a-f]{24}$/.test(policyId)) throw new Error("Invalid policy ID");
-  if (action === "cleanup" && existsSync(`${location(container)}.prepare`))
-    throw new Error("Egress preparation still owns this container; cleanup cannot race policy installation");
-  if (action === "cleanup" && !existsSync(location(container))) { console.log(JSON.stringify({ removed: true, alreadyAbsent: true })); return; }
   const state = readState(container, policyId);
   if (action === "verify") { console.log(JSON.stringify(await verifyState(state))); return; }
   if (action === "probe-deny") {
