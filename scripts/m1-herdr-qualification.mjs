@@ -591,7 +591,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     record("worker_receipt_peer_denied", { container: name, expectedOMPHostPid, denials: deniedPeerCount });
     const untrustedBridgePeer = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
       "/usr/local/bin/node", "-e",
-      "const s=require('node:net').createConnection('/bridge/seat.sock'); s.on('connect',()=>s.write(JSON.stringify({type:'get',commandId:'untrusted-worker'})+'\\n')); s.on('data',()=>process.exit(2)); s.on('error',(error)=>process.exit(error.code==='ECONNRESET'?0:3)); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(4),3000);"],
+      "const s=require('node:net').createConnection('/bridge/seat.sock'); s.on('connect',()=>s.write(JSON.stringify({type:'get',commandId:'untrusted-worker'})+'\\n')); s.on('data',()=>process.exit(2)); s.on('error',(error)=>{console.error(error.code||error.message);process.exitCode=['ECONNRESET','EPIPE'].includes(error.code)?0:3}); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(4),3000);"],
     { stdio: ["ignore", "ignore", "pipe"] });
     let untrustedDiagnostic = "";
     untrustedBridgePeer.stderr.on("data", (bytes) => { untrustedDiagnostic += bytes.toString("utf8"); });

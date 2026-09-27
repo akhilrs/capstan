@@ -183,7 +183,7 @@ try {
   const queuedRequests = Buffer.from(`${JSON.stringify({ type: "get", commandId: "queue-boundary" })}\n`.repeat(130));
   assert.match((await rawRequest(bridgeSocket, queuedRequests)).error, /pipelined bridge requests are forbidden/);
   const untrusted = spawn(process.execPath, ["-e",
-    `const net=require("node:net");const socket=net.createConnection(${JSON.stringify(bridgeSocket)});socket.on("connect",()=>socket.write(JSON.stringify({type:"get",commandId:"untrusted"})+"\\n"));socket.on("data",()=>process.exit(2));socket.on("close",()=>process.exit(0));socket.on("error",(error)=>process.exit(error.code==="ECONNRESET"?0:3));setTimeout(()=>process.exit(4),3000);`],
+    `const net=require("node:net");const socket=net.createConnection(${JSON.stringify(bridgeSocket)});socket.on("connect",()=>socket.write(JSON.stringify({type:"get",commandId:"untrusted"})+"\\n"));socket.on("data",()=>process.exit(2));socket.on("close",()=>process.exit(0));socket.on("error",(error)=>process.exit(["ECONNRESET","EPIPE"].includes(error.code)?0:3));setTimeout(()=>process.exit(4),3000);`],
   { stdio: "ignore" });
   assert.equal(await new Promise((resolve, reject) => { untrusted.once("error", reject); untrusted.once("exit", resolve); }), 0,
     "bridge must reject a different local PID before it receives a command");
