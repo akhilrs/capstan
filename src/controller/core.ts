@@ -2291,6 +2291,15 @@ export class ControllerCore {
           changedScope: input.changedScope,
           limitations: input.limitations,
         });
+        const existingCandidate = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM candidates WHERE project_id = ? AND assignment_id = ? LIMIT 1",
+          )
+          .get(this.#projectId, input.assignmentId);
+        if (existingCandidate)
+          throw new CandidateBindingError(
+            "a Developer assignment may submit only one candidate",
+          );
         this.#database
           .prepare(
             `
@@ -2511,13 +2520,15 @@ export class ControllerCore {
             `
         SELECT c.assignment_id, c.attempt, c.generation, c.input_revision, c.report_hash, a.work_item_id,
           a.state AS assignment_state, a.authority_state, a.worker_actor_id, at.state AS attempt_state,
-          a.assignment_id = (
-            SELECT latest.assignment_id FROM assignments latest
+          c.generation = (
+            SELECT MAX(latest_attempt.generation)
+            FROM assignments latest
+            JOIN assignment_attempts latest_attempt ON latest_attempt.project_id = latest.project_id
+              AND latest_attempt.assignment_id = latest.assignment_id
             JOIN seats latest_seat ON latest_seat.project_id = latest.project_id
               AND latest_seat.seat_id = latest.seat_id
             WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
               AND latest_seat.role = 'Developer'
-            ORDER BY latest.created_at DESC, latest.assignment_id DESC LIMIT 1
           ) AS is_latest_developer_assignment,
           w.state AS work_state, w.state_version AS work_version, w.input_revision AS work_revision,
           r.state AS run_state

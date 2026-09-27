@@ -2112,6 +2112,18 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         limitations: [],
       },
     );
+    assert.throws(
+      () =>
+        core.submitCandidate(context(core, developer.credential), {
+          candidateId: "candidate-duplicate-assignment",
+          assignmentId: devAssignment.assignmentId,
+          commitSha: "c".repeat(40),
+          baseSha: "b".repeat(40),
+          changedScope: ["src"],
+          limitations: [],
+        }),
+      CandidateBindingError,
+    );
     const candidateDb = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
     );

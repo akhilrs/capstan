@@ -26,6 +26,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - A queued command that remains queued with a created assignment/attempt and no durable start intent was never delivered by this controller; after restart it may be contained with operator proof before any dispatch. Attempting or acknowledged commands retain the existing reconciliation requirements.
 - Readiness requires an active actor on an active role-matching seat, and assignment rechecks that same selected seat. Each seat has at most one active actor so receipt attribution cannot shift during an assignment.
 - A Verifier's failing criterion evidence blocks the awaiting-verification work item; the evidence remains immutable and the controller can use the existing bounded implementation-remediation path after containment.
+- Persist the selected worker actor identity with each assignment. Candidate reports and Verifier evidence must be authored by the actor actually assigned; each assignment may submit only one immutable candidate, and acceptance requires the latest Developer generation. Historical assignments are backfilled only when their seat has exactly one historical actor; ambiguous ownership remains unbound and cannot submit new candidate/evidence.
 
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.
 
