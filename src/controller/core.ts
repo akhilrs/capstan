@@ -2474,6 +2474,24 @@ export class ControllerCore {
             new Date().toISOString(),
           );
         if (!input.passed) {
+          const controller = this.#internalPrincipal();
+          if (
+            !this.#isTransitionAllowed(
+              "work_item",
+              "awaiting_verification",
+              "blocked",
+              controller,
+            ) ||
+            !this.#isTransitionAllowed(
+              "work_item",
+              "awaiting_verification",
+              "canceled",
+              controller,
+            )
+          )
+            throw new TransitionAuthorizationError(
+              "transition table rejects failed verification disposition",
+            );
           this.#database
             .prepare(
               `
@@ -2497,7 +2515,18 @@ export class ControllerCore {
             entityType: "work_item",
             entityId: candidate.work_item_id,
             stateVersion: 0,
-            toState: "verification_evidence_recorded",
+            fromState: "awaiting_verification",
+            toState: input.passed
+              ? "verification_evidence_recorded"
+              : "blocked",
+            details: input.passed
+              ? { evidenceId: input.evidenceId }
+              : {
+                  evidenceId: input.evidenceId,
+                  failedVerifierWorkItemId: verifier.work_item_id,
+                  failedVerifierWorkFrom: "awaiting_verification",
+                  failedVerifierWorkTo: "canceled",
+                },
           },
         };
       },
@@ -2518,8 +2547,9 @@ export class ControllerCore {
         const candidate = this.#database
           .prepare(
             `
-        SELECT c.assignment_id, c.attempt, c.generation, c.input_revision, c.report_hash, a.work_item_id,
-          a.state AS assignment_state, a.authority_state, a.worker_actor_id, at.state AS attempt_state,
+        SELECT c.assignment_id, c.attempt, c.generation, c.input_revision, c.report_hash, c.created_by,
+          a.work_item_id, a.state AS assignment_state, a.authority_state, a.worker_actor_id,
+          at.state AS attempt_state,
           c.generation = (
             SELECT MAX(latest_attempt.generation)
             FROM assignments latest
@@ -2548,6 +2578,7 @@ export class ControllerCore {
               generation: number;
               input_revision: number;
               report_hash: string;
+              created_by: string;
               work_item_id: string;
               assignment_state: string;
               authority_state: string;
@@ -2562,6 +2593,8 @@ export class ControllerCore {
           | undefined;
         if (
           !candidate ||
+          candidate.worker_actor_id === null ||
+          candidate.created_by !== candidate.worker_actor_id ||
           candidate.is_latest_developer_assignment !== 1 ||
           candidate.run_state !== "active" ||
           candidate.work_item_id !== workItemId ||
@@ -2592,8 +2625,8 @@ export class ControllerCore {
         const evidence = this.#database
           .prepare(
             `
-        SELECT e.verifier_assignment_id, e.criterion, e.passed, e.input_revision,
-          va.work_item_id AS verifier_work_item_id, va.input_revision AS verifier_input_revision,
+        SELECT e.verifier_assignment_id, e.criterion, e.passed, e.input_revision, e.created_by,
+          va.worker_actor_id, va.work_item_id AS verifier_work_item_id, va.input_revision AS verifier_input_revision,
           va.state AS verifier_assignment_state, va.authority_state AS verifier_authority_state,
           at.attempt AS verifier_attempt, at.state AS verifier_attempt_state,
           at.authority_state AS verifier_attempt_authority,
@@ -2612,6 +2645,8 @@ export class ControllerCore {
           .all(this.#projectId, candidateId) as Array<{
           verifier_assignment_id: string;
           criterion: string;
+          created_by: string;
+          worker_actor_id: string | null;
           passed: number;
           input_revision: number;
           verifier_work_item_id: string;
@@ -2655,6 +2690,8 @@ export class ControllerCore {
         ];
         for (const verifier of verifierAssignments) {
           if (
+            verifier.worker_actor_id === null ||
+            verifier.created_by !== verifier.worker_actor_id ||
             verifier.verifier_assignment_state !== "reported" ||
             verifier.verifier_attempt_state !== "reported" ||
             verifier.verifier_authority_state !== "contained" ||
