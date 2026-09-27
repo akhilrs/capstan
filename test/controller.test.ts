@@ -747,6 +747,99 @@ test("restart containment preserves a durable PM report for acceptance", async (
     cleanup(value);
   }
 });
+test("readiness requires an active actor bound to the required-role seat", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "actor-required-seat",
+      name: "Actor required",
+      role: "Developer",
+    });
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "actor-required-work",
+      title: "Actor-required work",
+      description: "Do not dispatch without a receipt principal",
+      requiredRole: "Developer",
+    });
+    assert.throws(
+      () =>
+        core.markReady(
+          context(core, info.ownerCredential),
+          "actor-required-work",
+        ),
+      /no active Developer seat with an active actor/,
+    );
+    core.createActor(context(core, info.ownerCredential), {
+      displayName: "Developer",
+      role: "Developer",
+      seatId: "actor-required-seat",
+    });
+    assert.deepEqual(
+      core.markReady(
+        context(core, info.ownerCredential),
+        "actor-required-work",
+      ),
+      { state: "ready" },
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("queued assignment can be contained after restart before any delivery", async () => {
+  const value = await fixture();
+  const { project: info } = value;
+  let core = value.core;
+  try {
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "queued-containment",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "queued-containment-work",
+      title: "Queued work",
+      description: "Abandon work known never delivered",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "queued-containment-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "queued-containment-work",
+      developer.seatId,
+    );
+    core.close();
+    core = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    assert.deepEqual(
+      core.confirmContainment(
+        context(core, info.ownerCredential),
+        assignment.assignmentId,
+        "proof:command-never-delivered",
+      ),
+      { contained: true },
+    );
+    assert.throws(
+      () =>
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          assignment.commandId,
+        ),
+      /contained|delivery/,
+    );
+  } finally {
+    core.close();
+    cleanup(value);
+  }
+});
+
 test("unstarted command authority cannot be marked contained", async () => {
   const value = await fixture();
   try {
@@ -772,17 +865,6 @@ test("unstarted command authority cannot be marked contained", async () => {
       "prestart-containment-work",
       developer.seatId,
     );
-    const versionBeforePrematureContainment = core.stateVersion;
-    assert.throws(
-      () =>
-        core.confirmContainment(
-          context(core, info.ownerCredential),
-          assignment.assignmentId,
-          "premature-containment",
-        ),
-      /running or uncertain authority/,
-    );
-    assert.equal(core.stateVersion, versionBeforePrematureContainment);
     core.beginCommandDelivery(
       context(core, info.ownerCredential),
       assignment.commandId,

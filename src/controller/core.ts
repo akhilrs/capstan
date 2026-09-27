@@ -851,10 +851,20 @@ export class ControllerCore {
     if (item.run_state !== "active") reasons.push(`run is ${item.run_state}`);
     const seats = this.#database
       .prepare(
-        "SELECT 1 AS present FROM seats WHERE project_id = ? AND role = ? AND state = 'active' LIMIT 1",
+        `
+      SELECT 1 AS present FROM seats s
+      WHERE s.project_id = ? AND s.role = ? AND s.state = 'active'
+        AND EXISTS (
+          SELECT 1 FROM actors a
+          WHERE a.project_id = s.project_id AND a.seat_id = s.seat_id
+            AND a.role = s.role AND a.active = 1 AND a.revoked_at IS NULL
+        )
+      LIMIT 1
+    `,
       )
       .get(this.#projectId, item.required_role);
-    if (!seats) reasons.push(`no active ${item.required_role} seat`);
+    if (!seats)
+      reasons.push(`no active ${item.required_role} seat with an active actor`);
     const activeAssignment = this.#database
       .prepare(
         `
@@ -2930,6 +2940,12 @@ export class ControllerCore {
           assignment.attempt_state === "reported" &&
           assignment.command_state === "completed" &&
           assignment.work_state === "blocked";
+        const neverDeliveredQueued =
+          assignment?.authority_state === "active" &&
+          assignment.state === "created" &&
+          assignment.attempt_state === "created" &&
+          assignment.command_state === "queued" &&
+          assignment.start_requested === 0;
         if (
           !assignment ||
           (assignment.authority_state !== "active" &&
@@ -2937,7 +2953,8 @@ export class ControllerCore {
           assignment.attempt_authority !== assignment.authority_state ||
           (assignment.authority_state === "active" &&
             assignment.state !== "running" &&
-            assignment.state !== "reported") ||
+            assignment.state !== "reported" &&
+            !neverDeliveredQueued) ||
           ((restoresReportedWork || assignment.work_state === "running") &&
             !this.#isTransitionAllowed(
               "work_item",
