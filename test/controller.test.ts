@@ -269,6 +269,30 @@ test("actor credentials are issued by the controller and replay exactly", async 
         }),
       /seat already has an active actor/,
     );
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "snapshot-seat",
+      name: "Snapshot PM",
+      role: "PM",
+    });
+    let displayReads = 0;
+    const snapshotRequest = context(core, info.ownerCredential);
+    const snapshotActor = core.createActor(snapshotRequest, {
+      get displayName() {
+        displayReads += 1;
+        return displayReads === 1 ? "Snapshot PM" : "Divergent PM";
+      },
+      role: "PM",
+      seatId: "snapshot-seat",
+    });
+    assert.equal(displayReads, 1);
+    assert.deepEqual(
+      core.createActor(snapshotRequest, {
+        displayName: "Snapshot PM",
+        role: "PM",
+        seatId: "snapshot-seat",
+      }),
+      snapshotActor,
+    );
     core.createWorkItem(context(core, actor.credential), {
       workItemId: "issued-actor-work",
       title: "Authenticated by issued token",
@@ -2231,6 +2255,18 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
     });
     assert.equal(core.readiness("feature").ready, true);
     core.markReady(context(core, info.ownerCredential), "feature");
+    const versionBeforeEmptyCandidate = core.stateVersion;
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "feature",
+          developer.seatId,
+          "",
+        ),
+      /only a Verifier assignment may bind a candidate/,
+    );
+    assert.equal(core.stateVersion, versionBeforeEmptyCandidate);
     const devAssignment = core.assignWorkItem(
       context(core, info.ownerCredential),
       "feature",
@@ -2486,15 +2522,103 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       CandidateBindingError,
     );
     assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
-    core.recordEvidence(
-      context(core, verifier.credential),
+    let artifactReads = 0;
+    const evidenceContext = context(core, verifier.credential);
+    const recordedEvidence = core.recordEvidence(
+      evidenceContext,
       verifierAssignment.assignmentId,
       {
         evidenceId: "evidence-1",
         candidateId: candidate.candidateId,
         criterion: " criterion-one ",
         passed: true,
+        get artifactRef() {
+          artifactReads += 1;
+          return artifactReads === 1
+            ? "artifact://test/evidence-1"
+            : "artifact://test/divergent";
+        },
+      },
+    );
+    assert.equal(artifactReads, 1);
+    assert.equal(
+      recordedEvidence.evidenceHash,
+      digestJson({
+        evidenceId: "evidence-1",
+        candidateId: candidate.candidateId,
+        verifierAssignmentId: verifierAssignment.assignmentId,
+        inputRevision: evidenceContext.inputRevision,
+        criterion: " criterion-one ",
+        passed: true,
         artifactRef: "artifact://test/evidence-1",
+      }),
+    );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "verify-feature-second",
+      title: "Second verifier",
+      description: "Every planned Verifier child must bind the candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: "feature",
+    });
+    const versionBeforeUnassignedVerifier = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptCandidate(
+          context(core, info.ownerCredential),
+          "feature",
+          candidate.candidateId,
+        ),
+      /every open Verifier child must be bound to the current candidate/,
+    );
+    assert.equal(core.stateVersion, versionBeforeUnassignedVerifier);
+    core.markReady(
+      context(core, info.ownerCredential),
+      "verify-feature-second",
+    );
+    const secondVerifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "verify-feature-second",
+      verifier.seatId,
+      candidate.candidateId,
+    );
+    const secondIdentity = {
+      commandId: secondVerifier.commandId,
+      assignmentId: secondVerifier.assignmentId,
+      attempt: secondVerifier.attempt,
+      generation: secondVerifier.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      secondVerifier.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(secondIdentity, 5, "accepted", "Verifier"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      secondVerifier.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(secondIdentity, 6, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(receipt(secondIdentity, 7, "working", "Verifier"));
+    core.recordBridgeReceipt(
+      receipt(secondIdentity, 8, "completed", "Verifier"),
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      secondVerifier.assignmentId,
+      "supervisor-confirmed:second-verifier",
+    );
+    core.recordEvidence(
+      context(core, verifier.credential),
+      secondVerifier.assignmentId,
+      {
+        evidenceId: "evidence-2",
+        candidateId: candidate.candidateId,
+        criterion: " criterion-one ",
+        passed: true,
+        artifactRef: "artifact://test/evidence-2",
       },
     );
     assert.equal(
@@ -2505,6 +2629,19 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       ).acceptedCandidateId,
       candidate.candidateId,
     );
+    const versionBeforeLateVerifier = core.stateVersion;
+    assert.throws(
+      () =>
+        core.createWorkItem(context(core, pm.credential), {
+          workItemId: "late-verifier",
+          title: "Late Verifier",
+          description: "Cannot verify an already accepted parent",
+          requiredRole: "Verifier",
+          parentWorkItemId: "feature",
+        }),
+      /Verifier work cannot be added to a terminal Developer parent/,
+    );
+    assert.equal(core.stateVersion, versionBeforeLateVerifier);
     core.createWorkItem(context(core, pm.credential), {
       workItemId: "late-prerequisite-accepted",
       title: "Late accepted prerequisite",

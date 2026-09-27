@@ -34,8 +34,9 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Accept only the latest generation's contained PM/Supervisor report after remediation and replacement; an older report cannot satisfy dependencies even if it was valid when recorded.
 - Keep migration SQL checked out with LF endings on every platform so byte-level migration checksums remain stable across controller restarts.
 - Allow dependency edges to pin an exact candidate owned by the prerequisite work item. Require verifier assignment only after the latest Developer assignment's authority is contained.
-- Verifier work requires an existing Developer parent at creation; an orphan cannot obtain the candidate binding required for assignment or be canceled later.
+- Verifier work requires an existing nonterminal Developer parent at creation. Candidate acceptance requires every open Verifier child to be assigned and bound to that exact candidate; an orphan or late unassigned child must not strand the run.
 - Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
+- Snapshot actor creation and Verifier evidence inputs before computing request digests and before persistence so accessor-backed values cannot change between those steps.
 - Reject ill-formed UTF-16 in project names, canonical values, and object keys before persistence or assignment. A failed Verifier result blocks its candidate and cancels every candidate-bound Verifier work item only after all bound Verifier authorities are contained.
 
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.

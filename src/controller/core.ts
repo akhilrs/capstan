@@ -415,6 +415,7 @@ export class ControllerCore {
     context: MutationContext,
     input: ActorInput,
   ): { readonly actorId: string; readonly credential: string } {
+    input = Object.freeze({ ...input });
     const mutationPayload = {
       displayName: input.displayName,
       role: input.role,
@@ -702,14 +703,18 @@ export class ControllerCore {
           const parent = input.parentWorkItemId
             ? (this.#database
                 .prepare(
-                  "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+                  "SELECT required_role, state FROM work_items WHERE project_id = ? AND work_item_id = ?",
                 )
                 .get(this.#projectId, input.parentWorkItemId) as
-                { required_role: string } | undefined)
+                { required_role: string; state: string } | undefined)
             : undefined;
           if (parent?.required_role !== "Developer")
             throw new ReadinessError(
               "Verifier work requires an existing Developer parent",
+            );
+          if (["accepted", "canceled", "failed"].includes(parent.state))
+            throw new ReadinessError(
+              "Verifier work cannot be added to a terminal Developer parent",
             );
         }
         this.#database
@@ -1307,7 +1312,7 @@ export class ControllerCore {
               "Verifier task parent and input revision must match the candidate",
             );
           }
-        } else if (candidateId) {
+        } else if (candidateId !== undefined && candidateId !== null) {
           throw new CandidateBindingError(
             "only a Verifier assignment may bind a candidate",
           );
@@ -2440,6 +2445,7 @@ export class ControllerCore {
     verifierAssignmentId: string,
     input: EvidenceInput,
   ): { readonly evidenceId: string; readonly evidenceHash: string } {
+    input = Object.freeze({ ...input });
     return this.#mutate(
       context,
       "candidate.evidence.record",
@@ -2855,6 +2861,19 @@ export class ControllerCore {
         if (verifierTasks.length === 0)
           throw new CandidateBindingError(
             "candidate has no bound Verifier assignments",
+          );
+        const openVerifierChildren = this.#database
+          .prepare(
+            `
+          SELECT COUNT(*) AS count FROM work_items
+          WHERE project_id = ? AND parent_work_item_id = ?
+            AND required_role = 'Verifier' AND state NOT IN ('accepted', 'canceled')
+        `,
+          )
+          .get(this.#projectId, workItemId) as { count: number };
+        if (openVerifierChildren.count !== verifierTasks.length)
+          throw new CandidateBindingError(
+            "every open Verifier child must be bound to the current candidate",
           );
         for (const task of verifierTasks) {
           if (
