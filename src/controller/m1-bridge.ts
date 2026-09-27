@@ -313,6 +313,29 @@ export class M1BridgeAdapter {
       state: this.#core.commandState(commandId) ?? "unknown",
     };
   }
+  async inspectUncertainCommand(
+    commandId: string,
+  ): Promise<{ readonly bridgeState: string; readonly durable: boolean }> {
+    if (this.#core.commandState(commandId) !== "unknown")
+      throw new ControllerError(
+        "only uncertain commands can be inspected without new dispatch",
+      );
+    const response = await requestBridge(this.#bridgeSocketPath, {
+      type: "get",
+      commandId,
+    });
+    if (response.commandId !== commandId)
+      throw protocolError("bridge returned a different command identity");
+    if (response.type === "completed")
+      return { bridgeState: "completed", durable: true };
+    if (
+      response.type !== "ack" ||
+      typeof response.state !== "string" ||
+      typeof response.durable !== "boolean"
+    )
+      throw protocolError("bridge returned an invalid command snapshot");
+    return { bridgeState: response.state, durable: response.durable };
+  }
 
   #receiveReceipt(socket: net.Socket): void {
     const chunks: Buffer[] = [];

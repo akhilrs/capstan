@@ -1783,8 +1783,9 @@ export class ControllerCore {
         .prepare(
           `
         SELECT c.state AS command_state, c.state_version AS command_version, c.assignment_id,
-          c.attempt, c.generation, a.state AS assignment_state, a.seat_id, a.work_item_id,
-          a.input_revision, at.state AS attempt_state, s.role AS seat_role, w.state AS work_state,
+          c.attempt, c.generation, a.state AS assignment_state, a.authority_state AS assignment_authority,
+          a.seat_id, a.work_item_id, a.input_revision, at.state AS attempt_state,
+          at.authority_state AS attempt_authority, s.role AS seat_role, w.state AS work_state,
           w.state_version AS work_version
         FROM commands c
         JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
@@ -1803,6 +1804,8 @@ export class ControllerCore {
             attempt: number;
             generation: number;
             assignment_state: string;
+            assignment_authority: string;
+            attempt_authority: string;
             seat_id: string;
             work_item_id: string;
             input_revision: number;
@@ -1823,6 +1826,13 @@ export class ControllerCore {
           "bridge receipt identity does not match the durable assignment",
         );
       }
+      if (
+        command.assignment_authority !== "active" ||
+        command.attempt_authority !== "active"
+      )
+        throw new MutationConflictError(
+          "bridge receipt cannot advance contained or uncertain authority",
+        );
       if (
         receipt.type === "completed" &&
         (command.seat_role === "PM" || command.seat_role === "Supervisor") &&
@@ -1947,7 +1957,7 @@ export class ControllerCore {
         attemptToState = "running";
         this.#database
           .prepare(
-            "UPDATE commands SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+            "UPDATE commands SET state = ?, start_requested = 1, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
           )
           .run(commandToState, now, this.#projectId, receipt.commandId);
         this.#database
@@ -2846,7 +2856,7 @@ export class ControllerCore {
           SELECT a.state, a.authority_state, a.active_generation,
             at.state AS attempt_state, at.authority_state AS attempt_authority,
             at.state_version AS attempt_version, c.command_id, c.state AS command_state,
-            w.work_item_id, w.state AS work_state, w.state_version AS work_version
+            c.start_requested, w.work_item_id, w.state AS work_state, w.state_version AS work_version
           FROM assignments a JOIN assignment_attempts at
             ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
             AND at.generation = a.active_generation
@@ -2866,6 +2876,7 @@ export class ControllerCore {
               attempt_version: number;
               command_id: string;
               command_state: string;
+              start_requested: number;
               work_item_id: string;
               work_state: string;
               work_version: number;
@@ -2912,6 +2923,15 @@ export class ControllerCore {
               "M1 start was not durably requested before restart; reconcile bridge state before containment",
             );
         }
+        if (
+          assignment &&
+          (assignment.command_state === "attempting" ||
+            (assignment.command_state === "unknown" &&
+              assignment.start_requested !== 1))
+        )
+          throw new MutationConflictError(
+            "M1 start was not durably requested; reconcile bridge state before containment",
+          );
         const restoresReportedWork =
           assignment?.authority_state === "unknown" &&
           assignment.state === "reported" &&
@@ -2926,11 +2946,11 @@ export class ControllerCore {
           (assignment.authority_state === "active" &&
             assignment.state !== "running" &&
             assignment.state !== "reported") ||
-          (restoresReportedWork &&
+          ((restoresReportedWork || assignment.work_state === "running") &&
             !this.#isTransitionAllowed(
               "work_item",
-              "blocked",
-              "awaiting_verification",
+              assignment.work_state,
+              restoresReportedWork ? "awaiting_verification" : "blocked",
               actor,
             ))
         ) {
@@ -2964,29 +2984,39 @@ export class ControllerCore {
             )
             .run(this.#projectId, assignment.work_item_id);
         }
+        if (assignment.work_state === "running") {
+          this.#database
+            .prepare(
+              "UPDATE work_items SET state = 'blocked', state_version = state_version + 1 WHERE project_id = ? AND work_item_id = ? AND state = 'running'",
+            )
+            .run(this.#projectId, assignment.work_item_id);
+        }
         return {
           value: { contained: true },
-          event: restoresReportedWork
-            ? {
-                entityType: "work_item",
-                entityId: assignment.work_item_id,
-                stateVersion: assignment.work_version + 1,
-                fromState: "blocked",
-                toState: "awaiting_verification",
-                details: {
-                  assignmentId,
-                  proofRef,
-                  authorityState: "contained",
+          event:
+            restoresReportedWork || assignment.work_state === "running"
+              ? {
+                  entityType: "work_item",
+                  entityId: assignment.work_item_id,
+                  stateVersion: assignment.work_version + 1,
+                  fromState: assignment.work_state,
+                  toState: restoresReportedWork
+                    ? "awaiting_verification"
+                    : "blocked",
+                  details: {
+                    assignmentId,
+                    proofRef,
+                    authorityState: "contained",
+                  },
+                }
+              : {
+                  entityType: "assignment_attempt",
+                  entityId: assignmentId,
+                  stateVersion: assignment.attempt_version + 1,
+                  fromState: assignment.authority_state,
+                  toState: "contained",
+                  details: { proofRef },
                 },
-              }
-            : {
-                entityType: "assignment_attempt",
-                entityId: assignmentId,
-                stateVersion: assignment.attempt_version + 1,
-                fromState: assignment.authority_state,
-                toState: "contained",
-                details: { proofRef },
-              },
         };
       },
     );

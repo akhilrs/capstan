@@ -263,6 +263,94 @@ test("M1 adapter rejects duplicate responses after acknowledgement", async () =>
     cleanup(value);
   }
 });
+test("M1 adapter inspects uncertain command without dispatch or authority restoration", async () => {
+  const value = await fixture();
+  const bridgeSocket = path.join(value.stateDirectory, "inspect-bridge.sock");
+  const receiptSocket = path.join(value.stateDirectory, "inspect-receipt.sock");
+  const requests: unknown[] = [];
+  const server = net.createServer((socket) => {
+    socket.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString("utf8")) as {
+        type: string;
+        commandId: string;
+      };
+      requests.push(request);
+      socket.end(
+        `${JSON.stringify({
+          type: "ack",
+          commandId: request.commandId,
+          durable: true,
+          state: "acknowledged",
+        })}\n`,
+      );
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(bridgeSocket, resolve);
+  });
+  let adapter: M1BridgeAdapter | undefined;
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "inspect-unknown",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "inspect-unknown-work",
+      title: "Inspect unknown",
+      description: "An M1 status query must not issue another prompt",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "inspect-unknown-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "inspect-unknown-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(
+        {
+          commandId: assignment.commandId,
+          assignmentId: assignment.assignmentId,
+          attempt: assignment.attempt,
+          generation: assignment.generation,
+        },
+        1,
+        "dispatch_error",
+      ),
+    );
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    await adapter.listen();
+    const version = core.stateVersion;
+    assert.deepEqual(
+      await adapter.inspectUncertainCommand(assignment.commandId),
+      {
+        bridgeState: "acknowledged",
+        durable: true,
+      },
+    );
+    assert.deepEqual(requests, [
+      { type: "get", commandId: assignment.commandId },
+    ]);
+    assert.equal(core.stateVersion, version);
+    assert.equal(core.commandState(assignment.commandId), "unknown");
+    assert.equal(core.readiness("inspect-unknown-work").ready, false);
+  } finally {
+    await adapter?.close();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    cleanup(value);
+  }
+});
+
 test("private project ownership survives restart and ambiguous delivery is reconciled fail-closed", async () => {
   const value = await fixture();
   const { core, stateDirectory, project: info } = value;
@@ -466,7 +554,7 @@ test("unstarted command authority cannot be marked contained", async () => {
           assignment.assignmentId,
           "pre-start-containment",
         ),
-      /running or uncertain authority/,
+      /start was not durably requested/,
     );
     const identity = {
       commandId: assignment.commandId,
@@ -493,6 +581,130 @@ test("unstarted command authority cannot be marked contained", async () => {
     } finally {
       reopened.close();
     }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("containment blocks a running worker and rejects late bridge receipts", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "late-receipt",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "late-receipt-work",
+      title: "Recover stopped work",
+      description: "Containment must fence the old generation",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "late-receipt-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "late-receipt-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "working"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "proof:stopped-old-worker",
+    );
+    assert.equal(core.readiness("late-receipt-work").ready, true);
+    core.markReady(context(core, info.ownerCredential), "late-receipt-work");
+    assert.throws(
+      () => core.recordBridgeReceipt(receipt(identity, 3, "completed")),
+      /contained or uncertain authority/,
+    );
+    assert.equal(core.commandState(assignment.commandId), "started");
+    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "late-receipt-recovery",
+      workItemId: "late-receipt-work",
+      assignmentId: assignment.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "old worker stopped",
+    });
+    assert.equal(recovery.outcome, "pending");
+    const replacement = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "late-receipt-work",
+      developer.seatId,
+      undefined,
+      recovery.recoveryId,
+    );
+    assert.notEqual(replacement.assignmentId, assignment.assignmentId);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("an ambiguous pre-start receipt cannot be contained without M1 start intent", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "prestart-error",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "prestart-error-work",
+      title: "Ambiguous dispatch",
+      description: "M1 start was never requested",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "prestart-error-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "prestart-error-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(
+        {
+          commandId: assignment.commandId,
+          assignmentId: assignment.assignmentId,
+          attempt: assignment.attempt,
+          generation: assignment.generation,
+        },
+        1,
+        "dispatch_error",
+      ),
+    );
+    assert.throws(
+      () =>
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          assignment.assignmentId,
+          "proof:dispatch-error-before-start",
+        ),
+      /start was not durably requested/,
+    );
+    assert.equal(core.readiness("prestart-error-work").ready, false);
   } finally {
     cleanup(value);
   }
@@ -722,6 +934,10 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
     );
     core.recordBridgeReceipt(
       receipt(dependentIdentity, 1, "accepted", "Developer"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      dependentIdentity.commandId,
     );
     core.recordBridgeReceipt(
       receipt(dependentIdentity, 2, "dispatch_error", "Developer"),
@@ -1596,7 +1812,12 @@ test("worker replacement limits count consumed recovery records", async () => {
       attempt: original.attempt,
       generation: original.generation,
     };
-    core.recordBridgeReceipt(receipt(originalIdentity, 1, "aborted"));
+    core.recordBridgeReceipt(receipt(originalIdentity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      original.commandId,
+    );
+    core.recordBridgeReceipt(receipt(originalIdentity, 2, "aborted"));
     core.confirmContainment(
       context(core, info.ownerCredential),
       original.assignmentId,
@@ -1628,7 +1849,12 @@ test("worker replacement limits count consumed recovery records", async () => {
       attempt: replacement.attempt,
       generation: replacement.generation,
     };
-    core.recordBridgeReceipt(receipt(replacementIdentity, 2, "aborted"));
+    core.recordBridgeReceipt(receipt(replacementIdentity, 3, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      replacement.commandId,
+    );
+    core.recordBridgeReceipt(receipt(replacementIdentity, 4, "aborted"));
     core.confirmContainment(
       context(core, info.ownerCredential),
       replacement.assignmentId,
