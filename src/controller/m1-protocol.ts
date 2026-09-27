@@ -27,6 +27,30 @@ export function parseM1Frame(buffer: Buffer): M1Frame {
     throw new Error("frame must be a JSON object");
   return value as M1Frame;
 }
+export class M1ReceiptFrameParser {
+  #chunks: Buffer[] = [];
+  #size = 0;
+  #finished = false;
+
+  push(chunk: Buffer): Buffer | undefined {
+    if (this.#finished) return undefined;
+    const newline = chunk.indexOf(0x0a);
+    const frameChunk = newline < 0 ? chunk : chunk.subarray(0, newline + 1);
+    this.#size += frameChunk.length;
+    if (this.#size > M1_MAX_FRAME_BYTES)
+      throw new Error("receipt frame exceeds the frame limit");
+    this.#chunks.push(frameChunk);
+    if (newline < 0) return undefined;
+    this.#finished = true;
+    return Buffer.concat(this.#chunks, this.#size);
+  }
+
+  finish(): Buffer | undefined {
+    if (this.#finished) return undefined;
+    this.#finished = true;
+    return Buffer.concat(this.#chunks, this.#size);
+  }
+}
 
 export class M1ResponseFrameParser {
   #pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);

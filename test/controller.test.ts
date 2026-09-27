@@ -24,7 +24,9 @@ import {
 import { M1BridgeAdapter } from "../src/controller/m1-bridge.js";
 import {
   M1_MAX_PROMPT_BYTES,
+  M1ReceiptFrameParser,
   M1ResponseFrameParser,
+  parseM1Frame,
 } from "../src/controller/m1-protocol.js";
 import type {
   BridgeReceipt,
@@ -240,6 +242,22 @@ test("M1 response parser rejects a fragmented late duplicate", () => {
     [],
   );
   assert.throws(() => incompleteTrailer.finish(), /incomplete frame/);
+});
+test("receipt framing accepts one newline frame independent of TCP chunk boundaries", () => {
+  const frame = Buffer.from('{"type":"accepted"}\n');
+  const suffix = Buffer.alloc(1_048_577, 0x78);
+  const combined = new M1ReceiptFrameParser();
+  assert.deepEqual(
+    parseM1Frame(combined.push(Buffer.concat([frame, suffix]))!),
+    { type: "accepted" },
+  );
+  assert.equal(combined.push(suffix), undefined);
+
+  const fragmented = new M1ReceiptFrameParser();
+  assert.deepEqual(parseM1Frame(fragmented.push(frame)!), {
+    type: "accepted",
+  });
+  assert.equal(fragmented.push(suffix), undefined);
 });
 test("oversized UTF-8 M1 prompt stays ready without committing an assignment", async () => {
   const value = await fixture();
@@ -1383,6 +1401,69 @@ test("terminal runs reject acceptance of completed PM reports", async () => {
         core.acceptNonCandidateReport(
           context(core, info.ownerCredential),
           "terminal-report-work",
+          assignment.assignmentId,
+        ),
+      /not contained, current, and eligible for acceptance/,
+    );
+    assert.equal(core.stateVersion, versionBeforeRejectedAcceptance);
+  } finally {
+    cleanup(value);
+  }
+});
+test("developer completions cannot bypass candidate verification acceptance", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "report-role-guard",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "developer-report-work",
+      title: "Developer completion",
+      description: "Developer output needs independent candidate verification",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "developer-report-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "developer-report-work",
+      developer.seatId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "developer-report-contained",
+    );
+    const versionBeforeRejectedAcceptance = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptNonCandidateReport(
+          context(core, info.ownerCredential),
+          "developer-report-work",
           assignment.assignmentId,
         ),
       /not contained, current, and eligible for acceptance/,

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { ControllerError, type ControllerCore } from "./core.js";
 import {
   M1_MAX_FRAME_BYTES,
+  M1ReceiptFrameParser,
   M1ResponseFrameParser,
   parseM1Frame,
   type M1Frame,
@@ -403,15 +404,14 @@ export class M1BridgeAdapter {
   }
 
   #receiveReceipt(socket: net.Socket): void {
-    const chunks: Buffer[] = [];
-    let size = 0;
+    const parser = new M1ReceiptFrameParser();
     let settled = false;
     socket.setTimeout(15_000, () => socket.destroy());
-    const finish = (): void => {
+    const finish = (frame: Buffer): void => {
       if (settled) return;
       settled = true;
       try {
-        const value = frameObject(Buffer.concat(chunks, size));
+        const value = frameObject(frame);
         const result = this.#core.recordBridgeReceipt(value as BridgeReceipt);
         if (!socket.destroyed)
           socket.end(
@@ -426,15 +426,17 @@ export class M1BridgeAdapter {
     };
     socket.on("data", (chunk: Buffer) => {
       if (settled) return;
-      size += chunk.length;
-      if (size > M1_MAX_FRAME_BYTES) {
+      try {
+        const frame = parser.push(chunk);
+        if (frame) finish(frame);
+      } catch {
         socket.destroy();
-        return;
       }
-      chunks.push(chunk);
-      if (chunk.includes(0x0a)) finish();
     });
-    socket.once("end", finish);
+    socket.once("end", () => {
+      const frame = parser.finish();
+      if (frame) finish(frame);
+    });
     socket.on("error", () => socket.destroy());
   }
 }

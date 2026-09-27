@@ -2773,6 +2773,7 @@ export class ControllerCore {
           !report ||
           report.run_state !== "active" ||
           report.assignment_state !== "reported" ||
+          (report.role !== "PM" && report.role !== "Supervisor") ||
           report.assignment_authority !== "contained" ||
           report.attempt_state !== "reported" ||
           report.attempt_authority !== "contained" ||
