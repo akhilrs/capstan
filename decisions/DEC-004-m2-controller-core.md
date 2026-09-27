@@ -38,6 +38,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
 - Snapshot actor creation and Verifier evidence inputs before computing request digests and before persistence so accessor-backed values cannot change between those steps.
 - Reject Verifier evidence from any superseded generation of its Verifier work item so an old verifier cannot override a replacement's results.
+- Bind worker usage observations to that actor's own assigned session/assignment; reject session-assignment mismatches before writing the append-only ledger.
 - Require candidate changed-scope and limitation fields to be actual arrays of strings, not iterable strings. Reject new input revisions once any work has been accepted: accepted work has no revalidation path, and the run cannot complete against stale accepted inputs. Completion also rejects stale accepted work already present in a database.
 - Reject ill-formed UTF-16 in project names, canonical values, and object keys before persistence or assignment. A failed Verifier result blocks its candidate and cancels every candidate-bound Verifier work item only after all bound Verifier authorities are contained.
 

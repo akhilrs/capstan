@@ -3912,27 +3912,47 @@ export class ControllerCore {
             "usage provider, metric, and numeric value must be valid",
           );
         }
-        if (
-          input.sessionId &&
-          !this.#database
-            .prepare(
-              "SELECT 1 AS present FROM runtime_sessions WHERE project_id = ? AND session_id = ?",
-            )
-            .get(this.#projectId, input.sessionId)
-        )
+        const assignment = input.assignmentId
+          ? (this.#database
+              .prepare(
+                "SELECT worker_actor_id, seat_id FROM assignments WHERE project_id = ? AND assignment_id = ?",
+              )
+              .get(this.#projectId, input.assignmentId) as
+              { worker_actor_id: string | null; seat_id: string } | undefined)
+          : undefined;
+        if (input.assignmentId && !assignment)
+          throw new ControllerError(
+            "usage assignment does not belong to this project",
+          );
+        const session = input.sessionId
+          ? (this.#database
+              .prepare(
+                "SELECT assignment_id, seat_id FROM runtime_sessions WHERE project_id = ? AND session_id = ?",
+              )
+              .get(this.#projectId, input.sessionId) as
+              { assignment_id: string | null; seat_id: string } | undefined)
+          : undefined;
+        if (input.sessionId && !session)
           throw new ControllerError(
             "usage session does not belong to this project",
           );
         if (
-          input.assignmentId &&
-          !this.#database
-            .prepare(
-              "SELECT 1 AS present FROM assignments WHERE project_id = ? AND assignment_id = ?",
-            )
-            .get(this.#projectId, input.assignmentId)
+          session?.assignment_id &&
+          session.assignment_id !== input.assignmentId
         )
           throw new ControllerError(
-            "usage assignment does not belong to this project",
+            "usage session and assignment do not belong together",
+          );
+        if (
+          actor.seatId &&
+          ((assignment && assignment.worker_actor_id !== actor.actorId) ||
+            (session &&
+              (session.seat_id !== actor.seatId ||
+                (session.assignment_id !== null &&
+                  session.assignment_id !== input.assignmentId))))
+        )
+          throw new TransitionAuthorizationError(
+            "worker usage must belong to the actor's assigned session",
           );
         this.#database
           .prepare(

@@ -2051,6 +2051,31 @@ test("runtime identity observations keep distinct durable identifiers", async ()
       { processStartId: "process-start-1" },
     );
     assert.notEqual(first.observationId, second.observationId);
+    const otherSeat = core.createSeat(context(core, info.ownerCredential), {
+      seatId: "other-usage-seat",
+      name: "Other Supervisor",
+      role: "Supervisor",
+    });
+    const otherSupervisor = core.createActor(
+      context(core, info.ownerCredential),
+      {
+        displayName: "Other Supervisor",
+        role: "Supervisor",
+        seatId: otherSeat.seatId,
+      },
+    );
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, otherSupervisor.credential), {
+          observationId: "cross-seat-usage",
+          sessionId: "runtime-identity-session",
+          provider: "herdr",
+          metric: "tokens",
+          availability: "observed",
+          detail: {},
+        }),
+      /worker usage must belong to the actor's assigned session/,
+    );
     const db = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
       { readonly: true },
