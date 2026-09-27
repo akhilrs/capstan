@@ -190,6 +190,40 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       assignment.assignmentId,
       "integration-proof:contained",
     );
+    const sparseScope = [];
+    sparseScope.length = 1;
+    assert.throws(
+      () =>
+        core.submitCandidate(
+          context(core, developerCredential, "candidate-sparse-scope"),
+          {
+            candidateId: "sparse-scope",
+            assignmentId: assignment.assignmentId,
+            commitSha: "a".repeat(40),
+            baseSha: "b".repeat(40),
+            changedScope: sparseScope,
+            limitations: [],
+          },
+        ),
+      /candidate requires a Developer actor and valid immutable commit identities/,
+    );
+    const sparseLimitations = [];
+    sparseLimitations.length = 1;
+    assert.throws(
+      () =>
+        core.submitCandidate(
+          context(core, developerCredential, "candidate-sparse-limitations"),
+          {
+            candidateId: "sparse-limitations",
+            assignmentId: assignment.assignmentId,
+            commitSha: "a".repeat(40),
+            baseSha: "b".repeat(40),
+            changedScope: ["src/controller"],
+            limitations: sparseLimitations,
+          },
+        ),
+      /candidate requires a Developer actor and valid immutable commit identities/,
+    );
     const candidate = core.submitCandidate(
       context(core, developerCredential, "candidate"),
       {

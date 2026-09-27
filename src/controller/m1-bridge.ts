@@ -362,10 +362,14 @@ export class M1BridgeAdapter {
       readonly durable: boolean;
     };
     if (response.type === "completed") {
+      if (response.durable !== true)
+        throw protocolError(
+          "bridge returned a completed command without durable confirmation",
+        );
       snapshot = Object.freeze({
         commandId,
         bridgeState: "completed",
-        durable: true,
+        durable: response.durable,
       });
     } else {
       if (

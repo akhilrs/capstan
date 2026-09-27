@@ -2311,8 +2311,12 @@ export class ControllerCore {
           input.candidateId.length === 0 ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.commitSha) ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.baseSha) ||
-          input.changedScope.some((entry) => typeof entry !== "string") ||
-          input.limitations.some((entry) => typeof entry !== "string")
+          Array.from(input.changedScope).some(
+            (entry) => typeof entry !== "string",
+          ) ||
+          Array.from(input.limitations).some(
+            (entry) => typeof entry !== "string",
+          )
         ) {
           throw new CandidateBindingError(
             "candidate requires a Developer actor and valid immutable commit identities",

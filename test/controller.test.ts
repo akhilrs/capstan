@@ -559,6 +559,7 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
           : {
               type: "completed",
               commandId: request.commandId,
+              durable: true,
               reply: "completed without a durable controller report",
             };
       socket.end(`${JSON.stringify(response)}\n`);
