@@ -1147,21 +1147,23 @@ export class ControllerCore {
           .prepare(
             `
           SELECT s.role, s.state,
-            EXISTS (
-              SELECT 1 FROM actors a
+            (
+              SELECT a.actor_id FROM actors a
               WHERE a.project_id = s.project_id AND a.seat_id = s.seat_id
                 AND a.role = s.role AND a.active = 1 AND a.revoked_at IS NULL
-            ) AS has_active_actor
+              LIMIT 1
+            ) AS worker_actor_id
           FROM seats s WHERE s.project_id = ? AND s.seat_id = ?
         `,
           )
           .get(this.#projectId, seatId) as
-          { role: string; state: string; has_active_actor: number } | undefined;
+          | { role: string; state: string; worker_actor_id: string | null }
+          | undefined;
         if (
           !seat ||
           seat.state !== "active" ||
           seat.role !== item.required_role ||
-          seat.has_active_actor !== 1
+          !seat.worker_actor_id
         ) {
           throw new ControllerError(
             "assignment seat must be active, match the work item role, and have an active actor",
@@ -1365,8 +1367,8 @@ export class ControllerCore {
           .prepare(
             `
         INSERT INTO assignments(project_id, assignment_id, work_item_id, seat_id, state, state_version, input_revision,
-          active_generation, authority_state, created_by, created_at, ended_at)
-        VALUES (?, ?, ?, ?, 'created', 0, ?, ?, 'active', ?, ?, NULL)
+          active_generation, authority_state, created_by, created_at, ended_at, worker_actor_id)
+        VALUES (?, ?, ?, ?, 'created', 0, ?, ?, 'active', ?, ?, NULL, ?)
       `,
           )
           .run(
@@ -1378,6 +1380,7 @@ export class ControllerCore {
             generation,
             actor.actorId,
             now,
+            seat.worker_actor_id,
           );
         this.#database
           .prepare(
@@ -2237,7 +2240,7 @@ export class ControllerCore {
         const assignment = this.#database
           .prepare(
             `
-        SELECT a.work_item_id, a.seat_id, a.input_revision, a.active_generation, a.state,
+        SELECT a.work_item_id, a.seat_id, a.worker_actor_id, a.input_revision, a.active_generation, a.state,
           at.attempt, at.generation, at.state AS attempt_state, w.state AS work_state, w.input_revision AS work_revision
         FROM assignments a JOIN assignment_attempts at
           ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
@@ -2248,6 +2251,7 @@ export class ControllerCore {
           .get(this.#projectId, input.assignmentId) as
           | {
               work_item_id: string;
+              worker_actor_id: string | null;
               seat_id: string;
               input_revision: number;
               active_generation: number;
@@ -2261,6 +2265,7 @@ export class ControllerCore {
           | undefined;
         if (
           !assignment ||
+          actor.actorId !== assignment.worker_actor_id ||
           actor.seatId !== assignment.seat_id ||
           assignment.state !== "reported" ||
           assignment.attempt_state !== "reported" ||
@@ -2340,7 +2345,7 @@ export class ControllerCore {
         const candidate = this.#database
           .prepare(
             `
-        SELECT c.input_revision, c.report_hash, a.work_item_id
+        SELECT c.input_revision, c.report_hash, c.created_by, a.work_item_id, a.worker_actor_id
         FROM candidates c JOIN assignments a
           ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
         WHERE c.project_id = ? AND c.candidate_id = ?
@@ -2350,13 +2355,16 @@ export class ControllerCore {
           | {
               input_revision: number;
               report_hash: string;
+              created_by: string;
+              worker_actor_id: string | null;
               work_item_id: string;
             }
           | undefined;
         const verifier = this.#database
           .prepare(
             `
-        SELECT a.seat_id, a.input_revision, a.state, a.authority_state, a.work_item_id, t.parent_work_item_id,
+        SELECT a.seat_id, a.worker_actor_id, a.input_revision, a.state, a.authority_state, a.work_item_id,
+          t.parent_work_item_id,
           at.state AS attempt_state, at.authority_state AS attempt_authority, s.role
         FROM assignments a
         JOIN assignment_attempts at ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
@@ -2369,6 +2377,7 @@ export class ControllerCore {
           .get(this.#projectId, verifierAssignmentId) as
           | {
               seat_id: string;
+              worker_actor_id: string | null;
               input_revision: number;
               state: string;
               authority_state: string;
@@ -2391,7 +2400,9 @@ export class ControllerCore {
         if (
           !candidate ||
           !verifier ||
+          actor.actorId !== verifier.worker_actor_id ||
           actor.seatId !== verifier.seat_id ||
+          candidate.created_by !== candidate.worker_actor_id ||
           verifier.role !== "Verifier" ||
           verifier.parent_work_item_id !== candidate.work_item_id ||
           verifier.state !== "reported" ||
@@ -2462,6 +2473,14 @@ export class ControllerCore {
           `,
             )
             .run(this.#projectId, candidate.work_item_id);
+          this.#database
+            .prepare(
+              `
+            UPDATE work_items SET state = 'canceled', state_version = state_version + 1
+            WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+          `,
+            )
+            .run(this.#projectId, verifier.work_item_id);
         }
         return {
           value: { evidenceId: input.evidenceId, evidenceHash },
@@ -2491,7 +2510,15 @@ export class ControllerCore {
           .prepare(
             `
         SELECT c.assignment_id, c.attempt, c.generation, c.input_revision, c.report_hash, a.work_item_id,
-          a.state AS assignment_state, a.authority_state, at.state AS attempt_state,
+          a.state AS assignment_state, a.authority_state, a.worker_actor_id, at.state AS attempt_state,
+          a.assignment_id = (
+            SELECT latest.assignment_id FROM assignments latest
+            JOIN seats latest_seat ON latest_seat.project_id = latest.project_id
+              AND latest_seat.seat_id = latest.seat_id
+            WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
+              AND latest_seat.role = 'Developer'
+            ORDER BY latest.created_at DESC, latest.assignment_id DESC LIMIT 1
+          ) AS is_latest_developer_assignment,
           w.state AS work_state, w.state_version AS work_version, w.input_revision AS work_revision,
           r.state AS run_state
         FROM candidates c
@@ -2513,6 +2540,8 @@ export class ControllerCore {
               work_item_id: string;
               assignment_state: string;
               authority_state: string;
+              worker_actor_id: string;
+              is_latest_developer_assignment: number;
               attempt_state: string;
               work_state: string;
               work_version: number;
@@ -2522,6 +2551,7 @@ export class ControllerCore {
           | undefined;
         if (
           !candidate ||
+          candidate.is_latest_developer_assignment !== 1 ||
           candidate.run_state !== "active" ||
           candidate.work_item_id !== workItemId ||
           candidate.input_revision !== context.inputRevision ||

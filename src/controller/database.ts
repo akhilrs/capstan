@@ -31,6 +31,11 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  4: {
+    version: 4,
+    name: "0004_assignment_actor.sql",
+    url: new URL("../../migrations/0004_assignment_actor.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(
