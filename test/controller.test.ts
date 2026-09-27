@@ -756,6 +756,11 @@ test("readiness requires an active actor bound to the required-role seat", async
       name: "Actor required",
       role: "Developer",
     });
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "actor-required-empty-seat",
+      name: "Unstaffed alternate",
+      role: "Developer",
+    });
     core.createWorkItem(context(core, info.ownerCredential), {
       workItemId: "actor-required-work",
       title: "Actor-required work",
@@ -781,6 +786,15 @@ test("readiness requires an active actor bound to the required-role seat", async
         "actor-required-work",
       ),
       { state: "ready" },
+    );
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "actor-required-work",
+          "actor-required-empty-seat",
+        ),
+      /assignment seat must be active, match the work item role, and have an active actor/,
     );
   } finally {
     cleanup(value);

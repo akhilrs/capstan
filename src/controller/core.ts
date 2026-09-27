@@ -1136,17 +1136,26 @@ export class ControllerCore {
         }
         const seat = this.#database
           .prepare(
-            "SELECT role, state FROM seats WHERE project_id = ? AND seat_id = ?",
+            `
+          SELECT s.role, s.state,
+            EXISTS (
+              SELECT 1 FROM actors a
+              WHERE a.project_id = s.project_id AND a.seat_id = s.seat_id
+                AND a.role = s.role AND a.active = 1 AND a.revoked_at IS NULL
+            ) AS has_active_actor
+          FROM seats s WHERE s.project_id = ? AND s.seat_id = ?
+        `,
           )
           .get(this.#projectId, seatId) as
-          { role: string; state: string } | undefined;
+          { role: string; state: string; has_active_actor: number } | undefined;
         if (
           !seat ||
           seat.state !== "active" ||
-          seat.role !== item.required_role
+          seat.role !== item.required_role ||
+          seat.has_active_actor !== 1
         ) {
           throw new ControllerError(
-            "assignment seat must be active and match the work item role",
+            "assignment seat must be active, match the work item role, and have an active actor",
           );
         }
         let verifierCandidate:
