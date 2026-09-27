@@ -58,6 +58,10 @@
       "command": "npm run check"
     },
     {
+      "name": "pm5-m1-adapter-build",
+      "command": "npm run build"
+    },
+    {
       "name": "pm5-m1-adapter-integration",
       "command": "node --test scripts/m1-controller-adapter.test.mjs"
     }
