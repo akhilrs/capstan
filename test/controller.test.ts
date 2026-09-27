@@ -158,6 +158,10 @@ test("project initialization rejects sparse acceptance criteria", async () => {
   const sparseCriteria: string[] = [];
   sparseCriteria.length = 2;
   sparseCriteria[1] = "criterion";
+  Object.setPrototypeOf(
+    sparseCriteria,
+    Object.assign(Object.create(Array.prototype), { 0: "inherited criterion" }),
+  );
   const invalidProject = {
     ...info,
     initialInputs: info.initialInputs.map((input) =>

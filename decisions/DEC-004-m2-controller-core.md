@@ -36,6 +36,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Allow dependency edges to pin an exact candidate owned by the prerequisite work item. Require verifier assignment only after the latest Developer assignment's authority is contained.
 - Verifier work requires an existing nonterminal Developer parent at creation. Candidate acceptance requires every open Verifier child to be assigned and bound to that exact candidate; an orphan or late unassigned child must not strand the run.
 - Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
+- Require each acceptance criterion to be an own indexed array element, so inherited array values cannot validate content that serializes as a hole.
 - Snapshot actor creation and Verifier evidence inputs before computing request digests and before persistence so accessor-backed values cannot change between those steps.
 - Reject Verifier evidence from any superseded generation of its Verifier work item so an old verifier cannot override a replacement's results.
 - Do not persist failing Verifier evidence until every nonterminal Verifier child can be bound to the candidate. This keeps all planned tasks assignable before failure blocks the Developer parent.

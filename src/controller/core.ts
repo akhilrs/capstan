@@ -73,21 +73,25 @@ function acceptanceCriteriaFromContent(content: unknown): readonly string[] {
     const descriptor = Object.getOwnPropertyDescriptor(content, "criteria");
     if (descriptor && "value" in descriptor) criteria = descriptor.value;
   }
-  if (
-    !Array.isArray(criteria) ||
-    criteria.length === 0 ||
-    Array.from(criteria).some(
-      (entry: unknown) =>
-        typeof entry !== "string" || entry.trim().length === 0,
-    )
-  )
+  if (!Array.isArray(criteria) || criteria.length === 0)
     throw new CandidateBindingError(
       "acceptance criteria must be a non-empty list of non-empty strings",
     );
-  const strings = criteria as string[];
-  if (new Set(strings.map((entry) => entry.trim())).size !== strings.length)
+  const unique = new Set<string>();
+  for (let index = 0; index < criteria.length; index += 1) {
+    if (
+      !Object.hasOwn(criteria, index) ||
+      typeof criteria[index] !== "string" ||
+      criteria[index].trim().length === 0
+    )
+      throw new CandidateBindingError(
+        "acceptance criteria must be a non-empty list of non-empty strings",
+      );
+    unique.add(criteria[index].trim());
+  }
+  if (unique.size !== criteria.length)
     throw new CandidateBindingError("acceptance criteria must be unique");
-  return strings;
+  return criteria;
 }
 
 interface MutationEvent {
