@@ -654,6 +654,25 @@ export class ControllerCore {
       (actor) => {
         if (workItemId === prerequisiteId)
           throw new ControllerError("a work item cannot depend on itself");
+        const workItem = this.#database
+          .prepare(
+            "SELECT state FROM work_items WHERE project_id = ? AND work_item_id = ?",
+          )
+          .get(this.#projectId, workItemId) as { state: string } | undefined;
+        if (!workItem) throw new ControllerError("work item does not exist");
+        if (workItem.state !== "pending")
+          throw new MutationConflictError(
+            "dependencies must be fixed before a work item becomes ready or starts",
+          );
+        const priorAssignment = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? LIMIT 1",
+          )
+          .get(this.#projectId, workItemId);
+        if (priorAssignment)
+          throw new MutationConflictError(
+            "dependencies cannot change after a work item has an assignment",
+          );
         const cycle = this.#database
           .prepare(
             `
@@ -759,10 +778,7 @@ export class ControllerCore {
       candidate_input_revision: number | null;
     }>;
     for (const dependency of dependencies) {
-      if (
-        dependency.state !== "accepted" ||
-        !dependency.accepted_candidate_id
-      ) {
+      if (dependency.state !== "accepted") {
         reasons.push(
           `dependency ${dependency.depends_on_work_item_id} is not accepted`,
         );
@@ -774,6 +790,7 @@ export class ControllerCore {
           `dependency ${dependency.depends_on_work_item_id} has a different accepted candidate`,
         );
       } else if (
+        dependency.accepted_candidate_id &&
         dependency.candidate_input_revision !== item.current_input_revision
       ) {
         reasons.push(
@@ -1681,7 +1698,6 @@ export class ControllerCore {
           );
       } else if (receipt.type === "submitted") {
         if (
-          (receipt.role !== "Developer" && receipt.role !== "Verifier") ||
           command.command_state !== "acknowledged" ||
           command.attempt_state !== "acknowledged" ||
           command.work_state !== "running"
@@ -1694,8 +1710,7 @@ export class ControllerCore {
         if (
           command.command_state !== "started" ||
           command.attempt_state !== "running" ||
-          command.work_state !== "running" ||
-          (receipt.role !== "Developer" && receipt.role !== "Verifier")
+          command.work_state !== "running"
         ) {
           throw new MutationConflictError(
             "completed receipt requires an active assigned worker generation",
@@ -2315,11 +2330,12 @@ export class ControllerCore {
           this.#database
             .prepare(
               `
-          UPDATE work_items SET state = 'accepted', state_version = state_version + 1
-          WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+              UPDATE work_items SET state = 'accepted', accepted_candidate_id = ?,
+                state_version = state_version + 1
+              WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
         `,
             )
-            .run(this.#projectId, verifier.verifier_work_item_id);
+            .run(candidateId, this.#projectId, verifier.verifier_work_item_id);
           this.#database
             .prepare(
               `
@@ -2362,6 +2378,142 @@ export class ControllerCore {
       },
     );
   }
+  acceptNonCandidateReport(
+    context: MutationContext,
+    workItemId: string,
+    assignmentId: string,
+  ): { readonly acceptedWorkItemId: string } {
+    return this.#mutateAsController(
+      context,
+      "work.report.accept",
+      "candidate:accept",
+      { workItemId, assignmentId },
+      (actor) => {
+        if (actor.role !== "controller")
+          throw new TransitionAuthorizationError(
+            "only the controller may accept a non-candidate work report",
+          );
+        const report = this.#database
+          .prepare(
+            `
+          SELECT s.role, a.state AS assignment_state, a.authority_state AS assignment_authority,
+            a.input_revision, at.attempt, at.generation, at.state AS attempt_state,
+            at.authority_state AS attempt_authority, w.state AS work_state,
+            w.state_version AS work_version, w.input_revision AS work_revision,
+            w.accepted_candidate_id, p.current_input_revision, c.command_id,
+            c.state AS command_state
+          FROM assignments a
+          JOIN assignment_attempts at ON at.project_id = a.project_id
+            AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+          JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+          JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+          JOIN projects p ON p.project_id = a.project_id
+          JOIN commands c ON c.project_id = a.project_id AND c.assignment_id = a.assignment_id
+            AND c.attempt = at.attempt AND c.generation = at.generation
+          WHERE a.project_id = ? AND a.work_item_id = ? AND a.assignment_id = ?
+            AND EXISTS (
+              SELECT 1 FROM command_receipts r
+              WHERE r.project_id = a.project_id AND r.command_id = c.command_id
+                AND r.assignment_id = a.assignment_id AND r.attempt = at.attempt
+                AND r.generation = at.generation AND r.role = s.role
+                AND r.receipt_type = 'completed'
+            )
+        `,
+          )
+          .get(this.#projectId, workItemId, assignmentId) as
+          | {
+              role: string;
+              assignment_state: string;
+              assignment_authority: string;
+              input_revision: number;
+              attempt: number;
+              generation: number;
+              attempt_state: string;
+              attempt_authority: string;
+              work_state: string;
+              work_version: number;
+              work_revision: number;
+              accepted_candidate_id: string | null;
+              current_input_revision: number;
+              command_id: string;
+              command_state: string;
+            }
+          | undefined;
+        if (
+          !report ||
+          (report.role !== "PM" && report.role !== "Supervisor") ||
+          report.assignment_state !== "reported" ||
+          report.assignment_authority !== "contained" ||
+          report.attempt_state !== "reported" ||
+          report.attempt_authority !== "contained" ||
+          report.command_state !== "completed" ||
+          report.work_state !== "awaiting_verification" ||
+          report.accepted_candidate_id !== null ||
+          report.input_revision !== context.inputRevision ||
+          report.work_revision !== context.inputRevision ||
+          report.current_input_revision !== context.inputRevision ||
+          !this.#isTransitionAllowed(
+            "work_item",
+            "awaiting_verification",
+            "accepted",
+            actor,
+          ) ||
+          !this.#isTransitionAllowed(
+            "assignment_attempt",
+            "reported",
+            "completed",
+            actor,
+          )
+        ) {
+          throw new MutationConflictError(
+            "non-candidate report is not contained, current, and eligible for acceptance",
+          );
+        }
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            `
+          UPDATE work_items SET state = 'accepted', state_version = state_version + 1
+          WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+            AND accepted_candidate_id IS NULL
+        `,
+          )
+          .run(this.#projectId, workItemId);
+        this.#database
+          .prepare(
+            `
+          UPDATE assignments SET state = 'completed', state_version = state_version + 1,
+            ended_at = ? WHERE project_id = ? AND assignment_id = ? AND state = 'reported'
+        `,
+          )
+          .run(now, this.#projectId, assignmentId);
+        this.#database
+          .prepare(
+            `
+          UPDATE assignment_attempts SET state = 'completed', state_version = state_version + 1,
+            ended_at = ? WHERE project_id = ? AND assignment_id = ? AND attempt = ? AND state = 'reported'
+        `,
+          )
+          .run(now, this.#projectId, assignmentId, report.attempt);
+        return {
+          value: { acceptedWorkItemId: workItemId },
+          event: {
+            entityType: "work_item",
+            entityId: workItemId,
+            stateVersion: report.work_version + 1,
+            fromState: "awaiting_verification",
+            toState: "accepted",
+            details: {
+              assignmentId,
+              commandId: report.command_id,
+              role: report.role,
+            },
+          },
+        };
+      },
+    );
+  }
+
   confirmContainment(
     context: MutationContext,
     assignmentId: string,
@@ -2590,6 +2742,22 @@ export class ControllerCore {
         .get(this.#projectId) as
         { state: string; state_version: number } | undefined;
       if (!run) throw new ControllerError("run control record is missing");
+      if (toState === "completed") {
+        const unfinishedWork = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state NOT IN ('accepted', 'canceled') LIMIT 1",
+          )
+          .get(this.#projectId);
+        const uncertainAuthority = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (unfinishedWork || uncertainAuthority)
+          throw new MutationConflictError(
+            "run cannot complete while work is open or assignment authority is not contained",
+          );
+      }
       if (
         !this.#isTransitionAllowed("run_control", run.state, toState, actor)
       ) {

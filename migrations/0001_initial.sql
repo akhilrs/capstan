@@ -429,16 +429,18 @@ INSERT INTO role_capabilities(role, capability) VALUES
   ('operator', 'actor:manage'), ('operator', 'recovery:write'), ('operator', 'controller:reconcile'),
   ('controller', 'work:assign'), ('controller', 'candidate:accept'), ('controller', 'run:control'),
   ('controller', 'finding:write'), ('controller', 'recovery:write'), ('controller', 'controller:reconcile'), ('controller', 'usage:write'),
-  ('PM', 'project:inputs:write'), ('PM', 'work:write'), ('PM', 'finding:write'), ('PM', 'usage:write'),
+  ('PM', 'project:inputs:write'), ('PM', 'work:write'), ('PM', 'work:report'), ('PM', 'finding:write'), ('PM', 'usage:write'),
   ('Developer', 'work:report'), ('Developer', 'finding:write'), ('Developer', 'usage:write'),
   ('Verifier', 'candidate:verify'), ('Verifier', 'work:report'), ('Verifier', 'finding:write'), ('Verifier', 'usage:write'),
-  ('Supervisor', 'finding:write'), ('Supervisor', 'usage:write');
+  ('Supervisor', 'work:report'), ('Supervisor', 'finding:write'), ('Supervisor', 'usage:write');
 
 INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES
   ('work_item', 'pending', 'ready', 'controller', 'work:assign'),
   ('work_item', 'ready', 'running', 'controller', 'work:assign'),
   ('work_item', 'running', 'awaiting_verification', 'Developer', 'work:report'),
   ('work_item', 'running', 'awaiting_verification', 'Verifier', 'work:report'),
+  ('work_item', 'running', 'awaiting_verification', 'PM', 'work:report'),
+  ('work_item', 'running', 'awaiting_verification', 'Supervisor', 'work:report'),
   ('work_item', 'awaiting_verification', 'accepted', 'controller', 'candidate:accept'),
   ('work_item', 'pending', 'blocked', 'controller', 'work:assign'),
   ('work_item', 'ready', 'blocked', 'controller', 'work:assign'),
@@ -466,6 +468,8 @@ INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability
   ('assignment_attempt', 'acknowledged', 'running', 'controller', 'controller:reconcile'),
   ('assignment_attempt', 'running', 'reported', 'Developer', 'work:report'),
   ('assignment_attempt', 'running', 'reported', 'Verifier', 'work:report'),
+  ('assignment_attempt', 'running', 'reported', 'PM', 'work:report'),
+  ('assignment_attempt', 'running', 'reported', 'Supervisor', 'work:report'),
   ('assignment_attempt', 'reported', 'completed', 'controller', 'candidate:accept'),
   ('assignment_attempt', 'created', 'revoked', 'controller', 'recovery:write'),
   ('assignment_attempt', 'dispatched', 'revoked', 'controller', 'recovery:write'),

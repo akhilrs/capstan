@@ -13,6 +13,7 @@ import {
   MutationConflictError,
   ReadinessError,
   StateVersionConflictError,
+  TransitionAuthorizationError,
 } from "../src/controller/core.js";
 import type {
   BridgeReceipt,
@@ -201,24 +202,130 @@ test("private project ownership survives restart and ambiguous delivery is recon
     rmSync(stateDirectory, { recursive: true, force: true });
   }
 });
-test("operator requests can invoke controller-only run terminal transitions", async () => {
+test("runs reject completion while work is open", async () => {
   const value = await fixture();
   try {
     const { core, project: info } = value;
     core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "completed-run-work",
-      title: "Run transition",
-      description: "Readiness must observe the terminal run state",
+      workItemId: "open-run-work",
+      title: "Open work",
+      description: "This work has not been accepted or canceled",
       requiredRole: "Developer",
     });
+    const versionBefore = core.stateVersion;
+    assert.throws(
+      () =>
+        core.transitionRun(context(core, info.ownerCredential), "completed"),
+      MutationConflictError,
+    );
+    assert.equal(core.stateVersion, versionBefore);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("operator requests can invoke controller-only terminal run transitions", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
     assert.deepEqual(
       core.transitionRun(context(core, info.ownerCredential), "completed"),
       { state: "completed" },
     );
-    assert.match(
-      core.readiness("completed-run-work").reasons.join(";"),
-      /run is completed/,
+    assert.throws(
+      () =>
+        core.transitionRun(context(core, info.ownerCredential), "completed"),
+      TransitionAuthorizationError,
     );
+  } finally {
+    cleanup(value);
+  }
+});
+test("PM and Supervisor reports complete through durable role-authorized receipts", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "pm-report",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "supervisor-report",
+    );
+    await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "report-dependent",
+    );
+    const reports = [
+      { role: "PM" as const, suffix: "pm", actor: pm },
+      {
+        role: "Supervisor" as const,
+        suffix: "supervisor",
+        actor: supervisor,
+      },
+    ];
+    for (const { role, suffix, actor: worker } of reports) {
+      const workItemId = `report-${suffix}`;
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId,
+        title: `${role} report`,
+        description: "Complete and accept a non-candidate role report",
+        requiredRole: role,
+      });
+      core.markReady(context(core, info.ownerCredential), workItemId);
+      const assignment = core.assignWorkItem(
+        context(core, info.ownerCredential),
+        workItemId,
+        worker.seatId,
+      );
+      const identity = {
+        commandId: assignment.commandId,
+        assignmentId: assignment.assignmentId,
+        attempt: assignment.attempt,
+        generation: assignment.generation,
+      };
+      core.beginCommandDelivery(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
+      core.recordBridgeReceipt(receipt(identity, 1, "accepted", role));
+      core.recordBridgeReceipt(receipt(identity, 2, "submitted", role));
+      core.recordBridgeReceipt(receipt(identity, 3, "working", role));
+      core.recordBridgeReceipt(receipt(identity, 4, "completed", role));
+      assert.equal(core.commandState(identity.commandId), "completed");
+      core.confirmContainment(
+        context(core, info.ownerCredential),
+        assignment.assignmentId,
+        `containment:${suffix}`,
+      );
+      assert.deepEqual(
+        core.acceptNonCandidateReport(
+          context(core, info.ownerCredential),
+          workItemId,
+          assignment.assignmentId,
+        ),
+        { acceptedWorkItemId: workItemId },
+      );
+    }
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "uses-pm-report",
+      title: "Use accepted PM report",
+      description: "A non-candidate report can satisfy an unpinned dependency",
+      requiredRole: "Developer",
+    });
+    core.addDependency(
+      context(core, info.ownerCredential),
+      "uses-pm-report",
+      "report-pm",
+    );
+    assert.equal(core.readiness("uses-pm-report").ready, true);
   } finally {
     cleanup(value);
   }
@@ -287,6 +394,23 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       "feature",
       developer.seatId,
     );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "late-prerequisite-running",
+      title: "Late prerequisite",
+      description: "A dependency must not change after assignment",
+      requiredRole: "Developer",
+    });
+    const runningVersion = core.stateVersion;
+    assert.throws(
+      () =>
+        core.addDependency(
+          context(core, pm.credential),
+          "feature",
+          "late-prerequisite-running",
+        ),
+      MutationConflictError,
+    );
+    assert.equal(core.stateVersion, runningVersion);
     assert.throws(
       () =>
         core.recordInputRevision(context(core, info.ownerCredential), {
@@ -441,6 +565,35 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       ).acceptedCandidateId,
       candidate.candidateId,
     );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "late-prerequisite-accepted",
+      title: "Late accepted prerequisite",
+      description: "Acceptance must not gain a new unmet dependency",
+      requiredRole: "Developer",
+    });
+    const acceptedVersion = core.stateVersion;
+    assert.throws(
+      () =>
+        core.addDependency(
+          context(core, pm.credential),
+          "feature",
+          "late-prerequisite-accepted",
+        ),
+      MutationConflictError,
+    );
+    assert.equal(core.stateVersion, acceptedVersion);
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "uses-verified-work",
+      title: "Use verified prerequisite",
+      description: "Verifier completion retains the accepted candidate",
+      requiredRole: "Developer",
+    });
+    core.addDependency(
+      context(core, pm.credential),
+      "uses-verified-work",
+      "verify-feature",
+    );
+    assert.equal(core.readiness("uses-verified-work").ready, true);
     assert.equal(core.readiness("feature").ready, false);
   } finally {
     cleanup(value);
