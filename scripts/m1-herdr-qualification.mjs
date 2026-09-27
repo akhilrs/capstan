@@ -838,6 +838,7 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         [runtime.addon, "/usr/local/bin/pi_natives.linux-x64-baseline.node"],
         [runtime.node, "/usr/local/bin/node"],
         [path.resolve(path.dirname(SELF), "m1-herdr-bridge.mjs"), "/usr/local/bin/m1-herdr-bridge.mjs"],
+        [runtime.peerAuth, "/usr/local/bin/m1-receipt-peer"],
       ]);
       for (const mount of mounts) {
         if (mount.Type === "bind") {
