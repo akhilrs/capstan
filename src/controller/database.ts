@@ -81,7 +81,11 @@ async function migrate(
         checksum: string;
       }>)
     : [];
-  for (const row of applied) {
+  for (const [index, row] of applied.entries()) {
+    if (row.version !== index + 1)
+      throw new DatabaseMigrationError(
+        `migration ledger has a gap before version ${row.version}`,
+      );
     if (!Object.hasOwn(migrations, row.version))
       throw new DatabaseMigrationError(
         `database schema version ${row.version} is newer than this controller`,

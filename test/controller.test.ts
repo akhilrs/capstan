@@ -147,6 +147,30 @@ test("credential hashing rejects ill-formed UTF-16", () => {
   assert.equal(credentialHash(`${prefix}\ud83d\ude00`).length, 64);
 });
 
+test("migration ledger gaps reject startup even when later migration checksums match", async () => {
+  const value = await fixture();
+  try {
+    value.core.close();
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      db.prepare("DELETE FROM schema_migrations WHERE version = 2").run();
+    } finally {
+      db.close();
+    }
+    await assert.rejects(
+      ControllerCore.open({
+        stateDirectory: value.stateDirectory,
+        project: value.project,
+      }),
+      /migration ledger has a gap before version 3/,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("M1 response parser rejects a fragmented late duplicate", () => {
   const parser = new M1ResponseFrameParser();
   const response = {
@@ -204,6 +228,73 @@ test("oversized UTF-8 M1 prompt stays ready without committing an assignment", a
     cleanup(value);
   }
 });
+test("M1 receipt acknowledgement does not require sender EOF", async () => {
+  const value = await fixture();
+  const bridgeSocket = path.join(value.stateDirectory, "unused-bridge.sock");
+  const receiptSocket = path.join(value.stateDirectory, "receipt-no-eof.sock");
+  let adapter: M1BridgeAdapter | undefined;
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "receipt-no-eof",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "receipt-no-eof-work",
+      title: "Acknowledge a complete frame",
+      description: "Bridge sender waits for the reply before closing",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "receipt-no-eof-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "receipt-no-eof-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    await adapter.listen();
+    const response = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection(receiptSocket);
+      socket.once("error", reject);
+      socket.once("connect", () =>
+        socket.write(
+          `${JSON.stringify(
+            receipt(
+              {
+                commandId: assignment.commandId,
+                assignmentId: assignment.assignmentId,
+                attempt: assignment.attempt,
+                generation: assignment.generation,
+              },
+              1,
+              "accepted",
+            ),
+          )}\n`,
+        ),
+      );
+      socket.once("data", (data) => {
+        resolve(data.toString("utf8"));
+        socket.end();
+      });
+    });
+    assert.deepEqual(JSON.parse(response), {
+      ok: true,
+      sequence: 1,
+      duplicate: false,
+    });
+    assert.equal(core.commandState(assignment.commandId), "acknowledged");
+  } finally {
+    await adapter?.close();
+    cleanup(value);
+  }
+});
+
 test("M1 adapter rejects duplicate responses after acknowledgement", async () => {
   const value = await fixture();
   const bridgeSocket = path.join(value.stateDirectory, "bridge.sock");

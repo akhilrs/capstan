@@ -340,21 +340,12 @@ export class M1BridgeAdapter {
   #receiveReceipt(socket: net.Socket): void {
     const chunks: Buffer[] = [];
     let size = 0;
-    let overflow = false;
+    let settled = false;
     socket.setTimeout(15_000, () => socket.destroy());
-    socket.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > M1_MAX_FRAME_BYTES) {
-        overflow = true;
-        socket.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    socket.once("end", () => {
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
       try {
-        if (overflow)
-          throw protocolError("receipt frame exceeds the frame limit");
         const value = frameObject(Buffer.concat(chunks, size));
         const result = this.#core.recordBridgeReceipt(value as BridgeReceipt);
         if (!socket.destroyed)
@@ -367,7 +358,18 @@ export class M1BridgeAdapter {
             `${JSON.stringify({ ok: false, error: String(error instanceof Error ? error.message : error).slice(0, 2048) })}\n`,
           );
       }
+    };
+    socket.on("data", (chunk: Buffer) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > M1_MAX_FRAME_BYTES) {
+        socket.destroy();
+        return;
+      }
+      chunks.push(chunk);
+      if (chunk.includes(0x0a)) finish();
     });
+    socket.once("end", finish);
     socket.on("error", () => socket.destroy());
   }
 }
