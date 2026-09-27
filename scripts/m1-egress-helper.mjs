@@ -466,6 +466,8 @@ async function main() {
   if (action === "prepare") { await prepare(); return; }
   const container = validatedContainer();
   if (action === "cleanup-container") {
+    if (existsSync(`${location(container)}.prepare`))
+      throw new Error("Egress preparation still owns this container; cleanup cannot race policy installation");
     if (!existsSync(location(container))) { console.log(JSON.stringify({ removed: true, alreadyAbsent: true })); return; }
     const stored = JSON.parse(readFileSync(location(container), "utf8"));
     if (stored.container !== container || !/^capstan-m1-[0-9a-f]{24}$/.test(stored.policyId))
@@ -476,6 +478,8 @@ async function main() {
   }
   const policyId = option("policy-id");
   if (!/^capstan-m1-[0-9a-f]{24}$/.test(policyId)) throw new Error("Invalid policy ID");
+  if (action === "cleanup" && existsSync(`${location(container)}.prepare`))
+    throw new Error("Egress preparation still owns this container; cleanup cannot race policy installation");
   if (action === "cleanup" && !existsSync(location(container))) { console.log(JSON.stringify({ removed: true, alreadyAbsent: true })); return; }
   const state = readState(container, policyId);
   if (action === "verify") { console.log(JSON.stringify(await verifyState(state))); return; }

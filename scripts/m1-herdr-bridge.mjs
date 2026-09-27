@@ -2,6 +2,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { TextDecoder } from "node:util";
+import { spawnSync } from "node:child_process";
 
 const MAX_LINE_BYTES = 1_048_576;
 const MAX_PROMPT_BYTES = 262_144;
@@ -121,6 +122,8 @@ export default function herdrBridge(pi) {
   let socketPath;
   let receiptSocketPath;
   let role;
+  let peerHelper;
+  let controllerPeerPid;
   let sequence = 0;
   let rows = new Map();
   let active = null;
@@ -252,6 +255,11 @@ export default function herdrBridge(pi) {
   function reply(socket, payload, closeAfterReply = false) {
     const { _dispatch, ...wire } = payload;
     const frame = `${JSON.stringify(wire)}\n`;
+    if (_dispatch && (socket.destroyed || socket.writableEnded)) {
+      active.dispatchFailed = true;
+      rows.get(payload.commandId).state = "unknown";
+      return;
+    }
     if (!socket.destroyed && !socket.writableEnded) {
       if (closeAfterReply) socket.end(frame, () => socket.destroy());
       else socket.write(frame);
@@ -309,14 +317,27 @@ export default function herdrBridge(pi) {
       socket.end(`${JSON.stringify({ type: "error", error: "too many bridge clients" })}\n`);
       return;
     }
+    const fd = socket._handle?.fd;
+    if (!Number.isSafeInteger(fd) || fd < 0
+      || spawnSync(peerHelper, [String(controllerPeerPid)], { stdio: ["ignore", "ignore", "pipe", fd], timeout: 5_000 }).status !== 0) {
+      socket.destroy();
+      return;
+    }
     socket.setTimeout(10_000, () => socket.destroy());
     let failed = false;
+    let awaitingResponse = false;
     clients.add(socket);
     socket.once("close", () => clients.delete(socket));
     let pending = Buffer.alloc(0);
     socket.on("data", (chunk) => {
       if (failed) return;
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+      const firstNewline = pending.indexOf(0x0a);
+      if (firstNewline >= 0 && pending.indexOf(0x0a, firstNewline + 1) >= 0) {
+        failed = true;
+        socket.end(`${JSON.stringify({ type: "error", error: "pipelined bridge requests are forbidden" })}\n`);
+        return;
+      }
       let at;
       while ((at = pending.indexOf(0x0a)) !== -1) {
         const line = pending.subarray(0, at);
@@ -325,6 +346,11 @@ export default function herdrBridge(pi) {
           failed = true; socket.end(`${JSON.stringify({ type: "error", error: "invalid request line" })}\n`); return;
         }
         try {
+          if (awaitingResponse) {
+            failed = true;
+            socket.end(`${JSON.stringify({ type: "error", error: "pipelined bridge requests are forbidden" })}\n`);
+            return;
+          }
           const parsed = JSON.parse(decoder.decode(line));
           const normalized = requestShape(parsed);
           if (pendingRequests >= 128) {
@@ -332,6 +358,7 @@ export default function herdrBridge(pi) {
             socket.end(`${JSON.stringify({ type: "error", error: "bridge request queue is full" })}\n`);
             return;
           }
+          awaitingResponse = true;
           pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
             const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
@@ -345,7 +372,7 @@ export default function herdrBridge(pi) {
             reply(socket, response, !liveDispatch);
           }).catch((error) => {
             if (!socket.destroyed) socket.end(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
-          }).finally(() => { pendingRequests -= 1; });
+          }).finally(() => { pendingRequests -= 1; awaitingResponse = false; });
         } catch (error) {
           failed = true;
           socket.end(`${JSON.stringify({ type: "error", error: String(error?.message ?? error).slice(0, 2048) })}\n`);
@@ -377,6 +404,11 @@ export default function herdrBridge(pi) {
     socketPath = process.env.CAPSTAN_BRIDGE_SOCKET;
     journalPath = process.env.CAPSTAN_BRIDGE_JOURNAL;
     receiptSocketPath = process.env.CAPSTAN_BRIDGE_RECEIPT_SOCKET;
+    peerHelper = process.env.CAPSTAN_BRIDGE_PEER_HELPER;
+    controllerPeerPid = Number(process.env.CAPSTAN_BRIDGE_CONTROLLER_PEER_PID);
+    if (typeof peerHelper !== "string" || !path.isAbsolute(peerHelper) || !fs.statSync(peerHelper).isFile()
+      || !Number.isSafeInteger(controllerPeerPid) || controllerPeerPid < 0)
+      throw new Error("Bridge requires an exact controller peer identity and native verifier");
     if (!ROLES.has(role)) throw new Error("CAPSTAN_BRIDGE_ROLE must be PM, Developer, Verifier, or Supervisor");
     if (typeof socketPath !== "string" || !path.isAbsolute(socketPath) || typeof journalPath !== "string" || !path.isAbsolute(journalPath)
       || typeof receiptSocketPath !== "string" || !path.isAbsolute(receiptSocketPath)) throw new Error("Bridge socket, receipt socket, and journal paths must be absolute");

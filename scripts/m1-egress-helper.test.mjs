@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { isContainerQuiesced, publicIPv4, ruleTarget, sniMatchesHost, verifyForwardRouteRules } from "./m1-egress-helper.mjs";
 
 assert.equal(isContainerQuiesced({ Running: false, Paused: false }), true);
@@ -24,6 +28,18 @@ assert.throws(() => verifyForwardRouteRules("-A FORWARD -j ACCEPT\n-A FORWARD -j
 assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-ISOLATION\n-A FORWARD -j DOCKER-USER\n"), /bypass/);
 assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-FORWARD\n"), /does not route/);
 assert.throws(() => ruleTarget('-A DOCKER-USER -m comment --comment "unterminated -j DROP'), /Malformed quoted/);
+const isolatedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "m1-egress-prepare-lock-"));
+try {
+  const id = "a".repeat(64);
+  const dir = path.join(isolatedTemp, `capstan-m1-egress-${process.getuid()}`);
+  fs.mkdirSync(path.join(dir, `${id}.json.prepare`), { recursive: true });
+  const cleanup = spawnSync(process.execPath, [path.join(import.meta.dirname, "m1-egress-helper.mjs"),
+    "cleanup-container", "--container", id], { encoding: "utf8", env: { ...process.env, TMPDIR: isolatedTemp } });
+  assert.notEqual(cleanup.status, 0, "cleanup cannot claim an absent policy while preparation owns it");
+  assert.match(cleanup.stderr, /preparation still owns/);
+} finally {
+  fs.rmSync(isolatedTemp, { recursive: true, force: true });
+}
 
 assert.equal(sniMatchesHost("CHATGPT.COM", "chatgpt.com"), true);
 assert.equal(sniMatchesHost("chatgpt.com.evil", "chatgpt.com"), false);

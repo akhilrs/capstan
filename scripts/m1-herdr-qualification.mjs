@@ -498,12 +498,15 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     "--mount", `type=bind,src=${runtime.addon},dst=/usr/local/bin/pi_natives.linux-x64-baseline.node,readonly`,
     "--mount", `type=bind,src=${runtime.node},dst=/usr/local/bin/node,readonly`,
     "--mount", `type=bind,src=${bridgeExtension},dst=/usr/local/bin/m1-herdr-bridge.mjs,readonly`,
+    "--mount", `type=bind,src=${runtime.peerAuth},dst=/usr/local/bin/m1-receipt-peer,readonly`,
     "--tmpfs", `/tmp:rw,nosuid,nodev,noexec,size=256m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
     "--tmpfs", `/run:rw,nosuid,nodev,noexec,size=64m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
     "--env", "HOME=/home/worker", "--env", "PATH=/usr/local/bin:/usr/bin:/bin",
     "--env", "LC_ALL=C", "--env", "LANG=C", "--env", "TZ=UTC", "--env", "TMPDIR=/tmp", "--env", "HERDR_ENV=1",
     "--env", "CAPSTAN_BRIDGE_SOCKET=/bridge/seat.sock", "--env", "CAPSTAN_BRIDGE_JOURNAL=/workspace/.home/bridge.jsonl",
     "--env", "CAPSTAN_BRIDGE_RECEIPT_SOCKET=/receipt/receipt.sock",
+    "--env", "CAPSTAN_BRIDGE_PEER_HELPER=/usr/local/bin/m1-receipt-peer",
+    "--env", "CAPSTAN_BRIDGE_CONTROLLER_PEER_PID=0",
     "--env", `CAPSTAN_BRIDGE_ROLE=${spec.role}`, "--env", "OPENAI_CODEX_OAUTH_TOKEN",
     IMAGE, "sh", "-c", ignoreStop ? "umask 077; trap '' TERM; while :; do sleep 60 & wait; done" : "umask 077; exec sleep infinity",
   ];
@@ -586,6 +589,18 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     if (probeExit !== 0 || deniedPeerCount !== 1 || statSync(spec.journal).size !== 0)
       throw new Error("A same-UID worker process was not denied receipt authority by Unix peer PID");
     record("worker_receipt_peer_denied", { container: name, expectedOMPHostPid, denials: deniedPeerCount });
+    const untrustedBridgePeer = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
+      "/usr/local/bin/node", "-e",
+      "const s=require('node:net').createConnection('/bridge/seat.sock'); s.on('connect',()=>s.write(JSON.stringify({type:'get',commandId:'untrusted-worker'})+'\\n')); s.on('data',()=>process.exit(2)); s.on('error',(error)=>process.exit(error.code==='ECONNRESET'?0:3)); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(4),3000);"],
+    { stdio: "ignore" });
+    const untrustedExit = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { untrustedBridgePeer.kill(); reject(new Error("Worker bridge-peer denial probe timed out")); }, 5_000);
+      untrustedBridgePeer.once("error", (error) => { clearTimeout(timer); reject(error); });
+      untrustedBridgePeer.once("exit", (code) => { clearTimeout(timer); resolve(code); });
+    });
+    if (untrustedExit !== 0 || statSync(spec.journal).size !== 0)
+      throw new Error("A same-UID worker process could query or stall the controller bridge");
+    record("worker_bridge_peer_denied", { container: name, expectedControllerPeerPid: 0 });
   } catch (error) {
     const pane = diagnosticPanes.get(name);
     if (pane) {
@@ -944,7 +959,7 @@ async function main() {
   const peerSource = path.join(path.dirname(SELF), "m1-receipt-peer.c");
   const peerBinary = path.join(controllerRoot, "receipt-peer");
   run("cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", peerSource, "-o", peerBinary]);
-  chmodSync(peerBinary, 0o700);
+  chmodSync(peerBinary, 0o755);
   runtime.peerAuth = peerBinary;
   const egressKillSource = path.join(path.dirname(SELF), "m1-egress-kill.c");
   const egressKillBinary = path.join(controllerRoot, "egress-kill");

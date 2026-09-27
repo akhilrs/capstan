@@ -3,6 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 import herdrBridge from "./m1-herdr-bridge.mjs";
 
 function listen(server, socketPath) {
@@ -93,8 +94,14 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m1-bridge-dispatch-error-"))
 const bridgeSocket = path.join(temp, "bridge.sock");
 const receiptSocket = path.join(temp, "receipt.sock");
 const journal = path.join(temp, "bridge.jsonl");
+const peerHelper = path.join(temp, "receipt-peer");
+const compiledPeer = spawnSync("cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+  path.join(import.meta.dirname, "m1-receipt-peer.c"), "-o", peerHelper], { encoding: "utf8" });
+assert.equal(compiledPeer.status, 0, compiledPeer.stderr);
 let journalFd = fs.openSync(journal, "wx", 0o600);
-const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_SOCKET", "CAPSTAN_BRIDGE_JOURNAL", "CAPSTAN_BRIDGE_RECEIPT_SOCKET"].map((key) => [key, process.env[key]]));
+const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_SOCKET", "CAPSTAN_BRIDGE_JOURNAL",
+  "CAPSTAN_BRIDGE_RECEIPT_SOCKET", "CAPSTAN_BRIDGE_PEER_HELPER", "CAPSTAN_BRIDGE_CONTROLLER_PEER_PID"]
+  .map((key) => [key, process.env[key]]));
 let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
@@ -161,6 +168,8 @@ try {
     CAPSTAN_BRIDGE_SOCKET: bridgeSocket,
     CAPSTAN_BRIDGE_JOURNAL: journal,
     CAPSTAN_BRIDGE_RECEIPT_SOCKET: receiptSocket,
+    CAPSTAN_BRIDGE_PEER_HELPER: peerHelper,
+    CAPSTAN_BRIDGE_CONTROLLER_PEER_PID: String(process.pid),
   });
   await listen(receiptServer, receiptSocket);
   herdrBridge(pi);
@@ -172,7 +181,12 @@ try {
   const terminalSocketResponse = await requestAndKeepWriteSideOpen(bridgeSocket, { type: "get", commandId: "unknown-terminal-close" });
   assert.equal(terminalSocketResponse.state, "unknown");
   const queuedRequests = Buffer.from(`${JSON.stringify({ type: "get", commandId: "queue-boundary" })}\n`.repeat(130));
-  assert.match((await rawRequest(bridgeSocket, queuedRequests)).error, /bridge request queue is full/);
+  assert.match((await rawRequest(bridgeSocket, queuedRequests)).error, /pipelined bridge requests are forbidden/);
+  const untrusted = spawn(process.execPath, ["-e",
+    `const net=require("node:net");const socket=net.createConnection(${JSON.stringify(bridgeSocket)});socket.on("connect",()=>socket.write(JSON.stringify({type:"get",commandId:"untrusted"})+"\\n"));socket.on("data",()=>process.exit(2));socket.on("close",()=>process.exit(0));socket.on("error",(error)=>process.exit(error.code==="ECONNRESET"?0:3));setTimeout(()=>process.exit(4),3000);`],
+  { stdio: "ignore" });
+  assert.equal(await new Promise((resolve, reject) => { untrusted.once("error", reject); untrusted.once("exit", resolve); }), 0,
+    "bridge must reject a different local PID before it receives a command");
 
   const maximumLine = Buffer.from(JSON.stringify({ type: "get", commandId: "wire-boundary" }));
   const maximumFrameBytes = 1_048_576;
@@ -410,14 +424,12 @@ try {
   const revokedBeforeSend = await isolated("bridge-abort-before-send");
   const racedCommand = { ...unknownCommand, commandId: "abort-before-deferred-send", assignmentId: "assignment-11" };
   const sendsBeforeAbort = sendCount;
-  const raceSocket = net.createConnection(revokedBeforeSend.socket);
-  await new Promise((resolve, reject) => { raceSocket.once("connect", resolve); raceSocket.once("error", reject); });
-  raceSocket.write(`${JSON.stringify(racedCommand)}\n${JSON.stringify({ type: "abort", commandId: racedCommand.commandId })}\n`);
-  await waitForJournal(revokedBeforeSend.file, ["accepted", "aborted"]);
-  assert.equal(sendCount, sendsBeforeAbort, "an abort queued before the deferred send must suppress dispatch");
+  const pipeline = Buffer.from(`${JSON.stringify(racedCommand)}\n${JSON.stringify({ type: "abort", commandId: racedCommand.commandId })}\n`);
+  assert.match((await rawRequest(revokedBeforeSend.socket, pipeline)).error, /pipelined bridge requests are forbidden/);
+  assert.equal(fs.readFileSync(revokedBeforeSend.file, "utf8"), "", "pipelined dispatch must not reserve or persist an identity");
+  assert.equal(sendCount, sendsBeforeAbort, "pipelined dispatch must never reach the agent");
+  assert.equal((await request(revokedBeforeSend.socket, { type: "get", commandId: racedCommand.commandId })).durable, false);
   const afterRevocation = { ...racedCommand, commandId: "after-raced-abort", assignmentId: "assignment-12" };
-  assert.equal((await request(revokedBeforeSend.socket, afterRevocation)).type, "error");
-  raceSocket.destroy();
   await handlers.get("session_shutdown")();
 
   const noReplyFailure = await isolated("bridge-no-reply-receipt-failure");
