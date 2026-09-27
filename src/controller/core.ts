@@ -2900,7 +2900,8 @@ export class ControllerCore {
           prestartUncertain &&
           bridgeSnapshot?.commandId === assignment.command_id &&
           M1BridgeAdapter.isVerifiedSnapshot(bridgeSnapshot) &&
-          ((bridgeSnapshot.bridgeState === "acknowledged" &&
+          (((bridgeSnapshot.bridgeState === "acknowledged" ||
+            bridgeSnapshot.bridgeState === "completed") &&
             bridgeSnapshot.durable === true) ||
             (bridgeSnapshot.bridgeState === "unknown" &&
               typeof bridgeSnapshot.durable === "boolean"));

@@ -264,6 +264,7 @@ export class M1BridgeAdapter {
     commandId: string,
   ): Promise<{ readonly commandId: string; readonly state: string }> {
     let state = this.#core.commandState(commandId);
+    let dispatchReplyVerified = false;
     if (state === "queued" || state === "attempting") {
       const delivery = this.#core.beginCommandDelivery(context, commandId);
       const payload = delivery.payload;
@@ -285,6 +286,7 @@ export class M1BridgeAdapter {
         );
       }
       state = "acknowledged";
+      dispatchReplyVerified = true;
     }
     if (state === "started" || state === "completed")
       return { commandId, state };
@@ -292,6 +294,21 @@ export class M1BridgeAdapter {
       throw protocolError(
         `command is ${state ?? "missing"}; automatic dispatch is unsafe`,
       );
+    if (!dispatchReplyVerified) {
+      const snapshot = await requestBridge(this.#bridgeSocketPath, {
+        type: "get",
+        commandId,
+      });
+      if (
+        snapshot.type !== "ack" ||
+        snapshot.commandId !== commandId ||
+        snapshot.durable !== true ||
+        snapshot.state !== "acknowledged"
+      )
+        throw protocolError(
+          "acknowledged command requires a valid same-command M1 get before start",
+        );
+    }
     const startContextId = randomUUID();
     this.#core.beginCommandStart(
       {

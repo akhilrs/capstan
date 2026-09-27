@@ -331,10 +331,33 @@ test("M1 adapter rejects duplicate responses after acknowledgement", async () =>
   const value = await fixture();
   const bridgeSocket = path.join(value.stateDirectory, "bridge.sock");
   const receiptSocket = path.join(value.stateDirectory, "receipt.sock");
+  const requests: string[] = [];
   const server = net.createServer((socket) => {
     socket.once("data", (chunk) => {
-      const request = JSON.parse(chunk.toString("utf8"));
-      assert.equal(request.singleResponse, true);
+      const request = JSON.parse(chunk.toString("utf8")) as {
+        type: string;
+        commandId: string;
+        assignmentId?: string;
+        attempt?: number;
+        generation?: number;
+        singleResponse?: boolean;
+      };
+      requests.push(request.type);
+      if (request.type === "dispatch") {
+        assert.equal(request.singleResponse, true);
+        value.core.recordBridgeReceipt(
+          receipt(
+            {
+              commandId: request.commandId,
+              assignmentId: request.assignmentId!,
+              attempt: request.attempt!,
+              generation: request.generation!,
+            },
+            1,
+            "accepted",
+          ),
+        );
+      }
       const ack = JSON.stringify({
         type: "ack",
         commandId: request.commandId,
@@ -378,6 +401,16 @@ test("M1 adapter rejects duplicate responses after acknowledgement", async () =>
       ),
       /unexpected frame after bridge response/,
     );
+    assert.equal(core.commandState(assignment.commandId), "acknowledged");
+    await assert.rejects(
+      adapter.dispatchAndStart(
+        context(core, info.ownerCredential),
+        assignment.commandId,
+      ),
+      /unexpected frame after bridge response/,
+    );
+    assert.deepEqual(requests, ["dispatch", "get"]);
+    assert.equal(core.commandState(assignment.commandId), "acknowledged");
   } finally {
     await adapter?.close();
     await new Promise<void>((resolve, reject) =>
@@ -398,14 +431,20 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
         commandId: string;
       };
       requests.push(request);
-      socket.end(
-        `${JSON.stringify({
-          type: "ack",
-          commandId: request.commandId,
-          durable: true,
-          state: "acknowledged",
-        })}\n`,
-      );
+      const response =
+        requests.length === 1
+          ? {
+              type: "ack",
+              commandId: request.commandId,
+              durable: true,
+              state: "acknowledged",
+            }
+          : {
+              type: "completed",
+              commandId: request.commandId,
+              reply: "completed without a durable controller report",
+            };
+      socket.end(`${JSON.stringify(response)}\n`);
     });
   });
   await new Promise<void>((resolve, reject) => {
