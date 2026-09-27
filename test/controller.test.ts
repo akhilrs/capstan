@@ -125,7 +125,6 @@ async function addSeatAndActor(
   suffix: string,
 ) {
   const seatId = `${suffix}-seat`;
-  const credential = `${suffix}-credential-${crypto.randomUUID()}`;
   core.createSeat(context(core, ownerCredential), {
     seatId,
     name: `${role} ${suffix}`,
@@ -134,10 +133,9 @@ async function addSeatAndActor(
   const actor = core.createActor(context(core, ownerCredential), {
     displayName: `${role} ${suffix}`,
     role,
-    credential,
     seatId,
   });
-  return { seatId, credential, actorId: actor.actorId };
+  return { seatId, credential: actor.credential, actorId: actor.actorId };
 }
 
 test("credential hashing rejects ill-formed UTF-16", () => {
@@ -145,6 +143,40 @@ test("credential hashing rejects ill-formed UTF-16", () => {
   assert.throws(() => credentialHash(`${prefix}\ud800`), AuthenticationError);
   assert.throws(() => credentialHash(`${prefix}\udc00`), AuthenticationError);
   assert.equal(credentialHash(`${prefix}\ud83d\ude00`).length, 64);
+});
+
+test("actor credentials are issued by the controller and replay exactly", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "issued-seat",
+      name: "Issued PM",
+      role: "PM",
+    });
+    const request = context(core, info.ownerCredential);
+    const input = {
+      displayName: "Issued PM",
+      role: "PM" as const,
+      seatId: "issued-seat",
+    };
+    const actor = core.createActor(request, input);
+    assert.equal(actor.credential.length >= 32, true);
+    assert.deepEqual(core.createActor(request, input), actor);
+    const second = core.createActor(context(core, info.ownerCredential), {
+      ...input,
+      displayName: "Another PM",
+    });
+    assert.notEqual(second.credential, actor.credential);
+    core.createWorkItem(context(core, actor.credential), {
+      workItemId: "issued-actor-work",
+      title: "Authenticated by issued token",
+      description: "The actor uses its returned credential",
+      requiredRole: "Developer",
+    });
+  } finally {
+    cleanup(value);
+  }
 });
 
 test("migration ledger gaps reject startup even when later migration checksums match", async () => {
@@ -433,6 +465,37 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
     assert.equal(core.stateVersion, version);
     assert.equal(core.commandState(assignment.commandId), "unknown");
     assert.equal(core.readiness("inspect-unknown-work").ready, false);
+    assert.deepEqual(
+      await adapter.reconcilePrestartAndContain(
+        context(core, info.ownerCredential),
+        assignment.assignmentId,
+        assignment.commandId,
+        "proof:bridge-queried-and-worker-quiescent",
+      ),
+      { contained: true },
+    );
+    assert.deepEqual(requests, [
+      { type: "get", commandId: assignment.commandId },
+      { type: "get", commandId: assignment.commandId },
+    ]);
+    assert.equal(core.readiness("inspect-unknown-work").ready, true);
+    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "inspect-unknown-recovery",
+      workItemId: "inspect-unknown-work",
+      assignmentId: assignment.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "Bridge state inspected and worker quiescent",
+    });
+    assert.equal(recovery.outcome, "pending");
+    core.markReady(context(core, info.ownerCredential), "inspect-unknown-work");
+    const replacement = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "inspect-unknown-work",
+      developer.seatId,
+      undefined,
+      recovery.recoveryId,
+    );
+    assert.notEqual(replacement.assignmentId, assignment.assignmentId);
   } finally {
     await adapter?.close();
     await new Promise<void>((resolve, reject) =>
@@ -511,7 +574,7 @@ test("private project ownership survives restart and ambiguous delivery is recon
             assignment.assignmentId,
             "proof:never-started",
           ),
-        /start was not durably requested before restart/,
+        /start was not durably requested; reconcile the same command/,
       );
       assert.equal(reopened.stateVersion, versionBeforePreStartContainment);
       assert.equal(reopened.readiness("restart-work").ready, false);
@@ -667,7 +730,7 @@ test("unstarted command authority cannot be marked contained", async () => {
             assignment.assignmentId,
             "proof:accepted-but-never-started",
           ),
-        /start was not durably requested before restart/,
+        /start was not durably requested; reconcile the same command/,
       );
     } finally {
       reopened.close();
@@ -795,6 +858,29 @@ test("an ambiguous pre-start receipt cannot be contained without M1 start intent
         ),
       /start was not durably requested/,
     );
+    for (const snapshot of [
+      {
+        commandId: "other-command",
+        bridgeState: "acknowledged",
+        durable: true,
+      },
+      {
+        commandId: assignment.commandId,
+        bridgeState: "running",
+        durable: true,
+      },
+    ]) {
+      assert.throws(
+        () =>
+          core.confirmContainment(
+            context(core, info.ownerCredential),
+            assignment.assignmentId,
+            "proof:invalid-bridge-snapshot",
+            snapshot,
+          ),
+        /reconcile the same command/,
+      );
+    }
     assert.equal(core.readiness("prestart-error-work").ready, false);
   } finally {
     cleanup(value);

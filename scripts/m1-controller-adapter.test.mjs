@@ -103,30 +103,32 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
     const owner = initialProject.ownerCredential;
     const pmSeat = "integration-pm-seat";
     const devSeat = "integration-dev-seat";
-    const pmCredential = `pm-${crypto.randomUUID()}`;
-    const developerCredential = `developer-${crypto.randomUUID()}`;
     core.createSeat(context(core, owner, "pm-seat"), {
       seatId: pmSeat,
       name: "PM",
       role: "PM",
     });
-    core.createActor(context(core, owner, "pm-actor"), {
-      displayName: "PM",
-      role: "PM",
-      credential: pmCredential,
-      seatId: pmSeat,
-    });
+    const { credential: pmCredential } = core.createActor(
+      context(core, owner, "pm-actor"),
+      {
+        displayName: "PM",
+        role: "PM",
+        seatId: pmSeat,
+      },
+    );
     core.createSeat(context(core, owner, "dev-seat"), {
       seatId: devSeat,
       name: "Developer",
       role: "Developer",
     });
-    core.createActor(context(core, owner, "dev-actor"), {
-      displayName: "Developer",
-      role: "Developer",
-      credential: developerCredential,
-      seatId: devSeat,
-    });
+    const { credential: developerCredential } = core.createActor(
+      context(core, owner, "dev-actor"),
+      {
+        displayName: "Developer",
+        role: "Developer",
+        seatId: devSeat,
+      },
+    );
     core.createWorkItem(context(core, pmCredential, "work"), {
       workItemId: "integration-work",
       title: "Integration work",

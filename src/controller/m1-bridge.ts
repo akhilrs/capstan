@@ -337,6 +337,19 @@ export class M1BridgeAdapter {
     return { bridgeState: response.state, durable: response.durable };
   }
 
+  async reconcilePrestartAndContain(
+    context: MutationContext,
+    assignmentId: string,
+    commandId: string,
+    proofRef: string,
+  ): Promise<{ readonly contained: true }> {
+    const snapshot = await this.inspectUncertainCommand(commandId);
+    return this.#core.confirmContainment(context, assignmentId, proofRef, {
+      commandId,
+      ...snapshot,
+    });
+  }
+
   #receiveReceipt(socket: net.Socket): void {
     const chunks: Buffer[] = [];
     let size = 0;

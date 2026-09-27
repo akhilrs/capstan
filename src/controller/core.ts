@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import {
   authenticateActor,
   credentialHash,
+  issueCredential,
   requireCapability,
   type AuthenticatedActor,
 } from "./auth.js";
@@ -80,7 +81,6 @@ interface MutationOutput<T> {
 export interface ActorInput {
   readonly displayName: string;
   readonly role: Role;
-  readonly credential: string;
   readonly seatId?: string;
 }
 
@@ -381,13 +381,11 @@ export class ControllerCore {
   createActor(
     context: MutationContext,
     input: ActorInput,
-  ): { readonly actorId: string } {
-    const hash = credentialHash(input.credential);
+  ): { readonly actorId: string; readonly credential: string } {
     const mutationPayload = {
       displayName: input.displayName,
       role: input.role,
       seatId: input.seatId ?? null,
-      credentialHash: hash,
     };
     return this.#mutate(
       context,
@@ -396,6 +394,8 @@ export class ControllerCore {
       mutationPayload,
       (actor) => {
         const actorId = randomUUID();
+        const credential = issueCredential();
+        const hash = credentialHash(credential);
         let seatId: string | null = null;
         if (
           input.role === "PM" ||
@@ -447,7 +447,7 @@ export class ControllerCore {
           )
           .run(this.#projectId, actorId, actor.actorId, now, input.role);
         return {
-          value: { actorId },
+          value: { actorId, credential },
           event: { entityType: "actor", entityId: actorId, stateVersion: 0 },
         };
       },
@@ -2833,12 +2833,17 @@ export class ControllerCore {
     context: MutationContext,
     assignmentId: string,
     proofRef: string,
+    bridgeSnapshot?: {
+      readonly commandId: string;
+      readonly bridgeState: string;
+      readonly durable: boolean;
+    },
   ): { readonly contained: true } {
     return this.#mutateAsController(
       context,
       "assignment.containment.confirmed",
       "recovery:write",
-      { assignmentId, proofRef },
+      { assignmentId, proofRef, bridgeSnapshot: bridgeSnapshot ?? null },
       (actor) => {
         if (
           actor.role !== "controller" ||
@@ -2882,55 +2887,24 @@ export class ControllerCore {
               work_version: number;
             }
           | undefined;
-        const reconciliation =
+        const prestartUncertain =
           assignment?.authority_state === "unknown" &&
-          assignment.state === "revoked"
-            ? (this.#database
-                .prepare(
-                  "SELECT payload_json FROM controller_events WHERE project_id = ? AND entity_type = 'assignment_attempt' AND entity_id = ? AND request_id = ? ORDER BY sequence DESC LIMIT 1",
-                )
-                .get(
-                  this.#projectId,
-                  assignmentId,
-                  `restart-reconcile:${assignment.command_id}`,
-                ) as { payload_json: string } | undefined)
-            : undefined;
-        if (reconciliation) {
-          let details: { commandState?: unknown; startRequested?: unknown };
-          try {
-            const parsed: unknown = JSON.parse(reconciliation.payload_json);
-            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-              throw new Error("invalid details");
-            details = parsed as {
-              commandState?: unknown;
-              startRequested?: unknown;
-            };
-          } catch {
-            throw new ControllerError(
-              "restart reconciliation record is invalid",
-            );
-          }
-          if (typeof details.commandState !== "string")
-            throw new ControllerError(
-              "restart reconciliation record has no command state",
-            );
-          if (
-            details.commandState === "attempting" ||
-            (details.commandState === "acknowledged" &&
-              details.startRequested !== true)
-          )
-            throw new MutationConflictError(
-              "M1 start was not durably requested before restart; reconcile bridge state before containment",
-            );
-        }
+          assignment.command_state === "unknown" &&
+          assignment.start_requested === 0;
+        const reconciledPrestart =
+          prestartUncertain &&
+          bridgeSnapshot?.commandId === assignment.command_id &&
+          ((bridgeSnapshot.bridgeState === "acknowledged" &&
+            bridgeSnapshot.durable === true) ||
+            (bridgeSnapshot.bridgeState === "unknown" &&
+              typeof bridgeSnapshot.durable === "boolean"));
         if (
-          assignment &&
-          (assignment.command_state === "attempting" ||
-            (assignment.command_state === "unknown" &&
-              assignment.start_requested !== 1))
+          assignment?.command_state === "attempting" ||
+          (prestartUncertain && !reconciledPrestart) ||
+          (bridgeSnapshot && !reconciledPrestart)
         )
           throw new MutationConflictError(
-            "M1 start was not durably requested; reconcile bridge state before containment",
+            "M1 start was not durably requested; reconcile the same command through the bridge before containment",
           );
         const restoresReportedWork =
           assignment?.authority_state === "unknown" &&
@@ -3007,6 +2981,7 @@ export class ControllerCore {
                     assignmentId,
                     proofRef,
                     authorityState: "contained",
+                    bridgeSnapshot: bridgeSnapshot ?? null,
                   },
                 }
               : {
@@ -3015,7 +2990,7 @@ export class ControllerCore {
                   stateVersion: assignment.attempt_version + 1,
                   fromState: assignment.authority_state,
                   toState: "contained",
-                  details: { proofRef },
+                  details: { proofRef, bridgeSnapshot: bridgeSnapshot ?? null },
                 },
         };
       },

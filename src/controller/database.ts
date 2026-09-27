@@ -99,8 +99,8 @@ async function migrate(
       throw new DatabaseMigrationError(
         `unknown migration record ${row.version}`,
       );
-    const sql = fs.readFileSync(migration.url, "utf8");
-    const checksum = createHash("sha256").update(sql).digest("hex");
+    const bytes = fs.readFileSync(migration.url);
+    const checksum = createHash("sha256").update(bytes).digest("hex");
     if (checksum !== row.checksum)
       throw new DatabaseMigrationError(
         `migration ${row.name} checksum changed`,
@@ -118,8 +118,18 @@ async function migrate(
       const backupPath = `${databasePath}.pre-v${migration.version}-${Date.now()}.sqlite`;
       await database.backup(backupPath);
     }
-    const sql = fs.readFileSync(migration.url, "utf8");
-    const checksum = createHash("sha256").update(sql).digest("hex");
+    const bytes = fs.readFileSync(migration.url);
+    const checksum = createHash("sha256").update(bytes).digest("hex");
+    let sql: string;
+    try {
+      sql = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+        bytes,
+      );
+    } catch {
+      throw new DatabaseMigrationError(
+        `migration ${migration.name} is not valid UTF-8`,
+      );
+    }
     database.exec("BEGIN IMMEDIATE");
     try {
       database.exec(sql);
