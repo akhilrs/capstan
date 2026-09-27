@@ -248,7 +248,7 @@ export default function herdrBridge(pi) {
     const { _dispatch, ...wire } = payload;
     const frame = `${JSON.stringify(wire)}\n`;
     if (!socket.destroyed) {
-      if (closeAfterReply) socket.end(frame);
+      if (closeAfterReply) socket.end(frame, () => socket.destroy());
       else socket.write(frame);
     }
     if (_dispatch) enqueue(async () => {
@@ -327,8 +327,6 @@ export default function herdrBridge(pi) {
             socket.end(`${JSON.stringify({ type: "error", error: "bridge request queue is full" })}\n`);
             return;
           }
-          socket.setTimeout(0);
-          pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
             const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
             if (liveDispatch) {
@@ -336,6 +334,7 @@ export default function herdrBridge(pi) {
               if (!subscribers) commandSockets.set(normalized.commandId, (subscribers = new Set()));
               subscribers.add(socket);
               socket.once("close", () => subscribers.delete(socket));
+              socket.setTimeout(0);
             }
             reply(socket, response, !liveDispatch);
           }).catch((error) => {

@@ -88,7 +88,7 @@ function syncFile(file, content) {
 function proxyIdentity(pid, startTicks, mode) {
   const killer = process.env.M1_EGRESS_KILLER;
   if (!killer || !existsSync(killer)) throw new Error("Pidfd-safe egress proxy verifier is unavailable");
-  const result = spawnSync(killer, [mode, String(pid), String(startTicks), SELF], { encoding: "utf8", timeout: 5_000 });
+  const result = spawnSync(killer, [mode, String(pid), String(startTicks), SELF], { encoding: "utf8", timeout: mode === "--terminate" ? 12_000 : 5_000 });
   if (result.error || result.status !== 0) throw new Error(`Egress proxy process identity check failed: ${(result.stderr ?? result.error?.message ?? "").trim()}`);
 }
 function procStartTicks(pid) {
@@ -290,7 +290,10 @@ async function prepare() {
   }
   const gateway = network.IPAM.Config[0].Gateway;
   mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  if (existsSync(location(container))) throw new Error("Existing egress policy requires explicit cleanup");
+  const reservation = `${location(container)}.prepare`;
+  mkdirSync(reservation, { mode: 0o700 });
+  try {
+    if (existsSync(location(container))) throw new Error("Existing egress policy requires explicit cleanup");
   const policyId = `capstan-m1-${randomBytes(12).toString("hex")}`;
   const audit = path.join(DIR, `${container}.events.jsonl`);
   const child = spawn(process.execPath, [SELF, "serve", "--gateway", gateway, "--proxy-port", String(desiredPort), "--provider-host", host,
@@ -342,6 +345,9 @@ async function prepare() {
     throw error;
   }
   console.log(JSON.stringify({ proxy: `http://${gateway}:${port}`, policyId, container, providerHost: host, providerPort }));
+  } finally {
+    rmSync(reservation, { recursive: true, force: true });
+  }
 }
 function ruleOption(words, option) {
   const index = words.indexOf(option);
@@ -410,7 +416,8 @@ export function verifyForwardRouteRules(forwardRules) {
     const words = shellWords(line);
     return { words, ...ruleTarget(line) };
   });
-  const userIndex = rules.findIndex((rule) => rule.kind === "-j" && rule.target === "DOCKER-USER");
+  const userIndex = rules.findIndex((rule) => rule.kind === "-j" && rule.target === "DOCKER-USER"
+    && rule.words.length === 4 && rule.words[0] === "-A" && rule.words[1] === "FORWARD");
   if (userIndex < 0) throw new Error("FORWARD does not route worker traffic through DOCKER-USER");
   for (const rule of rules.slice(0, userIndex)) {
     if (rule.kind === "-g" || !["DROP", "REJECT"].includes(rule.target)) {

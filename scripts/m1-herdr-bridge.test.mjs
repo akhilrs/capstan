@@ -62,6 +62,22 @@ function requestFrames(socketPath, message, count) {
   });
 }
 
+function requestAndKeepWriteSideOpen(socketPath, message) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let pending = Buffer.alloc(0);
+    let received;
+    socket.once("connect", () => socket.write(`${JSON.stringify(message)}\n`));
+    socket.on("data", (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      const newline = pending.indexOf(0x0a);
+      if (newline !== -1) received = JSON.parse(pending.subarray(0, newline).toString("utf8"));
+    });
+    socket.once("close", () => received ? resolve(received) : reject(new Error("socket closed before terminal response")));
+    socket.once("error", reject);
+  });
+}
+
 async function waitForJournal(file, expectedTypes) {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (fs.existsSync(file)) {
@@ -148,6 +164,9 @@ try {
   assert.equal(absentStatus.durable, false, "a missing command has no durable acceptance receipt");
   assert.equal((await request(bridgeSocket, { type: "abort", commandId: "never-accepted-command" })).durable, false,
     "an abort response cannot imply acceptance for a missing command");
+  const terminalSocketResponse = await requestAndKeepWriteSideOpen(bridgeSocket, { type: "get", commandId: "unknown-terminal-close" });
+  assert.equal(terminalSocketResponse.state, "unknown");
+
   const maximumLine = Buffer.from(JSON.stringify({ type: "get", commandId: "wire-boundary" }));
   const maximumFrameBytes = 1_048_576;
   const exactFrame = Buffer.concat([maximumLine, Buffer.alloc(maximumFrameBytes - maximumLine.length - 1, 0x20), Buffer.from("\n")]);

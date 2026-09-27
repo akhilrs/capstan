@@ -18,6 +18,8 @@ assert.deepEqual(
 );
 assert.deepEqual(ruleTarget("-A DOCKER-USER -g CAPSTAN_CHAIN"), { kind: "-g", target: "CAPSTAN_CHAIN" });
 verifyForwardRouteRules("-A FORWARD -j DOCKER-USER\n");
+assert.throws(() => verifyForwardRouteRules("-A FORWARD -s 192.0.2.4 -j DOCKER-USER\n-A FORWARD -j ACCEPT\n"), /does not route/);
+assert.throws(() => verifyForwardRouteRules("-A FORWARD -i docker0 -j DOCKER-USER\n"), /does not route/);
 assert.throws(() => verifyForwardRouteRules("-A FORWARD -j ACCEPT\n-A FORWARD -j DOCKER-USER\n"), /bypass/);
 assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-ISOLATION\n-A FORWARD -j DOCKER-USER\n"), /bypass/);
 assert.throws(() => verifyForwardRouteRules("-A FORWARD -j DOCKER-FORWARD\n"), /does not route/);
