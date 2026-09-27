@@ -617,6 +617,15 @@ export class ControllerCore {
             "project inputs cannot change while work is running or worker authority is active/uncertain",
           );
         }
+        const acceptedWork = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state = 'accepted' LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (acceptedWork)
+          throw new MutationConflictError(
+            "project inputs cannot change after work has been accepted",
+          );
         const revision = context.inputRevision + 1;
         const content = canonicalJson(input.content);
         const contentHash = sha256(content);

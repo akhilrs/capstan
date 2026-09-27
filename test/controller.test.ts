@@ -852,17 +852,20 @@ test("restart containment preserves a durable PM report for acceptance", async (
       ),
       { acceptedWorkItemId: "restart-pm-report-work" },
     );
-    core.recordInputRevision(context(core, info.ownerCredential), {
-      kind: "acceptance_criteria",
-      content: ["new criterion"],
-    });
-    const versionBeforeStaleCompletion = core.stateVersion;
+    const versionBeforeLateRevision = core.stateVersion;
     assert.throws(
       () =>
-        core.transitionRun(context(core, info.ownerCredential), "completed"),
-      /work accepted against a stale input revision/,
+        core.recordInputRevision(context(core, info.ownerCredential), {
+          kind: "acceptance_criteria",
+          content: ["new criterion"],
+        }),
+      /project inputs cannot change after work has been accepted/,
     );
-    assert.equal(core.stateVersion, versionBeforeStaleCompletion);
+    assert.equal(core.stateVersion, versionBeforeLateRevision);
+    assert.deepEqual(
+      core.transitionRun(context(core, info.ownerCredential), "completed"),
+      { state: "completed" },
+    );
   } finally {
     core.close();
     cleanup(value);
@@ -1670,20 +1673,16 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       recoveryType: "worker_replacement",
       reason: "Replan after stale accepted prerequisite",
     });
-    core.recordInputRevision(context(core, info.ownerCredential), {
-      kind: "policy",
-      content: { reportContextChanged: true },
-    });
-    assert.equal(
-      core.rebindWorkItem(context(core, info.ownerCredential), "uses-pm-report")
-        .inputRevision,
-      core.inputRevision,
+    const versionBeforeLatePolicy = core.stateVersion;
+    assert.throws(
+      () =>
+        core.recordInputRevision(context(core, info.ownerCredential), {
+          kind: "policy",
+          content: { reportContextChanged: true },
+        }),
+      /project inputs cannot change after work has been accepted/,
     );
-    assert.equal(core.readiness("uses-pm-report").ready, false);
-    assert.match(
-      core.readiness("uses-pm-report").reasons.join(";"),
-      /dependency report-pm is bound to a stale input revision/,
-    );
+    assert.equal(core.stateVersion, versionBeforeLatePolicy);
     assert.deepEqual(
       core.removeDependency(
         context(core, info.ownerCredential),
