@@ -1176,6 +1176,19 @@ export class ControllerCore {
             "assignment seat must be active, match the work item role, and have an active actor",
           );
         }
+        const occupiedSeat = this.#database
+          .prepare(
+            `
+          SELECT 1 AS present FROM assignments
+          WHERE project_id = ? AND seat_id = ? AND authority_state IN ('active', 'unknown')
+          LIMIT 1
+        `,
+          )
+          .get(this.#projectId, seatId);
+        if (occupiedSeat)
+          throw new MutationConflictError(
+            "seat has active or uncertain assignment authority",
+          );
         let verifierCandidate:
           | {
               candidate_id: string;
@@ -2366,7 +2379,7 @@ export class ControllerCore {
       context,
       "candidate.evidence.record",
       "candidate:verify",
-      { verifierAssignmentId, ...input },
+      { ...input, verifierAssignmentId },
       (actor) => {
         if (actor.role !== "Verifier")
           throw new TransitionAuthorizationError(

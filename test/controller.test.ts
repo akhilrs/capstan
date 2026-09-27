@@ -1199,6 +1199,47 @@ test("working receipts require durable controller start intent", async () => {
   }
 });
 
+test("a seat cannot receive a second assignment before prior authority is contained", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "single-active-assignment",
+    );
+    for (const workItemId of ["seat-work-a", "seat-work-b"]) {
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId,
+        title: workItemId,
+        description: "Keep one active assignment per runtime seat",
+        requiredRole: "Developer",
+      });
+      core.markReady(context(core, info.ownerCredential), workItemId);
+    }
+    core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "seat-work-a",
+      developer.seatId,
+    );
+    const versionBeforeRejectedAssignment = core.stateVersion;
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "seat-work-b",
+          developer.seatId,
+        ),
+      MutationConflictError,
+    );
+    assert.equal(core.stateVersion, versionBeforeRejectedAssignment);
+    assert.equal(core.readiness("seat-work-b").ready, true);
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("runs reject completion while work is open", async () => {
   const value = await fixture();
   try {
