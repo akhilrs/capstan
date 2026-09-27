@@ -166,6 +166,12 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
     const capsule = JSON.parse(sentPrompts[0]);
     assert.equal(capsule.workItem.workItemId, "integration-work");
     assert.equal(capsule.seat.role, "Developer");
+    assert.deepEqual(capsule.assignment, {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    });
     await handlers.get("turn_end")({
       message: {
         role: "assistant",

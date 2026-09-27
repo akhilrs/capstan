@@ -126,17 +126,6 @@ function requestBridge(
     try {
       const frames = parser.push(chunk);
       response ??= frames[0];
-      if (response && !promiseSettled) {
-        promiseSettled = true;
-        clearTimeout(timer);
-        resolve(response);
-      }
-      if (
-        frames.some(
-          (frame) => frame.type === "completed" || frame.type === "unknown",
-        )
-      )
-        socket.destroy();
     } catch (error) {
       fail(
         error instanceof Error
@@ -149,6 +138,14 @@ function requestBridge(
   socket.once("end", () => {
     try {
       parser.finish();
+      if (!response)
+        throw protocolError(
+          `bridge closed without a ${String(request.type)} response`,
+        );
+      if (promiseSettled) return;
+      promiseSettled = true;
+      clearTimeout(timer);
+      resolve(response);
     } catch (error) {
       fail(
         error instanceof Error
@@ -287,6 +284,7 @@ export class M1BridgeAdapter {
     const response = await requestBridge(this.#bridgeSocketPath, {
       type: "start",
       commandId,
+      singleResponse: true,
     });
     if (
       response.type !== "started" ||

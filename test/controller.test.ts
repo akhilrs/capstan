@@ -146,7 +146,7 @@ test("credential hashing rejects ill-formed UTF-16", () => {
   assert.equal(credentialHash(`${prefix}\ud83d\ude00`).length, 64);
 });
 
-test("M1 response parser buffers fragmented progress and rejects duplicates", () => {
+test("M1 response parser rejects a fragmented late duplicate", () => {
   const parser = new M1ResponseFrameParser();
   const response = {
     type: "ack",
@@ -154,28 +154,13 @@ test("M1 response parser buffers fragmented progress and rejects duplicates", ()
     durable: true,
     state: "acknowledged",
   };
-  const progress = {
-    type: "ack",
-    commandId: "command-1",
-    durable: true,
-    state: "working",
-  };
-  const progressLine = `${JSON.stringify(progress)}\n`;
-  const split = Math.floor(progressLine.length / 2);
-  assert.deepEqual(
-    parser.push(
-      Buffer.from(
-        `${JSON.stringify(response)}\n${progressLine.slice(0, split)}`,
-      ),
-    ),
-    [],
-  );
-  assert.deepEqual(parser.push(Buffer.from(progressLine.slice(split))), [
-    response,
-    progress,
-  ]);
+  const responseLine = `${JSON.stringify(response)}\n`;
+  assert.deepEqual(parser.push(Buffer.from(responseLine)), [response]);
+  const duplicate = `${responseLine}`;
+  const split = Math.floor(duplicate.length / 2);
+  assert.deepEqual(parser.push(Buffer.from(duplicate.slice(0, split))), []);
   assert.throws(
-    () => parser.push(Buffer.from(`${JSON.stringify(response)}\n`)),
+    () => parser.push(Buffer.from(duplicate.slice(split))),
     /unexpected frame after bridge response/,
   );
 });
@@ -219,6 +204,7 @@ test("M1 adapter rejects duplicate responses after acknowledgement", async () =>
   const server = net.createServer((socket) => {
     socket.once("data", (chunk) => {
       const request = JSON.parse(chunk.toString("utf8"));
+      assert.equal(request.singleResponse, true);
       const ack = JSON.stringify({
         type: "ack",
         commandId: request.commandId,
@@ -378,6 +364,22 @@ test("operator requests can invoke controller-only terminal run transitions", as
         core.transitionRun(context(core, info.ownerCredential), "completed"),
       TransitionAuthorizationError,
     );
+    const versionBeforeCreation = core.stateVersion;
+    assert.throws(
+      () =>
+        core.createWorkItem(context(core, info.ownerCredential), {
+          workItemId: "post-terminal-work",
+          title: "After run completion",
+          description: "Terminal runs cannot accept new work",
+          requiredRole: "Developer",
+        }),
+      ReadinessError,
+    );
+    assert.equal(core.stateVersion, versionBeforeCreation);
+    assert.throws(
+      () => core.readiness("post-terminal-work"),
+      /work item does not exist/,
+    );
   } finally {
     cleanup(value);
   }
@@ -439,6 +441,17 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       core.recordBridgeReceipt(receipt(identity, 1, "accepted", role));
       core.recordBridgeReceipt(receipt(identity, 2, "submitted", role));
       core.recordBridgeReceipt(receipt(identity, 3, "working", role));
+      const versionBeforeEmptyReport = core.stateVersion;
+      assert.throws(
+        () =>
+          core.recordBridgeReceipt({
+            ...receipt(identity, 4, "completed", role),
+            reply: "   ",
+          }),
+        /non-empty reply text/,
+      );
+      assert.equal(core.commandState(identity.commandId), "started");
+      assert.equal(core.stateVersion, versionBeforeEmptyReport);
       core.recordBridgeReceipt(receipt(identity, 4, "completed", role));
       assert.equal(core.commandState(identity.commandId), "completed");
       core.confirmContainment(
@@ -467,6 +480,7 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       "report-pm",
     );
     assert.equal(core.readiness("uses-pm-report").ready, true);
+    core.markReady(context(core, info.ownerCredential), "uses-pm-report");
     core.recordInputRevision(context(core, info.ownerCredential), {
       kind: "policy",
       content: { reportContextChanged: true },
@@ -481,6 +495,15 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       core.readiness("uses-pm-report").reasons.join(";"),
       /dependency report-pm is bound to a stale input revision/,
     );
+    assert.deepEqual(
+      core.removeDependency(
+        context(core, info.ownerCredential),
+        "uses-pm-report",
+        "report-pm",
+      ),
+      { removed: true },
+    );
+    assert.equal(core.readiness("uses-pm-report").ready, true);
   } finally {
     cleanup(value);
   }
@@ -563,10 +586,44 @@ test("assignment capsule includes accepted non-candidate report evidence", async
       context(core, info.ownerCredential),
       dependentAssignment.commandId,
     );
-    const payload = dispatch.payload as { prompt: string };
+    const payload = dispatch.payload as {
+      prompt: string;
+      commandId: string;
+      assignmentId: string;
+      attempt: number;
+      generation: number;
+      singleResponse: boolean;
+    };
+    assert.equal(payload.singleResponse, true);
+    assert.deepEqual(
+      {
+        commandId: payload.commandId,
+        assignmentId: payload.assignmentId,
+        attempt: payload.attempt,
+        generation: payload.generation,
+      },
+      {
+        commandId: dependentAssignment.commandId,
+        assignmentId: dependentAssignment.assignmentId,
+        attempt: dependentAssignment.attempt,
+        generation: dependentAssignment.generation,
+      },
+    );
     const capsule = JSON.parse(payload.prompt) as {
+      assignment: {
+        commandId: string;
+        assignmentId: string;
+        attempt: number;
+        generation: number;
+      };
       dependencies: Array<Record<string, unknown>>;
     };
+    assert.deepEqual(capsule.assignment, {
+      commandId: dependentAssignment.commandId,
+      assignmentId: dependentAssignment.assignmentId,
+      attempt: dependentAssignment.attempt,
+      generation: dependentAssignment.generation,
+    });
     assert.deepEqual(capsule.dependencies, [
       {
         workItemId: "capsule-pm-report",

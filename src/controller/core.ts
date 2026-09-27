@@ -610,6 +610,13 @@ export class ControllerCore {
       "work:write",
       input,
       (actor) => {
+        const run = this.#database
+          .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+          .get(this.#projectId) as { state: string } | undefined;
+        if (run?.state !== "active")
+          throw new ReadinessError(
+            `work creation requires an active run; run is ${run?.state ?? "missing"}`,
+          );
         this.#database
           .prepare(
             `
@@ -661,9 +668,9 @@ export class ControllerCore {
           )
           .get(this.#projectId, workItemId) as { state: string } | undefined;
         if (!workItem) throw new ControllerError("work item does not exist");
-        if (workItem.state !== "pending")
+        if (!["pending", "blocked", "ready"].includes(workItem.state))
           throw new MutationConflictError(
-            "dependencies must be fixed before a work item becomes ready or starts",
+            "dependencies can change only before a work item has an assignment",
           );
         const priorAssignment = this.#database
           .prepare(
@@ -707,6 +714,55 @@ export class ControllerCore {
             entityType: "dependency",
             entityId: `${workItemId}:${prerequisiteId}`,
             stateVersion: 0,
+          },
+        };
+      },
+    );
+  }
+  removeDependency(
+    context: MutationContext,
+    workItemId: string,
+    prerequisiteId: string,
+  ): { readonly removed: true } {
+    return this.#mutate(
+      context,
+      "dependency.remove",
+      "work:write",
+      { workItemId, prerequisiteId },
+      () => {
+        const workItem = this.#database
+          .prepare(
+            "SELECT state FROM work_items WHERE project_id = ? AND work_item_id = ?",
+          )
+          .get(this.#projectId, workItemId) as { state: string } | undefined;
+        if (!workItem) throw new ControllerError("work item does not exist");
+        if (!["pending", "blocked", "ready"].includes(workItem.state))
+          throw new MutationConflictError(
+            "dependencies can change only before a work item has an assignment",
+          );
+        const priorAssignment = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND work_item_id = ? LIMIT 1",
+          )
+          .get(this.#projectId, workItemId);
+        if (priorAssignment)
+          throw new MutationConflictError(
+            "dependencies cannot change after a work item has an assignment",
+          );
+        const result = this.#database
+          .prepare(
+            "DELETE FROM dependency_edges WHERE project_id = ? AND work_item_id = ? AND depends_on_work_item_id = ?",
+          )
+          .run(this.#projectId, workItemId, prerequisiteId);
+        if (result.changes === 0)
+          throw new ControllerError("dependency does not exist");
+        return {
+          value: { removed: true },
+          event: {
+            entityType: "dependency",
+            entityId: `${workItemId}:${prerequisiteId}`,
+            stateVersion: 0,
+            toState: "removed",
           },
         };
       },
@@ -873,9 +929,9 @@ export class ControllerCore {
           | { state: string; state_version: number; input_revision: number }
           | undefined;
         if (!item) throw new ControllerError("work item does not exist");
-        if (item.state !== "pending" && item.state !== "blocked") {
+        if (!["pending", "blocked", "ready"].includes(item.state)) {
           throw new ControllerError(
-            "only unstarted pending or blocked work can be rebound",
+            "only unassigned pending, blocked, or ready work can be rebound",
           );
         }
         if (item.input_revision === context.inputRevision)
@@ -1151,6 +1207,7 @@ export class ControllerCore {
         const generation = previousGeneration.generation + 1;
         const capsule = {
           projectId: this.#projectId,
+          assignment: { commandId, assignmentId, attempt, generation },
           workItem: {
             workItemId,
             title: item.title,
@@ -1212,6 +1269,7 @@ export class ControllerCore {
           assignmentId,
           attempt,
           generation,
+          singleResponse: true,
           prompt: canonicalJson(capsule),
         };
         const wireJson = canonicalJson(wirePayload);
@@ -1632,6 +1690,14 @@ export class ControllerCore {
           "bridge receipt identity does not match the durable assignment",
         );
       }
+      if (
+        receipt.type === "completed" &&
+        (command.seat_role === "PM" || command.seat_role === "Supervisor") &&
+        (typeof receipt.reply !== "string" || receipt.reply.trim().length === 0)
+      )
+        throw new ControllerError(
+          "completed PM and Supervisor reports require non-empty reply text",
+        );
       const now = new Date().toISOString();
       const controller = this.#internalPrincipal();
       const receiptActor =
@@ -2471,7 +2537,15 @@ export class ControllerCore {
             at.authority_state AS attempt_authority, w.state AS work_state,
             w.state_version AS work_version, w.input_revision AS work_revision,
             w.accepted_candidate_id, p.current_input_revision, c.command_id,
-            c.state AS command_state
+            c.state AS command_state,
+            (
+              SELECT r.receipt_json FROM command_receipts r
+              WHERE r.project_id = a.project_id AND r.command_id = c.command_id
+                AND r.assignment_id = a.assignment_id AND r.attempt = at.attempt
+                AND r.generation = at.generation AND r.role = s.role
+                AND r.receipt_type = 'completed'
+              ORDER BY r.sequence DESC LIMIT 1
+            ) AS completed_receipt_json
           FROM assignments a
           JOIN assignment_attempts at ON at.project_id = a.project_id
             AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
@@ -2507,9 +2581,26 @@ export class ControllerCore {
               current_input_revision: number;
               command_id: string;
               command_state: string;
+              completed_receipt_json: string | null;
             }
           | undefined;
+        let reportReply: string | undefined;
+        if (report?.completed_receipt_json) {
+          try {
+            const completion = JSON.parse(report.completed_receipt_json) as {
+              readonly reply?: unknown;
+            };
+            if (
+              typeof completion.reply === "string" &&
+              completion.reply.trim().length > 0
+            )
+              reportReply = completion.reply;
+          } catch {
+            // Invalid historical receipts remain ineligible for acceptance.
+          }
+        }
         if (
+          !reportReply ||
           !report ||
           (report.role !== "PM" && report.role !== "Supervisor") ||
           report.assignment_state !== "reported" ||

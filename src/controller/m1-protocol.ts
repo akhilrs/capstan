@@ -28,48 +28,30 @@ export function parseM1Frame(buffer: Buffer): M1Frame {
   return value as M1Frame;
 }
 
-function isProgressNotification(
-  response: M1Frame,
-  notification: M1Frame,
-): boolean {
-  if (
-    (response.type !== "ack" && response.type !== "started") ||
-    notification.commandId !== response.commandId
-  )
-    return false;
-  if (notification.type === "ack")
-    return notification.durable === true && notification.state === "working";
-  return ["tool_started", "tool_completed", "completed", "unknown"].includes(
-    String(notification.type),
-  );
-}
-
 export class M1ResponseFrameParser {
   #pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-  #readyFrames: M1Frame[] = [];
   #response: M1Frame | undefined;
 
   push(chunk: Buffer): M1Frame[] {
     const data = this.#pending.length
       ? Buffer.concat([this.#pending, chunk])
       : chunk;
+    const frames: M1Frame[] = [];
     let offset = 0;
     while (offset < data.length) {
       const newline = data.indexOf(0x0a, offset);
       if (newline < 0) break;
       const frame = parseM1Frame(data.subarray(offset, newline + 1));
-      if (this.#response && !isProgressNotification(this.#response, frame))
+      if (this.#response)
         throw new Error("unexpected frame after bridge response");
-      this.#response ??= frame;
-      this.#readyFrames.push(frame);
+      this.#response = frame;
+      frames.push(frame);
       offset = newline + 1;
     }
     this.#pending = data.subarray(offset);
     if (this.#pending.length > M1_MAX_FRAME_BYTES)
       throw new Error("bridge frame exceeds the frame limit");
     if (this.#pending.length) return [];
-    const frames = this.#readyFrames;
-    this.#readyFrames = [];
     return frames;
   }
 
