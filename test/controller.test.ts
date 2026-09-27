@@ -852,6 +852,17 @@ test("restart containment preserves a durable PM report for acceptance", async (
       ),
       { acceptedWorkItemId: "restart-pm-report-work" },
     );
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "acceptance_criteria",
+      content: ["new criterion"],
+    });
+    const versionBeforeStaleCompletion = core.stateVersion;
+    assert.throws(
+      () =>
+        core.transitionRun(context(core, info.ownerCredential), "completed"),
+      /work accepted against a stale input revision/,
+    );
+    assert.equal(core.stateVersion, versionBeforeStaleCompletion);
   } finally {
     core.close();
     cleanup(value);

@@ -224,6 +224,26 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
         ),
       /candidate requires a Developer actor and valid immutable commit identities/,
     );
+    for (const [tag, changedScope, limitations] of [
+      ["string-scope", "src/controller", []],
+      ["string-limitations", ["src/controller"], "none"],
+    ]) {
+      assert.throws(
+        () =>
+          core.submitCandidate(
+            context(core, developerCredential, `candidate-${tag}`),
+            {
+              candidateId: tag,
+              assignmentId: assignment.assignmentId,
+              commitSha: "a".repeat(40),
+              baseSha: "b".repeat(40),
+              changedScope,
+              limitations,
+            },
+          ),
+        /candidate requires a Developer actor and valid immutable commit identities/,
+      );
+    }
     const candidate = core.submitCandidate(
       context(core, developerCredential, "candidate"),
       {

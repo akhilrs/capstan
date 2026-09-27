@@ -2330,6 +2330,8 @@ export class ControllerCore {
           input.candidateId.length === 0 ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.commitSha) ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.baseSha) ||
+          !Array.isArray(input.changedScope) ||
+          !Array.isArray(input.limitations) ||
           Array.from(input.changedScope).some(
             (entry) => typeof entry !== "string",
           ) ||
@@ -3580,6 +3582,15 @@ export class ControllerCore {
         if (unfinishedWork || uncertainAuthority)
           throw new MutationConflictError(
             "run cannot complete while work is open or assignment authority is not contained",
+          );
+        const staleAcceptedWork = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state = 'accepted' AND input_revision <> ? LIMIT 1",
+          )
+          .get(this.#projectId, context.inputRevision);
+        if (staleAcceptedWork)
+          throw new MutationConflictError(
+            "run cannot complete with work accepted against a stale input revision",
           );
       }
       if (
