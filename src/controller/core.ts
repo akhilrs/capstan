@@ -2354,9 +2354,11 @@ export class ControllerCore {
         const candidate = this.#database
           .prepare(
             `
-        SELECT c.input_revision, c.report_hash, c.created_by, a.work_item_id, a.worker_actor_id
+        SELECT c.input_revision, c.report_hash, c.created_by, a.work_item_id, a.worker_actor_id,
+          parent.state AS work_state
         FROM candidates c JOIN assignments a
           ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
+        JOIN work_items parent ON parent.project_id = a.project_id AND parent.work_item_id = a.work_item_id
         WHERE c.project_id = ? AND c.candidate_id = ?
       `,
           )
@@ -2367,13 +2369,14 @@ export class ControllerCore {
               created_by: string;
               worker_actor_id: string | null;
               work_item_id: string;
+              work_state: string;
             }
           | undefined;
         const verifier = this.#database
           .prepare(
             `
         SELECT a.seat_id, a.worker_actor_id, a.input_revision, a.state, a.authority_state, a.work_item_id,
-          t.parent_work_item_id,
+          t.parent_work_item_id, t.state AS verifier_work_state,
           at.state AS attempt_state, at.authority_state AS attempt_authority, s.role
         FROM assignments a
         JOIN assignment_attempts at ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
@@ -2392,6 +2395,7 @@ export class ControllerCore {
               authority_state: string;
               work_item_id: string;
               parent_work_item_id: string | null;
+              verifier_work_state: string;
               attempt_state: string;
               attempt_authority: string;
               role: string;
@@ -2409,6 +2413,8 @@ export class ControllerCore {
         if (
           !candidate ||
           !verifier ||
+          candidate.work_state !== "awaiting_verification" ||
+          verifier.verifier_work_state !== "awaiting_verification" ||
           actor.actorId !== verifier.worker_actor_id ||
           actor.seatId !== verifier.seat_id ||
           candidate.created_by !== candidate.worker_actor_id ||
@@ -2659,6 +2665,54 @@ export class ControllerCore {
           verifier_work_state: string;
           bound_candidate_hash: string;
         }>;
+        const verifierTasks = this.#database
+          .prepare(
+            `
+          SELECT a.assignment_id, a.state, a.authority_state,
+            at.state AS attempt_state, at.authority_state AS attempt_authority,
+            w.state AS work_state
+          FROM assignment_input_bindings b
+          JOIN assignments a ON a.project_id = b.project_id AND a.assignment_id = b.assignment_id
+          JOIN assignment_attempts at ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
+            AND at.generation = a.active_generation
+          JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+          JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+          WHERE b.project_id = ? AND b.input_kind = 'candidate' AND b.source_id = ? AND s.role = 'Verifier'
+        `,
+          )
+          .all(this.#projectId, candidateId) as Array<{
+          assignment_id: string;
+          state: string;
+          authority_state: string;
+          attempt_state: string;
+          attempt_authority: string;
+          work_state: string;
+        }>;
+        if (verifierTasks.length === 0)
+          throw new CandidateBindingError(
+            "candidate has no bound Verifier assignments",
+          );
+        for (const task of verifierTasks) {
+          if (
+            task.state !== "reported" ||
+            task.authority_state !== "contained" ||
+            task.attempt_state !== "reported" ||
+            task.attempt_authority !== "contained" ||
+            task.work_state !== "awaiting_verification" ||
+            criteria.some(
+              (criterion) =>
+                !evidence.some(
+                  (row) =>
+                    row.verifier_assignment_id === task.assignment_id &&
+                    row.criterion === criterion &&
+                    row.passed === 1,
+                ),
+            )
+          )
+            throw new CandidateBindingError(
+              "every bound Verifier assignment must be contained and pass every current criterion",
+            );
+        }
         for (const criterion of criteria) {
           const observations = evidence.filter(
             (row) => row.criterion === criterion,
