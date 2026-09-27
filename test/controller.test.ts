@@ -55,7 +55,9 @@ test("canonical JSON rejects non-enumerable and extra array properties", () => {
   });
   const extra = Object.assign(["criterion"], { hidden: "not serialized" });
   assert.throws(() => canonicalJson(hidden), /non-enumerable properties/);
+  const invalidIndex = Object.assign([], { "4294967295": "not-an-index" });
   assert.throws(() => canonicalJson(extra), /extra properties/);
+  assert.throws(() => canonicalJson(invalidIndex), /extra properties/);
 });
 
 const inputKinds = [
@@ -1197,6 +1199,10 @@ test("working receipts require durable controller start intent", async () => {
     };
     core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
     const versionBeforeWorking = core.stateVersion;
+    assert.throws(
+      () => core.recordBridgeReceipt(receipt(identity, 2, "submitted")),
+      /start intent/,
+    );
     assert.throws(
       () => core.recordBridgeReceipt(receipt(identity, 2, "working")),
       /without durable start intent/,
@@ -2353,6 +2359,19 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
     );
     assert.equal(core.readiness("uses-verified-work").ready, true);
     assert.equal(core.readiness("feature").ready, false);
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "candidate-pinned-downstream",
+      title: "Candidate-pinned downstream",
+      description: "Use the exact candidate selected by the planner",
+      requiredRole: "Developer",
+    });
+    core.addDependency(
+      context(core, pm.credential),
+      "candidate-pinned-downstream",
+      "feature",
+      candidate.candidateId,
+    );
+    assert.equal(core.readiness("candidate-pinned-downstream").ready, true);
   } finally {
     cleanup(value);
   }

@@ -700,12 +700,13 @@ export class ControllerCore {
     context: MutationContext,
     workItemId: string,
     prerequisiteId: string,
+    requiredCandidateId: string | null = null,
   ): { readonly added: true } {
     return this.#mutate(
       context,
       "dependency.add",
       "work:write",
-      { workItemId, prerequisiteId },
+      { workItemId, prerequisiteId, requiredCandidateId },
       (actor) => {
         if (workItemId === prerequisiteId)
           throw new ControllerError("a work item cannot depend on itself");
@@ -737,6 +738,22 @@ export class ControllerCore {
           throw new MutationConflictError(
             "dependencies can change only after every prior assignment is contained",
           );
+        if (requiredCandidateId) {
+          const candidateOwner = this.#database
+            .prepare(
+              `
+            SELECT a.work_item_id FROM candidates c
+            JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
+            WHERE c.project_id = ? AND c.candidate_id = ?
+          `,
+            )
+            .get(this.#projectId, requiredCandidateId) as
+            { work_item_id: string } | undefined;
+          if (candidateOwner?.work_item_id !== prerequisiteId)
+            throw new ControllerError(
+              "required candidate must belong to the prerequisite work item",
+            );
+        }
         const cycle = this.#database
           .prepare(
             `
@@ -754,13 +771,14 @@ export class ControllerCore {
           .prepare(
             `
         INSERT INTO dependency_edges(project_id, work_item_id, depends_on_work_item_id, required_candidate_id, created_by, created_at)
-        VALUES (?, ?, ?, NULL, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
       `,
           )
           .run(
             this.#projectId,
             workItemId,
             prerequisiteId,
+            requiredCandidateId,
             actor.actorId,
             new Date().toISOString(),
           );
@@ -2051,10 +2069,11 @@ export class ControllerCore {
           if (
             command.command_state !== "acknowledged" ||
             command.attempt_state !== "acknowledged" ||
+            command.start_requested !== 1 ||
             command.work_state !== "running"
           ) {
             throw new MutationConflictError(
-              "submitted receipt requires a durably acknowledged worker dispatch",
+              "submitted receipt requires durable acknowledgement and start intent",
             );
           }
         } else if (receipt.type === "completed") {

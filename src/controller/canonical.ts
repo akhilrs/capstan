@@ -15,7 +15,11 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
     const normalized: unknown[] = [];
     for (const key of Reflect.ownKeys(value)) {
       if (key === "length") continue;
-      if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key))
+      if (
+        typeof key !== "string" ||
+        !/^(0|[1-9]\d*)$/.test(key) ||
+        Number(key) >= 0xffff_ffff
+      )
         throw new TypeError(
           "canonical JSON arrays cannot have extra properties",
         );
