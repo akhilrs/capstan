@@ -32,7 +32,21 @@ import type {
   MutationContext,
   Role,
 } from "../src/controller/types.js";
-import { digestJson } from "../src/controller/canonical.js";
+import { canonicalJson, digestJson } from "../src/controller/canonical.js";
+test("canonical JSON rejects accessor-backed values without invoking them", () => {
+  let reads = 0;
+  const value = Object.defineProperty({}, "content", {
+    enumerable: true,
+    get: () => {
+      reads += 1;
+      return reads === 1 ? "first" : "later";
+    },
+  });
+
+  assert.throws(() => canonicalJson(value), /accessor properties/);
+  assert.equal(reads, 0);
+});
+
 const inputKinds = [
   "project_config",
   "task_brief",
@@ -676,6 +690,10 @@ test("restart containment preserves a durable PM report for acceptance", async (
       generation: assignment.generation,
     };
     core.recordBridgeReceipt(receipt(identity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
     core.recordBridgeReceipt(receipt(identity, 2, "submitted", "PM"));
     core.recordBridgeReceipt(receipt(identity, 3, "working", "PM"));
     core.recordBridgeReceipt(receipt(identity, 4, "completed", "PM"));
@@ -994,6 +1012,10 @@ test("the last active worker actor cannot be revoked during assigned authority",
       generation: assignment.generation,
     };
     core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
     const versionBeforeRevocation = core.stateVersion;
     assert.throws(
       () =>
@@ -1008,6 +1030,53 @@ test("the last active worker actor cannot be revoked during assigned authority",
     core.recordBridgeReceipt(receipt(identity, 3, "working"));
     core.recordBridgeReceipt(receipt(identity, 4, "completed"));
     assert.equal(core.commandState(assignment.commandId), "completed");
+  } finally {
+    cleanup(value);
+  }
+});
+test("working receipts require durable controller start intent", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "missing-start-intent",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "missing-start-intent-work",
+      title: "Unrequested start",
+      description: "Reject bridge progress without a stored start request",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "missing-start-intent-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "missing-start-intent-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    const versionBeforeWorking = core.stateVersion;
+    assert.throws(
+      () => core.recordBridgeReceipt(receipt(identity, 2, "working")),
+      /without durable start intent/,
+    );
+    assert.equal(core.commandState(assignment.commandId), "acknowledged");
+    assert.equal(core.stateVersion, versionBeforeWorking);
   } finally {
     cleanup(value);
   }
@@ -1123,6 +1192,10 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
         identity.commandId,
       );
       core.recordBridgeReceipt(receipt(identity, 1, "accepted", role));
+      core.beginCommandStart(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
       core.recordBridgeReceipt(receipt(identity, 2, "submitted", role));
       core.recordBridgeReceipt(receipt(identity, 3, "working", role));
       const versionBeforeEmptyReport = core.stateVersion;
@@ -1253,6 +1326,68 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       replacementAssignment.assignmentId,
       dependentAssignment.assignmentId,
     );
+  } finally {
+    cleanup(value);
+  }
+});
+test("terminal runs reject acceptance of completed PM reports", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "terminal-report",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "terminal-report-work",
+      title: "Terminal report",
+      description: "Do not accept worker reports after the run stops",
+      requiredRole: "PM",
+    });
+    core.markReady(context(core, info.ownerCredential), "terminal-report-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "terminal-report-work",
+      pm.seatId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "PM"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "terminal-report-contained",
+    );
+    core.transitionRun(context(core, info.ownerCredential), "canceling");
+    core.transitionRun(context(core, info.ownerCredential), "canceled");
+    const versionBeforeRejectedAcceptance = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptNonCandidateReport(
+          context(core, info.ownerCredential),
+          "terminal-report-work",
+          assignment.assignmentId,
+        ),
+      /not contained, current, and eligible for acceptance/,
+    );
+    assert.equal(core.stateVersion, versionBeforeRejectedAcceptance);
   } finally {
     cleanup(value);
   }
@@ -1529,6 +1664,10 @@ test("assignment capsule includes accepted non-candidate report evidence", async
       reportIdentity.commandId,
     );
     core.recordBridgeReceipt(receipt(reportIdentity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      reportIdentity.commandId,
+    );
     core.recordBridgeReceipt(receipt(reportIdentity, 2, "submitted", "PM"));
     core.recordBridgeReceipt(receipt(reportIdentity, 3, "working", "PM"));
     const completedReport = receipt(reportIdentity, 4, "completed", "PM");
@@ -1733,6 +1872,10 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       core.recordBridgeReceipt(receipt(identity, 1, "accepted")).duplicate,
       false,
     );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
     const submitted = receipt(identity, 2, "submitted");
     assert.equal(core.recordBridgeReceipt(submitted).duplicate, false);
     assert.equal(
@@ -1841,6 +1984,10 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
     );
     core.recordBridgeReceipt(
       receipt(verifierIdentity, 1, "accepted", "Verifier"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      verifierIdentity.commandId,
     );
     core.recordBridgeReceipt(
       receipt(verifierIdentity, 2, "submitted", "Verifier"),

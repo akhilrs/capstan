@@ -12,7 +12,17 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
     if (ancestors.has(value))
       throw new TypeError("canonical JSON does not accept circular values");
     ancestors.add(value);
-    const normalized = value.map((item) => normalizeJson(item, ancestors));
+    const normalized: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor && ("get" in descriptor || "set" in descriptor))
+        throw new TypeError(
+          "canonical JSON does not accept accessor properties",
+        );
+      normalized.push(
+        normalizeJson(descriptor ? descriptor.value : null, ancestors),
+      );
+    }
     ancestors.delete(value);
     return normalized;
   }
@@ -28,7 +38,12 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
       unknown
     >;
     for (const key of Object.keys(value).sort()) {
-      const property = (value as Record<string, unknown>)[key];
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || "get" in descriptor || "set" in descriptor)
+        throw new TypeError(
+          "canonical JSON does not accept accessor properties",
+        );
+      const property = descriptor.value;
       if (property === undefined)
         throw new TypeError("canonical JSON does not accept undefined values");
       normalized[key] = normalizeJson(property, ancestors);

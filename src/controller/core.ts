@@ -9,7 +9,7 @@ import {
   requireCapability,
   type AuthenticatedActor,
 } from "./auth.js";
-import { canonicalJson, digestJson } from "./canonical.js";
+import { canonicalJson, digestJson, sha256 } from "./canonical.js";
 import { openDatabase, resolveDatabasePath } from "./database.js";
 import { M1BridgeAdapter } from "./m1-bridge.js";
 import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
@@ -322,7 +322,7 @@ export class ControllerCore {
           project.projectId,
           input.kind,
           content,
-          digestJson(input.content),
+          sha256(content),
           ownerId,
           `bootstrap:${project.projectId}`,
           now,
@@ -568,7 +568,7 @@ export class ControllerCore {
         }
         const revision = context.inputRevision + 1;
         const content = canonicalJson(input.content);
-        const contentHash = digestJson(input.content);
+        const contentHash = sha256(content);
         this.#database
           .prepare(
             `
@@ -1787,7 +1787,7 @@ export class ControllerCore {
         .prepare(
           `
         SELECT c.state AS command_state, c.state_version AS command_version, c.assignment_id,
-          c.attempt, c.generation, a.state AS assignment_state, a.authority_state AS assignment_authority,
+          c.attempt, c.generation, c.start_requested, a.state AS assignment_state, a.authority_state AS assignment_authority,
           a.seat_id, a.work_item_id, a.input_revision, at.state AS attempt_state,
           at.authority_state AS attempt_authority, s.role AS seat_role, w.state AS work_state,
           w.state_version AS work_version
@@ -1807,6 +1807,7 @@ export class ControllerCore {
             assignment_id: string;
             attempt: number;
             generation: number;
+            start_requested: number;
             assignment_state: string;
             assignment_authority: string;
             attempt_authority: string;
@@ -1950,17 +1951,18 @@ export class ControllerCore {
           }
           if (
             command.command_state !== "acknowledged" ||
-            command.attempt_state !== "acknowledged"
+            command.attempt_state !== "acknowledged" ||
+            command.start_requested !== 1
           ) {
             throw new MutationConflictError(
-              "working receipt arrived outside acknowledged dispatch",
+              "working receipt arrived without durable start intent",
             );
           }
           commandToState = "started";
           attemptToState = "running";
           this.#database
             .prepare(
-              "UPDATE commands SET state = ?, start_requested = 1, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+              "UPDATE commands SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
             )
             .run(commandToState, now, this.#projectId, receipt.commandId);
           this.#database
@@ -2452,12 +2454,14 @@ export class ControllerCore {
             `
         SELECT c.assignment_id, c.attempt, c.generation, c.input_revision, c.report_hash, a.work_item_id,
           a.state AS assignment_state, a.authority_state, at.state AS attempt_state,
-          w.state AS work_state, w.state_version AS work_version, w.input_revision AS work_revision
+          w.state AS work_state, w.state_version AS work_version, w.input_revision AS work_revision,
+          r.state AS run_state
         FROM candidates c
         JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
         JOIN assignment_attempts at ON at.project_id = c.project_id AND at.assignment_id = c.assignment_id
           AND at.attempt = c.attempt
         JOIN work_items w ON w.project_id = c.project_id AND w.work_item_id = a.work_item_id
+        JOIN run_controls r ON r.project_id = c.project_id
         WHERE c.project_id = ? AND c.candidate_id = ?
       `,
           )
@@ -2475,10 +2479,12 @@ export class ControllerCore {
               work_state: string;
               work_version: number;
               work_revision: number;
+              run_state: string;
             }
           | undefined;
         if (
           !candidate ||
+          candidate.run_state !== "active" ||
           candidate.work_item_id !== workItemId ||
           candidate.input_revision !== context.inputRevision ||
           candidate.work_revision !== context.inputRevision ||
@@ -2698,7 +2704,7 @@ export class ControllerCore {
             at.authority_state AS attempt_authority, w.state AS work_state,
             w.state_version AS work_version, w.input_revision AS work_revision,
             w.accepted_candidate_id, p.current_input_revision, c.command_id,
-            c.state AS command_state,
+            c.state AS command_state, run.state AS run_state,
             (
               SELECT r.receipt_json FROM command_receipts r
               WHERE r.project_id = a.project_id AND r.command_id = c.command_id
@@ -2713,6 +2719,7 @@ export class ControllerCore {
           JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
           JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
           JOIN projects p ON p.project_id = a.project_id
+          JOIN run_controls run ON run.project_id = a.project_id
           JOIN commands c ON c.project_id = a.project_id AND c.assignment_id = a.assignment_id
             AND c.attempt = at.attempt AND c.generation = at.generation
           WHERE a.project_id = ? AND a.work_item_id = ? AND a.assignment_id = ?
@@ -2743,6 +2750,7 @@ export class ControllerCore {
               command_id: string;
               command_state: string;
               completed_receipt_json: string | null;
+              run_state: string;
             }
           | undefined;
         let reportReply: string | undefined;
@@ -2763,7 +2771,7 @@ export class ControllerCore {
         if (
           !reportReply ||
           !report ||
-          (report.role !== "PM" && report.role !== "Supervisor") ||
+          report.run_state !== "active" ||
           report.assignment_state !== "reported" ||
           report.assignment_authority !== "contained" ||
           report.attempt_state !== "reported" ||
