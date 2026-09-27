@@ -2664,6 +2664,30 @@ export class ControllerCore {
             attempt_authority: string;
             work_state: string;
           }>;
+          const unassignedVerifierChild = this.#database
+            .prepare(
+              `
+            SELECT 1 AS present FROM work_items child
+            WHERE child.project_id = ? AND child.parent_work_item_id = ?
+              AND child.required_role = 'Verifier'
+              AND child.state NOT IN ('accepted', 'canceled')
+              AND NOT EXISTS (
+                SELECT 1 FROM assignments verifier
+                JOIN assignment_input_bindings binding
+                  ON binding.project_id = verifier.project_id
+                  AND binding.assignment_id = verifier.assignment_id
+                  AND binding.input_kind = 'candidate' AND binding.source_id = ?
+                WHERE verifier.project_id = child.project_id
+                  AND verifier.work_item_id = child.work_item_id
+              )
+            LIMIT 1
+          `,
+            )
+            .get(this.#projectId, candidate.work_item_id, input.candidateId);
+          if (unassignedVerifierChild)
+            throw new MutationConflictError(
+              "all Verifier children must be assigned to the failing candidate before recording failed evidence",
+            );
           if (
             verifierAssignments.some(
               (assignment) =>
@@ -3950,6 +3974,10 @@ export class ControllerCore {
         )
           throw new ControllerError(
             "usage session and assignment do not belong together",
+          );
+        if (actor.seatId && session && !input.assignmentId)
+          throw new TransitionAuthorizationError(
+            "worker usage requires a session bound to its assignment",
           );
         if (actor.seatId && !input.sessionId && !input.assignmentId)
           throw new TransitionAuthorizationError(

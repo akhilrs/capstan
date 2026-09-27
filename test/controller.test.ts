@@ -2077,6 +2077,18 @@ test("runtime identity observations keep distinct durable identifiers", async ()
     assert.throws(
       () =>
         core.recordUsage(context(core, supervisor.credential), {
+          observationId: "unassigned-session-usage",
+          sessionId: "runtime-identity-session",
+          provider: "herdr",
+          metric: "tokens",
+          availability: "observed",
+          detail: {},
+        }),
+      /worker usage requires a session bound to its assignment/,
+    );
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, supervisor.credential), {
           observationId: "mismatched-worker-usage",
           sessionId: "runtime-identity-session",
           assignmentId: usageAssignment.assignmentId,
@@ -2110,7 +2122,7 @@ test("runtime identity observations keep distinct durable identifiers", async ()
           availability: "observed",
           detail: {},
         }),
-      /worker usage must belong to the actor's assigned session/,
+      /worker usage requires a session bound to its assignment/,
     );
     assert.throws(
       () =>
@@ -2605,6 +2617,28 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       CandidateBindingError,
     );
     assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "verify-feature-second",
+      title: "Second verifier",
+      description: "Every planned Verifier child must bind the candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: "feature",
+    });
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          verifierAssignment.assignmentId,
+          {
+            evidenceId: "failed-before-all-verifiers-are-assigned",
+            candidateId: candidate.candidateId,
+            criterion: " criterion-one ",
+            passed: false,
+            artifactRef: "artifact://test/failure",
+          },
+        ),
+      /all Verifier children must be assigned to the failing candidate/,
+    );
     let artifactReads = 0;
     const evidenceContext = context(core, verifier.credential);
     const recordedEvidence = core.recordEvidence(
@@ -2636,13 +2670,6 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         artifactRef: "artifact://test/evidence-1",
       }),
     );
-    core.createWorkItem(context(core, pm.credential), {
-      workItemId: "verify-feature-second",
-      title: "Second verifier",
-      description: "Every planned Verifier child must bind the candidate",
-      requiredRole: "Verifier",
-      parentWorkItemId: "feature",
-    });
     const versionBeforeUnassignedVerifier = core.stateVersion;
     assert.throws(
       () =>
