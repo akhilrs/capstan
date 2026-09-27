@@ -3957,6 +3957,14 @@ export class ControllerCore {
           );
         if (
           actor.seatId &&
+          assignment &&
+          assignment.worker_actor_id !== actor.actorId
+        )
+          throw new TransitionAuthorizationError(
+            "worker usage must belong to the actor's assignment",
+          );
+        if (
+          actor.seatId &&
           session &&
           (session.seat_id !== actor.seatId ||
             session.assignment_id !== (input.assignmentId ?? null))

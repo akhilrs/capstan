@@ -2112,6 +2112,18 @@ test("runtime identity observations keep distinct durable identifiers", async ()
         }),
       /worker usage must belong to the actor's assigned session/,
     );
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, otherSupervisor.credential), {
+          observationId: "foreign-assignment-usage",
+          assignmentId: usageAssignment.assignmentId,
+          provider: "herdr",
+          metric: "tokens",
+          availability: "observed",
+          detail: {},
+        }),
+      /worker usage must belong to the actor's assignment/,
+    );
     const db = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
       { readonly: true },
