@@ -2773,6 +2773,56 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       /every open Verifier child must be bound to the current candidate/,
     );
     assert.equal(core.stateVersion, versionBeforeUnassignedVerifier);
+    const verifierRecovery = core.recordRecovery(
+      context(core, info.ownerCredential),
+      {
+        recoveryId: "replace-first-verifier",
+        workItemId: "verify-feature",
+        assignmentId: verifierAssignment.assignmentId,
+        recoveryType: "implementation_remediation",
+        reason: "Repeat independent verification with a replacement assignment",
+      },
+    );
+    assert.equal(verifierRecovery.outcome, "pending");
+    core.markReady(context(core, info.ownerCredential), "verify-feature");
+    const replacementVerifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "verify-feature",
+      verifier.seatId,
+      candidate.candidateId,
+      verifierRecovery.recoveryId,
+    );
+    const replacementIdentity = {
+      commandId: replacementVerifier.commandId,
+      assignmentId: replacementVerifier.assignmentId,
+      attempt: replacementVerifier.attempt,
+      generation: replacementVerifier.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      replacementVerifier.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(replacementIdentity, 5, "accepted", "Verifier"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      replacementVerifier.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(replacementIdentity, 6, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(replacementIdentity, 7, "working", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(replacementIdentity, 8, "completed", "Verifier"),
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      replacementVerifier.assignmentId,
+      "supervisor-confirmed:replacement-verifier",
+    );
     core.markReady(
       context(core, info.ownerCredential),
       "verify-feature-second",
@@ -2794,18 +2844,20 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       secondVerifier.commandId,
     );
     core.recordBridgeReceipt(
-      receipt(secondIdentity, 5, "accepted", "Verifier"),
+      receipt(secondIdentity, 9, "accepted", "Verifier"),
     );
     core.beginCommandStart(
       context(core, info.ownerCredential),
       secondVerifier.commandId,
     );
     core.recordBridgeReceipt(
-      receipt(secondIdentity, 6, "submitted", "Verifier"),
+      receipt(secondIdentity, 10, "submitted", "Verifier"),
     );
-    core.recordBridgeReceipt(receipt(secondIdentity, 7, "working", "Verifier"));
     core.recordBridgeReceipt(
-      receipt(secondIdentity, 8, "completed", "Verifier"),
+      receipt(secondIdentity, 11, "working", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(secondIdentity, 12, "completed", "Verifier"),
     );
     core.confirmContainment(
       context(core, info.ownerCredential),
@@ -2821,6 +2873,28 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/evidence-2",
+      },
+    );
+    const versionBeforeCurrentVerifierEvidence = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptCandidate(
+          context(core, info.ownerCredential),
+          "feature",
+          candidate.candidateId,
+        ),
+      /every bound Verifier assignment must be contained and pass every current criterion/,
+    );
+    assert.equal(core.stateVersion, versionBeforeCurrentVerifierEvidence);
+    core.recordEvidence(
+      context(core, verifier.credential),
+      replacementVerifier.assignmentId,
+      {
+        evidenceId: "replacement-evidence",
+        candidateId: candidate.candidateId,
+        criterion: " criterion-one ",
+        passed: true,
+        artifactRef: "artifact://test/replacement-evidence",
       },
     );
     assert.equal(

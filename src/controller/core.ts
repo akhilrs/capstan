@@ -2928,6 +2928,14 @@ export class ControllerCore {
         JOIN assignment_input_bindings b ON b.project_id = e.project_id AND b.assignment_id = e.verifier_assignment_id
           AND b.input_kind = 'candidate' AND b.source_id = e.candidate_id
         WHERE e.project_id = ? AND e.candidate_id = ? AND s.role = 'Verifier'
+          AND at.generation = (
+            SELECT MAX(latest_attempt.generation)
+            FROM assignments latest
+            JOIN assignment_attempts latest_attempt
+              ON latest_attempt.project_id = latest.project_id
+              AND latest_attempt.assignment_id = latest.assignment_id
+            WHERE latest.project_id = va.project_id AND latest.work_item_id = va.work_item_id
+          )
       `,
           )
           .all(this.#projectId, candidateId) as Array<{

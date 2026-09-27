@@ -40,7 +40,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Require each acceptance criterion to be an own indexed array element, so inherited array values cannot validate content that serializes as a hole.
 - Bootstrap each input kind and its canonical content once before validation and persistence so accessor-backed values cannot change between those steps.
 - Snapshot actor creation and Verifier evidence inputs before computing request digests and before persistence so accessor-backed values cannot change between those steps.
-- Reject Verifier evidence from any superseded generation of its Verifier work item so an old verifier cannot override a replacement's results.
+- Reject Verifier evidence from a superseded generation and consider only each Verifier child's latest assignment when evaluating candidate acceptance. Historical evidence remains immutable but cannot block or satisfy a replacement's criterion checks.
 - Do not persist failing Verifier evidence until every nonterminal Verifier child can be bound to the candidate. This keeps all planned tasks assignable before failure blocks the Developer parent.
 - Bind worker usage observations to that actor's own assigned session/assignment; reject session-assignment mismatches before writing the append-only ledger.
 - Require candidate changed-scope and limitation fields to be actual arrays of strings, not iterable strings. Reject new input revisions once any work has been accepted: accepted work has no revalidation path, and the run cannot complete against stale accepted inputs. Completion also rejects stale accepted work already present in a database.
