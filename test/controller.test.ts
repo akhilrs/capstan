@@ -54,6 +54,10 @@ test("canonical JSON rejects ill-formed UTF-16", () => {
     /ill-formed UTF-16/,
   );
 });
+test("canonical JSON rejects ill-formed UTF-16 object keys", () => {
+  const invalidKey = { ["key:\ud800"]: "value" };
+  assert.throws(() => canonicalJson(invalidKey), /ill-formed UTF-16/);
+});
 test("canonical JSON rejects non-enumerable and extra array properties", () => {
   const hidden = Object.defineProperty({ title: "visible" }, "description", {
     value: "hidden",
@@ -168,6 +172,20 @@ test("project initialization rejects sparse acceptance criteria", async () => {
       project: invalidProject,
     }),
     /acceptance criteria must be a non-empty list/,
+  );
+  rmSync(stateDirectory, { recursive: true, force: true });
+});
+test("project initialization rejects ill-formed names", async () => {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-invalid-name-"),
+  );
+  const info = project();
+  await assert.rejects(
+    ControllerCore.open({
+      stateDirectory,
+      project: { ...info, name: "invalid:\ud800" },
+    }),
+    /ill-formed UTF-16/,
   );
   rmSync(stateDirectory, { recursive: true, force: true });
 });

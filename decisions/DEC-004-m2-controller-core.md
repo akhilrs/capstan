@@ -33,6 +33,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Preserve completed PM/Supervisor receipts even when their reply is empty. Keep such reports ineligible for acceptance; containment and bounded recovery remain available without losing the role's receipt sequence.
 - Allow dependency edges to pin an exact candidate owned by the prerequisite work item. Require verifier assignment only after the latest Developer assignment's authority is contained.
 - Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
+- Reject ill-formed UTF-16 in project names, canonical values, and object keys before persistence or assignment. A failed Verifier result blocks its candidate and cancels every candidate-bound Verifier work item only after all bound Verifier authorities are contained.
 
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.
 

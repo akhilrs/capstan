@@ -303,6 +303,7 @@ export class ControllerCore {
     acceptanceCriteriaFromContent(initialCriteria.content);
     if (project.name.trim().length === 0)
       throw new TypeError("project name must not be empty");
+    canonicalJson(project.name);
     const ownerHash = credentialHash(project.ownerCredential);
     const internalHash = credentialHash(randomBytes(32).toString("base64url"));
     const now = new Date().toISOString();
@@ -2572,6 +2573,7 @@ export class ControllerCore {
             actor.actorId,
             new Date().toISOString(),
           );
+        let canceledVerifierWorkItemIds: string[] = [];
         if (!input.passed) {
           const controller = this.#internalPrincipal();
           if (
@@ -2591,6 +2593,46 @@ export class ControllerCore {
             throw new TransitionAuthorizationError(
               "transition table rejects failed verification disposition",
             );
+          const verifierAssignments = this.#database
+            .prepare(
+              `
+            SELECT DISTINCT a.work_item_id, a.authority_state,
+              at.authority_state AS attempt_authority, w.state AS work_state
+            FROM assignment_input_bindings b
+            JOIN assignments a ON a.project_id = b.project_id AND a.assignment_id = b.assignment_id
+            JOIN assignment_attempts at ON at.project_id = a.project_id
+              AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+            JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+            JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+            WHERE b.project_id = ? AND b.input_kind = 'candidate' AND b.source_id = ? AND s.role = 'Verifier'
+          `,
+            )
+            .all(this.#projectId, input.candidateId) as Array<{
+            work_item_id: string;
+            authority_state: string;
+            attempt_authority: string;
+            work_state: string;
+          }>;
+          if (
+            verifierAssignments.some(
+              (assignment) =>
+                assignment.authority_state !== "contained" ||
+                assignment.attempt_authority !== "contained",
+            )
+          )
+            throw new MutationConflictError(
+              "all Verifier assignments bound to a failing candidate must be contained",
+            );
+          canceledVerifierWorkItemIds = [
+            ...new Set(
+              verifierAssignments
+                .filter(
+                  (assignment) =>
+                    assignment.work_state === "awaiting_verification",
+                )
+                .map((assignment) => assignment.work_item_id),
+            ),
+          ];
           this.#database
             .prepare(
               `
@@ -2599,14 +2641,16 @@ export class ControllerCore {
           `,
             )
             .run(this.#projectId, candidate.work_item_id);
-          this.#database
-            .prepare(
-              `
-            UPDATE work_items SET state = 'canceled', state_version = state_version + 1
-            WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
-          `,
-            )
-            .run(this.#projectId, verifier.work_item_id);
+          for (const verifierWorkItemId of canceledVerifierWorkItemIds) {
+            this.#database
+              .prepare(
+                `
+              UPDATE work_items SET state = 'canceled', state_version = state_version + 1
+              WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'
+            `,
+              )
+              .run(this.#projectId, verifierWorkItemId);
+          }
         }
         return {
           value: { evidenceId: input.evidenceId, evidenceHash },
@@ -2625,6 +2669,7 @@ export class ControllerCore {
                   failedVerifierWorkItemId: verifier.work_item_id,
                   failedVerifierWorkFrom: "awaiting_verification",
                   failedVerifierWorkTo: "canceled",
+                  canceledVerifierWorkItemIds,
                 },
           },
         };

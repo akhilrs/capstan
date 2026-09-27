@@ -72,6 +72,7 @@ function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
     for (const key of Reflect.ownKeys(value)) {
       if (typeof key !== "string")
         throw new TypeError("canonical JSON does not accept symbol properties");
+      normalizeJson(key, ancestors);
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (
         !descriptor ||
