@@ -326,6 +326,20 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       "report-pm",
     );
     assert.equal(core.readiness("uses-pm-report").ready, true);
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "policy",
+      content: { reportContextChanged: true },
+    });
+    assert.equal(
+      core.rebindWorkItem(context(core, info.ownerCredential), "uses-pm-report")
+        .inputRevision,
+      core.inputRevision,
+    );
+    assert.equal(core.readiness("uses-pm-report").ready, false);
+    assert.match(
+      core.readiness("uses-pm-report").reasons.join(";"),
+      /dependency report-pm is bound to a stale input revision/,
+    );
   } finally {
     cleanup(value);
   }

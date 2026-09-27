@@ -763,6 +763,7 @@ export class ControllerCore {
       .prepare(
         `
       SELECT d.depends_on_work_item_id, d.required_candidate_id, w.state, w.accepted_candidate_id,
+        w.input_revision AS accepted_work_input_revision,
         c.input_revision AS candidate_input_revision
       FROM dependency_edges d JOIN work_items w
         ON w.project_id = d.project_id AND w.work_item_id = d.depends_on_work_item_id
@@ -775,6 +776,7 @@ export class ControllerCore {
       required_candidate_id: string | null;
       state: string;
       accepted_candidate_id: string | null;
+      accepted_work_input_revision: number;
       candidate_input_revision: number | null;
     }>;
     for (const dependency of dependencies) {
@@ -790,11 +792,13 @@ export class ControllerCore {
           `dependency ${dependency.depends_on_work_item_id} has a different accepted candidate`,
         );
       } else if (
-        dependency.accepted_candidate_id &&
-        dependency.candidate_input_revision !== item.current_input_revision
+        (dependency.accepted_candidate_id
+          ? dependency.candidate_input_revision
+          : dependency.accepted_work_input_revision) !==
+        item.current_input_revision
       ) {
         reasons.push(
-          `dependency ${dependency.depends_on_work_item_id} candidate is bound to a stale input revision`,
+          `dependency ${dependency.depends_on_work_item_id} is bound to a stale input revision`,
         );
       }
     }
