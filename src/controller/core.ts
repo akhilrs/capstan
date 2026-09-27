@@ -698,6 +698,20 @@ export class ControllerCore {
           throw new ReadinessError(
             `work creation requires an active run; run is ${run?.state ?? "missing"}`,
           );
+        if (input.requiredRole === "Verifier") {
+          const parent = input.parentWorkItemId
+            ? (this.#database
+                .prepare(
+                  "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+                )
+                .get(this.#projectId, input.parentWorkItemId) as
+                { required_role: string } | undefined)
+            : undefined;
+          if (parent?.required_role !== "Developer")
+            throw new ReadinessError(
+              "Verifier work requires an existing Developer parent",
+            );
+        }
         this.#database
           .prepare(
             `

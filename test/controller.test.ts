@@ -2581,11 +2581,24 @@ test("stale inputs, unauthorized controller actions, and candidate evidence are 
       core.readiness("dependent").reasons.join(";"),
       /dependency prerequisite is not accepted/,
     );
+    const versionBeforeOrphan = core.stateVersion;
+    assert.throws(
+      () =>
+        core.createWorkItem(context(core, pm.credential), {
+          workItemId: "orphan-verifier",
+          title: "Orphan verifier",
+          description: "Cannot bind to a candidate",
+          requiredRole: "Verifier",
+        }),
+      /Verifier work requires an existing Developer parent/,
+    );
+    assert.equal(core.stateVersion, versionBeforeOrphan);
     core.createWorkItem(context(core, pm.credential), {
       workItemId: "needs-verifier",
       title: "Needs verifier seat",
       description: "Cannot start without a verifier",
       requiredRole: "Verifier",
+      parentWorkItemId: "prerequisite",
     });
     assert.match(
       core.readiness("needs-verifier").reasons.join(";"),

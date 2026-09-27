@@ -34,6 +34,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Accept only the latest generation's contained PM/Supervisor report after remediation and replacement; an older report cannot satisfy dependencies even if it was valid when recorded.
 - Keep migration SQL checked out with LF endings on every platform so byte-level migration checksums remain stable across controller restarts.
 - Allow dependency edges to pin an exact candidate owned by the prerequisite work item. Require verifier assignment only after the latest Developer assignment's authority is contained.
+- Verifier work requires an existing Developer parent at creation; an orphan cannot obtain the candidate binding required for assignment or be canceled later.
 - Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
 - Reject ill-formed UTF-16 in project names, canonical values, and object keys before persistence or assignment. A failed Verifier result blocks its candidate and cancels every candidate-bound Verifier work item only after all bound Verifier authorities are contained.
 
