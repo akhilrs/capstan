@@ -48,6 +48,12 @@ test("canonical JSON rejects accessor-backed values without invoking them", () =
   assert.throws(() => canonicalJson(value), /accessor properties/);
   assert.equal(reads, 0);
 });
+test("canonical JSON rejects ill-formed UTF-16", () => {
+  assert.throws(
+    () => canonicalJson("lone-surrogate:\ud800"),
+    /ill-formed UTF-16/,
+  );
+});
 test("canonical JSON rejects non-enumerable and extra array properties", () => {
   const hidden = Object.defineProperty({ title: "visible" }, "description", {
     value: "hidden",
@@ -128,6 +134,31 @@ test("project initialization rejects unusable acceptance criteria", async () => 
     initialInputs: info.initialInputs.map((input) =>
       input.kind === "acceptance_criteria"
         ? { ...input, content: ["  "] }
+        : input,
+    ),
+  };
+  await assert.rejects(
+    ControllerCore.open({
+      stateDirectory,
+      project: invalidProject,
+    }),
+    /acceptance criteria must be a non-empty list/,
+  );
+  rmSync(stateDirectory, { recursive: true, force: true });
+});
+test("project initialization rejects sparse acceptance criteria", async () => {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-sparse-criteria-"),
+  );
+  const info = project();
+  const sparseCriteria: string[] = [];
+  sparseCriteria.length = 2;
+  sparseCriteria[1] = "criterion";
+  const invalidProject = {
+    ...info,
+    initialInputs: info.initialInputs.map((input) =>
+      input.kind === "acceptance_criteria"
+        ? { ...input, content: sparseCriteria }
         : input,
     ),
   };

@@ -29,6 +29,11 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Persist the selected worker actor identity with each assignment. Candidate reports and Verifier evidence must be authored by the actor actually assigned; each assignment may submit only one immutable candidate, and acceptance requires the latest Developer generation. Pre-v4 assignments remain unbound because worker attribution was not durable.
 - Migration v4 does not infer an actor for pre-v4 assignments because historical worker attribution is not durable in those rows. Such candidates/evidence fail closed at acceptance; contain the legacy assignment and use bounded replacement rather than crediting a current seat occupant retroactively.
 
+- Validate the initial and revised acceptance-criteria payload before persisting it. Require a non-empty, dense list of unique non-empty strings so later verification cannot discover unusable criteria after work has started.
+- Preserve completed PM/Supervisor receipts even when their reply is empty. Keep such reports ineligible for acceptance; containment and bounded recovery remain available without losing the role's receipt sequence.
+- Allow dependency edges to pin an exact candidate owned by the prerequisite work item. Require verifier assignment only after the latest Developer assignment's authority is contained.
+- Reject empty candidate IDs, ill-formed UTF-16, and canonical objects or arrays whose properties would be omitted from the request digest. This keeps committed inputs and idempotency identity aligned with the data the controller actually consumes.
+
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.
 
 ## Accepted trust boundary

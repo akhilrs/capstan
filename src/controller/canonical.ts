@@ -1,8 +1,23 @@
 import { createHash } from "node:crypto";
 
 function normalizeJson(value: unknown, ancestors: Set<object>): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean")
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+        const next = value.charCodeAt(index + 1);
+        if (index + 1 >= value.length || next < 0xdc00 || next > 0xdfff)
+          throw new TypeError(
+            "canonical JSON does not accept ill-formed UTF-16",
+          );
+        index += 1;
+      } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+        throw new TypeError("canonical JSON does not accept ill-formed UTF-16");
+      }
+    }
     return value;
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value))
       throw new TypeError("canonical JSON does not accept non-finite numbers");

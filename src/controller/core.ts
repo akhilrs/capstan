@@ -76,7 +76,7 @@ function acceptanceCriteriaFromContent(content: unknown): readonly string[] {
   if (
     !Array.isArray(criteria) ||
     criteria.length === 0 ||
-    criteria.some(
+    Array.from(criteria).some(
       (entry: unknown) =>
         typeof entry !== "string" || entry.trim().length === 0,
     )
