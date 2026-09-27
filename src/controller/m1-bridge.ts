@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { ControllerError, type ControllerCore } from "./core.js";
 import {
   M1_MAX_FRAME_BYTES,
@@ -281,6 +282,17 @@ export class M1BridgeAdapter {
       throw protocolError(
         `command is ${state ?? "missing"}; automatic dispatch is unsafe`,
       );
+    const startContextId = randomUUID();
+    this.#core.beginCommandStart(
+      {
+        credential: context.credential,
+        requestId: `m1-start-${startContextId}`,
+        idempotencyKey: `m1-start-${startContextId}`,
+        expectedVersion: this.#core.stateVersion,
+        inputRevision: this.#core.inputRevision,
+      },
+      commandId,
+    );
     const response = await requestBridge(this.#bridgeSocketPath, {
       type: "start",
       commandId,

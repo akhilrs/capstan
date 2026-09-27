@@ -131,13 +131,13 @@ async function addSeatAndActor(
     name: `${role} ${suffix}`,
     role,
   });
-  core.createActor(context(core, ownerCredential), {
+  const actor = core.createActor(context(core, ownerCredential), {
     displayName: `${role} ${suffix}`,
     role,
     credential,
     seatId,
   });
-  return { seatId, credential };
+  return { seatId, credential, actorId: actor.actorId };
 }
 
 test("credential hashing rejects ill-formed UTF-16", () => {
@@ -164,6 +164,12 @@ test("M1 response parser rejects a fragmented late duplicate", () => {
     () => parser.push(Buffer.from(duplicate.slice(split))),
     /unexpected frame after bridge response/,
   );
+  const incompleteTrailer = new M1ResponseFrameParser();
+  assert.deepEqual(
+    incompleteTrailer.push(Buffer.from(`${responseLine}{"type":`)),
+    [],
+  );
+  assert.throws(() => incompleteTrailer.finish(), /incomplete frame/);
 });
 test("oversized UTF-8 M1 prompt stays ready without committing an assignment", async () => {
   const value = await fixture();
@@ -318,6 +324,17 @@ test("private project ownership survives restart and ambiguous delivery is recon
     });
     try {
       assert.equal(reopened.commandState(assignment.commandId), "unknown");
+      const versionBeforePreStartContainment = reopened.stateVersion;
+      assert.throws(
+        () =>
+          reopened.confirmContainment(
+            context(reopened, info.ownerCredential),
+            assignment.assignmentId,
+            "proof:never-started",
+          ),
+        /start was not durably requested before restart/,
+      );
+      assert.equal(reopened.stateVersion, versionBeforePreStartContainment);
       assert.equal(reopened.readiness("restart-work").ready, false);
       assert.match(
         reopened.readiness("restart-work").reasons.join(";"),
@@ -451,6 +468,86 @@ test("unstarted command authority cannot be marked contained", async () => {
         ),
       /running or uncertain authority/,
     );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.close();
+    const reopened = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    try {
+      assert.throws(
+        () =>
+          reopened.confirmContainment(
+            context(reopened, info.ownerCredential),
+            assignment.assignmentId,
+            "proof:accepted-but-never-started",
+          ),
+        /start was not durably requested before restart/,
+      );
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("the last active worker actor cannot be revoked during assigned authority", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "revocation-active-work",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "revocation-active-work",
+      title: "Worker receipt after revocation attempt",
+      description: "The active seat principal must remain able to report",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "revocation-active-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "revocation-active-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    const versionBeforeRevocation = core.stateVersion;
+    assert.throws(
+      () =>
+        core.revokeActor(
+          context(core, info.ownerCredential),
+          developer.actorId,
+        ),
+      /last active actor.*active or uncertain assignments/,
+    );
+    assert.equal(core.stateVersion, versionBeforeRevocation);
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed"));
+    assert.equal(core.commandState(assignment.commandId), "completed");
   } finally {
     cleanup(value);
   }
@@ -750,7 +847,6 @@ test("finding responses persist their reports and require explicit resolution ev
     );
     const db = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
-      { readonly: true },
     );
     try {
       const report = db
@@ -769,6 +865,24 @@ test("finding responses persist their reports and require explicit resolution ev
         response_type: "report",
         content_json: '{"report":"Needs correction"}',
       });
+      assert.throws(
+        () =>
+          db
+            .prepare(
+              "UPDATE finding_responses SET content_json = ? WHERE project_id = ? AND finding_id = ?",
+            )
+            .run("{}", info.projectId, "finding-1"),
+        /finding responses are immutable/,
+      );
+      assert.throws(
+        () =>
+          db
+            .prepare(
+              "DELETE FROM finding_responses WHERE project_id = ? AND finding_id = ?",
+            )
+            .run(info.projectId, "finding-1"),
+        /finding responses are immutable/,
+      );
     } finally {
       db.close();
     }

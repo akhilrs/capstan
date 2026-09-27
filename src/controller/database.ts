@@ -23,6 +23,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  3: {
+    version: 3,
+    name: "0003_command_start_intent.sql",
+    url: new URL(
+      "../../migrations/0003_command_start_intent.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

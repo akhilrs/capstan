@@ -466,10 +466,16 @@ export class ControllerCore {
       () => {
         const target = this.#database
           .prepare(
-            "SELECT role, is_internal, active FROM actors WHERE project_id = ? AND actor_id = ?",
+            "SELECT role, is_internal, active, seat_id FROM actors WHERE project_id = ? AND actor_id = ?",
           )
           .get(this.#projectId, actorId) as
-          { role: string; is_internal: number; active: number } | undefined;
+          | {
+              role: string;
+              is_internal: number;
+              active: number;
+              seat_id: string | null;
+            }
+          | undefined;
         if (!target || target.is_internal || target.role === "operator")
           throw new ControllerError(
             "the internal controller and project operator cannot be revoked through this operation",
@@ -479,6 +485,30 @@ export class ControllerCore {
             value: { revoked: true },
             event: { entityType: "actor", entityId: actorId, stateVersion: 0 },
           };
+        if (target.seat_id) {
+          const otherActiveActor = this.#database
+            .prepare(
+              `
+            SELECT 1 AS present FROM actors
+            WHERE project_id = ? AND seat_id = ? AND actor_id <> ?
+              AND active = 1 AND revoked_at IS NULL LIMIT 1
+          `,
+            )
+            .get(this.#projectId, target.seat_id, actorId);
+          const activeAuthority = this.#database
+            .prepare(
+              `
+            SELECT 1 AS present FROM assignments
+            WHERE project_id = ? AND seat_id = ?
+              AND authority_state IN ('active', 'unknown') LIMIT 1
+          `,
+            )
+            .get(this.#projectId, target.seat_id);
+          if (!otherActiveActor && activeAuthority)
+            throw new MutationConflictError(
+              "cannot revoke the last active actor for a seat with active or uncertain assignments",
+            );
+        }
         const now = new Date().toISOString();
         this.#database
           .prepare(
@@ -1605,6 +1635,79 @@ export class ControllerCore {
             stateVersion: command.state_version + 1,
             fromState: command.state,
             toState: "attempting",
+          },
+        };
+      },
+    );
+  }
+
+  beginCommandStart(
+    context: MutationContext,
+    commandId: string,
+  ): { readonly startRequested: true } {
+    return this.#mutateAsController(
+      context,
+      "command.start.request",
+      "controller:reconcile",
+      { commandId },
+      () => {
+        const command = this.#database
+          .prepare(
+            `
+          SELECT c.state, c.state_version, a.state AS assignment_state,
+            a.authority_state AS assignment_authority, at.state AS attempt_state,
+            at.authority_state AS attempt_authority
+          FROM commands c JOIN assignments a
+            ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
+          JOIN assignment_attempts at
+            ON at.project_id = c.project_id AND at.assignment_id = c.assignment_id
+            AND at.attempt = c.attempt
+          WHERE c.project_id = ? AND c.command_id = ?
+        `,
+          )
+          .get(this.#projectId, commandId) as
+          | {
+              state: string;
+              state_version: number;
+              assignment_state: string;
+              assignment_authority: string;
+              attempt_state: string;
+              attempt_authority: string;
+            }
+          | undefined;
+        if (!command) throw new ControllerError("command does not exist");
+        if (
+          command.state !== "acknowledged" ||
+          command.assignment_state !== "acknowledged" ||
+          command.attempt_state !== "acknowledged" ||
+          command.assignment_authority !== "active" ||
+          command.attempt_authority !== "active"
+        )
+          throw new MutationConflictError(
+            "start requires a durably acknowledged command with active assignment authority",
+          );
+        const run = this.#database
+          .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+          .get(this.#projectId) as { state: string };
+        if (run.state !== "active")
+          throw new ReadinessError(
+            `run is ${run.state}; command start is paused`,
+          );
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            "UPDATE commands SET start_requested = 1, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+          )
+          .run(now, this.#projectId, commandId);
+        return {
+          value: { startRequested: true },
+          event: {
+            entityType: "command",
+            entityId: commandId,
+            stateVersion: command.state_version + 1,
+            fromState: "acknowledged",
+            toState: "acknowledged",
+            details: { startRequested: true },
           },
         };
       },
@@ -2742,7 +2845,7 @@ export class ControllerCore {
             `
           SELECT a.state, a.authority_state, a.active_generation,
             at.state AS attempt_state, at.authority_state AS attempt_authority,
-            at.state_version AS attempt_version, c.state AS command_state,
+            at.state_version AS attempt_version, c.command_id, c.state AS command_state,
             w.work_item_id, w.state AS work_state, w.state_version AS work_version
           FROM assignments a JOIN assignment_attempts at
             ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
@@ -2761,12 +2864,54 @@ export class ControllerCore {
               attempt_state: string;
               attempt_authority: string;
               attempt_version: number;
+              command_id: string;
               command_state: string;
               work_item_id: string;
               work_state: string;
               work_version: number;
             }
           | undefined;
+        const reconciliation =
+          assignment?.authority_state === "unknown" &&
+          assignment.state === "revoked"
+            ? (this.#database
+                .prepare(
+                  "SELECT payload_json FROM controller_events WHERE project_id = ? AND entity_type = 'assignment_attempt' AND entity_id = ? AND request_id = ? ORDER BY sequence DESC LIMIT 1",
+                )
+                .get(
+                  this.#projectId,
+                  assignmentId,
+                  `restart-reconcile:${assignment.command_id}`,
+                ) as { payload_json: string } | undefined)
+            : undefined;
+        if (reconciliation) {
+          let details: { commandState?: unknown; startRequested?: unknown };
+          try {
+            const parsed: unknown = JSON.parse(reconciliation.payload_json);
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+              throw new Error("invalid details");
+            details = parsed as {
+              commandState?: unknown;
+              startRequested?: unknown;
+            };
+          } catch {
+            throw new ControllerError(
+              "restart reconciliation record is invalid",
+            );
+          }
+          if (typeof details.commandState !== "string")
+            throw new ControllerError(
+              "restart reconciliation record has no command state",
+            );
+          if (
+            details.commandState === "attempting" ||
+            (details.commandState === "acknowledged" &&
+              details.startRequested !== true)
+          )
+            throw new MutationConflictError(
+              "M1 start was not durably requested before restart; reconcile bridge state before containment",
+            );
+        }
         const restoresReportedWork =
           assignment?.authority_state === "unknown" &&
           assignment.state === "reported" &&
@@ -3652,7 +3797,7 @@ export class ControllerCore {
       const rows = this.#database
         .prepare(
           `
-        SELECT c.command_id, c.state AS command_state,
+        SELECT c.command_id, c.state AS command_state, c.start_requested,
           a.assignment_id, a.work_item_id, a.state AS assignment_state,
           at.attempt, at.state AS attempt_state, at.state_version AS attempt_version,
           w.state AS work_state
@@ -3670,6 +3815,7 @@ export class ControllerCore {
         .all(this.#projectId) as Array<{
         command_id: string;
         command_state: string;
+        start_requested: number;
         assignment_id: string;
         work_item_id: string;
         assignment_state: string;
@@ -3823,6 +3969,7 @@ export class ControllerCore {
               commandState: row.command_state,
               authorityState: "unknown",
               preservedReport: preserveReportedCompletion,
+              startRequested: row.start_requested === 1,
             }),
             now,
             this.#projectId,

@@ -18,6 +18,12 @@ INSERT INTO finding_responses(project_id, response_id, finding_id, assignment_id
 SELECT project_id, response_id, finding_id, assignment_id, response_type, content_json, created_by, created_at
 FROM finding_responses_v1;
 DROP TABLE finding_responses_v1;
+CREATE TRIGGER immutable_finding_responses_update
+BEFORE UPDATE ON finding_responses
+BEGIN SELECT RAISE(ABORT, 'finding responses are immutable'); END;
+CREATE TRIGGER immutable_finding_responses_delete
+BEFORE DELETE ON finding_responses
+BEGIN SELECT RAISE(ABORT, 'finding responses are immutable'); END;
 
 ALTER TABLE runtime_identities RENAME TO runtime_identities_v1;
 
