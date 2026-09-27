@@ -167,6 +167,16 @@ function requestBridge(
 }
 
 export class M1BridgeAdapter {
+  static readonly #verifiedSnapshots = new WeakSet<object>();
+
+  static isVerifiedSnapshot(value: unknown): boolean {
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      M1BridgeAdapter.#verifiedSnapshots.has(value)
+    );
+  }
+
   readonly #core: ControllerCore;
   readonly #receiptSocketPath: string;
   readonly #bridgeSocketPath: string;
@@ -313,9 +323,11 @@ export class M1BridgeAdapter {
       state: this.#core.commandState(commandId) ?? "unknown",
     };
   }
-  async inspectUncertainCommand(
-    commandId: string,
-  ): Promise<{ readonly bridgeState: string; readonly durable: boolean }> {
+  async inspectUncertainCommand(commandId: string): Promise<{
+    readonly commandId: string;
+    readonly bridgeState: string;
+    readonly durable: boolean;
+  }> {
     if (this.#core.commandState(commandId) !== "unknown")
       throw new ControllerError(
         "only uncertain commands can be inspected without new dispatch",
@@ -326,15 +338,32 @@ export class M1BridgeAdapter {
     });
     if (response.commandId !== commandId)
       throw protocolError("bridge returned a different command identity");
-    if (response.type === "completed")
-      return { bridgeState: "completed", durable: true };
-    if (
-      response.type !== "ack" ||
-      typeof response.state !== "string" ||
-      typeof response.durable !== "boolean"
-    )
-      throw protocolError("bridge returned an invalid command snapshot");
-    return { bridgeState: response.state, durable: response.durable };
+    let snapshot: {
+      readonly commandId: string;
+      readonly bridgeState: string;
+      readonly durable: boolean;
+    };
+    if (response.type === "completed") {
+      snapshot = Object.freeze({
+        commandId,
+        bridgeState: "completed",
+        durable: true,
+      });
+    } else {
+      if (
+        response.type !== "ack" ||
+        typeof response.state !== "string" ||
+        typeof response.durable !== "boolean"
+      )
+        throw protocolError("bridge returned an invalid command snapshot");
+      snapshot = Object.freeze({
+        commandId,
+        bridgeState: response.state,
+        durable: response.durable,
+      });
+    }
+    M1BridgeAdapter.#verifiedSnapshots.add(snapshot);
+    return snapshot;
   }
 
   async reconcilePrestartAndContain(
@@ -344,10 +373,12 @@ export class M1BridgeAdapter {
     proofRef: string,
   ): Promise<{ readonly contained: true }> {
     const snapshot = await this.inspectUncertainCommand(commandId);
-    return this.#core.confirmContainment(context, assignmentId, proofRef, {
-      commandId,
-      ...snapshot,
-    });
+    return this.#core.confirmContainment(
+      context,
+      assignmentId,
+      proofRef,
+      snapshot,
+    );
   }
 
   #receiveReceipt(socket: net.Socket): void {
@@ -363,7 +394,7 @@ export class M1BridgeAdapter {
         const result = this.#core.recordBridgeReceipt(value as BridgeReceipt);
         if (!socket.destroyed)
           socket.end(
-            `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate })}\n`,
+            `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
           );
       } catch (error) {
         if (!socket.destroyed)

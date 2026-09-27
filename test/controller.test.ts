@@ -455,6 +455,7 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
     assert.deepEqual(
       await adapter.inspectUncertainCommand(assignment.commandId),
       {
+        commandId: assignment.commandId,
         bridgeState: "acknowledged",
         durable: true,
       },
@@ -740,7 +741,7 @@ test("unstarted command authority cannot be marked contained", async () => {
   }
 });
 
-test("containment blocks a running worker and rejects late bridge receipts", async () => {
+test("contained worker receipts are audited without blocking replacement receipts", async () => {
   const value = await fixture();
   try {
     const { core, project: info } = value;
@@ -785,11 +786,15 @@ test("containment blocks a running worker and rejects late bridge receipts", asy
     );
     assert.equal(core.readiness("late-receipt-work").ready, true);
     core.markReady(context(core, info.ownerCredential), "late-receipt-work");
-    assert.throws(
-      () => core.recordBridgeReceipt(receipt(identity, 3, "completed")),
-      /contained or uncertain authority/,
+    assert.deepEqual(
+      core.recordBridgeReceipt(receipt(identity, 3, "completed")),
+      {
+        duplicate: false,
+        fenced: true,
+      },
     );
     assert.equal(core.commandState(assignment.commandId), "started");
+    assert.equal(core.readiness("late-receipt-work").ready, true);
     const recovery = core.recordRecovery(context(core, info.ownerCredential), {
       recoveryId: "late-receipt-recovery",
       workItemId: "late-receipt-work",
@@ -806,6 +811,23 @@ test("containment blocks a running worker and rejects late bridge receipts", asy
       recovery.recoveryId,
     );
     assert.notEqual(replacement.assignmentId, assignment.assignmentId);
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      replacement.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(
+        {
+          commandId: replacement.commandId,
+          assignmentId: replacement.assignmentId,
+          attempt: replacement.attempt,
+          generation: replacement.generation,
+        },
+        4,
+        "accepted",
+      ),
+    );
+    assert.equal(core.commandState(replacement.commandId), "acknowledged");
   } finally {
     cleanup(value);
   }

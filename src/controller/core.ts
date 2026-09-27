@@ -11,6 +11,7 @@ import {
 } from "./auth.js";
 import { canonicalJson, digestJson } from "./canonical.js";
 import { openDatabase, resolveDatabasePath } from "./database.js";
+import { M1BridgeAdapter } from "./m1-bridge.js";
 import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import type {
@@ -1713,7 +1714,10 @@ export class ControllerCore {
       },
     );
   }
-  recordBridgeReceipt(receipt: BridgeReceipt): { readonly duplicate: boolean } {
+  recordBridgeReceipt(receipt: BridgeReceipt): {
+    readonly duplicate: boolean;
+    readonly fenced?: boolean;
+  } {
     this.#assertOpen();
     const receiptTypes: readonly BridgeReceipt["type"][] = [
       "accepted",
@@ -1826,14 +1830,11 @@ export class ControllerCore {
           "bridge receipt identity does not match the durable assignment",
         );
       }
-      if (
+      const fenced =
         command.assignment_authority !== "active" ||
-        command.attempt_authority !== "active"
-      )
-        throw new MutationConflictError(
-          "bridge receipt cannot advance contained or uncertain authority",
-        );
+        command.attempt_authority !== "active";
       if (
+        !fenced &&
         receipt.type === "completed" &&
         (command.seat_role === "PM" || command.seat_role === "Supervisor") &&
         (typeof receipt.reply !== "string" || receipt.reply.trim().length === 0)
@@ -1844,7 +1845,8 @@ export class ControllerCore {
       const now = new Date().toISOString();
       const controller = this.#internalPrincipal();
       const receiptActor =
-        receipt.type === "submitted" || receipt.type === "completed"
+        !fenced &&
+        (receipt.type === "submitted" || receipt.type === "completed")
           ? this.#principalForSeat(command.seat_id)
           : controller;
       this.#database
@@ -1871,261 +1873,263 @@ export class ControllerCore {
       let commandToState: string | undefined;
       let attemptToState: string | undefined;
       let workToState: string | undefined;
-      if (receipt.type === "accepted") {
-        if (
-          !this.#isTransitionAllowed(
-            "command",
-            "attempting",
-            "acknowledged",
-            controller,
-          ) ||
-          !this.#isTransitionAllowed(
-            "assignment_attempt",
-            "dispatched",
-            "acknowledged",
-            controller,
-          )
-        ) {
-          throw new TransitionAuthorizationError(
-            "transition table rejects accepted receipt",
-          );
-        }
-        if (
-          command.command_state !== "attempting" ||
-          command.attempt_state !== "dispatched"
-        ) {
-          throw new MutationConflictError(
-            "accepted receipt arrived outside command dispatch",
-          );
-        }
-        commandToState = "acknowledged";
-        attemptToState = "acknowledged";
-        this.#database
-          .prepare(
-            "UPDATE commands SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
-          )
-          .run(commandToState, now, this.#projectId, receipt.commandId);
-        this.#database
-          .prepare(
-            "UPDATE assignments SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
-          )
-          .run(attemptToState, this.#projectId, receipt.assignmentId);
-        this.#database
-          .prepare(
-            "UPDATE assignment_attempts SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
-          )
-          .run(
-            attemptToState,
-            this.#projectId,
-            receipt.assignmentId,
-            receipt.attempt,
-          );
-        this.#appendOutboxOutcome(
-          receipt.commandId,
-          "acknowledged",
-          receiptJson,
-          now,
-        );
-      } else if (receipt.type === "working") {
-        if (
-          !this.#isTransitionAllowed(
-            "command",
-            "acknowledged",
-            "started",
-            controller,
-          ) ||
-          !this.#isTransitionAllowed(
-            "assignment_attempt",
-            "acknowledged",
-            "running",
-            controller,
-          )
-        ) {
-          throw new TransitionAuthorizationError(
-            "transition table rejects working receipt",
-          );
-        }
-        if (
-          command.command_state !== "acknowledged" ||
-          command.attempt_state !== "acknowledged"
-        ) {
-          throw new MutationConflictError(
-            "working receipt arrived outside acknowledged dispatch",
-          );
-        }
-        commandToState = "started";
-        attemptToState = "running";
-        this.#database
-          .prepare(
-            "UPDATE commands SET state = ?, start_requested = 1, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
-          )
-          .run(commandToState, now, this.#projectId, receipt.commandId);
-        this.#database
-          .prepare(
-            "UPDATE assignments SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
-          )
-          .run(attemptToState, this.#projectId, receipt.assignmentId);
-        this.#database
-          .prepare(
-            "UPDATE assignment_attempts SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
-          )
-          .run(
-            attemptToState,
-            this.#projectId,
-            receipt.assignmentId,
-            receipt.attempt,
-          );
-      } else if (receipt.type === "submitted") {
-        if (
-          command.command_state !== "acknowledged" ||
-          command.attempt_state !== "acknowledged" ||
-          command.work_state !== "running"
-        ) {
-          throw new MutationConflictError(
-            "submitted receipt requires a durably acknowledged worker dispatch",
-          );
-        }
-      } else if (receipt.type === "completed") {
-        if (
-          command.command_state !== "started" ||
-          command.attempt_state !== "running" ||
-          command.work_state !== "running"
-        ) {
-          throw new MutationConflictError(
-            "completed receipt requires an active assigned worker generation",
-          );
-        }
-        if (
-          !this.#isTransitionAllowed(
-            "command",
-            "started",
-            "completed",
-            controller,
-          ) ||
-          !this.#isTransitionAllowed(
-            "assignment_attempt",
-            "running",
-            "reported",
-            receiptActor,
-          ) ||
-          !this.#isTransitionAllowed(
-            "work_item",
-            "running",
-            "awaiting_verification",
-            receiptActor,
-          )
-        ) {
-          throw new TransitionAuthorizationError(
-            "transition table rejects completed worker report",
-          );
-        }
-        commandToState = "completed";
-        attemptToState = "reported";
-        workToState = "awaiting_verification";
-        this.#database
-          .prepare(
-            "UPDATE commands SET state = 'completed', state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
-          )
-          .run(now, this.#projectId, receipt.commandId);
-        this.#database
-          .prepare(
-            "UPDATE assignments SET state = 'reported', state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
-          )
-          .run(this.#projectId, receipt.assignmentId);
-        this.#database
-          .prepare(
-            "UPDATE assignment_attempts SET state = 'reported', state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
-          )
-          .run(this.#projectId, receipt.assignmentId, receipt.attempt);
-        this.#database
-          .prepare(
-            "UPDATE work_items SET state = 'awaiting_verification', state_version = state_version + 1 WHERE project_id = ? AND work_item_id = ?",
-          )
-          .run(this.#projectId, command.work_item_id);
-        this.#appendOutboxOutcome(
-          receipt.commandId,
-          "completed",
-          receiptJson,
-          now,
-        );
-      } else if (
-        receipt.type === "aborted" ||
-        receipt.type === "dispatch_error" ||
-        receipt.type === "agent_end_without_reply"
-      ) {
-        if (
-          !["attempting", "acknowledged", "started"].includes(
-            command.command_state,
-          ) ||
-          !this.#isTransitionAllowed(
-            "command",
-            command.command_state,
-            "unknown",
-            controller,
-          ) ||
-          !["dispatched", "acknowledged", "running"].includes(
-            command.attempt_state,
-          ) ||
-          !this.#isTransitionAllowed(
-            "assignment_attempt",
-            command.attempt_state,
-            "revoked",
-            controller,
-          )
-        ) {
-          throw new MutationConflictError(
-            "ambiguous receipt arrived outside an active assignment",
-          );
-        }
-        commandToState = "unknown";
-        attemptToState = "revoked";
-        this.#database
-          .prepare(
-            "UPDATE commands SET state = 'unknown', state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
-          )
-          .run(now, this.#projectId, receipt.commandId);
-        this.#database
-          .prepare(
-            `
-          UPDATE assignments SET state = 'revoked', state_version = state_version + 1, authority_state = 'unknown'
-          WHERE project_id = ? AND assignment_id = ?
-        `,
-          )
-          .run(this.#projectId, receipt.assignmentId);
-        this.#database
-          .prepare(
-            `
-          UPDATE assignment_attempts SET state = 'revoked', state_version = state_version + 1, authority_state = 'unknown'
-          WHERE project_id = ? AND assignment_id = ? AND attempt = ?
-        `,
-          )
-          .run(this.#projectId, receipt.assignmentId, receipt.attempt);
-        if (command.work_state === "running") {
+      if (!fenced) {
+        if (receipt.type === "accepted") {
           if (
             !this.#isTransitionAllowed(
-              "work_item",
-              "running",
-              "blocked",
+              "command",
+              "attempting",
+              "acknowledged",
+              controller,
+            ) ||
+            !this.#isTransitionAllowed(
+              "assignment_attempt",
+              "dispatched",
+              "acknowledged",
               controller,
             )
           ) {
             throw new TransitionAuthorizationError(
-              "transition table rejects blocking uncertain work",
+              "transition table rejects accepted receipt",
             );
           }
-          workToState = "blocked";
+          if (
+            command.command_state !== "attempting" ||
+            command.attempt_state !== "dispatched"
+          ) {
+            throw new MutationConflictError(
+              "accepted receipt arrived outside command dispatch",
+            );
+          }
+          commandToState = "acknowledged";
+          attemptToState = "acknowledged";
           this.#database
             .prepare(
-              "UPDATE work_items SET state = 'blocked', state_version = state_version + 1 WHERE project_id = ? AND work_item_id = ?",
+              "UPDATE commands SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+            )
+            .run(commandToState, now, this.#projectId, receipt.commandId);
+          this.#database
+            .prepare(
+              "UPDATE assignments SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
+            )
+            .run(attemptToState, this.#projectId, receipt.assignmentId);
+          this.#database
+            .prepare(
+              "UPDATE assignment_attempts SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
+            )
+            .run(
+              attemptToState,
+              this.#projectId,
+              receipt.assignmentId,
+              receipt.attempt,
+            );
+          this.#appendOutboxOutcome(
+            receipt.commandId,
+            "acknowledged",
+            receiptJson,
+            now,
+          );
+        } else if (receipt.type === "working") {
+          if (
+            !this.#isTransitionAllowed(
+              "command",
+              "acknowledged",
+              "started",
+              controller,
+            ) ||
+            !this.#isTransitionAllowed(
+              "assignment_attempt",
+              "acknowledged",
+              "running",
+              controller,
+            )
+          ) {
+            throw new TransitionAuthorizationError(
+              "transition table rejects working receipt",
+            );
+          }
+          if (
+            command.command_state !== "acknowledged" ||
+            command.attempt_state !== "acknowledged"
+          ) {
+            throw new MutationConflictError(
+              "working receipt arrived outside acknowledged dispatch",
+            );
+          }
+          commandToState = "started";
+          attemptToState = "running";
+          this.#database
+            .prepare(
+              "UPDATE commands SET state = ?, start_requested = 1, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+            )
+            .run(commandToState, now, this.#projectId, receipt.commandId);
+          this.#database
+            .prepare(
+              "UPDATE assignments SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
+            )
+            .run(attemptToState, this.#projectId, receipt.assignmentId);
+          this.#database
+            .prepare(
+              "UPDATE assignment_attempts SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
+            )
+            .run(
+              attemptToState,
+              this.#projectId,
+              receipt.assignmentId,
+              receipt.attempt,
+            );
+        } else if (receipt.type === "submitted") {
+          if (
+            command.command_state !== "acknowledged" ||
+            command.attempt_state !== "acknowledged" ||
+            command.work_state !== "running"
+          ) {
+            throw new MutationConflictError(
+              "submitted receipt requires a durably acknowledged worker dispatch",
+            );
+          }
+        } else if (receipt.type === "completed") {
+          if (
+            command.command_state !== "started" ||
+            command.attempt_state !== "running" ||
+            command.work_state !== "running"
+          ) {
+            throw new MutationConflictError(
+              "completed receipt requires an active assigned worker generation",
+            );
+          }
+          if (
+            !this.#isTransitionAllowed(
+              "command",
+              "started",
+              "completed",
+              controller,
+            ) ||
+            !this.#isTransitionAllowed(
+              "assignment_attempt",
+              "running",
+              "reported",
+              receiptActor,
+            ) ||
+            !this.#isTransitionAllowed(
+              "work_item",
+              "running",
+              "awaiting_verification",
+              receiptActor,
+            )
+          ) {
+            throw new TransitionAuthorizationError(
+              "transition table rejects completed worker report",
+            );
+          }
+          commandToState = "completed";
+          attemptToState = "reported";
+          workToState = "awaiting_verification";
+          this.#database
+            .prepare(
+              "UPDATE commands SET state = 'completed', state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+            )
+            .run(now, this.#projectId, receipt.commandId);
+          this.#database
+            .prepare(
+              "UPDATE assignments SET state = 'reported', state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ?",
+            )
+            .run(this.#projectId, receipt.assignmentId);
+          this.#database
+            .prepare(
+              "UPDATE assignment_attempts SET state = 'reported', state_version = state_version + 1 WHERE project_id = ? AND assignment_id = ? AND attempt = ?",
+            )
+            .run(this.#projectId, receipt.assignmentId, receipt.attempt);
+          this.#database
+            .prepare(
+              "UPDATE work_items SET state = 'awaiting_verification', state_version = state_version + 1 WHERE project_id = ? AND work_item_id = ?",
             )
             .run(this.#projectId, command.work_item_id);
+          this.#appendOutboxOutcome(
+            receipt.commandId,
+            "completed",
+            receiptJson,
+            now,
+          );
+        } else if (
+          receipt.type === "aborted" ||
+          receipt.type === "dispatch_error" ||
+          receipt.type === "agent_end_without_reply"
+        ) {
+          if (
+            !["attempting", "acknowledged", "started"].includes(
+              command.command_state,
+            ) ||
+            !this.#isTransitionAllowed(
+              "command",
+              command.command_state,
+              "unknown",
+              controller,
+            ) ||
+            !["dispatched", "acknowledged", "running"].includes(
+              command.attempt_state,
+            ) ||
+            !this.#isTransitionAllowed(
+              "assignment_attempt",
+              command.attempt_state,
+              "revoked",
+              controller,
+            )
+          ) {
+            throw new MutationConflictError(
+              "ambiguous receipt arrived outside an active assignment",
+            );
+          }
+          commandToState = "unknown";
+          attemptToState = "revoked";
+          this.#database
+            .prepare(
+              "UPDATE commands SET state = 'unknown', state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND command_id = ?",
+            )
+            .run(now, this.#projectId, receipt.commandId);
+          this.#database
+            .prepare(
+              `
+          UPDATE assignments SET state = 'revoked', state_version = state_version + 1, authority_state = 'unknown'
+          WHERE project_id = ? AND assignment_id = ?
+        `,
+            )
+            .run(this.#projectId, receipt.assignmentId);
+          this.#database
+            .prepare(
+              `
+          UPDATE assignment_attempts SET state = 'revoked', state_version = state_version + 1, authority_state = 'unknown'
+          WHERE project_id = ? AND assignment_id = ? AND attempt = ?
+        `,
+            )
+            .run(this.#projectId, receipt.assignmentId, receipt.attempt);
+          if (command.work_state === "running") {
+            if (
+              !this.#isTransitionAllowed(
+                "work_item",
+                "running",
+                "blocked",
+                controller,
+              )
+            ) {
+              throw new TransitionAuthorizationError(
+                "transition table rejects blocking uncertain work",
+              );
+            }
+            workToState = "blocked";
+            this.#database
+              .prepare(
+                "UPDATE work_items SET state = 'blocked', state_version = state_version + 1 WHERE project_id = ? AND work_item_id = ?",
+              )
+              .run(this.#projectId, command.work_item_id);
+          }
+          this.#appendOutboxOutcome(
+            receipt.commandId,
+            "unknown",
+            receiptJson,
+            now,
+          );
         }
-        this.#appendOutboxOutcome(
-          receipt.commandId,
-          "unknown",
-          receiptJson,
-          now,
-        );
       }
       const nextVersion =
         (
@@ -2167,11 +2171,12 @@ export class ControllerCore {
             receiptHash,
             attemptState: attemptToState ?? command.attempt_state,
             workState: workToState ?? command.work_state,
+            fenced,
           }),
           now,
         );
       this.#database.exec("COMMIT");
-      return { duplicate: false };
+      return { duplicate: false, ...(fenced ? { fenced: true } : {}) };
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
@@ -2894,6 +2899,7 @@ export class ControllerCore {
         const reconciledPrestart =
           prestartUncertain &&
           bridgeSnapshot?.commandId === assignment.command_id &&
+          M1BridgeAdapter.isVerifiedSnapshot(bridgeSnapshot) &&
           ((bridgeSnapshot.bridgeState === "acknowledged" &&
             bridgeSnapshot.durable === true) ||
             (bridgeSnapshot.bridgeState === "unknown" &&
