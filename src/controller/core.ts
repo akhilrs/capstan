@@ -2243,14 +2243,16 @@ export class ControllerCore {
             "candidate must match the active reported Developer assignment and current input revision",
           );
         }
+        const commitSha = input.commitSha.toLowerCase();
+        const baseSha = input.baseSha.toLowerCase();
         const reportHash = digestJson({
           candidateId: input.candidateId,
           assignmentId: input.assignmentId,
           attempt: assignment.attempt,
           generation: assignment.generation,
           inputRevision: assignment.input_revision,
-          commitSha: input.commitSha,
-          baseSha: input.baseSha,
+          commitSha,
+          baseSha,
           changedScope: input.changedScope,
           limitations: input.limitations,
         });
@@ -2269,8 +2271,8 @@ export class ControllerCore {
             assignment.attempt,
             assignment.generation,
             assignment.input_revision,
-            input.commitSha.toLowerCase(),
-            input.baseSha.toLowerCase(),
+            commitSha,
+            baseSha,
             canonicalJson(input.changedScope),
             canonicalJson(input.limitations),
             reportHash,

@@ -1783,12 +1783,45 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       {
         candidateId: "candidate-1",
         assignmentId: devAssignment.assignmentId,
-        commitSha: "a".repeat(40),
-        baseSha: "b".repeat(40),
+        commitSha: `${"A".repeat(20)}${"a".repeat(20)}`,
+        baseSha: `${"B".repeat(20)}${"b".repeat(20)}`,
         changedScope: ["src"],
         limitations: [],
       },
     );
+    const candidateDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const stored = candidateDb
+        .prepare(
+          "SELECT commit_sha, base_sha, report_hash FROM candidates WHERE project_id = ? AND candidate_id = ?",
+        )
+        .get(info.projectId, candidate.candidateId) as
+        | {
+            commit_sha: string;
+            base_sha: string;
+            report_hash: string;
+          }
+        | undefined;
+      assert.deepEqual(stored, {
+        commit_sha: "a".repeat(40),
+        base_sha: "b".repeat(40),
+        report_hash: digestJson({
+          candidateId: candidate.candidateId,
+          assignmentId: devAssignment.assignmentId,
+          attempt: devAssignment.attempt,
+          generation: devAssignment.generation,
+          inputRevision: core.inputRevision,
+          commitSha: "a".repeat(40),
+          baseSha: "b".repeat(40),
+          changedScope: ["src"],
+          limitations: [],
+        }),
+      });
+    } finally {
+      candidateDb.close();
+    }
     core.markReady(context(core, info.ownerCredential), "verify-feature");
     const verifierAssignment = core.assignWorkItem(
       context(core, info.ownerCredential),
