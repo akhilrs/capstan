@@ -98,6 +98,7 @@ const previousEnv = Object.fromEntries(["CAPSTAN_BRIDGE_ROLE", "CAPSTAN_BRIDGE_S
 let receiptSequence = 0;
 let sendCount = 0;
 let failDispatchError = false;
+let failAcceptedAck = false;
 let failSubmitted = false;
 let failWorking = false;
 let failCompleted = false;
@@ -136,6 +137,10 @@ const receiptServer = net.createServer((socket) => {
     fs.writeSync(journalFd, bytes);
     fs.fsyncSync(journalFd);
     receiptSequence = entry.sequence;
+    if (entry.type === "accepted" && failAcceptedAck) {
+      socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected lost accepted acknowledgement" })}\n`);
+      return;
+    }
     socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
     if (entry.type === "dispatch_error") dispatchErrorSeen();
   });
@@ -166,6 +171,8 @@ try {
     "an abort response cannot imply acceptance for a missing command");
   const terminalSocketResponse = await requestAndKeepWriteSideOpen(bridgeSocket, { type: "get", commandId: "unknown-terminal-close" });
   assert.equal(terminalSocketResponse.state, "unknown");
+  const queuedRequests = Buffer.from(`${JSON.stringify({ type: "get", commandId: "queue-boundary" })}\n`.repeat(130));
+  assert.match((await rawRequest(bridgeSocket, queuedRequests)).error, /bridge request queue is full/);
 
   const maximumLine = Buffer.from(JSON.stringify({ type: "get", commandId: "wire-boundary" }));
   const maximumFrameBytes = 1_048_576;
@@ -316,6 +323,25 @@ try {
     await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
     return { socket, file };
   }
+
+  const acceptedFailure = await isolated("bridge-accepted-ack-failure");
+  const acceptedUnknown = { ...unknownCommand, commandId: "dispatch-accepted-ack-lost", assignmentId: "assignment-lost-ack" };
+  failAcceptedAck = true;
+  assert.equal((await request(acceptedFailure.socket, acceptedUnknown)).type, "error");
+  await waitForJournal(acceptedFailure.file, ["accepted"]);
+  assert.deepEqual(await request(acceptedFailure.socket, { type: "get", commandId: acceptedUnknown.commandId }),
+    { type: "ack", commandId: acceptedUnknown.commandId, durable: false, state: "unknown" });
+  assert.equal((await request(acceptedFailure.socket, acceptedUnknown)).state, "unknown");
+  assert.equal((await request(acceptedFailure.socket, afterUnknown)).type, "error", "an accepted but unacknowledged receipt still reserves the seat");
+  await handlers.get("session_shutdown")();
+  failAcceptedAck = false;
+  const recoveredAcceptedSocket = path.join(temp, "bridge-accepted-ack-recovered.sock");
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: recoveredAcceptedSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  assert.equal((await request(recoveredAcceptedSocket, afterUnknown)).type, "error", "recovered accepted receipt cannot authorize a second assignment");
+  await handlers.get("session_shutdown")();
 
   const workingFailure = await isolated("bridge-working-failure");
   const workingUnknown = { ...unknownCommand, commandId: "dispatch-working-receipt-fails", assignmentId: "assignment-6" };

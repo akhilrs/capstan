@@ -1042,6 +1042,17 @@ async function main() {
       const event = await seat.lifecycle(id, ["tool_started", "tool_completed", "completed"], LIMITS.progressMs);
       if (event.assignmentId !== assignmentId || event.attempt !== 1 || event.generation !== 1) throw new Error(`Progress event identity mismatch: ${JSON.stringify(event)}`);
       if (!event.evidenceRef || typeof event.evidenceRef.journal !== "string" || !Number.isSafeInteger(event.evidenceRef.sequence)) throw new Error(`Progress event lacks immutable evidence identity: ${JSON.stringify(event)}`);
+      if (event.type === "completed") verifyCompletionFrame(event, spec);
+      else {
+        if (event.evidenceRef.journal !== "/workspace/.home/bridge.jsonl" || event.evidenceRef.sequence < 1)
+          throw new Error("Progress tool receipt is not in the controller-owned journal");
+        const entry = recoverControllerJournal(spec.journal, role)[event.evidenceRef.sequence - 1];
+        if (!entry || entry.sequence !== event.evidenceRef.sequence || entry.type !== event.type
+          || entry.commandId !== id || entry.assignmentId !== assignmentId || entry.attempt !== 1 || entry.generation !== 1
+          || entry.toolName !== event.toolName || entry.toolCallId !== event.toolCallId
+          || JSON.stringify(entry.evidenceRef) !== JSON.stringify(event.evidenceRef))
+          throw new Error("Progress tool event does not match fsynced controller journal");
+      }
       const ref = `${event.evidenceRef.journal}:${event.evidenceRef.sequence}`;
       if (seenEvidence.has(ref)) throw new Error(`Progress event reused evidence identity ${ref}`);
       seenEvidence.add(ref);

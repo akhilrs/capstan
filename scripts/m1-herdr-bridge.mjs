@@ -184,7 +184,7 @@ export default function herdrBridge(pi) {
     const row = rows.get(commandId);
     if (!row) return { type: "ack", commandId, durable: false, state: "unknown" };
     if (row.state === "completed") return { type: "completed", ...identity(row.accepted), reply: row.result, evidenceRef: row.evidenceRef };
-    return { type: "ack", commandId, durable: true, state: row.state };
+    return { type: "ack", commandId, durable: row.durable !== false, state: row.state };
   }
 
   function sameCommand(row, request) {
@@ -232,10 +232,15 @@ export default function herdrBridge(pi) {
     }
     if (active) fail("another assignment is active");
     if (!ctxRef?.isIdle?.()) fail("OMP session is not idle for a new assignment");
-    const accepted = await append("accepted", { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt });
-    const newRow = { accepted, state: "acknowledged" };
+    const pending = { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt };
+    const newRow = { accepted: pending, state: "unknown", durable: false };
     rows.set(request.commandId, newRow);
-    active = { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt };
+    active = { ...pending, dispatchFailed: true };
+    const accepted = await append("accepted", { ...pending });
+    newRow.accepted = accepted;
+    newRow.state = "acknowledged";
+    newRow.durable = true;
+    active.dispatchFailed = false;
     // Return only after durable receipt. Dispatch is initiated after response is queued by caller.
     return { type: "ack", commandId: request.commandId, durable: true, state: "acknowledged", _dispatch: true };
   }
@@ -247,7 +252,7 @@ export default function herdrBridge(pi) {
   function reply(socket, payload, closeAfterReply = false) {
     const { _dispatch, ...wire } = payload;
     const frame = `${JSON.stringify(wire)}\n`;
-    if (!socket.destroyed) {
+    if (!socket.destroyed && !socket.writableEnded) {
       if (closeAfterReply) socket.end(frame, () => socket.destroy());
       else socket.write(frame);
     }
@@ -327,6 +332,7 @@ export default function herdrBridge(pi) {
             socket.end(`${JSON.stringify({ type: "error", error: "bridge request queue is full" })}\n`);
             return;
           }
+          pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
             const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
             if (liveDispatch) {

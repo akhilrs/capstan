@@ -13,6 +13,7 @@ assert.throws(() => {
   malformed.push(Buffer.from([0xc3, 0x28, 0x0a]));
 }, /encoded data|encoding/i);
 assert.throws(() => createReceiptFrameBuffer(32).push(Buffer.from("{}\n{}\n")), /multiple receipt frames/);
+assert.throws(() => createReceiptFrameBuffer(32).push(Buffer.from([0xef, 0xbb, 0xbf, 0x7b, 0x7d, 0x0a])), /BOM/);
 const splitFrames = createReceiptFrameBuffer(32);
 assert.equal(splitFrames.push(Buffer.from("{}\n")), "{}");
 assert.throws(() => splitFrames.push(Buffer.from("{}\n")), /multiple receipt frames/);

@@ -21,6 +21,8 @@ export function createReceiptFrameBuffer(maxBytes) {
       if (newline !== chunk.length - 1) throw new Error("multiple receipt frames on one connection");
       complete = true;
       const bytes = Buffer.concat(chunks, byteLength);
+      if (byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)
+        throw new Error("receipt frame has an initial UTF-8 BOM");
       chunks = [];
       return decoder.decode(bytes);
     },
