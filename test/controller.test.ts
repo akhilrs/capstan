@@ -1,0 +1,639 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { test } from "node:test";
+import { AuthorizationError } from "../src/controller/auth.js";
+import {
+  CandidateBindingError,
+  ControllerCore,
+  IdempotencyConflictError,
+  InputRevisionConflictError,
+  MutationConflictError,
+  ReadinessError,
+  StateVersionConflictError,
+} from "../src/controller/core.js";
+import type {
+  BridgeReceipt,
+  InitialProject,
+  MutationContext,
+  Role,
+} from "../src/controller/types.js";
+
+const inputKinds = [
+  "project_config",
+  "task_brief",
+  "acceptance_criteria",
+  "policy",
+  "plan",
+] as const;
+
+function project(): InitialProject {
+  const identity = crypto.randomUUID().replaceAll("-", "");
+  return {
+    projectId: `p${identity}`,
+    name: "Controller test project",
+    ownerCredential: `owner-${identity}`,
+    initialInputs: inputKinds.map((kind) => ({
+      kind,
+      content:
+        kind === "acceptance_criteria"
+          ? ["criterion-one"]
+          : { kind, revision: 1 },
+    })),
+  };
+}
+
+interface Fixture {
+  readonly core: ControllerCore;
+  readonly stateDirectory: string;
+  readonly project: InitialProject;
+}
+
+async function fixture(): Promise<Fixture> {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-controller-test-"),
+  );
+  const info = project();
+  const core = await ControllerCore.open({ stateDirectory, project: info });
+  return { core, stateDirectory, project: info };
+}
+
+function context(
+  core: ControllerCore,
+  credential: string,
+  prefix = "test",
+): MutationContext {
+  const id = `${prefix}-${crypto.randomUUID()}`;
+  return {
+    credential,
+    requestId: `req-${id}`,
+    idempotencyKey: `idem-${id}`,
+    expectedVersion: core.stateVersion,
+    inputRevision: core.inputRevision,
+  };
+}
+
+function cleanup(value: Fixture): void {
+  value.core.close();
+  rmSync(value.stateDirectory, { recursive: true, force: true });
+}
+
+function receipt(
+  identity: {
+    commandId: string;
+    assignmentId: string;
+    attempt: number;
+    generation: number;
+  },
+  sequence: number,
+  type: BridgeReceipt["type"],
+  role = "Developer",
+): BridgeReceipt {
+  return {
+    ...identity,
+    sequence,
+    type,
+    role,
+    timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
+    ...(type === "completed"
+      ? {
+          reply: "work finished",
+          evidenceRef: { journal: "/tmp/journal", sequence },
+        }
+      : {}),
+  };
+}
+
+async function addSeatAndActor(
+  core: ControllerCore,
+  ownerCredential: string,
+  role: Exclude<Role, "operator" | "controller">,
+  suffix: string,
+) {
+  const seatId = `${suffix}-seat`;
+  const credential = `${suffix}-credential-${crypto.randomUUID()}`;
+  core.createSeat(context(core, ownerCredential), {
+    seatId,
+    name: `${role} ${suffix}`,
+    role,
+  });
+  core.createActor(context(core, ownerCredential), {
+    displayName: `${role} ${suffix}`,
+    role,
+    credential,
+    seatId,
+  });
+  return { seatId, credential };
+}
+
+test("private project ownership survives restart and ambiguous delivery is reconciled fail-closed", async () => {
+  const value = await fixture();
+  const { core, stateDirectory, project: info } = value;
+  try {
+    assert.equal(statSync(stateDirectory).mode & 0o077, 0);
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "dev",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "restart-work",
+      title: "Restart work",
+      description: "Bounded task",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "restart-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "restart-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    assert.equal(core.commandState(assignment.commandId), "attempting");
+    await assert.rejects(
+      ControllerCore.open({ stateDirectory, project: info }),
+      /lock|ownership|already/i,
+    );
+    const coreModule = new URL("../src/controller/core.js", import.meta.url)
+      .href;
+    const childSource = `
+      import { ControllerCore } from ${JSON.stringify(coreModule)};
+      const options = ${JSON.stringify({ stateDirectory, project: info })};
+      try {
+        const second = await ControllerCore.open(options);
+        second.close();
+        process.exitCode = 4;
+      } catch (error) {
+        if (/lock|ownership|held|owns/i.test(String(error?.message))) process.exitCode = 0;
+        else { console.error(error); process.exitCode = 5; }
+      }
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", childSource],
+      {
+        encoding: "utf8",
+      },
+    );
+    assert.equal(child.status, 0, child.stderr);
+    core.close();
+    const reopened = await ControllerCore.open({
+      stateDirectory,
+      project: info,
+    });
+    try {
+      assert.equal(reopened.commandState(assignment.commandId), "unknown");
+      assert.equal(reopened.readiness("restart-work").ready, false);
+      assert.match(
+        reopened.readiness("restart-work").reasons.join(";"),
+        /blocked|assignment/i,
+      );
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(stateDirectory, { recursive: true, force: true });
+  }
+});
+test("operator requests can invoke controller-only run terminal transitions", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "completed-run-work",
+      title: "Run transition",
+      description: "Readiness must observe the terminal run state",
+      requiredRole: "Developer",
+    });
+    assert.deepEqual(
+      core.transitionRun(context(core, info.ownerCredential), "completed"),
+      { state: "completed" },
+    );
+    assert.match(
+      core.readiness("completed-run-work").reasons.join(";"),
+      /run is completed/,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("mutation replay is exact and conflicting idempotency-key reuse has no side effect", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const request = context(core, info.ownerCredential, "work-create");
+    const input = {
+      workItemId: "replay-work",
+      title: "Original",
+      description: "unchanged",
+      requiredRole: "Developer" as const,
+    };
+    const first = core.createWorkItem(request, input);
+    const versionAfterFirst = core.stateVersion;
+    assert.deepEqual(core.createWorkItem(request, input), first);
+    assert.equal(core.stateVersion, versionAfterFirst);
+    assert.throws(
+      () =>
+        core.createWorkItem(request, { ...input, title: "Conflicting reuse" }),
+      IdempotencyConflictError,
+    );
+    const staleVersionId = crypto.randomUUID();
+    assert.throws(
+      () =>
+        core.createWorkItem(
+          {
+            ...request,
+            requestId: `req-${staleVersionId}`,
+            idempotencyKey: `idem-${staleVersionId}`,
+          },
+          { ...input, workItemId: "stale-version-work" },
+        ),
+      StateVersionConflictError,
+    );
+    assert.equal(core.stateVersion, versionAfterFirst);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("readiness, bridge receipt sequence, containment, candidate binding, and acceptance are enforced", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(core, info.ownerCredential, "PM", "pm");
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "dev",
+    );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "feature",
+      title: "Feature",
+      description: "Implement safely",
+      requiredRole: "Developer",
+    });
+    assert.equal(core.readiness("feature").ready, true);
+    core.markReady(context(core, info.ownerCredential), "feature");
+    const devAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "feature",
+      developer.seatId,
+    );
+    assert.throws(
+      () =>
+        core.recordInputRevision(context(core, info.ownerCredential), {
+          kind: "policy",
+          content: { mustNotRaceWithActiveWorker: true },
+        }),
+      MutationConflictError,
+    );
+    assert.equal(core.inputRevision, devAssignment.inputRevision);
+    const identity = {
+      commandId: devAssignment.commandId,
+      assignmentId: devAssignment.assignmentId,
+      attempt: devAssignment.attempt,
+      generation: devAssignment.generation,
+    };
+    const firstDelivery = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    const retriedDelivery = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    assert.equal(firstDelivery.ordinal, 1);
+    assert.equal(retriedDelivery.ordinal, 2);
+    assert.deepEqual(retriedDelivery.payload, firstDelivery.payload);
+    assert.equal(
+      core.recordBridgeReceipt(receipt(identity, 1, "accepted")).duplicate,
+      false,
+    );
+    const submitted = receipt(identity, 2, "submitted");
+    assert.equal(core.recordBridgeReceipt(submitted).duplicate, false);
+    assert.equal(
+      core.commandState(identity.commandId),
+      "acknowledged",
+      "submitted marks send, not worker completion",
+    );
+    assert.equal(
+      core.recordBridgeReceipt(receipt(identity, 3, "working")).duplicate,
+      false,
+    );
+    assert.equal(
+      core.recordBridgeReceipt(receipt(identity, 4, "completed")).duplicate,
+      false,
+    );
+    assert.equal(core.commandState(identity.commandId), "completed");
+    assert.equal(core.readiness("feature").ready, false);
+    assert.equal(
+      core.recordBridgeReceipt(receipt(identity, 4, "completed")).duplicate,
+      true,
+    );
+    assert.throws(
+      () => core.recordBridgeReceipt({ ...submitted, sequence: 4 }),
+      MutationConflictError,
+    );
+
+    const verifier = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Verifier",
+      "verify",
+    );
+    const verifierTask = core.createWorkItem(context(core, pm.credential), {
+      workItemId: "verify-feature",
+      title: "Verify feature",
+      description: "Test submitted candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: "feature",
+    });
+    assert.equal(verifierTask.workItemId, "verify-feature");
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      devAssignment.assignmentId,
+      "supervisor-confirmed:dev",
+    );
+    const candidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "candidate-1",
+        assignmentId: devAssignment.assignmentId,
+        commitSha: "a".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src"],
+        limitations: [],
+      },
+    );
+    core.markReady(context(core, info.ownerCredential), "verify-feature");
+    const verifierAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "verify-feature",
+      verifier.seatId,
+      candidate.candidateId,
+    );
+    const verifierIdentity = {
+      commandId: verifierAssignment.commandId,
+      assignmentId: verifierAssignment.assignmentId,
+      attempt: verifierAssignment.attempt,
+      generation: verifierAssignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      verifierIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 1, "accepted", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 2, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 3, "working", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 4, "completed", "Verifier"),
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      verifierAssignment.assignmentId,
+      "supervisor-confirmed:verifier",
+    );
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          verifierAssignment.assignmentId,
+          {
+            evidenceId: "wrong-candidate-evidence",
+            candidateId: "different-candidate",
+            criterion: "criterion-one",
+            passed: true,
+            artifactRef: "artifact://test/wrong-candidate",
+          },
+        ),
+      CandidateBindingError,
+    );
+    core.recordEvidence(
+      context(core, verifier.credential),
+      verifierAssignment.assignmentId,
+      {
+        evidenceId: "evidence-1",
+        candidateId: candidate.candidateId,
+        criterion: "criterion-one",
+        passed: true,
+        artifactRef: "artifact://test/evidence-1",
+      },
+    );
+    assert.equal(
+      core.acceptCandidate(
+        context(core, info.ownerCredential),
+        "feature",
+        candidate.candidateId,
+      ).acceptedCandidateId,
+      candidate.candidateId,
+    );
+    assert.equal(core.readiness("feature").ready, false);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("stale inputs, unauthorized controller actions, and candidate evidence are rejected", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(core, info.ownerCredential, "PM", "pm");
+    await addSeatAndActor(core, info.ownerCredential, "Developer", "ready-dev");
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "prerequisite",
+      title: "Prerequisite",
+      description: "Must be accepted first",
+      requiredRole: "Developer",
+    });
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "dependent",
+      title: "Dependent",
+      description: "Waits for prerequisite",
+      requiredRole: "Developer",
+    });
+    core.addDependency(
+      context(core, pm.credential),
+      "dependent",
+      "prerequisite",
+    );
+    assert.equal(core.readiness("dependent").ready, false);
+    assert.match(
+      core.readiness("dependent").reasons.join(";"),
+      /dependency prerequisite is not accepted/,
+    );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "needs-verifier",
+      title: "Needs verifier seat",
+      description: "Cannot start without a verifier",
+      requiredRole: "Verifier",
+    });
+    assert.match(
+      core.readiness("needs-verifier").reasons.join(";"),
+      /no active Verifier seat/,
+    );
+    core.createWorkItem(context(core, pm.credential), {
+      workItemId: "stale-work",
+      title: "Stale",
+      description: "Needs new binding",
+      requiredRole: "Developer",
+    });
+    const revision = core.inputRevision;
+    const beforeRevision = context(core, info.ownerCredential, "old-input");
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "policy",
+      content: { revision: 2 },
+    });
+    const staleInputId = crypto.randomUUID();
+    assert.throws(
+      () =>
+        core.createWorkItem(
+          {
+            ...beforeRevision,
+            requestId: `req-${staleInputId}`,
+            idempotencyKey: `idem-${staleInputId}`,
+            expectedVersion: core.stateVersion,
+          },
+          {
+            workItemId: "stale-input-work",
+            title: "Stale input",
+            description: "Must not be created against an old revision",
+            requiredRole: "Developer",
+          },
+        ),
+      InputRevisionConflictError,
+    );
+    assert.throws(
+      () => core.markReady(context(core, info.ownerCredential), "stale-work"),
+      ReadinessError,
+    );
+    assert.equal(
+      core.rebindWorkItem(context(core, info.ownerCredential), "stale-work")
+        .inputRevision,
+      revision + 1,
+    );
+
+    const actor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "unauthorized",
+    );
+    assert.throws(
+      () => core.markReady(context(core, actor.credential), "stale-work"),
+      AuthorizationError,
+    );
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, actor.credential),
+          "missing-assignment",
+          {
+            evidenceId: "no-evidence",
+            candidateId: "missing-candidate",
+            criterion: "criterion-one",
+            passed: true,
+            artifactRef: "artifact://none",
+          },
+        ),
+      AuthorizationError,
+    );
+    assert.throws(
+      () =>
+        core.acceptCandidate(
+          context(core, info.ownerCredential),
+          "stale-work",
+          "missing-candidate",
+        ),
+      CandidateBindingError,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("worker replacement limits count consumed recovery records", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "dev",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "recover-work",
+      title: "Recover",
+      description: "One replacement only",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "recover-work");
+    const original = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "recover-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      original.commandId,
+    );
+    const originalIdentity = {
+      commandId: original.commandId,
+      assignmentId: original.assignmentId,
+      attempt: original.attempt,
+      generation: original.generation,
+    };
+    core.recordBridgeReceipt(receipt(originalIdentity, 1, "aborted"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      original.assignmentId,
+      "operator-proof:original",
+    );
+    const first = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "recovery-1",
+      workItemId: "recover-work",
+      assignmentId: original.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "Replace contained worker",
+    });
+    assert.equal(first.outcome, "pending");
+    core.markReady(context(core, info.ownerCredential), "recover-work");
+    const replacement = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "recover-work",
+      developer.seatId,
+      undefined,
+      first.recoveryId,
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      replacement.assignmentId,
+      "operator-proof:replacement",
+    );
+    const second = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "recovery-2",
+      workItemId: "recover-work",
+      assignmentId: replacement.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "Limit must prevent another replacement",
+    });
+    assert.equal(second.outcome, "blocked");
+    assert.equal(second.limit, 1);
+  } finally {
+    cleanup(value);
+  }
+});

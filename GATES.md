@@ -17,3 +17,5 @@
 | m1-egress-tls-syntax | `node --check scripts/m1-egress-tls.mjs` |
 | m1-receipt-frame-syntax | `node --check scripts/m1-receipt-frame.mjs` |
 | m1-native-helpers-syntax | `cc -std=c11 -O2 -Wall -Wextra -Werror -fsyntax-only scripts/m1-receipt-peer.c scripts/m1-egress-kill.c` |
+| pm5-controller-quality-and-regression | `npm run check` |
+| pm5-m1-adapter-integration | `node --test scripts/m1-controller-adapter.test.mjs` |

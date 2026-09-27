@@ -4,7 +4,17 @@
 
 **Product:** Capstan. **CLI executable:** `cstan`. **Project directory:** `../capstan/`, separate from claw8.
 
-**Status:** Proposed implementation plan, not a claim of working software. This document authorizes neither installation nor implementation by itself. The user has requested an MVP plan to test the feasibility of the larger product.
+**Status:** PM-5 implements the durable controller core. It does not complete the MVP or the four-seat workflow; PM-6 owns operator-facing workflow and local IPC/CLI integration.
+
+### PM-5 implementation boundary
+
+PM-5 adds a TypeScript/SQLite controller core, transactional migrations, explicit transition/capability tables, versioned and idempotent mutation handling, assignment-bound input snapshots, an outbox/receipt ledger, candidate-bound evidence, runtime/finding/recovery records, and an adapter for the existing M1 Unix-socket bridge. The adapter waits for the controller to commit the exact M1 `accepted` receipt before sending the separate `start` request. M1 `submitted` means the prompt was sent; `working` means the assigned agent started; `completed` is the worker report that moves Developer/Verifier work to `awaiting_verification`.
+
+While the controller remains alive, an `attempting` command may be retried by writing a new immutable outbox attempt and resending the same command ID and payload; the M1 bridge deduplicates that identity. After restart, ambiguous delivery or worker state becomes `unknown` and is not blindly resent. Project inputs cannot be revised while work is running/awaiting verification or any assignment authority is active/uncertain.
+
+The controller takes a nonblocking kernel `flock` on a project lock inode. This prevents a second cooperating controller while the lock path remains intact; same-user unlink/replacement of that path is explicitly outside the accepted trust boundary (DEC-004). Do not describe this as protection from hostile same-user processes or an independent Herdr caller.
+
+On restart, commands whose delivery or worker report was active are not resent. The core revokes their assignment state with authority `unknown` and blocks the work item. `confirmContainment` records an operator-requested controller attestation and its `proofRef`; it does not independently verify PID, process-tree, container, or cgroup containment. Recovery remains blocked until an operator supplies that attestation and stays within the configured recovery cap.
 
 Build a small but real autonomous delivery loop using separate OMP sessions, Herdr hosting, a durable controller, and a dedicated Workflow Supervisor. Demonstrate that the team can complete a bounded software task, preserve ownership through failures, and recover from a repetitive failure without losing its next action.
 

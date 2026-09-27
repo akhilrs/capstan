@@ -1,0 +1,341 @@
+import fs from "node:fs";
+import net from "node:net";
+import path from "node:path";
+import { TextDecoder } from "node:util";
+import { ControllerError, type ControllerCore } from "./core.js";
+import type { BridgeReceipt, MutationContext } from "./types.js";
+
+const MAX_FRAME_BYTES = 1_048_576;
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+type BridgeResponse = Record<string, unknown>;
+
+function protocolError(message: string): Error {
+  return new ControllerError(`M1 bridge protocol: ${message}`);
+}
+
+function sameSocket(
+  stat: fs.Stats,
+  identity: { dev: number; ino: number },
+): boolean {
+  return (
+    stat.isSocket() && stat.dev === identity.dev && stat.ino === identity.ino
+  );
+}
+
+async function clearStaleSocket(socketPath: string): Promise<void> {
+  let initial: fs.Stats;
+  try {
+    initial = fs.lstatSync(socketPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return;
+    throw error;
+  }
+  if (!initial.isSocket())
+    throw new ControllerError(
+      "M1 bridge socket path exists and is not a Unix socket",
+    );
+  const completion = Promise.withResolvers<void>();
+  const probe = net.createConnection(socketPath);
+  probe.once("connect", () => {
+    probe.destroy();
+    completion.reject(
+      new ControllerError("M1 bridge receipt socket is already served"),
+    );
+  });
+  probe.once("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "ECONNREFUSED" && error.code !== "ENOENT") {
+      completion.reject(error);
+      return;
+    }
+    try {
+      const current = fs.lstatSync(socketPath);
+      if (!sameSocket(current, { dev: initial.dev, ino: initial.ino })) {
+        completion.reject(
+          new ControllerError(
+            "M1 bridge socket path changed during stale-socket check",
+          ),
+        );
+        return;
+      }
+      fs.unlinkSync(socketPath);
+      completion.resolve();
+    } catch (unlinkError) {
+      if (
+        unlinkError instanceof Error &&
+        "code" in unlinkError &&
+        unlinkError.code === "ENOENT"
+      )
+        completion.resolve();
+      else completion.reject(unlinkError);
+    }
+  });
+  await completion.promise;
+}
+
+function validateSocketPath(socketPath: string): string {
+  if (!path.isAbsolute(socketPath) || Buffer.byteLength(socketPath) >= 104) {
+    throw new TypeError(
+      "Unix socket path must be absolute and shorter than 104 bytes",
+    );
+  }
+  return path.resolve(socketPath);
+}
+
+function frameObject(buffer: Buffer): BridgeResponse {
+  if (
+    buffer.length === 0 ||
+    buffer.length > MAX_FRAME_BYTES ||
+    buffer[buffer.length - 1] !== 0x0a
+  ) {
+    throw protocolError("expected one newline-terminated frame");
+  }
+  const newline = buffer.indexOf(0x0a);
+  if (newline !== buffer.length - 1 || newline === 0)
+    throw protocolError("multiple or empty frames are forbidden");
+  let value: unknown;
+  try {
+    value = JSON.parse(decoder.decode(buffer.subarray(0, newline)));
+  } catch {
+    throw protocolError("frame is not valid UTF-8 JSON");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw protocolError("frame must be a JSON object");
+  return value as BridgeResponse;
+}
+
+function requestBridge(
+  socketPath: string,
+  request: BridgeResponse,
+): Promise<BridgeResponse> {
+  const completion = Promise.withResolvers<BridgeResponse>();
+  const { promise, resolve, reject } = completion;
+  const socket = net.createConnection(socketPath);
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let settled = false;
+  const fail = (error: Error): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    socket.destroy();
+    reject(error);
+  };
+  const timer = setTimeout(
+    () => fail(protocolError("bridge response timed out")),
+    15_000,
+  );
+  socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+  socket.on("data", (chunk: Buffer) => {
+    if (settled) return;
+    size += chunk.length;
+    chunks.push(chunk);
+    if (chunk.includes(0x0a)) {
+      try {
+        const data = Buffer.concat(chunks, size);
+        const newline = data.indexOf(0x0a);
+        if (newline + 1 > MAX_FRAME_BYTES) {
+          fail(protocolError("bridge response exceeds the frame limit"));
+          return;
+        }
+        const response = frameObject(data.subarray(0, newline + 1));
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(response);
+      } catch (error) {
+        fail(
+          error instanceof Error
+            ? error
+            : protocolError("invalid bridge response"),
+        );
+      }
+      return;
+    }
+    if (size > MAX_FRAME_BYTES) {
+      fail(protocolError("bridge response exceeds the frame limit"));
+    }
+  });
+  socket.once("error", (error) => fail(error));
+  socket.once("close", () => {
+    if (!settled)
+      fail(
+        protocolError(
+          `bridge closed without a ${String(request.type)} response`,
+        ),
+      );
+  });
+  return promise;
+}
+
+export class M1BridgeAdapter {
+  readonly #core: ControllerCore;
+  readonly #receiptSocketPath: string;
+  readonly #bridgeSocketPath: string;
+  #server: net.Server | undefined;
+  #socketIdentity: { dev: number; ino: number } | undefined;
+
+  constructor(
+    core: ControllerCore,
+    receiptSocketPath: string,
+    bridgeSocketPath: string,
+  ) {
+    this.#core = core;
+    this.#receiptSocketPath = validateSocketPath(receiptSocketPath);
+    this.#bridgeSocketPath = validateSocketPath(bridgeSocketPath);
+    if (this.#receiptSocketPath === this.#bridgeSocketPath)
+      throw new TypeError("receipt and command sockets must differ");
+  }
+
+  async listen(): Promise<void> {
+    if (this.#server)
+      throw new ControllerError(
+        "M1 bridge receipt server is already listening",
+      );
+    const directory = fs.lstatSync(path.dirname(this.#receiptSocketPath));
+    if (
+      !directory.isDirectory() ||
+      directory.isSymbolicLink() ||
+      (process.getuid && directory.uid !== process.getuid()) ||
+      (directory.mode & 0o077) !== 0
+    ) {
+      throw new ControllerError(
+        "M1 bridge receipt socket requires a private directory owned by the current user",
+      );
+    }
+    await clearStaleSocket(this.#receiptSocketPath);
+    const server = net.createServer((socket) => this.#receiveReceipt(socket));
+    this.#server = server;
+    try {
+      const listening = Promise.withResolvers<void>();
+      server.once("error", listening.reject);
+      server.listen(this.#receiptSocketPath, listening.resolve);
+      await listening.promise;
+      fs.chmodSync(this.#receiptSocketPath, 0o600);
+      const stat = fs.lstatSync(this.#receiptSocketPath);
+      if (!stat.isSocket())
+        throw new ControllerError(
+          "M1 bridge receipt path did not create a Unix socket",
+        );
+      this.#socketIdentity = { dev: stat.dev, ino: stat.ino };
+    } catch (error) {
+      this.#server = undefined;
+      server.close();
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    const server = this.#server;
+    this.#server = undefined;
+    if (server) {
+      const closed = Promise.withResolvers<void>();
+      server.close((error) =>
+        error ? closed.reject(error) : closed.resolve(),
+      );
+      await closed.promise;
+    }
+    const identity = this.#socketIdentity;
+    this.#socketIdentity = undefined;
+    if (!identity) return;
+    try {
+      if (sameSocket(fs.lstatSync(this.#receiptSocketPath), identity))
+        fs.unlinkSync(this.#receiptSocketPath);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      )
+        throw error;
+    }
+  }
+
+  async dispatchAndStart(
+    context: MutationContext,
+    commandId: string,
+  ): Promise<{ readonly commandId: string; readonly state: string }> {
+    let state = this.#core.commandState(commandId);
+    if (state === "queued" || state === "attempting") {
+      const delivery = this.#core.beginCommandDelivery(context, commandId);
+      const payload = delivery.payload;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload))
+        throw protocolError("durable command payload is not an object");
+      const response = await requestBridge(
+        this.#bridgeSocketPath,
+        payload as BridgeResponse,
+      );
+      if (
+        response.type !== "ack" ||
+        response.commandId !== commandId ||
+        response.durable !== true ||
+        response.state !== "acknowledged" ||
+        this.#core.commandState(commandId) !== "acknowledged"
+      ) {
+        throw protocolError(
+          "dispatch was not durably acknowledged by both bridge and controller",
+        );
+      }
+      state = "acknowledged";
+    }
+    if (state === "started" || state === "completed")
+      return { commandId, state };
+    if (state !== "acknowledged")
+      throw protocolError(
+        `command is ${state ?? "missing"}; automatic dispatch is unsafe`,
+      );
+    const response = await requestBridge(this.#bridgeSocketPath, {
+      type: "start",
+      commandId,
+    });
+    if (
+      response.type !== "started" ||
+      response.commandId !== commandId ||
+      response.durable !== true ||
+      response.state !== "acknowledged"
+    ) {
+      throw protocolError(
+        "bridge did not durably accept the explicit start request",
+      );
+    }
+    return {
+      commandId,
+      state: this.#core.commandState(commandId) ?? "unknown",
+    };
+  }
+
+  #receiveReceipt(socket: net.Socket): void {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let overflow = false;
+    socket.setTimeout(15_000, () => socket.destroy());
+    socket.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_FRAME_BYTES) {
+        overflow = true;
+        socket.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    socket.once("end", () => {
+      try {
+        if (overflow)
+          throw protocolError("receipt frame exceeds the frame limit");
+        const value = frameObject(Buffer.concat(chunks, size));
+        const result = this.#core.recordBridgeReceipt(value as BridgeReceipt);
+        if (!socket.destroyed)
+          socket.end(
+            `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate })}\n`,
+          );
+      } catch (error) {
+        if (!socket.destroyed)
+          socket.end(
+            `${JSON.stringify({ ok: false, error: String(error instanceof Error ? error.message : error).slice(0, 2048) })}\n`,
+          );
+      }
+    });
+    socket.on("error", () => socket.destroy());
+  }
+}
