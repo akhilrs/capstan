@@ -1504,11 +1504,70 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
           "pending",
         );
       } else {
+        const recovery = core.recordRecovery(
+          context(core, info.ownerCredential),
+          {
+            recoveryId: "replace-pm-report",
+            workItemId,
+            assignmentId: assignment.assignmentId,
+            recoveryType: "implementation_remediation",
+            reason: "Replace the original PM report",
+          },
+        );
+        assert.equal(recovery.outcome, "pending");
+        core.markReady(context(core, info.ownerCredential), workItemId);
+        const replacement = core.assignWorkItem(
+          context(core, info.ownerCredential),
+          workItemId,
+          worker.seatId,
+          undefined,
+          recovery.recoveryId,
+        );
+        const replacementIdentity = {
+          commandId: replacement.commandId,
+          assignmentId: replacement.assignmentId,
+          attempt: replacement.attempt,
+          generation: replacement.generation,
+        };
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          replacement.commandId,
+        );
+        core.recordBridgeReceipt(
+          receipt(replacementIdentity, 5, "accepted", role),
+        );
+        core.beginCommandStart(
+          context(core, info.ownerCredential),
+          replacement.commandId,
+        );
+        core.recordBridgeReceipt(
+          receipt(replacementIdentity, 6, "submitted", role),
+        );
+        core.recordBridgeReceipt(
+          receipt(replacementIdentity, 7, "working", role),
+        );
+        core.recordBridgeReceipt(
+          receipt(replacementIdentity, 8, "completed", role),
+        );
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          replacement.assignmentId,
+          "containment:replacement-pm",
+        );
+        assert.throws(
+          () =>
+            core.acceptNonCandidateReport(
+              context(core, info.ownerCredential),
+              workItemId,
+              assignment.assignmentId,
+            ),
+          MutationConflictError,
+        );
         assert.deepEqual(
           core.acceptNonCandidateReport(
             context(core, info.ownerCredential),
             workItemId,
-            assignment.assignmentId,
+            replacement.assignmentId,
           ),
           { acceptedWorkItemId: workItemId },
         );

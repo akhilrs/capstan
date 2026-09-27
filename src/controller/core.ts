@@ -3050,6 +3050,15 @@ export class ControllerCore {
                 AND r.generation = at.generation AND r.role = s.role
                 AND r.receipt_type = 'completed'
             )
+            AND at.generation = (
+              SELECT MAX(latest_attempt.generation)
+              FROM assignments latest
+              JOIN assignment_attempts latest_attempt
+                ON latest_attempt.project_id = latest.project_id
+                AND latest_attempt.assignment_id = latest.assignment_id
+              WHERE latest.project_id = a.project_id
+                AND latest.work_item_id = a.work_item_id
+            )
         `,
           )
           .get(this.#projectId, workItemId, assignmentId) as
