@@ -554,6 +554,13 @@ export class ControllerCore {
       "project:inputs:write",
       input,
       (actor) => {
+        const run = this.#database
+          .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+          .get(this.#projectId) as { state: string };
+        if (run.state !== "active")
+          throw new MutationConflictError(
+            `project inputs cannot change while run is ${run.state}`,
+          );
         const unfinishedWork = this.#database
           .prepare(
             `

@@ -1246,6 +1246,17 @@ test("operator requests can invoke controller-only terminal run transitions", as
       ReadinessError,
     );
     assert.equal(core.stateVersion, versionBeforeCreation);
+    const inputRevisionBefore = core.inputRevision;
+    assert.throws(
+      () =>
+        core.recordInputRevision(context(core, info.ownerCredential), {
+          kind: "policy",
+          content: { afterCompletion: true },
+        }),
+      /run is completed/,
+    );
+    assert.equal(core.inputRevision, inputRevisionBefore);
+    assert.equal(core.stateVersion, versionBeforeCreation);
     assert.throws(
       () => core.readiness("post-terminal-work"),
       /work item does not exist/,
