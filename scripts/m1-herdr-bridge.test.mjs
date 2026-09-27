@@ -290,6 +290,10 @@ try {
   const sendsWhileWorking = sendCount;
   assert.equal((await request(workingBridgeSocket, workingCommand)).state, "working", "duplicate dispatch must expose working state");
   assert.equal(sendCount, sendsWhileWorking, "duplicate dispatch while working must not resend");
+  assert.deepEqual(await request(workingBridgeSocket, { type: "start", commandId: workingCommand.commandId }),
+    { type: "started", commandId: workingCommand.commandId, durable: true, state: "working" },
+    "repeated start must reconcile the already-authorized dispatch");
+  assert.equal(sendCount, sendsWhileWorking, "repeated start must not submit a second time");
   handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "CURRENT_RESULT" }] } });
   await handlers.get("agent_end")({ willContinue: false, messages: [{ role: "assistant", content: [{ type: "text", text: "STALE_RESULT" }] }] });
   const completedRows = await waitForJournal(workingJournal, ["accepted", "submitted", "working", "completed"]);

@@ -216,10 +216,15 @@ export default function herdrBridge(pi) {
   async function handle(request) {
     if (request.type === "start") {
       const row = rows.get(request.commandId);
-      if (!row || active?.commandId !== request.commandId || row.state !== "acknowledged" || active.startRequested)
-        return snapshot(request.commandId);
-      active.startRequested = true;
-      return { type: "started", commandId: request.commandId, durable: true, state: "acknowledged", _dispatch: true };
+      if (!row) return snapshot(request.commandId);
+      if (row.startRequested) {
+        if (row.state === "unknown") return snapshot(request.commandId);
+        if (row.state === "completed") return snapshot(request.commandId);
+        return { type: "started", commandId: request.commandId, durable: true, state: row.state };
+      }
+      if (active?.commandId !== request.commandId || row.state !== "acknowledged") return snapshot(request.commandId);
+      row.startRequested = true;
+      return { type: "started", commandId: request.commandId, durable: true, state: row.state, _dispatch: true };
     }
     if (request.type === "get") return snapshot(request.commandId);
     const row = rows.get(request.commandId);
