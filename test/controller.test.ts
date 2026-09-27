@@ -314,6 +314,22 @@ test("actor credentials are issued by the controller and replay exactly", async 
     const actor = core.createActor(request, input);
     assert.equal(actor.credential.length >= 32, true);
     assert.deepEqual(core.createActor(request, input), actor);
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+      { readonly: true },
+    );
+    try {
+      const stored = db
+        .prepare(
+          "SELECT result_json FROM mutation_requests WHERE project_id = ? AND idempotency_key = ?",
+        )
+        .get(info.projectId, request.idempotencyKey) as {
+        result_json: string;
+      };
+      assert.equal(stored.result_json.includes(actor.credential), false);
+    } finally {
+      db.close();
+    }
     assert.throws(
       () =>
         core.createActor(context(core, info.ownerCredential), {
@@ -352,6 +368,16 @@ test("actor credentials are issued by the controller and replay exactly", async 
       description: "The actor uses its returned credential",
       requiredRole: "Developer",
     });
+    core.close();
+    const reopened = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    try {
+      assert.deepEqual(reopened.createActor(request, input), actor);
+    } finally {
+      reopened.close();
+    }
   } finally {
     cleanup(value);
   }
@@ -1076,6 +1102,17 @@ test("unstarted command authority cannot be marked contained", async () => {
       generation: assignment.generation,
     };
     core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    const versionBeforeAcknowledgedContainment = core.stateVersion;
+    assert.throws(
+      () =>
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          assignment.assignmentId,
+          "proof:acknowledged-but-never-started",
+        ),
+      /assignment has no running or uncertain authority to contain/,
+    );
+    assert.equal(core.stateVersion, versionBeforeAcknowledgedContainment);
     core.close();
     const reopened = await ControllerCore.open({
       stateDirectory: value.stateDirectory,
@@ -2516,18 +2553,20 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       devAssignment.assignmentId,
       "supervisor-confirmed:dev",
     );
-    assert.throws(
-      () =>
-        core.submitCandidate(context(core, developer.credential), {
-          candidateId: "",
-          assignmentId: devAssignment.assignmentId,
-          commitSha: "c".repeat(40),
-          baseSha: "b".repeat(40),
-          changedScope: ["src"],
-          limitations: [],
-        }),
-      CandidateBindingError,
-    );
+    for (const candidateId of ["", " \t "]) {
+      assert.throws(
+        () =>
+          core.submitCandidate(context(core, developer.credential), {
+            candidateId,
+            assignmentId: devAssignment.assignmentId,
+            commitSha: "c".repeat(40),
+            baseSha: "b".repeat(40),
+            changedScope: ["src"],
+            limitations: [],
+          }),
+        CandidateBindingError,
+      );
+    }
     const candidate = core.submitCandidate(
       context(core, developer.credential),
       {

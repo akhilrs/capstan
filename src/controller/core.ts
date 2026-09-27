@@ -1,4 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -94,6 +100,62 @@ function acceptanceCriteriaFromContent(content: unknown): readonly string[] {
   return criteria;
 }
 
+function actorResultKey(credential: string, projectId: string): Buffer {
+  return createHmac("sha256", credential)
+    .update("capstan:actor.create:result:v1:")
+    .update(projectId)
+    .digest();
+}
+
+function encryptActorResult(
+  result: unknown,
+  credential: string,
+  projectId: string,
+  requestHash: string,
+): string {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv(
+    "aes-256-gcm",
+    actorResultKey(credential, projectId),
+    nonce,
+  );
+  cipher.setAAD(Buffer.from(requestHash, "hex"));
+  const ciphertext = Buffer.concat([
+    cipher.update(canonicalJson(result), "utf8"),
+    cipher.final(),
+  ]);
+  return canonicalJson({
+    nonce: nonce.toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    tag: cipher.getAuthTag().toString("base64url"),
+  });
+}
+
+function decryptActorResult(
+  resultJson: string,
+  credential: string,
+  projectId: string,
+  requestHash: string,
+): unknown {
+  const result = JSON.parse(resultJson) as {
+    nonce: string;
+    ciphertext: string;
+    tag: string;
+  };
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    actorResultKey(credential, projectId),
+    Buffer.from(result.nonce, "base64url"),
+  );
+  decipher.setAAD(Buffer.from(requestHash, "hex"));
+  decipher.setAuthTag(Buffer.from(result.tag, "base64url"));
+  return JSON.parse(
+    Buffer.concat([
+      decipher.update(Buffer.from(result.ciphertext, "base64url")),
+      decipher.final(),
+    ]).toString("utf8"),
+  );
+}
 interface MutationEvent {
   readonly entityType: string;
   readonly entityId: string;
@@ -2350,7 +2412,7 @@ export class ControllerCore {
       (actor) => {
         if (
           actor.role !== "Developer" ||
-          input.candidateId.length === 0 ||
+          input.candidateId.trim().length === 0 ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.commitSha) ||
           !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(input.baseSha) ||
           !Array.isArray(input.changedScope) ||
@@ -4800,7 +4862,16 @@ export class ControllerCore {
             "idempotency key was reused with different request content or actor",
           );
         }
-        const value = JSON.parse(existing.result_json) as T;
+        const value = (
+          action === "actor.create"
+            ? decryptActorResult(
+                existing.result_json,
+                context.credential,
+                this.#projectId,
+                requestHash,
+              )
+            : JSON.parse(existing.result_json)
+        ) as T;
         this.#database.exec("COMMIT");
         return value;
       }
@@ -4888,7 +4959,14 @@ export class ControllerCore {
           context.requestId,
           actor.actorId,
           requestHash,
-          canonicalJson(output.value),
+          action === "actor.create"
+            ? encryptActorResult(
+                output.value,
+                context.credential,
+                this.#projectId,
+                requestHash,
+              )
+            : canonicalJson(output.value),
           now,
         );
       this.#database.exec("COMMIT");
