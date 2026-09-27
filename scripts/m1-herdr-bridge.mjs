@@ -206,7 +206,7 @@ export default function herdrBridge(pi) {
       if (typeof value.prompt !== "string" || !value.prompt.trim() || byteLength(value.prompt) > MAX_PROMPT_BYTES || Buffer.from(value.prompt, "utf8").toString("utf8") !== value.prompt) fail("invalid prompt");
       return { type: "dispatch", commandId, assignmentId, attempt, generation, prompt: value.prompt };
     }
-    if (value.type === "get" || value.type === "abort") {
+    if (value.type === "get" || value.type === "abort" || value.type === "start") {
       if (Object.keys(value).some((key) => !["type", "commandId"].includes(key))) fail("unexpected request field");
       return { type: value.type, commandId: validId(value.commandId, "commandId") };
     }
@@ -214,6 +214,13 @@ export default function herdrBridge(pi) {
   }
 
   async function handle(request) {
+    if (request.type === "start") {
+      const row = rows.get(request.commandId);
+      if (!row || active?.commandId !== request.commandId || row.state !== "acknowledged" || active.startRequested)
+        return snapshot(request.commandId);
+      active.startRequested = true;
+      return { type: "started", commandId: request.commandId, durable: true, state: "acknowledged", _dispatch: true };
+    }
     if (request.type === "get") return snapshot(request.commandId);
     const row = rows.get(request.commandId);
     if (request.type === "abort") {
@@ -238,14 +245,14 @@ export default function herdrBridge(pi) {
     const pending = { commandId: request.commandId, assignmentId: request.assignmentId, attempt: request.attempt, generation: request.generation, prompt: request.prompt };
     const newRow = { accepted: pending, state: "unknown", durable: false };
     rows.set(request.commandId, newRow);
-    active = { ...pending, dispatchFailed: true };
+    active = { ...pending, dispatchFailed: true, startRequested: false };
     const accepted = await append("accepted", { ...pending });
     newRow.accepted = accepted;
     newRow.state = "acknowledged";
     newRow.durable = true;
     active.dispatchFailed = false;
-    // Return only after durable receipt. Dispatch is initiated after response is queued by caller.
-    return { type: "ack", commandId: request.commandId, durable: true, state: "acknowledged", _dispatch: true };
+    // Dispatch requires an explicit controller confirmation after it receives this durable acknowledgement.
+    return { type: "ack", commandId: request.commandId, durable: true, state: "acknowledged" };
   }
 
   function identity(command) {
@@ -331,9 +338,14 @@ export default function herdrBridge(pi) {
     let pending = Buffer.alloc(0);
     socket.on("data", (chunk) => {
       if (failed) return;
+      if (awaitingResponse) {
+        failed = true;
+        socket.destroy();
+        return;
+      }
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       const firstNewline = pending.indexOf(0x0a);
-      if (firstNewline >= 0 && pending.indexOf(0x0a, firstNewline + 1) >= 0) {
+      if (firstNewline >= 0 && (pending.length > firstNewline + 1 || pending.indexOf(0x0a, firstNewline + 1) >= 0)) {
         failed = true;
         socket.end(`${JSON.stringify({ type: "error", error: "pipelined bridge requests are forbidden" })}\n`);
         return;
@@ -361,7 +373,7 @@ export default function herdrBridge(pi) {
           awaitingResponse = true;
           pendingRequests += 1;
           enqueue(() => handle(normalized)).then((response) => {
-            const liveDispatch = normalized.type === "dispatch" && active?.commandId === normalized.commandId && !active.dispatchFailed;
+            const liveDispatch = ["dispatch", "start"].includes(normalized.type) && active?.commandId === normalized.commandId && !active.dispatchFailed;
             if (liveDispatch) {
               let subscribers = commandSockets.get(normalized.commandId);
               if (!subscribers) commandSockets.set(normalized.commandId, (subscribers = new Set()));

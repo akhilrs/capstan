@@ -17,14 +17,26 @@ function request(socketPath, message) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
     let pending = Buffer.alloc(0);
+    let response;
+    let awaitingStart = false;
     socket.once("connect", () => socket.write(`${JSON.stringify(message)}\n`));
     socket.on("data", (chunk) => {
       pending = Buffer.concat([pending, chunk]);
       const newline = pending.indexOf(0x0a);
       if (newline < 0) return;
-      const response = JSON.parse(pending.subarray(0, newline).toString("utf8"));
-      socket.end();
-      resolve(response);
+      const frame = JSON.parse(pending.subarray(0, newline).toString("utf8"));
+      pending = pending.subarray(newline + 1);
+      if (message.type === "dispatch" && frame.type === "ack" && frame.state === "acknowledged") {
+        response = frame;
+        awaitingStart = true;
+        socket.write(`${JSON.stringify({ type: "start", commandId: message.commandId })}\n`);
+      } else if (awaitingStart && frame.type === "started") {
+        socket.end();
+        resolve(response);
+      } else {
+        socket.end();
+        resolve(frame);
+      }
     });
     socket.once("error", reject);
   });
@@ -48,14 +60,20 @@ function rawRequest(socketPath, bytes) {
 function requestFrames(socketPath, message, count) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
+    const sendsBeforeDispatch = sendCount;
     let pending = "";
     const frames = [];
     socket.once("connect", () => socket.write(`${JSON.stringify(message)}\n`));
     socket.on("data", (chunk) => {
       pending += chunk.toString("utf8");
       for (let at; (at = pending.indexOf("\n")) !== -1;) {
-        frames.push(JSON.parse(pending.slice(0, at)));
+        const frame = JSON.parse(pending.slice(0, at));
+        frames.push(frame);
         pending = pending.slice(at + 1);
+        if (message.type === "dispatch" && frame.type === "ack" && frame.state === "acknowledged") {
+          assert.equal(sendCount, sendsBeforeDispatch, "the controller must explicitly confirm the durable ack before dispatch");
+          socket.write(`${JSON.stringify({ type: "start", commandId: message.commandId })}\n`);
+        }
         if (frames.length === count) { socket.destroy(); resolve(frames); return; }
       }
     });
@@ -123,7 +141,7 @@ const receiptServer = net.createServer((socket) => {
     const newline = pending.indexOf(0x0a);
     if (newline < 0) return;
     const entry = JSON.parse(pending.subarray(0, newline).toString("utf8"));
-    assert.equal(entry.sequence, receiptSequence + 1);
+    assert.equal(entry.sequence, receiptSequence + 1, JSON.stringify({ entry, receiptSequence }));
     if (entry.type === "dispatch_error" && failDispatchError) {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected durable receipt failure" })}\n`);
       dispatchErrorSeen();
@@ -148,8 +166,8 @@ const receiptServer = net.createServer((socket) => {
       socket.end(`${JSON.stringify({ ok: false, sequence: receiptSequence, error: "injected lost accepted acknowledgement" })}\n`);
       return;
     }
-    socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
     if (entry.type === "dispatch_error") dispatchErrorSeen();
+    socket.end(`${JSON.stringify({ ok: true, sequence: receiptSequence })}\n`);
   });
 });
 
@@ -196,8 +214,9 @@ try {
   const oversizedFrame = Buffer.concat([maximumLine, Buffer.alloc(maximumFrameBytes - maximumLine.length, 0x20), Buffer.from("\n")]);
   assert.equal((await rawRequest(bridgeSocket, oversizedFrame)).type, "error", "the delimiter counts toward the wire-frame limit");
   const command = { type: "dispatch", commandId: "dispatch-fails", assignmentId: "assignment-1", attempt: 1, generation: 1, prompt: "run once" };
-  const [initialAck, dispatchUnknown] = await requestFrames(bridgeSocket, command, 2);
+  const [initialAck, dispatchStarted, dispatchUnknown] = await requestFrames(bridgeSocket, command, 3);
   assert.deepEqual(initialAck, { type: "ack", commandId: command.commandId, durable: true, state: "acknowledged" });
+  assert.deepEqual(dispatchStarted, { type: "started", commandId: command.commandId, durable: true, state: "acknowledged" });
   assert.equal(dispatchUnknown.type, "unknown", "the waiting subscriber must learn that dispatch became uncertain");
   await dispatchErrorDurable;
   let status;
@@ -208,6 +227,8 @@ try {
   }
   assert.equal(status.state, "unknown", "durably failed dispatch must not remain acknowledged");
   assert.equal((await request(bridgeSocket, command)).state, "unknown", "duplicate dispatch must reconcile, not resend");
+  assert.equal((await request(bridgeSocket, { type: "start", commandId: command.commandId })).state, "unknown");
+  assert.equal(sendCount, 1, "a repeated start confirmation must never submit twice");
   assert.equal((await request(bridgeSocket, { type: "abort", commandId: command.commandId })).type, "error");
   assert.equal(sendCount, 1, "the failed dispatch must never be blindly executed a second time");
   assert.deepEqual(fs.readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line).type), ["accepted", "dispatch_error"]);
@@ -400,8 +421,9 @@ try {
   failSubmitted = true;
   const submittedUnknown = { ...unknownCommand, commandId: "dispatch-submitted-receipt-fails", assignmentId: "assignment-9" };
   const sendsBeforeSubmittedFailure = sendCount;
-  const [submittedAck, submittedNotice] = await requestFrames(submittedFailure.socket, submittedUnknown, 2);
+  const [submittedAck, submittedStarted, submittedNotice] = await requestFrames(submittedFailure.socket, submittedUnknown, 3);
   assert.equal(submittedAck.state, "acknowledged");
+  assert.equal(submittedStarted.type, "started");
   assert.equal(submittedNotice.type, "unknown");
   await waitForJournal(submittedFailure.file, ["accepted"]);
   assert.equal(sendCount, sendsBeforeSubmittedFailure + 1);
@@ -434,27 +456,27 @@ try {
 
   const noReplyFailure = await isolated("bridge-no-reply-receipt-failure");
   const noReplyCommand = { ...unknownCommand, commandId: "no-reply-receipt-fails", assignmentId: "assignment-13" };
-  const notices = requestFrames(noReplyFailure.socket, noReplyCommand, 3);
+  const notices = requestFrames(noReplyFailure.socket, noReplyCommand, 4);
   await waitForJournal(noReplyFailure.file, ["accepted", "submitted"]);
   await handlers.get("agent_start")();
   await waitForJournal(noReplyFailure.file, ["accepted", "submitted", "working"]);
   failNoReply = true;
   handlers.get("turn_end")({ message: { role: "assistant", content: [] } });
   await handlers.get("agent_end")({ willContinue: false, messages: [] });
-  assert.deepEqual((await notices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "unknown"]);
+  assert.deepEqual((await notices).map((frame) => frame.state ?? frame.type), ["acknowledged", "acknowledged", "working", "unknown"]);
   assert.equal((await request(noReplyFailure.socket, { type: "get", commandId: noReplyCommand.commandId })).state, "unknown");
   assert.equal((await request(noReplyFailure.socket, afterRevocation)).type, "error");
   await handlers.get("session_shutdown")();
 
   const toolStartFailure = await isolated("bridge-tool-start-failure");
   const toolStartCommand = { ...unknownCommand, commandId: "tool-start-receipt-fails", assignmentId: "assignment-15" };
-  const startNotices = requestFrames(toolStartFailure.socket, toolStartCommand, 3);
+  const startNotices = requestFrames(toolStartFailure.socket, toolStartCommand, 4);
   await waitForJournal(toolStartFailure.file, ["accepted", "submitted"]);
   await handlers.get("agent_start")();
   await waitForJournal(toolStartFailure.file, ["accepted", "submitted", "working"]);
   failToolStarted = true;
   await handlers.get("tool_execution_start")({ toolName: "bash", toolCallId: "tool-start-1" });
-  assert.deepEqual((await startNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "unknown"]);
+  assert.deepEqual((await startNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "acknowledged", "working", "unknown"]);
   assert.equal((await request(toolStartFailure.socket, { type: "get", commandId: toolStartCommand.commandId })).state, "unknown");
   await handlers.get("agent_end")({ willContinue: false, messages: [] });
   assert.equal((await request(toolStartFailure.socket, { ...toolStartCommand, commandId: "after-tool-start-failure" })).type, "error");
@@ -463,7 +485,7 @@ try {
 
   const toolEndFailure = await isolated("bridge-tool-end-failure");
   const toolEndCommand = { ...unknownCommand, commandId: "tool-end-receipt-fails", assignmentId: "assignment-16" };
-  const endNotices = requestFrames(toolEndFailure.socket, toolEndCommand, 4);
+  const endNotices = requestFrames(toolEndFailure.socket, toolEndCommand, 5);
   await waitForJournal(toolEndFailure.file, ["accepted", "submitted"]);
   await handlers.get("agent_start")();
   await waitForJournal(toolEndFailure.file, ["accepted", "submitted", "working"]);
@@ -471,7 +493,7 @@ try {
   await waitForJournal(toolEndFailure.file, ["accepted", "submitted", "working", "tool_started"]);
   failToolCompleted = true;
   await handlers.get("tool_execution_end")({ toolName: "bash", toolCallId: "tool-end-1", isError: false });
-  assert.deepEqual((await endNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "tool_started", "unknown"]);
+  assert.deepEqual((await endNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "acknowledged", "working", "tool_started", "unknown"]);
   assert.equal((await request(toolEndFailure.socket, { type: "get", commandId: toolEndCommand.commandId })).state, "unknown");
   await handlers.get("agent_end")({ willContinue: false, messages: [] });
   assert.equal((await request(toolEndFailure.socket, { ...toolEndCommand, commandId: "after-tool-end-failure" })).type, "error");
@@ -480,7 +502,7 @@ try {
 
   const unfinishedTool = await isolated("bridge-unfinished-tool");
   const unfinishedCommand = { ...unknownCommand, commandId: "agent-ended-before-tool-receipt", assignmentId: "assignment-17" };
-  const unfinishedNotices = requestFrames(unfinishedTool.socket, unfinishedCommand, 4);
+  const unfinishedNotices = requestFrames(unfinishedTool.socket, unfinishedCommand, 5);
   await waitForJournal(unfinishedTool.file, ["accepted", "submitted"]);
   await handlers.get("agent_start")();
   await waitForJournal(unfinishedTool.file, ["accepted", "submitted", "working"]);
@@ -488,7 +510,7 @@ try {
   await waitForJournal(unfinishedTool.file, ["accepted", "submitted", "working", "tool_started"]);
   handlers.get("turn_end")({ message: { role: "assistant", content: [{ type: "text", text: "MISLEADING_SUCCESS" }] } });
   await handlers.get("agent_end")({ willContinue: false, messages: [] });
-  assert.deepEqual((await unfinishedNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "working", "tool_started", "unknown"]);
+  assert.deepEqual((await unfinishedNotices).map((frame) => frame.state ?? frame.type), ["acknowledged", "acknowledged", "working", "tool_started", "unknown"]);
   assert.equal((await request(unfinishedTool.socket, { type: "get", commandId: unfinishedCommand.commandId })).state, "unknown");
   await handlers.get("session_shutdown")();
   console.log("PASS current-turn binding, ambiguous receipt failures, and fail-closed recovery");

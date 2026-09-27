@@ -751,6 +751,9 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
       send(dispatch);
       const ack = await waitFrame((x) => x.type === "ack" && x.commandId === commandId, deadlineMs);
       if (ack.durable !== true || !["acknowledged", "working", "completed"].includes(ack.state)) throw new Error(`Non-durable/invalid acknowledgement for ${commandId}`);
+      send({ type: "start", commandId });
+      const dispatchStarted = await waitFrame((x) => x.type === "started" && x.commandId === commandId, deadlineMs);
+      if (dispatchStarted.durable !== true) throw new Error(`Dispatch start was not durably authorized for ${commandId}`);
       const ackMs = monotonicMs() - started;
       record("ack_sample", { commandId, role: spec.role, assignmentId, attempt, generation, milliseconds: ackMs, durable: ack.durable, state: ack.state });
       if (ackMs > LIMITS.ackMs) throw new Error(`Acknowledgement exceeded 120s (${ackMs}ms)`);
