@@ -592,14 +592,16 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
     const untrustedBridgePeer = spawn("docker", ["exec", "--user", `${process.getuid()}:${process.getgid()}`, name,
       "/usr/local/bin/node", "-e",
       "const s=require('node:net').createConnection('/bridge/seat.sock'); s.on('connect',()=>s.write(JSON.stringify({type:'get',commandId:'untrusted-worker'})+'\\n')); s.on('data',()=>process.exit(2)); s.on('error',(error)=>process.exit(error.code==='ECONNRESET'?0:3)); s.on('close',()=>process.exit(0)); setTimeout(()=>process.exit(4),3000);"],
-    { stdio: "ignore" });
+    { stdio: ["ignore", "ignore", "pipe"] });
+    let untrustedDiagnostic = "";
+    untrustedBridgePeer.stderr.on("data", (bytes) => { untrustedDiagnostic += bytes.toString("utf8"); });
     const untrustedExit = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { untrustedBridgePeer.kill(); reject(new Error("Worker bridge-peer denial probe timed out")); }, 5_000);
       untrustedBridgePeer.once("error", (error) => { clearTimeout(timer); reject(error); });
       untrustedBridgePeer.once("exit", (code) => { clearTimeout(timer); resolve(code); });
     });
     if (untrustedExit !== 0 || statSync(spec.journal).size !== 0)
-      throw new Error("A same-UID worker process could query or stall the controller bridge");
+      throw new Error(`A same-UID worker process could query or stall the controller bridge: exit ${untrustedExit}, diagnostic ${untrustedDiagnostic.slice(0, 500)}`);
     record("worker_bridge_peer_denied", { container: name, expectedControllerPeerPid: 0 });
   } catch (error) {
     const pane = diagnosticPanes.get(name);
