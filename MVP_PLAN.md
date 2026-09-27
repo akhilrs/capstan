@@ -181,7 +181,7 @@ Send the minimum context required for the next action:
 
 - Task objective and acceptance criteria, with source revision.
 - Seat, assignment, attempt, generation, and current state.
-- Accepted dependency candidates and the exact authorized base revision.
+- Accepted dependency candidates and accepted PM/Supervisor reports, with report receipt hash and source revision.
 - Workspace, write scope, allowed operations, and policy limits.
 - Relevant artifact references and unresolved findings.
 - Expected result schema, completion conditions, and next legal actions.

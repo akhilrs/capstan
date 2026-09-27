@@ -21,13 +21,17 @@ import {
   TransitionAuthorizationError,
 } from "../src/controller/core.js";
 import { M1BridgeAdapter } from "../src/controller/m1-bridge.js";
-import { M1_MAX_PROMPT_BYTES } from "../src/controller/m1-protocol.js";
+import {
+  M1_MAX_PROMPT_BYTES,
+  M1ResponseFrameParser,
+} from "../src/controller/m1-protocol.js";
 import type {
   BridgeReceipt,
   InitialProject,
   MutationContext,
   Role,
 } from "../src/controller/types.js";
+import { digestJson } from "../src/controller/canonical.js";
 const inputKinds = [
   "project_config",
   "task_brief",
@@ -142,6 +146,39 @@ test("credential hashing rejects ill-formed UTF-16", () => {
   assert.equal(credentialHash(`${prefix}\ud83d\ude00`).length, 64);
 });
 
+test("M1 response parser buffers fragmented progress and rejects duplicates", () => {
+  const parser = new M1ResponseFrameParser();
+  const response = {
+    type: "ack",
+    commandId: "command-1",
+    durable: true,
+    state: "acknowledged",
+  };
+  const progress = {
+    type: "ack",
+    commandId: "command-1",
+    durable: true,
+    state: "working",
+  };
+  const progressLine = `${JSON.stringify(progress)}\n`;
+  const split = Math.floor(progressLine.length / 2);
+  assert.deepEqual(
+    parser.push(
+      Buffer.from(
+        `${JSON.stringify(response)}\n${progressLine.slice(0, split)}`,
+      ),
+    ),
+    [],
+  );
+  assert.deepEqual(parser.push(Buffer.from(progressLine.slice(split))), [
+    response,
+    progress,
+  ]);
+  assert.throws(
+    () => parser.push(Buffer.from(`${JSON.stringify(response)}\n`)),
+    /unexpected frame after bridge response/,
+  );
+});
 test("oversized UTF-8 M1 prompt stays ready without committing an assignment", async () => {
   const value = await fixture();
   try {
@@ -175,7 +212,7 @@ test("oversized UTF-8 M1 prompt stays ready without committing an assignment", a
     cleanup(value);
   }
 });
-test("M1 adapter rejects duplicate responses after an acknowledgement", async () => {
+test("M1 adapter rejects duplicate responses after acknowledgement", async () => {
   const value = await fixture();
   const bridgeSocket = path.join(value.stateDirectory, "bridge.sock");
   const receiptSocket = path.join(value.stateDirectory, "receipt.sock");
@@ -444,6 +481,101 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       core.readiness("uses-pm-report").reasons.join(";"),
       /dependency report-pm is bound to a stale input revision/,
     );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("assignment capsule includes accepted non-candidate report evidence", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "capsule-report-pm",
+    );
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "capsule-report-dev",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "capsule-pm-report",
+      title: "PM report",
+      description: "Return a durable report",
+      requiredRole: "PM",
+    });
+    core.markReady(context(core, info.ownerCredential), "capsule-pm-report");
+    const reportAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "capsule-pm-report",
+      pm.seatId,
+    );
+    const reportIdentity = {
+      commandId: reportAssignment.commandId,
+      assignmentId: reportAssignment.assignmentId,
+      attempt: reportAssignment.attempt,
+      generation: reportAssignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      reportIdentity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(reportIdentity, 1, "accepted", "PM"));
+    core.recordBridgeReceipt(receipt(reportIdentity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(reportIdentity, 3, "working", "PM"));
+    const completedReport = receipt(reportIdentity, 4, "completed", "PM");
+    core.recordBridgeReceipt(completedReport);
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      reportAssignment.assignmentId,
+      "containment:capsule-report",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "capsule-pm-report",
+      reportAssignment.assignmentId,
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "capsule-report-dependent",
+      title: "Use the accepted report",
+      description: "The worker needs the accepted report contents",
+      requiredRole: "Developer",
+    });
+    core.addDependency(
+      context(core, info.ownerCredential),
+      "capsule-report-dependent",
+      "capsule-pm-report",
+    );
+    core.markReady(
+      context(core, info.ownerCredential),
+      "capsule-report-dependent",
+    );
+    const dependentAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "capsule-report-dependent",
+      developer.seatId,
+    );
+    const dispatch = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      dependentAssignment.commandId,
+    );
+    const payload = dispatch.payload as { prompt: string };
+    const capsule = JSON.parse(payload.prompt) as {
+      dependencies: Array<Record<string, unknown>>;
+    };
+    assert.deepEqual(capsule.dependencies, [
+      {
+        workItemId: "capsule-pm-report",
+        candidateId: null,
+        inputRevision: core.inputRevision,
+        report: completedReport,
+        reportHash: digestJson(completedReport),
+      },
+    ]);
   } finally {
     cleanup(value);
   }

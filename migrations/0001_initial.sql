@@ -173,7 +173,7 @@ CREATE TABLE assignment_input_bindings (
   project_id TEXT NOT NULL,
   assignment_id TEXT NOT NULL,
   input_revision INTEGER NOT NULL,
-  input_kind TEXT NOT NULL CHECK (input_kind IN ('project_config', 'task_brief', 'acceptance_criteria', 'policy', 'plan', 'dependency_candidate', 'candidate')),
+  input_kind TEXT NOT NULL CHECK (input_kind IN ('project_config', 'task_brief', 'acceptance_criteria', 'policy', 'plan', 'dependency_candidate', 'dependency_report', 'candidate')),
   source_revision INTEGER NOT NULL,
   source_id TEXT NOT NULL,
   content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),

@@ -1098,19 +1098,42 @@ export class ControllerCore {
         const dependencies = this.#database
           .prepare(
             `
-        SELECT d.depends_on_work_item_id, w.accepted_candidate_id, c.input_revision, c.commit_sha, c.report_hash
+        SELECT d.depends_on_work_item_id, w.accepted_candidate_id,
+          COALESCE(c.input_revision, w.input_revision) AS input_revision,
+          c.commit_sha, c.report_hash AS candidate_report_hash,
+          report.command_id AS report_command_id, report.receipt_json AS report_json,
+          report.receipt_hash AS accepted_report_hash
         FROM dependency_edges d
         JOIN work_items w ON w.project_id = d.project_id AND w.work_item_id = d.depends_on_work_item_id
-        JOIN candidates c ON c.project_id = w.project_id AND c.candidate_id = w.accepted_candidate_id
+        LEFT JOIN candidates c ON c.project_id = w.project_id AND c.candidate_id = w.accepted_candidate_id
+        LEFT JOIN (
+          SELECT a.project_id, a.work_item_id, a.active_generation, r.command_id,
+            r.receipt_json, r.receipt_hash,
+            ROW_NUMBER() OVER (
+              PARTITION BY a.project_id, a.work_item_id ORDER BY a.active_generation DESC
+            ) AS report_rank
+          FROM assignments a
+          JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+          JOIN commands cmd ON cmd.project_id = a.project_id AND cmd.assignment_id = a.assignment_id
+            AND cmd.generation = a.active_generation AND cmd.state = 'completed'
+          JOIN command_receipts r ON r.project_id = cmd.project_id AND r.command_id = cmd.command_id
+            AND r.assignment_id = cmd.assignment_id AND r.attempt = cmd.attempt
+            AND r.generation = cmd.generation AND r.receipt_type = 'completed' AND r.role = s.role
+          WHERE a.state = 'completed' AND s.role IN ('PM', 'Supervisor')
+        ) report ON report.project_id = w.project_id AND report.work_item_id = w.work_item_id
+          AND report.report_rank = 1 AND w.accepted_candidate_id IS NULL
         WHERE d.project_id = ? AND d.work_item_id = ? ORDER BY d.depends_on_work_item_id
       `,
           )
           .all(this.#projectId, workItemId) as Array<{
           depends_on_work_item_id: string;
-          accepted_candidate_id: string;
+          accepted_candidate_id: string | null;
           input_revision: number;
-          commit_sha: string;
-          report_hash: string;
+          commit_sha: string | null;
+          candidate_report_hash: string | null;
+          report_command_id: string | null;
+          report_json: string | null;
+          accepted_report_hash: string | null;
         }>;
         const assignmentId = randomUUID();
         const commandId = randomUUID();
@@ -1142,13 +1165,36 @@ export class ControllerCore {
               JSON.parse(snapshot.content_json) as unknown,
             ]),
           ),
-          dependencies: dependencies.map((dependency) => ({
-            workItemId: dependency.depends_on_work_item_id,
-            candidateId: dependency.accepted_candidate_id,
-            inputRevision: dependency.input_revision,
-            commitSha: dependency.commit_sha,
-            reportHash: dependency.report_hash,
-          })),
+          dependencies: dependencies.map((dependency) => {
+            if (dependency.accepted_candidate_id) {
+              if (!dependency.commit_sha || !dependency.candidate_report_hash)
+                throw new ControllerError(
+                  "accepted dependency candidate evidence is missing",
+                );
+              return {
+                workItemId: dependency.depends_on_work_item_id,
+                candidateId: dependency.accepted_candidate_id,
+                inputRevision: dependency.input_revision,
+                commitSha: dependency.commit_sha,
+                reportHash: dependency.candidate_report_hash,
+              };
+            }
+            if (
+              !dependency.report_command_id ||
+              !dependency.report_json ||
+              !dependency.accepted_report_hash
+            )
+              throw new ControllerError(
+                "accepted dependency report receipt is missing",
+              );
+            return {
+              workItemId: dependency.depends_on_work_item_id,
+              candidateId: null,
+              inputRevision: dependency.input_revision,
+              report: JSON.parse(dependency.report_json) as unknown,
+              reportHash: dependency.accepted_report_hash,
+            };
+          }),
           ...(verifierCandidate
             ? {
                 candidate: {
@@ -1222,14 +1268,25 @@ export class ControllerCore {
           );
         }
         for (const dependency of dependencies) {
+          const candidateBound = dependency.accepted_candidate_id !== null;
+          const sourceId = candidateBound
+            ? dependency.accepted_candidate_id
+            : dependency.report_command_id;
+          const contentHash = candidateBound
+            ? dependency.candidate_report_hash
+            : dependency.accepted_report_hash;
+          if (!sourceId || !contentHash)
+            throw new ControllerError(
+              "accepted dependency source evidence is missing",
+            );
           bindInput.run(
             this.#projectId,
             assignmentId,
             context.inputRevision,
-            "dependency_candidate",
+            candidateBound ? "dependency_candidate" : "dependency_report",
             dependency.input_revision,
-            dependency.accepted_candidate_id,
-            dependency.report_hash,
+            sourceId,
+            contentHash,
             now,
           );
         }
