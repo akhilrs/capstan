@@ -1390,6 +1390,21 @@ test("finding responses persist their reports and require explicit resolution ev
       "correcting",
       { correction: "Change is ready for review" },
     );
+    const responseDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      assert.deepEqual(
+        responseDb
+          .prepare(
+            "SELECT response_type FROM finding_responses WHERE project_id = ? AND finding_id = ? ORDER BY response_type",
+          )
+          .all(info.projectId, "finding-1"),
+        [{ response_type: "acknowledged" }, { response_type: "report" }],
+      );
+    } finally {
+      responseDb.close();
+    }
     const versionBeforeInvalidResolution = core.stateVersion;
     assert.throws(
       () =>

@@ -3636,7 +3636,6 @@ export class ControllerCore {
       if (
         toState === "reported" ||
         toState === "acknowledged" ||
-        toState === "correcting" ||
         toState === "disputed"
       ) {
         const responseAssignment =
@@ -3688,9 +3687,7 @@ export class ControllerCore {
             ? "report"
             : toState === "acknowledged"
               ? "acknowledged"
-              : toState === "correcting"
-                ? "correction"
-                : "dispute";
+              : "dispute";
         this.#database
           .prepare(
             `

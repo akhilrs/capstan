@@ -6,7 +6,7 @@
 
 ## Context
 
-M1 proved the selected Herdr-hosted OMP bridge and durable receipt protocol. It did not provide the transactional data model, transition authorization, request idempotency, or exclusive controller ownership required by M2. The repository has no application package or database layer. PM-5 implements this durable core; PM-6 owns the four-seat workflow, local IPC provisioning, and CLI.
+M1 proved the selected Herdr-hosted OMP bridge and durable receipt protocol. It did not provide the transactional data model, transition authorization, request idempotency, or exclusive controller ownership required by M2. The repository has no application package or database layer. PM-5 implements this durable core and a minimal identity/input-bound bridge payload; PM-6 owns the four-seat workflow, full role-specific assignment capsules (including base revision, workspace, and write scope), local IPC provisioning, and CLI.
 
 The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation`, and `prompt` fields. Controller dispatch and explicit `start` requests additionally set `singleResponse: true`; the bridge closes those request sockets after one response, while legacy callers may retain progress streaming. Its `get` and explicit `start` operations support durable acknowledgement and replay reconciliation. A controller timeout cannot prove that a command was not accepted or executed.
 
