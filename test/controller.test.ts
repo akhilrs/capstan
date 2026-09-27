@@ -452,19 +452,29 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
     adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
     await adapter.listen();
     const version = core.stateVersion;
-    assert.deepEqual(
-      await adapter.inspectUncertainCommand(assignment.commandId),
-      {
-        commandId: assignment.commandId,
-        bridgeState: "acknowledged",
-        durable: true,
-      },
+    const inspected = await adapter.inspectUncertainCommand(
+      assignment.commandId,
     );
+    assert.deepEqual(inspected, {
+      commandId: assignment.commandId,
+      bridgeState: "acknowledged",
+      durable: true,
+    });
     assert.deepEqual(requests, [
       { type: "get", commandId: assignment.commandId },
     ]);
     assert.equal(core.stateVersion, version);
     assert.equal(core.commandState(assignment.commandId), "unknown");
+    assert.throws(
+      () =>
+        core.confirmContainment(
+          context(core, info.ownerCredential),
+          assignment.assignmentId,
+          "proof:stale-inspection",
+          inspected,
+        ),
+      /reconcile the same command/,
+    );
     assert.equal(core.readiness("inspect-unknown-work").ready, false);
     assert.deepEqual(
       await adapter.reconcilePrestartAndContain(

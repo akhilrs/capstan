@@ -362,7 +362,6 @@ export class M1BridgeAdapter {
         durable: response.durable,
       });
     }
-    M1BridgeAdapter.#verifiedSnapshots.add(snapshot);
     return snapshot;
   }
 
@@ -373,12 +372,17 @@ export class M1BridgeAdapter {
     proofRef: string,
   ): Promise<{ readonly contained: true }> {
     const snapshot = await this.inspectUncertainCommand(commandId);
-    return this.#core.confirmContainment(
-      context,
-      assignmentId,
-      proofRef,
-      snapshot,
-    );
+    M1BridgeAdapter.#verifiedSnapshots.add(snapshot);
+    try {
+      return this.#core.confirmContainment(
+        context,
+        assignmentId,
+        proofRef,
+        snapshot,
+      );
+    } finally {
+      M1BridgeAdapter.#verifiedSnapshots.delete(snapshot);
+    }
   }
 
   #receiveReceipt(socket: net.Socket): void {
