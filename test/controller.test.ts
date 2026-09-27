@@ -118,6 +118,28 @@ function cleanup(value: Fixture): void {
   value.core.close();
   rmSync(value.stateDirectory, { recursive: true, force: true });
 }
+test("project initialization rejects unusable acceptance criteria", async () => {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-invalid-criteria-"),
+  );
+  const info = project();
+  const invalidProject = {
+    ...info,
+    initialInputs: info.initialInputs.map((input) =>
+      input.kind === "acceptance_criteria"
+        ? { ...input, content: ["  "] }
+        : input,
+    ),
+  };
+  await assert.rejects(
+    ControllerCore.open({
+      stateDirectory,
+      project: invalidProject,
+    }),
+    /acceptance criteria must be a non-empty list/,
+  );
+  rmSync(stateDirectory, { recursive: true, force: true });
+});
 
 function receipt(
   identity: {
@@ -1382,32 +1404,65 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
       );
       core.recordBridgeReceipt(receipt(identity, 2, "submitted", role));
       core.recordBridgeReceipt(receipt(identity, 3, "working", role));
-      const versionBeforeEmptyReport = core.stateVersion;
-      assert.throws(
-        () =>
-          core.recordBridgeReceipt({
-            ...receipt(identity, 4, "completed", role),
-            reply: "   ",
-          }),
-        /non-empty reply text/,
+      const emptyReport = suffix === "supervisor";
+      core.recordBridgeReceipt(
+        emptyReport
+          ? {
+              ...receipt(identity, 4, "completed", role),
+              reply: "   ",
+            }
+          : receipt(identity, 4, "completed", role),
       );
-      assert.equal(core.commandState(identity.commandId), "started");
-      assert.equal(core.stateVersion, versionBeforeEmptyReport);
-      core.recordBridgeReceipt(receipt(identity, 4, "completed", role));
       assert.equal(core.commandState(identity.commandId), "completed");
       core.confirmContainment(
         context(core, info.ownerCredential),
         assignment.assignmentId,
         `containment:${suffix}`,
       );
-      assert.deepEqual(
-        core.acceptNonCandidateReport(
-          context(core, info.ownerCredential),
-          workItemId,
-          assignment.assignmentId,
-        ),
-        { acceptedWorkItemId: workItemId },
-      );
+      if (emptyReport) {
+        const database = new Database(
+          path.join(value.stateDirectory, "controller.sqlite"),
+        );
+        try {
+          const completedReceipt = database
+            .prepare(
+              "SELECT sequence FROM command_receipts WHERE project_id = ? AND command_id = ? AND receipt_type = 'completed'",
+            )
+            .get(info.projectId, identity.commandId) as
+            { sequence: number } | undefined;
+          assert.equal(completedReceipt?.sequence, 4);
+        } finally {
+          database.close();
+        }
+        assert.throws(
+          () =>
+            core.acceptNonCandidateReport(
+              context(core, info.ownerCredential),
+              workItemId,
+              assignment.assignmentId,
+            ),
+          MutationConflictError,
+        );
+        assert.deepEqual(
+          core.recordRecovery(context(core, info.ownerCredential), {
+            recoveryId: "empty-supervisor-report-remediation",
+            workItemId,
+            assignmentId: assignment.assignmentId,
+            recoveryType: "implementation_remediation",
+            reason: "Replace a completed report with no acceptance evidence",
+          }).outcome,
+          "pending",
+        );
+      } else {
+        assert.deepEqual(
+          core.acceptNonCandidateReport(
+            context(core, info.ownerCredential),
+            workItemId,
+            assignment.assignmentId,
+          ),
+          { acceptedWorkItemId: workItemId },
+        );
+      }
     }
     core.createWorkItem(context(core, info.ownerCredential), {
       workItemId: "uses-pm-report",

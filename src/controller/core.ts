@@ -65,6 +65,31 @@ export class CandidateBindingError extends ControllerError {
   override readonly name = "CandidateBindingError";
 }
 
+function acceptanceCriteriaFromContent(content: unknown): readonly string[] {
+  let criteria: unknown;
+  if (Array.isArray(content)) {
+    criteria = content;
+  } else if (typeof content === "object" && content !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(content, "criteria");
+    if (descriptor && "value" in descriptor) criteria = descriptor.value;
+  }
+  if (
+    !Array.isArray(criteria) ||
+    criteria.length === 0 ||
+    criteria.some(
+      (entry: unknown) =>
+        typeof entry !== "string" || entry.trim().length === 0,
+    )
+  )
+    throw new CandidateBindingError(
+      "acceptance criteria must be a non-empty list of non-empty strings",
+    );
+  const strings = criteria as string[];
+  if (new Set(strings.map((entry) => entry.trim())).size !== strings.length)
+    throw new CandidateBindingError("acceptance criteria must be unique");
+  return strings;
+}
+
 interface MutationEvent {
   readonly entityType: string;
   readonly entityId: string;
@@ -270,6 +295,12 @@ export class ControllerCore {
         "initial project requires exactly one revision of each durable input kind",
       );
     }
+    const initialCriteria = project.initialInputs.find(
+      (input) => input.kind === "acceptance_criteria",
+    );
+    if (!initialCriteria)
+      throw new TypeError("initial acceptance criteria are required");
+    acceptanceCriteriaFromContent(initialCriteria.content);
     if (project.name.trim().length === 0)
       throw new TypeError("project name must not be empty");
     const ownerHash = credentialHash(project.ownerCredential);
@@ -554,6 +585,8 @@ export class ControllerCore {
       "project:inputs:write",
       input,
       (actor) => {
+        if (input.kind === "acceptance_criteria")
+          acceptanceCriteriaFromContent(input.content);
         const run = this.#database
           .prepare("SELECT state FROM run_controls WHERE project_id = ?")
           .get(this.#projectId) as { state: string };
@@ -1919,15 +1952,6 @@ export class ControllerCore {
       const fenced =
         command.assignment_authority !== "active" ||
         command.attempt_authority !== "active";
-      if (
-        !fenced &&
-        receipt.type === "completed" &&
-        (command.seat_role === "PM" || command.seat_role === "Supervisor") &&
-        (typeof receipt.reply !== "string" || receipt.reply.trim().length === 0)
-      )
-        throw new ControllerError(
-          "completed PM and Supervisor reports require non-empty reply text",
-        );
       const now = new Date().toISOString();
       const controller = this.#internalPrincipal();
       const receiptActor =
@@ -4500,30 +4524,7 @@ export class ControllerCore {
       throw new CandidateBindingError(
         "current acceptance criteria revision is missing",
       );
-    const content: unknown = JSON.parse(row.content_json);
-    let rawCriteria: unknown;
-    if (Array.isArray(content)) {
-      rawCriteria = content;
-    } else if (typeof content === "object" && content !== null) {
-      const descriptor = Object.getOwnPropertyDescriptor(content, "criteria");
-      if (descriptor && "value" in descriptor) rawCriteria = descriptor.value;
-    }
-    if (
-      !Array.isArray(rawCriteria) ||
-      rawCriteria.length === 0 ||
-      rawCriteria.some(
-        (entry: unknown) =>
-          typeof entry !== "string" || entry.trim().length === 0,
-      )
-    ) {
-      throw new CandidateBindingError(
-        "acceptance criteria must be a non-empty list of non-empty strings",
-      );
-    }
-    const criteria = rawCriteria as string[];
-    if (new Set(criteria.map((entry) => entry.trim())).size !== criteria.length)
-      throw new CandidateBindingError("acceptance criteria must be unique");
-    return criteria;
+    return acceptanceCriteriaFromContent(JSON.parse(row.content_json));
   }
 
   #isTransitionAllowed(
