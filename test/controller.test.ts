@@ -179,6 +179,50 @@ test("project initialization rejects sparse acceptance criteria", async () => {
   );
   rmSync(stateDirectory, { recursive: true, force: true });
 });
+test("project initialization persists the validated criteria snapshot", async () => {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-changing-criteria-"),
+  );
+  const info = project();
+  let reads = 0;
+  const changingProject = {
+    ...info,
+    initialInputs: info.initialInputs.map((input) =>
+      input.kind === "acceptance_criteria"
+        ? {
+            kind: input.kind,
+            get content() {
+              reads += 1;
+              return reads === 1 ? ["criterion"] : [];
+            },
+          }
+        : input,
+    ),
+  };
+  const core = await ControllerCore.open({
+    stateDirectory,
+    project: changingProject,
+  });
+  try {
+    assert.equal(reads, 1);
+    const db = new Database(path.join(stateDirectory, "controller.sqlite"), {
+      readonly: true,
+    });
+    try {
+      const row = db
+        .prepare(
+          "SELECT content_json FROM project_revisions WHERE project_id = ? AND kind = 'acceptance_criteria'",
+        )
+        .get(info.projectId) as { content_json: string };
+      assert.deepEqual(JSON.parse(row.content_json), ["criterion"]);
+    } finally {
+      db.close();
+    }
+  } finally {
+    core.close();
+    rmSync(stateDirectory, { recursive: true, force: true });
+  }
+});
 test("project initialization rejects ill-formed names", async () => {
   const stateDirectory = mkdtempSync(
     path.join(tmpdir(), "capstan-invalid-name-"),

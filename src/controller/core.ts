@@ -299,12 +299,6 @@ export class ControllerCore {
         "initial project requires exactly one revision of each durable input kind",
       );
     }
-    const initialCriteria = project.initialInputs.find(
-      (input) => input.kind === "acceptance_criteria",
-    );
-    if (!initialCriteria)
-      throw new TypeError("initial acceptance criteria are required");
-    acceptanceCriteriaFromContent(initialCriteria.content);
     if (project.name.trim().length === 0)
       throw new TypeError("project name must not be empty");
     canonicalJson(project.name);
@@ -354,6 +348,8 @@ export class ControllerCore {
       `);
       for (const input of project.initialInputs) {
         const content = canonicalJson(input.content);
+        if (input.kind === "acceptance_criteria")
+          acceptanceCriteriaFromContent(JSON.parse(content));
         insertRevision.run(
           project.projectId,
           input.kind,
