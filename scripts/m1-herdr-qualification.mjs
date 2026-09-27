@@ -818,12 +818,15 @@ async function createSeat(runtime, spec, { ignoreStop = false } = {}) {
         child.once("error", reject);
         child.once("exit", resolve);
       });
+      const peerDenied = exitCode === 2 && out.trim() === "" && /ECONNRESET/.test(err);
       let response;
-      try { response = JSON.parse(out.trim()); } catch { throw new Error(`Unauthorized abort produced invalid bridge response: ${out} ${err}`); }
-      if (exitCode !== 0 || response.type !== "error" || !/authorization/.test(response.error)
+      if (!peerDenied) {
+        try { response = JSON.parse(out.trim()); } catch { throw new Error(`Unauthorized abort produced invalid bridge response: ${out} ${err}`); }
+      }
+      if (!peerDenied && (exitCode !== 0 || response.type !== "error" || !/authorization/.test(response.error))
         || existsSync(abortIntentPath) || !currentDispatch)
         throw new Error(`Worker-initiated abort was not rejected: ${out} ${err}`);
-      record("worker_abort_denied", { container: name, commandId, response: response.error });
+      record("worker_abort_denied", { container: name, commandId, response: peerDenied ? "SO_PEERCRED rejected worker peer" : response.error });
     },
     async destroy() {
       const cgroupLocation = cgroupPathFor(name);
