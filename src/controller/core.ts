@@ -280,6 +280,11 @@ export class ControllerCore {
     database: Database.Database,
     project: InitialProject,
   ): void {
+    const initialInputs = project.initialInputs.map((input) => ({
+      kind: input.kind,
+      content: canonicalJson(input.content),
+    }));
+    const name = project.name;
     const requiredKinds: readonly InputKind[] = [
       "project_config",
       "task_brief",
@@ -288,20 +293,19 @@ export class ControllerCore {
       "plan",
     ];
     if (
-      project.initialInputs.length !== requiredKinds.length ||
+      initialInputs.length !== requiredKinds.length ||
       requiredKinds.some(
         (kind) =>
-          project.initialInputs.filter((input) => input.kind === kind)
-            .length !== 1,
+          initialInputs.filter((input) => input.kind === kind).length !== 1,
       )
     ) {
       throw new TypeError(
         "initial project requires exactly one revision of each durable input kind",
       );
     }
-    if (project.name.trim().length === 0)
+    if (name.trim().length === 0)
       throw new TypeError("project name must not be empty");
-    canonicalJson(project.name);
+    canonicalJson(name);
     const ownerHash = credentialHash(project.ownerCredential);
     const internalHash = credentialHash(randomBytes(32).toString("base64url"));
     const now = new Date().toISOString();
@@ -313,7 +317,7 @@ export class ControllerCore {
         .prepare(
           "INSERT INTO projects(project_id, name, current_input_revision, state_version, created_at) VALUES (?, ?, 1, 1, ?)",
         )
-        .run(project.projectId, project.name, now);
+        .run(project.projectId, name, now);
       const insertActor = database.prepare(`
         INSERT INTO actors(actor_id, project_id, display_name, role, seat_id, credential_hash, active, is_internal, created_at)
         VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?)
@@ -346,15 +350,14 @@ export class ControllerCore {
         INSERT INTO project_revisions(project_id, revision, kind, content_json, content_hash, created_by, request_id, created_at)
         VALUES (?, 1, ?, ?, ?, ?, ?, ?)
       `);
-      for (const input of project.initialInputs) {
-        const content = canonicalJson(input.content);
+      for (const input of initialInputs) {
         if (input.kind === "acceptance_criteria")
-          acceptanceCriteriaFromContent(JSON.parse(content));
+          acceptanceCriteriaFromContent(JSON.parse(input.content));
         insertRevision.run(
           project.projectId,
           input.kind,
-          content,
-          sha256(content),
+          input.content,
+          sha256(input.content),
           ownerId,
           `bootstrap:${project.projectId}`,
           now,
@@ -800,7 +803,11 @@ export class ControllerCore {
           throw new MutationConflictError(
             "dependencies can change only after every prior assignment is contained",
           );
-        if (requiredCandidateId) {
+        if (requiredCandidateId !== null) {
+          if (requiredCandidateId.trim().length === 0)
+            throw new ControllerError(
+              "required candidate ID must not be empty",
+            );
           const candidateOwner = this.#database
             .prepare(
               `
@@ -997,7 +1004,7 @@ export class ControllerCore {
           `dependency ${dependency.depends_on_work_item_id} is not accepted`,
         );
       } else if (
-        dependency.required_candidate_id &&
+        dependency.required_candidate_id !== null &&
         dependency.required_candidate_id !== dependency.accepted_candidate_id
       ) {
         reasons.push(

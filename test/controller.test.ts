@@ -185,12 +185,16 @@ test("project initialization persists the validated criteria snapshot", async ()
   );
   const info = project();
   let reads = 0;
+  let kindReads = 0;
   const changingProject = {
     ...info,
     initialInputs: info.initialInputs.map((input) =>
       input.kind === "acceptance_criteria"
         ? {
-            kind: input.kind,
+            get kind() {
+              kindReads += 1;
+              return kindReads === 1 ? input.kind : "policy";
+            },
             get content() {
               reads += 1;
               return reads === 1 ? ["criterion"] : [];
@@ -205,6 +209,7 @@ test("project initialization persists the validated criteria snapshot", async ()
   });
   try {
     assert.equal(reads, 1);
+    assert.equal(kindReads, 1);
     const db = new Database(path.join(stateDirectory, "controller.sqlite"), {
       readonly: true,
     });
@@ -2836,6 +2841,18 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       description: "Use the exact candidate selected by the planner",
       requiredRole: "Developer",
     });
+    const versionBeforeEmptyPin = core.stateVersion;
+    assert.throws(
+      () =>
+        core.addDependency(
+          context(core, pm.credential),
+          "candidate-pinned-downstream",
+          "feature",
+          "",
+        ),
+      /required candidate ID must not be empty/,
+    );
+    assert.equal(core.stateVersion, versionBeforeEmptyPin);
     core.addDependency(
       context(core, pm.credential),
       "candidate-pinned-downstream",
