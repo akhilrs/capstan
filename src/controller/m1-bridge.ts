@@ -3,9 +3,9 @@ import net from "node:net";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { ControllerError, type ControllerCore } from "./core.js";
+import { M1_MAX_FRAME_BYTES } from "./m1-protocol.js";
 import type { BridgeReceipt, MutationContext } from "./types.js";
 
-const MAX_FRAME_BYTES = 1_048_576;
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 type BridgeResponse = Record<string, unknown>;
@@ -86,7 +86,7 @@ function validateSocketPath(socketPath: string): string {
 function frameObject(buffer: Buffer): BridgeResponse {
   if (
     buffer.length === 0 ||
-    buffer.length > MAX_FRAME_BYTES ||
+    buffer.length > M1_MAX_FRAME_BYTES ||
     buffer[buffer.length - 1] !== 0x0a
   ) {
     throw protocolError("expected one newline-terminated frame");
@@ -105,10 +105,47 @@ function frameObject(buffer: Buffer): BridgeResponse {
   return value as BridgeResponse;
 }
 
+function isProgressNotification(
+  response: BridgeResponse,
+  notification: BridgeResponse,
+): boolean {
+  if (
+    (response.type !== "ack" && response.type !== "started") ||
+    notification.commandId !== response.commandId
+  )
+    return false;
+  if (notification.type === "ack")
+    return notification.durable === true && notification.state === "working";
+  return ["tool_started", "tool_completed", "completed", "unknown"].includes(
+    String(notification.type),
+  );
+}
+
+function validateTrailingNotifications(
+  data: Buffer,
+  offset: number,
+  response: BridgeResponse,
+): void {
+  while (offset < data.length) {
+    const newline = data.indexOf(0x0a, offset);
+    if (newline < 0)
+      throw protocolError("incomplete bytes after bridge response");
+    const notification = frameObject(data.subarray(offset, newline + 1));
+    if (!isProgressNotification(response, notification))
+      throw protocolError("unexpected frame after bridge response");
+    offset = newline + 1;
+  }
+}
+
 function requestBridge(
   socketPath: string,
   request: BridgeResponse,
 ): Promise<BridgeResponse> {
+  const line = `${JSON.stringify(request)}\n`;
+  if (Buffer.byteLength(line) > M1_MAX_FRAME_BYTES)
+    return Promise.reject(
+      protocolError("bridge request exceeds the frame limit"),
+    );
   const completion = Promise.withResolvers<BridgeResponse>();
   const { promise, resolve, reject } = completion;
   const socket = net.createConnection(socketPath);
@@ -126,7 +163,7 @@ function requestBridge(
     () => fail(protocolError("bridge response timed out")),
     15_000,
   );
-  socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+  socket.once("connect", () => socket.write(line));
   socket.on("data", (chunk: Buffer) => {
     if (settled) return;
     size += chunk.length;
@@ -135,11 +172,13 @@ function requestBridge(
       try {
         const data = Buffer.concat(chunks, size);
         const newline = data.indexOf(0x0a);
-        if (newline + 1 > MAX_FRAME_BYTES) {
+        if (newline + 1 > M1_MAX_FRAME_BYTES) {
           fail(protocolError("bridge response exceeds the frame limit"));
           return;
         }
         const response = frameObject(data.subarray(0, newline + 1));
+        if (newline + 1 < data.length)
+          validateTrailingNotifications(data, newline + 1, response);
         settled = true;
         clearTimeout(timer);
         socket.destroy();
@@ -153,7 +192,7 @@ function requestBridge(
       }
       return;
     }
-    if (size > MAX_FRAME_BYTES) {
+    if (size > M1_MAX_FRAME_BYTES) {
       fail(protocolError("bridge response exceeds the frame limit"));
     }
   });
@@ -312,7 +351,7 @@ export class M1BridgeAdapter {
     socket.setTimeout(15_000, () => socket.destroy());
     socket.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_FRAME_BYTES) {
+      if (size > M1_MAX_FRAME_BYTES) {
         overflow = true;
         socket.destroy();
         return;

@@ -34,6 +34,17 @@ export function credentialHash(credential: string): string {
   ) {
     throw new AuthenticationError("invalid credential");
   }
+  for (let index = 0; index < credential.length; index += 1) {
+    const codeUnit = credential.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = credential.charCodeAt(index + 1);
+      if (index + 1 >= credential.length || next < 0xdc00 || next > 0xdfff)
+        throw new AuthenticationError("invalid credential");
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      throw new AuthenticationError("invalid credential");
+    }
+  }
   return createHash("sha256").update(credential, "utf8").digest("hex");
 }
 

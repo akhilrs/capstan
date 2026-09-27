@@ -1,7 +1,7 @@
 # DEC-004: durable controller core
 
-**Task:** PM-5  
-**Status:** Accepted after plan review  
+**Task:** PM-5
+**Status:** Accepted after plan review
 **Decision:** Implement a small TypeScript controller core backed by SQLite/WAL. Use maintained Node-compatible SQLite and native file-lock bindings. Keep the controller store, transition engine, and M1 bridge adapter explicit.
 
 ## Context
@@ -17,7 +17,7 @@ The M1 bridge accepts stable `commandId`, `assignmentId`, `attempt`, `generation
 - Authenticate mutations through server-issued credentials. Resolve actor identity and capabilities from the credential store; do not accept actor or role claims from request content. Recheck current authorization before returning an idempotent replay.
 - Require a request ID, idempotency key, expected state version, input revision, and work/assignment identity where applicable. Store a canonical request digest and result. Return the saved result for exact replay and reject conflicting reuse before state advancement.
 - Encode legal state changes in explicit entity/source/target/role/capability transition rules. Readiness and candidate acceptance require current bound inputs, accepted dependencies, and candidate-bound verification evidence.
-- Persist assignment, attempt/generation, input binding, transition events, and queued command in one transaction. Persist an `attempting` outbox state before network I/O. Use a stable command ID and exact M1 payload. Persist the bridge's durable acknowledgement before sending `start`. Reconcile an uncertain attempt by querying the same command ID. Unknown or absent-after-attempt remains blocked; do not create a new command or writer from a timeout.
+- Persist assignment, attempt/generation, input binding, transition events, and queued command in one transaction. Reject a serialized prompt larger than the M1 256 KiB prompt limit or a complete request frame larger than the M1 1 MiB newline-terminated frame limit before changing assignment state. Persist an `attempting` outbox state before network I/O. Use a stable command ID and exact M1 payload. Persist the bridge's durable acknowledgement before sending `start`. Validate coalesced trailing frames as known progress notifications and reject other trailing frames. Reconcile an uncertain attempt by querying the same command ID. Unknown or absent-after-attempt remains blocked; do not create a new command or writer from a timeout.
 - Hold a kernel `flock` on the project lock inode for the mutable controller lifetime. Every mutable store open requires ownership. The operating system releases the lock when the controller exits. Cooperating controllers cannot own the same project simultaneously.
 
 ## Accepted trust boundary

@@ -10,6 +10,7 @@ import {
 } from "./auth.js";
 import { canonicalJson, digestJson } from "./canonical.js";
 import { openDatabase, resolveDatabasePath } from "./database.js";
+import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import type {
   AssignmentResult,
@@ -1168,6 +1169,14 @@ export class ControllerCore {
           prompt: canonicalJson(capsule),
         };
         const wireJson = canonicalJson(wirePayload);
+        if (Buffer.byteLength(wirePayload.prompt) > M1_MAX_PROMPT_BYTES)
+          throw new ControllerError(
+            "M1 dispatch prompt exceeds its byte limit",
+          );
+        if (Buffer.byteLength(wireJson) + 1 > M1_MAX_FRAME_BYTES)
+          throw new ControllerError(
+            "M1 dispatch request exceeds the frame limit",
+          );
         const now = new Date().toISOString();
         this.#database
           .prepare(

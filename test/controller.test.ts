@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { AuthorizationError } from "../src/controller/auth.js";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  credentialHash,
+} from "../src/controller/auth.js";
 import {
   CandidateBindingError,
   ControllerCore,
@@ -15,13 +20,14 @@ import {
   StateVersionConflictError,
   TransitionAuthorizationError,
 } from "../src/controller/core.js";
+import { M1BridgeAdapter } from "../src/controller/m1-bridge.js";
+import { M1_MAX_PROMPT_BYTES } from "../src/controller/m1-protocol.js";
 import type {
   BridgeReceipt,
   InitialProject,
   MutationContext,
   Role,
 } from "../src/controller/types.js";
-
 const inputKinds = [
   "project_config",
   "task_brief",
@@ -129,6 +135,104 @@ async function addSeatAndActor(
   return { seatId, credential };
 }
 
+test("credential hashing rejects ill-formed UTF-16", () => {
+  const prefix = "c".repeat(31);
+  assert.throws(() => credentialHash(`${prefix}\ud800`), AuthenticationError);
+  assert.throws(() => credentialHash(`${prefix}\udc00`), AuthenticationError);
+  assert.equal(credentialHash(`${prefix}\ud83d\ude00`).length, 64);
+});
+
+test("oversized UTF-8 M1 prompt stays ready without committing an assignment", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "oversized",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "oversized-work",
+      title: "Oversized dispatch",
+      description: "😀".repeat(M1_MAX_PROMPT_BYTES / 4),
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "oversized-work");
+    const version = core.stateVersion;
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "oversized-work",
+          developer.seatId,
+        ),
+      /M1 dispatch prompt exceeds its byte limit/,
+    );
+    assert.equal(core.stateVersion, version);
+    assert.equal(core.readiness("oversized-work").ready, true);
+  } finally {
+    cleanup(value);
+  }
+});
+test("M1 adapter rejects duplicate responses after an acknowledgement", async () => {
+  const value = await fixture();
+  const bridgeSocket = path.join(value.stateDirectory, "bridge.sock");
+  const receiptSocket = path.join(value.stateDirectory, "receipt.sock");
+  const server = net.createServer((socket) => {
+    socket.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString("utf8"));
+      const ack = JSON.stringify({
+        type: "ack",
+        commandId: request.commandId,
+        durable: true,
+        state: "acknowledged",
+      });
+      socket.end(`${ack}\n${ack}\n`);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(bridgeSocket, resolve);
+  });
+  let adapter: M1BridgeAdapter | undefined;
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "double-frame",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "double-frame-work",
+      title: "Double response",
+      description: "Reject an extra bridge response frame",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "double-frame-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "double-frame-work",
+      developer.seatId,
+    );
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    await adapter.listen();
+    await assert.rejects(
+      adapter.dispatchAndStart(
+        context(core, info.ownerCredential),
+        assignment.commandId,
+      ),
+      /unexpected frame after bridge response/,
+    );
+  } finally {
+    await adapter?.close();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    cleanup(value);
+  }
+});
 test("private project ownership survives restart and ambiguous delivery is reconciled fail-closed", async () => {
   const value = await fixture();
   const { core, stateDirectory, project: info } = value;
