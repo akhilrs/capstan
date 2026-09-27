@@ -2505,6 +2505,14 @@ export class ControllerCore {
             `
         SELECT a.seat_id, a.worker_actor_id, a.input_revision, a.state, a.authority_state, a.work_item_id,
           t.parent_work_item_id, t.state AS verifier_work_state,
+          a.active_generation = (
+            SELECT MAX(latest_attempt.generation)
+            FROM assignments latest
+            JOIN assignment_attempts latest_attempt
+              ON latest_attempt.project_id = latest.project_id
+              AND latest_attempt.assignment_id = latest.assignment_id
+            WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id
+          ) AS is_latest_generation,
           at.state AS attempt_state, at.authority_state AS attempt_authority, s.role
         FROM assignments a
         JOIN assignment_attempts at ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
@@ -2527,6 +2535,7 @@ export class ControllerCore {
               attempt_state: string;
               attempt_authority: string;
               role: string;
+              is_latest_generation: number;
             }
           | undefined;
         const binding = this.#database
@@ -2552,7 +2561,7 @@ export class ControllerCore {
           verifier.state !== "reported" ||
           verifier.attempt_state !== "reported" ||
           verifier.authority_state !== "contained" ||
-          verifier.attempt_authority !== "contained" ||
+          verifier.is_latest_generation !== 1 ||
           verifier.input_revision !== context.inputRevision ||
           candidate.input_revision !== context.inputRevision ||
           !binding ||
