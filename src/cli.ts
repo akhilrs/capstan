@@ -309,12 +309,18 @@ export function assertTrackedCheckoutMatchesHead(
   }
   const scan = (directory: Buffer, relative: Buffer): void => {
     for (const name of fs.readdirSync(directory, { encoding: "buffer" })) {
+      const child = Buffer.concat([directory, Buffer.from("/"), name]);
       if (
         relative.length === 0 &&
         (name.equals(Buffer.from(".git")) || name.equals(Buffer.from(".home")))
-      )
+      ) {
+        const rootEntry = fs.lstatSync(child);
+        if (!rootEntry.isDirectory() || rootEntry.isSymbolicLink())
+          throw new Error(
+            `verification checkout root entry ${name.toString("utf8")} is not a real directory`,
+          );
         continue;
-      const child = Buffer.concat([directory, Buffer.from("/"), name]);
+      }
       const childRelative =
         relative.length === 0
           ? name

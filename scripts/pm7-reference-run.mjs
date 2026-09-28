@@ -21,6 +21,8 @@ const repoRoot = path.resolve(
   "..",
 );
 const evidenceRoot = mkdtempSync(path.join(os.tmpdir(), "capstan-pm7-"));
+const fixtureManifestSha256 =
+  "691e71fdd8e0692bb93a08a5a1494af6e65e6b2570ffe754fcc1bedc2f70e834";
 chmodSync(evidenceRoot, 0o700);
 const projectRoot = path.join(evidenceRoot, "project");
 const logRoot = path.join(evidenceRoot, "logs");
@@ -87,6 +89,18 @@ function run(
   return result;
 }
 function gitAt(cwd, args, label, { allowFailure = false } = {}) {
+  const gitDirectory = path.join(cwd, ".git");
+  let repositoryArgs = [];
+  try {
+    const stat = lstatSync(gitDirectory);
+    assert(
+      stat.isDirectory() && !stat.isSymbolicLink(),
+      "Git metadata must be a real .git directory",
+    );
+    repositoryArgs = [`--git-dir=${gitDirectory}`, `--work-tree=${cwd}`];
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   const result = run(
     "git",
     [
@@ -95,6 +109,13 @@ function gitAt(cwd, args, label, { allowFailure = false } = {}) {
       "core.fsmonitor=false",
       "-c",
       "core.hooksPath=/dev/null",
+      "-c",
+      "core.attributesFile=/dev/null",
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.safecrlf=false",
+      ...repositoryArgs,
       ...args,
     ],
     {
@@ -183,6 +204,11 @@ try {
     createHash("sha256").update(revisionInput).digest("hex") ===
       task.source_revision,
     "fixture files do not match the frozen source revision",
+  );
+  assert(
+    createHash("sha256").update(manifestBytes).digest("hex") ===
+      fixtureManifestSha256,
+    "authoritative M0 fixture manifest checksum mismatch",
   );
   for (const file of task.files) {
     const bytes = Buffer.from(file.base64, "base64");
@@ -401,7 +427,13 @@ try {
   );
   const changedPaths = gitAt(
     sourceWorkspace,
-    ["diff", "--name-only", `${baseSha}..${acceptedTip}`],
+    [
+      "diff",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--name-only",
+      `${baseSha}..${acceptedTip}`,
+    ],
     "check-composed-scope",
   )
     .stdout.toString("utf8")
@@ -414,16 +446,7 @@ try {
       JSON.stringify([...task.permitted_paths].sort()),
     "accepted composed change set differs from exact permitted paths",
   );
-  assert(
-    gitAt(
-      sourceWorkspace,
-      ["status", "--porcelain"],
-      "check-source-worktree-clean",
-    )
-      .stdout.toString("utf8")
-      .trim() === "",
-    "accepted source workspace contains uncommitted changes",
-  );
+  assertTrackedCheckoutMatchesHead(sourceWorkspace, acceptedTip);
   assert(
     gitAt(
       sourceWorkspace,
@@ -488,6 +511,10 @@ try {
   for (const fixtureCase of cases) {
     const caseRoot = path.join(freshCaseRoot, fixtureCase.label);
     mkdirSync(caseRoot, { recursive: true, mode: 0o700 });
+    const home = path.join(caseRoot, ".case-home");
+    const temp = path.join(caseRoot, ".case-tmp");
+    mkdirSync(home, { mode: 0o700 });
+    mkdirSync(temp, { mode: 0o700 });
     for (const relative of trackedFixtureFiles) {
       const source = path.join(exerciseSource, relative);
       const stat = lstatSync(source);
@@ -504,6 +531,7 @@ try {
       input: fixtureCase.input,
       label: fixtureCase.label,
       timeout: 60_000,
+      childEnv: { ...env, HOME: home, TMPDIR: temp, TMP: temp, TEMP: temp },
     });
     assert(
       result.status === fixtureCase.exit && result.signal === null,
@@ -527,16 +555,7 @@ try {
         .trim() === acceptedTip,
       "accepted source SHA changed during verification",
     );
-    assert(
-      gitAt(
-        sourceWorkspace,
-        ["status", "--porcelain", "--untracked-files=all"],
-        `accepted-clean-after-${fixtureCase.label}`,
-      )
-        .stdout.toString("utf8")
-        .trim() === "",
-      "accepted source changed during fixture execution",
-    );
+    assertTrackedCheckoutMatchesHead(sourceWorkspace, acceptedTip);
   }
   assert(
     gitAt(sourceWorkspace, ["rev-parse", "HEAD"], "final-accepted-tip-check")

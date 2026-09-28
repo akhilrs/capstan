@@ -186,6 +186,37 @@ test("immutable checkout check rejects tracked links into mutable runtime home",
   }
 });
 
+test("immutable checkout check rejects a symlinked runtime home", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-home-link-"));
+  const external = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-home-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "tracked.txt"), "tracked\n");
+    git("add", "tracked.txt");
+    git("commit", "--quiet", "-m", "seed");
+    writeFileSync(path.join(cwd, ".git", "info", "exclude"), ".home/\n");
+    symlinkSync(external, path.join(cwd, ".home"));
+    assert.throws(
+      () =>
+        assertTrackedCheckoutMatchesHead(
+          cwd,
+          git("rev-parse", "--verify", "HEAD"),
+        ),
+      /root entry .home is not a real directory/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
 test("immutable checkout check ignores local replacement objects", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-replace-"));
   try {
