@@ -95,6 +95,8 @@ function fail(message: string, code = EXIT.usage): never {
   throw new Error(message);
 }
 
+const MAX_JSON_NESTING_DEPTH = 256;
+
 function parseJsonWithoutDuplicateMembers(text: string): unknown {
   const value: unknown = JSON.parse(text);
   let offset = 0;
@@ -112,9 +114,11 @@ function parseJsonWithoutDuplicateMembers(text: string): unknown {
     }
     throw new InvalidInputError("unterminated JSON string");
   };
-  const scan = (): void => {
+  const scan = (depth = 0): void => {
     whitespace();
     if (text[offset] === "{") {
+      if (depth >= MAX_JSON_NESTING_DEPTH)
+        throw new InvalidInputError("JSON nesting depth exceeds the limit");
       offset++;
       const keys = new Set<string>();
       whitespace();
@@ -125,7 +129,7 @@ function parseJsonWithoutDuplicateMembers(text: string): unknown {
         keys.add(key);
         whitespace();
         offset++;
-        scan();
+        scan(depth + 1);
         whitespace();
         if (text[offset] !== ",") break;
         offset++;
@@ -133,10 +137,12 @@ function parseJsonWithoutDuplicateMembers(text: string): unknown {
       }
       offset++;
     } else if (text[offset] === "[") {
+      if (depth >= MAX_JSON_NESTING_DEPTH)
+        throw new InvalidInputError("JSON nesting depth exceeds the limit");
       offset++;
       whitespace();
       while (text[offset] !== "]") {
-        scan();
+        scan(depth + 1);
         whitespace();
         if (text[offset] !== ",") break;
         offset++;

@@ -626,6 +626,14 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
       path.join(cwd, "missing.json"),
     );
     assert.equal(missing.status, 3, missing.stderr);
+    const deeplyNested = path.join(cwd, "deeply-nested.json");
+    writeFileSync(
+      deeplyNested,
+      `{"value":${"[".repeat(300)}0${"]".repeat(300)}}`,
+    );
+    const overNested = invoke(cwd, "run", "--brief", deeplyNested);
+    assert.equal(overNested.status, 3, overNested.stderr);
+    assert.match(overNested.stderr, /JSON nesting depth/);
     const overLimit = path.join(cwd, "over-limit.json");
     writeFileSync(
       overLimit,
