@@ -29,9 +29,11 @@ chmodSync(evidenceRoot, 0o700);
 const projectRoot = path.join(evidenceRoot, "project");
 const logRoot = path.join(evidenceRoot, "logs");
 const emptyTemplate = path.join(evidenceRoot, "empty-template");
+const dockerConfigRoot = path.join(evidenceRoot, "docker-config");
 mkdirSync(projectRoot, { mode: 0o700 });
 mkdirSync(logRoot, { mode: 0o700 });
 mkdirSync(emptyTemplate, { mode: 0o700 });
+mkdirSync(dockerConfigRoot, { mode: 0o700 });
 const manifestBytes = readFileSync(
   path.join(repoRoot, "fixtures/m0-fixtures.json"),
 );
@@ -57,6 +59,16 @@ const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_COUNT: "0",
   GIT_CONFIG_PARAMETERS: "",
+};
+const dockerEnv = {
+  PATH: "/usr/bin:/bin",
+  HOME: evidenceRoot,
+  DOCKER_HOST: "unix:///var/run/docker.sock",
+  DOCKER_CONTEXT: "default",
+  DOCKER_CONFIG: dockerConfigRoot,
+  LC_ALL: "C",
+  LANG: "C",
+  TZ: "UTC",
 };
 let logIndex = 0;
 
@@ -99,7 +111,7 @@ function run(
       const containerId = readFileSync(containerIdFile, "utf8").trim();
       if (/^[a-f0-9]{64}$/.test(containerId))
         spawnSync("docker", ["rm", "--force", containerId], {
-          env,
+          env: dockerEnv,
           timeout: 15_000,
           stdio: "ignore",
         });
@@ -598,7 +610,7 @@ try {
         input: fixtureCase.input,
         label: fixtureCase.label,
         timeout: 60_000,
-        childEnv: env,
+        childEnv: dockerEnv,
         containerIdFile,
       },
     );

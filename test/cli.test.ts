@@ -241,6 +241,18 @@ test("immutable checkout check ignores local replacement objects", () => {
       () => assertTrackedCheckoutMatchesHead(cwd, original),
       /verification checkout bytes differ/,
     );
+    const objectDirectory = process.env.GIT_OBJECT_DIRECTORY;
+    process.env.GIT_OBJECT_DIRECTORY = path.join(cwd, "missing-objects");
+    try {
+      assert.throws(
+        () => assertTrackedCheckoutMatchesHead(cwd, original),
+        /verification checkout bytes differ/,
+      );
+    } finally {
+      if (objectDirectory === undefined)
+        delete process.env.GIT_OBJECT_DIRECTORY;
+      else process.env.GIT_OBJECT_DIRECTORY = objectDirectory;
+    }
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

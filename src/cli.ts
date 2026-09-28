@@ -226,6 +226,13 @@ export function assertTrackedCheckoutMatchesHead(
   workspace: string,
   commitSha: string,
 ): void {
+  const gitEnv = { ...process.env };
+  for (const key of Object.keys(gitEnv))
+    if (key.startsWith("GIT_")) delete gitEnv[key];
+  gitEnv.GIT_CONFIG_NOSYSTEM = "1";
+  gitEnv.GIT_CONFIG_GLOBAL = "/dev/null";
+  gitEnv.GIT_CONFIG_COUNT = "0";
+  gitEnv.GIT_CONFIG_PARAMETERS = "";
   const tree = spawnSync(
     "git",
     [
@@ -243,7 +250,12 @@ export function assertTrackedCheckoutMatchesHead(
       "--full-tree",
       commitSha,
     ],
-    { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
+    {
+      encoding: "buffer",
+      timeout: 10_000,
+      maxBuffer: 32 * 1024 * 1024,
+      env: gitEnv,
+    },
   );
   if (tree.status !== 0 || (tree.stdout.length && tree.stdout.at(-1) !== 0))
     throw new Error("cannot inspect exact verification checkout tree");
