@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import net from "node:net";
 import { test } from "node:test";
 import herdrBridge from "./m1-herdr-bridge.mjs";
 import { ControllerCore } from "../dist/src/controller/core.js";
@@ -203,6 +204,23 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       .map((line) => JSON.parse(line));
     assert.equal(firstJournal.at(-1).type, "completed");
     assert.equal(firstJournal.at(-1).sequence, firstJournal.length);
+    const journalBeforeDuplicate = fs.readFileSync(journal);
+    const duplicateAck = await new Promise((resolve, reject) => {
+      const socket = net.createConnection(receiptSocket);
+      let response = "";
+      socket.once("connect", () =>
+        socket.write(`${JSON.stringify(firstJournal.at(-1))}\n`),
+      );
+      socket.on("data", (chunk) => (response += chunk.toString("utf8")));
+      socket.once("end", () => resolve(JSON.parse(response)));
+      socket.once("error", reject);
+    });
+    assert.equal(duplicateAck.duplicate, true);
+    assert.deepEqual(
+      fs.readFileSync(journal),
+      journalBeforeDuplicate,
+      "a duplicate receipt must not truncate a journal mounted into a live worker",
+    );
     core.confirmContainment(
       context(core, owner, "contain"),
       assignment.assignmentId,

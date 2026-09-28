@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -380,6 +381,31 @@ test("cstan status reads the authenticated live control socket through the execu
       credential,
       core,
     );
+    const malformedResponse = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection(
+        path.join(config.stateDirectory, "control.sock"),
+      );
+      let response = "";
+      socket.once("connect", () => {
+        socket.write(
+          Buffer.concat([
+            Buffer.from(
+              JSON.stringify({ token: credential, action: "status" }),
+            ),
+            Buffer.from([0xff, 0x0a]),
+          ]),
+        );
+      });
+      socket.on("data", (chunk) => (response += chunk.toString("utf8")));
+      socket.once("end", () => resolve(response));
+      socket.once("error", reject);
+    });
+    const malformedResult = JSON.parse(malformedResponse) as {
+      error?: string;
+      result?: unknown;
+    };
+    assert.equal(malformedResult.result, undefined);
+    assert.match(malformedResult.error ?? "", /encoded data/i);
     const status = await invokeAsync(cwd, "status", "--json");
     assert.equal(status.status, 0, status.stderr);
     const result = JSON.parse(status.stdout) as {

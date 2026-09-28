@@ -76,7 +76,11 @@ export async function listenControl(
       const frame = bytes.subarray(0, newline);
       socket.removeAllListeners("data");
       try {
-        const request = JSON.parse(frame.toString("utf8")) as Request;
+        const request = JSON.parse(
+          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+            frame,
+          ),
+        ) as Request;
         if (
           !request ||
           typeof request !== "object" ||
@@ -170,7 +174,9 @@ export async function requestControl(
       if (newline < 0) return;
       try {
         const response = JSON.parse(
-          bytes.subarray(0, newline).toString("utf8"),
+          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+            bytes.subarray(0, newline),
+          ),
         ) as { result?: unknown; error?: string };
         socket.end();
         if (response.error) reject(new Error(response.error));

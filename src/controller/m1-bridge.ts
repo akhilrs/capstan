@@ -490,8 +490,7 @@ export class M1BridgeAdapter {
         const value = frameObject(frame);
         const receipt = value as BridgeReceipt;
         const result = this.#core.recordBridgeReceipt(receipt);
-        if (result.duplicate) this.#restoreJournal();
-        else this.#appendJournal(receipt);
+        if (!result.duplicate) this.#appendJournal(receipt);
         if (!socket.destroyed)
           socket.end(
             `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
