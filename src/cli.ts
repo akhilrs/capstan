@@ -95,11 +95,7 @@ function fail(message: string, code = EXIT.usage): never {
   throw new Error(message);
 }
 
-function readJson(file: string): unknown {
-  const source = new TextDecoder("utf-8", { fatal: true }).decode(
-    fs.readFileSync(file),
-  );
-  const text = source.startsWith("\uFEFF") ? source.slice(1) : source;
+function parseJsonWithoutDuplicateMembers(text: string): unknown {
   const value: unknown = JSON.parse(text);
   let offset = 0;
   const whitespace = (): void => {
@@ -154,6 +150,15 @@ function readJson(file: string): unknown {
   };
   scan();
   return value;
+}
+function readJson(file: string): unknown {
+  const source = new TextDecoder("utf-8", {
+    fatal: true,
+    ignoreBOM: true,
+  }).decode(fs.readFileSync(file));
+  return parseJsonWithoutDuplicateMembers(
+    source.startsWith("\uFEFF") ? source.slice(1) : source,
+  );
 }
 
 function parseConfig(value: unknown): Config {
@@ -421,6 +426,36 @@ async function runCli(argv: string[]): Promise<number> {
       maxRunMs: 3_600_000,
       maxDispatches: 16,
     };
+    const gitRoot = spawnSync(
+      "git",
+      ["-C", cwd, "rev-parse", "--show-toplevel"],
+      {
+        encoding: "utf8",
+      },
+    );
+    let credentialIgnored = false;
+    if (gitRoot.status === 0 && path.resolve(gitRoot.stdout.trim()) === cwd) {
+      const exclude = spawnSync(
+        "git",
+        ["-C", cwd, "rev-parse", "--git-path", "info/exclude"],
+        { encoding: "utf8" },
+      );
+      if (exclude.status === 0) {
+        const excludePath = path.resolve(cwd, exclude.stdout.trim());
+        const existing = fs.existsSync(excludePath)
+          ? fs.readFileSync(excludePath, "utf8")
+          : "";
+        if (!existing.split(/\r?\n/).includes("/.capstan/")) {
+          fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+          fs.appendFileSync(
+            excludePath,
+            `${existing && !existing.endsWith("\n") ? "\n" : ""}/.capstan/\n`,
+            { mode: 0o600 },
+          );
+        }
+        credentialIgnored = true;
+      }
+    }
     const credential = randomBytes(32).toString("base64url");
     fs.writeFileSync(path.join(cwd, KEY_NAME), `${credential}\n`, {
       flag: "wx",
@@ -432,7 +467,7 @@ async function runCli(argv: string[]): Promise<number> {
     });
     fs.mkdirSync(config.stateDirectory, { recursive: true, mode: 0o700 });
     process.stdout.write(
-      `Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\nAdd this path to .gitignore.\n`,
+      `Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
     );
     return EXIT.ok;
   }
@@ -1213,7 +1248,9 @@ async function runCli(argv: string[]): Promise<number> {
             )
               return false;
             try {
-              const response: unknown = JSON.parse(report.reply);
+              const response: unknown = parseJsonWithoutDuplicateMembers(
+                report.reply,
+              );
               return (
                 response !== null &&
                 typeof response === "object" &&
@@ -1344,7 +1381,9 @@ async function runCli(argv: string[]): Promise<number> {
           );
         else {
           await containRuntime(pmRuntime.session, pmAssignment.assignmentId);
-          const pmReply = objectRecord(JSON.parse(pmReport.reply));
+          const pmReply = objectRecord(
+            parseJsonWithoutDuplicateMembers(pmReport.reply),
+          );
           const acceptedPlanHash = pmReply?.planHash;
           if (acceptedPlanHash === validateWorkflowPlan(plan).hash)
             core.acceptNonCandidateReport(
@@ -1409,7 +1448,7 @@ async function runCli(argv: string[]): Promise<number> {
               "Developer assignment workspace base was not recorded",
             );
           const candidateReply = objectRecord(
-            JSON.parse(developerReport.reply),
+            parseJsonWithoutDuplicateMembers(developerReport.reply),
           );
           const candidateId = candidateReply?.candidateId;
           const commitSha = candidateReply?.commitSha;
@@ -1647,7 +1686,9 @@ async function runCli(argv: string[]): Promise<number> {
             verifierRuntime.session,
             verifierAssignment.assignmentId,
           );
-          const verifierReply = objectRecord(JSON.parse(verifierReport.reply));
+          const verifierReply = objectRecord(
+            parseJsonWithoutDuplicateMembers(verifierReport.reply),
+          );
           if (
             verifierReply?.candidateId !== candidateId ||
             !Array.isArray(verifierReply.evidence) ||
@@ -1813,7 +1854,9 @@ async function runCli(argv: string[]): Promise<number> {
                   finalRuntime.session,
                   finalAssignment.assignmentId,
                 );
-                const reply = objectRecord(JSON.parse(finalReport.reply));
+                const reply = objectRecord(
+                  parseJsonWithoutDuplicateMembers(finalReport.reply),
+                );
                 if (
                   reply?.commitSha !== finalRuntime.baseSha ||
                   !Array.isArray(reply.evidence) ||
@@ -1946,7 +1989,7 @@ async function runCli(argv: string[]): Promise<number> {
                 );
               else {
                 const supervisorReply = objectRecord(
-                  JSON.parse(supervisorReport.reply),
+                  parseJsonWithoutDuplicateMembers(supervisorReport.reply),
                 );
                 if (
                   typeof supervisorReply?.observation !== "string" ||

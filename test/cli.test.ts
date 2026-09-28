@@ -72,8 +72,23 @@ function invokeAsync(
 test("cstan init creates private project-local config and status exposes four seats as JSON", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-cli-"));
   try {
+    const gitInit = spawnSync("git", ["init", "--quiet"], {
+      cwd,
+      encoding: "utf8",
+    });
+    assert.equal(gitInit.status, 0, gitInit.stderr);
     const init = invoke(cwd, "init");
     assert.equal(init.status, 0, init.stderr);
+    const ignored = spawnSync(
+      "git",
+      ["check-ignore", "-q", ".capstan/operator.key"],
+      { cwd, encoding: "utf8" },
+    );
+    assert.equal(
+      ignored.status,
+      0,
+      "operator key must be excluded from staging",
+    );
     const config = JSON.parse(
       readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
     ) as { stateDirectory: string };
@@ -651,6 +666,13 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
       })}`,
     );
     const parsedBom = invoke(cwd, "run", "--brief", validBomBrief);
+    writeFileSync(
+      validBomBrief,
+      `\uFEFF${readFileSync(validBomBrief, "utf8")}`,
+    );
+    const doubleBom = invoke(cwd, "run", "--brief", validBomBrief);
+    assert.equal(doubleBom.status, 3, doubleBom.stderr);
+    writeFileSync(validBomBrief, readFileSync(validBomBrief, "utf8").slice(1));
     assert.equal(parsedBom.status, 5, parsedBom.stderr);
     assert.match(
       parsedBom.stderr,
