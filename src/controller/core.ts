@@ -281,6 +281,8 @@ export interface ControllerStatus {
       readonly criterion: string;
       readonly passed: boolean;
       readonly artifactRef: string;
+      readonly observation: string;
+      readonly exitStatus: number;
       readonly evidenceHash: string;
     }[];
   }[];
@@ -1724,7 +1726,7 @@ export class ControllerCore {
             .prepare(
               `
             SELECT e.evidence_id, e.verifier_assignment_id, e.input_revision,
-              e.criterion, e.passed, e.artifact_ref, e.evidence_hash
+              e.criterion, e.passed, e.artifact_ref, e.observation, e.exit_status, e.evidence_hash
             FROM candidate_evidence e
             JOIN assignments va ON va.project_id = e.project_id
               AND va.assignment_id = e.verifier_assignment_id
@@ -1758,6 +1760,8 @@ export class ControllerCore {
             criterion: string;
             passed: number;
             artifact_ref: string;
+            observation: string;
+            exit_status: number;
             evidence_hash: string;
           }>;
           if (evidence.length === 0)
@@ -1773,6 +1777,8 @@ export class ControllerCore {
             criterion: entry.criterion,
             passed: entry.passed === 1,
             artifactRef: entry.artifact_ref,
+            observation: entry.observation,
+            exitStatus: entry.exit_status,
             evidenceHash: entry.evidence_hash,
           }));
         });
@@ -1964,7 +1970,7 @@ export class ControllerCore {
               dependency.final_verification === 1
                 ? (this.#database
                     .prepare(
-                      `SELECT evidence_id, criterion, passed, artifact_ref, evidence_hash
+                      `SELECT evidence_id, criterion, passed, artifact_ref, observation, exit_status, evidence_hash
                        FROM final_verification_evidence
                        WHERE project_id = ? AND work_item_id = ? AND input_revision = ?
                          AND commit_sha = ?
@@ -1980,6 +1986,8 @@ export class ControllerCore {
                     criterion: string;
                     passed: number;
                     artifact_ref: string;
+                    observation: string;
+                    exit_status: number;
                     evidence_hash: string;
                   }>)
                 : undefined;
@@ -2007,6 +2015,8 @@ export class ControllerCore {
                         criterion: entry.criterion,
                         passed: entry.passed === 1,
                         artifactRef: entry.artifact_ref,
+                        observation: entry.observation,
+                        exitStatus: entry.exit_status,
                         evidenceHash: entry.evidence_hash,
                       })),
                     },
@@ -3202,6 +3212,25 @@ export class ControllerCore {
             throw new CandidateBindingError(
               "candidate evidence requires a non-empty artifact reference",
             );
+          if (
+            typeof input.observation !== "string" ||
+            input.observation.trim().length === 0
+          )
+            throw new CandidateBindingError(
+              "candidate evidence requires a non-empty observation",
+            );
+          if (
+            !Number.isInteger(input.exitStatus) ||
+            input.exitStatus < 0 ||
+            input.exitStatus > 255
+          )
+            throw new CandidateBindingError(
+              "candidate evidence exit status must be an integer from 0 to 255",
+            );
+          if (input.passed && input.exitStatus !== 0)
+            throw new CandidateBindingError(
+              "passing evidence must have exit status 0",
+            );
           if (!criteria.includes(input.criterion))
             throw new CandidateBindingError(
               "evidence criterion is not in the current work-item acceptance criteria",
@@ -3214,14 +3243,16 @@ export class ControllerCore {
             criterion: input.criterion,
             passed: input.passed,
             artifactRef: input.artifactRef,
+            observation: input.observation,
+            exitStatus: input.exitStatus,
           });
           return { input, evidenceHash };
         });
         const insertEvidence = this.#database.prepare(
           `
         INSERT INTO candidate_evidence(project_id, evidence_id, candidate_id, verifier_assignment_id, input_revision,
-          criterion, passed, artifact_ref, evidence_hash, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          criterion, passed, artifact_ref, observation, exit_status, evidence_hash, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         );
         for (const { input, evidenceHash } of evidence) {
@@ -3234,6 +3265,8 @@ export class ControllerCore {
             input.criterion,
             input.passed ? 1 : 0,
             input.artifactRef,
+            input.observation,
+            input.exitStatus,
             evidenceHash,
             actor.actorId,
             new Date().toISOString(),
@@ -3728,6 +3761,8 @@ export class ControllerCore {
         readonly criterion: string;
         readonly passed: boolean;
         readonly artifactRef: string;
+        readonly observation: string;
+        readonly exitStatus: number;
       }[];
     },
   ): { readonly acceptedWorkItemId: string; readonly commitSha: string } {
@@ -3908,6 +3943,12 @@ export class ControllerCore {
             typeof entry.artifactRef !== "string" ||
             entry.artifactRef.trim().length === 0 ||
             entry.artifactRef.length > 2048 ||
+            typeof entry.observation !== "string" ||
+            entry.observation.trim().length === 0 ||
+            !Number.isInteger(entry.exitStatus) ||
+            entry.exitStatus < 0 ||
+            entry.exitStatus > 255 ||
+            (entry.passed && entry.exitStatus !== 0) ||
             !criteria.includes(entry.criterion) ||
             byCriterion.has(entry.criterion) ||
             evidenceIds.has(entry.evidenceId)
@@ -3950,6 +3991,8 @@ export class ControllerCore {
             !persisted ||
             reportedCriteria.has(criterion as string) ||
             observed.passed !== persisted.passed ||
+            observed.observation !== persisted.observation ||
+            observed.exitStatus !== persisted.exitStatus ||
             typeof artifactRef !== "string" ||
             !artifactRef.startsWith("/evidence/")
           )
@@ -3991,8 +4034,8 @@ export class ControllerCore {
         const insertEvidence = this.#database.prepare(
           `INSERT INTO final_verification_evidence
             (project_id, work_item_id, assignment_id, evidence_id, input_revision, commit_sha, criterion,
-             passed, artifact_ref, evidence_hash, created_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+             passed, artifact_ref, observation, exit_status, evidence_hash, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         );
         for (const criterion of criteria) {
           const entry = byCriterion.get(criterion)!;
@@ -4005,6 +4048,8 @@ export class ControllerCore {
             criterion,
             passed: true,
             artifactRef: entry.artifactRef,
+            observation: entry.observation,
+            exitStatus: entry.exitStatus,
           });
           insertEvidence.run(
             this.#projectId,
@@ -4015,6 +4060,8 @@ export class ControllerCore {
             commitSha,
             criterion,
             entry.artifactRef,
+            entry.observation,
+            entry.exitStatus,
             evidenceHash,
             actor.actorId,
             now,
@@ -5371,7 +5418,7 @@ export class ControllerCore {
       .prepare(
         `
       SELECT c.work_item_id, c.assignment_id, c.commit_sha, e.evidence_id, e.criterion,
-        e.passed, e.artifact_ref, e.evidence_hash
+        e.passed, e.artifact_ref, e.observation, e.exit_status, e.evidence_hash
       FROM final_verification_commits c
       JOIN final_verification_evidence e ON e.project_id = c.project_id
         AND e.work_item_id = c.work_item_id AND e.commit_sha = c.commit_sha
@@ -5388,6 +5435,8 @@ export class ControllerCore {
       criterion: string;
       passed: number;
       artifact_ref: string;
+      observation: string;
+      exit_status: number;
       evidence_hash: string;
     }>;
     const finalVerificationByWork = new Map<
@@ -5401,6 +5450,8 @@ export class ControllerCore {
           criterion: string;
           passed: boolean;
           artifactRef: string;
+          observation: string;
+          exitStatus: number;
           evidenceHash: string;
         }>;
       }
@@ -5421,6 +5472,8 @@ export class ControllerCore {
         criterion: row.criterion,
         passed: row.passed === 1,
         artifactRef: row.artifact_ref,
+        observation: row.observation,
+        exitStatus: row.exit_status,
         evidenceHash: row.evidence_hash,
       });
     }

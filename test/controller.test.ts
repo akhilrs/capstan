@@ -3131,6 +3131,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             criterion: "criterion-one",
             passed: true,
             artifactRef: "artifact://test/wrong-candidate",
+            observation: "checked wrong candidate",
+            exitStatus: 0,
           },
         ),
       CandidateBindingError,
@@ -3147,9 +3149,29 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             criterion: " criterion-one ",
             passed: "false" as unknown as boolean,
             artifactRef: "artifact://test/string-pass",
+            observation: "checked candidate",
+            exitStatus: 0,
           },
         ),
       CandidateBindingError,
+    );
+    assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          verifierAssignment.assignmentId,
+          {
+            evidenceId: "passing-nonzero-exit",
+            candidateId: candidate.candidateId,
+            criterion: " criterion-one ",
+            passed: true,
+            artifactRef: "artifact://test/nonzero-exit",
+            observation: "checks reported failure",
+            exitStatus: 7,
+          },
+        ),
+      /passing evidence must have exit status 0/,
     );
     assert.equal(core.stateVersion, versionBeforeInvalidEvidence);
     assert.throws(
@@ -3163,6 +3185,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             criterion: " criterion-one ",
             passed: true,
             artifactRef: " \n ",
+            observation: "checked candidate",
+            exitStatus: 0,
           },
         ),
       CandidateBindingError,
@@ -3186,6 +3210,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             criterion: " criterion-one ",
             passed: false,
             artifactRef: "artifact://test/failure",
+            observation: "check failed",
+            exitStatus: 1,
           },
         ),
       /all Verifier children must be assigned to the failing candidate/,
@@ -3206,6 +3232,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             ? "artifact://test/evidence-1"
             : "artifact://test/divergent";
         },
+        observation: "all checks passed",
+        exitStatus: 0,
       },
     );
     assert.equal(artifactReads, 1);
@@ -3219,6 +3247,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/evidence-1",
+        observation: "all checks passed",
+        exitStatus: 0,
       }),
     );
     const versionBeforeUnassignedVerifier = core.stateVersion;
@@ -3332,6 +3362,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/evidence-2",
+        observation: "checks passed",
+        exitStatus: 0,
       },
     );
     const versionBeforeCurrentVerifierEvidence = core.stateVersion;
@@ -3354,6 +3386,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/replacement-evidence",
+        observation: "all checks passed",
+        exitStatus: 0,
       },
     );
     assert.equal(
@@ -3458,6 +3492,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/evidence-2",
+        observation: "checks passed",
+        exitStatus: 0,
         evidenceHash: secondEvidence.evidenceHash,
       },
       {
@@ -3469,6 +3505,8 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         criterion: " criterion-one ",
         passed: true,
         artifactRef: "artifact://test/replacement-evidence",
+        observation: "all checks passed",
+        exitStatus: 0,
         evidenceHash: replacementEvidence.evidenceHash,
       },
     ]);
@@ -3590,6 +3628,8 @@ test("stale inputs, unauthorized controller actions, and candidate evidence are 
             criterion: "criterion-one",
             passed: true,
             artifactRef: "artifact://none",
+            observation: "no verifier report",
+            exitStatus: 0,
           },
         ),
       AuthorizationError,
@@ -3943,6 +3983,8 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
         criterion: "criterion-one",
         passed: true,
         artifactRef: "artifact://serial-first/evidence",
+        observation: "checks passed",
+        exitStatus: 0,
       },
     );
     core.acceptCandidate(
@@ -4060,6 +4102,8 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
         criterion: "criterion-one",
         passed: true,
         artifactRef: "artifact://serial-second/evidence",
+        observation: "checks passed",
+        exitStatus: 0,
       },
     );
     core.acceptCandidate(
@@ -4208,26 +4252,34 @@ test("final Verifier accepts only complete passing evidence for the composed com
         criterion: "criterion-one",
         passed: true,
         artifactRef: "/tmp/final-evidence/criterion-one",
+        observation: "criteria verified",
+        exitStatus: 0,
       },
       {
         evidenceId: "final-evidence-two",
         criterion: "criterion-two",
         passed: true,
         artifactRef: "/tmp/final-evidence/criterion-two",
+        observation: "all browser checks passed",
+        exitStatus: 0,
       },
     ] as const;
     core.recordBridgeReceipt({
       ...receipt(identity, 4, "completed", "Verifier"),
       reply: JSON.stringify({
         commitSha,
-        evidence: evidence.map(({ criterion, passed }) => ({
-          criterion,
-          passed,
-          artifactRef:
-            criterion === "criterion-two"
-              ? "/evidence/./criterion-two"
-              : `/evidence/${criterion}`,
-        })),
+        evidence: evidence.map(
+          ({ criterion, passed, observation, exitStatus }) => ({
+            criterion,
+            passed,
+            observation,
+            exitStatus,
+            artifactRef:
+              criterion === "criterion-two"
+                ? "/evidence/./criterion-two"
+                : `/evidence/${criterion}`,
+          }),
+        ),
       }),
     });
     core.confirmContainment(
@@ -4321,6 +4373,8 @@ test("final Verifier accepts only complete passing evidence for the composed com
             criterion: "criterion-one",
             passed: true,
             artifactRef: "/tmp/final-evidence/criterion-one",
+            observation: "criteria verified",
+            exitStatus: 0,
             evidenceHash: digestJson({
               workItemId: "final-verifier-work",
               assignmentId: assignment.assignmentId,
@@ -4330,6 +4384,8 @@ test("final Verifier accepts only complete passing evidence for the composed com
               criterion: "criterion-one",
               passed: true,
               artifactRef: "/tmp/final-evidence/criterion-one",
+              observation: "criteria verified",
+              exitStatus: 0,
             }),
           },
           {
@@ -4337,6 +4393,8 @@ test("final Verifier accepts only complete passing evidence for the composed com
             criterion: "criterion-two",
             passed: true,
             artifactRef: "/tmp/final-evidence/criterion-two",
+            observation: "all browser checks passed",
+            exitStatus: 0,
             evidenceHash: digestJson({
               workItemId: "final-verifier-work",
               assignmentId: assignment.assignmentId,
@@ -4346,6 +4404,8 @@ test("final Verifier accepts only complete passing evidence for the composed com
               criterion: "criterion-two",
               passed: true,
               artifactRef: "/tmp/final-evidence/criterion-two",
+              observation: "all browser checks passed",
+              exitStatus: 0,
             }),
           },
         ],
@@ -4518,6 +4578,8 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
           criterion: "criterion-one",
           passed: false,
           artifactRef: "artifact://batch/failure-one",
+          observation: "check failed",
+          exitStatus: 1,
         },
         {
           evidenceId: "batch-failed-two",
@@ -4525,6 +4587,8 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
           criterion: "criterion-two",
           passed: false,
           artifactRef: "artifact://batch/failure-two",
+          observation: "check failed",
+          exitStatus: 1,
         },
       ],
     );
@@ -4535,15 +4599,27 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
     try {
       const rows = evidenceDb
         .prepare(
-          "SELECT evidence_id, passed FROM candidate_evidence WHERE project_id = ? AND candidate_id = ? ORDER BY evidence_id",
+          "SELECT evidence_id, passed, observation, exit_status FROM candidate_evidence WHERE project_id = ? AND candidate_id = ? ORDER BY evidence_id",
         )
         .all(info.projectId, oldCandidate.candidateId) as Array<{
         evidence_id: string;
         passed: number;
+        observation: string;
+        exit_status: number;
       }>;
       assert.deepEqual(rows, [
-        { evidence_id: "batch-failed-one", passed: 0 },
-        { evidence_id: "batch-failed-two", passed: 0 },
+        {
+          evidence_id: "batch-failed-one",
+          passed: 0,
+          observation: "check failed",
+          exit_status: 1,
+        },
+        {
+          evidence_id: "batch-failed-two",
+          passed: 0,
+          observation: "check failed",
+          exit_status: 1,
+        },
       ]);
     } finally {
       evidenceDb.close();
@@ -4559,6 +4635,8 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
             criterion: "criterion-one",
             passed: true,
             artifactRef: "artifact://batch/late",
+            observation: "stale verification",
+            exitStatus: 0,
           },
         ),
       CandidateBindingError,
@@ -4631,6 +4709,8 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
           criterion: "criterion-one",
           passed: true,
           artifactRef: "artifact://batch/passed-one",
+          observation: "check passed",
+          exitStatus: 0,
         },
         {
           evidenceId: "batch-passed-two",
@@ -4638,6 +4718,8 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
           criterion: "criterion-two",
           passed: true,
           artifactRef: "artifact://batch/passed-two",
+          observation: "check passed",
+          exitStatus: 0,
         },
       ],
     );

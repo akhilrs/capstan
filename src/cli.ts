@@ -1848,6 +1848,7 @@ async function runCli(argv: string[]): Promise<number> {
               !Number.isInteger(entry.exitStatus) ||
               (entry.exitStatus as number) < 0 ||
               (entry.exitStatus as number) > 255 ||
+              (entry.passed === true && entry.exitStatus !== 0) ||
               typeof artifactRef !== "string" ||
               !artifactRef.startsWith("/evidence/")
             )
@@ -1864,6 +1865,8 @@ async function runCli(argv: string[]): Promise<number> {
               candidateId,
               criterion,
               passed: entry.passed,
+              observation: entry.observation,
+              exitStatus: entry.exitStatus as number,
               artifactRef: artifactRealPath,
             });
           }
@@ -2088,6 +2091,8 @@ async function runCli(argv: string[]): Promise<number> {
                   evidenceId: string;
                   criterion: string;
                   passed: boolean;
+                  observation: string;
+                  exitStatus: number;
                   artifactRef: string;
                 }[] = [];
                 for (const rawEvidence of reply.evidence) {
@@ -2102,6 +2107,7 @@ async function runCli(argv: string[]): Promise<number> {
                     !Number.isInteger(entry.exitStatus) ||
                     (entry.exitStatus as number) < 0 ||
                     (entry.exitStatus as number) > 255 ||
+                    (entry.passed === true && entry.exitStatus !== 0) ||
                     typeof entry.artifactRef !== "string" ||
                     !entry.artifactRef.startsWith("/evidence/")
                   )
@@ -2113,6 +2119,8 @@ async function runCli(argv: string[]): Promise<number> {
                     evidenceId: randomUUID(),
                     criterion: entry.criterion,
                     passed: entry.passed,
+                    observation: entry.observation,
+                    exitStatus: entry.exitStatus as number,
                     artifactRef: verifiedEvidencePath(
                       finalRuntime.evidenceDirectory,
                       entry.artifactRef,

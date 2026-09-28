@@ -123,6 +123,8 @@ export interface EvidenceInput {
   readonly criterion: string;
   readonly passed: boolean;
   readonly artifactRef: string;
+  readonly observation: string;
+  readonly exitStatus: number;
 }
 
 export interface BridgeIdentity {

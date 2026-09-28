@@ -370,6 +370,8 @@ test("cstan status reads the authenticated live control socket through the execu
         criterion: "The controller is active",
         passed: true,
         artifactRef: "artifact://status/candidate-evidence",
+        observation: "status checks passed",
+        exitStatus: 0,
       },
     );
     core.acceptCandidate(
