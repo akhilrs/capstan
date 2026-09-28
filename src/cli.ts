@@ -1355,14 +1355,28 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               `Developer report for ${dispatchStep.sliceId} lacks a valid immutable candidate identity`,
             );
+          // The checkout belongs to the worker; host Git must not run its configured hooks.
+          const safeGit = [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+          ];
           const workspaceHead = spawnSync(
             "git",
-            ["-C", developerMetadata.workspace, "rev-parse", "HEAD"],
+            [
+              ...safeGit,
+              "-C",
+              developerMetadata.workspace,
+              "rev-parse",
+              "HEAD",
+            ],
             { encoding: "utf8" },
           );
           const workspaceStatus = spawnSync(
             "git",
             [
+              ...safeGit,
               "-C",
               developerMetadata.workspace,
               "status",
@@ -1384,6 +1398,7 @@ async function runCli(argv: string[]): Promise<number> {
           const ancestry = spawnSync(
             "git",
             [
+              ...safeGit,
               "-C",
               developerMetadata.workspace,
               "merge-base",
@@ -1400,10 +1415,12 @@ async function runCli(argv: string[]): Promise<number> {
           const diff = spawnSync(
             "git",
             [
+              ...safeGit,
               "-C",
               developerMetadata.workspace,
               "diff",
               "--no-renames",
+              "--no-ext-diff",
               "--name-only",
               "-z",
               "--diff-filter=ACDMRT",
@@ -1572,7 +1589,8 @@ async function runCli(argv: string[]): Promise<number> {
             const evidenceRealPath = fs.realpathSync(evidenceDirectory);
             if (
               !artifactRelative ||
-              artifactRelative.startsWith("..") ||
+              artifactRelative === ".." ||
+              artifactRelative.startsWith(`..${path.sep}`) ||
               path.isAbsolute(artifactRelative) ||
               !artifactStat.isFile() ||
               artifactStat.isSymbolicLink() ||
@@ -1667,21 +1685,22 @@ async function runCli(argv: string[]): Promise<number> {
             cleanupErrors,
             `cstan cleanup could not prove complete containment and closure: ${cleanupErrors.map(String).join("; ")}`,
           );
-        if (step.state === "complete")
+        const completed = step.state === "complete" && !stopping && !blocker;
+        if (completed)
           core.transitionRun(context(core, credential), "completed");
-        else if (stopping)
+        else if (stopping) {
+          core.transitionRun(context(core, credential), "canceling");
           core.transitionRun(context(core, credential), "canceled");
-        else core.transitionRun(context(core, credential), "failed");
+        } else core.transitionRun(context(core, credential), "failed");
         const runOutput: CstanRunJsonV1 = {
           schemaVersion: 1,
-          state:
-            step.state === "complete"
-              ? "complete"
-              : stopping
-                ? "canceled"
-                : step.state === "stopped"
-                  ? "stopped"
-                  : "waiting",
+          state: completed
+            ? "complete"
+            : stopping
+              ? "canceled"
+              : step.state === "stopped"
+                ? "stopped"
+                : "waiting",
           projectId: core.projectId,
           planHash: validateWorkflowPlan(plan).hash,
           baseSha,
@@ -1694,7 +1713,7 @@ async function runCli(argv: string[]): Promise<number> {
         };
         output(runOutput, true);
         cleanupComplete = true;
-        return step.state === "complete" ? EXIT.ok : EXIT.blocked;
+        return completed ? EXIT.ok : EXIT.blocked;
       } finally {
         const cleanupErrors: unknown[] = [];
         if (!cleanupComplete) {
