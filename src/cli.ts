@@ -1421,6 +1421,7 @@ async function runCli(argv: string[]): Promise<number> {
               "diff",
               "--no-renames",
               "--no-ext-diff",
+              "--no-textconv",
               "--name-only",
               "-z",
               "--diff-filter=ACDMRT",
