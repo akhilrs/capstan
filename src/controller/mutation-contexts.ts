@@ -28,13 +28,10 @@ export class FileMutationContextStore implements SchedulerMutationContextStore {
     startedAtMs: number;
     contexts: Record<string, StoredContext>;
   };
+  #persistenceFailed = false;
 
   constructor(file: string, credential: string, planHash: string) {
-    if (
-      !path.isAbsolute(file) ||
-      credential.length < 32 ||
-      !/^[a-f0-9]{64}$/.test(planHash)
-    )
+    if (!path.isAbsolute(file) || !/^[a-f0-9]{64}$/.test(planHash))
       throw new TypeError("invalid durable mutation context store options");
     this.#file = file;
     this.#credential = credential;
@@ -88,6 +85,8 @@ export class FileMutationContextStore implements SchedulerMutationContextStore {
   getOrCreate(key: string, create: () => MutationContext): MutationContext {
     if (!/^[a-f0-9]{32}$/.test(key))
       throw new TypeError("mutation key must be a stable SHA-256 prefix");
+    if (this.#persistenceFailed)
+      throw new Error("mutation context persistence previously failed");
     let stored = this.#state.contexts[key];
     if (!stored) {
       const context = create();
@@ -108,7 +107,13 @@ export class FileMutationContextStore implements SchedulerMutationContextStore {
         inputRevision: context.inputRevision,
       };
       this.#state.contexts[key] = stored;
-      this.#persist();
+      try {
+        this.#persist();
+      } catch (error) {
+        this.#persistenceFailed = true;
+        delete this.#state.contexts[key];
+        throw error;
+      }
     }
     return { ...stored, credential: this.#credential };
   }

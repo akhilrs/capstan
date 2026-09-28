@@ -602,6 +602,8 @@ async function runCli(argv: string[]): Promise<number> {
     });
     let core: ControllerCore;
     let runtimeSocketRoot: string | undefined;
+    const allSessions: RoleRuntimeSession[] = [];
+    const containedSessions = new Set<string>();
     let removeSignalHandlers = () => {};
     let runtimeManagerClosed = false;
     try {
@@ -657,8 +659,6 @@ async function runCli(argv: string[]): Promise<number> {
         { current?: (socketFd: number) => boolean }
       > = {};
       const sessions: Record<string, RoleRuntimeSession> = {};
-      const allSessions: RoleRuntimeSession[] = [];
-      const containedSessions = new Set<string>();
       const proven: RoleRuntimeContainmentProof[] = [];
       const workspaceMetadata: Record<
         string,
@@ -2216,8 +2216,15 @@ async function runCli(argv: string[]): Promise<number> {
           await manager.close();
           runtimeManagerClosed = true;
         }
-        if (runtimeSocketRoot)
+        if (
+          runtimeSocketRoot &&
+          runtimeManagerClosed &&
+          allSessions.every((session) =>
+            containedSessions.has(session.sessionId),
+          )
+        ) {
           fs.rmSync(runtimeSocketRoot, { recursive: true, force: true });
+        }
       } finally {
         removeSignalHandlers();
         core.close();
