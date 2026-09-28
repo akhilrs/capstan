@@ -229,16 +229,19 @@ export function assertTrackedCheckoutMatchesHead(
   const tree = spawnSync(
     "git",
     [
+      "--no-replace-objects",
       "-c",
       "core.fsmonitor=false",
       "-c",
       "core.hooksPath=/dev/null",
+      `--git-dir=${path.join(workspace, ".git")}`,
+      `--work-tree=${workspace}`,
       "-C",
       workspace,
       "ls-tree",
       "-rz",
       "--full-tree",
-      "HEAD",
+      commitSha,
     ],
     { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
   );
@@ -247,10 +250,13 @@ export function assertTrackedCheckoutMatchesHead(
   const ignored = spawnSync(
     "git",
     [
+      "--no-replace-objects",
       "-c",
       "core.fsmonitor=false",
       "-c",
       "core.hooksPath=/dev/null",
+      `--git-dir=${path.join(workspace, ".git")}`,
+      `--work-tree=${workspace}`,
       "-C",
       workspace,
       "ls-files",
@@ -262,7 +268,13 @@ export function assertTrackedCheckoutMatchesHead(
     ],
     { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
   );
-  if (ignored.status !== 0 || ignored.stdout.length !== 0)
+  if (
+    ignored.status !== 0 ||
+    ignored.stdout
+      .toString("binary")
+      .split("\0")
+      .some((entry) => entry !== "" && entry !== ".home/")
+  )
     throw new Error(
       "ignored files in verification checkout can affect acceptance",
     );
@@ -841,6 +853,7 @@ async function runCli(argv: string[]): Promise<number> {
           fs.chmodSync(directory, 0o700);
         }
         const hostGitArgs = [
+          "--no-replace-objects",
           "-c",
           "core.fsmonitor=false",
           "-c",
@@ -1639,10 +1652,13 @@ async function runCli(argv: string[]): Promise<number> {
             );
           // The checkout belongs to the worker; host Git must not run its configured commands.
           const safeGit = [
+            "--no-replace-objects",
             "-c",
             "core.fsmonitor=false",
             "-c",
             "core.hooksPath=/dev/null",
+            `--git-dir=${path.join(developerMetadata.workspace, ".git")}`,
+            `--work-tree=${developerMetadata.workspace}`,
           ];
           const configuredFilters = spawnSync(
             "git",
@@ -1897,10 +1913,19 @@ async function runCli(argv: string[]): Promise<number> {
             verifierRuntime.session,
             verifierAssignment.assignmentId,
           );
+          const verifierSafeGit = [
+            "--no-replace-objects",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            `--git-dir=${path.join(verifierRuntime.session.workspace, ".git")}`,
+            `--work-tree=${verifierRuntime.session.workspace}`,
+          ];
           const verifierHead = spawnSync(
             "git",
             [
-              ...safeGit,
+              ...verifierSafeGit,
               "-C",
               verifierRuntime.session.workspace,
               "rev-parse",
@@ -1911,7 +1936,7 @@ async function runCli(argv: string[]): Promise<number> {
           const verifierStatus = spawnSync(
             "git",
             [
-              ...safeGit,
+              ...verifierSafeGit,
               "-C",
               verifierRuntime.session.workspace,
               "status",
@@ -2161,10 +2186,13 @@ async function runCli(argv: string[]): Promise<number> {
                   parseJsonWithoutDuplicateMembers(finalReport.reply),
                 );
                 const finalSafeGit = [
+                  "--no-replace-objects",
                   "-c",
                   "core.fsmonitor=false",
                   "-c",
                   "core.hooksPath=/dev/null",
+                  `--git-dir=${path.join(finalRuntime.session.workspace, ".git")}`,
+                  `--work-tree=${finalRuntime.session.workspace}`,
                 ];
                 const composedHead = spawnSync(
                   "git",

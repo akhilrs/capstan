@@ -97,13 +97,31 @@ test("immutable checkout check detects tracked bytes hidden by assume-unchanged"
       /verification checkout bytes differ/,
     );
     writeFileSync(path.join(cwd, "source.txt"), "committed\n");
-    writeFileSync(path.join(cwd, ".git", "info", "exclude"), "generated.js\n");
+    writeFileSync(
+      path.join(cwd, ".git", "info", "exclude"),
+      ".home/\ngenerated.js\n",
+    );
+    mkdirSync(path.join(cwd, ".home"));
+    writeFileSync(path.join(cwd, ".home", "runtime-state"), "isolated home\n");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
     writeFileSync(path.join(cwd, "generated.js"), "export default 1;\n");
     assert.equal(git("status", "--porcelain"), "");
     assert.throws(
       () => assertTrackedCheckoutMatchesHead(cwd, sha),
       /ignored files in verification checkout/,
     );
+    const alternate = mkdtempSync(
+      path.join(os.tmpdir(), "cstan-alternate-worktree-"),
+    );
+    try {
+      git("config", "core.worktree", alternate);
+      assert.throws(
+        () => assertTrackedCheckoutMatchesHead(cwd, sha),
+        /ignored files in verification checkout/,
+      );
+    } finally {
+      rmSync(alternate, { recursive: true, force: true });
+    }
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -139,6 +157,35 @@ test("immutable checkout check rejects a symlinked tracked parent directory", ()
   } finally {
     rmSync(cwd, { recursive: true, force: true });
     rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check ignores local replacement objects", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-replace-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "source.txt"), "original\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "original");
+    const original = git("rev-parse", "HEAD");
+    writeFileSync(path.join(cwd, "source.txt"), "substitute\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "replacement");
+    const replacement = git("rev-parse", "HEAD");
+    git("replace", original, replacement);
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, original),
+      /verification checkout bytes differ/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
   }
 });
 
