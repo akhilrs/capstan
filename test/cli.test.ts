@@ -108,7 +108,7 @@ test("immutable checkout check detects tracked bytes hidden by assume-unchanged"
     assert.equal(git("status", "--porcelain"), "");
     assert.throws(
       () => assertTrackedCheckoutMatchesHead(cwd, sha),
-      /ignored files in verification checkout/,
+      /untracked files in verification checkout/,
     );
     const alternate = mkdtempSync(
       path.join(os.tmpdir(), "cstan-alternate-worktree-"),
@@ -117,7 +117,7 @@ test("immutable checkout check detects tracked bytes hidden by assume-unchanged"
       git("config", "core.worktree", alternate);
       assert.throws(
         () => assertTrackedCheckoutMatchesHead(cwd, sha),
-        /ignored files in verification checkout/,
+        /untracked files in verification checkout/,
       );
     } finally {
       rmSync(alternate, { recursive: true, force: true });

@@ -247,37 +247,7 @@ export function assertTrackedCheckoutMatchesHead(
   );
   if (tree.status !== 0 || (tree.stdout.length && tree.stdout.at(-1) !== 0))
     throw new Error("cannot inspect exact verification checkout tree");
-  const ignored = spawnSync(
-    "git",
-    [
-      "--no-replace-objects",
-      "-c",
-      "core.fsmonitor=false",
-      "-c",
-      "core.hooksPath=/dev/null",
-      `--git-dir=${path.join(workspace, ".git")}`,
-      `--work-tree=${workspace}`,
-      "-C",
-      workspace,
-      "ls-files",
-      "--others",
-      "--ignored",
-      "--exclude-standard",
-      "--directory",
-      "-z",
-    ],
-    { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
-  );
-  if (
-    ignored.status !== 0 ||
-    ignored.stdout
-      .toString("binary")
-      .split("\0")
-      .some((entry) => entry !== "" && entry !== ".home/")
-  )
-    throw new Error(
-      "ignored files in verification checkout can affect acceptance",
-    );
+  const trackedPaths = new Set<string>();
   const algorithm = commitSha.length === 64 ? "sha256" : "sha1";
   const chunk = Buffer.allocUnsafe(64 * 1024);
   const frames = tree.stdout.toString("binary").split("\0");
@@ -296,6 +266,7 @@ export function assertTrackedCheckoutMatchesHead(
       components.some((part) => part === "" || part === "." || part === "..")
     )
       throw new Error("unsupported verification checkout entry");
+    trackedPaths.add(relative.toString("binary"));
     let parent = Buffer.from(workspace);
     if (!fs.lstatSync(parent).isDirectory())
       throw new Error("verification checkout root is not a directory");
@@ -336,6 +307,26 @@ export function assertTrackedCheckoutMatchesHead(
         "verification checkout bytes differ from the immutable commit",
       );
   }
+  const scan = (directory: Buffer, relative: Buffer): void => {
+    for (const name of fs.readdirSync(directory, { encoding: "buffer" })) {
+      if (
+        relative.length === 0 &&
+        (name.equals(Buffer.from(".git")) || name.equals(Buffer.from(".home")))
+      )
+        continue;
+      const child = Buffer.concat([directory, Buffer.from("/"), name]);
+      const childRelative =
+        relative.length === 0
+          ? name
+          : Buffer.concat([relative, Buffer.from("/"), name]);
+      if (fs.lstatSync(child).isDirectory()) scan(child, childRelative);
+      else if (!trackedPaths.has(childRelative.toString("binary")))
+        throw new Error(
+          "untracked files in verification checkout can affect acceptance",
+        );
+    }
+  };
+  scan(Buffer.from(workspace), Buffer.alloc(0));
 }
 
 function projectInputs(
@@ -1924,25 +1915,11 @@ async function runCli(argv: string[]): Promise<number> {
             ],
             { encoding: "utf8", timeout: 10_000 },
           );
-          const verifierStatus = spawnSync(
-            "git",
-            [
-              ...verifierSafeGit,
-              "-C",
-              verifierRuntime.session.workspace,
-              "status",
-              "--porcelain",
-              "--untracked-files=all",
-            ],
-            { encoding: "utf8", timeout: 10_000 },
-          );
           if (
             verifierHead.status !== 0 ||
             verifierHead.stdout.trim().toLowerCase() !==
               commitSha.toLowerCase() ||
-            verifierRuntime.baseSha.toLowerCase() !== commitSha.toLowerCase() ||
-            verifierStatus.status !== 0 ||
-            verifierStatus.stdout.trim() !== ""
+            verifierRuntime.baseSha.toLowerCase() !== commitSha.toLowerCase()
           )
             throw new Error(
               "Verifier changed or did not inspect the exact immutable candidate checkout",
@@ -2196,26 +2173,12 @@ async function runCli(argv: string[]): Promise<number> {
                   ],
                   { encoding: "utf8", timeout: 10_000 },
                 );
-                const composedStatus = spawnSync(
-                  "git",
-                  [
-                    ...finalSafeGit,
-                    "-C",
-                    finalRuntime.session.workspace,
-                    "status",
-                    "--porcelain",
-                    "--untracked-files=all",
-                  ],
-                  { encoding: "utf8", timeout: 10_000 },
-                );
                 if (
                   reply?.commitSha !== finalRuntime.baseSha ||
                   reply.startingSha !== finalRuntime.baseSha ||
                   composedHead.status !== 0 ||
                   composedHead.stdout.trim().toLowerCase() !==
                     finalRuntime.baseSha.toLowerCase() ||
-                  composedStatus.status !== 0 ||
-                  composedStatus.stdout.trim() !== "" ||
                   !Array.isArray(reply.evidence) ||
                   reply.evidence.length !== plan.acceptanceCriteria.length
                 )
