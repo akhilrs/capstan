@@ -23,6 +23,8 @@ const repoRoot = path.resolve(
 const evidenceRoot = mkdtempSync(path.join(os.tmpdir(), "capstan-pm7-"));
 const fixtureManifestSha256 =
   "691e71fdd8e0692bb93a08a5a1494af6e65e6b2570ffe754fcc1bedc2f70e834";
+const fixtureContainerImage =
+  "ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3";
 chmodSync(evidenceRoot, 0o700);
 const projectRoot = path.join(evidenceRoot, "project");
 const logRoot = path.join(evidenceRoot, "logs");
@@ -61,7 +63,14 @@ let logIndex = 0;
 function run(
   binary,
   args,
-  { cwd, input, label, timeout = 3_700_000, childEnv = env } = {},
+  {
+    cwd,
+    input,
+    label,
+    timeout = 3_700_000,
+    childEnv = env,
+    containerIdFile,
+  } = {},
 ) {
   const result = spawnSync(binary, args, {
     cwd,
@@ -85,6 +94,19 @@ function run(
     JSON.stringify(record) + "\n",
     { mode: 0o600 },
   );
+  if (result.error && containerIdFile) {
+    try {
+      const containerId = readFileSync(containerIdFile, "utf8").trim();
+      if (/^[a-f0-9]{64}$/.test(containerId))
+        spawnSync("docker", ["rm", "--force", containerId], {
+          env,
+          timeout: 15_000,
+          stdio: "ignore",
+        });
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
   if (result.error)
     throw new Error(
       `${label} could not start (${result.error.code ?? "spawn error"})`,
@@ -535,23 +557,50 @@ try {
       });
     }
     const [binary, ...args] = fixtureCase.command ?? task.command;
-    const childEnv = {
-      ...env,
-      HOME: home,
-      TMPDIR: temp,
-      TMP: temp,
-      TEMP: temp,
-      XDG_CONFIG_HOME: xdgConfig,
-      XDG_CACHE_HOME: xdgCache,
-      XDG_DATA_HOME: xdgData,
-    };
-    const result = run(binary, args, {
-      cwd: caseRoot,
-      input: fixtureCase.input,
-      label: fixtureCase.label,
-      timeout: 60_000,
-      childEnv,
-    });
+    assert(binary === "node", "fixture commands must invoke Node directly");
+    const containerIdFile = path.join(logRoot, `${fixtureCase.label}.cid`);
+    const result = run(
+      "docker",
+      [
+        "run",
+        "--rm",
+        `--cidfile=${containerIdFile}`,
+        "--pull=never",
+        "--network=none",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=64",
+        "--user",
+        `${process.getuid()}:${process.getgid()}`,
+        "--mount",
+        `type=bind,src=${caseRoot},dst=/work`,
+        "--mount",
+        `type=bind,src=${process.execPath},dst=/opt/node,readonly`,
+        "--workdir=/work",
+        "--env=HOME=/work/.case-home",
+        "--env=TMPDIR=/work/.case-tmp",
+        "--env=TMP=/work/.case-tmp",
+        "--env=TEMP=/work/.case-tmp",
+        "--env=XDG_CONFIG_HOME=/work/.case-home/xdg-config",
+        "--env=XDG_CACHE_HOME=/work/.case-tmp/xdg-cache",
+        "--env=XDG_DATA_HOME=/work/.case-home/xdg-data",
+        "--env=LC_ALL=C",
+        "--env=LANG=C",
+        "--env=TZ=UTC",
+        fixtureContainerImage,
+        "/opt/node",
+        ...args,
+      ],
+      {
+        cwd: caseRoot,
+        input: fixtureCase.input,
+        label: fixtureCase.label,
+        timeout: 60_000,
+        childEnv: env,
+        containerIdFile,
+      },
+    );
     assert(
       result.status === fixtureCase.exit && result.signal === null,
       `${fixtureCase.label}: unexpected exit status`,
