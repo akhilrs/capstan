@@ -1336,6 +1336,12 @@ async function runCli(argv: string[]): Promise<number> {
               predecessorCandidates,
             );
             runtimeCommands[session.sessionId] = assignment.commandId;
+            if (stopping || Date.now() >= deadlineMs)
+              throw new Error(
+                stopping
+                  ? "run canceled before Developer dispatch"
+                  : "maxRunMs exceeded before Developer dispatch",
+              );
             core.transitionRuntimeSession(
               context(core, credential),
               session.sessionId,
@@ -1348,6 +1354,8 @@ async function runCli(argv: string[]): Promise<number> {
           },
         });
         const identities = scheduler.initialize();
+        if (Date.now() >= deadlineMs)
+          throw new Error("maxRunMs exceeded before PM assignment");
         pmWorkItemId = `pm-${randomUUID()}`;
         core.createWorkItem(context(core, credential), {
           workItemId: pmWorkItemId,
@@ -1367,6 +1375,7 @@ async function runCli(argv: string[]): Promise<number> {
           pmWorkItemId,
           identities.PM.seatId,
         );
+        let blocker: string | undefined;
         const pmRuntime = await provisionRuntime(
           "PM",
           identities.PM.seatId,
@@ -1375,8 +1384,9 @@ async function runCli(argv: string[]): Promise<number> {
           pmAssignment.assignmentId,
         );
         runtimeCommands[pmRuntime.session.sessionId] = pmAssignment.commandId;
-        let blocker: string | undefined;
         if (stopping) blocker = "run canceled by signal";
+        else if (Date.now() >= deadlineMs)
+          blocker = "maxRunMs exceeded before PM dispatch";
         else {
           if (dispatches >= plan.limits.maxDispatches)
             throw new Error("maxDispatches exhausted before PM dispatch");
@@ -1391,9 +1401,8 @@ async function runCli(argv: string[]): Promise<number> {
             pmAssignment.commandId,
           );
         }
-        const pmReport = stopping
-          ? undefined
-          : await waitForReport(pmWorkItemId);
+        const pmReport =
+          stopping || blocker ? undefined : await waitForReport(pmWorkItemId);
         if (!pmReport)
           blocker ??= stopping
             ? "run canceled by signal"
