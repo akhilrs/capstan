@@ -3886,11 +3886,14 @@ export class ControllerCore {
             throw new CandidateBindingError(
               "final verification evidence differs from its immutable Verifier report",
             );
-          const relative = artifactRef.slice("/evidence/".length);
+          const relative = path.posix.normalize(
+            artifactRef.slice("/evidence/".length),
+          );
           if (
             !relative ||
-            path.isAbsolute(relative) ||
-            relative.split(/[\\/]/).includes("..") ||
+            relative === "." ||
+            path.posix.isAbsolute(relative) ||
+            relative.split("/").includes("..") ||
             !persisted.artifactRef.endsWith(`${path.sep}${relative}`)
           )
             throw new CandidateBindingError(

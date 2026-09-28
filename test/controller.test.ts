@@ -4146,7 +4146,10 @@ test("final Verifier accepts only complete passing evidence for the composed com
         evidence: evidence.map(({ criterion, passed }) => ({
           criterion,
           passed,
-          artifactRef: `/evidence/${criterion}`,
+          artifactRef:
+            criterion === "criterion-two"
+              ? "/evidence/./criterion-two"
+              : `/evidence/${criterion}`,
         })),
       }),
     });

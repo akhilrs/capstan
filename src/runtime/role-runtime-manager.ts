@@ -858,17 +858,16 @@ export class RoleRuntimeManager {
           ) as { Running?: boolean; Paused?: boolean };
           if (state.Running && !state.Paused)
             run(this.#docker, ["pause", containerId]);
-          if (policyId)
-            run(
-              process.execPath,
-              [
-                this.#binaries.egressHelper,
-                "cleanup-container",
-                "--container",
-                containerId,
-              ],
-              env,
-            );
+          run(
+            process.execPath,
+            [
+              this.#binaries.egressHelper,
+              "cleanup-container",
+              "--container",
+              containerId,
+            ],
+            env,
+          );
           run(this.#docker, ["rm", "-f", containerId]);
           if (bridgeIdentity)
             this.#removeBridgeSocket(bridgeSocketPath, bridgeIdentity);
