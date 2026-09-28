@@ -44,6 +44,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  6: {
+    version: 6,
+    name: "0006_final_verification.sql",
+    url: new URL(
+      "../../migrations/0006_final_verification.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

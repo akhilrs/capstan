@@ -2355,7 +2355,7 @@ test("assignment capsule resolves duplicate-title plan slices by stable ID", asy
       taskId: "duplicate-title-plan",
       objective: "Keep slice scopes unambiguous",
       acceptanceCriteria: ["criterion-one"],
-      limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 2 },
+      limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 7 },
       slices: [
         {
           id: "slice-a",
@@ -3598,7 +3598,7 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
       taskId: "serial-slices",
       objective: "Require independent acceptance between serial slices",
       acceptanceCriteria: ["criterion-one"],
-      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 2 },
+      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 7 },
       slices: [
         {
           id: "first",
@@ -3807,10 +3807,6 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
     if (second.state !== "dispatched") return;
     assert.equal(second.sliceId, "second");
     assert.deepEqual(dispatches, ["first", "second"]);
-    assert.deepEqual(await scheduler.step(), {
-      state: "stopped",
-      reason: "maxDispatches exceeded",
-    });
     const secondIdentity = {
       commandId: second.assignment.commandId,
       assignmentId: second.assignment.assignmentId,
@@ -3910,6 +3906,304 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
       secondCandidate.candidateId,
     );
     assert.deepEqual(await scheduler.step(), { state: "complete" });
+  } finally {
+    cleanup(value);
+  }
+});
+test("final Verifier accepts only complete passing evidence for the composed commit", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "acceptance_criteria",
+      content: ["criterion-one", "criterion-two"],
+    });
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "final-verification-dependency",
+    );
+    const verifier = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Verifier",
+      "final-verification",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "final-verification-review",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "accepted-slice-report",
+      title: "Accepted slice report",
+      description: "Dependency that must be accepted before final verification",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "accepted-slice-report",
+    );
+    const sliceReport = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "accepted-slice-report",
+      pm.seatId,
+    );
+    const sliceIdentity = {
+      commandId: sliceReport.commandId,
+      assignmentId: sliceReport.assignmentId,
+      attempt: sliceReport.attempt,
+      generation: sliceReport.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      sliceReport.commandId,
+    );
+    core.recordBridgeReceipt(receipt(sliceIdentity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      sliceReport.commandId,
+    );
+    core.recordBridgeReceipt(receipt(sliceIdentity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(sliceIdentity, 3, "working", "PM"));
+    core.recordBridgeReceipt(receipt(sliceIdentity, 4, "completed", "PM"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      sliceReport.assignmentId,
+      "containment:final-verification-dependency",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "accepted-slice-report",
+      sliceReport.assignmentId,
+    );
+
+    assert.throws(
+      () =>
+        core.createWorkItem(context(core, info.ownerCredential), {
+          workItemId: "incomplete-final-verifier",
+          title: "Incomplete final verification",
+          description: "A subset cannot stand in for parent criteria",
+          requiredRole: "Verifier",
+          finalVerification: true,
+          acceptanceCriteria: ["criterion-one"],
+        }),
+      /must match every parent acceptance criterion/,
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "final-verifier-work",
+      title: "Verify composed checkout",
+      description: "Inspect the exact composed final checkout",
+      requiredRole: "Verifier",
+      finalVerification: true,
+      acceptanceCriteria: ["criterion-one", "criterion-two"],
+    });
+    core.addDependency(
+      context(core, info.ownerCredential),
+      "final-verifier-work",
+      "accepted-slice-report",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "final-verification-review",
+      title: "Review final verification",
+      description: "Supervisor consumes the final evidence",
+      requiredRole: "Supervisor",
+    });
+    core.addDependency(
+      context(core, info.ownerCredential),
+      "final-verification-review",
+      "final-verifier-work",
+    );
+    core.markReady(context(core, info.ownerCredential), "final-verifier-work");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "final-verifier-work",
+      verifier.seatId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "Verifier"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Verifier"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "Verifier"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "Verifier"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "containment:final-verifier",
+    );
+
+    const commitSha = "a".repeat(40);
+    const evidence = [
+      {
+        evidenceId: "final-evidence-one",
+        criterion: "criterion-one",
+        passed: true,
+        artifactRef: "artifact://final/criterion-one",
+      },
+      {
+        evidenceId: "final-evidence-two",
+        criterion: "criterion-two",
+        passed: true,
+        artifactRef: "artifact://final/criterion-two",
+      },
+    ] as const;
+    const incompleteContext = context(core, info.ownerCredential);
+    const versionBeforeIncomplete = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptFinalVerification(incompleteContext, {
+          workItemId: "final-verifier-work",
+          assignmentId: assignment.assignmentId,
+          commitSha,
+          evidence: evidence.slice(0, 1),
+        }),
+      /exactly one passing artifact for every criterion/,
+    );
+    assert.equal(core.stateVersion, versionBeforeIncomplete);
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "final-verifier-work")?.state,
+      "awaiting_verification",
+    );
+    assert.throws(
+      () =>
+        core.acceptFinalVerification(context(core, info.ownerCredential), {
+          workItemId: "final-verifier-work",
+          assignmentId: assignment.assignmentId,
+          commitSha,
+          evidence: evidence.map((entry, index) =>
+            index === 1 ? { ...entry, passed: false } : entry,
+          ),
+        }),
+      /failed or omitted criterion/,
+    );
+
+    assert.deepEqual(
+      core.acceptFinalVerification(context(core, info.ownerCredential), {
+        workItemId: "final-verifier-work",
+        assignmentId: assignment.assignmentId,
+        commitSha,
+        evidence,
+      }),
+      {
+        acceptedWorkItemId: "final-verifier-work",
+        commitSha,
+      },
+    );
+    const status = core.statusSnapshot();
+    assert.equal(
+      status.work.find((work) => work.workItemId === "final-verifier-work")
+        ?.state,
+      "accepted",
+    );
+    assert.deepEqual(status.finalVerification, [
+      {
+        workItemId: "final-verifier-work",
+        assignmentId: assignment.assignmentId,
+        commitSha,
+        evidence: [
+          {
+            evidenceId: "final-evidence-one",
+            criterion: "criterion-one",
+            passed: true,
+            artifactRef: "artifact://final/criterion-one",
+            evidenceHash: digestJson({
+              workItemId: "final-verifier-work",
+              assignmentId: assignment.assignmentId,
+              inputRevision: core.inputRevision,
+              commitSha,
+              evidenceId: "final-evidence-one",
+              criterion: "criterion-one",
+              passed: true,
+              artifactRef: "artifact://final/criterion-one",
+            }),
+          },
+          {
+            evidenceId: "final-evidence-two",
+            criterion: "criterion-two",
+            passed: true,
+            artifactRef: "artifact://final/criterion-two",
+            evidenceHash: digestJson({
+              workItemId: "final-verifier-work",
+              assignmentId: assignment.assignmentId,
+              inputRevision: core.inputRevision,
+              commitSha,
+              evidenceId: "final-evidence-two",
+              criterion: "criterion-two",
+              passed: true,
+              artifactRef: "artifact://final/criterion-two",
+            }),
+          },
+        ],
+      },
+    ]);
+    assert.throws(
+      () =>
+        core.acceptFinalVerification(context(core, info.ownerCredential), {
+          workItemId: "final-verifier-work",
+          assignmentId: assignment.assignmentId,
+          commitSha,
+          evidence,
+        }),
+      /not contained, current, and eligible for acceptance/,
+    );
+    core.markReady(
+      context(core, info.ownerCredential),
+      "final-verification-review",
+    );
+    const reviewAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "final-verification-review",
+      supervisor.seatId,
+    );
+    const database = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const row = database
+        .prepare(
+          "SELECT payload_json FROM commands WHERE project_id = ? AND command_id = ?",
+        )
+        .get(info.projectId, reviewAssignment.commandId) as
+        { payload_json: string } | undefined;
+      assert.ok(row);
+      const dispatch = JSON.parse(row.payload_json) as { prompt: string };
+      const capsule = JSON.parse(dispatch.prompt) as {
+        dependencies: Array<{
+          workItemId: string;
+          finalVerification?: {
+            commitSha: string;
+            evidence: unknown[];
+          };
+        }>;
+      };
+      assert.deepEqual(
+        capsule.dependencies.find(
+          (dependency) => dependency.workItemId === "final-verifier-work",
+        )?.finalVerification,
+        {
+          commitSha,
+          evidence: status.finalVerification[0]?.evidence,
+        },
+      );
+    } finally {
+      database.close();
+    }
   } finally {
     cleanup(value);
   }

@@ -319,6 +319,7 @@ async function inspectController(
       work: [],
       findings: [],
       evidence: [],
+      finalVerification: [],
     };
   }
   const core = await ControllerCore.open({
@@ -483,6 +484,7 @@ async function runCli(argv: string[]): Promise<number> {
     });
     let core: ControllerCore;
     let runtimeSocketRoot: string | undefined;
+    let removeSignalHandlers = () => {};
     try {
       core = await ControllerCore.open({
         stateDirectory: config.stateDirectory,
@@ -618,7 +620,7 @@ async function runCli(argv: string[]): Promise<number> {
             ...hostGitArgs,
             "clone",
             "--no-checkout",
-            "--no-hardlinks",
+            "--no-local",
             "--quiet",
             "--",
             cwd,
@@ -764,7 +766,7 @@ async function runCli(argv: string[]): Promise<number> {
             exactCandidate.commitSha.toLowerCase()
         )
           throw new Error(
-            "Verifier checkout HEAD does not equal its bound candidate commit",
+            "assignment checkout HEAD does not equal its bound commit",
           );
         const homeDirectory = path.join(workspace, ".home");
         fs.mkdirSync(homeDirectory, { recursive: true, mode: 0o700 });
@@ -1081,8 +1083,49 @@ async function runCli(argv: string[]): Promise<number> {
         }
         return undefined;
       };
+      const verifiedEvidencePath = (
+        evidenceDirectory: string | undefined,
+        artifactRef: string,
+      ): string => {
+        if (!evidenceDirectory || !artifactRef.startsWith("/evidence/"))
+          throw new Error(
+            "Verifier artifactRef requires a dedicated /evidence mount",
+          );
+        const evidenceRelative = artifactRef.slice("/evidence/".length);
+        if (
+          !evidenceRelative ||
+          path.isAbsolute(evidenceRelative) ||
+          evidenceRelative.split(/[\\/]/).includes("..")
+        )
+          throw new Error(
+            "Verifier artifactRef escapes its dedicated evidence mount",
+          );
+        const artifactPath = path.resolve(evidenceDirectory, evidenceRelative);
+        const artifactRelative = path.relative(evidenceDirectory, artifactPath);
+        const artifactStat = fs.lstatSync(artifactPath);
+        const artifactRealPath = fs.realpathSync(artifactPath);
+        const evidenceRealPath = fs.realpathSync(evidenceDirectory);
+        if (
+          !artifactRelative ||
+          artifactRelative === ".." ||
+          artifactRelative.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(artifactRelative) ||
+          !artifactStat.isFile() ||
+          artifactStat.isSymbolicLink() ||
+          artifactStat.size === 0 ||
+          !artifactRealPath.startsWith(`${evidenceRealPath}${path.sep}`)
+        )
+          throw new Error(
+            "Verifier artifact is not a non-empty regular file in its private evidence directory",
+          );
+        return artifactRealPath;
+      };
       process.on("SIGINT", signal);
       process.on("SIGTERM", signal);
+      removeSignalHandlers = () => {
+        process.off("SIGINT", signal);
+        process.off("SIGTERM", signal);
+      };
       let cleanupComplete = false;
       try {
         closeControl = await listenControl(
@@ -1557,10 +1600,6 @@ async function runCli(argv: string[]): Promise<number> {
           const seenCriteria = new Set<string>();
           const evidence: EvidenceInput[] = [];
           const evidenceDirectory = verifierRuntime.evidenceDirectory;
-          if (!evidenceDirectory)
-            throw new Error(
-              "Verifier runtime has no dedicated writable evidence mount",
-            );
           for (const rawEvidence of verifierReply.evidence) {
             const entry = objectRecord(rawEvidence);
             const criterion = entry?.criterion;
@@ -1577,39 +1616,10 @@ async function runCli(argv: string[]): Promise<number> {
                 "Verifier evidence does not match the exact candidate and criterion set",
               );
             seenCriteria.add(criterion);
-            const evidenceRelative = artifactRef.slice("/evidence/".length);
-            if (
-              !evidenceRelative ||
-              path.isAbsolute(evidenceRelative) ||
-              evidenceRelative.split(/[\\/]/).includes("..")
-            )
-              throw new Error(
-                "Verifier artifactRef escapes its dedicated evidence mount",
-              );
-            const artifactPath = path.resolve(
+            const artifactRealPath = verifiedEvidencePath(
               evidenceDirectory,
-              evidenceRelative,
+              artifactRef,
             );
-            const artifactRelative = path.relative(
-              evidenceDirectory,
-              artifactPath,
-            );
-            const artifactStat = fs.lstatSync(artifactPath);
-            const artifactRealPath = fs.realpathSync(artifactPath);
-            const evidenceRealPath = fs.realpathSync(evidenceDirectory);
-            if (
-              !artifactRelative ||
-              artifactRelative === ".." ||
-              artifactRelative.startsWith(`..${path.sep}`) ||
-              path.isAbsolute(artifactRelative) ||
-              !artifactStat.isFile() ||
-              artifactStat.isSymbolicLink() ||
-              artifactStat.size === 0 ||
-              !artifactRealPath.startsWith(`${evidenceRealPath}${path.sep}`)
-            )
-              throw new Error(
-                "Verifier artifact is not a non-empty regular file in its private evidence directory",
-              );
             evidence.push({
               evidenceId: randomUUID(),
               candidateId,
@@ -1675,120 +1685,250 @@ async function runCli(argv: string[]): Promise<number> {
               commitSha: candidate.commitSha,
             };
           });
-          const supervisorWorkItemId = `supervisor-${randomUUID()}`;
-          let supervisorRuntime:
-            | {
-                session: RoleRuntimeSession;
-                adapter: M1BridgeAdapter;
-                baseSha: string;
-              }
-            | undefined;
-          core.createWorkItem(context(core, credential), {
-            workItemId: supervisorWorkItemId,
-            title: `Supervise completed run ${plan.taskId}`,
-            description: `Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final composed checkout at /workspace. The assignment capsule lists each accepted candidate and artifact. Artifacts stored beneath ${path.join(config.stateDirectory, "runtime", "evidence")} are readable under /evidence with the same relative paths. Return JSON {"outcome":"pass"|"blocked","observation":"..."}; use blocked whenever a safety, scope, or acceptance issue is observed, and name the concrete issue in observation. Use pass only when no issue was observed.`,
-            requiredRole: "Supervisor",
-          });
-          core.addDependency(
-            context(core, credential),
-            supervisorWorkItemId,
-            pmWorkItemId,
-          );
-          for (const accepted of acceptedSlices)
-            core.addDependency(
-              context(core, credential),
-              supervisorWorkItemId,
-              accepted.workItemId,
-            );
-          core.markReady(context(core, credential), supervisorWorkItemId);
-          const supervisorAssignment = core.assignWorkItem(
-            context(core, credential),
-            supervisorWorkItemId,
-            identities.Supervisor.seatId,
-          );
-          if (stopping) blocker ??= "run canceled by signal";
-          else if (dispatches >= plan.limits.maxDispatches)
-            blocker ??= "maxDispatches exhausted before Supervisor dispatch";
+          let finalRuntime:
+            Awaited<ReturnType<typeof provisionRuntime>> | undefined;
+          const finalWorkItemId = `final-${randomUUID()}`;
+          if (dispatches >= plan.limits.maxDispatches)
+            blocker =
+              "maxDispatches exhausted before final-parent verification";
           else {
-            supervisorRuntime = await provisionRuntime(
-              "Supervisor",
-              identities.Supervisor.seatId,
-              supervisorWorkItemId,
-              supervisorAssignment.generation,
-              supervisorAssignment.assignmentId,
+            core.createWorkItem(context(core, credential), {
+              workItemId: finalWorkItemId,
+              title: `Verify final parent acceptance ${plan.taskId}`,
+              description: `Independently verify the composed checkout HEAD at /workspace against every parent acceptance criterion: ${plan.acceptanceCriteria.join("; ")}. Do not modify source files. Return JSON {"commitSha":"full git HEAD","evidence":[{"criterion":"exact listed criterion","passed":true|false,"artifactRef":"/evidence/..."}]}; include one result per criterion, write each nonempty artifact beneath /evidence, and report the actual HEAD even if a criterion fails.`,
+              requiredRole: "Verifier",
+              finalVerification: true,
+              acceptanceCriteria: plan.acceptanceCriteria,
+            });
+            for (const accepted of acceptedSlices)
+              core.addDependency(
+                context(core, credential),
+                finalWorkItemId,
+                accepted.workItemId,
+              );
+            core.markReady(context(core, credential), finalWorkItemId);
+            const finalAssignment = core.assignWorkItem(
+              context(core, credential),
+              finalWorkItemId,
+              identities.Verifier.seatId,
+            );
+            finalRuntime = await provisionRuntime(
+              "Verifier",
+              identities.Verifier.seatId,
+              finalWorkItemId,
+              finalAssignment.generation,
+              finalAssignment.assignmentId,
               acceptedSlices.map(({ workspace, commitSha }) => ({
                 workspace,
                 commitSha,
               })),
             );
-            runtimeCommands[supervisorRuntime.session.sessionId] =
-              supervisorAssignment.commandId;
-            dispatches += 1;
-            core.transitionRuntimeSession(
-              context(core, credential),
-              supervisorRuntime.session.sessionId,
-              "working",
-            );
-            await supervisorRuntime.adapter.dispatchAndStart(
-              context(core, credential),
-              supervisorAssignment.commandId,
-            );
-            const supervisorReport = await waitForReport(supervisorWorkItemId);
-            if (!supervisorReport)
-              blocker ??=
-                "Supervisor report did not complete before the bounded run deadline";
-            else if (
-              supervisorReport.assignmentId !==
-                supervisorAssignment.assignmentId ||
-              supervisorReport.role !== "Supervisor" ||
-              supervisorReport.inputRevision !== core.inputRevision
-            )
-              throw new Error(
-                "Supervisor report does not match its active run-supervision assignment",
-              );
+            runtimeCommands[finalRuntime.session.sessionId] =
+              finalAssignment.commandId;
+            if (stopping) blocker = "run canceled by signal";
             else {
-              const supervisorReply = objectRecord(
-                JSON.parse(supervisorReport.reply),
+              dispatches += 1;
+              core.transitionRuntimeSession(
+                context(core, credential),
+                finalRuntime.session.sessionId,
+                "working",
               );
-              if (
-                typeof supervisorReply?.observation !== "string" ||
-                !supervisorReply.observation.trim() ||
-                (supervisorReply.outcome !== "pass" &&
-                  supervisorReply.outcome !== "blocked")
+              await finalRuntime.adapter.dispatchAndStart(
+                context(core, credential),
+                finalAssignment.commandId,
+              );
+              const finalReport = await waitForReport(finalWorkItemId);
+              if (!finalReport)
+                blocker =
+                  "final-parent Verifier report did not complete before the bounded run deadline";
+              else if (
+                finalReport.assignmentId !== finalAssignment.assignmentId ||
+                finalReport.role !== "Verifier" ||
+                finalReport.inputRevision !== core.inputRevision
               )
                 throw new Error(
-                  "Supervisor returned no valid structured run observation",
+                  "final-parent Verifier report does not match its assignment",
                 );
-              if (supervisorReply.outcome === "blocked") {
-                core.createFinding(
-                  context(core, identities.Supervisor.credential),
-                  {
-                    findingId: randomUUID(),
-                    workItemId: supervisorWorkItemId,
-                    assignmentId: supervisorAssignment.assignmentId,
-                    generation: supervisorAssignment.generation,
-                    fingerprint: createHash("sha256")
-                      .update(supervisorReply.observation)
-                      .digest("hex"),
-                    severity: "high",
-                    evidence: { observation: supervisorReply.observation },
-                    requestedCorrection:
-                      "Resolve the Supervisor's observed run issue",
-                    resolutionCondition:
-                      "Supervisor confirms corrected acceptance evidence",
-                  },
+              else {
+                await containRuntime(
+                  finalRuntime.session,
+                  finalAssignment.assignmentId,
                 );
-                blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+                const reply = objectRecord(JSON.parse(finalReport.reply));
+                if (
+                  reply?.commitSha !== finalRuntime.baseSha ||
+                  !Array.isArray(reply.evidence) ||
+                  reply.evidence.length !== plan.acceptanceCriteria.length
+                )
+                  throw new Error(
+                    "final-parent Verifier did not report the exact composed HEAD and parent criteria",
+                  );
+                const seen = new Set<string>();
+                const finalEvidence: {
+                  evidenceId: string;
+                  criterion: string;
+                  passed: boolean;
+                  artifactRef: string;
+                }[] = [];
+                for (const rawEvidence of reply.evidence) {
+                  const entry = objectRecord(rawEvidence);
+                  if (
+                    typeof entry?.criterion !== "string" ||
+                    !plan.acceptanceCriteria.includes(entry.criterion) ||
+                    seen.has(entry.criterion) ||
+                    typeof entry.passed !== "boolean" ||
+                    typeof entry.artifactRef !== "string"
+                  )
+                    throw new Error(
+                      "final-parent Verifier evidence is not the exact parent criterion set",
+                    );
+                  seen.add(entry.criterion);
+                  finalEvidence.push({
+                    evidenceId: randomUUID(),
+                    criterion: entry.criterion,
+                    passed: entry.passed,
+                    artifactRef: verifiedEvidencePath(
+                      finalRuntime.evidenceDirectory,
+                      entry.artifactRef,
+                    ),
+                  });
+                }
+                const rejected = finalEvidence.find((entry) => !entry.passed);
+                if (rejected)
+                  blocker = `final-parent Verifier rejected composed checkout for criterion ${rejected.criterion}`;
+                else
+                  core.acceptFinalVerification(context(core, credential), {
+                    workItemId: finalWorkItemId,
+                    assignmentId: finalAssignment.assignmentId,
+                    commitSha: finalRuntime.baseSha,
+                    evidence: finalEvidence,
+                  });
               }
-              await containRuntime(
-                supervisorRuntime.session,
-                supervisorAssignment.assignmentId,
-              );
-              core.acceptNonCandidateReport(
+            }
+          }
+          if (!stopping && !blocker && finalRuntime) {
+            const supervisorWorkItemId = `supervisor-${randomUUID()}`;
+            let supervisorRuntime:
+              | {
+                  session: RoleRuntimeSession;
+                  adapter: M1BridgeAdapter;
+                  baseSha: string;
+                }
+              | undefined;
+            core.createWorkItem(context(core, credential), {
+              workItemId: supervisorWorkItemId,
+              title: `Supervise completed run ${plan.taskId}`,
+              description: `Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final composed checkout at /workspace. The assignment capsule lists each accepted candidate and artifact. Artifacts stored beneath ${path.join(config.stateDirectory, "runtime", "evidence")} are readable under /evidence with the same relative paths. Return JSON {"outcome":"pass"|"blocked","observation":"..."}; use blocked whenever a safety, scope, or acceptance issue is observed, and name the concrete issue in observation. Use pass only when no issue was observed.`,
+              requiredRole: "Supervisor",
+            });
+            core.addDependency(
+              context(core, credential),
+              supervisorWorkItemId,
+              pmWorkItemId,
+            );
+            for (const accepted of acceptedSlices)
+              core.addDependency(
                 context(core, credential),
                 supervisorWorkItemId,
-                supervisorAssignment.assignmentId,
+                accepted.workItemId,
               );
+            core.addDependency(
+              context(core, credential),
+              supervisorWorkItemId,
+              finalWorkItemId,
+            );
+            core.markReady(context(core, credential), supervisorWorkItemId);
+            const supervisorAssignment = core.assignWorkItem(
+              context(core, credential),
+              supervisorWorkItemId,
+              identities.Supervisor.seatId,
+            );
+            if (stopping) blocker ??= "run canceled by signal";
+            else if (dispatches >= plan.limits.maxDispatches)
+              blocker ??= "maxDispatches exhausted before Supervisor dispatch";
+            else {
+              supervisorRuntime = await provisionRuntime(
+                "Supervisor",
+                identities.Supervisor.seatId,
+                supervisorWorkItemId,
+                supervisorAssignment.generation,
+                supervisorAssignment.assignmentId,
+                [],
+                {
+                  workspace: finalRuntime.session.workspace,
+                  commitSha: finalRuntime.baseSha,
+                },
+              );
+              runtimeCommands[supervisorRuntime.session.sessionId] =
+                supervisorAssignment.commandId;
+              dispatches += 1;
+              core.transitionRuntimeSession(
+                context(core, credential),
+                supervisorRuntime.session.sessionId,
+                "working",
+              );
+              await supervisorRuntime.adapter.dispatchAndStart(
+                context(core, credential),
+                supervisorAssignment.commandId,
+              );
+              const supervisorReport =
+                await waitForReport(supervisorWorkItemId);
+              if (!supervisorReport)
+                blocker ??=
+                  "Supervisor report did not complete before the bounded run deadline";
+              else if (
+                supervisorReport.assignmentId !==
+                  supervisorAssignment.assignmentId ||
+                supervisorReport.role !== "Supervisor" ||
+                supervisorReport.inputRevision !== core.inputRevision
+              )
+                throw new Error(
+                  "Supervisor report does not match its active run-supervision assignment",
+                );
+              else {
+                const supervisorReply = objectRecord(
+                  JSON.parse(supervisorReport.reply),
+                );
+                if (
+                  typeof supervisorReply?.observation !== "string" ||
+                  !supervisorReply.observation.trim() ||
+                  (supervisorReply.outcome !== "pass" &&
+                    supervisorReply.outcome !== "blocked")
+                )
+                  throw new Error(
+                    "Supervisor returned no valid structured run observation",
+                  );
+                if (supervisorReply.outcome === "blocked") {
+                  core.createFinding(
+                    context(core, identities.Supervisor.credential),
+                    {
+                      findingId: randomUUID(),
+                      workItemId: supervisorWorkItemId,
+                      assignmentId: supervisorAssignment.assignmentId,
+                      generation: supervisorAssignment.generation,
+                      fingerprint: createHash("sha256")
+                        .update(supervisorReply.observation)
+                        .digest("hex"),
+                      severity: "high",
+                      evidence: { observation: supervisorReply.observation },
+                      requestedCorrection:
+                        "Resolve the Supervisor's observed run issue",
+                      resolutionCondition:
+                        "Supervisor confirms corrected acceptance evidence",
+                    },
+                  );
+                  blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+                }
+                await containRuntime(
+                  supervisorRuntime.session,
+                  supervisorAssignment.assignmentId,
+                );
+                core.acceptNonCandidateReport(
+                  context(core, credential),
+                  supervisorWorkItemId,
+                  supervisorAssignment.assignmentId,
+                );
+              }
             }
           }
         }
@@ -1920,9 +2060,6 @@ async function runCli(argv: string[]): Promise<number> {
             );
           }
         }
-
-        process.off("SIGINT", signal);
-        process.off("SIGTERM", signal);
       }
     } finally {
       try {
@@ -1930,6 +2067,7 @@ async function runCli(argv: string[]): Promise<number> {
         if (runtimeSocketRoot)
           fs.rmSync(runtimeSocketRoot, { recursive: true, force: true });
       } finally {
+        removeSignalHandlers();
         core.close();
       }
     }

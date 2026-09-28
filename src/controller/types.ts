@@ -88,6 +88,7 @@ export interface WorkItemInput {
   readonly requiredRole: Exclude<Role, "operator" | "controller">;
   readonly parentWorkItemId?: string;
   readonly acceptanceCriteria?: readonly string[];
+  readonly finalVerification?: boolean;
 }
 
 export interface SeatInput {

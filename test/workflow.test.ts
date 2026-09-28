@@ -41,6 +41,14 @@ test("validates a versioned two-slice plan and returns stable content identity",
   assert.equal(first.hash, second.hash);
 });
 
+test("rejects a dispatch limit too small for final-parent verification", () => {
+  const plan = validPlan();
+  plan.limits.maxDispatches = 6;
+  assert.throws(() => validateWorkflowPlan(plan), /at least 7 role dispatches/);
+  plan.limits.maxDispatches = 7;
+  assert.equal(validateWorkflowPlan(plan).plan.limits.maxDispatches, 7);
+});
+
 test("rejects ambiguous fields, missing acceptance, scope traversal, invalid roles and cycles", () => {
   const unknownField = { ...validPlan(), accepted: true };
   assert.throws(
