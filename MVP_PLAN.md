@@ -319,7 +319,7 @@ Each Developer candidate report binds its assignment, generation, current input 
 
 Report polling is bound to the active assignment ID, not merely the work-item ID; late reports from a rejected generation remain historical and cannot satisfy a replacement assignment's wait.
 
-Criterion evidence records retain the Verifier's observation and exit status alongside pass/fail and artifact identity. A passing result requires exit status zero; nonzero checks cannot authorize acceptance. Final-parent receipt binding also checks the same observation and status before recording the composed-tip result.
+Criterion evidence records retain the Verifier's observation and reported exit status alongside pass/fail and artifact identity. A passing result requires reported exit status zero; nonzero checks cannot authorize acceptance. Final-parent receipt binding also checks the same observation and status before recording the composed-tip result. These observations, statuses, and free-form artifact contents come from the independent Verifier role, not a host-attested command runner: the controller checks identity, containment, complete criterion coverage, and artifact location/nonemptiness but cannot prove that an arbitrary command ran or that a free-form log agrees with a reported status. This is a Verifier trust boundary, not protection against a dishonest Verifier. The frozen JSONL task receives a separate host-orchestrated replay in an offline container after composed-tip acceptance.
 
 Migration-added report fields remain `null` for pre-migration records rather than manufacturing observations or recomputing their immutable historical hashes. New reports must supply the fields; consumers can distinguish legacy evidence from the current report shape.
 
