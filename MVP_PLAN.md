@@ -28,14 +28,14 @@ This MVP realizes the feasibility and durable-coordination stages of the full pr
 
 ## 2. Questions the MVP must answer
 
-| ID | Hypothesis | Required proof |
-|---|---|---|
-| H1 | Separate agents can collaborate without relying on one shared conversation | Real PM, Developer, Verifier, and Supervisor sessions exchange assignment-bound outputs through the controller. |
-| H2 | Durable state prevents forgotten ownership and next actions | After session replacement or controller restart, status and reconstructed assignment context identify the same accepted inputs, owner, blocker, and next legal action. |
-| H3 | Independent supervision can break an unproductive loop | Supervisor identifies an injected repetitive failure, routes a correction, observes acknowledgement, and verifies recovery or produces a bounded escalation. |
-| H4 | Failure recovery does not introduce duplicate execution | Ambiguous delivery and worker replacement never create two authoritative writers; stale reports cannot advance state. |
-| H5 | Independent verification prevents premature completion | A deliberately incorrect candidate is rejected, corrected, and independently verified before parent acceptance. |
-| H6 | Coordination cost is measurable and potentially worthwhile | Report complete team usage, elapsed time, and human intervention against matched claw8 baseline tasks; distinguish correctness gains from token savings. |
+| ID  | Hypothesis                                                                 | Required proof                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H1  | Separate agents can collaborate without relying on one shared conversation | Real PM, Developer, Verifier, and Supervisor sessions exchange assignment-bound outputs through the controller.                                                        |
+| H2  | Durable state prevents forgotten ownership and next actions                | After session replacement or controller restart, status and reconstructed assignment context identify the same accepted inputs, owner, blocker, and next legal action. |
+| H3  | Independent supervision can break an unproductive loop                     | Supervisor identifies an injected repetitive failure, routes a correction, observes acknowledgement, and verifies recovery or produces a bounded escalation.           |
+| H4  | Failure recovery does not introduce duplicate execution                    | Ambiguous delivery and worker replacement never create two authoritative writers; stale reports cannot advance state.                                                  |
+| H5  | Independent verification prevents premature completion                     | A deliberately incorrect candidate is rejected, corrected, and independently verified before parent acceptance.                                                        |
+| H6  | Coordination cost is measurable and potentially worthwhile                 | Report complete team usage, elapsed time, and human intervention against matched claw8 baseline tasks; distinguish correctness gains from token savings.               |
 
 A successful happy path alone answers none of the recovery questions. A successful recovery alone does not prove efficiency.
 
@@ -72,14 +72,14 @@ A successful happy path alone answers none of the recovery questions. A successf
 
 ## 4. Team and authority contracts
 
-| Actor | Responsibility | Required outputs | Prohibited authority |
-|---|---|---|---|
-| Operator | Provide the product brief, acceptance criteria, authorized repository, and limits | Approved input revision; explicit decisions on escalations | No invisible mid-run edits to accepted scope |
-| PM | Interpret the task, propose slices and dependencies, respond to coordination findings | Structured plan; clarification requests; bounded replan proposals | Cannot bypass dependencies, accept its own unverified delivery, or mutate the database |
-| Developer | Implement the currently authorized slice | Candidate identity; implementation evidence; blocker or completion report | Cannot approve acceptance, widen scope, or continue under revoked authority |
-| Verifier | Exercise slice and final-parent acceptance independently | Candidate-bound pass/fail observations and actionable rejection reasons | Cannot modify the candidate while verifying or accept a different revision |
-| Workflow Supervisor | Observe every active role and handoff; diagnose workflow issues | Findings, routed corrections, verified resolutions, escalation recommendations | Cannot implement fixes, rewrite product priorities, or directly change assignments |
-| Controller | Enforce ownership, scheduling, policy, transitions, persistence, and recovery | Durable state, dispatch receipts, audit events, operator status | Cannot invent model judgments or infer acceptance from terminal idleness |
+| Actor               | Responsibility                                                                        | Required outputs                                                               | Prohibited authority                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Operator            | Provide the product brief, acceptance criteria, authorized repository, and limits     | Approved input revision; explicit decisions on escalations                     | No invisible mid-run edits to accepted scope                                           |
+| PM                  | Interpret the task, propose slices and dependencies, respond to coordination findings | Structured plan; clarification requests; bounded replan proposals              | Cannot bypass dependencies, accept its own unverified delivery, or mutate the database |
+| Developer           | Implement the currently authorized slice                                              | Candidate identity; implementation evidence; blocker or completion report      | Cannot approve acceptance, widen scope, or continue under revoked authority            |
+| Verifier            | Exercise slice and final-parent acceptance independently                              | Candidate-bound pass/fail observations and actionable rejection reasons        | Cannot modify the candidate while verifying or accept a different revision             |
+| Workflow Supervisor | Observe every active role and handoff; diagnose workflow issues                       | Findings, routed corrections, verified resolutions, escalation recommendations | Cannot implement fixes, rewrite product priorities, or directly change assignments     |
+| Controller          | Enforce ownership, scheduling, policy, transitions, persistence, and recovery         | Durable state, dispatch receipts, audit events, operator status                | Cannot invent model judgments or infer acceptance from terminal idleness               |
 
 All agents submit proposals or reports through authenticated, role-scoped controller interfaces. Only the controller commits authoritative transitions. Role names inside message bodies do not establish identity.
 
@@ -166,13 +166,13 @@ A lost acknowledgement means delivery is unknown. Query/reconcile the known comm
 
 ### 6.2 Small explicit state machines
 
-| Entity | Minimum states |
-|---|---|
-| Work item | pending, ready, running, awaiting_verification, accepted, blocked, canceled, failed |
-| Assignment attempt | created, dispatched, acknowledged, running, reported, completed, revoked, failed |
-| Runtime session | starting, ready, working, stopping, exited, unknown |
-| Finding | detected, reported, acknowledged, correcting, resolved, disputed, escalated |
-| Run control | active, paused, canceling, canceled, completed, failed |
+| Entity             | Minimum states                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Work item          | pending, ready, running, awaiting_verification, accepted, blocked, canceled, failed |
+| Assignment attempt | created, dispatched, acknowledged, running, reported, completed, revoked, failed    |
+| Runtime session    | starting, ready, working, stopping, exited, unknown                                 |
+| Finding            | detected, reported, acknowledged, correcting, resolved, disputed, escalated         |
+| Run control        | active, paused, canceling, canceled, completed, failed                              |
 
 Implement transition tables and authorization checks, not agent-authored status strings. A failed candidate can return to bounded remediation; its rejection and evidence remain recorded. A parent enters acceptance only after required children are accepted and its own final-candidate verification passes.
 
@@ -289,23 +289,23 @@ Worktrees and OMP profiles alone are not security boundaries. Prompt restriction
 
 `cstan init`, `cstan run --brief`, `cstan status`, and `cstan inspect` are implemented foreground commands; remaining rows are proposals, not current executables.
 
-| Command | Purpose |
-|---|---|
-| `cstan init` | Establish project-local configuration and state location |
-| `cstan run --brief <file>` | Validate an approved brief and start the bounded delivery loop |
-| `cstan status [--json]` | Show run state, role health, ownership, blockers, limits, and next actions |
-| `cstan inspect <id> [--json]` | Inspect a task, assignment, candidate, finding, or recovery |
-| `cstan pause` | Stop new dispatch; expose still-running work without claiming it stopped |
-| `cstan resume` | Reconcile state/authority and resume a paused run |
-| `cstan cancel` | Revoke assignments, contain runtimes, and retain evidence; report incomplete containment |
-| `cstan report --output <path>` | Export candidate identity, acceptance results, findings, recovery trace, and usage |
+| Command                        | Purpose                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `cstan init`                   | Establish project-local configuration and state location                                 |
+| `cstan run --brief <file>`     | Validate an approved brief and start the bounded delivery loop                           |
+| `cstan status [--json]`        | Show run state, role health, ownership, blockers, limits, and next actions               |
+| `cstan inspect <id> [--json]`  | Inspect a task, assignment, candidate, finding, or recovery                              |
+| `cstan pause`                  | Stop new dispatch; expose still-running work without claiming it stopped                 |
+| `cstan resume`                 | Reconcile state/authority and resume a paused run                                        |
+| `cstan cancel`                 | Revoke assignments, contain runtimes, and retain evidence; report incomplete containment |
+| `cstan report --output <path>` | Export candidate identity, acceptance results, findings, recovery trace, and usage       |
 
 The controller runs in the foreground under `cstan run`; `status` and `inspect` use authenticated local IPC while it is active and read the durable database after it exits. No detached service manager is required. Exit statuses: `0` complete/success, `2` usage, `3` invalid input or project configuration, `4` blocked or incomplete bounded work, `5` runtime or containment failure.
 
 Before `cstan run`, set `M1_PROVIDER_HOST` to the exact egress-allowlisted provider hostname and optionally `M1_PROVIDER_PORT` (default `443`); set absolute paths in `M1_HERDR_BINARY`, `M1_OMP_BINARY`, `M1_OMP_NATIVE_ADDON`, and `M1_NODE_BINARY`. The host Git executable is resolved from `PATH` and its exec directory is mounted read-only into role containers so Developer sessions can create immutable commits in their writable assignment checkout. Developer checkouts inherit the project Git `user.name` and `user.email` locally; a missing identity fails before dispatch because candidate commits cannot be produced without it. Preflight enforces Herdr `0.9.0` and its pinned SHA-256, OMP `18.3.1`, Node `24.6.0`, the pinned container image, Docker/cgroup-v2 isolation, compiler, and firewall/egress controls. Missing prerequisites fail before controller database creation; no host-execution fallback exists. A pre-existing controller database is blocked pending restart reconciliation and is never blindly redispatched.
 Assignment capsules identify the workspace as the role container sees it (`/workspace`); this maps to the isolated per-assignment checkout mounted by the controller.
 The CLI resolves qualification helper scripts relative to the installed Capstan package, not the project working directory.
-Before provisioning role checkouts, `run` rejects any `.capstan` path tracked by the current Git commit or index; cloned workers must never receive the operator key or controller state.
+Before provisioning role checkouts, `run` rejects any `.capstan` path in reachable Git history or the current index; cloned workers must never receive the operator key or controller state.
 
 All JSON envelopes use `schemaVersion: 1`. `run --brief` emits `{state, projectId, planHash, baseSha, roles, scheduler, blocker?}`. `status --json` emits `ControllerStatus` (`projectId`, `run`, `stateVersion`, `inputRevision`, `roles`, `work`, `findings`, `evidence`) plus `ownership`, `blockers`, `limits`, and `nextLegalActions`. `inspect --json` emits `{schemaVersion, kind, id, record}`. The runtime TypeScript contracts are `CstanRunJsonV1`, `CstanStatusJsonV1`, and `CstanInspectJsonV1` in `src/cli.ts`; executable contract tests exercise the output envelopes and exit codes.
 Work-item `nextLegalActions` includes `mark_ready` only when the controller’s readiness checks pass; eligible pending work is not reported as waiting.
@@ -313,19 +313,19 @@ Ready work advertises `assign` only while the controller's current readiness gat
 Authenticated control requests remain capped at 16 KiB; responses are capped at 1 MiB so large inspected records fit the same bounded local IPC contract.
 Brief and project JSON are decoded as strict UTF-8 (a leading UTF-8 BOM is accepted). Candidate filename comparison uses Git's NUL-delimited output, including non-ASCII names; plan write scopes reject the unbounded project-root `.` scope.
 Host-side Git validation starts only after the Developer runtime is contained and disables worker-configured fsmonitor, hooks, clean/process filters, external diff, and text conversion; terminal cancellation records the legal `canceling` then `canceled` transition and never reports success after a signal.
-Verifier evidence files are inspected only after the Verifier runtime is contained, so their on-disk identities cannot change during acceptance. Runtime provisioning also fails closed if the expected OMP host PID cannot be bound.
+The Supervisor reviews the accepted PM plan, all completed Developer candidates and Verifier evidence after slice acceptance; run completion waits for its accepted report. Verifier evidence files are inspected only after the Verifier runtime is contained. Runtime provisioning fails closed if the expected OMP host PID cannot be bound.
 
 ## 10. Implementation stages and exit gates
 
 These are Capstan implementation milestones, not claw8 runtime phases. Each gate requires stored evidence before dependent work proceeds.
 
-| Stage | Work | Exit gate |
-|---|---|---|
-| M0 — Freeze experiment | Approve bounded scope, reference brief, limits, evidence format, safety environment, and baseline method. Inspect decisive OpenRig seams. | Record foundation choice and all run inputs; no unresolved authority or delivery target. |
+| Stage                          | Work                                                                                                                                                                                                                                                                                                                                       | Exit gate                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 — Freeze experiment         | Approve bounded scope, reference brief, limits, evidence format, safety environment, and baseline method. Inspect decisive OpenRig seams.                                                                                                                                                                                                  | Record foundation choice and all run inputs; no unresolved authority or delivery target.                                                                                                                                                                                   |
 | M1 — Prove runtime feasibility | Exercise Herdr-hosted OMP delivery, role identity, command-bound receipts/replay, interruption, reconnect, scoped egress and writer containment with the selected bridge. Separately test close-before-restore and the earlier controller-process crash using real OMP RPC workers; that RPC path is diagnostic, not the selected runtime. | Record DEC-003's accepted independent-caller bypass and the frozen selected-path 10/10/10 qualification in Section 5.2. Do not conflate receipt-listener restart and fresh-client replay with a selected controller-process crash; full controller recovery belongs to M3. |
-| M2 — Durable vertical slice | Implement controller records/transitions, outbox, role capabilities, context capsules, minimal CLI, and the four-seat normal loop. | Reference task reaches independently verified local delivery with dependency gating and Supervisor active. No mocked role outputs in the demonstration. |
-| M3 — Supervision and recovery | Implement findings, correction/dispute routing, bounded recovery, restart reconciliation, stale rejection, and operator controls. | All reliability and negative-path scenarios in Section 11 pass against real runtime sessions. |
-| M4 — Qualification | Run the fixed task set and comparison baseline; export evidence and review limitations. | Issue a correctness go/no-go decision and a separate efficiency verdict under Section 12. |
+| M2 — Durable vertical slice    | Implement controller records/transitions, outbox, role capabilities, context capsules, minimal CLI, and the four-seat normal loop.                                                                                                                                                                                                         | Reference task reaches independently verified local delivery with dependency gating and Supervisor active. No mocked role outputs in the demonstration.                                                                                                                    |
+| M3 — Supervision and recovery  | Implement findings, correction/dispute routing, bounded recovery, restart reconciliation, stale rejection, and operator controls.                                                                                                                                                                                                          | All reliability and negative-path scenarios in Section 11 pass against real runtime sessions.                                                                                                                                                                              |
+| M4 — Qualification             | Run the fixed task set and comparison baseline; export evidence and review limitations.                                                                                                                                                                                                                                                    | Issue a correctness go/no-go decision and a separate efficiency verdict under Section 12.                                                                                                                                                                                  |
 
 Build one vertical path before generalizing. Keep runtime-adapter, persistence, state-transition, and role-output boundaries explicit, but do not implement a generic agent platform to obtain this proof.
 
@@ -333,23 +333,23 @@ Build one vertical path before generalizing. Keep runtime-adapter, persistence, 
 
 Run failures at named boundaries using a harness that records the injection and its timestamp. Do not manufacture passing evidence with canned agent replies. Test fixtures may deliberately cause failures; the actual controller, bridge, OMP sessions, Supervisor, and verification path must handle them.
 
-| ID | Scenario | Required observable outcome | Hypotheses |
-|---|---|---|---|
-| A01 | Normal two-slice delivery | Distinct role sessions; B waits for accepted A; exact final-parent behavior passes; local candidate and evidence are recorded. | H1, H5 |
-| A02 | Incorrect candidate | Independent Verifier rejects wrong behavior; remediation creates a new candidate; acceptance uses fresh verification, not old evidence. | H5 |
-| A03 | Repetitive Developer failure | Inject a repeated deterministic tool failure with an actionable correction. Supervisor routes evidence-backed guidance; agent acknowledges; condition is independently checked as resolved, or bounded escalation occurs. At least one run must demonstrate successful correction. | H3 |
-| A04 | Coordination issue outside Developer | Delay a required PM response after acknowledged delivery. Supervisor reports to the PM, tracks correction, and verifies resumed responsibility. | H1, H3 |
-| A05 | Legitimate long-running work | Exercise a tool within its declared long-running window. No destructive replacement or false resolution solely because files are unchanged. | H3 |
-| A06 | Controller crash before dispatch | Crash after assignment/outbox commit and before send. Restart delivers existing work without loss or a second assignment. | H2, H4 |
-| A07 | Lost acknowledgement | Drop acknowledgement after the worker records receipt. Reconciliation/replay does not start a second execution; uncertainty remains visible until resolved. | H4 |
-| A08 | Worker crash and late report | Preserve partial work, contain the old process tree, start a new generation, and inject an old-generation report. Reject it; prove no overlapping authorized writers. | H2, H4 |
-| A09 | Supervisor failure | Show degraded supervision, prevent new dispatch/acceptance, restore a separate Supervisor within policy or pause/escalate. | H3, H4 |
-| A10 | Repeated unsuccessful recovery | Hit the configured intervention/replacement limits. Park with evidence and a precise decision request; no spawn or retry loop. | H3, H4 |
-| A11 | Pause, resume, and cancel | Paused dispatch stays stopped; resume reconciles existing work; cancel reports containment truthfully and retains evidence. | H2, H4 |
-| A12 | Stale inputs and duplicate reports | Change an accepted brief/dependency revision through the controlled update path. Block or invalidate affected work/evidence; exact report replay is idempotent; conflicting ID reuse fails. | H2, H4, H5 |
-| A13 | Duplicate controller / capability violation | Reject a second scheduling owner; reject Developer self-acceptance and Supervisor direct assignment changes; prevent worker writes to controller state under the selected boundary. | H4, H5 |
-| A14 | Clean session replacement | Reconstruct the objective, accepted inputs, open findings, and next legal actions without the old conversation; complete the remaining work. | H2 |
-| A15 | Matched baseline comparison | Export all role/controller-associated usage that is measurable, elapsed time, quality, and human interventions; mark missing usage and inference separately. | H6 |
+| ID  | Scenario                                    | Required observable outcome                                                                                                                                                                                                                                                        | Hypotheses |
+| --- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| A01 | Normal two-slice delivery                   | Distinct role sessions; B waits for accepted A; exact final-parent behavior passes; local candidate and evidence are recorded.                                                                                                                                                     | H1, H5     |
+| A02 | Incorrect candidate                         | Independent Verifier rejects wrong behavior; remediation creates a new candidate; acceptance uses fresh verification, not old evidence.                                                                                                                                            | H5         |
+| A03 | Repetitive Developer failure                | Inject a repeated deterministic tool failure with an actionable correction. Supervisor routes evidence-backed guidance; agent acknowledges; condition is independently checked as resolved, or bounded escalation occurs. At least one run must demonstrate successful correction. | H3         |
+| A04 | Coordination issue outside Developer        | Delay a required PM response after acknowledged delivery. Supervisor reports to the PM, tracks correction, and verifies resumed responsibility.                                                                                                                                    | H1, H3     |
+| A05 | Legitimate long-running work                | Exercise a tool within its declared long-running window. No destructive replacement or false resolution solely because files are unchanged.                                                                                                                                        | H3         |
+| A06 | Controller crash before dispatch            | Crash after assignment/outbox commit and before send. Restart delivers existing work without loss or a second assignment.                                                                                                                                                          | H2, H4     |
+| A07 | Lost acknowledgement                        | Drop acknowledgement after the worker records receipt. Reconciliation/replay does not start a second execution; uncertainty remains visible until resolved.                                                                                                                        | H4         |
+| A08 | Worker crash and late report                | Preserve partial work, contain the old process tree, start a new generation, and inject an old-generation report. Reject it; prove no overlapping authorized writers.                                                                                                              | H2, H4     |
+| A09 | Supervisor failure                          | Show degraded supervision, prevent new dispatch/acceptance, restore a separate Supervisor within policy or pause/escalate.                                                                                                                                                         | H3, H4     |
+| A10 | Repeated unsuccessful recovery              | Hit the configured intervention/replacement limits. Park with evidence and a precise decision request; no spawn or retry loop.                                                                                                                                                     | H3, H4     |
+| A11 | Pause, resume, and cancel                   | Paused dispatch stays stopped; resume reconciles existing work; cancel reports containment truthfully and retains evidence.                                                                                                                                                        | H2, H4     |
+| A12 | Stale inputs and duplicate reports          | Change an accepted brief/dependency revision through the controlled update path. Block or invalidate affected work/evidence; exact report replay is idempotent; conflicting ID reuse fails.                                                                                        | H2, H4, H5 |
+| A13 | Duplicate controller / capability violation | Reject a second scheduling owner; reject Developer self-acceptance and Supervisor direct assignment changes; prevent worker writes to controller state under the selected boundary.                                                                                                | H4, H5     |
+| A14 | Clean session replacement                   | Reconstruct the objective, accepted inputs, open findings, and next legal actions without the old conversation; complete the remaining work.                                                                                                                                       | H2         |
+| A15 | Matched baseline comparison                 | Export all role/controller-associated usage that is measurable, elapsed time, quality, and human interventions; mark missing usage and inference separately.                                                                                                                       | H6         |
 
 For A12, a controlled update can be a narrow operator/controller API rather than an additional public CLI command. Direct database editing is not a valid input-change demonstration.
 

@@ -419,7 +419,7 @@ async function runCli(argv: string[]): Promise<number> {
     if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(baseSha))
       throw new Error("Git returned an invalid base commit");
     for (const args of [
-      ["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", ".capstan"],
+      ["rev-list", "--objects", "--all", "HEAD", "--", ".capstan"],
       ["ls-files", "-z", "--cached", "--", ".capstan"],
     ]) {
       const trackedState = spawnSync("git", ["-C", cwd, ...args], {
@@ -1214,95 +1214,9 @@ async function runCli(argv: string[]): Promise<number> {
             (item) =>
               item.workItemId === pmWorkItemId && item.state === "accepted",
           );
-        if (planWasAccepted) {
-          const supervisorWorkItemId = `supervisor-${randomUUID()}`;
-          let supervisorRuntime:
-            | {
-                session: RoleRuntimeSession;
-                adapter: M1BridgeAdapter;
-                baseSha: string;
-              }
-            | undefined;
-          core.createWorkItem(context(core, credential), {
-            workItemId: supervisorWorkItemId,
-            title: `Supervise bounded run ${plan.taskId}`,
-            description:
-              'Review the active plan, accepted PM report, completed reports, and current run state without making changes. Return JSON {"observation":"..."} containing the concrete safety, scope, or acceptance issue observed, or state that none was observed.',
-            requiredRole: "Supervisor",
-          });
-          core.addDependency(
-            context(core, credential),
-            supervisorWorkItemId,
-            pmWorkItemId,
-          );
-          core.markReady(context(core, credential), supervisorWorkItemId);
-          const supervisorAssignment = core.assignWorkItem(
-            context(core, credential),
-            supervisorWorkItemId,
-            identities.Supervisor.seatId,
-          );
-          if (stopping) blocker ??= "run canceled by signal";
-          else if (dispatches >= plan.limits.maxDispatches)
-            blocker ??= "maxDispatches exhausted before Supervisor dispatch";
-          else {
-            supervisorRuntime = await provisionRuntime(
-              "Supervisor",
-              identities.Supervisor.seatId,
-              supervisorWorkItemId,
-              supervisorAssignment.generation,
-              supervisorAssignment.assignmentId,
-            );
-            runtimeCommands[supervisorRuntime.session.sessionId] =
-              supervisorAssignment.commandId;
-            dispatches += 1;
-            core.transitionRuntimeSession(
-              context(core, credential),
-              supervisorRuntime.session.sessionId,
-              "working",
-            );
-            await supervisorRuntime.adapter.dispatchAndStart(
-              context(core, credential),
-              supervisorAssignment.commandId,
-            );
-            const supervisorReport = await waitForReport(supervisorWorkItemId);
-            if (!supervisorReport)
-              blocker ??=
-                "Supervisor report did not complete before the bounded run deadline";
-            else if (
-              supervisorReport.assignmentId !==
-                supervisorAssignment.assignmentId ||
-              supervisorReport.role !== "Supervisor" ||
-              supervisorReport.inputRevision !== core.inputRevision
-            )
-              throw new Error(
-                "Supervisor report does not match its active run-supervision assignment",
-              );
-            else {
-              await containRuntime(
-                supervisorRuntime.session,
-                supervisorAssignment.assignmentId,
-              );
-              const supervisorReply = objectRecord(
-                JSON.parse(supervisorReport.reply),
-              );
-              if (
-                typeof supervisorReply?.observation !== "string" ||
-                !supervisorReply.observation.trim()
-              )
-                throw new Error(
-                  "Supervisor returned no structured run observation",
-                );
-              core.acceptNonCandidateReport(
-                context(core, credential),
-                supervisorWorkItemId,
-                supervisorAssignment.assignmentId,
-              );
-            }
-          }
-        } else {
+        if (!planWasAccepted)
           blocker ??=
             "Supervisor withheld because the PM plan was not accepted";
-        }
         let step = await scheduler.step();
         while (
           !stopping &&
@@ -1683,6 +1597,97 @@ async function runCli(argv: string[]): Promise<number> {
             candidateId,
           );
           step = await scheduler.step();
+        }
+        if (
+          !stopping &&
+          !blocker &&
+          planWasAccepted &&
+          step.state === "complete"
+        ) {
+          const supervisorWorkItemId = `supervisor-${randomUUID()}`;
+          let supervisorRuntime:
+            | {
+                session: RoleRuntimeSession;
+                adapter: M1BridgeAdapter;
+                baseSha: string;
+              }
+            | undefined;
+          core.createWorkItem(context(core, credential), {
+            workItemId: supervisorWorkItemId,
+            title: `Supervise completed run ${plan.taskId}`,
+            description:
+              'Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final controller state. Return JSON {"observation":"..."} stating a concrete safety, scope, or acceptance issue, or that none was observed.',
+            requiredRole: "Supervisor",
+          });
+          core.addDependency(
+            context(core, credential),
+            supervisorWorkItemId,
+            pmWorkItemId,
+          );
+          core.markReady(context(core, credential), supervisorWorkItemId);
+          const supervisorAssignment = core.assignWorkItem(
+            context(core, credential),
+            supervisorWorkItemId,
+            identities.Supervisor.seatId,
+          );
+          if (stopping) blocker ??= "run canceled by signal";
+          else if (dispatches >= plan.limits.maxDispatches)
+            blocker ??= "maxDispatches exhausted before Supervisor dispatch";
+          else {
+            supervisorRuntime = await provisionRuntime(
+              "Supervisor",
+              identities.Supervisor.seatId,
+              supervisorWorkItemId,
+              supervisorAssignment.generation,
+              supervisorAssignment.assignmentId,
+            );
+            runtimeCommands[supervisorRuntime.session.sessionId] =
+              supervisorAssignment.commandId;
+            dispatches += 1;
+            core.transitionRuntimeSession(
+              context(core, credential),
+              supervisorRuntime.session.sessionId,
+              "working",
+            );
+            await supervisorRuntime.adapter.dispatchAndStart(
+              context(core, credential),
+              supervisorAssignment.commandId,
+            );
+            const supervisorReport = await waitForReport(supervisorWorkItemId);
+            if (!supervisorReport)
+              blocker ??=
+                "Supervisor report did not complete before the bounded run deadline";
+            else if (
+              supervisorReport.assignmentId !==
+                supervisorAssignment.assignmentId ||
+              supervisorReport.role !== "Supervisor" ||
+              supervisorReport.inputRevision !== core.inputRevision
+            )
+              throw new Error(
+                "Supervisor report does not match its active run-supervision assignment",
+              );
+            else {
+              await containRuntime(
+                supervisorRuntime.session,
+                supervisorAssignment.assignmentId,
+              );
+              const supervisorReply = objectRecord(
+                JSON.parse(supervisorReport.reply),
+              );
+              if (
+                typeof supervisorReply?.observation !== "string" ||
+                !supervisorReply.observation.trim()
+              )
+                throw new Error(
+                  "Supervisor returned no structured run observation",
+                );
+              core.acceptNonCandidateReport(
+                context(core, credential),
+                supervisorWorkItemId,
+                supervisorAssignment.assignmentId,
+              );
+            }
+          }
         }
         if (stopping) blocker = "run canceled by signal";
         else if (!blocker && step.state === "complete") blocker = undefined;
