@@ -323,7 +323,7 @@ Criterion evidence records retain the Verifier's observation and exit status alo
 
 Migration-added report fields remain `null` for pre-migration records rather than manufacturing observations or recomputing their immutable historical hashes. New reports must supply the fields; consumers can distinguish legacy evidence from the current report shape.
 
-Run `node scripts/pm7-reference-run.mjs` after `npm run build` to exercise the frozen `jsonl-summary-feature` M0 fixture in a private disposable repository. The runner checks every valid, malformed, and regression case byte-for-byte from a fresh checkout of the accepted composed tip. It requires the configured M1 provider host and runtime binaries; absent prerequisites fail before agent dispatch and retain private diagnostic logs under the reported temporary evidence directory.
+Run `node scripts/pm7-reference-run.mjs` after `npm run build` to exercise the frozen `jsonl-summary-feature` M0 fixture in a private disposable repository. The runner clears inherited `GIT_*` environment variables before invoking Git or the controller and checks every valid, malformed, and regression case byte-for-byte from a fresh checkout of the accepted composed tip. It requires the configured M1 provider host and runtime binaries; absent prerequisites fail before agent dispatch and retain private diagnostic logs under the reported temporary evidence directory.
 
 ## 10. Implementation stages and exit gates
 

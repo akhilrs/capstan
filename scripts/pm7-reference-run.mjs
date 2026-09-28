@@ -22,6 +22,7 @@ const task = manifest.tasks.find((entry) => entry.id === "jsonl-summary-feature"
 if (!task) throw new Error("jsonl-summary-feature is absent from the authoritative fixture manifest");
 const cstan = path.join(repoRoot, "dist/src/cli.js");
 const env = { ...process.env, LC_ALL: "C", LANG: "C", TZ: "UTC" };
+for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
 const gitEnv = {
   ...env,
   GIT_CONFIG_NOSYSTEM: "1",
