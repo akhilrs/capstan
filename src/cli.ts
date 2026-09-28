@@ -99,9 +99,61 @@ function readJson(file: string): unknown {
   const source = new TextDecoder("utf-8", { fatal: true }).decode(
     fs.readFileSync(file),
   );
-  return JSON.parse(
-    source.startsWith("\uFEFF") ? source.slice(1) : source,
-  ) as unknown;
+  const text = source.startsWith("\uFEFF") ? source.slice(1) : source;
+  const value: unknown = JSON.parse(text);
+  let offset = 0;
+  const whitespace = (): void => {
+    while (/\s/.test(text[offset] ?? "") && offset < text.length) offset++;
+  };
+  const stringToken = (): string => {
+    const start = offset++;
+    while (offset < text.length) {
+      if (text[offset] === "\\") {
+        offset += 2;
+      } else if (text[offset++] === '"') {
+        return JSON.parse(text.slice(start, offset)) as string;
+      }
+    }
+    throw new InvalidInputError("unterminated JSON string");
+  };
+  const scan = (): void => {
+    whitespace();
+    if (text[offset] === "{") {
+      offset++;
+      const keys = new Set<string>();
+      whitespace();
+      while (text[offset] !== "}") {
+        const key = stringToken();
+        if (keys.has(key))
+          throw new InvalidInputError(`duplicate JSON member: ${key}`);
+        keys.add(key);
+        whitespace();
+        offset++;
+        scan();
+        whitespace();
+        if (text[offset] !== ",") break;
+        offset++;
+        whitespace();
+      }
+      offset++;
+    } else if (text[offset] === "[") {
+      offset++;
+      whitespace();
+      while (text[offset] !== "]") {
+        scan();
+        whitespace();
+        if (text[offset] !== ",") break;
+        offset++;
+      }
+      offset++;
+    } else if (text[offset] === '"') {
+      stringToken();
+    } else {
+      while (offset < text.length && !/[,}\]\s]/.test(text[offset]!)) offset++;
+    }
+  };
+  scan();
+  return value;
 }
 
 function parseConfig(value: unknown): Config {
@@ -419,9 +471,16 @@ async function runCli(argv: string[]): Promise<number> {
     const baseSha = base.stdout.trim();
     if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(baseSha))
       throw new Error("Git returned an invalid base commit");
+    const root = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+    });
+    if (root.status !== 0 || path.resolve(root.stdout.trim()) !== cwd)
+      throw new InvalidInputError(
+        "project directory must be the Git repository root before cloning role workspaces",
+      );
     for (const args of [
-      ["rev-list", "--objects", "--all", "HEAD", "--", ".capstan"],
-      ["ls-files", "-z", "--cached", "--", ".capstan"],
+      ["rev-list", "--objects", "--all", "HEAD", "--", ":(glob)**/.capstan/**"],
+      ["ls-files", "-z", "--cached", "--", ":(glob)**/.capstan/**"],
     ]) {
       const trackedState = spawnSync("git", ["-C", cwd, ...args], {
         encoding: "buffer",

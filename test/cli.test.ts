@@ -816,6 +816,106 @@ test("cstan runtime preflight fails closed before creating controller database",
   }
 });
 
+test("cstan rejects nested controller state and non-root project clones", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-nested-state-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const baseline = path.join(cwd, "README.txt");
+    writeFileSync(baseline, "baseline\n");
+    for (const args of [
+      ["init", "--quiet"],
+      ["config", "user.name", "Capstan Test"],
+      ["config", "user.email", "capstan-test@example.invalid"],
+      ["add", "README.txt"],
+      ["commit", "--quiet", "-m", "baseline"],
+    ]) {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const brief = path.join(cwd, "brief.json");
+    writeFileSync(
+      brief,
+      JSON.stringify({
+        schemaVersion: 1,
+        taskId: "isolation",
+        objective: "Keep operator credentials out of role workspaces",
+        acceptanceCriteria: ["first", "second"],
+        limits: { maxSlices: 2, maxRunMs: 1000, maxDispatches: 7 },
+        slices: [
+          {
+            id: "first",
+            title: "First",
+            description: "First",
+            role: "Developer",
+            dependsOn: [],
+            writeScope: ["src"],
+            acceptanceCriteria: ["first"],
+          },
+          {
+            id: "second",
+            title: "Second",
+            description: "Second",
+            role: "Developer",
+            dependsOn: ["first"],
+            writeScope: ["src"],
+            acceptanceCriteria: ["second"],
+          },
+        ],
+      }),
+    );
+    const nested = path.join(cwd, "nested");
+    mkdirSync(nested);
+    assert.equal(invoke(nested, "init").status, 0);
+    const subdirectoryRun = invoke(nested, "run", "--brief", brief);
+    assert.equal(subdirectoryRun.status, 3, subdirectoryRun.stderr);
+    assert.match(subdirectoryRun.stderr, /Git repository root/);
+    assert.equal(
+      existsSync(path.join(nested, ".capstan/state/controller.sqlite")),
+      false,
+    );
+    writeFileSync(path.join(nested, "secret.txt"), "private\n");
+    for (const args of [
+      ["add", "-f", "nested/.capstan/operator.key"],
+      ["commit", "--quiet", "-m", "nested credential in history"],
+      ["rm", "--cached", "--quiet", "nested/.capstan/operator.key"],
+      ["commit", "--quiet", "-m", "remove nested credential"],
+    ]) {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const nestedHistory = invoke(cwd, "run", "--brief", brief);
+    assert.equal(nestedHistory.status, 3, nestedHistory.stderr);
+    assert.match(nestedHistory.stderr, /contains \.capstan state/);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
+      false,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("cstan rejects duplicate JSON members before validating a brief", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-duplicate-json-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const brief = path.join(cwd, "brief.json");
+    writeFileSync(
+      brief,
+      '{"schemaVersion":1,"limits":{"maxSlices":2,"maxSlices":99}}\n',
+    );
+    const result = invoke(cwd, "run", "--brief", brief);
+    assert.equal(result.status, 3, result.stderr);
+    assert.match(result.stderr, /duplicate JSON member: maxSlices/);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
+      false,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cstan inspect requires an identifier and returns the usage exit code", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-usage-"));
   try {

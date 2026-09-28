@@ -19,6 +19,15 @@ function protocolError(message: string): Error {
   return new ControllerError(`M1 bridge protocol: ${message}`);
 }
 
+function writeAll(fd: number, content: string): void {
+  const bytes = Buffer.from(content);
+  for (let offset = 0; offset < bytes.length;) {
+    const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+    if (written === 0) throw new ControllerError("receipt journal short write");
+    offset += written;
+  }
+}
+
 function sameSocket(
   stat: fs.Stats,
   identity: { dev: number; ino: number },
@@ -526,7 +535,7 @@ export class M1BridgeAdapter {
       fs.constants.O_WRONLY | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
     );
     try {
-      fs.writeSync(fd, this.#core.bridgeReceiptJournal(this.#journalRole));
+      writeAll(fd, this.#core.bridgeReceiptJournal(this.#journalRole));
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
@@ -551,7 +560,7 @@ export class M1BridgeAdapter {
         throw new ControllerError(
           "receipt journal must be a private regular file",
         );
-      fs.writeSync(fd, `${JSON.stringify(receipt)}\n`);
+      writeAll(fd, `${JSON.stringify(receipt)}\n`);
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
