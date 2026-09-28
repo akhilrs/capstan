@@ -522,6 +522,7 @@ async function runCli(argv: string[]): Promise<number> {
         "--",
         ":(glob)**/.capstan",
         ":(glob)**/.capstan/**",
+        ".home/bridge.jsonl",
       ],
       [
         "ls-files",
@@ -530,6 +531,7 @@ async function runCli(argv: string[]): Promise<number> {
         "--",
         ":(glob)**/.capstan",
         ":(glob)**/.capstan/**",
+        ".home/bridge.jsonl",
       ],
     ]) {
       const trackedState = spawnSync("git", ["-C", cwd, ...args], {
@@ -656,6 +658,7 @@ async function runCli(argv: string[]): Promise<number> {
         { workspace: string; baseSha: string }
       > = {};
       const candidateWorkspaces: Record<string, string> = {};
+      const acceptedCandidateByWorkItem = new Map<string, string>();
       const runtimeAssignments: Record<string, string> = {};
       const runtimeCommands: Record<string, string> = {};
       const uncertainCommandSnapshots = new Map<
@@ -1767,6 +1770,7 @@ async function runCli(argv: string[]): Promise<number> {
             workItemId,
             candidateId,
           );
+          acceptedCandidateByWorkItem.set(workItemId, candidateId);
           step = await scheduler.step();
         }
         if (
@@ -1777,12 +1781,14 @@ async function runCli(argv: string[]): Promise<number> {
         ) {
           const acceptedSnapshot = core.statusSnapshot();
           const acceptedSlices = plan.slices.map((slice) => {
-            const candidateId = `candidate-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+            const workItemId = `wf-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+            const candidateId = acceptedCandidateByWorkItem.get(workItemId);
             const candidate = acceptedSnapshot.evidence.find(
               (entry) => entry.candidateId === candidateId,
             );
-            const workspace = candidateWorkspaces[candidateId];
-            const workItemId = `wf-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+            const workspace = candidateId
+              ? candidateWorkspaces[candidateId]
+              : undefined;
             if (
               !candidate ||
               !workspace ||
