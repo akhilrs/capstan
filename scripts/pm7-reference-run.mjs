@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assertTrackedCheckoutMatchesHead } from "../dist/src/cli.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -88,7 +89,14 @@ function run(
 function gitAt(cwd, args, label, { allowFailure = false } = {}) {
   const result = run(
     "git",
-    ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", ...args],
+    [
+      "--no-replace-objects",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      ...args,
+    ],
     {
       cwd,
       label,
@@ -116,11 +124,16 @@ function findWorkspaceForCommit(directory, commitSha) {
   if (gitEntry?.isDirectory()) {
     const probe = gitAt(
       directory,
-      ["cat-file", "-e", `${commitSha}^{commit}`],
-      "locate-accepted-commit",
+      ["rev-parse", "HEAD"],
+      "locate-accepted-tip",
       { allowFailure: true },
     );
-    if (probe.status === 0) return directory;
+    if (
+      probe.status === 0 &&
+      probe.stdout.toString("utf8").trim().toLowerCase() ===
+        commitSha.toLowerCase()
+    )
+      return directory;
     return undefined;
   }
   for (const entry of entries) {
