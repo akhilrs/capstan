@@ -737,23 +737,33 @@ async function runCli(argv: string[]): Promise<number> {
           ...process.env,
           GIT_CONFIG_NOSYSTEM: "1",
           GIT_CONFIG_GLOBAL: "/dev/null",
-          GIT_CONFIG_COUNT: "0",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "uploadpack.packObjectsHook",
+          GIT_CONFIG_VALUE_0: "/bin/true",
           GIT_CONFIG_PARAMETERS: "",
         };
-        const cloned = spawnSync(
-          "git",
-          [
-            ...hostGitArgs,
-            "clone",
-            "--no-checkout",
-            "--no-local",
-            "--quiet",
-            "--",
-            cwd,
-            workspace,
-          ],
-          { encoding: "utf8", env: hostGitEnv },
-        );
+        const runHostGit = (args: string[]) => {
+          const timeout = deadlineMs - Date.now();
+          if (timeout <= 0)
+            throw new BlockedError(
+              "maxRunMs exceeded during role workspace provisioning",
+            );
+          return spawnSync("git", args, {
+            encoding: "utf8",
+            env: hostGitEnv,
+            timeout,
+          });
+        };
+        const cloned = runHostGit([
+          ...hostGitArgs,
+          "clone",
+          "--no-checkout",
+          "--no-local",
+          "--quiet",
+          "--",
+          cwd,
+          workspace,
+        ]);
         if (cloned.status !== 0)
           throw new Error(
             `cannot create isolated ${role} assignment checkout: ${(cloned.stderr || "git clone failed").trim()}`,
@@ -761,22 +771,27 @@ async function runCli(argv: string[]): Promise<number> {
         fs.chmodSync(workspace, 0o700);
         if (role === "Developer" || predecessorCandidates.length > 0) {
           for (const key of ["user.name", "user.email"] as const) {
-            const sourceIdentity = spawnSync(
-              "git",
-              ["-C", cwd, "config", "--get", key],
-              { encoding: "utf8" },
-            );
+            const sourceIdentity = runHostGit([
+              "-C",
+              cwd,
+              "config",
+              "--get",
+              key,
+            ]);
             const value =
               sourceIdentity.status === 0 ? sourceIdentity.stdout.trim() : "";
             if (!value)
               throw new Error(
                 `Developer candidate commits require project Git ${key}`,
               );
-            const isolatedIdentity = spawnSync(
-              "git",
-              ["-C", workspace, "config", "--local", key, value],
-              { encoding: "utf8" },
-            );
+            const isolatedIdentity = runHostGit([
+              "-C",
+              workspace,
+              "config",
+              "--local",
+              key,
+              value,
+            ]);
             if (isolatedIdentity.status !== 0)
               throw new Error(
                 `cannot configure ${key} in isolated Developer checkout: ${(isolatedIdentity.stderr || "git config failed").trim()}`,
@@ -784,103 +799,79 @@ async function runCli(argv: string[]): Promise<number> {
           }
         }
         if (exactCandidate) {
-          const fetched = spawnSync(
-            "git",
-            [
+          const fetched = runHostGit([
+            ...hostGitArgs,
+            "-C",
+            workspace,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            exactCandidate.workspace,
+            exactCandidate.commitSha,
+          ]);
+          if (fetched.status !== 0)
+            throw new Error(
+              `cannot fetch exact candidate ${exactCandidate.commitSha}: ${(fetched.stderr || "git fetch failed").trim()}`,
+            );
+          const candidateCheckout = runHostGit([
+            ...hostGitArgs,
+            "-C",
+            workspace,
+            "checkout",
+            "--quiet",
+            "--detach",
+            "FETCH_HEAD",
+          ]);
+          if (candidateCheckout.status !== 0)
+            throw new Error(
+              `cannot check out exact candidate ${exactCandidate.commitSha}: ${(candidateCheckout.stderr || "git checkout failed").trim()}`,
+            );
+        } else {
+          const checkedOut = runHostGit([
+            ...hostGitArgs,
+            "-C",
+            workspace,
+            "checkout",
+            "--quiet",
+            "--detach",
+            baseSha,
+          ]);
+          if (checkedOut.status !== 0)
+            throw new Error(
+              `cannot check out accepted base ${baseSha}: ${(checkedOut.stderr || "git checkout failed").trim()}`,
+            );
+          for (const predecessor of predecessorCandidates) {
+            const fetched = runHostGit([
               ...hostGitArgs,
               "-C",
               workspace,
               "fetch",
               "--quiet",
               "--no-tags",
-              exactCandidate.workspace,
-              exactCandidate.commitSha,
-            ],
-            { encoding: "utf8", env: hostGitEnv },
-          );
-          if (fetched.status !== 0)
-            throw new Error(
-              `cannot fetch exact candidate ${exactCandidate.commitSha}: ${(fetched.stderr || "git fetch failed").trim()}`,
-            );
-          const candidateCheckout = spawnSync(
-            "git",
-            [
-              ...hostGitArgs,
-              "-C",
-              workspace,
-              "checkout",
-              "--quiet",
-              "--detach",
-              "FETCH_HEAD",
-            ],
-            { encoding: "utf8", env: hostGitEnv },
-          );
-          if (candidateCheckout.status !== 0)
-            throw new Error(
-              `cannot check out exact candidate ${exactCandidate.commitSha}: ${(candidateCheckout.stderr || "git checkout failed").trim()}`,
-            );
-        } else {
-          const checkedOut = spawnSync(
-            "git",
-            [
-              ...hostGitArgs,
-              "-C",
-              workspace,
-              "checkout",
-              "--quiet",
-              "--detach",
-              baseSha,
-            ],
-            { encoding: "utf8", env: hostGitEnv },
-          );
-          if (checkedOut.status !== 0)
-            throw new Error(
-              `cannot check out accepted base ${baseSha}: ${(checkedOut.stderr || "git checkout failed").trim()}`,
-            );
-          for (const predecessor of predecessorCandidates) {
-            const fetched = spawnSync(
-              "git",
-              [
-                ...hostGitArgs,
-                "-C",
-                workspace,
-                "fetch",
-                "--quiet",
-                "--no-tags",
-                predecessor.workspace,
-                predecessor.commitSha,
-              ],
-              { encoding: "utf8", env: hostGitEnv },
-            );
+              predecessor.workspace,
+              predecessor.commitSha,
+            ]);
             if (fetched.status !== 0)
               throw new Error(
                 `cannot fetch accepted predecessor ${predecessor.commitSha}: ${(fetched.stderr || "git fetch failed").trim()}`,
               );
-            const merged = spawnSync(
-              "git",
-              [
-                ...hostGitArgs,
-                "-C",
-                workspace,
-                "merge",
-                "--quiet",
-                "--no-edit",
-                "--no-ff",
-                "FETCH_HEAD",
-              ],
-              { encoding: "utf8", env: hostGitEnv },
-            );
+            const merged = runHostGit([
+              ...hostGitArgs,
+              "-C",
+              workspace,
+              "merge",
+              "--quiet",
+              "--no-edit",
+              "--no-ff",
+              "FETCH_HEAD",
+            ]);
             if (merged.status !== 0)
               throw new Error(
                 `accepted predecessor ${predecessor.commitSha} does not merge cleanly: ${(merged.stderr || "git merge failed").trim()}`,
               );
           }
         }
-        const actualBase = spawnSync(
-          "git",
-          ["-C", workspace, "rev-parse", "HEAD"],
-          { encoding: "utf8" },
-        );
+        const actualBase = runHostGit(["-C", workspace, "rev-parse", "HEAD"]);
         if (
           actualBase.status !== 0 ||
           !/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(actualBase.stdout.trim())
