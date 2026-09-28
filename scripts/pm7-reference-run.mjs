@@ -365,6 +365,7 @@ try {
   mkdirSync(casesRoot, { mode: 0o700 });
   const exerciseSource = path.join(casesRoot, "accepted-source");
   mkdirSync(exerciseSource, { mode: 0o700 });
+  assertTrackedCheckoutMatchesHead(sourceWorkspace, acceptedTip);
   for (const relative of trackedFixtureFiles) {
     const source = path.join(sourceWorkspace, relative);
     const stat = lstatSync(source);
