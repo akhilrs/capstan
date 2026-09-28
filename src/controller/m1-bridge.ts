@@ -2,6 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { canonicalJson } from "./canonical.js";
 import { ControllerError, type ControllerCore } from "./core.js";
 import {
   M1_MAX_FRAME_BYTES,
@@ -10,12 +11,22 @@ import {
   parseM1Frame,
   type M1Frame,
 } from "./m1-protocol.js";
-import type { BridgeReceipt, MutationContext } from "./types.js";
+import type { BridgeReceipt, MutationContext, Role } from "./types.js";
 
+import { spawnSync } from "node:child_process";
 type BridgeResponse = M1Frame;
 
 function protocolError(message: string): Error {
   return new ControllerError(`M1 bridge protocol: ${message}`);
+}
+
+function writeAll(fd: number, content: string | Buffer): void {
+  const bytes = typeof content === "string" ? Buffer.from(content) : content;
+  for (let offset = 0; offset < bytes.length;) {
+    const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+    if (written === 0) throw new ControllerError("receipt journal short write");
+    offset += written;
+  }
 }
 
 function sameSocket(
@@ -167,6 +178,37 @@ function requestBridge(
   return promise;
 }
 
+export type ReceiptPeerPolicy =
+  | { readonly authenticate: (socketFd: number) => boolean }
+  | { readonly allowUnauthenticatedLocalPeers: true };
+
+export function expectedReceiptPeer(
+  helperPath: string,
+  expectedPid: number,
+): (socketFd: number) => boolean {
+  if (
+    !path.isAbsolute(helperPath) ||
+    !Number.isSafeInteger(expectedPid) ||
+    expectedPid <= 0
+  )
+    throw new TypeError(
+      "receipt peer authentication requires an absolute helper path and positive PID",
+    );
+  const stat = fs.lstatSync(helperPath);
+  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0)
+    throw new ControllerError(
+      "receipt peer helper must be a regular executable file",
+    );
+  return (socketFd) => {
+    if (!Number.isSafeInteger(socketFd) || socketFd < 0) return false;
+    const result = spawnSync(helperPath, [String(expectedPid)], {
+      stdio: ["ignore", "ignore", "pipe", socketFd],
+      timeout: 5_000,
+    });
+    return result.status === 0 && !result.error;
+  };
+}
+
 export class M1BridgeAdapter {
   static readonly #verifiedSnapshots = new WeakSet<object>();
 
@@ -178,9 +220,12 @@ export class M1BridgeAdapter {
     );
   }
 
+  readonly #peerPolicy: ReceiptPeerPolicy;
   readonly #core: ControllerCore;
   readonly #receiptSocketPath: string;
   readonly #bridgeSocketPath: string;
+  readonly #journalPath: string | undefined;
+  readonly #journalRole: Role | undefined;
   #server: net.Server | undefined;
   #socketIdentity: { dev: number; ino: number } | undefined;
 
@@ -188,10 +233,17 @@ export class M1BridgeAdapter {
     core: ControllerCore,
     receiptSocketPath: string,
     bridgeSocketPath: string,
+    peerPolicy: ReceiptPeerPolicy,
+    journal?: { readonly path: string; readonly role: Role },
   ) {
     this.#core = core;
     this.#receiptSocketPath = validateSocketPath(receiptSocketPath);
     this.#bridgeSocketPath = validateSocketPath(bridgeSocketPath);
+    this.#peerPolicy = peerPolicy;
+    this.#journalPath = journal?.path;
+    this.#journalRole = journal?.role;
+    if (journal && !path.isAbsolute(journal.path))
+      throw new TypeError("receipt journal path must be absolute");
     if (this.#receiptSocketPath === this.#bridgeSocketPath)
       throw new TypeError("receipt and command sockets must differ");
   }
@@ -212,6 +264,7 @@ export class M1BridgeAdapter {
         "M1 bridge receipt socket requires a private directory owned by the current user",
       );
     }
+    this.#restoreJournal();
     await clearStaleSocket(this.#receiptSocketPath);
     const server = net.createServer((socket) => this.#receiveReceipt(socket));
     this.#server = server;
@@ -237,7 +290,7 @@ export class M1BridgeAdapter {
   async close(): Promise<void> {
     const server = this.#server;
     this.#server = undefined;
-    if (server) {
+    if (server?.listening) {
       const closed = Promise.withResolvers<void>();
       server.close((error) =>
         error ? closed.reject(error) : closed.resolve(),
@@ -275,6 +328,13 @@ export class M1BridgeAdapter {
         this.#bridgeSocketPath,
         payload as BridgeResponse,
       );
+      if (response.type === "error") {
+        const reason =
+          typeof response.error === "string"
+            ? response.error.slice(0, 512)
+            : "unspecified bridge rejection";
+        throw protocolError(`dispatch rejected: ${reason}`);
+      }
       if (
         response.type !== "ack" ||
         response.commandId !== commandId ||
@@ -283,7 +343,7 @@ export class M1BridgeAdapter {
         this.#core.commandState(commandId) !== "acknowledged"
       ) {
         throw protocolError(
-          "dispatch was not durably acknowledged by both bridge and controller",
+          `dispatch acknowledgement mismatch (type=${String(response.type)}, commandId=${String(response.commandId)}, durable=${String(response.durable)}, state=${String(response.state)}, controller=${String(this.#core.commandState(commandId))})`,
         );
       }
       state = "acknowledged";
@@ -346,7 +406,8 @@ export class M1BridgeAdapter {
     readonly bridgeState: string;
     readonly durable: boolean;
   }> {
-    if (this.#core.commandState(commandId) !== "unknown")
+    const state = this.#core.commandState(commandId);
+    if (state !== "unknown" && state !== "attempting")
       throw new ControllerError(
         "only uncertain commands can be inspected without new dispatch",
       );
@@ -384,6 +445,7 @@ export class M1BridgeAdapter {
         durable: response.durable,
       });
     }
+    M1BridgeAdapter.#verifiedSnapshots.add(snapshot);
     return snapshot;
   }
 
@@ -408,6 +470,17 @@ export class M1BridgeAdapter {
   }
 
   #receiveReceipt(socket: net.Socket): void {
+    if ("authenticate" in this.#peerPolicy) {
+      const socketFd = (socket as unknown as { _handle?: { fd?: number } })
+        ._handle?.fd;
+      if (socketFd === undefined || !this.#peerPolicy.authenticate(socketFd)) {
+        socket.destroy();
+        return;
+      }
+    } else if (!this.#peerPolicy.allowUnauthenticatedLocalPeers) {
+      socket.destroy();
+      return;
+    }
     const parser = new M1ReceiptFrameParser();
     let settled = false;
     socket.setTimeout(15_000, () => socket.destroy());
@@ -416,10 +489,13 @@ export class M1BridgeAdapter {
       settled = true;
       try {
         const value = frameObject(frame);
-        const result = this.#core.recordBridgeReceipt(value as BridgeReceipt);
+        const receipt = value as BridgeReceipt;
+        const result = this.#core.recordBridgeReceipt(receipt);
+        if (result.duplicate) this.#reconcileJournal();
+        else this.#appendJournal(receipt);
         if (!socket.destroyed)
           socket.end(
-            `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
+            `${JSON.stringify({ ok: true, sequence: receipt.sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
           );
       } catch (error) {
         if (!socket.destroyed)
@@ -442,5 +518,98 @@ export class M1BridgeAdapter {
       if (frame) finish(frame);
     });
     socket.on("error", () => socket.destroy());
+  }
+  #restoreJournal(): void {
+    if (!this.#journalPath || !this.#journalRole) return;
+    const stat = fs.lstatSync(this.#journalPath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      (process.getuid && stat.uid !== process.getuid()) ||
+      (stat.mode & 0o077) !== 0
+    )
+      throw new ControllerError(
+        "receipt journal must be a private regular file",
+      );
+    const fd = fs.openSync(
+      this.#journalPath,
+      fs.constants.O_WRONLY | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      writeAll(fd, this.#core.bridgeReceiptJournal(this.#journalRole));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  #reconcileJournal(): void {
+    if (!this.#journalPath || !this.#journalRole) return;
+    const stat = fs.lstatSync(this.#journalPath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      (process.getuid && stat.uid !== process.getuid()) ||
+      (stat.mode & 0o077) !== 0
+    )
+      throw new ControllerError(
+        "receipt journal must be a private regular file",
+      );
+    const expected = Buffer.from(
+      this.#core.bridgeReceiptJournal(this.#journalRole),
+    );
+    const actual = fs.readFileSync(this.#journalPath);
+    if (
+      actual.length > expected.length ||
+      !expected.subarray(0, actual.length).equals(actual)
+    )
+      throw new ControllerError(
+        "receipt journal does not match its durable receipt prefix",
+      );
+    const fd = fs.openSync(
+      this.#journalPath,
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      const opened = fs.fstatSync(fd);
+      if (
+        !opened.isFile() ||
+        (process.getuid && opened.uid !== process.getuid()) ||
+        (opened.mode & 0o077) !== 0
+      )
+        throw new ControllerError(
+          "receipt journal must be a private regular file",
+        );
+      if (actual.length < expected.length)
+        writeAll(fd, expected.subarray(actual.length));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  #appendJournal(receipt: BridgeReceipt): void {
+    if (!this.#journalPath || !this.#journalRole) return;
+    if (receipt.role !== this.#journalRole)
+      throw new ControllerError("receipt role does not match its journal");
+    const fd = fs.openSync(
+      this.#journalPath,
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      const stat = fs.fstatSync(fd);
+      if (
+        !stat.isFile() ||
+        (process.getuid && stat.uid !== process.getuid()) ||
+        (stat.mode & 0o077) !== 0
+      )
+        throw new ControllerError(
+          "receipt journal must be a private regular file",
+        );
+      writeAll(fd, `${canonicalJson(receipt)}\n`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 }

@@ -36,6 +36,22 @@ const migrations: Readonly<
     name: "0004_assignment_actor.sql",
     url: new URL("../../migrations/0004_assignment_actor.sql", import.meta.url),
   },
+  5: {
+    version: 5,
+    name: "0005_work_item_acceptance_criteria.sql",
+    url: new URL(
+      "../../migrations/0005_work_item_acceptance_criteria.sql",
+      import.meta.url,
+    ),
+  },
+  6: {
+    version: 6,
+    name: "0006_final_verification.sql",
+    url: new URL(
+      "../../migrations/0006_final_verification.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(
@@ -53,6 +69,14 @@ export async function openDatabase(
     database.close();
     throw error;
   }
+}
+
+export function openDatabaseReadOnly(databasePath: string): Database.Database {
+  return new Database(databasePath, {
+    readonly: true,
+    fileMustExist: true,
+    timeout: 5_000,
+  });
 }
 
 async function migrate(

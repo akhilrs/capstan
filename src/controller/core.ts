@@ -16,7 +16,11 @@ import {
   type AuthenticatedActor,
 } from "./auth.js";
 import { canonicalJson, digestJson, sha256 } from "./canonical.js";
-import { openDatabase, resolveDatabasePath } from "./database.js";
+import {
+  openDatabase,
+  openDatabaseReadOnly,
+  resolveDatabasePath,
+} from "./database.js";
 import { M1BridgeAdapter } from "./m1-bridge.js";
 import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
@@ -233,23 +237,93 @@ export interface FindingInput {
   readonly resolutionCondition: string;
 }
 
+export interface ControllerStatus {
+  readonly projectId: string;
+  readonly run: { readonly state: string; readonly stateVersion: number };
+  readonly stateVersion: number;
+  readonly inputRevision: number;
+  readonly roles: readonly {
+    readonly role: string;
+    readonly seatId: string;
+    readonly seatState: string;
+    readonly actorActive: boolean;
+    readonly sessionState: string | null;
+    readonly assignmentId: string | null;
+  }[];
+  readonly work: readonly {
+    readonly workItemId: string;
+    readonly title: string;
+    readonly role: string;
+    readonly state: string;
+    readonly owner: string | null;
+    readonly blockers: readonly string[];
+    readonly nextLegalActions: readonly string[];
+  }[];
+  readonly findings: readonly {
+    readonly findingId: string;
+    readonly severity: string;
+    readonly state: string;
+    readonly evidence: unknown;
+  }[];
+  readonly evidence: readonly {
+    readonly candidateId: string;
+    readonly commitSha: string;
+    readonly reportHash: string;
+    readonly evidenceRef: string | null;
+  }[];
+  readonly finalVerification: readonly {
+    readonly workItemId: string;
+    readonly assignmentId: string;
+    readonly commitSha: string;
+    readonly evidence: readonly {
+      readonly evidenceId: string;
+      readonly criterion: string;
+      readonly passed: boolean;
+      readonly artifactRef: string;
+      readonly evidenceHash: string;
+    }[];
+  }[];
+}
+
+export interface CompletedWorkReport {
+  readonly assignmentId: string;
+  readonly commandId: string;
+  readonly role: string;
+  readonly generation: number;
+  readonly inputRevision: number;
+  readonly authorityState: string;
+  readonly workState: string;
+  readonly receiptHash: string;
+  readonly reply: string;
+  readonly receipt: Readonly<Record<string, unknown>>;
+}
+
 export class ControllerCore {
   readonly #database: Database.Database;
-  readonly #lock: ProjectLock;
+  readonly #lock: ProjectLock | undefined;
+  readonly #readOnly: boolean;
   readonly #projectId: string;
   readonly #internalActorId: string;
+  readonly #workspaceRoot: string;
+  readonly #runtimeWorkspacePath: string | undefined;
   #closed = false;
 
   private constructor(
     database: Database.Database,
-    lock: ProjectLock,
+    lock: ProjectLock | undefined,
     projectId: string,
     internalActorId: string,
+    workspaceRoot: string,
+    runtimeWorkspacePath: string | undefined,
+    readOnly = false,
   ) {
     this.#database = database;
     this.#lock = lock;
+    this.#readOnly = readOnly;
     this.#projectId = projectId;
     this.#internalActorId = internalActorId;
+    this.#workspaceRoot = workspaceRoot;
+    this.#runtimeWorkspacePath = runtimeWorkspacePath;
   }
 
   static async open(options: ControllerOptions): Promise<ControllerCore> {
@@ -323,17 +397,125 @@ export class ControllerCore {
         throw new ControllerError(
           "durable internal controller principal is missing",
         );
+      const workspaceRoot = path.resolve(
+        options.workspaceRoot ?? process.cwd(),
+      );
+      const workspaceStat = fs.lstatSync(workspaceRoot);
+      if (!workspaceStat.isDirectory() || workspaceStat.isSymbolicLink())
+        throw new ControllerError(
+          "workspace root must be an existing non-symlink directory",
+        );
+      if (
+        options.runtimeWorkspacePath !== undefined &&
+        !path.isAbsolute(options.runtimeWorkspacePath)
+      )
+        throw new TypeError("runtime workspace path must be absolute");
+      const runtimeWorkspacePath =
+        options.runtimeWorkspacePath === undefined
+          ? undefined
+          : path.resolve(options.runtimeWorkspacePath);
       const core = new ControllerCore(
         database,
         lock,
         project.projectId,
         internalActor.actor_id,
+        workspaceRoot,
+        runtimeWorkspacePath,
       );
       core.#reconcileUncertainAssignments();
       return core;
     } catch (error) {
       database?.close();
       lock.close();
+      throw error;
+    }
+  }
+
+  static async openReadOnly(
+    options: ControllerOptions,
+  ): Promise<ControllerCore> {
+    const project = options.project;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(project.projectId)) {
+      throw new TypeError("project id must be 1-64 safe ASCII characters");
+    }
+    if (!path.isAbsolute(options.stateDirectory))
+      throw new TypeError("state directory must be absolute");
+    const stateDirectory = path.resolve(options.stateDirectory);
+    const directoryStat = fs.lstatSync(stateDirectory);
+    if (
+      !directoryStat.isDirectory() ||
+      directoryStat.isSymbolicLink() ||
+      (process.getuid && directoryStat.uid !== process.getuid()) ||
+      (directoryStat.mode & 0o077) !== 0
+    ) {
+      throw new ControllerOwnershipError(
+        "controller state directory must be a private directory owned by the current user",
+      );
+    }
+    const databasePath = resolveDatabasePath(stateDirectory);
+    const databaseStat = fs.lstatSync(databasePath);
+    if (!databaseStat.isFile() || databaseStat.isSymbolicLink())
+      throw new ControllerOwnershipError(
+        "controller database path must be a regular file",
+      );
+    let database: Database.Database | undefined;
+    try {
+      database = openDatabaseReadOnly(databasePath);
+      const projectRow = database
+        .prepare("SELECT name FROM projects WHERE project_id = ?")
+        .get(project.projectId) as { name: string } | undefined;
+      if (!projectRow)
+        throw new ControllerError("durable project state does not exist");
+      if (projectRow.name !== project.name)
+        throw new ControllerError(
+          "project name does not match durable project state",
+        );
+      const actor = authenticateActor(
+        database,
+        project.projectId,
+        project.ownerCredential,
+      );
+      if (actor.role !== "operator")
+        throw new ControllerError(
+          "opening an existing project requires its operator credential",
+        );
+      const internalActor = database
+        .prepare(
+          "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
+        )
+        .get(project.projectId) as { actor_id: string } | undefined;
+      if (!internalActor)
+        throw new ControllerError(
+          "durable internal controller principal is missing",
+        );
+      const workspaceRoot = path.resolve(
+        options.workspaceRoot ?? process.cwd(),
+      );
+      const workspaceStat = fs.lstatSync(workspaceRoot);
+      if (!workspaceStat.isDirectory() || workspaceStat.isSymbolicLink())
+        throw new ControllerError(
+          "workspace root must be an existing non-symlink directory",
+        );
+      if (
+        options.runtimeWorkspacePath !== undefined &&
+        !path.isAbsolute(options.runtimeWorkspacePath)
+      )
+        throw new TypeError("runtime workspace path must be absolute");
+      const runtimeWorkspacePath =
+        options.runtimeWorkspacePath === undefined
+          ? undefined
+          : path.resolve(options.runtimeWorkspacePath);
+      return new ControllerCore(
+        database,
+        undefined,
+        project.projectId,
+        internalActor.actor_id,
+        workspaceRoot,
+        runtimeWorkspacePath,
+        true,
+      );
+    } catch (error) {
+      database?.close();
       throw error;
     }
   }
@@ -773,30 +955,66 @@ export class ControllerCore {
           throw new ReadinessError(
             `work creation requires an active run; run is ${run?.state ?? "missing"}`,
           );
+        if (input.requiredRole === "Developer") {
+          const criteria = acceptanceCriteriaFromContent(
+            input.acceptanceCriteria ?? this.#acceptanceCriteria(),
+          );
+          if (criteria.length > 32)
+            throw new CandidateBindingError(
+              "Developer work-item acceptance criteria exceed 32 entries",
+            );
+        }
+        if (input.finalVerification && input.requiredRole !== "Verifier")
+          throw new CandidateBindingError(
+            "final verification work must be assigned to a Verifier",
+          );
         if (input.requiredRole === "Verifier") {
-          const parent = input.parentWorkItemId
-            ? (this.#database
-                .prepare(
-                  "SELECT required_role, state FROM work_items WHERE project_id = ? AND work_item_id = ?",
-                )
-                .get(this.#projectId, input.parentWorkItemId) as
-                { required_role: string; state: string } | undefined)
-            : undefined;
-          if (parent?.required_role !== "Developer")
-            throw new ReadinessError(
-              "Verifier work requires an existing Developer parent",
+          if (input.finalVerification) {
+            if (input.parentWorkItemId)
+              throw new ReadinessError(
+                "final Verifier work depends on accepted slices, not an open Developer parent",
+              );
+            const criteria = acceptanceCriteriaFromContent(
+              input.acceptanceCriteria,
             );
-          if (["accepted", "canceled", "failed"].includes(parent.state))
-            throw new ReadinessError(
-              "Verifier work cannot be added to a terminal Developer parent",
-            );
+            if (criteria.length > 32)
+              throw new CandidateBindingError(
+                "final Verifier acceptance criteria exceed 32 entries",
+              );
+            const parentCriteria = this.#acceptanceCriteria();
+            if (
+              criteria.length !== parentCriteria.length ||
+              criteria.some((criterion) => !parentCriteria.includes(criterion))
+            )
+              throw new CandidateBindingError(
+                "final Verifier criteria must match every parent acceptance criterion",
+              );
+          } else {
+            const parent = input.parentWorkItemId
+              ? (this.#database
+                  .prepare(
+                    "SELECT required_role, state FROM work_items WHERE project_id = ? AND work_item_id = ?",
+                  )
+                  .get(this.#projectId, input.parentWorkItemId) as
+                  { required_role: string; state: string } | undefined)
+              : undefined;
+            if (parent?.required_role !== "Developer")
+              throw new ReadinessError(
+                "Verifier work requires an existing Developer parent",
+              );
+            if (["accepted", "canceled", "failed"].includes(parent.state))
+              throw new ReadinessError(
+                "Verifier work cannot be added to a terminal Developer parent",
+              );
+          }
         }
         this.#database
           .prepare(
             `
         INSERT INTO work_items(project_id, work_item_id, parent_work_item_id, title, description, required_role,
-          state, state_version, input_revision, accepted_candidate_id, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?)
+          state, state_version, input_revision, accepted_candidate_id, created_by, created_at, acceptance_criteria_json,
+          final_verification)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, ?, ?)
       `,
           )
           .run(
@@ -809,6 +1027,14 @@ export class ControllerCore {
             context.inputRevision,
             actor.actorId,
             new Date().toISOString(),
+            input.acceptanceCriteria
+              ? canonicalJson(
+                  acceptanceCriteriaFromContent(input.acceptanceCriteria),
+                )
+              : input.requiredRole === "Developer"
+                ? canonicalJson(this.#acceptanceCriteria())
+                : null,
+            input.finalVerification ? 1 : 0,
           );
         return {
           value: { workItemId: input.workItemId },
@@ -1216,7 +1442,8 @@ export class ControllerCore {
         const item = this.#database
           .prepare(
             `
-        SELECT title, description, required_role, parent_work_item_id, state, state_version, input_revision
+        SELECT title, description, required_role, parent_work_item_id, state, state_version, input_revision,
+          final_verification, acceptance_criteria_json
         FROM work_items WHERE project_id = ? AND work_item_id = ?
       `,
           )
@@ -1229,6 +1456,8 @@ export class ControllerCore {
               state: string;
               state_version: number;
               input_revision: number;
+              final_verification: number;
+              acceptance_criteria_json: string | null;
             }
           | undefined;
         if (!item) throw new ControllerError("work item does not exist");
@@ -1351,13 +1580,32 @@ export class ControllerCore {
             }
           | undefined;
         if (item.required_role === "Verifier") {
-          if (!candidateId)
-            throw new CandidateBindingError(
-              "Verifier assignment requires an exact candidate id",
-            );
-          verifierCandidate = this.#database
-            .prepare(
-              `
+          if (item.final_verification === 1) {
+            if (candidateId !== undefined && candidateId !== null)
+              throw new CandidateBindingError(
+                "final Verifier assignment cannot bind a candidate",
+              );
+            if (!item.acceptance_criteria_json)
+              throw new CandidateBindingError(
+                "final Verifier work requires its exact acceptance criteria",
+              );
+            const dependencyCount = this.#database
+              .prepare(
+                "SELECT COUNT(*) AS count FROM dependency_edges WHERE project_id = ? AND work_item_id = ?",
+              )
+              .get(this.#projectId, workItemId) as { count: number };
+            if (dependencyCount.count === 0)
+              throw new ReadinessError(
+                "final Verifier work requires accepted slice dependencies",
+              );
+          } else {
+            if (!candidateId)
+              throw new CandidateBindingError(
+                "Verifier assignment requires an exact candidate id",
+              );
+            verifierCandidate = this.#database
+              .prepare(
+                `
           SELECT c.candidate_id, a.work_item_id, c.input_revision, c.commit_sha, c.report_hash,
             w.state AS work_state, a.authority_state AS developer_authority,
             c.generation = (
@@ -1376,19 +1624,20 @@ export class ControllerCore {
           JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
           WHERE c.project_id = ? AND c.candidate_id = ?
         `,
-            )
-            .get(this.#projectId, candidateId) as typeof verifierCandidate;
-          if (
-            !verifierCandidate ||
-            verifierCandidate.work_item_id !== item.parent_work_item_id ||
-            verifierCandidate.input_revision !== context.inputRevision ||
-            verifierCandidate.work_state !== "awaiting_verification" ||
-            verifierCandidate.developer_authority !== "contained" ||
-            verifierCandidate.is_latest_generation !== 1
-          ) {
-            throw new CandidateBindingError(
-              "Verifier task parent and input revision must match the candidate",
-            );
+              )
+              .get(this.#projectId, candidateId) as typeof verifierCandidate;
+            if (
+              !verifierCandidate ||
+              verifierCandidate.work_item_id !== item.parent_work_item_id ||
+              verifierCandidate.input_revision !== context.inputRevision ||
+              verifierCandidate.work_state !== "awaiting_verification" ||
+              verifierCandidate.developer_authority !== "contained" ||
+              verifierCandidate.is_latest_generation !== 1
+            ) {
+              throw new CandidateBindingError(
+                "Verifier task parent and input revision must match the candidate",
+              );
+            }
           }
         } else if (candidateId !== undefined && candidateId !== null) {
           throw new CandidateBindingError(
@@ -1420,14 +1669,17 @@ export class ControllerCore {
         const dependencies = this.#database
           .prepare(
             `
-        SELECT d.depends_on_work_item_id, w.accepted_candidate_id,
+        SELECT d.depends_on_work_item_id, w.accepted_candidate_id, w.final_verification,
           COALESCE(c.input_revision, w.input_revision) AS input_revision,
           c.commit_sha, c.report_hash AS candidate_report_hash,
           report.command_id AS report_command_id, report.receipt_json AS report_json,
-          report.receipt_hash AS accepted_report_hash
+          report.receipt_hash AS accepted_report_hash, final.commit_sha AS final_commit_sha,
+          final.input_revision AS final_input_revision
         FROM dependency_edges d
         JOIN work_items w ON w.project_id = d.project_id AND w.work_item_id = d.depends_on_work_item_id
         LEFT JOIN candidates c ON c.project_id = w.project_id AND c.candidate_id = w.accepted_candidate_id
+        LEFT JOIN final_verification_commits final
+          ON final.project_id = w.project_id AND final.work_item_id = w.work_item_id
         LEFT JOIN (
           SELECT a.project_id, a.work_item_id, a.active_generation, r.command_id,
             r.receipt_json, r.receipt_hash,
@@ -1441,7 +1693,12 @@ export class ControllerCore {
           JOIN command_receipts r ON r.project_id = cmd.project_id AND r.command_id = cmd.command_id
             AND r.assignment_id = cmd.assignment_id AND r.attempt = cmd.attempt
             AND r.generation = cmd.generation AND r.receipt_type = 'completed' AND r.role = s.role
-          WHERE a.state = 'completed' AND s.role IN ('PM', 'Supervisor')
+          WHERE a.state = 'completed' AND (
+            s.role IN ('PM', 'Supervisor') OR (s.role = 'Verifier' AND EXISTS (
+              SELECT 1 FROM final_verification_commits verified
+              WHERE verified.project_id = a.project_id AND verified.work_item_id = a.work_item_id
+            ))
+          )
         ) report ON report.project_id = w.project_id AND report.work_item_id = w.work_item_id
           AND report.report_rank = 1 AND w.accepted_candidate_id IS NULL
         WHERE d.project_id = ? AND d.work_item_id = ? ORDER BY d.depends_on_work_item_id
@@ -1450,13 +1707,75 @@ export class ControllerCore {
           .all(this.#projectId, workItemId) as Array<{
           depends_on_work_item_id: string;
           accepted_candidate_id: string | null;
+          final_verification: number;
           input_revision: number;
           commit_sha: string | null;
           candidate_report_hash: string | null;
           report_command_id: string | null;
           report_json: string | null;
           accepted_report_hash: string | null;
+          final_commit_sha: string | null;
+          final_input_revision: number | null;
         }>;
+        const artifacts = dependencies.flatMap((dependency) => {
+          if (!dependency.accepted_candidate_id) return [];
+          const evidence = this.#database
+            .prepare(
+              `
+            SELECT e.evidence_id, e.verifier_assignment_id, e.input_revision,
+              e.criterion, e.passed, e.artifact_ref, e.evidence_hash
+            FROM candidate_evidence e
+            JOIN assignments va ON va.project_id = e.project_id
+              AND va.assignment_id = e.verifier_assignment_id
+            JOIN assignment_attempts at ON at.project_id = va.project_id
+              AND at.assignment_id = va.assignment_id
+              AND at.generation = va.active_generation
+            JOIN seats s ON s.project_id = va.project_id AND s.seat_id = va.seat_id
+            JOIN assignment_input_bindings b ON b.project_id = e.project_id
+              AND b.assignment_id = va.assignment_id
+              AND b.input_kind = 'candidate' AND b.source_id = e.candidate_id
+            WHERE e.project_id = ? AND e.candidate_id = ? AND e.passed = 1
+              AND s.role = 'Verifier' AND va.state = 'completed'
+              AND va.authority_state = 'contained' AND at.authority_state = 'contained'
+              AND at.state = 'completed'
+              AND at.generation = (
+                SELECT MAX(latest_attempt.generation)
+                FROM assignments latest
+                JOIN assignment_attempts latest_attempt
+                  ON latest_attempt.project_id = latest.project_id
+                  AND latest_attempt.assignment_id = latest.assignment_id
+                WHERE latest.project_id = va.project_id
+                  AND latest.work_item_id = va.work_item_id
+              )
+            ORDER BY e.criterion, e.evidence_id
+          `,
+            )
+            .all(this.#projectId, dependency.accepted_candidate_id) as Array<{
+            evidence_id: string;
+            verifier_assignment_id: string;
+            input_revision: number;
+            criterion: string;
+            passed: number;
+            artifact_ref: string;
+            evidence_hash: string;
+          }>;
+          if (evidence.length === 0)
+            throw new ControllerError(
+              `accepted candidate ${dependency.accepted_candidate_id} has no contained verification artifacts`,
+            );
+          return evidence.map((entry) => ({
+            workItemId: dependency.depends_on_work_item_id,
+            candidateId: dependency.accepted_candidate_id,
+            evidenceId: entry.evidence_id,
+            verifierAssignmentId: entry.verifier_assignment_id,
+            inputRevision: entry.input_revision,
+            criterion: entry.criterion,
+            passed: entry.passed === 1,
+            artifactRef: entry.artifact_ref,
+            evidenceHash: entry.evidence_hash,
+          }));
+        });
+
         const assignmentId = randomUUID();
         const commandId = randomUUID();
         const attempt = 1;
@@ -1471,6 +1790,112 @@ export class ControllerCore {
           )
           .get(this.#projectId, workItemId) as { generation: number };
         const generation = previousGeneration.generation + 1;
+        const inputValues = Object.fromEntries(
+          snapshots.map((snapshot) => [
+            snapshot.kind,
+            JSON.parse(snapshot.content_json) as unknown,
+          ]),
+        );
+        const planValue = inputValues.plan as {
+          taskId?: string;
+          slices?: readonly {
+            id?: string;
+            writeScope?: readonly string[];
+          }[];
+        };
+        const planSlice = planValue.slices?.find((slice) => {
+          const stableWorkItemId =
+            typeof planValue.taskId === "string" && typeof slice.id === "string"
+              ? `wf-${sha256(`${planValue.taskId}:${slice.id}`).slice(0, 24)}`
+              : undefined;
+          return (
+            slice.id === workItemId ||
+            stableWorkItemId === workItemId ||
+            workItemId.endsWith(`:${slice.id}`) ||
+            workItemId.endsWith(`/${slice.id}`)
+          );
+        });
+        const openFindings = this.#database
+          .prepare(
+            `SELECT finding_id, severity, evidence_json, requested_correction,
+              resolution_condition, state FROM findings
+              WHERE project_id = ? AND work_item_id = ?
+                AND state NOT IN ('resolved', 'escalated')
+              ORDER BY created_at, finding_id`,
+          )
+          .all(this.#projectId, workItemId) as Array<{
+          finding_id: string;
+          severity: string;
+          evidence_json: string;
+          requested_correction: string;
+          resolution_condition: string;
+          state: string;
+        }>;
+        const recoveryHistory = this.#database
+          .prepare(
+            `SELECT recovery_id, recovery_type, generation, reason,
+              containment_state, outcome, created_at FROM recovery_attempts
+              WHERE project_id = ? AND work_item_id = ?
+              ORDER BY created_at, recovery_id`,
+          )
+          .all(this.#projectId, workItemId);
+        const role = item.required_role;
+        const resultSchema =
+          role === "PM"
+            ? { type: "object", required: ["planHash"] }
+            : role === "Developer"
+              ? {
+                  type: "object",
+                  required: [
+                    "candidateId",
+                    "commitSha",
+                    "baseSha",
+                    "changedScope",
+                    "limitations",
+                  ],
+                }
+              : role === "Verifier"
+                ? item.final_verification === 1
+                  ? { type: "object", required: ["commitSha", "evidence"] }
+                  : { type: "object", required: ["candidateId", "evidence"] }
+                : { type: "object", required: ["outcome", "observation"] };
+        const nextLegalActions =
+          role === "PM"
+            ? ["report_plan_review"]
+            : role === "Developer"
+              ? [
+                  "implement_assigned_scope",
+                  "report_blocker",
+                  "submit_candidate",
+                ]
+              : role === "Verifier"
+                ? item.final_verification === 1
+                  ? [
+                      "verify_composed_checkout",
+                      "report_evidence",
+                      "report_blocker",
+                    ]
+                  : [
+                      "verify_exact_candidate",
+                      "report_evidence",
+                      "report_blocker",
+                    ]
+                : ["report_run_observation"];
+        const assignmentWorkspace =
+          this.#runtimeWorkspacePath ??
+          path.join(
+            this.#workspaceRoot,
+            ".capstan",
+            "workspaces",
+            seatId,
+            workItemId,
+            String(generation),
+          );
+        const acceptedFacts = snapshots.map((snapshot) => ({
+          kind: snapshot.kind,
+          revision: snapshot.revision,
+          contentHash: snapshot.content_hash,
+        }));
         const capsule = {
           projectId: this.#projectId,
           assignment: { commandId, assignmentId, attempt, generation },
@@ -1480,14 +1905,37 @@ export class ControllerCore {
             description: item.description,
             requiredRole: item.required_role,
             inputRevision: context.inputRevision,
+            ...(item.final_verification === 1
+              ? {
+                  finalVerification: true,
+                  acceptanceCriteria: JSON.parse(
+                    item.acceptance_criteria_json!,
+                  ) as readonly string[],
+                }
+              : {}),
           },
           seat: { seatId, role: seat.role },
-          inputs: Object.fromEntries(
-            snapshots.map((snapshot) => [
-              snapshot.kind,
-              JSON.parse(snapshot.content_json) as unknown,
-            ]),
-          ),
+          inputs: inputValues,
+          acceptedFacts,
+          policy: inputValues.policy,
+          scope: {
+            workspace: assignmentWorkspace,
+            writePaths: planSlice?.writeScope ?? [],
+            readOnly:
+              role === "Verifier" || role === "Supervisor" || role === "PM",
+          },
+          openFindings: openFindings.map((finding) => ({
+            findingId: finding.finding_id,
+            severity: finding.severity,
+            evidence: JSON.parse(finding.evidence_json) as unknown,
+            requestedCorrection: finding.requested_correction,
+            resolutionCondition: finding.resolution_condition,
+            state: finding.state,
+          })),
+          recoveryHistory,
+          resultSchema,
+          nextLegalActions,
+          artifacts,
           dependencies: dependencies.map((dependency) => {
             if (dependency.accepted_candidate_id) {
               if (!dependency.commit_sha || !dependency.candidate_report_hash)
@@ -1510,12 +1958,58 @@ export class ControllerCore {
               throw new ControllerError(
                 "accepted dependency report receipt is missing",
               );
+            const finalEvidence =
+              dependency.final_verification === 1
+                ? (this.#database
+                    .prepare(
+                      `SELECT evidence_id, criterion, passed, artifact_ref, evidence_hash
+                       FROM final_verification_evidence
+                       WHERE project_id = ? AND work_item_id = ? AND input_revision = ?
+                         AND commit_sha = ?
+                       ORDER BY criterion`,
+                    )
+                    .all(
+                      this.#projectId,
+                      dependency.depends_on_work_item_id,
+                      dependency.final_input_revision,
+                      dependency.final_commit_sha,
+                    ) as Array<{
+                    evidence_id: string;
+                    criterion: string;
+                    passed: number;
+                    artifact_ref: string;
+                    evidence_hash: string;
+                  }>)
+                : undefined;
+            if (
+              dependency.final_verification === 1 &&
+              (!dependency.final_commit_sha ||
+                dependency.final_input_revision !== dependency.input_revision ||
+                !finalEvidence?.length)
+            )
+              throw new ControllerError(
+                "accepted final Verifier evidence is missing or stale",
+              );
             return {
               workItemId: dependency.depends_on_work_item_id,
               candidateId: null,
               inputRevision: dependency.input_revision,
               report: JSON.parse(dependency.report_json) as unknown,
               reportHash: dependency.accepted_report_hash,
+              ...(dependency.final_verification === 1
+                ? {
+                    finalVerification: {
+                      commitSha: dependency.final_commit_sha!,
+                      evidence: finalEvidence!.map((entry) => ({
+                        evidenceId: entry.evidence_id,
+                        criterion: entry.criterion,
+                        passed: entry.passed === 1,
+                        artifactRef: entry.artifact_ref,
+                        evidenceHash: entry.evidence_hash,
+                      })),
+                    },
+                  }
+                : {}),
             };
           }),
           ...(verifierCandidate
@@ -1936,6 +2430,17 @@ export class ControllerCore {
         };
       },
     );
+  }
+  bridgeReceiptJournal(role: Role): string {
+    this.#assertOpen();
+    const receipts = this.#database
+      .prepare(
+        "SELECT receipt_json FROM command_receipts WHERE project_id = ? AND role = ? ORDER BY sequence",
+      )
+      .all(this.#projectId, role) as Array<{ receipt_json: string }>;
+    return receipts.length
+      ? `${receipts.map((receipt) => receipt.receipt_json).join("\n")}\n`
+      : "";
   }
   recordBridgeReceipt(receipt: BridgeReceipt): {
     readonly duplicate: boolean;
@@ -2658,11 +3163,14 @@ export class ControllerCore {
           throw new CandidateBindingError(
             "candidate evidence requires a non-empty artifact reference",
           );
-        if (!this.#acceptanceCriteria().includes(input.criterion)) {
+        if (
+          !this.#acceptanceCriteria(candidate.work_item_id).includes(
+            input.criterion,
+          )
+        )
           throw new CandidateBindingError(
-            "evidence criterion is not in the current acceptance revision",
+            "evidence criterion is not in the current work-item acceptance criteria",
           );
-        }
         const evidenceHash = digestJson({
           evidenceId: input.evidenceId,
           candidateId: input.candidateId,
@@ -2909,7 +3417,7 @@ export class ControllerCore {
             "candidate does not match the current awaiting-verification assignment",
           );
         }
-        const criteria = this.#acceptanceCriteria();
+        const criteria = this.#acceptanceCriteria(workItemId);
         const evidence = this.#database
           .prepare(
             `
@@ -3156,6 +3664,326 @@ export class ControllerCore {
               verifierWorkItemIds: verifierAssignments.map(
                 (row) => row.verifier_work_item_id,
               ),
+            },
+          },
+        };
+      },
+    );
+  }
+  acceptFinalVerification(
+    context: MutationContext,
+    input: {
+      readonly workItemId: string;
+      readonly assignmentId: string;
+      readonly commitSha: string;
+      readonly evidence: readonly {
+        readonly evidenceId: string;
+        readonly criterion: string;
+        readonly passed: boolean;
+        readonly artifactRef: string;
+      }[];
+    },
+  ): { readonly acceptedWorkItemId: string; readonly commitSha: string } {
+    input = Object.freeze({
+      ...input,
+      evidence: input.evidence.map((entry) => Object.freeze({ ...entry })),
+    });
+    return this.#mutateAsController(
+      context,
+      "final_verification.accept",
+      "candidate:accept",
+      input,
+      (actor) => {
+        if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(input.commitSha))
+          throw new CandidateBindingError(
+            "final verification commit SHA must be 40 or 64 hexadecimal characters",
+          );
+        const commitSha = input.commitSha.toLowerCase();
+        const report = this.#database
+          .prepare(
+            `
+          SELECT s.role, a.state AS assignment_state, a.authority_state AS assignment_authority,
+            a.input_revision, at.attempt, at.generation, at.state AS attempt_state,
+            at.authority_state AS attempt_authority, w.state AS work_state,
+            w.state_version AS work_version, w.input_revision AS work_revision,
+            w.accepted_candidate_id, w.final_verification, w.acceptance_criteria_json,
+            w.parent_work_item_id,
+            p.current_input_revision, c.command_id, c.state AS command_state, run.state AS run_state,
+            (SELECT r.receipt_json FROM command_receipts r
+              WHERE r.project_id = a.project_id AND r.command_id = c.command_id
+                AND r.assignment_id = a.assignment_id AND r.attempt = at.attempt
+                AND r.generation = at.generation AND r.role = s.role AND r.receipt_type = 'completed'
+              ORDER BY r.sequence DESC LIMIT 1) AS completed_receipt_json
+          FROM assignments a
+          JOIN assignment_attempts at ON at.project_id = a.project_id
+            AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+          JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+          JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+          JOIN projects p ON p.project_id = a.project_id
+          JOIN run_controls run ON run.project_id = a.project_id
+          JOIN commands c ON c.project_id = a.project_id AND c.assignment_id = a.assignment_id
+            AND c.attempt = at.attempt AND c.generation = at.generation
+          WHERE a.project_id = ? AND a.work_item_id = ? AND a.assignment_id = ?
+            AND at.generation = (SELECT MAX(latest_attempt.generation) FROM assignments latest
+              JOIN assignment_attempts latest_attempt
+                ON latest_attempt.project_id = latest.project_id
+                AND latest_attempt.assignment_id = latest.assignment_id
+              WHERE latest.project_id = a.project_id AND latest.work_item_id = a.work_item_id)
+        `,
+          )
+          .get(this.#projectId, input.workItemId, input.assignmentId) as
+          | {
+              role: string;
+              assignment_state: string;
+              assignment_authority: string;
+              input_revision: number;
+              attempt: number;
+              generation: number;
+              attempt_state: string;
+              attempt_authority: string;
+              work_state: string;
+              work_version: number;
+              work_revision: number;
+              accepted_candidate_id: string | null;
+              final_verification: number;
+              acceptance_criteria_json: string | null;
+              parent_work_item_id: string | null;
+              current_input_revision: number;
+              command_id: string;
+              command_state: string;
+              run_state: string;
+              completed_receipt_json: string | null;
+            }
+          | undefined;
+        let reportReply:
+          | { readonly commitSha?: unknown; readonly evidence?: unknown }
+          | undefined;
+        if (report?.completed_receipt_json) {
+          try {
+            const receipt = JSON.parse(report.completed_receipt_json) as {
+              readonly reply?: unknown;
+            };
+            if (typeof receipt.reply === "string") {
+              const parsed = JSON.parse(receipt.reply) as unknown;
+              if (
+                parsed !== null &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              )
+                reportReply = parsed as typeof reportReply;
+            }
+          } catch {
+            // Malformed or unstructured reports cannot bind final acceptance.
+          }
+        }
+        if (
+          !report ||
+          !reportReply ||
+          actor.role !== "controller" ||
+          report.role !== "Verifier" ||
+          report.final_verification !== 1 ||
+          report.run_state !== "active" ||
+          report.assignment_state !== "reported" ||
+          report.assignment_authority !== "contained" ||
+          report.attempt_state !== "reported" ||
+          report.attempt_authority !== "contained" ||
+          report.command_state !== "completed" ||
+          report.work_state !== "awaiting_verification" ||
+          report.accepted_candidate_id !== null ||
+          report.input_revision !== context.inputRevision ||
+          report.work_revision !== context.inputRevision ||
+          report.current_input_revision !== context.inputRevision ||
+          !report.acceptance_criteria_json ||
+          !this.#isTransitionAllowed(
+            "work_item",
+            "awaiting_verification",
+            "accepted",
+            actor,
+          ) ||
+          !this.#isTransitionAllowed(
+            "assignment_attempt",
+            "reported",
+            "completed",
+            actor,
+          )
+        )
+          throw new MutationConflictError(
+            "final Verifier report is not contained, current, and eligible for acceptance",
+          );
+
+        const criteria = acceptanceCriteriaFromContent(
+          JSON.parse(report.acceptance_criteria_json),
+        );
+        const parentCriteria = this.#acceptanceCriteria();
+        if (
+          criteria.length !== parentCriteria.length ||
+          criteria.some((criterion) => !parentCriteria.includes(criterion))
+        )
+          throw new CandidateBindingError(
+            "final Verifier criteria no longer match every parent acceptance criterion",
+          );
+        if (input.evidence.length !== criteria.length)
+          throw new CandidateBindingError(
+            "final verification must contain exactly one passing artifact for every criterion",
+          );
+        const byCriterion = new Map<string, (typeof input.evidence)[number]>();
+        const evidenceIds = new Set<string>();
+        for (const entry of input.evidence) {
+          if (
+            typeof entry.evidenceId !== "string" ||
+            entry.evidenceId.trim().length === 0 ||
+            entry.evidenceId.length > 256 ||
+            typeof entry.criterion !== "string" ||
+            typeof entry.passed !== "boolean" ||
+            typeof entry.artifactRef !== "string" ||
+            entry.artifactRef.trim().length === 0 ||
+            entry.artifactRef.length > 2048 ||
+            !criteria.includes(entry.criterion) ||
+            byCriterion.has(entry.criterion) ||
+            evidenceIds.has(entry.evidenceId)
+          )
+            throw new CandidateBindingError(
+              "final verification evidence must uniquely match current criteria and include artifact references",
+            );
+          byCriterion.set(entry.criterion, entry);
+          evidenceIds.add(entry.evidenceId);
+        }
+        const failed = criteria.find(
+          (criterion) => byCriterion.get(criterion)?.passed !== true,
+        );
+        if (failed)
+          throw new CandidateBindingError(
+            `final verification failed or omitted criterion: ${failed}`,
+          );
+        if (
+          reportReply.commitSha !== commitSha ||
+          !Array.isArray(reportReply.evidence) ||
+          reportReply.evidence.length !== criteria.length
+        )
+          throw new CandidateBindingError(
+            "final verification evidence does not match the reported composed commit",
+          );
+        const reportedCriteria = new Set<string>();
+        for (const raw of reportReply.evidence) {
+          if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+            throw new CandidateBindingError(
+              "final verification report contains invalid evidence",
+            );
+          const observed = raw as Record<string, unknown>;
+          const criterion = observed.criterion;
+          const artifactRef = observed.artifactRef;
+          const persisted =
+            typeof criterion === "string"
+              ? byCriterion.get(criterion)
+              : undefined;
+          if (
+            !persisted ||
+            reportedCriteria.has(criterion as string) ||
+            observed.passed !== persisted.passed ||
+            typeof artifactRef !== "string" ||
+            !artifactRef.startsWith("/evidence/")
+          )
+            throw new CandidateBindingError(
+              "final verification evidence differs from its immutable Verifier report",
+            );
+          const relative = path.posix.normalize(
+            artifactRef.slice("/evidence/".length),
+          );
+          if (
+            !relative ||
+            relative === "." ||
+            path.posix.isAbsolute(relative) ||
+            relative.split("/").includes("..") ||
+            !persisted.artifactRef.endsWith(`${path.sep}${relative}`)
+          )
+            throw new CandidateBindingError(
+              "final verification artifact does not match its reported evidence path",
+            );
+          reportedCriteria.add(criterion as string);
+        }
+
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            `INSERT INTO final_verification_commits
+              (project_id, work_item_id, assignment_id, input_revision, commit_sha, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            input.workItemId,
+            input.assignmentId,
+            report.current_input_revision,
+            commitSha,
+            actor.actorId,
+            now,
+          );
+        const insertEvidence = this.#database.prepare(
+          `INSERT INTO final_verification_evidence
+            (project_id, work_item_id, assignment_id, evidence_id, input_revision, commit_sha, criterion,
+             passed, artifact_ref, evidence_hash, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+        );
+        for (const criterion of criteria) {
+          const entry = byCriterion.get(criterion)!;
+          const evidenceHash = digestJson({
+            workItemId: input.workItemId,
+            assignmentId: input.assignmentId,
+            inputRevision: report.current_input_revision,
+            commitSha,
+            evidenceId: entry.evidenceId,
+            criterion,
+            passed: true,
+            artifactRef: entry.artifactRef,
+          });
+          insertEvidence.run(
+            this.#projectId,
+            input.workItemId,
+            input.assignmentId,
+            entry.evidenceId,
+            report.current_input_revision,
+            commitSha,
+            criterion,
+            entry.artifactRef,
+            evidenceHash,
+            actor.actorId,
+            now,
+          );
+        }
+        this.#database
+          .prepare(
+            `UPDATE work_items SET state = 'accepted', state_version = state_version + 1
+             WHERE project_id = ? AND work_item_id = ? AND state = 'awaiting_verification'`,
+          )
+          .run(this.#projectId, input.workItemId);
+        this.#database
+          .prepare(
+            `UPDATE assignments SET state = 'completed', state_version = state_version + 1,
+             ended_at = ? WHERE project_id = ? AND assignment_id = ? AND state = 'reported'`,
+          )
+          .run(now, this.#projectId, input.assignmentId);
+        this.#database
+          .prepare(
+            `UPDATE assignment_attempts SET state = 'completed', state_version = state_version + 1,
+             ended_at = ? WHERE project_id = ? AND assignment_id = ? AND attempt = ? AND state = 'reported'`,
+          )
+          .run(now, this.#projectId, input.assignmentId, report.attempt);
+        return {
+          value: {
+            acceptedWorkItemId: input.workItemId,
+            commitSha,
+          },
+          event: {
+            entityType: "work_item",
+            entityId: input.workItemId,
+            stateVersion: report.work_version + 1,
+            fromState: "awaiting_verification",
+            toState: "accepted",
+            details: {
+              assignmentId: input.assignmentId,
+              commandId: report.command_id,
+              commitSha,
+              finalVerification: true,
             },
           },
         };
@@ -3717,6 +4545,15 @@ export class ControllerCore {
         if (staleAcceptedWork)
           throw new MutationConflictError(
             "run cannot complete with work accepted against a stale input revision",
+          );
+        const unresolvedFinding = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (unresolvedFinding)
+          throw new MutationConflictError(
+            "run cannot complete with unresolved Supervisor findings",
           );
       }
       if (
@@ -4377,6 +5214,271 @@ export class ControllerCore {
       .get(this.#projectId, commandId) as { state: string } | undefined;
     return command?.state;
   }
+  statusSnapshot(): ControllerStatus {
+    this.#assertOpen();
+    const run = this.#database
+      .prepare(
+        "SELECT state, state_version FROM run_controls WHERE project_id = ?",
+      )
+      .get(this.#projectId) as { state: string; state_version: number };
+    const roles = this.#database
+      .prepare(
+        `
+      SELECT s.role, s.seat_id, s.state AS seat_state,
+        EXISTS(SELECT 1 FROM actors a WHERE a.project_id = s.project_id
+          AND a.seat_id = s.seat_id AND a.active = 1 AND a.revoked_at IS NULL) AS actor_active,
+        (SELECT rs.state FROM runtime_sessions rs WHERE rs.project_id = s.project_id
+          AND rs.seat_id = s.seat_id ORDER BY rs.started_at DESC LIMIT 1) AS session_state,
+        (SELECT a.assignment_id FROM assignments a WHERE a.project_id = s.project_id
+          AND a.seat_id = s.seat_id AND a.authority_state IN ('active', 'unknown')
+          ORDER BY a.created_at DESC LIMIT 1) AS assignment_id
+      FROM seats s WHERE s.project_id = ? ORDER BY s.role, s.seat_id
+    `,
+      )
+      .all(this.#projectId) as Array<{
+      role: string;
+      seat_id: string;
+      seat_state: string;
+      actor_active: number;
+      session_state: string | null;
+      assignment_id: string | null;
+    }>;
+    const work = this.#database
+      .prepare(
+        `
+      SELECT w.work_item_id, w.title, w.required_role, w.state, s.name AS owner,
+        (SELECT json_group_array(dependency.depends_on_work_item_id)
+          FROM dependency_edges dependency JOIN work_items prerequisite
+            ON prerequisite.project_id = dependency.project_id
+            AND prerequisite.work_item_id = dependency.depends_on_work_item_id
+          WHERE dependency.project_id = w.project_id AND dependency.work_item_id = w.work_item_id
+            AND prerequisite.state <> 'accepted') AS blockers
+      FROM work_items w
+      LEFT JOIN assignments a ON a.project_id = w.project_id AND a.work_item_id = w.work_item_id
+        AND a.authority_state IN ('active', 'unknown')
+      LEFT JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+      WHERE w.project_id = ? ORDER BY w.created_at, w.work_item_id
+    `,
+      )
+      .all(this.#projectId) as Array<{
+      work_item_id: string;
+      title: string;
+      required_role: string;
+      state: string;
+      owner: string | null;
+      blockers: string;
+    }>;
+    const findings = this.#database
+      .prepare(
+        `
+      SELECT finding_id, severity, state, evidence_json FROM findings
+      WHERE project_id = ? ORDER BY created_at, finding_id
+    `,
+      )
+      .all(this.#projectId) as Array<{
+      finding_id: string;
+      severity: string;
+      state: string;
+      evidence_json: string;
+    }>;
+    const evidence = this.#database
+      .prepare(
+        `
+      SELECT c.candidate_id, c.commit_sha, c.report_hash,
+        (SELECT e.artifact_ref FROM candidate_evidence e WHERE e.project_id = c.project_id
+          AND e.candidate_id = c.candidate_id ORDER BY e.created_at DESC LIMIT 1) AS evidence_ref
+      FROM candidates c WHERE c.project_id = ? ORDER BY c.created_at, c.candidate_id
+    `,
+      )
+      .all(this.#projectId) as Array<{
+      candidate_id: string;
+      commit_sha: string;
+      report_hash: string;
+      evidence_ref: string | null;
+    }>;
+    const finalVerificationRows = this.#database
+      .prepare(
+        `
+      SELECT c.work_item_id, c.assignment_id, c.commit_sha, e.evidence_id, e.criterion,
+        e.passed, e.artifact_ref, e.evidence_hash
+      FROM final_verification_commits c
+      JOIN final_verification_evidence e ON e.project_id = c.project_id
+        AND e.work_item_id = c.work_item_id AND e.commit_sha = c.commit_sha
+        AND e.input_revision = c.input_revision
+      WHERE c.project_id = ?
+      ORDER BY c.work_item_id, e.criterion
+    `,
+      )
+      .all(this.#projectId) as Array<{
+      work_item_id: string;
+      assignment_id: string;
+      commit_sha: string;
+      evidence_id: string;
+      criterion: string;
+      passed: number;
+      artifact_ref: string;
+      evidence_hash: string;
+    }>;
+    const finalVerificationByWork = new Map<
+      string,
+      {
+        workItemId: string;
+        assignmentId: string;
+        commitSha: string;
+        evidence: Array<{
+          evidenceId: string;
+          criterion: string;
+          passed: boolean;
+          artifactRef: string;
+          evidenceHash: string;
+        }>;
+      }
+    >();
+    for (const row of finalVerificationRows) {
+      let verification = finalVerificationByWork.get(row.work_item_id);
+      if (!verification) {
+        verification = {
+          workItemId: row.work_item_id,
+          assignmentId: row.assignment_id,
+          commitSha: row.commit_sha,
+          evidence: [],
+        };
+        finalVerificationByWork.set(row.work_item_id, verification);
+      }
+      verification.evidence.push({
+        evidenceId: row.evidence_id,
+        criterion: row.criterion,
+        passed: row.passed === 1,
+        artifactRef: row.artifact_ref,
+        evidenceHash: row.evidence_hash,
+      });
+    }
+    return {
+      projectId: this.#projectId,
+      run: { state: run.state, stateVersion: run.state_version },
+      stateVersion: this.stateVersion,
+      inputRevision: this.inputRevision,
+      roles: roles.map((row) => ({
+        role: row.role,
+        seatId: row.seat_id,
+        seatState: row.seat_state,
+        actorActive: row.actor_active === 1,
+        sessionState: row.session_state,
+        assignmentId: row.assignment_id,
+      })),
+      work: work.map((row) => {
+        const blockers = JSON.parse(row.blockers) as string[];
+        const actionable =
+          (row.state === "pending" || row.state === "ready") &&
+          this.readiness(row.work_item_id).ready;
+        const nextLegalActions =
+          row.state === "ready" && actionable
+            ? ["assign"]
+            : row.state === "pending" && actionable
+              ? ["mark_ready"]
+              : row.state === "blocked"
+                ? ["reconcile", "contain"]
+                : row.state === "awaiting_verification"
+                  ? ["verify"]
+                  : row.state === "accepted"
+                    ? []
+                    : ["wait"];
+        return {
+          workItemId: row.work_item_id,
+          title: row.title,
+          role: row.required_role,
+          state: row.state,
+          owner: row.owner,
+          blockers,
+          nextLegalActions,
+        };
+      }),
+      findings: findings.map((row) => ({
+        findingId: row.finding_id,
+        severity: row.severity,
+        state: row.state,
+        evidence: JSON.parse(row.evidence_json) as unknown,
+      })),
+      evidence: evidence.map((row) => ({
+        candidateId: row.candidate_id,
+        commitSha: row.commit_sha,
+        reportHash: row.report_hash,
+        evidenceRef: row.evidence_ref,
+      })),
+      finalVerification: [...finalVerificationByWork.values()],
+    };
+  }
+
+  inspect(id: string): unknown {
+    this.#assertOpen();
+    for (const [kind, table, column] of [
+      ["work_item", "work_items", "work_item_id"],
+      ["assignment", "assignments", "assignment_id"],
+      ["candidate", "candidates", "candidate_id"],
+      ["finding", "findings", "finding_id"],
+      ["recovery", "recovery_attempts", "recovery_id"],
+    ] as const) {
+      const row = this.#database
+        .prepare(
+          `SELECT * FROM ${table} WHERE project_id = ? AND ${column} = ?`,
+        )
+        .get(this.#projectId, id) as Record<string, unknown> | undefined;
+      if (!row) continue;
+      return { kind, id, record: row };
+    }
+    throw new ControllerError("inspect target does not exist");
+  }
+
+  latestCompletedReport(workItemId: string): CompletedWorkReport | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `
+        SELECT a.assignment_id, c.command_id, s.role, a.active_generation,
+          a.input_revision, a.authority_state, w.state AS work_state,
+          r.receipt_hash, r.receipt_json
+        FROM assignments a
+        JOIN assignment_attempts aa ON aa.project_id = a.project_id
+          AND aa.assignment_id = a.assignment_id AND aa.generation = a.active_generation
+        JOIN commands c ON c.project_id = aa.project_id AND c.assignment_id = aa.assignment_id
+          AND c.attempt = aa.attempt AND c.generation = aa.generation
+        JOIN command_receipts r ON r.project_id = c.project_id
+          AND r.command_id = c.command_id AND r.receipt_type = 'completed'
+        JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+        JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+        WHERE a.project_id = ? AND a.work_item_id = ? AND c.state = 'completed'
+        ORDER BY a.active_generation DESC, r.received_at DESC LIMIT 1
+      `,
+      )
+      .get(this.#projectId, workItemId) as
+      | {
+          assignment_id: string;
+          command_id: string;
+          role: string;
+          active_generation: number;
+          input_revision: number;
+          authority_state: string;
+          work_state: string;
+          receipt_hash: string;
+          receipt_json: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const receipt = JSON.parse(row.receipt_json) as Record<string, unknown>;
+    if (typeof receipt.reply !== "string") return undefined;
+    return {
+      assignmentId: row.assignment_id,
+      commandId: row.command_id,
+      role: row.role,
+      generation: row.active_generation,
+      inputRevision: row.input_revision,
+      authorityState: row.authority_state,
+      workState: row.work_state,
+      receiptHash: row.receipt_hash,
+      reply: receipt.reply,
+      receipt,
+    };
+  }
 
   close(): void {
     if (this.#closed) return;
@@ -4384,7 +5486,7 @@ export class ControllerCore {
     try {
       this.#database.close();
     } finally {
-      this.#lock.close();
+      this.#lock?.close();
     }
   }
 
@@ -4581,7 +5683,11 @@ export class ControllerCore {
 
   #assertOpen(): void {
     if (this.#closed) throw new ControllerError("controller is closed");
-    this.#lock.assertHeld();
+    this.#lock?.assertHeld();
+  }
+  #assertWritable(): void {
+    if (this.#readOnly)
+      throw new ControllerError("controller is open read-only");
   }
 
   #mutateAsController<T>(
@@ -4767,7 +5873,21 @@ export class ControllerCore {
     return value;
   }
 
-  #acceptanceCriteria(): readonly string[] {
+  #acceptanceCriteria(workItemId?: string): readonly string[] {
+    if (workItemId) {
+      const workItem = this.#database
+        .prepare(
+          "SELECT acceptance_criteria_json FROM work_items WHERE project_id = ? AND work_item_id = ?",
+        )
+        .get(this.#projectId, workItemId) as
+        { acceptance_criteria_json: string | null } | undefined;
+      if (!workItem)
+        throw new CandidateBindingError("candidate work item is missing");
+      if (workItem.acceptance_criteria_json)
+        return acceptanceCriteriaFromContent(
+          JSON.parse(workItem.acceptance_criteria_json),
+        );
+    }
     const currentRevision = this.#database
       .prepare(
         "SELECT current_input_revision FROM projects WHERE project_id = ?",
@@ -4817,6 +5937,7 @@ export class ControllerCore {
     apply: (actor: AuthenticatedActor) => MutationOutput<T>,
   ): T {
     this.#assertOpen();
+    this.#assertWritable();
     if (
       !/^[A-Za-z0-9._:-]{1,128}$/.test(context.requestId) ||
       !/^[A-Za-z0-9._:-]{1,128}$/.test(context.idempotencyKey)

@@ -3,10 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import net from "node:net";
 import { test } from "node:test";
 import herdrBridge from "./m1-herdr-bridge.mjs";
 import { ControllerCore } from "../dist/src/controller/core.js";
-import { M1BridgeAdapter } from "../dist/src/controller/m1-bridge.js";
+import {
+  expectedReceiptPeer,
+  M1BridgeAdapter,
+} from "../dist/src/controller/m1-bridge.js";
 
 const environmentKeys = [
   "CAPSTAN_BRIDGE_ROLE",
@@ -150,7 +154,15 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       CAPSTAN_BRIDGE_PEER_HELPER: peerHelper,
       CAPSTAN_BRIDGE_CONTROLLER_PEER_PID: String(process.pid),
     });
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    adapter = new M1BridgeAdapter(
+      core,
+      receiptSocket,
+      bridgeSocket,
+      {
+        authenticate: expectedReceiptPeer(peerHelper, process.pid),
+      },
+      { path: journal, role: "Developer" },
+    );
     await adapter.listen();
     herdrBridge(pi);
     await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
@@ -185,6 +197,36 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       () => core.commandState(assignment.commandId) === "completed",
     );
     assert.equal(core.readiness("integration-work").ready, false);
+    const firstJournal = fs
+      .readFileSync(journal, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(firstJournal.at(-1).type, "completed");
+    assert.equal(firstJournal.at(-1).sequence, firstJournal.length);
+    const journalBeforeDuplicate = fs.readFileSync(journal);
+    const journalIdentity = fs.statSync(journal);
+    fs.writeFileSync(
+      journal,
+      journalBeforeDuplicate.subarray(0, journalBeforeDuplicate.length - 7),
+    );
+    const duplicateAck = await new Promise((resolve, reject) => {
+      const socket = net.createConnection(receiptSocket);
+      let response = "";
+      socket.once("connect", () =>
+        socket.write(`${JSON.stringify(firstJournal.at(-1))}\n`),
+      );
+      socket.on("data", (chunk) => (response += chunk.toString("utf8")));
+      socket.once("end", () => resolve(JSON.parse(response)));
+      socket.once("error", reject);
+    });
+    assert.equal(duplicateAck.duplicate, true, JSON.stringify(duplicateAck));
+    assert.deepEqual(
+      fs.readFileSync(journal),
+      journalBeforeDuplicate,
+      "a duplicate receipt must repair an incomplete durable journal tail",
+    );
+    assert.equal(fs.statSync(journal).ino, journalIdentity.ino);
     core.confirmContainment(
       context(core, owner, "contain"),
       assignment.assignmentId,
@@ -256,6 +298,60 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       },
     );
     assert.equal(candidate.candidateId, "integration-candidate");
+    core.createWorkItem(context(core, pmCredential, "work-second"), {
+      workItemId: "integration-work-second",
+      title: "Second integration work",
+      description: "Continue the durable role receipt sequence",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, owner, "ready-second"),
+      "integration-work-second",
+    );
+    const secondAssignment = core.assignWorkItem(
+      context(core, owner, "assign-second"),
+      "integration-work-second",
+      devSeat,
+    );
+    await handlers.get("session_shutdown")();
+    await adapter.close();
+    adapter = new M1BridgeAdapter(
+      core,
+      receiptSocket,
+      bridgeSocket,
+      {
+        authenticate: expectedReceiptPeer(peerHelper, process.pid),
+      },
+      { path: journal, role: "Developer" },
+    );
+    await adapter.listen();
+    herdrBridge(pi);
+    await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+    await adapter.dispatchAndStart(
+      context(core, owner, "deliver-second"),
+      secondAssignment.commandId,
+    );
+    await handlers.get("turn_end")({
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "second implementation submitted" }],
+      },
+    });
+    await handlers.get("agent_end")({ willContinue: false });
+    await waitFor(
+      () => core.commandState(secondAssignment.commandId) === "completed",
+    );
+    const allJournal = fs
+      .readFileSync(journal, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      allJournal.at(-1).sequence,
+      allJournal.length,
+      "a replacement worker continues the durable role sequence",
+    );
+    assert.equal(allJournal.at(-1).commandId, secondAssignment.commandId);
   } finally {
     if (handlers.has("session_shutdown"))
       await handlers.get("session_shutdown")();

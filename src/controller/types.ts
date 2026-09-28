@@ -87,6 +87,8 @@ export interface WorkItemInput {
   readonly description: string;
   readonly requiredRole: Exclude<Role, "operator" | "controller">;
   readonly parentWorkItemId?: string;
+  readonly acceptanceCriteria?: readonly string[];
+  readonly finalVerification?: boolean;
 }
 
 export interface SeatInput {
@@ -149,4 +151,6 @@ export interface BridgeReceipt extends BridgeIdentity {
 export interface ControllerOptions {
   readonly stateDirectory: string;
   readonly project: InitialProject;
+  readonly workspaceRoot?: string;
+  readonly runtimeWorkspacePath?: string;
 }
