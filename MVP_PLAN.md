@@ -323,7 +323,7 @@ Criterion evidence records retain the Verifier's observation and exit status alo
 
 Migration-added report fields remain `null` for pre-migration records rather than manufacturing observations or recomputing their immutable historical hashes. New reports must supply the fields; consumers can distinguish legacy evidence from the current report shape.
 
-Run `node scripts/pm7-reference-run.mjs` after `npm run build` to exercise the frozen `jsonl-summary-feature` M0 fixture in a private disposable repository. The complete fixture manifest is an immutable file in the base commit and pinned by SHA-256 so each Verifier can access the exact oracle. The runner clears inherited `GIT_*` environment variables, materializes each case into a fresh directory with distinct `HOME` and temporary directories from accepted tracked files without cloning a worker-controlled repository, and checks valid, malformed, and regression cases byte-for-byte.
+Run `node scripts/pm7-reference-run.mjs` after `npm run build` to exercise the frozen `jsonl-summary-feature` M0 fixture in a private disposable repository. The complete fixture manifest is an immutable file in the base commit and pinned by SHA-256 so each Verifier can access the exact oracle. The runner clears inherited `GIT_*` variables and Node preload paths, materializes each case into a fresh directory with distinct HOME, XDG config/cache/data, and temporary directories from accepted tracked files without cloning a worker-controlled repository, and checks valid, malformed, and regression cases byte-for-byte.
 
 ## 10. Implementation stages and exit gates
 

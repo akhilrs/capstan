@@ -515,6 +515,12 @@ try {
     const temp = path.join(caseRoot, ".case-tmp");
     mkdirSync(home, { mode: 0o700 });
     mkdirSync(temp, { mode: 0o700 });
+    const xdgConfig = path.join(home, "xdg-config");
+    const xdgCache = path.join(temp, "xdg-cache");
+    const xdgData = path.join(home, "xdg-data");
+    mkdirSync(xdgConfig, { mode: 0o700 });
+    mkdirSync(xdgCache, { mode: 0o700 });
+    mkdirSync(xdgData, { mode: 0o700 });
     for (const relative of trackedFixtureFiles) {
       const source = path.join(exerciseSource, relative);
       const stat = lstatSync(source);
@@ -526,12 +532,24 @@ try {
       });
     }
     const [binary, ...args] = fixtureCase.command ?? task.command;
+    const childEnv = {
+      ...env,
+      HOME: home,
+      TMPDIR: temp,
+      TMP: temp,
+      TEMP: temp,
+      XDG_CONFIG_HOME: xdgConfig,
+      XDG_CACHE_HOME: xdgCache,
+      XDG_DATA_HOME: xdgData,
+    };
+    delete childEnv.NODE_OPTIONS;
+    delete childEnv.NODE_PATH;
     const result = run(binary, args, {
       cwd: caseRoot,
       input: fixtureCase.input,
       label: fixtureCase.label,
       timeout: 60_000,
-      childEnv: { ...env, HOME: home, TMPDIR: temp, TMP: temp, TEMP: temp },
+      childEnv,
     });
     assert(
       result.status === fixtureCase.exit && result.signal === null,
