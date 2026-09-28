@@ -244,6 +244,28 @@ export function assertTrackedCheckoutMatchesHead(
   );
   if (tree.status !== 0 || (tree.stdout.length && tree.stdout.at(-1) !== 0))
     throw new Error("cannot inspect exact verification checkout tree");
+  const ignored = spawnSync(
+    "git",
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-C",
+      workspace,
+      "ls-files",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+      "-z",
+    ],
+    { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
+  );
+  if (ignored.status !== 0 || ignored.stdout.length !== 0)
+    throw new Error(
+      "ignored files in verification checkout can affect acceptance",
+    );
   const algorithm = commitSha.length === 64 ? "sha256" : "sha1";
   const chunk = Buffer.allocUnsafe(64 * 1024);
   const frames = tree.stdout.toString("binary").split("\0");
@@ -262,6 +284,20 @@ export function assertTrackedCheckoutMatchesHead(
       components.some((part) => part === "" || part === "." || part === "..")
     )
       throw new Error("unsupported verification checkout entry");
+    let parent = Buffer.from(workspace);
+    if (!fs.lstatSync(parent).isDirectory())
+      throw new Error("verification checkout root is not a directory");
+    for (const component of components.slice(0, -1)) {
+      parent = Buffer.concat([
+        parent,
+        Buffer.from("/"),
+        Buffer.from(component, "binary"),
+      ]);
+      if (!fs.lstatSync(parent).isDirectory())
+        throw new Error(
+          "verification checkout contains a symlinked parent directory",
+        );
+    }
     const file = Buffer.concat([Buffer.from(`${workspace}/`), relative]);
     const stat = fs.lstatSync(file);
     const symlink = metadata[0] === "120000";

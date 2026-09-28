@@ -10,6 +10,8 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  renameSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -94,8 +96,49 @@ test("immutable checkout check detects tracked bytes hidden by assume-unchanged"
       () => assertTrackedCheckoutMatchesHead(cwd, sha),
       /verification checkout bytes differ/,
     );
+    writeFileSync(path.join(cwd, "source.txt"), "committed\n");
+    writeFileSync(path.join(cwd, ".git", "info", "exclude"), "generated.js\n");
+    writeFileSync(path.join(cwd, "generated.js"), "export default 1;\n");
+    assert.equal(git("status", "--porcelain"), "");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /ignored files in verification checkout/,
+    );
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check rejects a symlinked tracked parent directory", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-parent-"));
+  const external = mkdtempSync(
+    path.join(os.tmpdir(), "cstan-verifier-external-"),
+  );
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    mkdirSync(path.join(cwd, "lib"));
+    writeFileSync(path.join(cwd, "lib", "source.txt"), "committed\n");
+    git("add", "lib/source.txt");
+    git("commit", "--quiet", "-m", "seed");
+    const sha = git("rev-parse", "HEAD");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
+    git("update-index", "--assume-unchanged", "lib/source.txt");
+    renameSync(path.join(cwd, "lib"), path.join(external, "lib"));
+    symlinkSync(path.join(external, "lib"), path.join(cwd, "lib"));
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /symlinked parent directory/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
   }
 });
 

@@ -3501,7 +3501,8 @@ export class ControllerCore {
         const evidence = this.#database
           .prepare(
             `
-        SELECT e.verifier_assignment_id, e.criterion, e.passed, e.input_revision, e.created_by,
+        SELECT e.verifier_assignment_id, e.criterion, e.passed, e.observation, e.exit_status,
+          e.input_revision, e.created_by,
           va.worker_actor_id, va.work_item_id AS verifier_work_item_id, va.input_revision AS verifier_input_revision,
           va.state AS verifier_assignment_state, va.authority_state AS verifier_authority_state,
           at.attempt AS verifier_attempt, at.state AS verifier_attempt_state,
@@ -3532,6 +3533,8 @@ export class ControllerCore {
           created_by: string;
           worker_actor_id: string | null;
           passed: number;
+          observation: string | null;
+          exit_status: number | null;
           input_revision: number;
           verifier_work_item_id: string;
           verifier_input_revision: number;
@@ -3621,6 +3624,9 @@ export class ControllerCore {
             observations.some(
               (row) =>
                 row.passed !== 1 ||
+                row.observation === null ||
+                row.observation.trim().length === 0 ||
+                row.exit_status !== 0 ||
                 row.input_revision !== context.inputRevision ||
                 row.verifier_input_revision !== context.inputRevision ||
                 row.bound_candidate_hash !== candidate.report_hash,

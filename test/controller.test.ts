@@ -3390,6 +3390,35 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         exitStatus: 0,
       },
     );
+    const legacyDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    legacyDb.exec("DROP TRIGGER immutable_candidate_evidence_update");
+    try {
+      const legacyEvidence = legacyDb.prepare(
+        "UPDATE candidate_evidence SET observation = ?, exit_status = ? WHERE project_id = ? AND evidence_id = ?",
+      );
+      legacyEvidence.run(null, null, info.projectId, "replacement-evidence");
+      assert.throws(
+        () =>
+          core.acceptCandidate(
+            context(core, info.ownerCredential),
+            "feature",
+            candidate.candidateId,
+          ),
+        /candidate lacks passing current Verifier evidence/,
+      );
+    } finally {
+      legacyDb
+        .prepare(
+          "UPDATE candidate_evidence SET observation = ?, exit_status = ? WHERE project_id = ? AND evidence_id = ?",
+        )
+        .run("all checks passed", 0, info.projectId, "replacement-evidence");
+      legacyDb.exec(
+        "CREATE TRIGGER immutable_candidate_evidence_update BEFORE UPDATE ON candidate_evidence BEGIN SELECT RAISE(ABORT, 'candidate evidence is immutable'); END",
+      );
+      legacyDb.close();
+    }
     assert.equal(
       core.acceptCandidate(
         context(core, info.ownerCredential),

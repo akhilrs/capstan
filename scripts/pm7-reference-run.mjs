@@ -190,6 +190,7 @@ try {
   }
   assert(gitAt(exerciseRoot, ["rev-parse", "HEAD"], "final-accepted-tip-check").stdout.toString("utf8").trim() === acceptedTip, "accepted SHA changed during verification");
   assert(gitAt(exerciseRoot, ["rev-parse", `${baseSha}^{commit}`], "final-base-check").stdout.toString("utf8").trim() === baseSha, "frozen fixture base SHA changed");
+  assert(gitAt(exerciseRoot, ["merge-base", baseSha, acceptedTip], "base-ancestry").stdout.toString("utf8").trim() === baseSha, "accepted tip does not descend from frozen fixture base");
   rmSync(evidenceRoot, { recursive: true, force: true });
   process.stdout.write(`PM-7 reference run passed: ${cases.length} fixture cases; base=${baseSha}; accepted=${acceptedTip}\n`);
 } catch (error) {
