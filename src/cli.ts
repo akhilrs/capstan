@@ -401,6 +401,7 @@ async function runCli(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const cwd = process.cwd();
   if (command === "init") {
+    if (rest.length !== 0) usage();
     const name = path.basename(cwd);
     if (name.trim() === "" || name.length > 256)
       throw new InvalidInputError("project directory name is invalid");
@@ -1810,7 +1811,9 @@ async function runCli(argv: string[]): Promise<number> {
           let finalRuntime:
             Awaited<ReturnType<typeof provisionRuntime>> | undefined;
           const finalWorkItemId = `final-${randomUUID()}`;
-          if (dispatches >= plan.limits.maxDispatches)
+          if (Date.now() >= deadlineMs)
+            blocker = "maxRunMs exceeded before final-parent verification";
+          else if (dispatches >= plan.limits.maxDispatches)
             blocker =
               "maxDispatches exhausted before final-parent verification";
           else {
@@ -1847,7 +1850,9 @@ async function runCli(argv: string[]): Promise<number> {
             );
             runtimeCommands[finalRuntime.session.sessionId] =
               finalAssignment.commandId;
-            if (stopping) blocker = "run canceled by signal";
+            if (Date.now() >= deadlineMs)
+              blocker = "maxRunMs exceeded before final-parent dispatch";
+            else if (stopping) blocker = "run canceled by signal";
             else {
               dispatches += 1;
               core.transitionRuntimeSession(
