@@ -45,7 +45,10 @@ if (!task)
   );
 const cstan = path.join(repoRoot, "dist/src/cli.js");
 const env = { ...process.env, LC_ALL: "C", LANG: "C", TZ: "UTC" };
-for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
+for (const key of Object.keys(env)) {
+  if (key.startsWith("GIT_") || key === "NODE_OPTIONS" || key === "NODE_PATH")
+    delete env[key];
+}
 const gitEnv = {
   ...env,
   GIT_CONFIG_NOSYSTEM: "1",
@@ -542,8 +545,6 @@ try {
       XDG_CACHE_HOME: xdgCache,
       XDG_DATA_HOME: xdgData,
     };
-    delete childEnv.NODE_OPTIONS;
-    delete childEnv.NODE_PATH;
     const result = run(binary, args, {
       cwd: caseRoot,
       input: fixtureCase.input,
