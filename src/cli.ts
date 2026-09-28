@@ -222,10 +222,7 @@ function workflowWorkItemId(taskId: string, sliceId: string): string {
     .slice(0, 24)}`;
 }
 
-export function assertTrackedCheckoutMatchesHead(
-  workspace: string,
-  commitSha: string,
-): void {
+function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
   const gitEnv = { ...process.env };
   for (const key of Object.keys(gitEnv))
     if (key.startsWith("GIT_")) delete gitEnv[key];
@@ -233,6 +230,14 @@ export function assertTrackedCheckoutMatchesHead(
   gitEnv.GIT_CONFIG_GLOBAL = "/dev/null";
   gitEnv.GIT_CONFIG_COUNT = "0";
   gitEnv.GIT_CONFIG_PARAMETERS = "";
+  return gitEnv;
+}
+
+export function assertTrackedCheckoutMatchesHead(
+  workspace: string,
+  commitSha: string,
+): void {
+  const gitEnv = sanitizedGitEnvironment();
   const tree = spawnSync(
     "git",
     [
@@ -804,6 +809,7 @@ async function runCli(argv: string[]): Promise<number> {
         Awaited<ReturnType<M1BridgeAdapter["inspectUncertainCommand"]>>
       >();
       let dispatches = 0;
+      const verifiedGitEnv = sanitizedGitEnvironment();
       let closeControl: (() => Promise<void>) | undefined;
       let stopping = false;
       let pmWorkItemId = "";
@@ -860,13 +866,10 @@ async function runCli(argv: string[]): Promise<number> {
           "core.hooksPath=/dev/null",
         ];
         const hostGitEnv = {
-          ...process.env,
-          GIT_CONFIG_NOSYSTEM: "1",
-          GIT_CONFIG_GLOBAL: "/dev/null",
+          ...verifiedGitEnv,
           GIT_CONFIG_COUNT: "1",
           GIT_CONFIG_KEY_0: "uploadpack.packObjectsHook",
           GIT_CONFIG_VALUE_0: "/bin/true",
-          GIT_CONFIG_PARAMETERS: "",
         };
         const runHostGit = (args: string[]) => {
           const timeout = deadlineMs - Date.now();
@@ -1672,7 +1675,7 @@ async function runCli(argv: string[]): Promise<number> {
               "--get-regexp",
               "^filter\\..*\\.(clean|process)$",
             ],
-            { encoding: "buffer" },
+            { encoding: "buffer", env: verifiedGitEnv },
           );
           if (
             configuredFilters.error ||
@@ -1701,7 +1704,7 @@ async function runCli(argv: string[]): Promise<number> {
               "rev-parse",
               "HEAD",
             ],
-            { encoding: "utf8" },
+            { encoding: "utf8", env: verifiedGitEnv },
           );
           const workspaceStatus = spawnSync(
             "git",
@@ -1713,7 +1716,7 @@ async function runCli(argv: string[]): Promise<number> {
               "--porcelain",
               "--untracked-files=all",
             ],
-            { encoding: "utf8" },
+            { encoding: "utf8", env: verifiedGitEnv },
           );
           if (
             workspaceHead.status !== 0 ||
@@ -1736,7 +1739,7 @@ async function runCli(argv: string[]): Promise<number> {
               developerMetadata.baseSha,
               commitSha,
             ],
-            { encoding: "utf8" },
+            { encoding: "utf8", env: verifiedGitEnv },
           );
           if (ancestry.status !== 0)
             throw new Error(
@@ -1775,7 +1778,7 @@ async function runCli(argv: string[]): Promise<number> {
                 dependencyRecord.commit_sha,
                 developerMetadata.baseSha,
               ],
-              { encoding: "utf8" },
+              { encoding: "utf8", env: verifiedGitEnv },
             );
             if (dependencyAncestor.status !== 0)
               throw new Error(
@@ -1797,7 +1800,7 @@ async function runCli(argv: string[]): Promise<number> {
               "--diff-filter=ACDMRT",
               `${developerMetadata.baseSha}..${commitSha}`,
             ],
-            { encoding: "buffer" },
+            { encoding: "buffer", env: verifiedGitEnv },
           );
           if (diff.status !== 0)
             throw new Error(
@@ -1931,7 +1934,7 @@ async function runCli(argv: string[]): Promise<number> {
               "rev-parse",
               "HEAD",
             ],
-            { encoding: "utf8", timeout: 10_000 },
+            { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
           );
           if (
             verifierHead.status !== 0 ||
@@ -2189,7 +2192,7 @@ async function runCli(argv: string[]): Promise<number> {
                     "rev-parse",
                     "HEAD",
                   ],
-                  { encoding: "utf8", timeout: 10_000 },
+                  { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
                 );
                 if (
                   reply?.commitSha !== finalRuntime.baseSha ||
