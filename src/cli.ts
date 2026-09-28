@@ -322,7 +322,7 @@ async function inspectController(
       finalVerification: [],
     };
   }
-  const core = await ControllerCore.open({
+  const core = await ControllerCore.openReadOnly({
     stateDirectory: config.stateDirectory,
     project: project(config, credential, []),
     workspaceRoot: process.cwd(),
@@ -1933,10 +1933,9 @@ async function runCli(argv: string[]): Promise<number> {
           }
         }
         if (stopping) blocker = "run canceled by signal";
-        else if (!blocker && step.state === "complete") blocker = undefined;
-        else if (!blocker && step.state === "stopped") blocker = step.reason;
         else if (!blocker && Date.now() >= deadlineMs)
           blocker = "maxRunMs exceeded";
+        else if (!blocker && step.state === "stopped") blocker = step.reason;
         const cleanupErrors: unknown[] = [];
         for (const session of allSessions) {
           if (containedSessions.has(session.sessionId)) continue;
@@ -1978,6 +1977,8 @@ async function runCli(argv: string[]): Promise<number> {
             cleanupErrors,
             `cstan cleanup could not prove complete containment and closure: ${cleanupErrors.map(String).join("; ")}`,
           );
+        if (!stopping && !blocker && Date.now() >= deadlineMs)
+          blocker = "maxRunMs exceeded";
         const completed = step.state === "complete" && !stopping && !blocker;
         if (completed)
           core.transitionRun(context(core, credential), "completed");

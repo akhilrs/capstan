@@ -71,6 +71,14 @@ export async function openDatabase(
   }
 }
 
+export function openDatabaseReadOnly(databasePath: string): Database.Database {
+  return new Database(databasePath, {
+    readonly: true,
+    fileMustExist: true,
+    timeout: 5_000,
+  });
+}
+
 async function migrate(
   database: Database.Database,
   databasePath: string,

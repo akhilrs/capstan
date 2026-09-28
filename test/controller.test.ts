@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -135,6 +141,85 @@ function cleanup(value: Fixture): void {
   value.core.close();
   rmSync(value.stateDirectory, { recursive: true, force: true });
 }
+test("read-only reopen observes uncertain foreground state without mutation", async () => {
+  const value = await fixture();
+  let core = value.core;
+  try {
+    const developer = await addSeatAndActor(
+      core,
+      value.project.ownerCredential,
+      "Developer",
+      "offline-status",
+    );
+    core.createWorkItem(context(core, value.project.ownerCredential), {
+      workItemId: "offline-status-work",
+      title: "Offline status",
+      description: "Preserve uncertain state during inspection",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, value.project.ownerCredential),
+      "offline-status-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, value.project.ownerCredential),
+      "offline-status-work",
+      developer.seatId,
+    );
+    core.beginCommandDelivery(
+      context(core, value.project.ownerCredential),
+      assignment.commandId,
+    );
+    const expectedVersion = core.stateVersion;
+    const expectedRunState = core.statusSnapshot().run.state;
+    const expectedCommandState = core.commandState(assignment.commandId);
+    const expectedInspect = core.inspect("offline-status-work");
+    core.close();
+
+    const snapshotFiles = () =>
+      new Map(
+        readdirSync(value.stateDirectory)
+          .filter(
+            (name) =>
+              !name.endsWith("-shm") &&
+              (!name.endsWith("-wal") ||
+                statSync(path.join(value.stateDirectory, name)).size > 0),
+          )
+          .map((name) => [
+            name,
+            createHash("sha256")
+              .update(readFileSync(path.join(value.stateDirectory, name)))
+              .digest("hex"),
+          ]),
+      );
+    const before = snapshotFiles();
+    const readOnly = await ControllerCore.openReadOnly({
+      stateDirectory: value.stateDirectory,
+      project: value.project,
+    });
+    core = readOnly;
+    const status = readOnly.statusSnapshot();
+    assert.equal(status.run.state, expectedRunState);
+    assert.equal(
+      readOnly.commandState(assignment.commandId),
+      expectedCommandState,
+    );
+    assert.deepEqual(readOnly.inspect("offline-status-work"), expectedInspect);
+    assert.equal(readOnly.stateVersion, expectedVersion);
+    assert.throws(
+      () =>
+        readOnly.markReady(
+          context(readOnly, value.project.ownerCredential),
+          "offline-status-work",
+        ),
+      /read-only/,
+    );
+    readOnly.close();
+    assert.deepEqual(snapshotFiles(), before);
+  } finally {
+    cleanup({ ...value, core });
+  }
+});
 test("project initialization rejects unusable acceptance criteria", async () => {
   const stateDirectory = mkdtempSync(
     path.join(tmpdir(), "capstan-invalid-criteria-"),
@@ -4039,28 +4124,38 @@ test("final Verifier accepts only complete passing evidence for the composed com
     );
     core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Verifier"));
     core.recordBridgeReceipt(receipt(identity, 3, "working", "Verifier"));
-    core.recordBridgeReceipt(receipt(identity, 4, "completed", "Verifier"));
-    core.confirmContainment(
-      context(core, info.ownerCredential),
-      assignment.assignmentId,
-      "containment:final-verifier",
-    );
-
     const commitSha = "a".repeat(40);
     const evidence = [
       {
         evidenceId: "final-evidence-one",
         criterion: "criterion-one",
         passed: true,
-        artifactRef: "artifact://final/criterion-one",
+        artifactRef: "/tmp/final-evidence/criterion-one",
       },
       {
         evidenceId: "final-evidence-two",
         criterion: "criterion-two",
         passed: true,
-        artifactRef: "artifact://final/criterion-two",
+        artifactRef: "/tmp/final-evidence/criterion-two",
       },
     ] as const;
+    core.recordBridgeReceipt({
+      ...receipt(identity, 4, "completed", "Verifier"),
+      reply: JSON.stringify({
+        commitSha,
+        evidence: evidence.map(({ criterion, passed }) => ({
+          criterion,
+          passed,
+          artifactRef: `/evidence/${criterion}`,
+        })),
+      }),
+    });
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "containment:final-verifier",
+    );
+
     const incompleteContext = context(core, info.ownerCredential);
     const versionBeforeIncomplete = core.stateVersion;
     assert.throws(
@@ -4093,6 +4188,30 @@ test("final Verifier accepts only complete passing evidence for the composed com
       /failed or omitted criterion/,
     );
 
+    assert.throws(
+      () =>
+        core.acceptFinalVerification(context(core, info.ownerCredential), {
+          workItemId: "final-verifier-work",
+          assignmentId: assignment.assignmentId,
+          commitSha: "b".repeat(40),
+          evidence,
+        }),
+      /does not match the reported composed commit/,
+    );
+    assert.throws(
+      () =>
+        core.acceptFinalVerification(context(core, info.ownerCredential), {
+          workItemId: "final-verifier-work",
+          assignmentId: assignment.assignmentId,
+          commitSha,
+          evidence: evidence.map((entry, index) =>
+            index === 1
+              ? { ...entry, artifactRef: "/tmp/final-evidence/unreported" }
+              : entry,
+          ),
+        }),
+      /artifact does not match its reported evidence path/,
+    );
     assert.deepEqual(
       core.acceptFinalVerification(context(core, info.ownerCredential), {
         workItemId: "final-verifier-work",
@@ -4121,7 +4240,7 @@ test("final Verifier accepts only complete passing evidence for the composed com
             evidenceId: "final-evidence-one",
             criterion: "criterion-one",
             passed: true,
-            artifactRef: "artifact://final/criterion-one",
+            artifactRef: "/tmp/final-evidence/criterion-one",
             evidenceHash: digestJson({
               workItemId: "final-verifier-work",
               assignmentId: assignment.assignmentId,
@@ -4130,14 +4249,14 @@ test("final Verifier accepts only complete passing evidence for the composed com
               evidenceId: "final-evidence-one",
               criterion: "criterion-one",
               passed: true,
-              artifactRef: "artifact://final/criterion-one",
+              artifactRef: "/tmp/final-evidence/criterion-one",
             }),
           },
           {
             evidenceId: "final-evidence-two",
             criterion: "criterion-two",
             passed: true,
-            artifactRef: "artifact://final/criterion-two",
+            artifactRef: "/tmp/final-evidence/criterion-two",
             evidenceHash: digestJson({
               workItemId: "final-verifier-work",
               assignmentId: assignment.assignmentId,
@@ -4146,7 +4265,7 @@ test("final Verifier accepts only complete passing evidence for the composed com
               evidenceId: "final-evidence-two",
               criterion: "criterion-two",
               passed: true,
-              artifactRef: "artifact://final/criterion-two",
+              artifactRef: "/tmp/final-evidence/criterion-two",
             }),
           },
         ],

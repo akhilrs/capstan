@@ -16,7 +16,11 @@ import {
   type AuthenticatedActor,
 } from "./auth.js";
 import { canonicalJson, digestJson, sha256 } from "./canonical.js";
-import { openDatabase, resolveDatabasePath } from "./database.js";
+import {
+  openDatabase,
+  openDatabaseReadOnly,
+  resolveDatabasePath,
+} from "./database.js";
 import { M1BridgeAdapter } from "./m1-bridge.js";
 import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
@@ -296,7 +300,8 @@ export interface CompletedWorkReport {
 
 export class ControllerCore {
   readonly #database: Database.Database;
-  readonly #lock: ProjectLock;
+  readonly #lock: ProjectLock | undefined;
+  readonly #readOnly: boolean;
   readonly #projectId: string;
   readonly #internalActorId: string;
   readonly #workspaceRoot: string;
@@ -305,14 +310,16 @@ export class ControllerCore {
 
   private constructor(
     database: Database.Database,
-    lock: ProjectLock,
+    lock: ProjectLock | undefined,
     projectId: string,
     internalActorId: string,
     workspaceRoot: string,
     runtimeWorkspacePath: string | undefined,
+    readOnly = false,
   ) {
     this.#database = database;
     this.#lock = lock;
+    this.#readOnly = readOnly;
     this.#projectId = projectId;
     this.#internalActorId = internalActorId;
     this.#workspaceRoot = workspaceRoot;
@@ -420,6 +427,95 @@ export class ControllerCore {
     } catch (error) {
       database?.close();
       lock.close();
+      throw error;
+    }
+  }
+
+  static async openReadOnly(
+    options: ControllerOptions,
+  ): Promise<ControllerCore> {
+    const project = options.project;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(project.projectId)) {
+      throw new TypeError("project id must be 1-64 safe ASCII characters");
+    }
+    if (!path.isAbsolute(options.stateDirectory))
+      throw new TypeError("state directory must be absolute");
+    const stateDirectory = path.resolve(options.stateDirectory);
+    const directoryStat = fs.lstatSync(stateDirectory);
+    if (
+      !directoryStat.isDirectory() ||
+      directoryStat.isSymbolicLink() ||
+      (process.getuid && directoryStat.uid !== process.getuid()) ||
+      (directoryStat.mode & 0o077) !== 0
+    ) {
+      throw new ControllerOwnershipError(
+        "controller state directory must be a private directory owned by the current user",
+      );
+    }
+    const databasePath = resolveDatabasePath(stateDirectory);
+    const databaseStat = fs.lstatSync(databasePath);
+    if (!databaseStat.isFile() || databaseStat.isSymbolicLink())
+      throw new ControllerOwnershipError(
+        "controller database path must be a regular file",
+      );
+    let database: Database.Database | undefined;
+    try {
+      database = openDatabaseReadOnly(databasePath);
+      const projectRow = database
+        .prepare("SELECT name FROM projects WHERE project_id = ?")
+        .get(project.projectId) as { name: string } | undefined;
+      if (!projectRow)
+        throw new ControllerError("durable project state does not exist");
+      if (projectRow.name !== project.name)
+        throw new ControllerError(
+          "project name does not match durable project state",
+        );
+      const actor = authenticateActor(
+        database,
+        project.projectId,
+        project.ownerCredential,
+      );
+      if (actor.role !== "operator")
+        throw new ControllerError(
+          "opening an existing project requires its operator credential",
+        );
+      const internalActor = database
+        .prepare(
+          "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
+        )
+        .get(project.projectId) as { actor_id: string } | undefined;
+      if (!internalActor)
+        throw new ControllerError(
+          "durable internal controller principal is missing",
+        );
+      const workspaceRoot = path.resolve(
+        options.workspaceRoot ?? process.cwd(),
+      );
+      const workspaceStat = fs.lstatSync(workspaceRoot);
+      if (!workspaceStat.isDirectory() || workspaceStat.isSymbolicLink())
+        throw new ControllerError(
+          "workspace root must be an existing non-symlink directory",
+        );
+      if (
+        options.runtimeWorkspacePath !== undefined &&
+        !path.isAbsolute(options.runtimeWorkspacePath)
+      )
+        throw new TypeError("runtime workspace path must be absolute");
+      const runtimeWorkspacePath =
+        options.runtimeWorkspacePath === undefined
+          ? undefined
+          : path.resolve(options.runtimeWorkspacePath);
+      return new ControllerCore(
+        database,
+        undefined,
+        project.projectId,
+        internalActor.actor_id,
+        workspaceRoot,
+        runtimeWorkspacePath,
+        true,
+      );
+    } catch (error) {
+      database?.close();
       throw error;
     }
   }
@@ -3659,22 +3755,30 @@ export class ControllerCore {
               completed_receipt_json: string | null;
             }
           | undefined;
-        let validCompletion = false;
+        let reportReply:
+          | { readonly commitSha?: unknown; readonly evidence?: unknown }
+          | undefined;
         if (report?.completed_receipt_json) {
           try {
             const receipt = JSON.parse(report.completed_receipt_json) as {
               readonly reply?: unknown;
             };
-            validCompletion =
-              typeof receipt.reply === "string" &&
-              receipt.reply.trim().length > 0;
+            if (typeof receipt.reply === "string") {
+              const parsed = JSON.parse(receipt.reply) as unknown;
+              if (
+                parsed !== null &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              )
+                reportReply = parsed as typeof reportReply;
+            }
           } catch {
-            validCompletion = false;
+            // Malformed or unstructured reports cannot bind final acceptance.
           }
         }
         if (
           !report ||
-          !validCompletion ||
+          !reportReply ||
           actor.role !== "controller" ||
           report.role !== "Verifier" ||
           report.final_verification !== 1 ||
@@ -3751,6 +3855,49 @@ export class ControllerCore {
           throw new CandidateBindingError(
             `final verification failed or omitted criterion: ${failed}`,
           );
+        if (
+          reportReply.commitSha !== commitSha ||
+          !Array.isArray(reportReply.evidence) ||
+          reportReply.evidence.length !== criteria.length
+        )
+          throw new CandidateBindingError(
+            "final verification evidence does not match the reported composed commit",
+          );
+        const reportedCriteria = new Set<string>();
+        for (const raw of reportReply.evidence) {
+          if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+            throw new CandidateBindingError(
+              "final verification report contains invalid evidence",
+            );
+          const observed = raw as Record<string, unknown>;
+          const criterion = observed.criterion;
+          const artifactRef = observed.artifactRef;
+          const persisted =
+            typeof criterion === "string"
+              ? byCriterion.get(criterion)
+              : undefined;
+          if (
+            !persisted ||
+            reportedCriteria.has(criterion as string) ||
+            observed.passed !== persisted.passed ||
+            typeof artifactRef !== "string" ||
+            !artifactRef.startsWith("/evidence/")
+          )
+            throw new CandidateBindingError(
+              "final verification evidence differs from its immutable Verifier report",
+            );
+          const relative = artifactRef.slice("/evidence/".length);
+          if (
+            !relative ||
+            path.isAbsolute(relative) ||
+            relative.split(/[\\/]/).includes("..") ||
+            !persisted.artifactRef.endsWith(`${path.sep}${relative}`)
+          )
+            throw new CandidateBindingError(
+              "final verification artifact does not match its reported evidence path",
+            );
+          reportedCriteria.add(criterion as string);
+        }
 
         const now = new Date().toISOString();
         this.#database
@@ -5336,7 +5483,7 @@ export class ControllerCore {
     try {
       this.#database.close();
     } finally {
-      this.#lock.close();
+      this.#lock?.close();
     }
   }
 
@@ -5533,7 +5680,11 @@ export class ControllerCore {
 
   #assertOpen(): void {
     if (this.#closed) throw new ControllerError("controller is closed");
-    this.#lock.assertHeld();
+    this.#lock?.assertHeld();
+  }
+  #assertWritable(): void {
+    if (this.#readOnly)
+      throw new ControllerError("controller is open read-only");
   }
 
   #mutateAsController<T>(
@@ -5783,6 +5934,7 @@ export class ControllerCore {
     apply: (actor: AuthenticatedActor) => MutationOutput<T>,
   ): T {
     this.#assertOpen();
+    this.#assertWritable();
     if (
       !/^[A-Za-z0-9._:-]{1,128}$/.test(context.requestId) ||
       !/^[A-Za-z0-9._:-]{1,128}$/.test(context.idempotencyKey)
