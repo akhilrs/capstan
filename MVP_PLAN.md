@@ -308,7 +308,9 @@ The CLI resolves qualification helper scripts relative to the installed Capstan 
 
 All JSON envelopes use `schemaVersion: 1`. `run --brief` emits `{state, projectId, planHash, baseSha, roles, scheduler, blocker?}`. `status --json` emits `ControllerStatus` (`projectId`, `run`, `stateVersion`, `inputRevision`, `roles`, `work`, `findings`, `evidence`) plus `ownership`, `blockers`, `limits`, and `nextLegalActions`. `inspect --json` emits `{schemaVersion, kind, id, record}`. The runtime TypeScript contracts are `CstanRunJsonV1`, `CstanStatusJsonV1`, and `CstanInspectJsonV1` in `src/cli.ts`; executable contract tests exercise the output envelopes and exit codes.
 Work-item `nextLegalActions` includes `mark_ready` only when the controller’s readiness checks pass; eligible pending work is not reported as waiting.
+Ready work advertises `assign` only while the controller's current readiness gate permits assignment; reaching the dispatch cap after all slices are independently accepted still reports completion.
 Authenticated control requests remain capped at 16 KiB; responses are capped at 1 MiB so large inspected records fit the same bounded local IPC contract.
+Brief and project JSON are decoded as strict UTF-8 (a leading UTF-8 BOM is accepted). Candidate filename comparison uses Git's NUL-delimited output, including non-ASCII names; plan write scopes reject the unbounded project-root `.` scope.
 
 ## 10. Implementation stages and exit gates
 

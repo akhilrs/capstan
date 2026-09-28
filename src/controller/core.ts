@@ -4750,12 +4750,13 @@ export class ControllerCore {
       })),
       work: work.map((row) => {
         const blockers = JSON.parse(row.blockers) as string[];
-        const canMarkReady =
-          row.state === "pending" && this.readiness(row.work_item_id).ready;
+        const actionable =
+          (row.state === "pending" || row.state === "ready") &&
+          this.readiness(row.work_item_id).ready;
         const nextLegalActions =
-          row.state === "ready" && blockers.length === 0
+          row.state === "ready" && actionable
             ? ["assign"]
-            : canMarkReady
+            : row.state === "pending" && actionable
               ? ["mark_ready"]
               : row.state === "blocked"
                 ? ["reconcile", "contain"]

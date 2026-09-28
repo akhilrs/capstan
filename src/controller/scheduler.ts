@@ -168,9 +168,15 @@ export class WorkflowScheduler {
         (work && !["pending", "ready", "blocked"].includes(work.state) ? 1 : 0)
       );
     }, 0);
-    if (dispatchCount >= plan.plan.limits.maxDispatches)
-      return { state: "stopped", reason: "maxDispatches exceeded" };
 
+    if (
+      dispatchCount >= plan.plan.limits.maxDispatches &&
+      !slices.every(
+        (slice) =>
+          workById.get(this.#workItemId(slice.id))?.state === "accepted",
+      )
+    )
+      return { state: "stopped", reason: "maxDispatches exceeded" };
     const planAccepted = await this.#options.isPlanAccepted({
       planHash: plan.hash,
       pmCredential: identities.PM.credential,

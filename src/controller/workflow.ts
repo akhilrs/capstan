@@ -167,7 +167,12 @@ export function validateWorkflowPlan(value: unknown): ValidatedWorkflowPlan {
       64,
     );
     for (const scope of writeScope) {
-      if (scope.startsWith("/") || scope.split(/[\\/]/).includes(".."))
+      if (
+        scope === "." ||
+        scope.startsWith("./") ||
+        scope.startsWith("/") ||
+        scope.split(/[\\/]/).includes("..")
+      )
         throw new TypeError(
           `slices[${index}].writeScope must stay within the project`,
         );

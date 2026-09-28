@@ -58,6 +58,12 @@ test("rejects ambiguous fields, missing acceptance, scope traversal, invalid rol
     () => validateWorkflowPlan(traversal),
     /stay within the project/,
   );
+  const wholeProject = validPlan();
+  wholeProject.slices[0]!.writeScope[0] = ".";
+  assert.throws(
+    () => validateWorkflowPlan(wholeProject),
+    /stay within the project/,
+  );
   const badRole = validPlan();
   badRole.slices[1]!.role = "Verifier";
   assert.throws(() => validateWorkflowPlan(badRole), /role must be Developer/);

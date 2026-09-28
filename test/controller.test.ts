@@ -998,6 +998,13 @@ test("readiness requires an active actor bound to the required-role seat", async
       ),
       { state: "ready" },
     );
+    assert.deepEqual(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "actor-required-work")
+        ?.nextLegalActions,
+      ["assign"],
+    );
     assert.throws(
       () =>
         core.assignWorkItem(
@@ -1006,6 +1013,14 @@ test("readiness requires an active actor bound to the required-role seat", async
           "actor-required-empty-seat",
         ),
       /assignment seat must be active, match the work item role, and have an active actor/,
+    );
+    core.transitionRun(context(core, info.ownerCredential), "canceling");
+    assert.deepEqual(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "actor-required-work")
+        ?.nextLegalActions,
+      ["wait"],
     );
   } finally {
     cleanup(value);
@@ -3505,7 +3520,7 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
       taskId: "serial-slices",
       objective: "Require independent acceptance between serial slices",
       acceptanceCriteria: ["criterion-one"],
-      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 4 },
+      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 2 },
       slices: [
         {
           id: "first",
@@ -3714,6 +3729,109 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
     if (second.state !== "dispatched") return;
     assert.equal(second.sliceId, "second");
     assert.deepEqual(dispatches, ["first", "second"]);
+    assert.deepEqual(await scheduler.step(), {
+      state: "stopped",
+      reason: "maxDispatches exceeded",
+    });
+    const secondIdentity = {
+      commandId: second.assignment.commandId,
+      assignmentId: second.assignment.assignmentId,
+      attempt: second.assignment.attempt,
+      generation: second.assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      secondIdentity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(secondIdentity, 5, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      secondIdentity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(secondIdentity, 6, "submitted"));
+    core.recordBridgeReceipt(receipt(secondIdentity, 7, "working"));
+    core.recordBridgeReceipt(receipt(secondIdentity, 8, "completed"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      secondIdentity.assignmentId,
+      "scheduler-test:second-developer-contained",
+    );
+    const secondCandidate = core.submitCandidate(
+      context(core, identities.Developer.credential),
+      {
+        candidateId: "serial-second-candidate",
+        assignmentId: second.assignment.assignmentId,
+        commitSha: "c".repeat(40),
+        baseSha: "a".repeat(40),
+        changedScope: ["src/second.ts"],
+        limitations: [],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "serial-second-verification",
+      title: "Verify Slice B",
+      description: "Independently verify the second candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: second.assignment.workItemId,
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "serial-second-verification",
+    );
+    const secondVerifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "serial-second-verification",
+      identities.Verifier.seatId,
+      secondCandidate.candidateId,
+    );
+    const secondVerifierIdentity = {
+      commandId: secondVerifier.commandId,
+      assignmentId: secondVerifier.assignmentId,
+      attempt: secondVerifier.attempt,
+      generation: secondVerifier.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      secondVerifierIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(secondVerifierIdentity, 5, "accepted", "Verifier"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      secondVerifierIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(secondVerifierIdentity, 6, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(secondVerifierIdentity, 7, "working", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(secondVerifierIdentity, 8, "completed", "Verifier"),
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      secondVerifier.assignmentId,
+      "scheduler-test:second-verifier-contained",
+    );
+    core.recordEvidence(
+      context(core, identities.Verifier.credential),
+      secondVerifier.assignmentId,
+      {
+        evidenceId: "serial-second-evidence",
+        candidateId: secondCandidate.candidateId,
+        criterion: "criterion-one",
+        passed: true,
+        artifactRef: "artifact://serial-second/evidence",
+      },
+    );
+    core.acceptCandidate(
+      context(core, info.ownerCredential),
+      second.assignment.workItemId,
+      secondCandidate.candidateId,
+    );
+    assert.deepEqual(await scheduler.step(), { state: "complete" });
   } finally {
     cleanup(value);
   }

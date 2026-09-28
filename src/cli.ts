@@ -96,7 +96,12 @@ function fail(message: string, code = EXIT.usage): never {
 }
 
 function readJson(file: string): unknown {
-  return JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+  const source = new TextDecoder("utf-8", { fatal: true }).decode(
+    fs.readFileSync(file),
+  );
+  return JSON.parse(
+    source.startsWith("\uFEFF") ? source.slice(1) : source,
+  ) as unknown;
 }
 
 function parseConfig(value: unknown): Config {
@@ -338,6 +343,9 @@ async function runCli(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const cwd = process.cwd();
   if (command === "init") {
+    const name = path.basename(cwd);
+    if (name.trim() === "" || name.length > 256)
+      throw new InvalidInputError("project directory name is invalid");
     const directory = path.join(cwd, ".capstan");
     try {
       fs.mkdirSync(directory, { mode: 0o700 });
@@ -354,7 +362,7 @@ async function runCli(argv: string[]): Promise<number> {
     const config: Config = {
       schemaVersion: 1,
       projectId: `p${randomUUID().replaceAll("-", "")}`,
-      name: path.basename(cwd),
+      name,
       stateDirectory: path.join(directory, "state"),
       maxSlices: 4,
       maxRunMs: 3_600_000,
@@ -1397,17 +1405,25 @@ async function runCli(argv: string[]): Promise<number> {
               "diff",
               "--no-renames",
               "--name-only",
+              "-z",
               "--diff-filter=ACDMRT",
               `${developerMetadata.baseSha}..${commitSha}`,
             ],
-            { encoding: "utf8" },
+            { encoding: "buffer" },
           );
           if (diff.status !== 0)
             throw new Error(
-              `cannot inspect Developer candidate diff: ${(diff.stderr || "git diff failed").trim()}`,
+              `cannot inspect Developer candidate diff: ${(diff.stderr?.toString("utf8") || "git diff failed").trim()}`,
             );
-          const actualScope = diff.stdout.trim()
-            ? diff.stdout.trim().split("\n").sort()
+          if (diff.stdout.length && diff.stdout.at(-1) !== 0)
+            throw new Error(
+              "Developer candidate diff has an incomplete filename frame",
+            );
+          const actualScope = diff.stdout.length
+            ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+                .decode(diff.stdout.subarray(0, -1))
+                .split("\0")
+                .sort()
             : [];
           const reportedScope = [...(changedScope as string[])].sort();
           if (

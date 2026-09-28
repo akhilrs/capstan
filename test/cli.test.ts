@@ -120,6 +120,18 @@ test("cstan init refuses to change an existing project-local directory", () => {
   }
 });
 
+test("cstan init rejects a project name the CLI cannot load", () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "cstan-name-"));
+  const cwd = path.join(parent, " ");
+  try {
+    mkdirSync(cwd);
+    const init = invoke(cwd, "init");
+    assert.equal(init.status, 3, init.stderr);
+    assert.equal(existsSync(path.join(cwd, ".capstan")), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 test("cstan status reads the authenticated live control socket through the executable", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-live-status-"));
   let core: ControllerCore | undefined;
@@ -560,6 +572,12 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
       run.stderr,
       /acceptanceCriteria|limits|slices|objective|unknown or missing fields/,
     );
+    writeFileSync(
+      brief,
+      Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]),
+    );
+    const malformedUtf8 = invoke(cwd, "run", "--brief", brief);
+    assert.equal(malformedUtf8.status, 3, malformedUtf8.stderr);
     const missing = invoke(
       cwd,
       "run",
@@ -570,7 +588,7 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
     const overLimit = path.join(cwd, "over-limit.json");
     writeFileSync(
       overLimit,
-      JSON.stringify({
+      `\uFEFF${JSON.stringify({
         schemaVersion: 1,
         taskId: "over-limit",
         objective: "Reject limits beyond project configuration",
@@ -596,11 +614,48 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
             acceptanceCriteria: ["second criterion"],
           },
         ],
-      }),
+      })}`,
     );
     const bounded = invoke(cwd, "run", "--brief", overLimit);
     assert.equal(bounded.status, 3, bounded.stderr);
     assert.match(bounded.stderr, /project-local configuration/);
+    const validBomBrief = path.join(cwd, "valid-bom.json");
+    writeFileSync(
+      validBomBrief,
+      `\uFEFF${JSON.stringify({
+        schemaVersion: 1,
+        taskId: "bom-brief",
+        objective: "Parse a UTF-8 BOM before runtime preflight",
+        acceptanceCriteria: ["The plan is parsed"],
+        limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 2 },
+        slices: [
+          {
+            id: "first",
+            title: "First",
+            description: "First bounded slice",
+            role: "Developer",
+            dependsOn: [],
+            writeScope: ["src"],
+            acceptanceCriteria: ["The plan is parsed"],
+          },
+          {
+            id: "second",
+            title: "Second",
+            description: "Second bounded slice",
+            role: "Developer",
+            dependsOn: ["first"],
+            writeScope: ["src"],
+            acceptanceCriteria: ["The plan is parsed"],
+          },
+        ],
+      })}`,
+    );
+    const parsedBom = invoke(cwd, "run", "--brief", validBomBrief);
+    assert.equal(parsedBom.status, 5, parsedBom.stderr);
+    assert.match(
+      parsedBom.stderr,
+      /cannot resolve deterministic project Git base/,
+    );
     assert.equal(invoke(cwd, "status", "--json").status, 0);
     writeFileSync(path.join(cwd, ".capstan/project.json"), "{}\n");
     const invalidConfig = invoke(cwd, "status", "--json");
