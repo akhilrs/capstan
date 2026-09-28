@@ -205,6 +205,11 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
     assert.equal(firstJournal.at(-1).type, "completed");
     assert.equal(firstJournal.at(-1).sequence, firstJournal.length);
     const journalBeforeDuplicate = fs.readFileSync(journal);
+    const journalIdentity = fs.statSync(journal);
+    fs.writeFileSync(
+      journal,
+      journalBeforeDuplicate.subarray(0, journalBeforeDuplicate.length - 7),
+    );
     const duplicateAck = await new Promise((resolve, reject) => {
       const socket = net.createConnection(receiptSocket);
       let response = "";
@@ -215,12 +220,13 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
       socket.once("end", () => resolve(JSON.parse(response)));
       socket.once("error", reject);
     });
-    assert.equal(duplicateAck.duplicate, true);
+    assert.equal(duplicateAck.duplicate, true, JSON.stringify(duplicateAck));
     assert.deepEqual(
       fs.readFileSync(journal),
       journalBeforeDuplicate,
-      "a duplicate receipt must not truncate a journal mounted into a live worker",
+      "a duplicate receipt must repair an incomplete durable journal tail",
     );
+    assert.equal(fs.statSync(journal).ino, journalIdentity.ino);
     core.confirmContainment(
       context(core, owner, "contain"),
       assignment.assignmentId,

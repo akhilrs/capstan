@@ -2,6 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { canonicalJson } from "./canonical.js";
 import { ControllerError, type ControllerCore } from "./core.js";
 import {
   M1_MAX_FRAME_BYTES,
@@ -19,8 +20,8 @@ function protocolError(message: string): Error {
   return new ControllerError(`M1 bridge protocol: ${message}`);
 }
 
-function writeAll(fd: number, content: string): void {
-  const bytes = Buffer.from(content);
+function writeAll(fd: number, content: string | Buffer): void {
+  const bytes = typeof content === "string" ? Buffer.from(content) : content;
   for (let offset = 0; offset < bytes.length;) {
     const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
     if (written === 0) throw new ControllerError("receipt journal short write");
@@ -490,10 +491,11 @@ export class M1BridgeAdapter {
         const value = frameObject(frame);
         const receipt = value as BridgeReceipt;
         const result = this.#core.recordBridgeReceipt(receipt);
-        if (!result.duplicate) this.#appendJournal(receipt);
+        if (result.duplicate) this.#reconcileJournal();
+        else this.#appendJournal(receipt);
         if (!socket.destroyed)
           socket.end(
-            `${JSON.stringify({ ok: true, sequence: (value as BridgeReceipt).sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
+            `${JSON.stringify({ ok: true, sequence: receipt.sequence, duplicate: result.duplicate, ...(result.fenced ? { fenced: true } : {}) })}\n`,
           );
       } catch (error) {
         if (!socket.destroyed)
@@ -541,6 +543,51 @@ export class M1BridgeAdapter {
     }
   }
 
+  #reconcileJournal(): void {
+    if (!this.#journalPath || !this.#journalRole) return;
+    const stat = fs.lstatSync(this.#journalPath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      (process.getuid && stat.uid !== process.getuid()) ||
+      (stat.mode & 0o077) !== 0
+    )
+      throw new ControllerError(
+        "receipt journal must be a private regular file",
+      );
+    const expected = Buffer.from(
+      this.#core.bridgeReceiptJournal(this.#journalRole),
+    );
+    const actual = fs.readFileSync(this.#journalPath);
+    if (
+      actual.length > expected.length ||
+      !expected.subarray(0, actual.length).equals(actual)
+    )
+      throw new ControllerError(
+        "receipt journal does not match its durable receipt prefix",
+      );
+    const fd = fs.openSync(
+      this.#journalPath,
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      const opened = fs.fstatSync(fd);
+      if (
+        !opened.isFile() ||
+        (process.getuid && opened.uid !== process.getuid()) ||
+        (opened.mode & 0o077) !== 0
+      )
+        throw new ControllerError(
+          "receipt journal must be a private regular file",
+        );
+      if (actual.length < expected.length)
+        writeAll(fd, expected.subarray(actual.length));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
   #appendJournal(receipt: BridgeReceipt): void {
     if (!this.#journalPath || !this.#journalRole) return;
     if (receipt.role !== this.#journalRole)
@@ -559,7 +606,7 @@ export class M1BridgeAdapter {
         throw new ControllerError(
           "receipt journal must be a private regular file",
         );
-      writeAll(fd, `${JSON.stringify(receipt)}\n`);
+      writeAll(fd, `${canonicalJson(receipt)}\n`);
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);

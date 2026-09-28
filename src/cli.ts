@@ -1989,6 +1989,8 @@ async function runCli(argv: string[]): Promise<number> {
               identities.Supervisor.seatId,
             );
             if (stopping) blocker ??= "run canceled by signal";
+            else if (Date.now() >= deadlineMs)
+              blocker ??= "maxRunMs exceeded before Supervisor provisioning";
             else if (dispatches >= plan.limits.maxDispatches)
               blocker ??= "maxDispatches exhausted before Supervisor dispatch";
             else {
@@ -2004,75 +2006,79 @@ async function runCli(argv: string[]): Promise<number> {
                   commitSha: finalRuntime.baseSha,
                 },
               );
-              runtimeCommands[supervisorRuntime.session.sessionId] =
-                supervisorAssignment.commandId;
-              dispatches += 1;
-              core.transitionRuntimeSession(
-                context(core, credential),
-                supervisorRuntime.session.sessionId,
-                "working",
-              );
-              await supervisorRuntime.adapter.dispatchAndStart(
-                context(core, credential),
-                supervisorAssignment.commandId,
-              );
-              const supervisorReport =
-                await waitForReport(supervisorWorkItemId);
-              if (!supervisorReport)
-                blocker ??=
-                  "Supervisor report did not complete before the bounded run deadline";
-              else if (
-                supervisorReport.assignmentId !==
-                  supervisorAssignment.assignmentId ||
-                supervisorReport.role !== "Supervisor" ||
-                supervisorReport.inputRevision !== core.inputRevision
-              )
-                throw new Error(
-                  "Supervisor report does not match its active run-supervision assignment",
-                );
+              if (Date.now() >= deadlineMs)
+                blocker ??= "maxRunMs exceeded before Supervisor dispatch";
               else {
-                const supervisorReply = objectRecord(
-                  parseJsonWithoutDuplicateMembers(supervisorReport.reply),
+                runtimeCommands[supervisorRuntime.session.sessionId] =
+                  supervisorAssignment.commandId;
+                dispatches += 1;
+                core.transitionRuntimeSession(
+                  context(core, credential),
+                  supervisorRuntime.session.sessionId,
+                  "working",
                 );
-                if (
-                  typeof supervisorReply?.observation !== "string" ||
-                  !supervisorReply.observation.trim() ||
-                  (supervisorReply.outcome !== "pass" &&
-                    supervisorReply.outcome !== "blocked")
+                await supervisorRuntime.adapter.dispatchAndStart(
+                  context(core, credential),
+                  supervisorAssignment.commandId,
+                );
+                const supervisorReport =
+                  await waitForReport(supervisorWorkItemId);
+                if (!supervisorReport)
+                  blocker ??=
+                    "Supervisor report did not complete before the bounded run deadline";
+                else if (
+                  supervisorReport.assignmentId !==
+                    supervisorAssignment.assignmentId ||
+                  supervisorReport.role !== "Supervisor" ||
+                  supervisorReport.inputRevision !== core.inputRevision
                 )
                   throw new Error(
-                    "Supervisor returned no valid structured run observation",
+                    "Supervisor report does not match its active run-supervision assignment",
                   );
-                if (supervisorReply.outcome === "blocked") {
-                  core.createFinding(
-                    context(core, identities.Supervisor.credential),
-                    {
-                      findingId: randomUUID(),
-                      workItemId: supervisorWorkItemId,
-                      assignmentId: supervisorAssignment.assignmentId,
-                      generation: supervisorAssignment.generation,
-                      fingerprint: createHash("sha256")
-                        .update(supervisorReply.observation)
-                        .digest("hex"),
-                      severity: "high",
-                      evidence: { observation: supervisorReply.observation },
-                      requestedCorrection:
-                        "Resolve the Supervisor's observed run issue",
-                      resolutionCondition:
-                        "Supervisor confirms corrected acceptance evidence",
-                    },
+                else {
+                  const supervisorReply = objectRecord(
+                    parseJsonWithoutDuplicateMembers(supervisorReport.reply),
                   );
-                  blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+                  if (
+                    typeof supervisorReply?.observation !== "string" ||
+                    !supervisorReply.observation.trim() ||
+                    (supervisorReply.outcome !== "pass" &&
+                      supervisorReply.outcome !== "blocked")
+                  )
+                    throw new Error(
+                      "Supervisor returned no valid structured run observation",
+                    );
+                  if (supervisorReply.outcome === "blocked") {
+                    core.createFinding(
+                      context(core, identities.Supervisor.credential),
+                      {
+                        findingId: randomUUID(),
+                        workItemId: supervisorWorkItemId,
+                        assignmentId: supervisorAssignment.assignmentId,
+                        generation: supervisorAssignment.generation,
+                        fingerprint: createHash("sha256")
+                          .update(supervisorReply.observation)
+                          .digest("hex"),
+                        severity: "high",
+                        evidence: { observation: supervisorReply.observation },
+                        requestedCorrection:
+                          "Resolve the Supervisor's observed run issue",
+                        resolutionCondition:
+                          "Supervisor confirms corrected acceptance evidence",
+                      },
+                    );
+                    blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+                  }
+                  await containRuntime(
+                    supervisorRuntime.session,
+                    supervisorAssignment.assignmentId,
+                  );
+                  core.acceptNonCandidateReport(
+                    context(core, credential),
+                    supervisorWorkItemId,
+                    supervisorAssignment.assignmentId,
+                  );
                 }
-                await containRuntime(
-                  supervisorRuntime.session,
-                  supervisorAssignment.assignmentId,
-                );
-                core.acceptNonCandidateReport(
-                  context(core, credential),
-                  supervisorWorkItemId,
-                  supervisorAssignment.assignmentId,
-                );
               }
             }
           }
