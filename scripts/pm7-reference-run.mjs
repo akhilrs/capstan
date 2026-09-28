@@ -563,6 +563,7 @@ try {
       "docker",
       [
         "run",
+        "--interactive",
         "--rm",
         `--cidfile=${containerIdFile}`,
         "--pull=never",
