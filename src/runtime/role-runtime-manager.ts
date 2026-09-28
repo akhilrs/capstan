@@ -795,6 +795,10 @@ export class RoleRuntimeManager {
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+      if (ompHostPid === 0)
+        throw new Error(
+          "selected OMP host PID did not appear before the deadline",
+        );
       const socketDeadline = Date.now() + 15_000;
       while (Date.now() < socketDeadline) {
         try {
@@ -834,6 +838,7 @@ export class RoleRuntimeManager {
       });
       this.#bridgeSockets.set(sessionId, bridgeIdentity);
       this.#sessions.set(roleKey, session);
+      this.#roleJournal.set(role, journalPath);
       return session;
     } catch (error) {
       if (containerId) {

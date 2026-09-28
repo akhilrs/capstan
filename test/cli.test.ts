@@ -731,6 +731,27 @@ test("cstan runtime preflight fails closed before creating controller database",
       existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
       false,
     );
+    for (const args of [
+      ["-C", cwd, "add", "-f", ".capstan/operator.key"],
+      ["-C", cwd, "commit", "--quiet", "-m", "Accidentally track operator key"],
+      ["-C", cwd, "rm", "--cached", "--quiet", ".capstan/operator.key"],
+    ]) {
+      const git = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(git.status, 0, git.stderr);
+    }
+    const leaked = invoke(cwd, "run", "--brief", brief);
+    assert.equal(leaked.status, 3, leaked.stderr);
+    assert.match(leaked.stderr, /contains \.capstan state/);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
+      false,
+    );
+    const removedKey = spawnSync(
+      "git",
+      ["-C", cwd, "commit", "--quiet", "-m", "Remove tracked operator key"],
+      { encoding: "utf8" },
+    );
+    assert.equal(removedKey.status, 0, removedKey.stderr);
     const config = JSON.parse(
       readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
     ) as { projectId: string; name: string; stateDirectory: string };

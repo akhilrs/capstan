@@ -418,6 +418,20 @@ async function runCli(argv: string[]): Promise<number> {
     const baseSha = base.stdout.trim();
     if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(baseSha))
       throw new Error("Git returned an invalid base commit");
+    for (const args of [
+      ["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", ".capstan"],
+      ["ls-files", "-z", "--cached", "--", ".capstan"],
+    ]) {
+      const trackedState = spawnSync("git", ["-C", cwd, ...args], {
+        encoding: "buffer",
+      });
+      if (trackedState.status !== 0)
+        throw new Error("cannot inspect tracked Capstan state");
+      if (trackedState.stdout.length)
+        throw new InvalidInputError(
+          "project Git history or index contains .capstan state; remove it before cloning role workspaces",
+        );
+    }
     const initialProject = project(
       config,
       credential,
@@ -1326,6 +1340,7 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               `Developer report for ${dispatchStep.sliceId} does not match its active assignment`,
             );
+          await containRuntime(developerSession, assignment.assignmentId);
           const developerMetadata =
             workspaceMetadata[developerSession.sessionId];
           if (!developerMetadata)
@@ -1355,13 +1370,45 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               `Developer report for ${dispatchStep.sliceId} lacks a valid immutable candidate identity`,
             );
-          // The checkout belongs to the worker; host Git must not run its configured hooks.
+          // The checkout belongs to the worker; host Git must not run its configured commands.
           const safeGit = [
             "-c",
             "core.fsmonitor=false",
             "-c",
             "core.hooksPath=/dev/null",
           ];
+          const configuredFilters = spawnSync(
+            "git",
+            [
+              ...safeGit,
+              "-C",
+              developerMetadata.workspace,
+              "config",
+              "--null",
+              "--name-only",
+              "--get-regexp",
+              "^filter\\..*\\.(clean|process)$",
+            ],
+            { encoding: "buffer" },
+          );
+          if (
+            configuredFilters.error ||
+            ![0, 1].includes(configuredFilters.status ?? -1)
+          )
+            throw new Error(
+              "cannot inspect Developer checkout filter commands",
+            );
+          if (configuredFilters.status === 0) {
+            if (configuredFilters.stdout.at(-1) !== 0)
+              throw new Error(
+                "incomplete Developer checkout filter configuration",
+              );
+            const filters = new TextDecoder("utf-8", { fatal: true }).decode(
+              configuredFilters.stdout.subarray(0, -1),
+            );
+            for (const name of new Set(filters.split("\0")))
+              safeGit.push("-c", `${name}=`);
+          }
           const workspaceHead = spawnSync(
             "git",
             [
@@ -1470,7 +1517,6 @@ async function runCli(argv: string[]): Promise<number> {
             changedScope: reportedScope,
             limitations: limitations as string[],
           };
-          await containRuntime(developerSession, assignment.assignmentId);
           core.submitCandidate(
             context(core, identities.Developer.credential),
             candidate,
@@ -1536,6 +1582,10 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               "Verifier report does not match its candidate-bound assignment",
             );
+          await containRuntime(
+            verifierRuntime.session,
+            verifierAssignment.assignmentId,
+          );
           const verifierReply = objectRecord(JSON.parse(verifierReport.reply));
           if (
             verifierReply?.candidateId !== candidateId ||
@@ -1615,10 +1665,6 @@ async function runCli(argv: string[]): Promise<number> {
             )
           )
             throw new Error("Verifier omitted a slice acceptance criterion");
-          await containRuntime(
-            verifierRuntime.session,
-            verifierAssignment.assignmentId,
-          );
           for (const item of evidence)
             core.recordEvidence(
               context(core, identities.Verifier.credential),
