@@ -179,12 +179,14 @@ try {
   ];
   for (const fixtureCase of cases) {
     assert(gitAt(exerciseRoot, ["rev-parse", "HEAD"], `before-${fixtureCase.label}`).stdout.toString("utf8").trim() === acceptedTip, "accepted tip changed before fixture execution");
+    assert(gitAt(exerciseRoot, ["status", "--porcelain", "--untracked-files=all"], `clean-before-${fixtureCase.label}`).stdout.toString("utf8").trim() === "", "fixture checkout changed before case execution");
     const [binary, ...args] = fixtureCase.command ?? task.command;
     const result = run(binary, args, { cwd: exerciseRoot, input: fixtureCase.input, label: fixtureCase.label, timeout: 60_000 });
     assert(result.status === fixtureCase.exit && result.signal === null, `${fixtureCase.label}: unexpected exit status`);
     assert(result.stdout.equals(Buffer.from(fixtureCase.stdout, "utf8")), `${fixtureCase.label}: stdout differs from frozen fixture`);
     assert(result.stderr.equals(Buffer.from(fixtureCase.stderr, "utf8")), `${fixtureCase.label}: stderr differs from frozen fixture`);
     assert(gitAt(exerciseRoot, ["rev-parse", "HEAD"], `after-${fixtureCase.label}`).stdout.toString("utf8").trim() === acceptedTip, "accepted tip changed during fixture execution");
+    assert(gitAt(exerciseRoot, ["status", "--porcelain", "--untracked-files=all"], `clean-after-${fixtureCase.label}`).stdout.toString("utf8").trim() === "", "fixture execution changed the accepted checkout");
   }
   assert(gitAt(exerciseRoot, ["rev-parse", "HEAD"], "final-accepted-tip-check").stdout.toString("utf8").trim() === acceptedTip, "accepted SHA changed during verification");
   assert(gitAt(exerciseRoot, ["rev-parse", `${baseSha}^{commit}`], "final-base-check").stdout.toString("utf8").trim() === baseSha, "frozen fixture base SHA changed");

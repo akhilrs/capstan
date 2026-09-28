@@ -269,7 +269,7 @@ export interface ControllerStatus {
     readonly candidateId: string;
     readonly commitSha: string;
     readonly reportHash: string;
-    readonly developerEvidence: readonly string[];
+    readonly developerEvidence: readonly string[] | null;
     readonly evidenceRef: string | null;
   }[];
   readonly finalVerification: readonly {
@@ -281,8 +281,8 @@ export interface ControllerStatus {
       readonly criterion: string;
       readonly passed: boolean;
       readonly artifactRef: string;
-      readonly observation: string;
-      readonly exitStatus: number;
+      readonly observation: string | null;
+      readonly exitStatus: number | null;
       readonly evidenceHash: string;
     }[];
   }[];
@@ -1760,8 +1760,8 @@ export class ControllerCore {
             criterion: string;
             passed: number;
             artifact_ref: string;
-            observation: string;
-            exit_status: number;
+            observation: string | null;
+            exit_status: number | null;
             evidence_hash: string;
           }>;
           if (evidence.length === 0)
@@ -1986,8 +1986,8 @@ export class ControllerCore {
                     criterion: string;
                     passed: number;
                     artifact_ref: string;
-                    observation: string;
-                    exit_status: number;
+                    observation: string | null;
+                    exit_status: number | null;
                     evidence_hash: string;
                   }>)
                 : undefined;
@@ -3838,7 +3838,11 @@ export class ControllerCore {
             }
           | undefined;
         let reportReply:
-          | { readonly commitSha?: unknown; readonly evidence?: unknown }
+          | {
+              readonly commitSha?: unknown;
+              readonly startingSha?: unknown;
+              readonly evidence?: unknown;
+            }
           | undefined;
         if (report?.completed_receipt_json) {
           try {
@@ -3968,6 +3972,7 @@ export class ControllerCore {
           );
         if (
           reportReply.commitSha !== commitSha ||
+          reportReply.startingSha !== commitSha ||
           !Array.isArray(reportReply.evidence) ||
           reportReply.evidence.length !== criteria.length
         )
@@ -5411,7 +5416,7 @@ export class ControllerCore {
       candidate_id: string;
       commit_sha: string;
       report_hash: string;
-      evidence_json: string;
+      evidence_json: string | null;
       evidence_ref: string | null;
     }>;
     const finalVerificationRows = this.#database
@@ -5435,8 +5440,8 @@ export class ControllerCore {
       criterion: string;
       passed: number;
       artifact_ref: string;
-      observation: string;
-      exit_status: number;
+      observation: string | null;
+      exit_status: number | null;
       evidence_hash: string;
     }>;
     const finalVerificationByWork = new Map<
@@ -5450,8 +5455,8 @@ export class ControllerCore {
           criterion: string;
           passed: boolean;
           artifactRef: string;
-          observation: string;
-          exitStatus: number;
+          observation: string | null;
+          exitStatus: number | null;
           evidenceHash: string;
         }>;
       }
@@ -5527,7 +5532,9 @@ export class ControllerCore {
         candidateId: row.candidate_id,
         commitSha: row.commit_sha,
         reportHash: row.report_hash,
-        developerEvidence: JSON.parse(row.evidence_json) as string[],
+        developerEvidence: row.evidence_json
+          ? (JSON.parse(row.evidence_json) as string[])
+          : null,
         evidenceRef: row.evidence_ref,
       })),
       finalVerification: [...finalVerificationByWork.values()],

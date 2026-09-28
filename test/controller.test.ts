@@ -4268,6 +4268,7 @@ test("final Verifier accepts only complete passing evidence for the composed com
       ...receipt(identity, 4, "completed", "Verifier"),
       reply: JSON.stringify({
         commitSha,
+        startingSha: commitSha,
         evidence: evidence.map(
           ({ criterion, passed, observation, exitStatus }) => ({
             criterion,

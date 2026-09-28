@@ -321,6 +321,8 @@ Report polling is bound to the active assignment ID, not merely the work-item ID
 
 Criterion evidence records retain the Verifier's observation and exit status alongside pass/fail and artifact identity. A passing result requires exit status zero; nonzero checks cannot authorize acceptance. Final-parent receipt binding also checks the same observation and status before recording the composed-tip result.
 
+Migration-added report fields remain `null` for pre-migration records rather than manufacturing observations or recomputing their immutable historical hashes. New reports must supply the fields; consumers can distinguish legacy evidence from the current report shape.
+
 Run `node scripts/pm7-reference-run.mjs` after `npm run build` to exercise the frozen `jsonl-summary-feature` M0 fixture in a private disposable repository. The runner checks every valid, malformed, and regression case byte-for-byte from a fresh checkout of the accepted composed tip. It requires the configured M1 provider host and runtime binaries; absent prerequisites fail before agent dispatch and retain private diagnostic logs under the reported temporary evidence directory.
 
 ## 10. Implementation stages and exit gates
