@@ -514,8 +514,23 @@ async function runCli(argv: string[]): Promise<number> {
         "project directory must be the Git repository root before cloning role workspaces",
       );
     for (const args of [
-      ["rev-list", "--objects", "--all", "HEAD", "--", ":(glob)**/.capstan", ":(glob)**/.capstan/**"],
-      ["ls-files", "-z", "--cached", "--", ":(glob)**/.capstan", ":(glob)**/.capstan/**"],
+      [
+        "rev-list",
+        "--objects",
+        "--all",
+        "HEAD",
+        "--",
+        ":(glob)**/.capstan",
+        ":(glob)**/.capstan/**",
+      ],
+      [
+        "ls-files",
+        "-z",
+        "--cached",
+        "--",
+        ":(glob)**/.capstan",
+        ":(glob)**/.capstan/**",
+      ],
     ]) {
       const trackedState = spawnSync("git", ["-C", cwd, ...args], {
         encoding: "buffer",
@@ -1807,6 +1822,11 @@ async function runCli(argv: string[]): Promise<number> {
                 accepted.workItemId,
               );
             core.markReady(context(core, credential), finalWorkItemId);
+            const finalAssignment = core.assignWorkItem(
+              context(core, credential),
+              finalWorkItemId,
+              identities.Verifier.seatId,
+            );
             finalRuntime = await provisionRuntime(
               "Verifier",
               identities.Verifier.seatId,
