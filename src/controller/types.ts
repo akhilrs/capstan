@@ -112,6 +112,7 @@ export interface CandidateInput {
   readonly assignmentId: string;
   readonly commitSha: string;
   readonly baseSha: string;
+  readonly evidence: readonly string[];
   readonly changedScope: readonly string[];
   readonly limitations: readonly string[];
 }

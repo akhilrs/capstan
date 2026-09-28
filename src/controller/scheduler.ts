@@ -24,6 +24,7 @@ export interface SchedulerDispatch {
   readonly slice: WorkflowSlice;
   readonly assignment: AssignmentResult;
   readonly developerCredential: string;
+  readonly recoveryId?: string;
   /** Create the durable delivery context after runtime provisioning has finished. */
   readonly getMutationContext: () => MutationContext;
 }
@@ -117,15 +118,11 @@ export class WorkflowScheduler {
     const verifier = this.#activate("Verifier", seats.Verifier);
     for (const slice of plan.plan.slices) {
       const id = this.#workItemId(slice.id);
-      const candidateId = `candidate-${createHash("sha256")
-        .update(`${plan.plan.taskId}:${slice.id}`)
-        .digest("hex")
-        .slice(0, 24)}`;
       this.#mutate(`work-${slice.id}`, (context) =>
         core.createWorkItem(context, {
           workItemId: id,
           title: slice.title,
-          description: `${slice.description}\n\nObjective: ${plan.plan.objective}\nSlice acceptance criteria: ${slice.acceptanceCriteria.join("; ")}\nParent acceptance criteria: ${plan.plan.acceptanceCriteria.join("; ")}\nWrite scope: ${slice.writeScope.join(", ")}\n\nDeveloper delivery contract: before editing, record \`git rev-parse HEAD\` as baseSha. Implement only the requested change in the write scope, then create a new Git commit in this isolated checkout without amending earlier commits. Return one JSON report with candidateId exactly "${candidateId}", commitSha as the full commit SHA, baseSha as the recorded starting SHA, changedScope as every changed repository-relative file and no others, and limitations as an array of strings. Do not report a candidate unless the commit is HEAD and \`git status --porcelain\` is empty.`,
+          description: `${slice.description}\n\nObjective: ${plan.plan.objective}\nSlice acceptance criteria: ${slice.acceptanceCriteria.join("; ")}\nParent acceptance criteria: ${plan.plan.acceptanceCriteria.join("; ")}\nWrite scope: ${slice.writeScope.join(", ")}\n\nDeveloper delivery contract: before editing, record \`git rev-parse HEAD\` as baseSha. Implement only the requested change in the write scope, then create a new Git commit in this isolated checkout without amending earlier commits. Return one JSON report with candidateId equal to \`candidate-\` followed by the exact \`assignmentId\` in this assignment capsule, commitSha as the full commit SHA, baseSha as the recorded starting SHA, changedScope as every changed repository-relative file and no others, limitations as an array of strings, and evidence as an array of 1–64 non-empty strings (each at most 4096 characters) describing the implementation and its verification. Do not report a candidate unless the commit is HEAD and \`git status --porcelain\` is empty.`,
           requiredRole: "Developer",
           acceptanceCriteria: slice.acceptanceCriteria,
         }),
@@ -152,7 +149,10 @@ export class WorkflowScheduler {
   }
 
   /** Performs at most one dispatch. Calling again resumes from observable core state. */
-  async step(): Promise<SchedulerStep> {
+  async step(recovery?: {
+    readonly workItemId: string;
+    readonly recoveryId: string;
+  }): Promise<SchedulerStep> {
     const identities = this.initialize();
     const { plan, core } = this.#options;
     const state = core.statusSnapshot();
@@ -198,6 +198,21 @@ export class WorkflowScheduler {
         };
       if (work.state === "accepted") continue;
       if (
+        work.state === "blocked" &&
+        (!recovery || recovery.workItemId !== workItemId)
+      )
+        return {
+          state: "waiting",
+          workItemId,
+          reasons: ["blocked work requires a controller-authorized recovery"],
+        };
+      if (recovery?.workItemId === workItemId && work.state !== "blocked")
+        return {
+          state: "waiting",
+          workItemId,
+          reasons: ["recovery reservation does not match blocked work"],
+        };
+      if (
         work.state !== "pending" &&
         work.state !== "ready" &&
         work.state !== "blocked"
@@ -221,8 +236,11 @@ export class WorkflowScheduler {
       const readiness = core.readiness(workItemId);
       if (!readiness.ready)
         return { state: "waiting", workItemId, reasons: readiness.reasons };
+      const recoveryId =
+        recovery?.workItemId === workItemId ? recovery.recoveryId : undefined;
+      const contextSuffix = recoveryId ? `-${recoveryId}` : "";
       if (work.state !== "ready") {
-        this.#mutate(`ready-${sliceId}`, (context) =>
+        this.#mutate(`ready-${sliceId}${contextSuffix}`, (context) =>
           core.markReady(context, workItemId),
         );
       }
@@ -233,16 +251,26 @@ export class WorkflowScheduler {
           workItemId,
           reasons: finalReadiness.reasons,
         };
-      const assignment = this.#mutate(`assign-${sliceId}`, (context) =>
-        core.assignWorkItem(context, workItemId, identities.Developer.seatId),
+      const assignment = this.#mutate(
+        `assign-${sliceId}${contextSuffix}`,
+        (context) =>
+          core.assignWorkItem(
+            context,
+            workItemId,
+            identities.Developer.seatId,
+            undefined,
+            recoveryId,
+          ),
       );
-      const getMutationContext = () => this.#context(`dispatch-${sliceId}`);
+      const getMutationContext = () =>
+        this.#context(`dispatch-${sliceId}${contextSuffix}`);
       // Once assignment mutation returns, any dispatch failure is uncertain and is never retried here.
       try {
         await this.#options.dispatch({
           slice,
           assignment,
           developerCredential: identities.Developer.credential,
+          ...(recoveryId ? { recoveryId } : {}),
           getMutationContext,
         });
       } catch (error) {

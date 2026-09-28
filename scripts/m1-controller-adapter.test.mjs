@@ -245,6 +245,7 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
             baseSha: "b".repeat(40),
             changedScope: sparseScope,
             limitations: [],
+            evidence: ["implementation and verification evidence"],
           },
         ),
       /candidate requires a Developer actor and valid immutable commit identities/,
@@ -262,6 +263,7 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
             baseSha: "b".repeat(40),
             changedScope: ["src/controller"],
             limitations: sparseLimitations,
+            evidence: ["implementation and verification evidence"],
           },
         ),
       /candidate requires a Developer actor and valid immutable commit identities/,
@@ -281,6 +283,7 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
               baseSha: "b".repeat(40),
               changedScope,
               limitations,
+              evidence: ["implementation and verification evidence"],
             },
           ),
         /candidate requires a Developer actor and valid immutable commit identities/,
@@ -295,6 +298,7 @@ test("controller dispatches to the real M1 bridge only after durable ack and per
         baseSha: "b".repeat(40),
         changedScope: ["src/controller"],
         limitations: [],
+        evidence: ["implementation and verification evidence"],
       },
     );
     assert.equal(candidate.candidateId, "integration-candidate");

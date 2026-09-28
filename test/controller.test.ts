@@ -38,6 +38,7 @@ import {
   parseM1Frame,
 } from "../src/controller/m1-protocol.js";
 import type {
+  AssignmentResult,
   BridgeReceipt,
   InitialProject,
   MutationContext,
@@ -2714,6 +2715,7 @@ test("assignment capsule includes accepted non-candidate report evidence", async
         "baseSha",
         "changedScope",
         "limitations",
+        "evidence",
       ],
     });
     assert.deepEqual(capsule.nextLegalActions, [
@@ -2994,6 +2996,27 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
             baseSha: "b".repeat(40),
             changedScope: ["src"],
             limitations: [],
+            evidence: ["implemented and verified"],
+          }),
+        CandidateBindingError,
+      );
+    }
+    for (const invalidEvidence of [
+      [],
+      [" \t "],
+      ["x".repeat(4097)],
+      Array.from({ length: 65 }, () => "evidence"),
+    ]) {
+      assert.throws(
+        () =>
+          core.submitCandidate(context(core, developer.credential), {
+            candidateId: "invalid-evidence",
+            assignmentId: devAssignment.assignmentId,
+            commitSha: "c".repeat(40),
+            baseSha: "b".repeat(40),
+            changedScope: ["src"],
+            limitations: [],
+            evidence: invalidEvidence,
           }),
         CandidateBindingError,
       );
@@ -3007,6 +3030,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         baseSha: `${"B".repeat(20)}${"b".repeat(20)}`,
         changedScope: ["src"],
         limitations: [],
+        evidence: ["implemented and verified"],
       },
     );
     assert.throws(
@@ -3018,6 +3042,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
           baseSha: "b".repeat(40),
           changedScope: ["src"],
           limitations: [],
+          evidence: ["implemented and verified"],
         }),
       CandidateBindingError,
     );
@@ -3027,18 +3052,20 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
     try {
       const stored = candidateDb
         .prepare(
-          "SELECT commit_sha, base_sha, report_hash FROM candidates WHERE project_id = ? AND candidate_id = ?",
+          "SELECT commit_sha, base_sha, evidence_json, report_hash FROM candidates WHERE project_id = ? AND candidate_id = ?",
         )
         .get(info.projectId, candidate.candidateId) as
         | {
             commit_sha: string;
             base_sha: string;
+            evidence_json: string;
             report_hash: string;
           }
         | undefined;
       assert.deepEqual(stored, {
         commit_sha: "a".repeat(40),
         base_sha: "b".repeat(40),
+        evidence_json: '["implemented and verified"]',
         report_hash: digestJson({
           candidateId: candidate.candidateId,
           assignmentId: devAssignment.assignmentId,
@@ -3049,6 +3076,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
           baseSha: "b".repeat(40),
           changedScope: ["src"],
           limitations: [],
+          evidence: ["implemented and verified"],
         }),
       });
     } finally {
@@ -3660,6 +3688,32 @@ test("worker replacement limits count consumed recovery records", async () => {
       replacement.assignmentId,
       "operator-proof:replacement",
     );
+    core.markReady(context(core, info.ownerCredential), "recover-work");
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "recover-work",
+          developer.seatId,
+          undefined,
+          first.recoveryId,
+        ),
+      MutationConflictError,
+    );
+    const recoveryDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const consumed = recoveryDb
+        .prepare(
+          "SELECT outcome FROM recovery_attempts WHERE project_id = ? AND recovery_id = ?",
+        )
+        .get(info.projectId, first.recoveryId) as
+        { outcome: string } | undefined;
+      assert.equal(consumed?.outcome, "replacement_created");
+    } finally {
+      recoveryDb.close();
+    }
     const second = core.recordRecovery(context(core, info.ownerCredential), {
       recoveryId: "recovery-2",
       workItemId: "recover-work",
@@ -3829,6 +3883,7 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
         baseSha: "b".repeat(40),
         changedScope: ["src/first.ts"],
         limitations: [],
+        evidence: ["implemented and verified"],
       },
     );
     core.createWorkItem(context(core, info.ownerCredential), {
@@ -3945,6 +4000,7 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
         baseSha: "a".repeat(40),
         changedScope: ["src/second.ts"],
         limitations: [],
+        evidence: ["implemented and verified"],
       },
     );
     core.createWorkItem(context(core, info.ownerCredential), {
@@ -4347,6 +4403,261 @@ test("final Verifier accepts only complete passing evidence for the composed com
     } finally {
       database.close();
     }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("evidence batches preserve all failed criteria and require fresh replacement evidence", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "batch-dev",
+    );
+    const verifier = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Verifier",
+      "batch-verifier",
+    );
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "acceptance_criteria",
+      content: ["criterion-one", "criterion-two"],
+    });
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "batch-feature",
+      title: "Batch feature",
+      description: "Persist complete independent observations",
+      requiredRole: "Developer",
+    });
+
+    const complete = (
+      assignment: AssignmentResult,
+      role: "Developer" | "Verifier",
+      firstSequence: number,
+      proof: string,
+    ) => {
+      const identity = {
+        commandId: assignment.commandId,
+        assignmentId: assignment.assignmentId,
+        attempt: assignment.attempt,
+        generation: assignment.generation,
+      };
+      core.beginCommandDelivery(
+        context(core, info.ownerCredential),
+        assignment.commandId,
+      );
+      core.recordBridgeReceipt(
+        receipt(identity, firstSequence, "accepted", role),
+      );
+      core.beginCommandStart(
+        context(core, info.ownerCredential),
+        assignment.commandId,
+      );
+      core.recordBridgeReceipt(
+        receipt(identity, firstSequence + 1, "submitted", role),
+      );
+      core.recordBridgeReceipt(
+        receipt(identity, firstSequence + 2, "working", role),
+      );
+      core.recordBridgeReceipt(
+        receipt(identity, firstSequence + 3, "completed", role),
+      );
+      core.confirmContainment(
+        context(core, info.ownerCredential),
+        assignment.assignmentId,
+        proof,
+      );
+    };
+
+    core.markReady(context(core, info.ownerCredential), "batch-feature");
+    const originalDeveloper = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "batch-feature",
+      developer.seatId,
+    );
+    complete(originalDeveloper, "Developer", 1, "contained:batch-dev-one");
+    const oldCandidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "batch-candidate-old",
+        assignmentId: originalDeveloper.assignmentId,
+        commitSha: "a".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src"],
+        limitations: [],
+        evidence: ["implemented and verified"],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "batch-verify-old",
+      title: "Verify old candidate",
+      description: "Bind observations to the old candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: "batch-feature",
+    });
+    core.markReady(context(core, info.ownerCredential), "batch-verify-old");
+    const oldVerifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "batch-verify-old",
+      verifier.seatId,
+      oldCandidate.candidateId,
+    );
+    complete(oldVerifier, "Verifier", 1, "contained:batch-verifier-old");
+    const failedBatch = core.recordEvidenceBatch(
+      context(core, verifier.credential),
+      oldVerifier.assignmentId,
+      [
+        {
+          evidenceId: "batch-failed-one",
+          candidateId: oldCandidate.candidateId,
+          criterion: "criterion-one",
+          passed: false,
+          artifactRef: "artifact://batch/failure-one",
+        },
+        {
+          evidenceId: "batch-failed-two",
+          candidateId: oldCandidate.candidateId,
+          criterion: "criterion-two",
+          passed: false,
+          artifactRef: "artifact://batch/failure-two",
+        },
+      ],
+    );
+    assert.equal(failedBatch.evidence.length, 2);
+    const evidenceDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const rows = evidenceDb
+        .prepare(
+          "SELECT evidence_id, passed FROM candidate_evidence WHERE project_id = ? AND candidate_id = ? ORDER BY evidence_id",
+        )
+        .all(info.projectId, oldCandidate.candidateId) as Array<{
+        evidence_id: string;
+        passed: number;
+      }>;
+      assert.deepEqual(rows, [
+        { evidence_id: "batch-failed-one", passed: 0 },
+        { evidence_id: "batch-failed-two", passed: 0 },
+      ]);
+    } finally {
+      evidenceDb.close();
+    }
+    assert.throws(
+      () =>
+        core.recordEvidence(
+          context(core, verifier.credential),
+          oldVerifier.assignmentId,
+          {
+            evidenceId: "late-old-candidate-evidence",
+            candidateId: oldCandidate.candidateId,
+            criterion: "criterion-one",
+            passed: true,
+            artifactRef: "artifact://batch/late",
+          },
+        ),
+      CandidateBindingError,
+    );
+    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "batch-implementation-remediation",
+      workItemId: "batch-feature",
+      assignmentId: originalDeveloper.assignmentId,
+      recoveryType: "implementation_remediation",
+      reason: "Replace the rejected candidate with a fresh implementation",
+    });
+    assert.equal(recovery.outcome, "pending");
+    core.markReady(context(core, info.ownerCredential), "batch-feature");
+    const replacementDeveloper = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "batch-feature",
+      developer.seatId,
+      undefined,
+      recovery.recoveryId,
+    );
+    assert.equal(
+      core.latestCompletedReport(
+        "batch-feature",
+        replacementDeveloper.assignmentId,
+      ),
+      undefined,
+    );
+    complete(replacementDeveloper, "Developer", 5, "contained:batch-dev-two");
+    assert.equal(
+      core.latestCompletedReport(
+        "batch-feature",
+        replacementDeveloper.assignmentId,
+      )?.assignmentId,
+      replacementDeveloper.assignmentId,
+    );
+    const freshCandidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "batch-candidate-fresh",
+        assignmentId: replacementDeveloper.assignmentId,
+        commitSha: "c".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src"],
+        limitations: [],
+        evidence: ["implemented and verified"],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "batch-verify-fresh",
+      title: "Verify fresh candidate",
+      description: "Current evidence authorizes only the fresh candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: "batch-feature",
+    });
+    core.markReady(context(core, info.ownerCredential), "batch-verify-fresh");
+    const freshVerifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "batch-verify-fresh",
+      verifier.seatId,
+      freshCandidate.candidateId,
+    );
+    complete(freshVerifier, "Verifier", 5, "contained:batch-verifier-fresh");
+    core.recordEvidenceBatch(
+      context(core, verifier.credential),
+      freshVerifier.assignmentId,
+      [
+        {
+          evidenceId: "batch-passed-one",
+          candidateId: freshCandidate.candidateId,
+          criterion: "criterion-one",
+          passed: true,
+          artifactRef: "artifact://batch/passed-one",
+        },
+        {
+          evidenceId: "batch-passed-two",
+          candidateId: freshCandidate.candidateId,
+          criterion: "criterion-two",
+          passed: true,
+          artifactRef: "artifact://batch/passed-two",
+        },
+      ],
+    );
+    assert.throws(
+      () =>
+        core.acceptCandidate(
+          context(core, info.ownerCredential),
+          "batch-feature",
+          oldCandidate.candidateId,
+        ),
+      CandidateBindingError,
+    );
+    assert.equal(
+      core.acceptCandidate(
+        context(core, info.ownerCredential),
+        "batch-feature",
+        freshCandidate.candidateId,
+      ).acceptedCandidateId,
+      freshCandidate.candidateId,
+    );
   } finally {
     cleanup(value);
   }

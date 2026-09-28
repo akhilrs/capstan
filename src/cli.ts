@@ -1190,9 +1190,12 @@ async function runCli(argv: string[]): Promise<number> {
         }
       };
       const deadlineMs = contexts.startedAtMs + plan.limits.maxRunMs;
-      const waitForReport = async (workItemId: string) => {
+      const waitForReport = async (
+        workItemId: string,
+        assignmentId: string,
+      ) => {
         while (!stopping && Date.now() < deadlineMs) {
-          const report = core.latestCompletedReport(workItemId);
+          const report = core.latestCompletedReport(workItemId, assignmentId);
           if (report) return report;
           const delay = Promise.withResolvers<void>();
           setTimeout(delay.resolve, Math.min(250, deadlineMs - Date.now()));
@@ -1263,7 +1266,10 @@ async function runCli(argv: string[]): Promise<number> {
               .statusSnapshot()
               .work.find((work) => work.workItemId === pmWorkItemId);
             if (!pmWork || pmWork.state !== "accepted") return false;
-            const report = core.latestCompletedReport(pmWorkItemId);
+            const report = core.latestCompletedReport(
+              pmWorkItemId,
+              pmAssignment.assignmentId,
+            );
             if (
               !report ||
               report.role !== "PM" ||
@@ -1399,7 +1405,9 @@ async function runCli(argv: string[]): Promise<number> {
           );
         }
         const pmReport =
-          stopping || blocker ? undefined : await waitForReport(pmWorkItemId);
+          stopping || blocker
+            ? undefined
+            : await waitForReport(pmWorkItemId, pmAssignment.assignmentId);
         if (!pmReport)
           blocker ??= stopping
             ? "run canceled by signal"
@@ -1458,7 +1466,10 @@ async function runCli(argv: string[]): Promise<number> {
             (entry) => entry.id === dispatchStep.sliceId,
           );
           const developerSession = sessions[identities.Developer.seatId];
-          const developerReport = await waitForReport(workItemId);
+          const developerReport = await waitForReport(
+            workItemId,
+            assignment.assignmentId,
+          );
           if (!developerReport) {
             blocker = `Developer report for ${dispatchStep.sliceId} did not complete before the bounded deadline`;
             break;
@@ -1488,9 +1499,10 @@ async function runCli(argv: string[]): Promise<number> {
           const reportedBaseSha = candidateReply?.baseSha;
           const changedScope = candidateReply?.changedScope;
           const limitations = candidateReply?.limitations;
+          const developerEvidence = candidateReply?.evidence;
           if (
             typeof candidateId !== "string" ||
-            candidateId.trim().length === 0 ||
+            candidateId !== `candidate-${assignment.assignmentId}` ||
             typeof commitSha !== "string" ||
             !/^[a-f0-9]{40}([a-f0-9]{24})?$/i.test(commitSha) ||
             typeof reportedBaseSha !== "string" ||
@@ -1498,7 +1510,16 @@ async function runCli(argv: string[]): Promise<number> {
             !Array.isArray(changedScope) ||
             changedScope.some((entry) => typeof entry !== "string") ||
             !Array.isArray(limitations) ||
-            limitations.some((entry) => typeof entry !== "string")
+            limitations.some((entry) => typeof entry !== "string") ||
+            !Array.isArray(developerEvidence) ||
+            developerEvidence.length === 0 ||
+            developerEvidence.length > 64 ||
+            developerEvidence.some(
+              (entry) =>
+                typeof entry !== "string" ||
+                entry.trim().length === 0 ||
+                entry.length > 4096,
+            )
           )
             throw new Error(
               `Developer report for ${dispatchStep.sliceId} lacks a valid immutable candidate identity`,
@@ -1592,6 +1613,46 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               `Developer candidate is not descended from its recorded base: ${(ancestry.stderr || "base ancestry check failed").trim()}`,
             );
+          for (const dependency of slice.dependsOn) {
+            const dependencyWorkId = workflowWorkItemId(
+              plan.taskId,
+              dependency,
+            );
+            const dependencyWork = objectRecord(
+              objectRecord(core.inspect(dependencyWorkId))?.record,
+            );
+            const dependencyCandidateId = dependencyWork?.accepted_candidate_id;
+            const dependencyRecord =
+              typeof dependencyCandidateId === "string"
+                ? objectRecord(
+                    objectRecord(core.inspect(dependencyCandidateId))?.record,
+                  )
+                : undefined;
+            if (
+              typeof dependencyRecord?.commit_sha !== "string" ||
+              typeof dependencyRecord.base_sha !== "string"
+            )
+              throw new Error(
+                `accepted dependency ${dependency} lacks immutable candidate ancestry`,
+              );
+            const dependencyAncestor = spawnSync(
+              "git",
+              [
+                ...safeGit,
+                "-C",
+                developerMetadata.workspace,
+                "merge-base",
+                "--is-ancestor",
+                dependencyRecord.commit_sha,
+                developerMetadata.baseSha,
+              ],
+              { encoding: "utf8" },
+            );
+            if (dependencyAncestor.status !== 0)
+              throw new Error(
+                `candidate base does not contain accepted dependency ${dependency} at ${dependencyRecord.commit_sha}`,
+              );
+          }
           const diff = spawnSync(
             "git",
             [
@@ -1649,6 +1710,7 @@ async function runCli(argv: string[]): Promise<number> {
             baseSha: developerMetadata.baseSha,
             changedScope: reportedScope,
             limitations: limitations as string[],
+            evidence: developerEvidence as string[],
           };
           core.submitCandidate(
             context(core, identities.Developer.credential),
@@ -1669,7 +1731,7 @@ async function runCli(argv: string[]): Promise<number> {
           core.createWorkItem(context(core, credential), {
             workItemId: verifierWorkItemId,
             title: `Verify ${dispatchStep.sliceId}: ${candidateId}`,
-            description: `Independently verify candidate ${candidateId} at exactly commit ${commitSha} against every slice acceptance criterion: ${slice.acceptanceCriteria.join("; ")}. Return JSON with candidateId and evidence, an array containing exactly one {criterion, passed, artifactRef} for every listed criterion. Persist each artifact beneath /evidence; artifactRef must be an absolute /evidence/... path. Do not modify source files.`,
+            description: `Independently verify candidate ${candidateId} at exactly commit ${commitSha}, startingSha ${commitSha}, against every slice acceptance criterion: ${slice.acceptanceCriteria.join("; ")}. Use the separate read-only workspace; verify \`git rev-parse HEAD\` equals ${commitSha} before checks and remains unchanged. Do not modify source files. Return JSON {candidateId,commitSha,startingSha,evidence}, with exactly one evidence item per criterion: {criterion,passed,observation,exitStatus,artifactRef}. observation must be a non-empty concise description of what was checked. exitStatus must be the actual 0–255 exit code from the criterion check. Persist each artifact beneath /evidence; artifactRef must be an absolute /evidence/... path, and the artifact must contain the command, exit status, stdout/stderr, and observation. Do not claim a pass without evidence.`,
             requiredRole: "Verifier",
             parentWorkItemId: workItemId,
           });
@@ -1701,7 +1763,10 @@ async function runCli(argv: string[]): Promise<number> {
             context(core, credential),
             verifierAssignment.commandId,
           );
-          const verifierReport = await waitForReport(verifierWorkItemId);
+          const verifierReport = await waitForReport(
+            verifierWorkItemId,
+            verifierAssignment.assignmentId,
+          );
           if (!verifierReport) {
             blocker = `Verifier report for candidate ${candidateId} did not complete before the bounded deadline`;
             step = await scheduler.step();
@@ -1719,16 +1784,52 @@ async function runCli(argv: string[]): Promise<number> {
             verifierRuntime.session,
             verifierAssignment.assignmentId,
           );
+          const verifierHead = spawnSync(
+            "git",
+            [
+              ...safeGit,
+              "-C",
+              verifierRuntime.session.workspace,
+              "rev-parse",
+              "HEAD",
+            ],
+            { encoding: "utf8", timeout: 10_000 },
+          );
+          const verifierStatus = spawnSync(
+            "git",
+            [
+              ...safeGit,
+              "-C",
+              verifierRuntime.session.workspace,
+              "status",
+              "--porcelain",
+              "--untracked-files=all",
+            ],
+            { encoding: "utf8", timeout: 10_000 },
+          );
+          if (
+            verifierHead.status !== 0 ||
+            verifierHead.stdout.trim().toLowerCase() !==
+              commitSha.toLowerCase() ||
+            verifierRuntime.baseSha.toLowerCase() !== commitSha.toLowerCase() ||
+            verifierStatus.status !== 0 ||
+            verifierStatus.stdout.trim() !== ""
+          )
+            throw new Error(
+              "Verifier changed or did not inspect the exact immutable candidate checkout",
+            );
           const verifierReply = objectRecord(
             parseJsonWithoutDuplicateMembers(verifierReport.reply),
           );
           if (
             verifierReply?.candidateId !== candidateId ||
+            verifierReply.commitSha !== commitSha ||
+            verifierReply.startingSha !== verifierRuntime.baseSha ||
             !Array.isArray(verifierReply.evidence) ||
             verifierReply.evidence.length !== slice.acceptanceCriteria.length
           )
             throw new Error(
-              "Verifier report does not provide one evidence result for every slice criterion",
+              "Verifier report does not bind the exact candidate checkout and every slice criterion",
             );
           const seenCriteria = new Set<string>();
           const evidence: EvidenceInput[] = [];
@@ -1742,11 +1843,16 @@ async function runCli(argv: string[]): Promise<number> {
               !slice.acceptanceCriteria.includes(criterion) ||
               seenCriteria.has(criterion) ||
               typeof entry?.passed !== "boolean" ||
+              typeof entry.observation !== "string" ||
+              !entry.observation.trim() ||
+              !Number.isInteger(entry.exitStatus) ||
+              (entry.exitStatus as number) < 0 ||
+              (entry.exitStatus as number) > 255 ||
               typeof artifactRef !== "string" ||
               !artifactRef.startsWith("/evidence/")
             )
               throw new Error(
-                "Verifier evidence does not match the exact candidate and criterion set",
+                "Verifier evidence must include the exact criterion, observation, exit status, and artifact",
               );
             seenCriteria.add(criterion);
             const artifactRealPath = verifiedEvidencePath(
@@ -1767,17 +1873,44 @@ async function runCli(argv: string[]): Promise<number> {
             )
           )
             throw new Error("Verifier omitted a slice acceptance criterion");
-          for (const item of evidence)
-            core.recordEvidence(
-              context(core, identities.Verifier.credential),
-              verifierAssignment.assignmentId,
-              item,
-            );
+          core.recordEvidenceBatch(
+            context(core, identities.Verifier.credential),
+            verifierAssignment.assignmentId,
+            evidence,
+          );
           const failed = evidence.find((item) => !item.passed);
           if (failed) {
-            blocker = `Verifier rejected candidate ${candidateId} for criterion ${failed.criterion}`;
-            step = await scheduler.step();
-            break;
+            const failedObservation = verifierReply.evidence.find(
+              (item) => objectRecord(item)?.criterion === failed.criterion,
+            );
+            const observation = objectRecord(failedObservation)?.observation;
+            if (
+              dispatches + 2 > plan.limits.maxDispatches ||
+              Date.now() >= deadlineMs
+            ) {
+              blocker = `Verifier rejected candidate ${candidateId} for ${failed.criterion}; no bounded remediation budget remains`;
+              step = await scheduler.step();
+              break;
+            }
+            const recoveryId = randomUUID();
+            const recovery = core.recordRecovery(context(core, credential), {
+              recoveryId,
+              workItemId,
+              assignmentId: assignment.assignmentId,
+              recoveryType: "implementation_remediation",
+              reason: `Verifier rejected candidate ${candidateId}; criterion=${failed.criterion}; observation=${String(observation)}; artifact=${failed.artifactRef}`,
+            });
+            if (recovery.outcome !== "pending") {
+              blocker = `Verifier rejected candidate ${candidateId}; bounded remediation limit ${recovery.limit} reached`;
+              step = await scheduler.step();
+              break;
+            }
+            step = await scheduler.step({ workItemId, recoveryId });
+            if (step.state !== "dispatched") {
+              blocker = `Verifier rejected candidate ${candidateId}; replacement was blocked: ${step.state === "waiting" ? step.reasons.join("; ") : step.state === "stopped" ? step.reason : "scheduler did not dispatch"}`;
+              break;
+            }
+            continue;
           }
           core.acceptCandidate(
             context(core, credential),
@@ -1794,33 +1927,40 @@ async function runCli(argv: string[]): Promise<number> {
           step.state === "complete"
         ) {
           const acceptedSnapshot = core.statusSnapshot();
-          const acceptedSlices = plan.slices.map((slice) => {
-            const workItemId = `wf-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
-            const candidateId = acceptedCandidateByWorkItem.get(workItemId);
-            const candidate = acceptedSnapshot.evidence.find(
-              (entry) => entry.candidateId === candidateId,
-            );
-            const workspace = candidateId
-              ? candidateWorkspaces[candidateId]
-              : undefined;
-            if (
-              !candidate ||
-              !workspace ||
-              !acceptedSnapshot.work.some(
-                (work) =>
-                  work.workItemId === workItemId && work.state === "accepted",
-              )
-            )
-              throw new Error(
-                `accepted slice ${slice.id} has no contained candidate to supervise`,
+          const acceptedSlices = validateWorkflowPlan(plan).order.map(
+            (sliceId) => {
+              const slice = plan.slices.find((entry) => entry.id === sliceId);
+              if (!slice)
+                throw new Error(
+                  `validated plan order references missing slice ${sliceId}`,
+                );
+              const workItemId = `wf-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+              const candidateId = acceptedCandidateByWorkItem.get(workItemId);
+              const candidate = acceptedSnapshot.evidence.find(
+                (entry) => entry.candidateId === candidateId,
               );
-            return {
-              candidateId,
-              workItemId,
-              workspace,
-              commitSha: candidate.commitSha,
-            };
-          });
+              const workspace = candidateId
+                ? candidateWorkspaces[candidateId]
+                : undefined;
+              if (
+                !candidate ||
+                !workspace ||
+                !acceptedSnapshot.work.some(
+                  (work) =>
+                    work.workItemId === workItemId && work.state === "accepted",
+                )
+              )
+                throw new Error(
+                  `accepted slice ${slice.id} has no contained candidate to supervise`,
+                );
+              return {
+                candidateId,
+                workItemId,
+                workspace,
+                commitSha: candidate.commitSha,
+              };
+            },
+          );
           let finalRuntime:
             Awaited<ReturnType<typeof provisionRuntime>> | undefined;
           const finalWorkItemId = `final-${randomUUID()}`;
@@ -1833,7 +1973,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: finalWorkItemId,
               title: `Verify final parent acceptance ${plan.taskId}`,
-              description: `Independently verify the composed checkout HEAD at /workspace against every parent acceptance criterion: ${plan.acceptanceCriteria.join("; ")}. Do not modify source files. Return JSON {"commitSha":"full git HEAD","evidence":[{"criterion":"exact listed criterion","passed":true|false,"artifactRef":"/evidence/..."}]}; include one result per criterion, write each nonempty artifact beneath /evidence, and report the actual HEAD even if a criterion fails.`,
+              description: `Independently verify the composed checkout at /workspace, starting from the exact composed commit ${finalRuntime?.baseSha ?? "provided at dispatch"}, against every parent acceptance criterion: ${plan.acceptanceCriteria.join("; ")}. Verify git rev-parse HEAD before and after checks; do not modify source files. Return JSON {"commitSha":"full git HEAD","startingSha":"full starting HEAD","evidence":[{"criterion":"exact listed criterion","passed":true|false,"observation":"what was checked","exitStatus":0,"artifactRef":"/evidence/..."}]}; include one result per criterion, a concrete observation, actual 0–255 check exit status, and nonempty artifact beneath /evidence; report actual HEAD even if a criterion fails.`,
               requiredRole: "Verifier",
               finalVerification: true,
               acceptanceCriteria: plan.acceptanceCriteria,
@@ -1877,7 +2017,10 @@ async function runCli(argv: string[]): Promise<number> {
                 context(core, credential),
                 finalAssignment.commandId,
               );
-              const finalReport = await waitForReport(finalWorkItemId);
+              const finalReport = await waitForReport(
+                finalWorkItemId,
+                finalAssignment.assignmentId,
+              );
               if (!finalReport)
                 blocker =
                   "final-parent Verifier report did not complete before the bounded run deadline";
@@ -1897,13 +2040,48 @@ async function runCli(argv: string[]): Promise<number> {
                 const reply = objectRecord(
                   parseJsonWithoutDuplicateMembers(finalReport.reply),
                 );
+                const finalSafeGit = [
+                  "-c",
+                  "core.fsmonitor=false",
+                  "-c",
+                  "core.hooksPath=/dev/null",
+                ];
+                const composedHead = spawnSync(
+                  "git",
+                  [
+                    ...finalSafeGit,
+                    "-C",
+                    finalRuntime.session.workspace,
+                    "rev-parse",
+                    "HEAD",
+                  ],
+                  { encoding: "utf8", timeout: 10_000 },
+                );
+                const composedStatus = spawnSync(
+                  "git",
+                  [
+                    ...finalSafeGit,
+                    "-C",
+                    finalRuntime.session.workspace,
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                  ],
+                  { encoding: "utf8", timeout: 10_000 },
+                );
                 if (
                   reply?.commitSha !== finalRuntime.baseSha ||
+                  reply.startingSha !== finalRuntime.baseSha ||
+                  composedHead.status !== 0 ||
+                  composedHead.stdout.trim().toLowerCase() !==
+                    finalRuntime.baseSha.toLowerCase() ||
+                  composedStatus.status !== 0 ||
+                  composedStatus.stdout.trim() !== "" ||
                   !Array.isArray(reply.evidence) ||
                   reply.evidence.length !== plan.acceptanceCriteria.length
                 )
                   throw new Error(
-                    "final-parent Verifier did not report the exact composed HEAD and parent criteria",
+                    "final-parent Verifier did not preserve and report the exact composed HEAD or parent criteria",
                   );
                 const seen = new Set<string>();
                 const finalEvidence: {
@@ -1919,7 +2097,13 @@ async function runCli(argv: string[]): Promise<number> {
                     !plan.acceptanceCriteria.includes(entry.criterion) ||
                     seen.has(entry.criterion) ||
                     typeof entry.passed !== "boolean" ||
-                    typeof entry.artifactRef !== "string"
+                    typeof entry.observation !== "string" ||
+                    !entry.observation.trim() ||
+                    !Number.isInteger(entry.exitStatus) ||
+                    (entry.exitStatus as number) < 0 ||
+                    (entry.exitStatus as number) > 255 ||
+                    typeof entry.artifactRef !== "string" ||
+                    !entry.artifactRef.startsWith("/evidence/")
                   )
                     throw new Error(
                       "final-parent Verifier evidence is not the exact parent criterion set",
@@ -2018,8 +2202,10 @@ async function runCli(argv: string[]): Promise<number> {
                   context(core, credential),
                   supervisorAssignment.commandId,
                 );
-                const supervisorReport =
-                  await waitForReport(supervisorWorkItemId);
+                const supervisorReport = await waitForReport(
+                  supervisorWorkItemId,
+                  supervisorAssignment.assignmentId,
+                );
                 if (!supervisorReport)
                   blocker ??=
                     "Supervisor report did not complete before the bounded run deadline";

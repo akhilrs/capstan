@@ -344,6 +344,7 @@ test("cstan status reads the authenticated live control socket through the execu
       baseSha: "a".repeat(40),
       changedScope: ["src/status.ts"],
       limitations: [],
+      evidence: ["implemented and verified"],
     });
     core.createWorkItem(mutate(credential), {
       workItemId: "status-verifier-work",
@@ -438,6 +439,7 @@ test("cstan status reads the authenticated live control socket through the execu
         commitSha: string;
         reportHash: string;
         evidenceRef: string | null;
+        developerEvidence: string[];
       }[];
       limits: { maxSlices: number; maxRunMs: number; maxDispatches: number };
       nextLegalActions: string[];
@@ -487,6 +489,7 @@ test("cstan status reads the authenticated live control socket through the execu
     assert.ok(evidence);
     assert.equal(evidence.candidateId, candidate.candidateId);
     assert.equal(evidence.commitSha, "c".repeat(40));
+    assert.deepEqual(evidence.developerEvidence, ["implemented and verified"]);
     assert.match(evidence.reportHash, /^[a-f0-9]{64}$/);
     assert.equal(evidence.evidenceRef, "artifact://status/candidate-evidence");
     assert.deepEqual(result.nextLegalActions, ["wait", "mark_ready"]);
