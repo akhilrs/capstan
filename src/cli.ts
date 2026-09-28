@@ -594,6 +594,7 @@ async function runCli(argv: string[]): Promise<number> {
     let core: ControllerCore;
     let runtimeSocketRoot: string | undefined;
     let removeSignalHandlers = () => {};
+    let runtimeManagerClosed = false;
     try {
       core = await ControllerCore.open({
         stateDirectory: config.stateDirectory,
@@ -2094,7 +2095,10 @@ async function runCli(argv: string[]): Promise<number> {
             cleanupErrors,
             `cstan cleanup could not prove complete containment and closure: ${cleanupErrors.map(String).join("; ")}`,
           );
-        if (!stopping && !blocker && Date.now() >= deadlineMs)
+        await manager.close();
+        runtimeManagerClosed = true;
+        if (stopping) blocker = "run canceled by signal";
+        else if (!blocker && Date.now() >= deadlineMs)
           blocker = "maxRunMs exceeded";
         const completed = step.state === "complete" && !stopping && !blocker;
         if (completed)
@@ -2181,7 +2185,10 @@ async function runCli(argv: string[]): Promise<number> {
       }
     } finally {
       try {
-        await manager.close();
+        if (!runtimeManagerClosed) {
+          await manager.close();
+          runtimeManagerClosed = true;
+        }
         if (runtimeSocketRoot)
           fs.rmSync(runtimeSocketRoot, { recursive: true, force: true });
       } finally {
