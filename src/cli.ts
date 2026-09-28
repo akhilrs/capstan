@@ -292,7 +292,7 @@ export function assertTrackedCheckoutMatchesHead(
     if (
       metadata.length !== 3 ||
       metadata[1] !== "blob" ||
-      !["100644", "100755", "120000"].includes(metadata[0]!) ||
+      !["100644", "100755"].includes(metadata[0]!) ||
       components.some((part) => part === "" || part === "." || part === "..")
     )
       throw new Error("unsupported verification checkout entry");
@@ -312,33 +312,24 @@ export function assertTrackedCheckoutMatchesHead(
     }
     const file = Buffer.concat([Buffer.from(`${workspace}/`), relative]);
     const stat = fs.lstatSync(file);
-    const symlink = metadata[0] === "120000";
     if (
-      (symlink ? !stat.isSymbolicLink() : !stat.isFile()) ||
-      (!symlink && ((stat.mode & 0o111) !== 0) !== (metadata[0] === "100755"))
+      !stat.isFile() ||
+      ((stat.mode & 0o111) !== 0) !== (metadata[0] === "100755")
     )
       throw new Error(
         "verification checkout file mode differs from the immutable commit",
       );
-    const linkTarget = symlink
-      ? fs.readlinkSync(file, { encoding: "buffer" })
-      : null;
-    const hash = createHash(algorithm).update(
-      `blob ${linkTarget ? linkTarget.length : stat.size}\0`,
+    const hash = createHash(algorithm).update(`blob ${stat.size}\0`);
+    const fd = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
     );
-    if (linkTarget) hash.update(linkTarget);
-    else {
-      const fd = fs.openSync(
-        file,
-        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-      );
-      try {
-        let read: number;
-        while ((read = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0)
-          hash.update(chunk.subarray(0, read));
-      } finally {
-        fs.closeSync(fd);
-      }
+    try {
+      let read: number;
+      while ((read = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0)
+        hash.update(chunk.subarray(0, read));
+    } finally {
+      fs.closeSync(fd);
     }
     if (hash.digest("hex") !== metadata[2])
       throw new Error(

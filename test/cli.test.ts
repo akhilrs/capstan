@@ -160,6 +160,32 @@ test("immutable checkout check rejects a symlinked tracked parent directory", ()
   }
 });
 
+test("immutable checkout check rejects tracked links into mutable runtime home", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-link-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, ".git", "info", "exclude"), ".home/\n");
+    mkdirSync(path.join(cwd, ".home"));
+    writeFileSync(path.join(cwd, ".home", "source.txt"), "mutable\n");
+    symlinkSync(".home/source.txt", path.join(cwd, "source.txt"));
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "link");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, git("rev-parse", "HEAD")),
+      /unsupported verification checkout entry/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("immutable checkout check ignores local replacement objects", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-replace-"));
   try {
