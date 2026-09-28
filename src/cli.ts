@@ -599,17 +599,39 @@ async function runCli(argv: string[]): Promise<number> {
             );
           fs.chmodSync(directory, 0o700);
         }
+        const hostGitArgs = [
+          "-c",
+          "core.fsmonitor=false",
+          "-c",
+          "core.hooksPath=/dev/null",
+        ];
+        const hostGitEnv = {
+          ...process.env,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_COUNT: "0",
+          GIT_CONFIG_PARAMETERS: "",
+        };
         const cloned = spawnSync(
           "git",
-          ["clone", "--no-hardlinks", "--quiet", "--", cwd, workspace],
-          { encoding: "utf8" },
+          [
+            ...hostGitArgs,
+            "clone",
+            "--no-checkout",
+            "--no-hardlinks",
+            "--quiet",
+            "--",
+            cwd,
+            workspace,
+          ],
+          { encoding: "utf8", env: hostGitEnv },
         );
         if (cloned.status !== 0)
           throw new Error(
             `cannot create isolated ${role} assignment checkout: ${(cloned.stderr || "git clone failed").trim()}`,
           );
         fs.chmodSync(workspace, 0o700);
-        if (role === "Developer") {
+        if (role === "Developer" || predecessorCandidates.length > 0) {
           for (const key of ["user.name", "user.email"] as const) {
             const sourceIdentity = spawnSync(
               "git",
@@ -637,6 +659,7 @@ async function runCli(argv: string[]): Promise<number> {
           const fetched = spawnSync(
             "git",
             [
+              ...hostGitArgs,
               "-C",
               workspace,
               "fetch",
@@ -645,7 +668,7 @@ async function runCli(argv: string[]): Promise<number> {
               exactCandidate.workspace,
               exactCandidate.commitSha,
             ],
-            { encoding: "utf8" },
+            { encoding: "utf8", env: hostGitEnv },
           );
           if (fetched.status !== 0)
             throw new Error(
@@ -653,8 +676,16 @@ async function runCli(argv: string[]): Promise<number> {
             );
           const candidateCheckout = spawnSync(
             "git",
-            ["-C", workspace, "checkout", "--quiet", "--detach", "FETCH_HEAD"],
-            { encoding: "utf8" },
+            [
+              ...hostGitArgs,
+              "-C",
+              workspace,
+              "checkout",
+              "--quiet",
+              "--detach",
+              "FETCH_HEAD",
+            ],
+            { encoding: "utf8", env: hostGitEnv },
           );
           if (candidateCheckout.status !== 0)
             throw new Error(
@@ -663,8 +694,16 @@ async function runCli(argv: string[]): Promise<number> {
         } else {
           const checkedOut = spawnSync(
             "git",
-            ["-C", workspace, "checkout", "--quiet", "--detach", baseSha],
-            { encoding: "utf8" },
+            [
+              ...hostGitArgs,
+              "-C",
+              workspace,
+              "checkout",
+              "--quiet",
+              "--detach",
+              baseSha,
+            ],
+            { encoding: "utf8", env: hostGitEnv },
           );
           if (checkedOut.status !== 0)
             throw new Error(
@@ -674,6 +713,7 @@ async function runCli(argv: string[]): Promise<number> {
             const fetched = spawnSync(
               "git",
               [
+                ...hostGitArgs,
                 "-C",
                 workspace,
                 "fetch",
@@ -682,7 +722,7 @@ async function runCli(argv: string[]): Promise<number> {
                 predecessor.workspace,
                 predecessor.commitSha,
               ],
-              { encoding: "utf8" },
+              { encoding: "utf8", env: hostGitEnv },
             );
             if (fetched.status !== 0)
               throw new Error(
@@ -691,6 +731,7 @@ async function runCli(argv: string[]): Promise<number> {
             const merged = spawnSync(
               "git",
               [
+                ...hostGitArgs,
                 "-C",
                 workspace,
                 "merge",
@@ -699,7 +740,7 @@ async function runCli(argv: string[]): Promise<number> {
                 "--no-ff",
                 "FETCH_HEAD",
               ],
-              { encoding: "utf8" },
+              { encoding: "utf8", env: hostGitEnv },
             );
             if (merged.status !== 0)
               throw new Error(
@@ -820,19 +861,23 @@ async function runCli(argv: string[]): Promise<number> {
           adapters[seatId] = adapter;
         }
         let evidenceDirectory: string | undefined;
-        if (role === "Verifier") {
-          const evidenceParent = path.join(
+        if (role === "Verifier" || role === "Supervisor") {
+          const evidenceRoot = path.join(
             config.stateDirectory,
             "runtime",
             "evidence",
-            seatId,
-            workItemId,
           );
-          fs.mkdirSync(evidenceParent, { recursive: true, mode: 0o700 });
-          fs.chmodSync(evidenceParent, 0o700);
-          evidenceDirectory = path.join(evidenceParent, String(generation));
-          fs.mkdirSync(evidenceDirectory, { mode: 0o700 });
-          fs.chmodSync(evidenceDirectory, 0o700);
+          fs.mkdirSync(evidenceRoot, { recursive: true, mode: 0o700 });
+          fs.chmodSync(evidenceRoot, 0o700);
+          if (role === "Supervisor") evidenceDirectory = evidenceRoot;
+          else {
+            const evidenceParent = path.join(evidenceRoot, seatId, workItemId);
+            fs.mkdirSync(evidenceParent, { recursive: true, mode: 0o700 });
+            fs.chmodSync(evidenceParent, 0o700);
+            evidenceDirectory = path.join(evidenceParent, String(generation));
+            fs.mkdirSync(evidenceDirectory, { mode: 0o700 });
+            fs.chmodSync(evidenceDirectory, 0o700);
+          }
         }
         const session = await manager.provision(role, seatId, workspace, {
           journalPath: path.join(journalDir, `${role.toLowerCase()}.jsonl`),
@@ -1604,6 +1649,32 @@ async function runCli(argv: string[]): Promise<number> {
           planWasAccepted &&
           step.state === "complete"
         ) {
+          const acceptedSnapshot = core.statusSnapshot();
+          const acceptedSlices = plan.slices.map((slice) => {
+            const candidateId = `candidate-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+            const candidate = acceptedSnapshot.evidence.find(
+              (entry) => entry.candidateId === candidateId,
+            );
+            const workspace = candidateWorkspaces[candidateId];
+            const workItemId = `wf-${createHash("sha256").update(`${plan.taskId}:${slice.id}`).digest("hex").slice(0, 24)}`;
+            if (
+              !candidate ||
+              !workspace ||
+              !acceptedSnapshot.work.some(
+                (work) =>
+                  work.workItemId === workItemId && work.state === "accepted",
+              )
+            )
+              throw new Error(
+                `accepted slice ${slice.id} has no contained candidate to supervise`,
+              );
+            return {
+              candidateId,
+              workItemId,
+              workspace,
+              commitSha: candidate.commitSha,
+            };
+          });
           const supervisorWorkItemId = `supervisor-${randomUUID()}`;
           let supervisorRuntime:
             | {
@@ -1615,8 +1686,7 @@ async function runCli(argv: string[]): Promise<number> {
           core.createWorkItem(context(core, credential), {
             workItemId: supervisorWorkItemId,
             title: `Supervise completed run ${plan.taskId}`,
-            description:
-              'Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final controller state. Return JSON {"observation":"..."} stating a concrete safety, scope, or acceptance issue, or that none was observed.',
+            description: `Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final composed checkout at /workspace. The assignment capsule lists each accepted candidate and artifact. Artifacts stored beneath ${path.join(config.stateDirectory, "runtime", "evidence")} are readable under /evidence with the same relative paths. Return JSON {"outcome":"pass"|"blocked","observation":"..."}; use blocked whenever a safety, scope, or acceptance issue is observed, and name the concrete issue in observation. Use pass only when no issue was observed.`,
             requiredRole: "Supervisor",
           });
           core.addDependency(
@@ -1624,6 +1694,12 @@ async function runCli(argv: string[]): Promise<number> {
             supervisorWorkItemId,
             pmWorkItemId,
           );
+          for (const accepted of acceptedSlices)
+            core.addDependency(
+              context(core, credential),
+              supervisorWorkItemId,
+              accepted.workItemId,
+            );
           core.markReady(context(core, credential), supervisorWorkItemId);
           const supervisorAssignment = core.assignWorkItem(
             context(core, credential),
@@ -1640,6 +1716,10 @@ async function runCli(argv: string[]): Promise<number> {
               supervisorWorkItemId,
               supervisorAssignment.generation,
               supervisorAssignment.assignmentId,
+              acceptedSlices.map(({ workspace, commitSha }) => ({
+                workspace,
+                commitSha,
+              })),
             );
             runtimeCommands[supervisorRuntime.session.sessionId] =
               supervisorAssignment.commandId;
@@ -1667,20 +1747,43 @@ async function runCli(argv: string[]): Promise<number> {
                 "Supervisor report does not match its active run-supervision assignment",
               );
             else {
-              await containRuntime(
-                supervisorRuntime.session,
-                supervisorAssignment.assignmentId,
-              );
               const supervisorReply = objectRecord(
                 JSON.parse(supervisorReport.reply),
               );
               if (
                 typeof supervisorReply?.observation !== "string" ||
-                !supervisorReply.observation.trim()
+                !supervisorReply.observation.trim() ||
+                (supervisorReply.outcome !== "pass" &&
+                  supervisorReply.outcome !== "blocked")
               )
                 throw new Error(
-                  "Supervisor returned no structured run observation",
+                  "Supervisor returned no valid structured run observation",
                 );
+              if (supervisorReply.outcome === "blocked") {
+                core.createFinding(
+                  context(core, identities.Supervisor.credential),
+                  {
+                    findingId: randomUUID(),
+                    workItemId: supervisorWorkItemId,
+                    assignmentId: supervisorAssignment.assignmentId,
+                    generation: supervisorAssignment.generation,
+                    fingerprint: createHash("sha256")
+                      .update(supervisorReply.observation)
+                      .digest("hex"),
+                    severity: "high",
+                    evidence: { observation: supervisorReply.observation },
+                    requestedCorrection:
+                      "Resolve the Supervisor's observed run issue",
+                    resolutionCondition:
+                      "Supervisor confirms corrected acceptance evidence",
+                  },
+                );
+                blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+              }
+              await containRuntime(
+                supervisorRuntime.session,
+                supervisorAssignment.assignmentId,
+              );
               core.acceptNonCandidateReport(
                 context(core, credential),
                 supervisorWorkItemId,
@@ -1694,8 +1797,6 @@ async function runCli(argv: string[]): Promise<number> {
         else if (!blocker && step.state === "stopped") blocker = step.reason;
         else if (!blocker && Date.now() >= deadlineMs)
           blocker = "maxRunMs exceeded";
-        process.off("SIGINT", signal);
-        process.off("SIGTERM", signal);
         const cleanupErrors: unknown[] = [];
         for (const session of allSessions) {
           if (containedSessions.has(session.sessionId)) continue;

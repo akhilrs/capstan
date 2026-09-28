@@ -1500,6 +1500,84 @@ test("runs reject completion while work is open", async () => {
   }
 });
 
+test("unresolved Supervisor finding blocks completion after its report is accepted", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "blocking-supervisor",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "blocking-observation",
+      title: "Inspect accepted delivery",
+      description: "Report any unresolved issue",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(context(core, info.ownerCredential), "blocking-observation");
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "blocking-observation",
+      supervisor.seatId,
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "supervisor-blocker",
+      workItemId: "blocking-observation",
+      assignmentId: assignment.assignmentId,
+      generation: assignment.generation,
+      fingerprint: "unresolved-acceptance",
+      severity: "high",
+      evidence: { observation: "integration fails" },
+      requestedCorrection: "Fix integration",
+      resolutionCondition: "Rerun final acceptance",
+    });
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "Supervisor"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "Supervisor"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "containment:blocking-supervisor",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "blocking-observation",
+      assignment.assignmentId,
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "blocking-observation")?.state,
+      "accepted",
+    );
+    assert.throws(
+      () =>
+        core.transitionRun(context(core, info.ownerCredential), "completed"),
+      /unresolved Supervisor findings/,
+    );
+    assert.equal(core.statusSnapshot().run.state, "active");
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("operator requests can invoke controller-only terminal run transitions", async () => {
   const value = await fixture();
   try {

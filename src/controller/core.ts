@@ -1686,7 +1686,7 @@ export class ControllerCore {
                 }
               : role === "Verifier"
                 ? { type: "object", required: ["candidateId", "evidence"] }
-                : { type: "object", required: ["observation"] };
+                : { type: "object", required: ["outcome", "observation"] };
         const nextLegalActions =
           role === "PM"
             ? ["report_plan_review"]
@@ -3993,6 +3993,15 @@ export class ControllerCore {
         if (staleAcceptedWork)
           throw new MutationConflictError(
             "run cannot complete with work accepted against a stale input revision",
+          );
+        const unresolvedFinding = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (unresolvedFinding)
+          throw new MutationConflictError(
+            "run cannot complete with unresolved Supervisor findings",
           );
       }
       if (

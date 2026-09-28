@@ -29,7 +29,7 @@ export interface RoleControllerPaths {
   readonly receiptSocketPath: string;
   /** Writable bridge directory; manager binds it at /bridge. */
   readonly bridgeSocketPath: string;
-  /** Verifier-only durable writable output, bound at /evidence. */
+  /** Verifier-writable output, or Supervisor read-only access to the evidence root. */
   readonly evidenceDirectory?: string;
 }
 
@@ -397,18 +397,23 @@ export class RoleRuntimeManager {
     const evidenceDirectory = paths.evidenceDirectory
       ? validatePath(paths.evidenceDirectory, "evidenceDirectory", "directory")
       : undefined;
-    if ((role === "Verifier") !== (evidenceDirectory !== undefined))
+    if (
+      (role === "Verifier" || role === "Supervisor") !==
+      (evidenceDirectory !== undefined)
+    )
       throw new Error(
-        "only Verifier sessions require a dedicated evidence directory",
+        "Verifier and Supervisor sessions require an evidence directory",
       );
     const evidenceRoot = path.resolve(this.#options.stateRoot, "evidence");
     if (
       evidenceDirectory &&
-      (!evidenceDirectory.startsWith(`${evidenceRoot}${path.sep}`) ||
+      ((role === "Supervisor"
+        ? evidenceDirectory !== evidenceRoot
+        : !evidenceDirectory.startsWith(`${evidenceRoot}${path.sep}`)) ||
         realpathSync(evidenceDirectory) !== evidenceDirectory)
     )
       throw new Error(
-        "Verifier evidence directory must be a real private directory under the controller evidence root",
+        "role evidence directory must be a real directory under the controller evidence root",
       );
     for (const protectedRoot of [
       path.resolve(this.#options.stateRoot),
@@ -482,7 +487,7 @@ export class RoleRuntimeManager {
         ...(evidenceDirectory
           ? [
               "--mount",
-              `type=bind,src=${evidenceDirectory},dst=/evidence,bind-propagation=rprivate`,
+              `type=bind,src=${evidenceDirectory},dst=/evidence${role === "Supervisor" ? ",readonly" : ""},bind-propagation=rprivate`,
             ]
           : []),
         "--mount",
