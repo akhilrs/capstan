@@ -222,6 +222,83 @@ function workflowWorkItemId(taskId: string, sliceId: string): string {
     .slice(0, 24)}`;
 }
 
+export function assertTrackedCheckoutMatchesHead(
+  workspace: string,
+  commitSha: string,
+): void {
+  const tree = spawnSync(
+    "git",
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-C",
+      workspace,
+      "ls-tree",
+      "-rz",
+      "--full-tree",
+      "HEAD",
+    ],
+    { encoding: "buffer", timeout: 10_000, maxBuffer: 32 * 1024 * 1024 },
+  );
+  if (tree.status !== 0 || (tree.stdout.length && tree.stdout.at(-1) !== 0))
+    throw new Error("cannot inspect exact verification checkout tree");
+  const algorithm = commitSha.length === 64 ? "sha256" : "sha1";
+  const chunk = Buffer.allocUnsafe(64 * 1024);
+  const frames = tree.stdout.toString("binary").split("\0");
+  frames.pop();
+  for (const frame of frames) {
+    const separator = frame.indexOf("\t");
+    if (separator < 0)
+      throw new Error("invalid verification checkout tree frame");
+    const metadata = frame.slice(0, separator).split(" ");
+    const relative = Buffer.from(frame.slice(separator + 1), "binary");
+    const components = relative.toString("binary").split("/");
+    if (
+      metadata.length !== 3 ||
+      metadata[1] !== "blob" ||
+      !["100644", "100755", "120000"].includes(metadata[0]!) ||
+      components.some((part) => part === "" || part === "." || part === "..")
+    )
+      throw new Error("unsupported verification checkout entry");
+    const file = Buffer.concat([Buffer.from(`${workspace}/`), relative]);
+    const stat = fs.lstatSync(file);
+    const symlink = metadata[0] === "120000";
+    if (
+      (symlink ? !stat.isSymbolicLink() : !stat.isFile()) ||
+      (!symlink && ((stat.mode & 0o111) !== 0) !== (metadata[0] === "100755"))
+    )
+      throw new Error(
+        "verification checkout file mode differs from the immutable commit",
+      );
+    const linkTarget = symlink
+      ? fs.readlinkSync(file, { encoding: "buffer" })
+      : null;
+    const hash = createHash(algorithm).update(
+      `blob ${linkTarget ? linkTarget.length : stat.size}\0`,
+    );
+    if (linkTarget) hash.update(linkTarget);
+    else {
+      const fd = fs.openSync(
+        file,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+      );
+      try {
+        let read: number;
+        while ((read = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0)
+          hash.update(chunk.subarray(0, read));
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    if (hash.digest("hex") !== metadata[2])
+      throw new Error(
+        "verification checkout bytes differ from the immutable commit",
+      );
+  }
+}
+
 function projectInputs(
   config: Config,
   plan: WorkflowPlan,
@@ -1818,6 +1895,10 @@ async function runCli(argv: string[]): Promise<number> {
             throw new Error(
               "Verifier changed or did not inspect the exact immutable candidate checkout",
             );
+          assertTrackedCheckoutMatchesHead(
+            verifierRuntime.session.workspace,
+            commitSha,
+          );
           const verifierReply = objectRecord(
             parseJsonWithoutDuplicateMembers(verifierReport.reply),
           );
@@ -2086,6 +2167,10 @@ async function runCli(argv: string[]): Promise<number> {
                   throw new Error(
                     "final-parent Verifier did not preserve and report the exact composed HEAD or parent criteria",
                   );
+                assertTrackedCheckoutMatchesHead(
+                  finalRuntime.session.workspace,
+                  finalRuntime.baseSha,
+                );
                 const seen = new Set<string>();
                 const finalEvidence: {
                   evidenceId: string;

@@ -196,7 +196,7 @@ Keep controller-held accepted facts authoritative. Summaries and worker notes ar
 
 A Developer report names an immutable candidate commit, its parent/base, changed scope, acceptance-related evidence, and outstanding limitations. Uncommitted work is not an accepted candidate.
 
-The Verifier receives that exact candidate in a separate execution workspace, checks its starting identity, exercises behavior, and reports per-criterion observations with command exit status and artifact references. Generated test/build files may live in scratch space; modifying candidate source invalidates the verification attempt.
+The Verifier receives that exact candidate in a separate execution workspace, checks its starting identity, exercises behavior, and reports per-criterion observations with command exit status and artifact references. Generated test/build files may live in scratch space; modifying candidate source invalidates the verification attempt. After containment, the controller hashes every tracked checkout entry against the candidate tree, including entries hidden from Git status by index flags, before accepting slice or final-parent evidence.
 
 Accept the candidate only if the reported identity and current input revision match the assignment. A new code revision invalidates old verification for the changed deliverable. The final parent check runs on the actual composed local branch tip, not merely on the last child report.
 

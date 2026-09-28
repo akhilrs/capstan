@@ -15,6 +15,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { assertTrackedCheckoutMatchesHead } from "../src/cli.js";
 import { listenControl } from "../src/control.js";
 import { ControllerCore } from "../src/controller/core.js";
 const cli = path.resolve("dist/src/cli.js");
@@ -69,6 +70,34 @@ function invokeAsync(
     child.once("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
+
+test("immutable checkout check detects tracked bytes hidden by assume-unchanged", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-checkout-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "source.txt"), "committed\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "seed");
+    const sha = git("rev-parse", "HEAD");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
+    git("update-index", "--assume-unchanged", "source.txt");
+    writeFileSync(path.join(cwd, "source.txt"), "edited but hidden\n");
+    assert.equal(git("status", "--porcelain"), "");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /verification checkout bytes differ/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 test("cstan init creates private project-local config and status exposes four seats as JSON", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-cli-"));

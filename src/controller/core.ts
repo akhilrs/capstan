@@ -3905,7 +3905,7 @@ export class ControllerCore {
              WHERE d.project_id = ? AND d.work_item_id = ?
                AND (dependency.state <> 'accepted'
                  OR (d.required_candidate_id IS NOT NULL
-                   AND dependency.accepted_candidate_id <> d.required_candidate_id)
+                   AND dependency.accepted_candidate_id IS NOT d.required_candidate_id)
                  OR dependency.input_revision <> ?)
              LIMIT 1`,
           )
