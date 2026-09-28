@@ -109,6 +109,7 @@ function run(
   const result = spawnSync(binary, [...args], {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
+    timeout: 60_000,
     ...(env ? { env } : {}),
   });
   if (result.error || result.status !== 0)
@@ -210,7 +211,8 @@ export class RoleRuntimeManager {
     this.#options = options;
     this.#docker = "docker";
     this.#scripts = path.resolve(
-      options.qualificationScriptsDir ?? path.join(process.cwd(), "scripts"),
+      options.qualificationScriptsDir ??
+        path.join(import.meta.dirname, "../../../scripts"),
     );
     if (
       !existsSync(path.join(this.#scripts, "m1-herdr-bridge.mjs")) ||

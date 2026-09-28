@@ -1627,19 +1627,24 @@ export class ControllerCore {
           ]),
         );
         const planValue = inputValues.plan as {
+          taskId?: string;
           slices?: readonly {
             id?: string;
-            title?: string;
             writeScope?: readonly string[];
           }[];
         };
-        const planSlice = planValue.slices?.find(
-          (slice) =>
+        const planSlice = planValue.slices?.find((slice) => {
+          const stableWorkItemId =
+            typeof planValue.taskId === "string" && typeof slice.id === "string"
+              ? `wf-${sha256(`${planValue.taskId}:${slice.id}`).slice(0, 24)}`
+              : undefined;
+          return (
             slice.id === workItemId ||
-            slice.title === item.title ||
+            stableWorkItemId === workItemId ||
             workItemId.endsWith(`:${slice.id}`) ||
-            workItemId.endsWith(`/${slice.id}`),
-        );
+            workItemId.endsWith(`/${slice.id}`)
+          );
+        });
         const openFindings = this.#database
           .prepare(
             `SELECT finding_id, severity, evidence_json, requested_correction,

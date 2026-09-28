@@ -241,6 +241,12 @@ test("cstan status reads the authenticated live control socket through the execu
       description: "Expose the next legal readiness transition",
       requiredRole: "Developer",
     });
+    core.createWorkItem(mutate(credential), {
+      workItemId: "status-large-inspect",
+      title: "Status large inspect",
+      description: "x".repeat(20_000),
+      requiredRole: "Developer",
+    });
 
     core.createWorkItem(mutate(credential), {
       workItemId: "status-candidate-work",
@@ -431,6 +437,17 @@ test("cstan status reads the authenticated live control socket through the execu
     assert.match(evidence.reportHash, /^[a-f0-9]{64}$/);
     assert.equal(evidence.evidenceRef, "artifact://status/candidate-evidence");
     assert.deepEqual(result.nextLegalActions, ["wait", "mark_ready"]);
+    const largeInspection = await invokeAsync(
+      cwd,
+      "inspect",
+      "status-large-inspect",
+      "--json",
+    );
+    assert.equal(largeInspection.status, 0, largeInspection.stderr);
+    const largeRecord = JSON.parse(largeInspection.stdout) as {
+      record: { description: string };
+    };
+    assert.equal(largeRecord.record.description.length, 20_000);
     await closeControl();
     await closeControl();
     assert.equal(

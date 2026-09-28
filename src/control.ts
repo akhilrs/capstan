@@ -4,7 +4,8 @@ import path from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { ControllerCore } from "./controller/core.js";
 
-const MAX_FRAME = 16_384;
+const MAX_REQUEST_FRAME = 16_384;
+const MAX_RESPONSE_FRAME = 1_048_576;
 
 type Request = { token: string; action: "status" | "inspect"; id?: string };
 
@@ -66,7 +67,7 @@ export async function listenControl(
     let bytes = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
       bytes = Buffer.concat([bytes, chunk]);
-      if (bytes.length > MAX_FRAME) {
+      if (bytes.length > MAX_REQUEST_FRAME) {
         socket.destroy();
         return;
       }
@@ -92,7 +93,13 @@ export async function listenControl(
               : (() => {
                   throw new Error("invalid control request");
                 })();
-        socket.end(`${JSON.stringify({ requestId: randomUUID(), result })}\n`);
+        const response = JSON.stringify({
+          requestId: randomUUID(),
+          result,
+        });
+        if (Buffer.byteLength(response) + 1 > MAX_RESPONSE_FRAME)
+          throw new Error("control response exceeds limit");
+        socket.end(`${response}\n`);
       } catch (error) {
         socket.end(
           `${JSON.stringify({ error: error instanceof Error ? error.message : "invalid request" })}\n`,
@@ -154,7 +161,7 @@ export async function requestControl(
     );
     socket.on("data", (chunk: Buffer) => {
       bytes = Buffer.concat([bytes, chunk]);
-      if (bytes.length > MAX_FRAME) {
+      if (bytes.length > MAX_RESPONSE_FRAME) {
         socket.destroy();
         reject(new Error("control response exceeds limit"));
         return;

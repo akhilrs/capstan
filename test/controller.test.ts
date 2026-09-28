@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import {
   AuthenticationError,
@@ -2247,6 +2248,77 @@ test("runtime identity observations keep distinct durable identifiers", async ()
     } finally {
       db.close();
     }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("assignment capsule resolves duplicate-title plan slices by stable ID", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const plan = {
+      schemaVersion: 1,
+      taskId: "duplicate-title-plan",
+      objective: "Keep slice scopes unambiguous",
+      acceptanceCriteria: ["criterion-one"],
+      limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 2 },
+      slices: [
+        {
+          id: "slice-a",
+          title: "Shared title",
+          description: "First scope",
+          role: "Developer",
+          dependsOn: [],
+          writeScope: ["src/a.mjs"],
+          acceptanceCriteria: ["criterion-one"],
+        },
+        {
+          id: "slice-b",
+          title: "Shared title",
+          description: "Second scope",
+          role: "Developer",
+          dependsOn: ["slice-a"],
+          writeScope: ["src/b.mjs"],
+          acceptanceCriteria: ["criterion-one"],
+        },
+      ],
+    };
+    core.recordInputRevision(context(core, info.ownerCredential), {
+      kind: "plan",
+      content: plan,
+    });
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "duplicate-title",
+    );
+    const workItemId = `wf-${createHash("sha256")
+      .update(`${plan.taskId}:slice-b`)
+      .digest("hex")
+      .slice(0, 24)}`;
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId,
+      title: "Shared title",
+      description: "Implement the second slice",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), workItemId);
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      workItemId,
+      developer.seatId,
+    );
+    const dispatch = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    const payload = dispatch.payload as { prompt: string };
+    const capsule = JSON.parse(payload.prompt) as {
+      scope: { writePaths: string[] };
+    };
+    assert.deepEqual(capsule.scope.writePaths, ["src/b.mjs"]);
   } finally {
     cleanup(value);
   }

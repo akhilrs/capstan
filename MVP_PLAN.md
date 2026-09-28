@@ -304,9 +304,11 @@ The controller runs in the foreground under `cstan run`; `status` and `inspect` 
 
 Before `cstan run`, set `M1_PROVIDER_HOST` to the exact egress-allowlisted provider hostname and optionally `M1_PROVIDER_PORT` (default `443`); set absolute paths in `M1_HERDR_BINARY`, `M1_OMP_BINARY`, `M1_OMP_NATIVE_ADDON`, and `M1_NODE_BINARY`. The host Git executable is resolved from `PATH` and its exec directory is mounted read-only into role containers so Developer sessions can create immutable commits in their writable assignment checkout. Developer checkouts inherit the project Git `user.name` and `user.email` locally; a missing identity fails before dispatch because candidate commits cannot be produced without it. Preflight enforces Herdr `0.9.0` and its pinned SHA-256, OMP `18.3.1`, Node `24.6.0`, the pinned container image, Docker/cgroup-v2 isolation, compiler, and firewall/egress controls. Missing prerequisites fail before controller database creation; no host-execution fallback exists. A pre-existing controller database is blocked pending restart reconciliation and is never blindly redispatched.
 Assignment capsules identify the workspace as the role container sees it (`/workspace`); this maps to the isolated per-assignment checkout mounted by the controller.
+The CLI resolves qualification helper scripts relative to the installed Capstan package, not the project working directory.
 
 All JSON envelopes use `schemaVersion: 1`. `run --brief` emits `{state, projectId, planHash, baseSha, roles, scheduler, blocker?}`. `status --json` emits `ControllerStatus` (`projectId`, `run`, `stateVersion`, `inputRevision`, `roles`, `work`, `findings`, `evidence`) plus `ownership`, `blockers`, `limits`, and `nextLegalActions`. `inspect --json` emits `{schemaVersion, kind, id, record}`. The runtime TypeScript contracts are `CstanRunJsonV1`, `CstanStatusJsonV1`, and `CstanInspectJsonV1` in `src/cli.ts`; executable contract tests exercise the output envelopes and exit codes.
 Work-item `nextLegalActions` includes `mark_ready` only when the controller’s readiness checks pass; eligible pending work is not reported as waiting.
+Authenticated control requests remain capped at 16 KiB; responses are capped at 1 MiB so large inspected records fit the same bounded local IPC contract.
 
 ## 10. Implementation stages and exit gates
 
