@@ -435,7 +435,10 @@ async function runCli(argv: string[]): Promise<number> {
       },
     );
     let credentialIgnored = false;
-    if (gitRoot.status === 0 && path.resolve(gitRoot.stdout.trim()) === cwd) {
+    if (
+      gitRoot.status === 0 &&
+      path.resolve(gitRoot.stdout.replace(/\r?\n$/, "")) === cwd
+    ) {
       const exclude = spawnSync(
         "git",
         ["-C", cwd, "rev-parse", "--git-path", "info/exclude"],
@@ -510,7 +513,10 @@ async function runCli(argv: string[]): Promise<number> {
     const root = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
       encoding: "utf8",
     });
-    if (root.status !== 0 || path.resolve(root.stdout.trim()) !== cwd)
+    if (
+      root.status !== 0 ||
+      path.resolve(root.stdout.replace(/\r?\n$/, "")) !== cwd
+    )
       throw new InvalidInputError(
         "project directory must be the Git repository root before cloning role workspaces",
       );
@@ -1254,6 +1260,7 @@ async function runCli(argv: string[]): Promise<number> {
           startedAtMs: contexts.startedAtMs,
           mutationContexts: contexts,
           seats,
+          isStopping: () => stopping,
           isPlanAccepted: ({ planHash }) => {
             const pmWork = core
               .statusSnapshot()

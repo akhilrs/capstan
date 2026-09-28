@@ -46,6 +46,8 @@ export interface SchedulerOptions {
     readonly planHash: string;
     readonly pmCredential: string;
   }) => boolean | Promise<boolean>;
+  /** Recheck cancellation after awaited gates and before creating ownership. */
+  readonly isStopping?: () => boolean;
   /** Dispatch an already-created core assignment. */
   readonly dispatch: (input: SchedulerDispatch) => Promise<unknown>;
 }
@@ -182,6 +184,8 @@ export class WorkflowScheduler {
       pmCredential: identities.PM.credential,
     });
     if (!planAccepted) return { state: "waiting_for_plan_acceptance" };
+    if (this.#options.isStopping?.())
+      return { state: "stopped", reason: "run canceled by signal" };
 
     for (const sliceId of plan.order) {
       const slice = slices.find((entry) => entry.id === sliceId)!;

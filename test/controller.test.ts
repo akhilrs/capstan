@@ -3708,6 +3708,8 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
     const mutationContexts = new Map<string, MutationContext>();
     const dispatches: string[] = [];
     let planAccepted = false;
+    let stopping = false;
+    let cancelDuringPlanCheck = false;
     const scheduler = new WorkflowScheduler({
       plan,
       core,
@@ -3740,7 +3742,14 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
           displayName: "Supervisor",
         },
       },
-      isPlanAccepted: () => planAccepted,
+      isPlanAccepted: async () => {
+        if (cancelDuringPlanCheck) {
+          cancelDuringPlanCheck = false;
+          stopping = true;
+        }
+        return planAccepted;
+      },
+      isStopping: () => stopping,
       dispatch: async ({ slice, getMutationContext }) => {
         dispatches.push(slice.id);
         if (slice.id === "first") {
@@ -3886,6 +3895,18 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
       first.assignment.workItemId,
       candidate.candidateId,
     );
+
+    cancelDuringPlanCheck = true;
+    assert.deepEqual(await scheduler.step(), {
+      state: "stopped",
+      reason: "run canceled by signal",
+    });
+    assert.equal(
+      scheduler.status.work.find((work) => work.title === "Slice B")?.state,
+      "pending",
+    );
+    assert.deepEqual(dispatches, ["first"]);
+    stopping = false;
 
     const second = await scheduler.step();
     assert.equal(second.state, "dispatched");
