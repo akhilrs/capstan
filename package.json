@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=24 <25"
+  "bin": {
+    "cstan": "./dist/src/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs && chmod 755 dist/src/cli.js",
     "test": "npm run build && node --test dist/test/*.test.js scripts/m1-controller-adapter.test.mjs",
     "test:m1-adapter": "npm run build && node --test scripts/m1-controller-adapter.test.mjs",
     "lint": "eslint src test",

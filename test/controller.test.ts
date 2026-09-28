@@ -21,6 +21,8 @@ import {
   StateVersionConflictError,
   TransitionAuthorizationError,
 } from "../src/controller/core.js";
+import { WorkflowScheduler } from "../src/controller/scheduler.js";
+import { validateWorkflowPlan } from "../src/controller/workflow.js";
 import { M1BridgeAdapter } from "../src/controller/m1-bridge.js";
 import {
   M1_MAX_PROMPT_BYTES,
@@ -100,12 +102,16 @@ interface Fixture {
   readonly project: InitialProject;
 }
 
-async function fixture(): Promise<Fixture> {
+async function fixture(runtimeWorkspacePath?: string): Promise<Fixture> {
   const stateDirectory = mkdtempSync(
     path.join(tmpdir(), "capstan-controller-test-"),
   );
   const info = project();
-  const core = await ControllerCore.open({ stateDirectory, project: info });
+  const core = await ControllerCore.open({
+    stateDirectory,
+    project: info,
+    ...(runtimeWorkspacePath === undefined ? {} : { runtimeWorkspacePath }),
+  });
   return { core, stateDirectory, project: info };
 }
 
@@ -509,7 +515,9 @@ test("M1 receipt acknowledgement does not require sender EOF", async () => {
       context(core, info.ownerCredential),
       assignment.commandId,
     );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
+      allowUnauthenticatedLocalPeers: true,
+    });
     await adapter.listen();
     const response = await new Promise<string>((resolve, reject) => {
       const socket = net.createConnection(receiptSocket);
@@ -612,7 +620,9 @@ test("M1 adapter rejects duplicate responses after acknowledgement", async () =>
       "double-frame-work",
       developer.seatId,
     );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
+      allowUnauthenticatedLocalPeers: true,
+    });
     await adapter.listen();
     await assert.rejects(
       adapter.dispatchAndStart(
@@ -673,8 +683,9 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
     server.listen(bridgeSocket, resolve);
   });
   let adapter: M1BridgeAdapter | undefined;
+  let core = value.core;
   try {
-    const { core, project: info } = value;
+    const info = value.project;
     const developer = await addSeatAndActor(
       core,
       info.ownerCredential,
@@ -697,19 +708,9 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
       context(core, info.ownerCredential),
       assignment.commandId,
     );
-    core.recordBridgeReceipt(
-      receipt(
-        {
-          commandId: assignment.commandId,
-          assignmentId: assignment.assignmentId,
-          attempt: assignment.attempt,
-          generation: assignment.generation,
-        },
-        1,
-        "dispatch_error",
-      ),
-    );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket);
+    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
+      allowUnauthenticatedLocalPeers: true,
+    });
     await adapter.listen();
     const version = core.stateVersion;
     const inspected = await adapter.inspectUncertainCommand(
@@ -724,29 +725,34 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
       { type: "get", commandId: assignment.commandId },
     ]);
     assert.equal(core.stateVersion, version);
-    assert.equal(core.commandState(assignment.commandId), "unknown");
+    assert.equal(core.commandState(assignment.commandId), "attempting");
     assert.throws(
       () =>
         core.confirmContainment(
           context(core, info.ownerCredential),
           assignment.assignmentId,
-          "proof:stale-inspection",
+          "proof:premature-containment",
           inspected,
         ),
       /reconcile the same command/,
     );
     assert.equal(core.readiness("inspect-unknown-work").ready, false);
+    core.close();
+    core = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    assert.equal(core.commandState(assignment.commandId), "unknown");
     assert.deepEqual(
-      await adapter.reconcilePrestartAndContain(
+      core.confirmContainment(
         context(core, info.ownerCredential),
         assignment.assignmentId,
-        assignment.commandId,
         "proof:bridge-queried-and-worker-quiescent",
+        inspected,
       ),
       { contained: true },
     );
     assert.deepEqual(requests, [
-      { type: "get", commandId: assignment.commandId },
       { type: "get", commandId: assignment.commandId },
     ]);
     assert.equal(core.readiness("inspect-unknown-work").ready, true);
@@ -768,6 +774,7 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
     );
     assert.notEqual(replacement.assignmentId, assignment.assignmentId);
   } finally {
+    core.close();
     await adapter?.close();
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
@@ -2246,7 +2253,7 @@ test("runtime identity observations keep distinct durable identifiers", async ()
 });
 
 test("assignment capsule includes accepted non-candidate report evidence", async () => {
-  const value = await fixture();
+  const value = await fixture("/workspace");
   try {
     const { core, project: info } = value;
     const pm = await addSeatAndActor(
@@ -2254,6 +2261,12 @@ test("assignment capsule includes accepted non-candidate report evidence", async
       info.ownerCredential,
       "PM",
       "capsule-report-pm",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "capsule-report-supervisor",
     );
     const developer = await addSeatAndActor(
       core,
@@ -2317,45 +2330,68 @@ test("assignment capsule includes accepted non-candidate report evidence", async
       context(core, info.ownerCredential),
       "capsule-report-dependent",
     );
+    const unstartedAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "capsule-report-dependent",
+      developer.seatId,
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      unstartedAssignment.assignmentId,
+      "proof:capsule-unstarted-worker",
+    );
+    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
+      recoveryId: "capsule-report-recovery",
+      workItemId: "capsule-report-dependent",
+      assignmentId: unstartedAssignment.assignmentId,
+      recoveryType: "worker_replacement",
+      reason: "Replace the contained pre-start assignment",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "capsule-report-dependent",
+    );
     const dependentAssignment = core.assignWorkItem(
       context(core, info.ownerCredential),
       "capsule-report-dependent",
       developer.seatId,
+      undefined,
+      recovery.recoveryId,
     );
     const dispatch = core.beginCommandDelivery(
       context(core, info.ownerCredential),
       dependentAssignment.commandId,
     );
-    const payload = dispatch.payload as {
-      prompt: string;
-      commandId: string;
-      assignmentId: string;
-      attempt: number;
-      generation: number;
-      singleResponse: boolean;
-    };
-    assert.equal(payload.singleResponse, true);
-    assert.deepEqual(
-      {
-        commandId: payload.commandId,
-        assignmentId: payload.assignmentId,
-        attempt: payload.attempt,
-        generation: payload.generation,
-      },
-      {
-        commandId: dependentAssignment.commandId,
-        assignmentId: dependentAssignment.assignmentId,
-        attempt: dependentAssignment.attempt,
-        generation: dependentAssignment.generation,
-      },
-    );
+    const payload = dispatch.payload as { prompt: string };
     const capsule = JSON.parse(payload.prompt) as {
+      projectId: string;
       assignment: {
         commandId: string;
         assignmentId: string;
         attempt: number;
         generation: number;
       };
+      workItem: {
+        workItemId: string;
+        title: string;
+        description: string;
+        requiredRole: Role;
+        inputRevision: number;
+      };
+      seat: { seatId: string; role: Role };
+      inputs: Record<string, unknown>;
+      acceptedFacts: Array<{
+        kind: string;
+        revision: number;
+        contentHash: string;
+      }>;
+      policy: unknown;
+      scope: { workspace: string; writePaths: string[]; readOnly: boolean };
+      openFindings: unknown[];
+      recoveryHistory: unknown[];
+      resultSchema: { type: string; required: string[] };
+      nextLegalActions: string[];
+      artifacts: unknown[];
       dependencies: Array<Record<string, unknown>>;
     };
     assert.deepEqual(capsule.assignment, {
@@ -2364,6 +2400,78 @@ test("assignment capsule includes accepted non-candidate report evidence", async
       attempt: dependentAssignment.attempt,
       generation: dependentAssignment.generation,
     });
+    assert.equal(capsule.projectId, core.projectId);
+    assert.deepEqual(capsule.workItem, {
+      workItemId: "capsule-report-dependent",
+      title: "Use the accepted report",
+      description: "The worker needs the accepted report contents",
+      requiredRole: "Developer",
+      inputRevision: core.inputRevision,
+    });
+    assert.deepEqual(capsule.seat, {
+      seatId: developer.seatId,
+      role: "Developer",
+    });
+    assert.deepEqual(
+      capsule.inputs,
+      Object.fromEntries(
+        info.initialInputs.map((input) => [input.kind, input.content]),
+      ),
+    );
+    assert.deepEqual(
+      capsule.acceptedFacts,
+      info.initialInputs
+        .map((input) => ({
+          kind: input.kind,
+          revision: 1,
+          contentHash: digestJson(input.content),
+        }))
+        .sort((left, right) => left.kind.localeCompare(right.kind)),
+    );
+    assert.deepEqual(capsule.policy, { kind: "policy", revision: 1 });
+    assert.deepEqual(capsule.scope, {
+      workspace: "/workspace",
+      writePaths: [],
+      readOnly: false,
+    });
+    assert.deepEqual(capsule.openFindings, []);
+    const [recoveryEntry] = capsule.recoveryHistory as Array<
+      Record<string, unknown>
+    >;
+    assert.deepEqual(
+      {
+        recovery_id: recoveryEntry?.recovery_id,
+        recovery_type: recoveryEntry?.recovery_type,
+        generation: recoveryEntry?.generation,
+        reason: recoveryEntry?.reason,
+        containment_state: recoveryEntry?.containment_state,
+        outcome: recoveryEntry?.outcome,
+      },
+      {
+        recovery_id: "capsule-report-recovery",
+        recovery_type: "worker_replacement",
+        generation: 1,
+        reason: "Replace the contained pre-start assignment",
+        containment_state: "contained",
+        outcome: "pending",
+      },
+    );
+    assert.deepEqual(capsule.resultSchema, {
+      type: "object",
+      required: [
+        "candidateId",
+        "commitSha",
+        "baseSha",
+        "changedScope",
+        "limitations",
+      ],
+    });
+    assert.deepEqual(capsule.nextLegalActions, [
+      "implement_assigned_scope",
+      "report_blocker",
+      "submit_candidate",
+    ]);
+    assert.deepEqual(capsule.artifacts, []);
     assert.deepEqual(capsule.dependencies, [
       {
         workItemId: "capsule-pm-report",
@@ -2373,6 +2481,79 @@ test("assignment capsule includes accepted non-candidate report evidence", async
         reportHash: digestJson(completedReport),
       },
     ]);
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "capsule-supervisor-finding",
+      title: "Report a finding",
+      description: "An active finding must reach its Supervisor",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "capsule-supervisor-finding",
+    );
+    const initialSupervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "capsule-supervisor-finding",
+      supervisor.seatId,
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "capsule-open-finding",
+      workItemId: "capsule-supervisor-finding",
+      assignmentId: initialSupervisorAssignment.assignmentId,
+      generation: initialSupervisorAssignment.generation,
+      fingerprint: "capsule-finding-fingerprint",
+      severity: "high",
+      evidence: { artifactRef: "artifact://finding/evidence" },
+      requestedCorrection: "Correct the identified failure",
+      resolutionCondition: "The correction passes the focused scenario",
+    });
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      initialSupervisorAssignment.assignmentId,
+      "proof:capsule-finding-report",
+    );
+    const supervisorRecovery = core.recordRecovery(
+      context(core, info.ownerCredential),
+      {
+        recoveryId: "capsule-finding-recovery",
+        workItemId: "capsule-supervisor-finding",
+        assignmentId: initialSupervisorAssignment.assignmentId,
+        recoveryType: "worker_replacement",
+        reason: "Reassign after detecting the open finding",
+      },
+    );
+    core.markReady(
+      context(core, info.ownerCredential),
+      "capsule-supervisor-finding",
+    );
+    const supervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "capsule-supervisor-finding",
+      supervisor.seatId,
+      undefined,
+      supervisorRecovery.recoveryId,
+    );
+    const supervisorDispatch = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      supervisorAssignment.commandId,
+    );
+    const supervisorCapsule = JSON.parse(
+      (supervisorDispatch.payload as { prompt: string }).prompt,
+    ) as {
+      openFindings: Array<Record<string, unknown>>;
+      scope: { readOnly: boolean };
+    };
+    assert.deepEqual(supervisorCapsule.openFindings, [
+      {
+        findingId: "capsule-open-finding",
+        severity: "high",
+        evidence: { artifactRef: "artifact://finding/evidence" },
+        requestedCorrection: "Correct the identified failure",
+        resolutionCondition: "The correction passes the focused scenario",
+        state: "detected",
+      },
+    ]);
+    assert.equal(supervisorCapsule.scope.readOnly, true);
   } finally {
     cleanup(value);
   }
@@ -2864,7 +3045,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       secondVerifier.assignmentId,
       "supervisor-confirmed:second-verifier",
     );
-    core.recordEvidence(
+    const secondEvidence = core.recordEvidence(
       context(core, verifier.credential),
       secondVerifier.assignmentId,
       {
@@ -2886,7 +3067,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       /every bound Verifier assignment must be contained and pass every current criterion/,
     );
     assert.equal(core.stateVersion, versionBeforeCurrentVerifierEvidence);
-    core.recordEvidence(
+    const replacementEvidence = core.recordEvidence(
       context(core, verifier.credential),
       replacementVerifier.assignmentId,
       {
@@ -2972,23 +3153,47 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
       "feature",
       candidate.candidateId,
     );
-    core.addDependency(
-      context(core, pm.credential),
-      "candidate-pinned-downstream",
-      "verify-feature",
-    );
     assert.equal(core.readiness("candidate-pinned-downstream").ready, true);
     core.markReady(
       context(core, info.ownerCredential),
       "candidate-pinned-downstream",
     );
-    assert.ok(
-      core.assignWorkItem(
-        context(core, info.ownerCredential),
-        "candidate-pinned-downstream",
-        developer.seatId,
-      ).commandId,
+    const candidateDownstream = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "candidate-pinned-downstream",
+      developer.seatId,
     );
+    const candidateDispatch = core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      candidateDownstream.commandId,
+    );
+    const candidateCapsule = JSON.parse(
+      (candidateDispatch.payload as { prompt: string }).prompt,
+    ) as { artifacts: Array<Record<string, unknown>> };
+    assert.deepEqual(candidateCapsule.artifacts, [
+      {
+        workItemId: "feature",
+        candidateId: candidate.candidateId,
+        evidenceId: "evidence-2",
+        verifierAssignmentId: secondVerifier.assignmentId,
+        inputRevision: core.inputRevision,
+        criterion: " criterion-one ",
+        passed: true,
+        artifactRef: "artifact://test/evidence-2",
+        evidenceHash: secondEvidence.evidenceHash,
+      },
+      {
+        workItemId: "feature",
+        candidateId: candidate.candidateId,
+        evidenceId: "replacement-evidence",
+        verifierAssignmentId: replacementVerifier.assignmentId,
+        inputRevision: core.inputRevision,
+        criterion: " criterion-one ",
+        passed: true,
+        artifactRef: "artifact://test/replacement-evidence",
+        evidenceHash: replacementEvidence.evidenceHash,
+      },
+    ]);
   } finally {
     cleanup(value);
   }
@@ -3214,6 +3419,229 @@ test("worker replacement limits count consumed recovery records", async () => {
     });
     assert.equal(second.outcome, "blocked");
     assert.equal(second.limit, 1);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("scheduler dispatches Slice B only after Slice A candidate acceptance", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const plan = validateWorkflowPlan({
+      schemaVersion: 1,
+      taskId: "serial-slices",
+      objective: "Require independent acceptance between serial slices",
+      acceptanceCriteria: ["criterion-one"],
+      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 4 },
+      slices: [
+        {
+          id: "first",
+          title: "Slice A",
+          description: "Implement the first accepted change",
+          role: "Developer",
+          dependsOn: [],
+          writeScope: ["src/first.ts"],
+          acceptanceCriteria: ["criterion-one"],
+        },
+        {
+          id: "second",
+          title: "Slice B",
+          description: "Build on the accepted first change",
+          role: "Developer",
+          dependsOn: ["first"],
+          writeScope: ["src/second.ts"],
+          acceptanceCriteria: ["criterion-one"],
+        },
+      ],
+    });
+    const mutationContexts = new Map<string, MutationContext>();
+    const dispatches: string[] = [];
+    let planAccepted = false;
+    const scheduler = new WorkflowScheduler({
+      plan,
+      core,
+      operatorCredential: info.ownerCredential,
+      startedAtMs: Date.now(),
+      mutationContexts: {
+        getOrCreate(key, create) {
+          const prior = mutationContexts.get(key);
+          if (prior) return prior;
+          const next = create();
+          mutationContexts.set(key, next);
+          return next;
+        },
+      },
+      seats: {
+        PM: { seatId: "scheduler-pm", name: "PM", displayName: "PM" },
+        Developer: {
+          seatId: "scheduler-developer",
+          name: "Developer",
+          displayName: "Developer",
+        },
+        Verifier: {
+          seatId: "scheduler-verifier",
+          name: "Verifier",
+          displayName: "Verifier",
+        },
+        Supervisor: {
+          seatId: "scheduler-supervisor",
+          name: "Supervisor",
+          displayName: "Supervisor",
+        },
+      },
+      isPlanAccepted: () => planAccepted,
+      dispatch: async ({ slice, getMutationContext }) => {
+        dispatches.push(slice.id);
+        if (slice.id === "first") {
+          core.createWorkItem(context(core, info.ownerCredential), {
+            workItemId: "dispatch-version-race",
+            title: "Concurrent runtime event",
+            description:
+              "Advance project state while runtime provisioning finishes",
+            requiredRole: "Developer",
+          });
+          const deliveryContext = getMutationContext();
+          assert.equal(deliveryContext.expectedVersion, core.stateVersion);
+          assert.deepEqual(getMutationContext(), deliveryContext);
+        }
+      },
+    });
+    const identities = scheduler.initialize();
+    assert.deepEqual(await scheduler.step(), {
+      state: "waiting_for_plan_acceptance",
+    });
+
+    planAccepted = true;
+    const first = await scheduler.step();
+    assert.equal(first.state, "dispatched");
+    if (first.state !== "dispatched") return;
+    assert.equal(first.sliceId, "first");
+    assert.deepEqual(dispatches, ["first"]);
+    const blockedSecond = scheduler.status.work.find(
+      (work) => work.title === "Slice B",
+    );
+    assert.ok(blockedSecond);
+    assert.equal(blockedSecond?.state, "pending");
+    assert.equal(core.readiness(blockedSecond.workItemId).ready, false);
+    assert.ok(
+      core
+        .readiness(blockedSecond.workItemId)
+        .reasons.includes(
+          `dependency ${first.assignment.workItemId} is not accepted`,
+        ),
+    );
+
+    const whileFirstUnaccepted = await scheduler.step();
+    assert.equal(whileFirstUnaccepted.state, "waiting");
+    if (whileFirstUnaccepted.state !== "waiting") return;
+    assert.equal(whileFirstUnaccepted.workItemId, first.assignment.workItemId);
+    assert.deepEqual(dispatches, ["first"]);
+
+    const firstIdentity = {
+      commandId: first.assignment.commandId,
+      assignmentId: first.assignment.assignmentId,
+      attempt: first.assignment.attempt,
+      generation: first.assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      firstIdentity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(firstIdentity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      firstIdentity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(firstIdentity, 2, "submitted"));
+    core.recordBridgeReceipt(receipt(firstIdentity, 3, "working"));
+    core.recordBridgeReceipt(receipt(firstIdentity, 4, "completed"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      firstIdentity.assignmentId,
+      "scheduler-test:developer-contained",
+    );
+    const candidate = core.submitCandidate(
+      context(core, identities.Developer.credential),
+      {
+        candidateId: "serial-first-candidate",
+        assignmentId: first.assignment.assignmentId,
+        commitSha: "a".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src/first.ts"],
+        limitations: [],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "serial-first-verification",
+      title: "Verify Slice A",
+      description: "Independently verify the first candidate",
+      requiredRole: "Verifier",
+      parentWorkItemId: first.assignment.workItemId,
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "serial-first-verification",
+    );
+    const verifier = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "serial-first-verification",
+      identities.Verifier.seatId,
+      candidate.candidateId,
+    );
+    const verifierIdentity = {
+      commandId: verifier.commandId,
+      assignmentId: verifier.assignmentId,
+      attempt: verifier.attempt,
+      generation: verifier.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      verifierIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 1, "accepted", "Verifier"),
+    );
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      verifierIdentity.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 2, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 3, "working", "Verifier"),
+    );
+    core.recordBridgeReceipt(
+      receipt(verifierIdentity, 4, "completed", "Verifier"),
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      verifier.assignmentId,
+      "scheduler-test:verifier-contained",
+    );
+    core.recordEvidence(
+      context(core, identities.Verifier.credential),
+      verifier.assignmentId,
+      {
+        evidenceId: "serial-first-evidence",
+        candidateId: candidate.candidateId,
+        criterion: "criterion-one",
+        passed: true,
+        artifactRef: "artifact://serial-first/evidence",
+      },
+    );
+    core.acceptCandidate(
+      context(core, info.ownerCredential),
+      first.assignment.workItemId,
+      candidate.candidateId,
+    );
+
+    const second = await scheduler.step();
+    assert.equal(second.state, "dispatched");
+    if (second.state !== "dispatched") return;
+    assert.equal(second.sliceId, "second");
+    assert.deepEqual(dispatches, ["first", "second"]);
   } finally {
     cleanup(value);
   }
