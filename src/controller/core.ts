@@ -6891,7 +6891,6 @@ export class ControllerCore {
                AND relevant.payload_json NOT LIKE '%"action":"assignment.containment.confirmed"%'
                AND relevant.payload_json NOT LIKE '%"action":"finding.transition"%'
                AND relevant.payload_json NOT LIKE '%"action":"work.report.accept"%'
-               AND relevant.sequence = event.sequence
            )
          WHERE relevant_assignments.project_id = ? AND event.sequence <= ?
          ORDER BY event.sequence DESC LIMIT ?`,

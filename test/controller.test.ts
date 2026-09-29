@@ -2000,6 +2000,36 @@ test("Supervisor event references retain an older assignment beyond the event wi
         `never-started:${id}`,
       );
     }
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const latest = db
+        .prepare(
+          "SELECT MAX(sequence) AS sequence FROM controller_events WHERE project_id = ?",
+        )
+        .get(info.projectId) as { sequence: number };
+      const duplicate = db.prepare(
+        `INSERT INTO controller_events (
+          project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
+          state_version, actor_id, request_id, input_revision, payload_json, created_at
+        )
+        SELECT project_id, ?, ?, entity_type, entity_id, from_state, to_state,
+          state_version, actor_id, request_id, input_revision, payload_json, created_at
+        FROM controller_events
+        WHERE project_id = ? AND entity_type = 'work_item' AND entity_id = ?
+        ORDER BY sequence ASC LIMIT 1`,
+      );
+      for (let index = 0; index < 70; index += 1)
+        duplicate.run(
+          latest.sequence + index + 1,
+          `busy-supervisor-event-${index}`,
+          info.projectId,
+          "later-supervisor-17",
+        );
+    } finally {
+      db.close();
+    }
     core.enableSupervision(context(core, info.ownerCredential));
     const window = core.supervisorWindow(
       core.beginSupervisorEvaluation(context(core, info.ownerCredential))
@@ -2007,6 +2037,16 @@ test("Supervisor event references retain an older assignment beyond the event wi
     );
     assert.ok(window.events.length <= 48);
     assert.ok(window.eventRefs.length <= 64);
+    assert.equal(
+      new Set(window.eventRefs.map((entry) => entry.assignmentId)).size,
+      window.eventRefs.length,
+    );
+    assert.equal(
+      window.eventRefs.find(
+        (entry) => entry.workItemId === "later-supervisor-17",
+      )?.eventId,
+      "busy-supervisor-event-69",
+    );
     const reference = window.eventRefs.find(
       (entry) => entry.assignmentId === older.assignmentId,
     );
