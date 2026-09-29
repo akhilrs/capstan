@@ -88,26 +88,19 @@ test("Verifier dispatch reserves a slot only while capacity remains", () => {
 });
 
 test("finding fingerprints distinguish defects supported by the same event", () => {
-  const event = ["event-123"];
   const first = createFindingFingerprint(
     "assignment-1",
-    event,
-    "The accepted report omitted the required artifact",
+    "event-123:artifact-missing",
   );
   const distinct = createFindingFingerprint(
     "assignment-1",
-    event,
-    "The accepted report used an invalid candidate revision",
+    "event-123:invalid-revision",
   );
 
   assert.notEqual(first, distinct);
   assert.equal(
     first,
-    createFindingFingerprint(
-      "assignment-1",
-      event,
-      "  THE accepted report omitted\n the required artifact ",
-    ),
+    createFindingFingerprint("assignment-1", "event-123:artifact-missing"),
   );
 });
 

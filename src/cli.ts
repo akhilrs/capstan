@@ -252,21 +252,10 @@ function workflowWorkItemId(taskId: string, sliceId: string): string {
 }
 export function createFindingFingerprint(
   affectedAssignmentId: string,
-  evidence: unknown,
-  defectIdentity?: string,
+  stableIdentity: string,
 ): string {
   return createHash("sha256")
-    .update(
-      JSON.stringify({
-        affectedAssignmentId,
-        evidence,
-        ...(defectIdentity === undefined
-          ? {}
-          : {
-              defect: defectIdentity.trim().replace(/\s+/g, " ").toLowerCase(),
-            }),
-      }),
-    )
+    .update(JSON.stringify({ affectedAssignmentId, stableIdentity }))
     .digest("hex");
 }
 
@@ -1831,7 +1820,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
-              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","diagnosis":"stable concise defect identity for a blocked outcome","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must include diagnosis, name the exact affectedAssignmentId and cite exactly one latest event whose context.events.entityId matches that assignmentId or workItemId. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition.`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","defectCode":"required stable concise defect code for a blocked outcome","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","affectedGeneration":number from context.assignments,"evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must include defectCode, name the exact affectedAssignmentId and affectedGeneration from context.assignments, and cite exactly one latest event whose context.events.entityId matches that assignmentId or its work item; a finding response must not target a different assignment generation.`,
               requiredRole: "Supervisor",
             });
             core.markReady(context(core, credential), supervisorWorkItemId);
@@ -2066,7 +2055,7 @@ async function runCli(argv: string[]): Promise<number> {
                 throw new Error(
                   "Supervisor finding must identify its exact affected assignment",
                 );
-              affected =
+              const affected =
                 pendingAffected ??
                 core.latestAssignmentForRole(
                   responsibleRole,
@@ -2076,6 +2065,22 @@ async function runCli(argv: string[]): Promise<number> {
               if (!affected)
                 throw new Error(
                   "Supervisor finding has no exact affected worker assignment",
+                );
+              const affectedGeneration =
+                hardViolationTarget?.generation ??
+                pendingAffected?.generation ??
+                window.assignments.find(
+                  (entry) => entry.assignmentId === affected.assignmentId,
+                )?.generation;
+              if (
+                affectedGeneration === undefined ||
+                affected.generation !== affectedGeneration ||
+                (hardViolationTarget === undefined &&
+                  pendingAffected === undefined &&
+                  reply.affectedGeneration !== affectedGeneration)
+              )
+                throw new Error(
+                  "Supervisor finding must bind the affected assignment generation from its evaluation context",
                 );
               if (pendingCorrection) {
                 findingId = pendingCorrection.findingId;
@@ -2113,20 +2118,24 @@ async function runCli(argv: string[]): Promise<number> {
                     );
                   evidenceEventIds = [latestRelatedEvent.eventId];
                 }
-                const fingerprintEvidence =
+                const fingerprintIdentity =
                   window.hardViolations.length > 0
-                    ? window.hardViolations
-                        .map((violation) => ({
-                          code: violation.code,
-                          seatId: violation.seatId,
-                          assignmentIds: [...violation.assignmentIds].sort(),
-                        }))
-                        .sort((left, right) =>
-                          JSON.stringify(left).localeCompare(
-                            JSON.stringify(right),
+                    ? JSON.stringify(
+                        window.hardViolations
+                          .map((violation) => ({
+                            code: violation.code,
+                            seatId: violation.seatId,
+                            assignmentIds: [...violation.assignmentIds].sort(),
+                          }))
+                          .sort((left, right) =>
+                            JSON.stringify(left).localeCompare(
+                              JSON.stringify(right),
+                            ),
                           ),
-                        )
-                    : evidenceEventIds;
+                      )
+                    : `${evidenceEventIds[0]}:${String(reply.defectCode ?? "")
+                        .trim()
+                        .toLowerCase()}`;
                 const requestedFindingId = randomUUID();
                 const finding = core.createFinding(
                   context(core, identities.Supervisor.credential),
@@ -2138,15 +2147,10 @@ async function runCli(argv: string[]): Promise<number> {
                     affectedWorkItemId: affected.workItemId,
                     affectedSeatId: affected.seatId,
                     affectedAssignmentId: affected.assignmentId,
-                    affectedGeneration: affected.generation,
+                    affectedGeneration,
                     fingerprint: createFindingFingerprint(
                       affected.assignmentId,
-                      fingerprintEvidence,
-                      window.hardViolations.length > 0
-                        ? undefined
-                        : typeof reply.diagnosis === "string"
-                          ? reply.diagnosis
-                          : undefined,
+                      fingerprintIdentity,
                     ),
                     severity: "high",
                     evidence: { observation, evidenceEventIds },

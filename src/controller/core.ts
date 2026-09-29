@@ -6061,9 +6061,13 @@ export class ControllerCore {
                  WHERE a.project_id = ? AND a.seat_id = ?
                    AND a.authority_state = 'active'
                    AND (
-                     a.assignment_id = ? OR a.work_item_id IN (
-                       SELECT work_item_id FROM finding_correction_work
-                       WHERE project_id = ? AND finding_id = ?
+                     (a.assignment_id = ? AND a.active_generation = ?)
+                     OR EXISTS (
+                       SELECT 1 FROM finding_correction_work correction
+                       WHERE correction.project_id = ? AND correction.finding_id = ?
+                         AND correction.work_item_id = a.work_item_id
+                         AND correction.target_assignment_id = ?
+                         AND correction.target_generation = ?
                      )
                    )
                  ORDER BY CASE WHEN a.assignment_id = ? THEN 0 ELSE 1 END LIMIT 1`,
@@ -6072,8 +6076,11 @@ export class ControllerCore {
                 this.#projectId,
                 actor.seatId,
                 finding.affected_assignment_id,
+                finding.affected_generation,
                 this.#projectId,
                 findingId,
+                finding.affected_assignment_id,
+                finding.affected_generation,
                 finding.affected_assignment_id,
               ) as { assignment_id: string } | undefined
           )?.assignment_id;
@@ -6833,30 +6840,24 @@ export class ControllerCore {
         `SELECT event.sequence, event.event_id, event.entity_type, event.entity_id,
           event.from_state, event.to_state,
           substr(event.payload_json, 1, 128) AS payload_excerpt, event.created_at
-         FROM (
-           SELECT assignment_id, work_item_id
-           FROM assignments WHERE project_id = ?
-           ORDER BY created_at DESC, assignment_id DESC LIMIT ?
-         ) recent_assignments
-         JOIN controller_events event ON event.project_id = ?
+         FROM assignments relevant_assignments
+         JOIN controller_events event ON event.project_id = relevant_assignments.project_id
            AND event.sequence = (
              SELECT MAX(relevant.sequence) FROM controller_events relevant
              WHERE relevant.project_id = event.project_id
                AND relevant.sequence <= ?
                AND ((relevant.entity_type = 'assignment_attempt'
-                     AND relevant.entity_id = recent_assignments.assignment_id)
+                     AND relevant.entity_id = relevant_assignments.assignment_id)
                  OR (relevant.entity_type = 'work_item'
-                     AND relevant.entity_id = recent_assignments.work_item_id))
+                     AND relevant.entity_id = relevant_assignments.work_item_id))
                AND relevant.sequence = event.sequence
            )
-         WHERE event.sequence <= ?
+         WHERE relevant_assignments.project_id = ? AND event.sequence <= ?
          ORDER BY event.sequence DESC LIMIT ?`,
       )
       .all(
-        this.#projectId,
-        assignmentLimit,
-        this.#projectId,
         eventUpperSequence,
+        this.#projectId,
         eventUpperSequence,
         assignmentLimit,
       ) as typeof events;
