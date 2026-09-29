@@ -2315,6 +2315,23 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
       developer.seatId,
     );
     core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "checkpoint-empty-finding-id",
+      title: "Ordinary work with empty finding ID",
+      description: "Must invalidate the observed epoch",
+      requiredRole: "Developer",
+      findingId: "",
+    });
+    const versionAfterEmptyId = core.stateVersion;
+    assert.throws(
+      () =>
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          worker.commandId,
+        ),
+      /checkpoint is stale/,
+    );
+    assert.equal(core.stateVersion, versionAfterEmptyId);
+    core.createWorkItem(context(core, info.ownerCredential), {
       workItemId: "checkpoint-new-input",
       title: "New work after checkpoint",
       description: "Invalidates the observed epoch",

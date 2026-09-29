@@ -8118,7 +8118,7 @@ export class ControllerCore {
     else if (
       action === "work.create" &&
       input.requiredRole !== "Supervisor" &&
-      typeof input.findingId !== "string"
+      !input.findingId
     )
       material = true;
     else if (action === "work.inputs.rebind" || action === "work.report.accept")
