@@ -802,6 +802,9 @@ async function runCli(argv: string[]): Promise<number> {
       > = {};
       const candidateWorkspaces: Record<string, string> = {};
       const acceptedCandidateByWorkItem = new Map<string, string>();
+      const candidateUnderReviewByWorkItem = new Map<string, string>();
+      let finalVerificationSource:
+        { workspace: string; commitSha: string } | undefined;
       const runtimeAssignments: Record<string, string> = {};
       const runtimeCommands: Record<string, string> = {};
       const uncertainCommandSnapshots = new Map<
@@ -1322,12 +1325,13 @@ async function runCli(argv: string[]): Promise<number> {
       const waitForReport = async (
         workItemId: string,
         assignmentId: string,
+        untilMs = deadlineMs,
       ) => {
-        while (!stopping && Date.now() < deadlineMs) {
+        while (!stopping && Date.now() < untilMs) {
           const report = core.latestCompletedReport(workItemId, assignmentId);
           if (report) return report;
           const delay = Promise.withResolvers<void>();
-          setTimeout(delay.resolve, Math.min(250, deadlineMs - Date.now()));
+          setTimeout(delay.resolve, Math.min(250, untilMs - Date.now()));
           await delay.promise;
         }
         return undefined;
@@ -1486,6 +1490,7 @@ async function runCli(argv: string[]): Promise<number> {
           },
         });
         const identities = scheduler.initialize();
+        core.enableSupervision(context(core, credential));
         if (Date.now() >= deadlineMs)
           throw new Error("maxRunMs exceeded before PM assignment");
         pmWorkItemId = `pm-${randomUUID()}`;
@@ -1508,6 +1513,7 @@ async function runCli(argv: string[]): Promise<number> {
           identities.PM.seatId,
         );
         let blocker: string | undefined;
+        let supervisorMustPause = false;
         const pmRuntime = await provisionRuntime(
           "PM",
           identities.PM.seatId,
@@ -1573,6 +1579,1460 @@ async function runCli(argv: string[]): Promise<number> {
         if (!planWasAccepted)
           blocker ??=
             "Supervisor withheld because the PM plan was not accepted";
+        const supervisorVerifiedFindings = new Map<
+          string,
+          { condition: string; evidence: string }
+        >();
+        const evaluateSupervisor = async (): Promise<string | undefined> => {
+          supervisorVerifiedFindings.clear();
+          let runtime: Awaited<ReturnType<typeof provisionRuntime>> | undefined;
+          let assignmentId: string | undefined;
+          let containmentProven = false;
+          try {
+            if (dispatches >= plan.limits.maxDispatches)
+              throw new Error(
+                "dispatch limit reached before Supervisor evaluation",
+              );
+            const evaluation = core.beginSupervisorEvaluation(
+              context(core, credential),
+            );
+            const window = core.supervisorWindow(evaluation.eventUpperSequence);
+            const snapshot = core.statusSnapshot();
+            const visibleCandidateIds = new Set([
+              ...acceptedCandidateByWorkItem.values(),
+              ...candidateUnderReviewByWorkItem.values(),
+            ]);
+            const evidenceRoot = path.join(
+              config.stateDirectory,
+              "runtime",
+              "evidence",
+            );
+            const supervisorEvidencePath = (artifactRef: string): string => {
+              const relative = path.relative(evidenceRoot, artifactRef);
+              if (
+                !relative ||
+                relative === ".." ||
+                relative.startsWith(`..${path.sep}`) ||
+                path.isAbsolute(relative)
+              )
+                throw new Error(
+                  "Supervisor evidence artifact is outside the read-only evidence root",
+                );
+              return `/evidence/${relative.split(path.sep).join("/")}`;
+            };
+            const boundedContext = {
+              taskId: plan.taskId,
+              planHash: validateWorkflowPlan(plan).hash,
+              plan: plan.slices.slice(0, 24),
+              acceptanceCriteria: plan.acceptanceCriteria.slice(0, 32),
+              epoch: evaluation.targetEpoch,
+              eventUpperSequence: evaluation.eventUpperSequence,
+              events: window.events,
+              assignments: window.assignments,
+              dependencies: window.dependencies,
+              fingerprints: window.fingerprints,
+              progress: window.events.map((event) => ({
+                sequence: event.sequence,
+                entityType: event.entityType,
+                entityId: event.entityId,
+                toState: event.toState,
+              })),
+              handoffAges: window.assignments.map((assignment) => ({
+                assignmentId: assignment.assignmentId,
+                handoffAgeMs: assignment.handoffAgeMs,
+              })),
+              limits: {
+                maxRunMs: plan.limits.maxRunMs,
+                maxDispatches: plan.limits.maxDispatches,
+                dispatchesUsed: dispatches,
+                deadlineAt: new Date(deadlineMs).toISOString(),
+              },
+              supervision: snapshot.supervision,
+              work: snapshot.work.slice(-24),
+              roles: snapshot.roles.slice(-12),
+              findings: snapshot.findings.slice(-24),
+              candidateEvidence: snapshot.evidence
+                .filter((entry) => visibleCandidateIds.has(entry.candidateId))
+                .slice(-8)
+                .map((entry) => ({
+                  candidateId: entry.candidateId,
+                  commitSha: entry.commitSha,
+                  reportHash: entry.reportHash,
+                  developerEvidence:
+                    entry.developerEvidence
+                      ?.slice(0, 8)
+                      .map((item) => item.slice(0, 128)) ?? null,
+                  verifierEvidence: entry.verifierEvidence
+                    .slice(0, 16)
+                    .map((item) => ({
+                      evidenceId: item.evidenceId,
+                      criterion: item.criterion.slice(0, 128),
+                      passed: item.passed,
+                      observation: item.observation?.slice(0, 128) ?? null,
+                      exitStatus: item.exitStatus,
+                      artifactPath: supervisorEvidencePath(item.artifactRef),
+                      evidenceHash: item.evidenceHash,
+                    })),
+                })),
+              finalVerification: snapshot.finalVerification
+                .slice(-1)
+                .map((entry) => ({
+                  workItemId: entry.workItemId,
+                  assignmentId: entry.assignmentId,
+                  commitSha: entry.commitSha,
+                  evidence: entry.evidence.slice(0, 16).map((item) => ({
+                    criterion: item.criterion.slice(0, 128),
+                    passed: item.passed,
+                    observation: item.observation?.slice(0, 128) ?? null,
+                    exitStatus: item.exitStatus,
+                    artifactPath: supervisorEvidencePath(item.artifactRef),
+                    evidenceHash: item.evidenceHash,
+                  })),
+                })),
+            };
+            const boundedJson = JSON.stringify(boundedContext);
+            if (boundedJson.length > 24_000)
+              throw new Error("bounded Supervisor context exceeds 24 KB");
+            const supervisorWorkItemId = `supervisor-${randomUUID()}`;
+            core.createWorkItem(context(core, credential), {
+              workItemId: supervisorWorkItemId,
+              title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. On blocked, identify the responsibleRole. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
+              requiredRole: "Supervisor",
+            });
+            core.markReady(context(core, credential), supervisorWorkItemId);
+            const assignment = core.assignWorkItem(
+              context(core, credential),
+              supervisorWorkItemId,
+              identities.Supervisor.seatId,
+            );
+            assignmentId = assignment.assignmentId;
+            const evidenceCandidates = snapshot.evidence
+              .filter((entry) => visibleCandidateIds.has(entry.candidateId))
+              .slice(-12)
+              .flatMap((entry) => {
+                const workspace = candidateWorkspaces[entry.candidateId];
+                return workspace
+                  ? [{ workspace, commitSha: entry.commitSha }]
+                  : [];
+              });
+            const supervisorRuntime = await provisionRuntime(
+              "Supervisor",
+              identities.Supervisor.seatId,
+              supervisorWorkItemId,
+              assignment.generation,
+              assignment.assignmentId,
+              finalVerificationSource ? [] : evidenceCandidates,
+              finalVerificationSource,
+            );
+            runtime = supervisorRuntime;
+            runtimeCommands[supervisorRuntime.session.sessionId] =
+              assignment.commandId;
+            if (stopping || Date.now() >= deadlineMs)
+              throw new Error(
+                "Supervisor evaluation exceeded the run deadline",
+              );
+            dispatches += 1;
+            core.transitionRuntimeSession(
+              context(core, credential),
+              supervisorRuntime.session.sessionId,
+              "working",
+            );
+            await supervisorRuntime.adapter.dispatchAndStart(
+              context(core, credential),
+              assignment.commandId,
+            );
+            const report = await waitForReport(
+              supervisorWorkItemId,
+              assignment.assignmentId,
+            );
+            if (
+              !report ||
+              report.assignmentId !== assignment.assignmentId ||
+              report.role !== "Supervisor" ||
+              report.inputRevision !== core.inputRevision
+            )
+              throw new Error(
+                "Supervisor evaluation report is missing or stale",
+              );
+            const reply = objectRecord(
+              parseJsonWithoutDuplicateMembers(report.reply),
+            );
+            if (
+              typeof reply?.observation !== "string" ||
+              !reply.observation.trim() ||
+              (reply.outcome !== "pass" && reply.outcome !== "blocked")
+            )
+              throw new Error(
+                "Supervisor returned an invalid structured evaluation",
+              );
+            if (
+              reply.verifiedFindings !== undefined &&
+              !Array.isArray(reply.verifiedFindings)
+            )
+              throw new Error("Supervisor verifiedFindings must be an array");
+            for (const entry of Array.isArray(reply.verifiedFindings)
+              ? reply.verifiedFindings
+              : []) {
+              const verified = objectRecord(entry);
+              const finding = snapshot.findings.find(
+                (item) => item.findingId === verified?.findingId,
+              );
+              if (
+                !verified ||
+                !finding ||
+                finding.state !== "correcting" ||
+                verified?.condition !== finding.resolutionCondition ||
+                typeof verified.evidence !== "string" ||
+                !verified.evidence.trim() ||
+                verified.evidence.length > 2048 ||
+                supervisorVerifiedFindings.has(finding.findingId)
+              )
+                throw new Error(
+                  "Supervisor verified finding must name an open finding, exact condition, and bounded evidence",
+                );
+              supervisorVerifiedFindings.set(finding.findingId, {
+                condition: finding.resolutionCondition,
+                evidence: verified.evidence,
+              });
+            }
+            const blocked =
+              reply.outcome === "blocked" || window.hardViolations.length > 0;
+            const observation =
+              window.hardViolations.length > 0
+                ? JSON.stringify({
+                    deterministicViolations: window.hardViolations,
+                    diagnosis: reply.observation,
+                  })
+                : reply.observation;
+            let affected:
+              | NonNullable<
+                  ReturnType<ControllerCore["latestAssignmentForRole"]>
+                >
+              | undefined;
+            let findingId: string | undefined;
+            let correctionWorkItemId: string | undefined;
+            let isDeduplicated = false;
+            if (blocked) {
+              const hardViolationTarget = window.assignments.find(
+                (entry) =>
+                  ["PM", "Developer", "Verifier"].includes(entry.role) &&
+                  window.hardViolations.some((violation) =>
+                    violation.assignmentIds.includes(entry.assignmentId),
+                  ),
+              );
+              if (
+                hardViolationTarget &&
+                hardViolationTarget.authorityState !== "contained"
+              ) {
+                if (
+                  hardViolationTarget.authorityState !== "active" &&
+                  hardViolationTarget.authorityState !== "unknown"
+                )
+                  throw new Error(
+                    "hard-violation target authority is not contained and cannot be safely rebound",
+                  );
+                const targetSession = allSessions.find(
+                  (session) =>
+                    runtimeAssignments[session.sessionId] ===
+                    hardViolationTarget.assignmentId,
+                );
+                if (!targetSession)
+                  throw new Error(
+                    "hard-violation target authority is active or unknown without an identifiable runtime; correction is paused",
+                  );
+                await containRuntime(
+                  targetSession,
+                  hardViolationTarget.assignmentId,
+                );
+                throw new Error(
+                  "hard-violation target was contained; Supervisor must freshly evaluate before correction binding",
+                );
+              }
+              if (window.hardViolations.length > 0 && !hardViolationTarget)
+                throw new Error(
+                  "hard-state violation has no bounded worker assignment to correct",
+                );
+              const responsibleRole = hardViolationTarget
+                ? (hardViolationTarget.role as "PM" | "Developer" | "Verifier")
+                : ["PM", "Developer", "Verifier"].includes(
+                      String(reply.responsibleRole),
+                    )
+                  ? (reply.responsibleRole as "PM" | "Developer" | "Verifier")
+                  : undefined;
+              if (!responsibleRole)
+                throw new Error(
+                  "Supervisor blocked evaluation without a responsible worker role",
+                );
+              affected = core.latestAssignmentForRole(
+                responsibleRole,
+                hardViolationTarget?.assignmentId,
+              );
+              if (!affected)
+                throw new Error(
+                  "Supervisor finding has no affected worker assignment",
+                );
+              const requestedFindingId = randomUUID();
+              const finding = core.createFinding(
+                context(core, identities.Supervisor.credential),
+                {
+                  findingId: requestedFindingId,
+                  workItemId: supervisorWorkItemId,
+                  assignmentId: assignment.assignmentId,
+                  generation: assignment.generation,
+                  affectedWorkItemId: affected.workItemId,
+                  affectedSeatId: affected.seatId,
+                  affectedAssignmentId: affected.assignmentId,
+                  affectedGeneration: affected.generation,
+                  fingerprint: createHash("sha256")
+                    .update(
+                      JSON.stringify({
+                        affectedAssignmentId: affected.assignmentId,
+                        observation: observation.trim(),
+                      }),
+                    )
+                    .digest("hex"),
+                  severity: "high",
+                  evidence: { observation },
+                  requestedCorrection: observation.slice(0, 2048),
+                  acknowledgementDeadline: new Date(
+                    Math.min(deadlineMs, Date.now() + 15 * 60_000),
+                  ).toISOString(),
+                  resolutionCondition:
+                    "The bound correction is accepted and a fresh independent Supervisor checkpoint confirms this observation is resolved",
+                  escalationRoute: "operator",
+                },
+              );
+              findingId = finding.findingId;
+              correctionWorkItemId = `correction-${findingId}`;
+              isDeduplicated = findingId !== requestedFindingId;
+              const correctionTarget = affected;
+              if (!correctionTarget)
+                throw new Error("Supervisor correction target is unavailable");
+              if (!isDeduplicated) {
+                core.transitionFinding(
+                  context(core, identities.Supervisor.credential),
+                  findingId,
+                  "reported",
+                  { observation },
+                );
+                core.createWorkItem(context(core, credential), {
+                  workItemId: correctionWorkItemId,
+                  findingId,
+                  title: `Correct Supervisor finding ${findingId}`,
+                  description: `Acknowledge this finding and provide an assignment-bound correction or dispute: ${observation.slice(0, 2048)}`,
+                  requiredRole: correctionTarget.role,
+                  ...(correctionTarget.role === "Developer"
+                    ? {
+                        acceptanceCriteria:
+                          plan.slices.find(
+                            (slice) =>
+                              workflowWorkItemId(plan.taskId, slice.id) ===
+                              correctionTarget.workItemId,
+                          )?.acceptanceCriteria ?? plan.acceptanceCriteria,
+                      }
+                    : correctionTarget.role === "Verifier"
+                      ? correctionTarget.parentWorkItemId
+                        ? {
+                            parentWorkItemId: correctionTarget.parentWorkItemId,
+                          }
+                        : {
+                            finalVerification: true,
+                            acceptanceCriteria: plan.acceptanceCriteria,
+                          }
+                      : {}),
+                });
+              }
+            }
+            await containRuntime(
+              supervisorRuntime.session,
+              assignment.assignmentId,
+            );
+            containmentProven = true;
+            core.acceptNonCandidateReport(
+              context(core, credential),
+              supervisorWorkItemId,
+              assignment.assignmentId,
+            );
+            core.recordSupervisorCheckpoint(context(core, credential), {
+              assignmentId: assignment.assignmentId,
+              generation: assignment.generation,
+              targetEpoch: evaluation.targetEpoch,
+              eventUpperSequence: evaluation.eventUpperSequence,
+              fingerprint: createHash("sha256")
+                .update(boundedJson)
+                .digest("hex"),
+            });
+            if (blocked) {
+              supervisorMustPause = true;
+              if (isDeduplicated) {
+                if (!findingId)
+                  throw new Error(
+                    "deduplicated Supervisor finding ID is missing",
+                  );
+                const existing = core
+                  .statusSnapshot()
+                  .findings.find((entry) => entry.findingId === findingId);
+                if (
+                  existing?.state === "reported" &&
+                  Date.now() >= Date.parse(existing.acknowledgementDeadline)
+                ) {
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    { reason: "acknowledgement deadline expired" },
+                  );
+                  return `Supervisor finding ${findingId} escalated after its acknowledgement deadline`;
+                }
+                return `Supervisor finding ${findingId} remains unresolved; duplicate observation was not dispatched again`;
+              }
+              if (!affected || !findingId || !correctionWorkItemId)
+                throw new Error("Supervisor correction target is unavailable");
+              if (dispatches >= plan.limits.maxDispatches) {
+                core.transitionFinding(
+                  context(core, credential),
+                  findingId,
+                  "escalated",
+                  { reason: "correction dispatch limit reached" },
+                );
+                return `Supervisor finding escalated; correction dispatch limit reached: ${observation}`;
+              }
+              const activeFinding = core
+                .statusSnapshot()
+                .findings.find((entry) => entry.findingId === findingId);
+              const findingDeadlineMs = activeFinding
+                ? Date.parse(activeFinding.acknowledgementDeadline)
+                : Number.NaN;
+              if (!Number.isFinite(findingDeadlineMs))
+                throw new Error("finding acknowledgement deadline is invalid");
+              let correctionRuntime:
+                Awaited<ReturnType<typeof provisionRuntime>> | undefined;
+              let correctionAssignmentId: string | undefined;
+              let correctionContained = false;
+              try {
+                core.markReady(context(core, credential), correctionWorkItemId);
+                const finalVerificationCorrection =
+                  affected.role === "Verifier" &&
+                  affected.parentWorkItemId === null;
+                const boundCandidate =
+                  affected.role === "Verifier" && !finalVerificationCorrection
+                    ? core.candidateForAssignment(affected.assignmentId)
+                    : undefined;
+                if (
+                  affected.role === "Verifier" &&
+                  !finalVerificationCorrection &&
+                  !boundCandidate
+                )
+                  throw new Error(
+                    "Verifier correction has no candidate bound to its affected assignment",
+                  );
+                if (finalVerificationCorrection && !finalVerificationSource)
+                  throw new Error(
+                    "final Verifier correction has no exact composed checkout",
+                  );
+                const correctionAssignment = core.assignWorkItem(
+                  context(core, credential),
+                  correctionWorkItemId,
+                  affected.seatId,
+                  boundCandidate?.candidateId,
+                );
+                correctionAssignmentId = correctionAssignment.assignmentId;
+                correctionRuntime = await (() => {
+                  const candidate = boundCandidate;
+                  const candidateWorkspace = candidate
+                    ? candidateWorkspaces[candidate.candidateId]
+                    : undefined;
+                  const exactCandidate =
+                    candidate && candidateWorkspace
+                      ? {
+                          workspace: candidateWorkspace,
+                          commitSha: candidate.commitSha,
+                        }
+                      : finalVerificationCorrection
+                        ? finalVerificationSource
+                        : undefined;
+                  if (affected.role === "Verifier" && !exactCandidate)
+                    throw new Error(
+                      "Verifier correction has no exact bound workspace",
+                    );
+                  return provisionRuntime(
+                    affected.role,
+                    affected.seatId,
+                    correctionWorkItemId,
+                    correctionAssignment.generation,
+                    correctionAssignment.assignmentId,
+                    [],
+                    exactCandidate,
+                  );
+                })();
+                runtimeCommands[correctionRuntime.session.sessionId] =
+                  correctionAssignment.commandId;
+                if (stopping || Date.now() >= deadlineMs)
+                  throw new Error(
+                    "correction dispatch exceeded the run boundary",
+                  );
+                dispatches += 1;
+                core.transitionRuntimeSession(
+                  context(core, credential),
+                  correctionRuntime.session.sessionId,
+                  "working",
+                );
+                await correctionRuntime.adapter.dispatchAndStart(
+                  context(core, credential),
+                  correctionAssignment.commandId,
+                );
+                const correctionReport = await waitForReport(
+                  correctionWorkItemId,
+                  correctionAssignment.assignmentId,
+                  Math.min(deadlineMs, findingDeadlineMs),
+                );
+                if (
+                  !correctionReport ||
+                  correctionReport.assignmentId !==
+                    correctionAssignment.assignmentId ||
+                  correctionReport.role !== affected.role ||
+                  correctionReport.inputRevision !== core.inputRevision
+                )
+                  throw new Error(
+                    "correction response is missing, stale, or mismatched",
+                  );
+                const correctionReply = objectRecord(
+                  parseJsonWithoutDuplicateMembers(correctionReport.reply),
+                );
+                if (
+                  typeof correctionReply?.acknowledgment !== "string" ||
+                  !correctionReply.acknowledgment.trim() ||
+                  typeof correctionReply.response !== "string" ||
+                  !correctionReply.response.trim() ||
+                  (correctionReply.disposition !== "correcting" &&
+                    correctionReply.disposition !== "disputed")
+                )
+                  throw new Error(
+                    "correction response must acknowledge and provide a correction or dispute",
+                  );
+                const correctionContext = context(
+                  core,
+                  identities[affected.role].credential,
+                );
+                core.transitionFinding(
+                  correctionContext,
+                  findingId,
+                  "acknowledged",
+                  {
+                    acknowledgment: correctionReply.acknowledgment,
+                    response: correctionReply.response,
+                  },
+                );
+                if (correctionReply.disposition === "disputed") {
+                  core.transitionFinding(
+                    correctionContext,
+                    findingId,
+                    "disputed",
+                    { response: correctionReply.response },
+                  );
+                } else {
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "correcting",
+                    { workItemId: correctionWorkItemId },
+                  );
+                }
+                await containRuntime(
+                  correctionRuntime.session,
+                  correctionAssignment.assignmentId,
+                );
+                correctionContained = true;
+                if (
+                  correctionReply.disposition === "correcting" &&
+                  affected.role === "Verifier"
+                ) {
+                  if (finalVerificationCorrection) {
+                    const finalSource = finalVerificationSource!;
+                    const criteria = plan.acceptanceCriteria;
+                    const verifierReply = objectRecord(
+                      parseJsonWithoutDuplicateMembers(correctionReport.reply),
+                    );
+                    if (
+                      verifierReply?.commitSha !== finalSource.commitSha ||
+                      verifierReply.startingSha !== finalSource.commitSha ||
+                      !Array.isArray(verifierReply.evidence) ||
+                      verifierReply.evidence.length !== criteria.length
+                    )
+                      throw new Error(
+                        "final Verifier correction report does not bind the exact composed checkout and parent criteria",
+                      );
+                    const checkedHead = spawnSync(
+                      "git",
+                      [
+                        "--no-replace-objects",
+                        "-c",
+                        "core.fsmonitor=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        `--git-dir=${path.join(correctionRuntime.session.workspace, ".git")}`,
+                        `--work-tree=${correctionRuntime.session.workspace}`,
+                        "-C",
+                        correctionRuntime.session.workspace,
+                        "rev-parse",
+                        "HEAD",
+                      ],
+                      {
+                        encoding: "utf8",
+                        timeout: 10_000,
+                        env: verifiedGitEnv,
+                      },
+                    );
+                    if (
+                      checkedHead.status !== 0 ||
+                      checkedHead.stdout.trim().toLowerCase() !==
+                        finalSource.commitSha.toLowerCase() ||
+                      correctionRuntime.baseSha.toLowerCase() !==
+                        finalSource.commitSha.toLowerCase()
+                    )
+                      throw new Error(
+                        "final Verifier correction did not inspect the exact composed commit",
+                      );
+                    assertTrackedCheckoutMatchesHead(
+                      correctionRuntime.session.workspace,
+                      finalSource.commitSha,
+                    );
+                    const evidence: EvidenceInput[] = [];
+                    const seen = new Set<string>();
+                    const evidenceDirectory =
+                      correctionRuntime.evidenceDirectory;
+                    if (!evidenceDirectory)
+                      throw new Error(
+                        "final Verifier correction evidence directory is unavailable",
+                      );
+                    for (const raw of verifierReply.evidence) {
+                      const entry = objectRecord(raw);
+                      if (
+                        typeof entry?.criterion !== "string" ||
+                        !criteria.includes(entry.criterion) ||
+                        seen.has(entry.criterion) ||
+                        entry.passed !== true ||
+                        typeof entry.observation !== "string" ||
+                        !entry.observation.trim() ||
+                        !Number.isInteger(entry.exitStatus) ||
+                        entry.exitStatus !== 0 ||
+                        typeof entry.artifactRef !== "string" ||
+                        !entry.artifactRef.startsWith("/evidence/")
+                      )
+                        throw new Error(
+                          "final Verifier correction evidence must pass every exact parent criterion",
+                        );
+                      seen.add(entry.criterion);
+                      evidence.push({
+                        evidenceId: randomUUID(),
+                        candidateId: finalSource.commitSha,
+                        criterion: entry.criterion,
+                        passed: true,
+                        observation: entry.observation,
+                        exitStatus: 0,
+                        artifactRef: verifiedEvidencePath(
+                          evidenceDirectory,
+                          entry.artifactRef,
+                        ),
+                      });
+                    }
+                    if (seen.size !== criteria.length)
+                      throw new Error(
+                        "final Verifier correction omitted a parent criterion",
+                      );
+                    const correctionReviewBlocker = await evaluateSupervisor();
+                    if (correctionReviewBlocker)
+                      return `Supervisor correction report remains unaccepted: ${correctionReviewBlocker}`;
+                    core.acceptFinalVerification(context(core, credential), {
+                      workItemId: correctionWorkItemId,
+                      assignmentId: correctionAssignment.assignmentId,
+                      commitSha: finalSource.commitSha,
+                      evidence,
+                    });
+                    const verificationBlocker = await evaluateSupervisor();
+                    if (verificationBlocker)
+                      return `Supervisor correction requires further review: ${verificationBlocker}`;
+                    const verifiedCondition =
+                      supervisorVerifiedFindings.get(findingId);
+                    const finding = core
+                      .statusSnapshot()
+                      .findings.find((entry) => entry.findingId === findingId);
+                    const correctionEvidence =
+                      core.latestAcceptedWorkEvent(correctionWorkItemId);
+                    if (!verifiedCondition || !finding || !correctionEvidence)
+                      return `Supervisor did not verify the recorded condition for finding ${findingId}`;
+                    core.transitionFinding(
+                      context(core, credential),
+                      findingId,
+                      "resolved",
+                      {
+                        condition: finding.resolutionCondition,
+                        evidenceEventId: correctionEvidence.eventId,
+                        assignmentId: correctionAssignment.assignmentId,
+                        generation: correctionAssignment.generation,
+                        evidence: {
+                          supervisorCheckpointAssignmentId:
+                            core.statusSnapshot().supervision
+                              .checkpointAssignmentId,
+                          acceptedCorrectionEventId: correctionEvidence.eventId,
+                          condition: finding.resolutionCondition,
+                          supervisorVerificationEvidence:
+                            verifiedCondition.evidence,
+                        },
+                      },
+                    );
+                    const finalReviewBlocker = await evaluateSupervisor();
+                    if (finalReviewBlocker)
+                      return `Resolved finding requires a fresh checkpoint: ${finalReviewBlocker}`;
+                    if (
+                      !core
+                        .statusSnapshot()
+                        .findings.some((entry) => entry.state !== "resolved")
+                    )
+                      supervisorMustPause = false;
+                    return undefined;
+                  }
+                  const candidate = boundCandidate!;
+                  const candidateWorkspace =
+                    candidateWorkspaces[candidate.candidateId];
+                  if (!candidateWorkspace)
+                    throw new Error(
+                      "Verifier correction candidate workspace is unavailable",
+                    );
+                  const candidateSlice = plan.slices.find(
+                    (slice) =>
+                      workflowWorkItemId(plan.taskId, slice.id) ===
+                      candidate.workItemId,
+                  );
+                  const criteria =
+                    candidateSlice?.acceptanceCriteria ??
+                    plan.acceptanceCriteria;
+                  const verifierReply = objectRecord(
+                    parseJsonWithoutDuplicateMembers(correctionReport.reply),
+                  );
+                  if (
+                    verifierReply?.candidateId !== candidate.candidateId ||
+                    verifierReply.commitSha !== candidate.commitSha ||
+                    verifierReply.startingSha !== candidate.commitSha ||
+                    !Array.isArray(verifierReply.evidence) ||
+                    verifierReply.evidence.length !== criteria.length
+                  )
+                    throw new Error(
+                      "Verifier correction report does not bind the exact candidate checkout and every criterion",
+                    );
+                  const seen = new Set<string>();
+                  const evidence: EvidenceInput[] = [];
+                  const evidenceDirectory = correctionRuntime.evidenceDirectory;
+                  if (!evidenceDirectory)
+                    throw new Error(
+                      "Verifier correction evidence directory is unavailable",
+                    );
+                  for (const raw of verifierReply.evidence) {
+                    const entry = objectRecord(raw);
+                    if (
+                      typeof entry?.criterion !== "string" ||
+                      !criteria.includes(entry.criterion) ||
+                      seen.has(entry.criterion) ||
+                      entry.passed !== true ||
+                      typeof entry.observation !== "string" ||
+                      !entry.observation.trim() ||
+                      !Number.isInteger(entry.exitStatus) ||
+                      entry.exitStatus !== 0 ||
+                      typeof entry.artifactRef !== "string" ||
+                      !entry.artifactRef.startsWith("/evidence/")
+                    )
+                      throw new Error(
+                        "Verifier correction evidence must pass each exact criterion with a bounded artifact",
+                      );
+                    seen.add(entry.criterion);
+                    evidence.push({
+                      evidenceId: randomUUID(),
+                      candidateId: candidate.candidateId,
+                      criterion: entry.criterion,
+                      passed: true,
+                      observation: entry.observation,
+                      exitStatus: 0,
+                      artifactRef: verifiedEvidencePath(
+                        evidenceDirectory,
+                        entry.artifactRef,
+                      ),
+                    });
+                  }
+                  if (seen.size !== criteria.length)
+                    throw new Error(
+                      "Verifier correction omitted an acceptance criterion",
+                    );
+                  const checkedHead = spawnSync(
+                    "git",
+                    [
+                      "--no-replace-objects",
+                      "-c",
+                      "core.fsmonitor=false",
+                      "-c",
+                      "core.hooksPath=/dev/null",
+                      `--git-dir=${path.join(correctionRuntime.session.workspace, ".git")}`,
+                      `--work-tree=${correctionRuntime.session.workspace}`,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "rev-parse",
+                      "HEAD",
+                    ],
+                    {
+                      encoding: "utf8",
+                      timeout: 10_000,
+                      env: verifiedGitEnv,
+                    },
+                  );
+                  if (
+                    checkedHead.status !== 0 ||
+                    checkedHead.stdout.trim().toLowerCase() !==
+                      candidate.commitSha.toLowerCase() ||
+                    correctionRuntime.baseSha.toLowerCase() !==
+                      candidate.commitSha.toLowerCase()
+                  )
+                    throw new Error(
+                      "Verifier correction did not inspect the exact immutable candidate",
+                    );
+                  assertTrackedCheckoutMatchesHead(
+                    correctionRuntime.session.workspace,
+                    candidate.commitSha,
+                  );
+                  core.recordEvidenceBatch(
+                    correctionContext,
+                    correctionAssignment.assignmentId,
+                    evidence,
+                  );
+                  const correctionReviewBlocker = await evaluateSupervisor();
+                  if (correctionReviewBlocker)
+                    return `Supervisor correction report remains unaccepted: ${correctionReviewBlocker}`;
+                  const acceptedParent =
+                    core
+                      .statusSnapshot()
+                      .work.find(
+                        (work) => work.workItemId === candidate.workItemId,
+                      )?.state === "accepted";
+                  if (acceptedParent) {
+                    core.acceptVerifierCorrection(context(core, credential), {
+                      findingId,
+                      workItemId: correctionWorkItemId,
+                      assignmentId: correctionAssignment.assignmentId,
+                      candidateId: candidate.candidateId,
+                    });
+                  } else {
+                    core.acceptCandidate(
+                      context(core, credential),
+                      candidate.workItemId,
+                      candidate.candidateId,
+                    );
+                    acceptedCandidateByWorkItem.set(
+                      candidate.workItemId,
+                      candidate.candidateId,
+                    );
+                  }
+                  const verificationBlocker = await evaluateSupervisor();
+                  if (verificationBlocker)
+                    return `Supervisor correction requires further review: ${verificationBlocker}`;
+                  const verifiedCondition =
+                    supervisorVerifiedFindings.get(findingId);
+                  const finding = core
+                    .statusSnapshot()
+                    .findings.find((entry) => entry.findingId === findingId);
+                  const correctionEvidence = core.latestAcceptedWorkEvent(
+                    acceptedParent
+                      ? correctionWorkItemId
+                      : candidate.workItemId,
+                  );
+                  if (!verifiedCondition || !finding || !correctionEvidence)
+                    return `Supervisor did not verify the recorded condition for finding ${findingId}`;
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "resolved",
+                    {
+                      condition: finding.resolutionCondition,
+                      evidenceEventId: correctionEvidence.eventId,
+                      assignmentId: correctionAssignment.assignmentId,
+                      generation: correctionAssignment.generation,
+                      evidence: {
+                        supervisorCheckpointAssignmentId:
+                          core.statusSnapshot().supervision
+                            .checkpointAssignmentId,
+                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        condition: finding.resolutionCondition,
+                        supervisorVerificationEvidence:
+                          verifiedCondition.evidence,
+                      },
+                    },
+                  );
+                  const finalReviewBlocker = await evaluateSupervisor();
+                  if (finalReviewBlocker)
+                    return `Resolved finding requires a fresh checkpoint: ${finalReviewBlocker}`;
+                  if (
+                    !core
+                      .statusSnapshot()
+                      .findings.some((entry) => entry.state !== "resolved")
+                  )
+                    supervisorMustPause = false;
+                  return undefined;
+                }
+                if (
+                  correctionReply.disposition === "correcting" &&
+                  affected.role === "Developer"
+                ) {
+                  const developerReply = objectRecord(
+                    parseJsonWithoutDuplicateMembers(correctionReport.reply),
+                  );
+                  const candidateId = developerReply?.candidateId;
+                  const commitSha = developerReply?.commitSha;
+                  const baseSha = developerReply?.baseSha;
+                  const changedScope = developerReply?.changedScope;
+                  const limitations = developerReply?.limitations;
+                  const developerEvidence = developerReply?.evidence;
+                  const slice = plan.slices.find(
+                    (entry) =>
+                      workflowWorkItemId(plan.taskId, entry.id) ===
+                      affected.workItemId,
+                  );
+                  if (
+                    !slice ||
+                    candidateId !==
+                      `candidate-${correctionAssignment.assignmentId}` ||
+                    typeof commitSha !== "string" ||
+                    !/^[a-f0-9]{40}([a-f0-9]{24})?$/i.test(commitSha) ||
+                    baseSha !== correctionRuntime.baseSha ||
+                    !Array.isArray(changedScope) ||
+                    changedScope.some((entry) => typeof entry !== "string") ||
+                    !Array.isArray(limitations) ||
+                    limitations.some((entry) => typeof entry !== "string") ||
+                    !Array.isArray(developerEvidence) ||
+                    developerEvidence.length === 0 ||
+                    developerEvidence.length > 64 ||
+                    developerEvidence.some(
+                      (entry) =>
+                        typeof entry !== "string" ||
+                        !entry.trim() ||
+                        entry.length > 4096,
+                    )
+                  )
+                    throw new Error(
+                      "Developer correction report lacks a valid candidate assignment, base, scope, or evidence",
+                    );
+                  const safeGit = [
+                    "--no-replace-objects",
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    `--git-dir=${path.join(correctionRuntime.session.workspace, ".git")}`,
+                    `--work-tree=${correctionRuntime.session.workspace}`,
+                  ];
+                  const configuredFilters = spawnSync(
+                    "git",
+                    [
+                      ...safeGit,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "config",
+                      "--null",
+                      "--name-only",
+                      "--get-regexp",
+                      "^filter\\..*\\.(clean|process)$",
+                    ],
+                    { encoding: "buffer", env: verifiedGitEnv },
+                  );
+                  if (
+                    configuredFilters.error ||
+                    ![0, 1].includes(configuredFilters.status ?? -1)
+                  )
+                    throw new Error(
+                      "cannot inspect correction checkout filter commands",
+                    );
+                  if (configuredFilters.status === 0) {
+                    if (configuredFilters.stdout.at(-1) !== 0)
+                      throw new Error(
+                        "incomplete correction checkout filter configuration",
+                      );
+                    const filters = new TextDecoder("utf-8", {
+                      fatal: true,
+                    }).decode(configuredFilters.stdout.subarray(0, -1));
+                    for (const name of new Set(filters.split("\0")))
+                      safeGit.push("-c", `${name}=`);
+                  }
+                  const head = spawnSync(
+                    "git",
+                    [
+                      ...safeGit,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "rev-parse",
+                      "HEAD",
+                    ],
+                    { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
+                  );
+                  const status = spawnSync(
+                    "git",
+                    [
+                      ...safeGit,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "status",
+                      "--porcelain",
+                      "--untracked-files=all",
+                    ],
+                    { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
+                  );
+                  const ancestry = spawnSync(
+                    "git",
+                    [
+                      ...safeGit,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "merge-base",
+                      "--is-ancestor",
+                      correctionRuntime.baseSha,
+                      commitSha,
+                    ],
+                    { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
+                  );
+                  const diff = spawnSync(
+                    "git",
+                    [
+                      ...safeGit,
+                      "-C",
+                      correctionRuntime.session.workspace,
+                      "diff",
+                      "--no-renames",
+                      "--no-ext-diff",
+                      "--no-textconv",
+                      "--name-only",
+                      "-z",
+                      "--diff-filter=ACDMRT",
+                      `${baseSha}..${commitSha}`,
+                    ],
+                    {
+                      encoding: "buffer",
+                      timeout: 10_000,
+                      env: verifiedGitEnv,
+                    },
+                  );
+                  if (
+                    head.status !== 0 ||
+                    head.stdout.trim().toLowerCase() !==
+                      commitSha.toLowerCase() ||
+                    status.status !== 0 ||
+                    status.stdout.trim() ||
+                    diff.status !== 0 ||
+                    ancestry.status !== 0 ||
+                    (diff.stdout.length > 0 && diff.stdout.at(-1) !== 0)
+                  )
+                    throw new Error(
+                      "Developer correction candidate is not a clean HEAD of its assignment workspace",
+                    );
+                  const actualScope = diff.stdout.length
+                    ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+                        .decode(diff.stdout.subarray(0, -1))
+                        .split("\0")
+                        .sort()
+                    : [];
+                  const reportedScope = [...(changedScope as string[])].sort();
+                  if (
+                    !actualScope.length ||
+                    actualScope.length !== reportedScope.length ||
+                    actualScope.some(
+                      (file, index) => file !== reportedScope[index],
+                    ) ||
+                    actualScope.some(
+                      (file) =>
+                        file.startsWith("/") ||
+                        file.split(/[\\/]/).includes("..") ||
+                        !slice.writeScope.some(
+                          (scope) =>
+                            file === scope ||
+                            file.startsWith(`${scope.replace(/\/+$/, "")}/`),
+                        ),
+                    )
+                  )
+                    throw new Error(
+                      "Developer correction changes files outside its validated scope",
+                    );
+                  const candidate: CandidateInput = {
+                    candidateId,
+                    assignmentId: correctionAssignment.assignmentId,
+                    commitSha,
+                    baseSha: correctionRuntime.baseSha,
+                    changedScope: reportedScope,
+                    limitations: limitations as string[],
+                    evidence: developerEvidence as string[],
+                  };
+                  core.submitCandidate(
+                    context(core, identities.Developer.credential),
+                    candidate,
+                  );
+                  candidateWorkspaces[candidateId] =
+                    correctionRuntime.session.workspace;
+                  candidateUnderReviewByWorkItem.set(
+                    correctionWorkItemId,
+                    candidateId,
+                  );
+                  const candidateCheckpointBlocker = await evaluateSupervisor();
+                  if (candidateCheckpointBlocker)
+                    return `Supervisor correction candidate remains unaccepted: ${candidateCheckpointBlocker}`;
+                  if (
+                    dispatches >= plan.limits.maxDispatches ||
+                    Date.now() >= findingDeadlineMs
+                  )
+                    throw new Error(
+                      "correction Verifier dispatch exceeded its bounded budget",
+                    );
+                  const verifierWorkItemId = `verify-${randomUUID()}`;
+                  core.createWorkItem(context(core, credential), {
+                    workItemId: verifierWorkItemId,
+                    title: `Verify correction candidate ${candidateId}`,
+                    description: `Independently verify candidate ${candidateId} at exactly commit ${commitSha}, startingSha ${commitSha}, against every criterion: ${slice.acceptanceCriteria.join("; ")}. Do not modify source files. Return JSON {candidateId,commitSha,startingSha,evidence} with one {criterion,passed,observation,exitStatus,artifactRef} item per criterion.`,
+                    requiredRole: "Verifier",
+                    parentWorkItemId: correctionWorkItemId,
+                    acceptanceCriteria: slice.acceptanceCriteria,
+                  });
+                  const dispatchReadinessBlocker = await evaluateSupervisor();
+                  if (dispatchReadinessBlocker)
+                    return `Supervisor correction Verifier dispatch remains blocked: ${dispatchReadinessBlocker}`;
+                  core.markReady(context(core, credential), verifierWorkItemId);
+                  const verifierAssignment = core.assignWorkItem(
+                    context(core, credential),
+                    verifierWorkItemId,
+                    identities.Verifier.seatId,
+                    candidateId,
+                  );
+                  const verifierRuntime = await provisionRuntime(
+                    "Verifier",
+                    identities.Verifier.seatId,
+                    verifierWorkItemId,
+                    verifierAssignment.generation,
+                    verifierAssignment.assignmentId,
+                    [],
+                    {
+                      workspace: correctionRuntime.session.workspace,
+                      commitSha,
+                    },
+                  );
+                  runtimeCommands[verifierRuntime.session.sessionId] =
+                    verifierAssignment.commandId;
+                  dispatches += 1;
+                  let verifierContained = false;
+                  try {
+                    core.transitionRuntimeSession(
+                      context(core, credential),
+                      verifierRuntime.session.sessionId,
+                      "working",
+                    );
+                    await verifierRuntime.adapter.dispatchAndStart(
+                      context(core, credential),
+                      verifierAssignment.commandId,
+                    );
+                    const report = await waitForReport(
+                      verifierWorkItemId,
+                      verifierAssignment.assignmentId,
+                      Math.min(deadlineMs, findingDeadlineMs),
+                    );
+                    if (
+                      !report ||
+                      report.assignmentId !== verifierAssignment.assignmentId ||
+                      report.role !== "Verifier" ||
+                      report.inputRevision !== core.inputRevision
+                    )
+                      throw new Error(
+                        "correction Verifier report is missing or mismatched",
+                      );
+                    await containRuntime(
+                      verifierRuntime.session,
+                      verifierAssignment.assignmentId,
+                    );
+                    verifierContained = true;
+                    const verifiedHead = spawnSync(
+                      "git",
+                      [
+                        "--no-replace-objects",
+                        "-c",
+                        "core.fsmonitor=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        `--git-dir=${path.join(verifierRuntime.session.workspace, ".git")}`,
+                        `--work-tree=${verifierRuntime.session.workspace}`,
+                        "-C",
+                        verifierRuntime.session.workspace,
+                        "rev-parse",
+                        "HEAD",
+                      ],
+                      {
+                        encoding: "utf8",
+                        timeout: 10_000,
+                        env: verifiedGitEnv,
+                      },
+                    );
+                    const reply = objectRecord(
+                      parseJsonWithoutDuplicateMembers(report.reply),
+                    );
+                    if (
+                      verifiedHead.status !== 0 ||
+                      verifiedHead.stdout.trim().toLowerCase() !==
+                        commitSha.toLowerCase() ||
+                      verifierRuntime.baseSha.toLowerCase() !==
+                        commitSha.toLowerCase() ||
+                      reply?.candidateId !== candidateId ||
+                      reply.commitSha !== commitSha ||
+                      reply.startingSha !== commitSha ||
+                      !Array.isArray(reply.evidence) ||
+                      reply.evidence.length !== slice.acceptanceCriteria.length
+                    )
+                      throw new Error(
+                        "correction Verifier report does not bind the exact candidate",
+                      );
+                    assertTrackedCheckoutMatchesHead(
+                      verifierRuntime.session.workspace,
+                      commitSha,
+                    );
+                    const seen = new Set<string>();
+                    const evidence: EvidenceInput[] = [];
+                    if (!verifierRuntime.evidenceDirectory)
+                      throw new Error(
+                        "correction Verifier evidence directory is unavailable",
+                      );
+                    for (const raw of reply.evidence) {
+                      const entry = objectRecord(raw);
+                      if (
+                        typeof entry?.criterion !== "string" ||
+                        !slice.acceptanceCriteria.includes(entry.criterion) ||
+                        seen.has(entry.criterion) ||
+                        entry.passed !== true ||
+                        typeof entry.observation !== "string" ||
+                        !entry.observation.trim() ||
+                        entry.exitStatus !== 0 ||
+                        typeof entry.artifactRef !== "string" ||
+                        !entry.artifactRef.startsWith("/evidence/")
+                      )
+                        throw new Error(
+                          "correction Verifier evidence must pass each exact criterion",
+                        );
+                      seen.add(entry.criterion);
+                      evidence.push({
+                        evidenceId: randomUUID(),
+                        candidateId,
+                        criterion: entry.criterion,
+                        passed: true,
+                        observation: entry.observation,
+                        exitStatus: 0,
+                        artifactRef: verifiedEvidencePath(
+                          verifierRuntime.evidenceDirectory,
+                          entry.artifactRef,
+                        ),
+                      });
+                    }
+                    if (seen.size !== slice.acceptanceCriteria.length)
+                      throw new Error(
+                        "correction Verifier omitted an acceptance criterion",
+                      );
+                    core.recordEvidenceBatch(
+                      context(core, identities.Verifier.credential),
+                      verifierAssignment.assignmentId,
+                      evidence,
+                    );
+                  } catch (error) {
+                    candidateUnderReviewByWorkItem.delete(correctionWorkItemId);
+                    throw error;
+                  } finally {
+                    if (!verifierContained)
+                      await containRuntime(
+                        verifierRuntime.session,
+                        verifierAssignment.assignmentId,
+                      );
+                  }
+                  const correctionReviewBlocker = await evaluateSupervisor();
+                  if (correctionReviewBlocker)
+                    return `Supervisor correction report remains unaccepted: ${correctionReviewBlocker}`;
+                  core.acceptCandidate(
+                    context(core, credential),
+                    correctionWorkItemId,
+                    candidateId,
+                  );
+                  const verificationBlocker = await evaluateSupervisor();
+                  if (verificationBlocker)
+                    return `Supervisor correction requires further review: ${verificationBlocker}`;
+                  const verifiedCondition =
+                    supervisorVerifiedFindings.get(findingId);
+                  const finding = core
+                    .statusSnapshot()
+                    .findings.find((entry) => entry.findingId === findingId);
+                  const correctionEvidence =
+                    core.latestAcceptedWorkEvent(correctionWorkItemId);
+                  if (!verifiedCondition || !finding || !correctionEvidence)
+                    return `Supervisor did not verify the recorded condition for finding ${findingId}`;
+                  acceptedCandidateByWorkItem.set(
+                    affected.workItemId,
+                    candidateId,
+                  );
+                  candidateUnderReviewByWorkItem.delete(correctionWorkItemId);
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "resolved",
+                    {
+                      condition: finding.resolutionCondition,
+                      evidenceEventId: correctionEvidence.eventId,
+                      assignmentId: correctionAssignment.assignmentId,
+                      generation: correctionAssignment.generation,
+                      evidence: {
+                        supervisorCheckpointAssignmentId:
+                          core.statusSnapshot().supervision
+                            .checkpointAssignmentId,
+                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        condition: finding.resolutionCondition,
+                        supervisorVerificationEvidence:
+                          verifiedCondition.evidence,
+                      },
+                    },
+                  );
+                  const finalReviewBlocker = await evaluateSupervisor();
+                  if (finalReviewBlocker)
+                    return `Resolved finding requires a fresh checkpoint: ${finalReviewBlocker}`;
+                  if (
+                    !core
+                      .statusSnapshot()
+                      .findings.some((entry) => entry.state !== "resolved")
+                  )
+                    supervisorMustPause = false;
+                  return undefined;
+                }
+                if (
+                  correctionReply.disposition === "correcting" &&
+                  affected.role === "PM"
+                ) {
+                  const correctionReviewBlocker = await evaluateSupervisor();
+                  if (correctionReviewBlocker)
+                    return `Supervisor correction report remains unaccepted: ${correctionReviewBlocker}`;
+                  core.acceptNonCandidateReport(
+                    context(core, credential),
+                    correctionWorkItemId,
+                    correctionAssignment.assignmentId,
+                  );
+                  const verificationBlocker = await evaluateSupervisor();
+                  if (verificationBlocker)
+                    return `Supervisor correction requires further review: ${verificationBlocker}`;
+                  const verifiedCondition =
+                    supervisorVerifiedFindings.get(findingId);
+                  if (!verifiedCondition)
+                    return `Supervisor did not verify the recorded condition for finding ${findingId}`;
+                  const finding = core
+                    .statusSnapshot()
+                    .findings.find((entry) => entry.findingId === findingId);
+                  const correctionEvidence =
+                    core.latestAcceptedWorkEvent(correctionWorkItemId);
+                  if (!finding || !correctionEvidence)
+                    throw new Error(
+                      "Supervisor could not bind correction resolution evidence",
+                    );
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "resolved",
+                    {
+                      condition: finding.resolutionCondition,
+                      evidenceEventId: correctionEvidence.eventId,
+                      assignmentId: correctionAssignment.assignmentId,
+                      generation: correctionAssignment.generation,
+                      evidence: {
+                        supervisorCheckpointAssignmentId:
+                          core.statusSnapshot().supervision
+                            .checkpointAssignmentId,
+                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        condition: finding.resolutionCondition,
+                        supervisorVerificationEvidence:
+                          verifiedCondition.evidence,
+                      },
+                    },
+                  );
+                  const finalReviewBlocker = await evaluateSupervisor();
+                  if (finalReviewBlocker)
+                    return `Resolved finding requires a fresh checkpoint: ${finalReviewBlocker}`;
+                  if (
+                    !core
+                      .statusSnapshot()
+                      .findings.some((entry) => entry.state !== "resolved")
+                  )
+                    supervisorMustPause = false;
+                  return undefined;
+                }
+                return `Supervisor finding ${findingId} was acknowledged; correction status is ${correctionReply.disposition}: ${correctionReply.response}`;
+              } catch (correctionError) {
+                const correctionReason =
+                  correctionError instanceof Error
+                    ? correctionError.message
+                    : "correction handoff failed";
+                if (
+                  correctionRuntime &&
+                  correctionAssignmentId &&
+                  !correctionContained
+                ) {
+                  try {
+                    await containRuntime(
+                      correctionRuntime.session,
+                      correctionAssignmentId,
+                    );
+                  } catch {
+                    return `Supervisor finding recorded; correction failed and authority containment is unproven: ${correctionReason}`;
+                  }
+                }
+                const currentFinding = core
+                  .statusSnapshot()
+                  .findings.find((entry) => entry.findingId === findingId);
+                if (
+                  currentFinding?.state === "reported" &&
+                  Date.now() >= findingDeadlineMs
+                ) {
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    { reason: "acknowledgement deadline expired" },
+                  );
+                  return `Supervisor finding ${findingId} escalated after its acknowledgement deadline: ${correctionReason}`;
+                }
+                return `Supervisor finding recorded; correction handoff failed: ${correctionReason}`;
+              }
+            }
+            return undefined;
+          } catch (error) {
+            const reason =
+              error instanceof Error
+                ? error.message
+                : "Supervisor evaluation failed";
+            try {
+              core.markSupervisionDegraded(context(core, credential), reason);
+            } catch {
+              // The persisted degraded state is already fail-safe if this retry fails.
+            }
+            if (runtime && assignmentId && !containmentProven) {
+              try {
+                await containRuntime(runtime.session, assignmentId);
+                containmentProven = true;
+              } catch {
+                supervisorMustPause = true;
+                return `Supervisor unavailable: ${reason}; authority containment is unproven`;
+              }
+            }
+            if (assignmentId && containmentProven) {
+              try {
+                core.claimSupervisorReplacement(context(core, credential));
+                return await evaluateSupervisor();
+              } catch {
+                // The one durable replacement budget is exhausted or unavailable.
+              }
+            }
+            supervisorMustPause = true;
+            return `Supervisor unavailable: ${reason}`;
+          }
+        };
+        if (!blocker && planWasAccepted) blocker = await evaluateSupervisor();
         let step = await scheduler.step();
         while (
           !stopping &&
@@ -1849,6 +3309,7 @@ async function runCli(argv: string[]): Promise<number> {
             candidate,
           );
           candidateWorkspaces[candidateId] = developerMetadata.workspace;
+          candidateUnderReviewByWorkItem.set(workItemId, candidateId);
           if (stopping) {
             blocker = "run canceled by signal";
             step = await scheduler.step();
@@ -1867,6 +3328,8 @@ async function runCli(argv: string[]): Promise<number> {
             requiredRole: "Verifier",
             parentWorkItemId: workItemId,
           });
+          blocker = await evaluateSupervisor();
+          if (blocker) break;
           core.markReady(context(core, credential), verifierWorkItemId);
           const verifierAssignment = core.assignWorkItem(
             context(core, credential),
@@ -2014,6 +3477,7 @@ async function runCli(argv: string[]): Promise<number> {
           );
           const failed = evidence.find((item) => !item.passed);
           if (failed) {
+            candidateUnderReviewByWorkItem.delete(workItemId);
             const failedObservation = verifierReply.evidence.find(
               (item) => objectRecord(item)?.criterion === failed.criterion,
             );
@@ -2039,6 +3503,8 @@ async function runCli(argv: string[]): Promise<number> {
               step = await scheduler.step();
               break;
             }
+            blocker = await evaluateSupervisor();
+            if (blocker) break;
             step = await scheduler.step({ workItemId, recoveryId });
             if (step.state !== "dispatched") {
               blocker = `Verifier rejected candidate ${candidateId}; replacement was blocked: ${step.state === "waiting" ? step.reasons.join("; ") : step.state === "stopped" ? step.reason : "scheduler did not dispatch"}`;
@@ -2046,12 +3512,17 @@ async function runCli(argv: string[]): Promise<number> {
             }
             continue;
           }
+          blocker = await evaluateSupervisor();
+          if (blocker) break;
           core.acceptCandidate(
             context(core, credential),
             workItemId,
             candidateId,
           );
           acceptedCandidateByWorkItem.set(workItemId, candidateId);
+          candidateUnderReviewByWorkItem.delete(workItemId);
+          blocker = await evaluateSupervisor();
+          if (blocker) break;
           step = await scheduler.step();
         }
         if (
@@ -2118,284 +3589,163 @@ async function runCli(argv: string[]): Promise<number> {
                 finalWorkItemId,
                 accepted.workItemId,
               );
-            core.markReady(context(core, credential), finalWorkItemId);
-            const finalAssignment = core.assignWorkItem(
-              context(core, credential),
-              finalWorkItemId,
-              identities.Verifier.seatId,
-            );
-            finalRuntime = await provisionRuntime(
-              "Verifier",
-              identities.Verifier.seatId,
-              finalWorkItemId,
-              finalAssignment.generation,
-              finalAssignment.assignmentId,
-              acceptedSlices.map(({ workspace, commitSha }) => ({
-                workspace,
-                commitSha,
-              })),
-            );
-            runtimeCommands[finalRuntime.session.sessionId] =
-              finalAssignment.commandId;
-            if (Date.now() >= deadlineMs)
-              blocker = "maxRunMs exceeded before final-parent dispatch";
-            else if (stopping) blocker = "run canceled by signal";
-            else {
-              dispatches += 1;
-              core.transitionRuntimeSession(
+            blocker = await evaluateSupervisor();
+            if (!blocker) {
+              core.markReady(context(core, credential), finalWorkItemId);
+              const finalAssignment = core.assignWorkItem(
                 context(core, credential),
-                finalRuntime.session.sessionId,
-                "working",
-              );
-              await finalRuntime.adapter.dispatchAndStart(
-                context(core, credential),
-                finalAssignment.commandId,
-              );
-              const finalReport = await waitForReport(
                 finalWorkItemId,
+                identities.Verifier.seatId,
+              );
+              finalRuntime = await provisionRuntime(
+                "Verifier",
+                identities.Verifier.seatId,
+                finalWorkItemId,
+                finalAssignment.generation,
                 finalAssignment.assignmentId,
+                acceptedSlices.map(({ workspace, commitSha }) => ({
+                  workspace,
+                  commitSha,
+                })),
               );
-              if (!finalReport)
-                blocker =
-                  "final-parent Verifier report did not complete before the bounded run deadline";
-              else if (
-                finalReport.assignmentId !== finalAssignment.assignmentId ||
-                finalReport.role !== "Verifier" ||
-                finalReport.inputRevision !== core.inputRevision
-              )
-                throw new Error(
-                  "final-parent Verifier report does not match its assignment",
-                );
-              else {
-                await containRuntime(
-                  finalRuntime.session,
-                  finalAssignment.assignmentId,
-                );
-                const reply = objectRecord(
-                  parseJsonWithoutDuplicateMembers(finalReport.reply),
-                );
-                const finalSafeGit = [
-                  "--no-replace-objects",
-                  "-c",
-                  "core.fsmonitor=false",
-                  "-c",
-                  "core.hooksPath=/dev/null",
-                  `--git-dir=${path.join(finalRuntime.session.workspace, ".git")}`,
-                  `--work-tree=${finalRuntime.session.workspace}`,
-                ];
-                const composedHead = spawnSync(
-                  "git",
-                  [
-                    ...finalSafeGit,
-                    "-C",
-                    finalRuntime.session.workspace,
-                    "rev-parse",
-                    "HEAD",
-                  ],
-                  { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
-                );
-                if (
-                  reply?.commitSha !== finalRuntime.baseSha ||
-                  reply.startingSha !== finalRuntime.baseSha ||
-                  composedHead.status !== 0 ||
-                  composedHead.stdout.trim().toLowerCase() !==
-                    finalRuntime.baseSha.toLowerCase() ||
-                  !Array.isArray(reply.evidence) ||
-                  reply.evidence.length !== plan.acceptanceCriteria.length
-                )
-                  throw new Error(
-                    "final-parent Verifier did not preserve and report the exact composed HEAD or parent criteria",
-                  );
-                assertTrackedCheckoutMatchesHead(
-                  finalRuntime.session.workspace,
-                  finalRuntime.baseSha,
-                );
-                const seen = new Set<string>();
-                const finalEvidence: {
-                  evidenceId: string;
-                  criterion: string;
-                  passed: boolean;
-                  observation: string;
-                  exitStatus: number;
-                  artifactRef: string;
-                }[] = [];
-                for (const rawEvidence of reply.evidence) {
-                  const entry = objectRecord(rawEvidence);
-                  if (
-                    typeof entry?.criterion !== "string" ||
-                    !plan.acceptanceCriteria.includes(entry.criterion) ||
-                    seen.has(entry.criterion) ||
-                    typeof entry.passed !== "boolean" ||
-                    typeof entry.observation !== "string" ||
-                    !entry.observation.trim() ||
-                    !Number.isInteger(entry.exitStatus) ||
-                    (entry.exitStatus as number) < 0 ||
-                    (entry.exitStatus as number) > 255 ||
-                    (entry.passed === true && entry.exitStatus !== 0) ||
-                    typeof entry.artifactRef !== "string" ||
-                    !entry.artifactRef.startsWith("/evidence/")
-                  )
-                    throw new Error(
-                      "final-parent Verifier evidence is not the exact parent criterion set",
-                    );
-                  seen.add(entry.criterion);
-                  finalEvidence.push({
-                    evidenceId: randomUUID(),
-                    criterion: entry.criterion,
-                    passed: entry.passed,
-                    observation: entry.observation,
-                    exitStatus: entry.exitStatus as number,
-                    artifactRef: verifiedEvidencePath(
-                      finalRuntime.evidenceDirectory,
-                      entry.artifactRef,
-                    ),
-                  });
-                }
-                const rejected = finalEvidence.find((entry) => !entry.passed);
-                if (rejected)
-                  blocker = `final-parent Verifier rejected composed checkout for criterion ${rejected.criterion}`;
-                else
-                  core.acceptFinalVerification(context(core, credential), {
-                    workItemId: finalWorkItemId,
-                    assignmentId: finalAssignment.assignmentId,
-                    commitSha: finalRuntime.baseSha,
-                    evidence: finalEvidence,
-                  });
-              }
-            }
-          }
-          if (!stopping && !blocker && finalRuntime) {
-            const supervisorWorkItemId = `supervisor-${randomUUID()}`;
-            let supervisorRuntime:
-              | {
-                  session: RoleRuntimeSession;
-                  adapter: M1BridgeAdapter;
-                  baseSha: string;
-                }
-              | undefined;
-            core.createWorkItem(context(core, credential), {
-              workItemId: supervisorWorkItemId,
-              title: `Supervise completed run ${plan.taskId}`,
-              description: `Review the accepted PM plan, every accepted Developer candidate, all Verifier evidence and findings, and the final composed checkout at /workspace. The assignment capsule lists each accepted candidate and artifact. Artifacts stored beneath ${path.join(config.stateDirectory, "runtime", "evidence")} are readable under /evidence with the same relative paths. Return JSON {"outcome":"pass"|"blocked","observation":"..."}; use blocked whenever a safety, scope, or acceptance issue is observed, and name the concrete issue in observation. Use pass only when no issue was observed.`,
-              requiredRole: "Supervisor",
-            });
-            core.addDependency(
-              context(core, credential),
-              supervisorWorkItemId,
-              pmWorkItemId,
-            );
-            for (const accepted of acceptedSlices)
-              core.addDependency(
-                context(core, credential),
-                supervisorWorkItemId,
-                accepted.workItemId,
-              );
-            core.addDependency(
-              context(core, credential),
-              supervisorWorkItemId,
-              finalWorkItemId,
-            );
-            core.markReady(context(core, credential), supervisorWorkItemId);
-            const supervisorAssignment = core.assignWorkItem(
-              context(core, credential),
-              supervisorWorkItemId,
-              identities.Supervisor.seatId,
-            );
-            if (stopping) blocker ??= "run canceled by signal";
-            else if (Date.now() >= deadlineMs)
-              blocker ??= "maxRunMs exceeded before Supervisor provisioning";
-            else if (dispatches >= plan.limits.maxDispatches)
-              blocker ??= "maxDispatches exhausted before Supervisor dispatch";
-            else {
-              supervisorRuntime = await provisionRuntime(
-                "Supervisor",
-                identities.Supervisor.seatId,
-                supervisorWorkItemId,
-                supervisorAssignment.generation,
-                supervisorAssignment.assignmentId,
-                [],
-                {
-                  workspace: finalRuntime.session.workspace,
-                  commitSha: finalRuntime.baseSha,
-                },
-              );
+              finalVerificationSource = {
+                workspace: finalRuntime.session.workspace,
+                commitSha: finalRuntime.baseSha,
+              };
+              runtimeCommands[finalRuntime.session.sessionId] =
+                finalAssignment.commandId;
               if (Date.now() >= deadlineMs)
-                blocker ??= "maxRunMs exceeded before Supervisor dispatch";
+                blocker = "maxRunMs exceeded before final-parent dispatch";
+              else if (stopping) blocker = "run canceled by signal";
               else {
-                runtimeCommands[supervisorRuntime.session.sessionId] =
-                  supervisorAssignment.commandId;
                 dispatches += 1;
                 core.transitionRuntimeSession(
                   context(core, credential),
-                  supervisorRuntime.session.sessionId,
+                  finalRuntime.session.sessionId,
                   "working",
                 );
-                await supervisorRuntime.adapter.dispatchAndStart(
+                await finalRuntime.adapter.dispatchAndStart(
                   context(core, credential),
-                  supervisorAssignment.commandId,
+                  finalAssignment.commandId,
                 );
-                const supervisorReport = await waitForReport(
-                  supervisorWorkItemId,
-                  supervisorAssignment.assignmentId,
+                const finalReport = await waitForReport(
+                  finalWorkItemId,
+                  finalAssignment.assignmentId,
                 );
-                if (!supervisorReport)
-                  blocker ??=
-                    "Supervisor report did not complete before the bounded run deadline";
+                if (!finalReport)
+                  blocker =
+                    "final-parent Verifier report did not complete before the bounded run deadline";
                 else if (
-                  supervisorReport.assignmentId !==
-                    supervisorAssignment.assignmentId ||
-                  supervisorReport.role !== "Supervisor" ||
-                  supervisorReport.inputRevision !== core.inputRevision
+                  finalReport.assignmentId !== finalAssignment.assignmentId ||
+                  finalReport.role !== "Verifier" ||
+                  finalReport.inputRevision !== core.inputRevision
                 )
                   throw new Error(
-                    "Supervisor report does not match its active run-supervision assignment",
+                    "final-parent Verifier report does not match its assignment",
                   );
                 else {
-                  const supervisorReply = objectRecord(
-                    parseJsonWithoutDuplicateMembers(supervisorReport.reply),
+                  await containRuntime(
+                    finalRuntime.session,
+                    finalAssignment.assignmentId,
+                  );
+                  const reply = objectRecord(
+                    parseJsonWithoutDuplicateMembers(finalReport.reply),
+                  );
+                  const finalSafeGit = [
+                    "--no-replace-objects",
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    `--git-dir=${path.join(finalRuntime.session.workspace, ".git")}`,
+                    `--work-tree=${finalRuntime.session.workspace}`,
+                  ];
+                  const composedHead = spawnSync(
+                    "git",
+                    [
+                      ...finalSafeGit,
+                      "-C",
+                      finalRuntime.session.workspace,
+                      "rev-parse",
+                      "HEAD",
+                    ],
+                    { encoding: "utf8", timeout: 10_000, env: verifiedGitEnv },
                   );
                   if (
-                    typeof supervisorReply?.observation !== "string" ||
-                    !supervisorReply.observation.trim() ||
-                    (supervisorReply.outcome !== "pass" &&
-                      supervisorReply.outcome !== "blocked")
+                    reply?.commitSha !== finalRuntime.baseSha ||
+                    reply.startingSha !== finalRuntime.baseSha ||
+                    composedHead.status !== 0 ||
+                    composedHead.stdout.trim().toLowerCase() !==
+                      finalRuntime.baseSha.toLowerCase() ||
+                    !Array.isArray(reply.evidence) ||
+                    reply.evidence.length !== plan.acceptanceCriteria.length
                   )
                     throw new Error(
-                      "Supervisor returned no valid structured run observation",
+                      "final-parent Verifier did not preserve and report the exact composed HEAD or parent criteria",
                     );
-                  if (supervisorReply.outcome === "blocked") {
-                    core.createFinding(
-                      context(core, identities.Supervisor.credential),
-                      {
-                        findingId: randomUUID(),
-                        workItemId: supervisorWorkItemId,
-                        assignmentId: supervisorAssignment.assignmentId,
-                        generation: supervisorAssignment.generation,
-                        fingerprint: createHash("sha256")
-                          .update(supervisorReply.observation)
-                          .digest("hex"),
-                        severity: "high",
-                        evidence: { observation: supervisorReply.observation },
-                        requestedCorrection:
-                          "Resolve the Supervisor's observed run issue",
-                        resolutionCondition:
-                          "Supervisor confirms corrected acceptance evidence",
-                      },
-                    );
-                    blocker = `Supervisor blocked acceptance: ${supervisorReply.observation}`;
+                  assertTrackedCheckoutMatchesHead(
+                    finalRuntime.session.workspace,
+                    finalRuntime.baseSha,
+                  );
+                  const seen = new Set<string>();
+                  const finalEvidence: {
+                    evidenceId: string;
+                    criterion: string;
+                    passed: boolean;
+                    observation: string;
+                    exitStatus: number;
+                    artifactRef: string;
+                  }[] = [];
+                  for (const rawEvidence of reply.evidence) {
+                    const entry = objectRecord(rawEvidence);
+                    if (
+                      typeof entry?.criterion !== "string" ||
+                      !plan.acceptanceCriteria.includes(entry.criterion) ||
+                      seen.has(entry.criterion) ||
+                      typeof entry.passed !== "boolean" ||
+                      typeof entry.observation !== "string" ||
+                      !entry.observation.trim() ||
+                      !Number.isInteger(entry.exitStatus) ||
+                      (entry.exitStatus as number) < 0 ||
+                      (entry.exitStatus as number) > 255 ||
+                      (entry.passed === true && entry.exitStatus !== 0) ||
+                      typeof entry.artifactRef !== "string" ||
+                      !entry.artifactRef.startsWith("/evidence/")
+                    )
+                      throw new Error(
+                        "final-parent Verifier evidence is not the exact parent criterion set",
+                      );
+                    seen.add(entry.criterion);
+                    finalEvidence.push({
+                      evidenceId: randomUUID(),
+                      criterion: entry.criterion,
+                      passed: entry.passed,
+                      observation: entry.observation,
+                      exitStatus: entry.exitStatus as number,
+                      artifactRef: verifiedEvidencePath(
+                        finalRuntime.evidenceDirectory,
+                        entry.artifactRef,
+                      ),
+                    });
                   }
-                  await containRuntime(
-                    supervisorRuntime.session,
-                    supervisorAssignment.assignmentId,
-                  );
-                  core.acceptNonCandidateReport(
-                    context(core, credential),
-                    supervisorWorkItemId,
-                    supervisorAssignment.assignmentId,
-                  );
+                  const rejected = finalEvidence.find((entry) => !entry.passed);
+                  if (rejected)
+                    blocker = `final-parent Verifier rejected composed checkout for criterion ${rejected.criterion}`;
+                  else {
+                    blocker = await evaluateSupervisor();
+                    if (!blocker)
+                      core.acceptFinalVerification(context(core, credential), {
+                        workItemId: finalWorkItemId,
+                        assignmentId: finalAssignment.assignmentId,
+                        commitSha: finalRuntime.baseSha,
+                        evidence: finalEvidence,
+                      });
+                  }
                 }
               }
             }
+            if (!stopping && !blocker && finalRuntime)
+              blocker = await evaluateSupervisor();
           }
         }
         if (stopping) blocker = "run canceled by signal";
@@ -2454,7 +3804,9 @@ async function runCli(argv: string[]): Promise<number> {
         else if (stopping) {
           core.transitionRun(context(core, credential), "canceling");
           core.transitionRun(context(core, credential), "canceled");
-        } else core.transitionRun(context(core, credential), "failed");
+        } else if (supervisorMustPause)
+          core.transitionRun(context(core, credential), "paused");
+        else core.transitionRun(context(core, credential), "failed");
         const runOutput: CstanRunJsonV1 = {
           schemaVersion: 1,
           state: completed

@@ -230,11 +230,17 @@ export interface FindingInput {
   readonly workItemId: string;
   readonly assignmentId: string;
   readonly generation: number;
+  readonly affectedWorkItemId: string;
+  readonly affectedSeatId: string;
+  readonly affectedAssignmentId: string;
+  readonly affectedGeneration: number;
   readonly fingerprint: string;
   readonly severity: "info" | "low" | "medium" | "high" | "critical";
   readonly evidence: unknown;
   readonly requestedCorrection: string;
+  readonly acknowledgementDeadline: string;
   readonly resolutionCondition: string;
+  readonly escalationRoute: string;
 }
 
 export interface ControllerStatus {
@@ -242,6 +248,14 @@ export interface ControllerStatus {
   readonly run: { readonly state: string; readonly stateVersion: number };
   readonly stateVersion: number;
   readonly inputRevision: number;
+  readonly supervision: {
+    readonly enabled: boolean;
+    readonly health: "healthy" | "evaluating" | "degraded";
+    readonly targetEpoch: number;
+    readonly checkpointEpoch: number | null;
+    readonly checkpointAssignmentId: string | null;
+    readonly replacementAttempts: number;
+  };
   readonly roles: readonly {
     readonly role: string;
     readonly seatId: string;
@@ -261,9 +275,20 @@ export interface ControllerStatus {
   }[];
   readonly findings: readonly {
     readonly findingId: string;
+    readonly affectedWorkItemId: string;
+    readonly affectedSeatId: string;
+    readonly affectedAssignmentId: string;
+    readonly affectedGeneration: number;
+    readonly fingerprint: string;
     readonly severity: string;
     readonly state: string;
     readonly evidence: unknown;
+    readonly requestedCorrection: string;
+    readonly acknowledgementDeadline: string;
+    readonly resolutionCondition: string;
+    readonly escalationRoute: string;
+    readonly interventionCount: number;
+    readonly reopenedFromFindingId: string | null;
   }[];
   readonly evidence: readonly {
     readonly candidateId: string;
@@ -271,6 +296,15 @@ export interface ControllerStatus {
     readonly reportHash: string;
     readonly developerEvidence: readonly string[] | null;
     readonly evidenceRef: string | null;
+    readonly verifierEvidence: readonly {
+      readonly evidenceId: string;
+      readonly criterion: string;
+      readonly passed: boolean;
+      readonly artifactRef: string;
+      readonly observation: string | null;
+      readonly exitStatus: number | null;
+      readonly evidenceHash: string;
+    }[];
   }[];
   readonly finalVerification: readonly {
     readonly workItemId: string;
@@ -565,6 +599,11 @@ export class ControllerCore {
           "INSERT INTO projects(project_id, name, current_input_revision, state_version, created_at) VALUES (?, ?, 1, 1, ?)",
         )
         .run(project.projectId, name, now);
+      database
+        .prepare(
+          "INSERT INTO supervision_control(project_id, enabled, health, target_epoch, updated_at) VALUES (?, 0, 'degraded', 0, ?)",
+        )
+        .run(project.projectId, now);
       const insertActor = database.prepare(`
         INSERT INTO actors(actor_id, project_id, display_name, role, seat_id, credential_hash, active, is_internal, created_at)
         VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?)
@@ -993,6 +1032,29 @@ export class ControllerCore {
                 "final Verifier criteria must match every parent acceptance criterion",
               );
           } else {
+            const correctionFinding = input.findingId
+              ? (this.#database
+                  .prepare(
+                    `SELECT f.state, s.role, w.parent_work_item_id
+                     FROM findings f JOIN assignments a
+                       ON a.project_id = f.project_id AND a.assignment_id = f.affected_assignment_id
+                     JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+                     JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+                     WHERE f.project_id = ? AND f.finding_id = ?`,
+                  )
+                  .get(this.#projectId, input.findingId) as
+                  | {
+                      state: string;
+                      role: string;
+                      parent_work_item_id: string | null;
+                    }
+                  | undefined)
+              : undefined;
+            const isFindingCorrection =
+              !!correctionFinding &&
+              ["reported", "acknowledged"].includes(correctionFinding.state) &&
+              correctionFinding.role === "Verifier" &&
+              correctionFinding.parent_work_item_id === input.parentWorkItemId;
             const parent = input.parentWorkItemId
               ? (this.#database
                   .prepare(
@@ -1005,7 +1067,11 @@ export class ControllerCore {
               throw new ReadinessError(
                 "Verifier work requires an existing Developer parent",
               );
-            if (["accepted", "canceled", "failed"].includes(parent.state))
+            if (
+              parent &&
+              ["accepted", "canceled", "failed"].includes(parent.state) &&
+              !isFindingCorrection
+            )
               throw new ReadinessError(
                 "Verifier work cannot be added to a terminal Developer parent",
               );
@@ -1039,6 +1105,83 @@ export class ControllerCore {
                 : null,
             input.finalVerification ? 1 : 0,
           );
+        if (input.findingId) {
+          const finding = this.#database
+            .prepare(
+              `SELECT affected_assignment_id, affected_generation, affected_seat_id,
+                state, intervention_count FROM findings
+               WHERE project_id = ? AND finding_id = ?`,
+            )
+            .get(this.#projectId, input.findingId) as
+            | {
+                affected_assignment_id: string | null;
+                affected_generation: number | null;
+                affected_seat_id: string | null;
+                state: string;
+                intervention_count: number;
+              }
+            | undefined;
+          const target = finding?.affected_assignment_id
+            ? (this.#database
+                .prepare(
+                  `SELECT a.active_generation, a.authority_state, a.seat_id, s.role,
+                    w.final_verification
+                   FROM assignments a JOIN seats s
+                     ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+                   JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+                   WHERE a.project_id = ? AND a.assignment_id = ?`,
+                )
+                .get(this.#projectId, finding.affected_assignment_id) as
+                | {
+                    active_generation: number;
+                    authority_state: string;
+                    seat_id: string;
+                    role: string;
+                    final_verification: number;
+                  }
+                | undefined)
+            : undefined;
+          const finalVerifierCorrection =
+            input.finalVerification === true &&
+            target?.role === "Verifier" &&
+            target.final_verification === 1;
+          if (
+            !finding ||
+            !["reported", "acknowledged"].includes(finding.state) ||
+            !target ||
+            finding.intervention_count >= 2 ||
+            finding.affected_generation !== target.active_generation ||
+            finding.affected_seat_id !== target.seat_id ||
+            target.authority_state !== "contained" ||
+            target.role !== input.requiredRole ||
+            !["PM", "Developer", "Verifier"].includes(target.role) ||
+            (input.finalVerification && !finalVerifierCorrection)
+          )
+            throw new ReadinessError(
+              "finding correction work must target its reported, contained worker assignment within the intervention budget",
+            );
+          this.#database
+            .prepare(
+              `INSERT INTO finding_correction_work(project_id, work_item_id, finding_id,
+                target_assignment_id, target_generation, target_seat_id, target_role, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              this.#projectId,
+              input.workItemId,
+              input.findingId,
+              finding.affected_assignment_id,
+              finding.affected_generation,
+              finding.affected_seat_id,
+              target.role,
+              new Date().toISOString(),
+            );
+          this.#database
+            .prepare(
+              "UPDATE findings SET intervention_count = intervention_count + 1 WHERE project_id = ? AND finding_id = ?",
+            )
+            .run(this.#projectId, input.findingId);
+        }
         return {
           value: { workItemId: input.workItemId },
           event: {
@@ -1046,6 +1189,9 @@ export class ControllerCore {
             entityId: input.workItemId,
             stateVersion: 0,
             toState: "pending",
+            details: input.findingId
+              ? { findingId: input.findingId }
+              : undefined,
           },
         };
       },
@@ -1243,6 +1389,117 @@ export class ControllerCore {
     if (item.input_revision !== item.current_input_revision)
       reasons.push("work item input revision is stale");
     if (item.run_state !== "active") reasons.push(`run is ${item.run_state}`);
+    const supervision = this.#database
+      .prepare(
+        `SELECT enabled, health, target_epoch, checkpoint_epoch
+         FROM supervision_control WHERE project_id = ?`,
+      )
+      .get(this.#projectId) as
+      | {
+          enabled: number;
+          health: string;
+          target_epoch: number;
+          checkpoint_epoch: number | null;
+        }
+      | undefined;
+    if (supervision?.enabled && item.required_role !== "Supervisor") {
+      const bootstrapPm =
+        item.required_role === "PM" &&
+        supervision.checkpoint_epoch === null &&
+        !this.#database
+          .prepare(
+            `SELECT 1 FROM assignments a JOIN seats s
+              ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             WHERE a.project_id = ? AND s.role = 'PM' LIMIT 1`,
+          )
+          .get(this.#projectId);
+      const correction = this.#database
+        .prepare(
+          `SELECT c.finding_id, c.target_assignment_id, c.target_generation,
+            c.target_seat_id, c.target_role, f.state, f.intervention_count,
+            a.authority_state, a.active_generation, 0 AS verifier_child
+           FROM finding_correction_work c
+           JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+           JOIN assignments a ON a.project_id = c.project_id
+             AND a.assignment_id = c.target_assignment_id
+           WHERE c.project_id = ? AND c.work_item_id = ?
+           UNION ALL
+           SELECT c.finding_id, c.target_assignment_id, c.target_generation,
+            c.target_seat_id, c.target_role, f.state, f.intervention_count,
+            a.authority_state, a.active_generation, 1 AS verifier_child
+           FROM work_items child
+           JOIN finding_correction_work c ON c.project_id = child.project_id
+             AND c.work_item_id = child.parent_work_item_id
+           JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+           JOIN assignments a ON a.project_id = c.project_id
+             AND a.assignment_id = c.target_assignment_id
+           JOIN work_items correction_parent ON correction_parent.project_id = c.project_id
+             AND correction_parent.work_item_id = c.work_item_id
+             AND correction_parent.state = 'awaiting_verification'
+           JOIN assignments developer ON developer.project_id = c.project_id
+             AND developer.work_item_id = c.work_item_id
+           JOIN candidates candidate ON candidate.project_id = developer.project_id
+             AND candidate.assignment_id = developer.assignment_id
+             AND candidate.generation = developer.active_generation
+             AND candidate.input_revision = correction_parent.input_revision
+           WHERE child.project_id = ? AND child.work_item_id = ?
+             AND child.required_role = 'Verifier' AND c.target_role = 'Developer'
+             AND f.state = 'correcting'
+             AND child.acceptance_criteria_json IS NOT NULL
+           LIMIT 1`,
+        )
+        .get(this.#projectId, workItemId, this.#projectId, workItemId) as
+        | {
+            finding_id: string;
+            target_assignment_id: string;
+            target_generation: number;
+            target_seat_id: string;
+            target_role: string;
+            state: string;
+            intervention_count: number;
+            authority_state: string;
+            active_generation: number;
+            verifier_child: number;
+          }
+        | undefined;
+      if (!bootstrapPm) {
+        if (
+          supervision.health !== "healthy" ||
+          supervision.checkpoint_epoch !== supervision.target_epoch
+        )
+          reasons.push("supervision is degraded or its checkpoint is stale");
+        const openFinding = this.#database
+          .prepare(
+            "SELECT 1 FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (openFinding && !correction)
+          reasons.push("an open finding blocks ordinary dispatch");
+        if (correction) {
+          const occupied = this.#database
+            .prepare(
+              `SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ?
+               AND authority_state IN ('active', 'unknown') LIMIT 1`,
+            )
+            .get(this.#projectId, correction.target_seat_id);
+          if (
+            (correction.verifier_child === 1
+              ? item.required_role !== "Verifier" ||
+                correction.target_role !== "Developer" ||
+                correction.state !== "correcting"
+              : correction.target_role !== item.required_role) ||
+            correction.authority_state !== "contained" ||
+            correction.active_generation !== correction.target_generation ||
+            correction.intervention_count > 2 ||
+            !["reported", "acknowledged", "correcting"].includes(
+              correction.state,
+            ) ||
+            occupied
+          )
+            reasons.push("finding-bound correction is not ready for dispatch");
+        }
+      }
+    }
     const seats = this.#database
       .prepare(
         `
@@ -1578,10 +1835,12 @@ export class ControllerCore {
               commit_sha: string;
               report_hash: string;
               work_state: string;
+              accepted_candidate_id: string | null;
               developer_authority: string;
               is_latest_generation: number;
             }
           | undefined;
+        let verifierFindingCorrection = false;
         if (item.required_role === "Verifier") {
           if (item.final_verification === 1) {
             if (candidateId !== undefined && candidateId !== null)
@@ -1606,11 +1865,28 @@ export class ControllerCore {
               throw new CandidateBindingError(
                 "Verifier assignment requires an exact candidate id",
               );
+            verifierFindingCorrection = !!this.#database
+              .prepare(
+                `SELECT 1 FROM finding_correction_work c
+                 JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+                 WHERE c.project_id = ? AND c.work_item_id = ?
+                   AND c.target_role = 'Verifier'
+                   AND f.state IN ('reported', 'acknowledged')
+                   AND EXISTS (
+                     SELECT 1 FROM assignment_input_bindings b
+                     WHERE b.project_id = c.project_id
+                       AND b.assignment_id = c.target_assignment_id
+                       AND b.input_kind = 'candidate' AND b.source_id = ?
+                   )
+                 LIMIT 1`,
+              )
+              .get(this.#projectId, workItemId, candidateId);
             verifierCandidate = this.#database
               .prepare(
                 `
           SELECT c.candidate_id, a.work_item_id, c.input_revision, c.commit_sha, c.report_hash,
-            w.state AS work_state, a.authority_state AS developer_authority,
+            w.state AS work_state, w.accepted_candidate_id,
+            a.authority_state AS developer_authority,
             c.generation = (
               SELECT MAX(latest_attempt.generation)
               FROM assignments latest
@@ -1633,7 +1909,12 @@ export class ControllerCore {
               !verifierCandidate ||
               verifierCandidate.work_item_id !== item.parent_work_item_id ||
               verifierCandidate.input_revision !== context.inputRevision ||
-              verifierCandidate.work_state !== "awaiting_verification" ||
+              (verifierCandidate.work_state !== "awaiting_verification" &&
+                !(
+                  verifierFindingCorrection &&
+                  verifierCandidate.work_state === "accepted" &&
+                  verifierCandidate.accepted_candidate_id === candidateId
+                )) ||
               verifierCandidate.developer_authority !== "contained" ||
               verifierCandidate.is_latest_generation !== 1
             ) {
@@ -3099,7 +3380,7 @@ export class ControllerCore {
           .prepare(
             `
         SELECT c.input_revision, c.report_hash, c.created_by, a.work_item_id, a.worker_actor_id,
-          parent.state AS work_state,
+          parent.state AS work_state, parent.accepted_candidate_id,
           c.generation = (
             SELECT MAX(latest_attempt.generation)
             FROM assignments latest
@@ -3125,6 +3406,7 @@ export class ControllerCore {
               worker_actor_id: string | null;
               work_item_id: string;
               work_state: string;
+              accepted_candidate_id: string | null;
               is_latest_generation: number;
             }
           | undefined;
@@ -3166,6 +3448,15 @@ export class ControllerCore {
               is_latest_generation: number;
             }
           | undefined;
+        const findingCorrection = this.#database
+          .prepare(
+            `SELECT f.finding_id FROM finding_correction_work c
+             JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+             WHERE c.project_id = ? AND c.work_item_id = ?
+               AND c.target_role = 'Verifier' AND f.state = 'correcting'
+             LIMIT 1`,
+          )
+          .get(this.#projectId, verifier?.work_item_id);
         const binding = this.#database
           .prepare(
             `
@@ -3178,7 +3469,12 @@ export class ControllerCore {
         if (
           !candidate ||
           !verifier ||
-          candidate.work_state !== "awaiting_verification" ||
+          (candidate.work_state !== "awaiting_verification" &&
+            !(
+              candidate.work_state === "accepted" &&
+              candidate.accepted_candidate_id === candidateId &&
+              !!findingCorrection
+            )) ||
           candidate.is_latest_generation !== 1 ||
           verifier.verifier_work_state !== "awaiting_verification" ||
           actor.actorId !== verifier.worker_actor_id ||
@@ -3409,6 +3705,269 @@ export class ControllerCore {
     );
   }
 
+  acceptVerifierCorrection(
+    context: MutationContext,
+    input: {
+      readonly findingId: string;
+      readonly workItemId: string;
+      readonly assignmentId: string;
+      readonly candidateId: string;
+    },
+  ): { readonly acceptedWorkItemId: string; readonly candidateId: string } {
+    return this.#mutateAsController(
+      context,
+      "finding.verifier_correction.accept",
+      "candidate:accept",
+      input,
+      () => {
+        this.#assertSupervisionReady(input.workItemId);
+        const correction = this.#database
+          .prepare(
+            `SELECT c.target_assignment_id, c.target_generation, c.target_seat_id,
+              c.target_role, f.state AS finding_state,
+              w.required_role, w.state AS work_state, w.state_version AS work_version,
+              w.parent_work_item_id,
+              w.input_revision, a.seat_id AS assignment_seat_id,
+              a.worker_actor_id, a.state AS assignment_state,
+              a.authority_state AS assignment_authority,
+              at.state AS attempt_state, at.authority_state AS attempt_authority,
+              at.generation, cmd.state AS command_state,
+              target.active_generation AS target_active_generation,
+              target.authority_state AS target_authority,
+              target.seat_id AS target_assignment_seat_id, target_seat.role AS target_assignment_role
+             FROM finding_correction_work c
+             JOIN findings f ON f.project_id = c.project_id
+               AND f.finding_id = c.finding_id
+             JOIN work_items w ON w.project_id = c.project_id
+               AND w.work_item_id = c.work_item_id
+             JOIN assignments a ON a.project_id = c.project_id
+               AND a.assignment_id = ?
+             JOIN assignment_attempts at ON at.project_id = a.project_id
+               AND at.assignment_id = a.assignment_id
+               AND at.generation = a.active_generation
+             JOIN commands cmd ON cmd.project_id = a.project_id
+               AND cmd.assignment_id = a.assignment_id
+               AND cmd.attempt = at.attempt AND cmd.generation = at.generation
+             JOIN assignments target ON target.project_id = c.project_id
+               AND target.assignment_id = c.target_assignment_id
+             JOIN seats target_seat ON target_seat.project_id = target.project_id
+               AND target_seat.seat_id = target.seat_id
+             WHERE c.project_id = ? AND c.finding_id = ?
+               AND c.work_item_id = ? AND a.work_item_id = w.work_item_id`,
+          )
+          .get(
+            input.assignmentId,
+            this.#projectId,
+            input.findingId,
+            input.workItemId,
+          ) as
+          | {
+              target_assignment_id: string;
+              target_generation: number;
+              target_seat_id: string;
+              target_role: string;
+              finding_state: string;
+              required_role: string;
+              work_state: string;
+              work_version: number;
+              parent_work_item_id: string | null;
+              input_revision: number;
+              assignment_seat_id: string;
+              worker_actor_id: string | null;
+              assignment_state: string;
+              assignment_authority: string;
+              attempt_state: string;
+              attempt_authority: string;
+              generation: number;
+              command_state: string;
+              target_active_generation: number;
+              target_authority: string;
+              target_assignment_seat_id: string;
+              target_assignment_role: string;
+            }
+          | undefined;
+        const candidate = this.#database
+          .prepare(
+            `SELECT c.assignment_id, c.input_revision, c.report_hash,
+              c.created_by, a.worker_actor_id, a.work_item_id,
+              w.state AS parent_state, w.accepted_candidate_id,
+              a.authority_state AS developer_authority
+             FROM candidates c
+             JOIN assignments a ON a.project_id = c.project_id
+               AND a.assignment_id = c.assignment_id
+             JOIN work_items w ON w.project_id = a.project_id
+               AND w.work_item_id = a.work_item_id
+             WHERE c.project_id = ? AND c.candidate_id = ?
+               AND c.generation = a.active_generation`,
+          )
+          .get(this.#projectId, input.candidateId) as
+          | {
+              assignment_id: string;
+              input_revision: number;
+              report_hash: string;
+              created_by: string;
+              worker_actor_id: string | null;
+              work_item_id: string;
+              parent_state: string;
+              accepted_candidate_id: string | null;
+              developer_authority: string;
+            }
+          | undefined;
+        const binding = this.#database
+          .prepare(
+            `SELECT content_hash FROM assignment_input_bindings
+             WHERE project_id = ? AND assignment_id = ?
+               AND input_kind = 'candidate' AND source_id = ?`,
+          )
+          .get(this.#projectId, input.assignmentId, input.candidateId) as
+          { content_hash: string } | undefined;
+        const targetBinding = this.#database
+          .prepare(
+            `SELECT 1 AS present FROM assignment_input_bindings
+             WHERE project_id = ? AND assignment_id = ?
+               AND input_kind = 'candidate' AND source_id = ?`,
+          )
+          .get(
+            this.#projectId,
+            correction?.target_assignment_id,
+            input.candidateId,
+          );
+        if (
+          !correction ||
+          correction.target_role !== "Verifier" ||
+          correction.finding_state !== "correcting" ||
+          correction.required_role !== "Verifier" ||
+          correction.work_state !== "awaiting_verification" ||
+          correction.parent_work_item_id !== candidate?.work_item_id ||
+          correction.target_seat_id !== correction.assignment_seat_id ||
+          correction.assignment_state !== "reported" ||
+          correction.assignment_authority !== "contained" ||
+          correction.attempt_state !== "reported" ||
+          correction.attempt_authority !== "contained" ||
+          correction.command_state !== "completed" ||
+          correction.target_assignment_role !== "Verifier" ||
+          correction.target_assignment_seat_id !== correction.target_seat_id ||
+          correction.target_active_generation !==
+            correction.target_generation ||
+          correction.target_authority !== "contained" ||
+          !candidate ||
+          candidate.parent_state !== "accepted" ||
+          candidate.accepted_candidate_id !== input.candidateId ||
+          candidate.developer_authority !== "contained" ||
+          candidate.created_by !== candidate.worker_actor_id ||
+          candidate.input_revision !== context.inputRevision ||
+          !binding ||
+          binding.content_hash !== candidate.report_hash ||
+          !targetBinding
+        )
+          throw new CandidateBindingError(
+            "Verifier correction does not match its exact finding, candidate, and contained reported assignment",
+          );
+        const criteria = this.#acceptanceCriteria(candidate.work_item_id);
+        const evidence = this.#database
+          .prepare(
+            `SELECT criterion, passed, observation, exit_status, input_revision,
+              created_by
+             FROM candidate_evidence WHERE project_id = ? AND candidate_id = ?
+               AND verifier_assignment_id = ? ORDER BY criterion, evidence_id`,
+          )
+          .all(
+            this.#projectId,
+            input.candidateId,
+            input.assignmentId,
+          ) as Array<{
+          criterion: string;
+          passed: number;
+          observation: string | null;
+          exit_status: number | null;
+          input_revision: number;
+          created_by: string;
+        }>;
+        if (
+          evidence.length !== criteria.length ||
+          criteria.some(
+            (criterion) =>
+              evidence.filter((entry) => entry.criterion === criterion)
+                .length !== 1 ||
+              !evidence.some(
+                (entry) =>
+                  entry.criterion === criterion &&
+                  entry.passed === 1 &&
+                  !!entry.observation?.trim() &&
+                  entry.created_by === correction.worker_actor_id &&
+                  entry.exit_status === 0 &&
+                  entry.input_revision === context.inputRevision,
+              ),
+          ) ||
+          evidence.some((entry) => !criteria.includes(entry.criterion))
+        )
+          throw new CandidateBindingError(
+            "Verifier correction requires fresh passing evidence for every exact parent criterion",
+          );
+        const controller = this.#internalPrincipal();
+        if (
+          !this.#isTransitionAllowed(
+            "work_item",
+            "awaiting_verification",
+            "accepted",
+            controller,
+          ) ||
+          !this.#isTransitionAllowed(
+            "assignment_attempt",
+            "reported",
+            "completed",
+            controller,
+          )
+        )
+          throw new TransitionAuthorizationError(
+            "transition table rejects Verifier correction acceptance",
+          );
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            `UPDATE work_items SET state = 'accepted', accepted_candidate_id = ?,
+              state_version = state_version + 1
+             WHERE project_id = ? AND work_item_id = ?
+               AND state = 'awaiting_verification'`,
+          )
+          .run(input.candidateId, this.#projectId, input.workItemId);
+        this.#database
+          .prepare(
+            `UPDATE assignments SET state = 'completed', authority_state = 'contained',
+              state_version = state_version + 1, ended_at = ?
+             WHERE project_id = ? AND assignment_id = ? AND state = 'reported'`,
+          )
+          .run(now, this.#projectId, input.assignmentId);
+        this.#database
+          .prepare(
+            `UPDATE assignment_attempts SET state = 'completed',
+              authority_state = 'contained', state_version = state_version + 1,
+              ended_at = ? WHERE project_id = ? AND assignment_id = ?
+                AND generation = ? AND state = 'reported'`,
+          )
+          .run(now, this.#projectId, input.assignmentId, correction.generation);
+        return {
+          value: {
+            acceptedWorkItemId: input.workItemId,
+            candidateId: input.candidateId,
+          },
+          event: {
+            entityType: "work_item",
+            entityId: input.workItemId,
+            stateVersion: correction.work_version + 1,
+            fromState: "awaiting_verification",
+            toState: "accepted",
+            details: {
+              findingId: input.findingId,
+              candidateId: input.candidateId,
+              assignmentId: input.assignmentId,
+              verifierCorrection: true,
+            },
+          },
+        };
+      },
+    );
+  }
   acceptCandidate(
     context: MutationContext,
     workItemId: string,
@@ -3420,6 +3979,7 @@ export class ControllerCore {
       "candidate:accept",
       { workItemId, candidateId },
       (actor) => {
+        this.#assertSupervisionReady(workItemId);
         const candidate = this.#database
           .prepare(
             `
@@ -3631,17 +4191,15 @@ export class ControllerCore {
                 row.verifier_input_revision !== context.inputRevision ||
                 row.bound_candidate_hash !== candidate.report_hash,
             )
-          ) {
+          )
             throw new CandidateBindingError(
               `candidate lacks passing current Verifier evidence for: ${criterion}`,
             );
-          }
         }
-        if (evidence.some((row) => !criteria.includes(row.criterion))) {
+        if (evidence.some((row) => !criteria.includes(row.criterion)))
           throw new CandidateBindingError(
             "candidate has evidence for an unknown criterion",
           );
-        }
         const verifierAssignments = [
           ...new Map(
             evidence.map((row) => [row.verifier_assignment_id, row]),
@@ -3667,11 +4225,10 @@ export class ControllerCore {
               "accepted",
               actor,
             )
-          ) {
+          )
             throw new CandidateBindingError(
               "Verifier assignment or work state is no longer eligible for acceptance",
             );
-          }
         }
         const now = new Date().toISOString();
         this.#database
@@ -3918,9 +4475,19 @@ export class ControllerCore {
           .get(this.#projectId, input.workItemId, context.inputRevision);
         const unresolvedFinding = this.#database
           .prepare(
-            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+            `SELECT 1 AS present FROM findings f
+             WHERE f.project_id = ? AND f.state <> 'resolved'
+               AND NOT EXISTS (
+                 SELECT 1 FROM finding_correction_work fcw
+                 WHERE fcw.project_id = f.project_id
+                   AND fcw.finding_id = f.finding_id
+                   AND fcw.work_item_id = ?
+                   AND fcw.target_role = 'Verifier'
+                   AND f.state = 'correcting'
+               )
+             LIMIT 1`,
           )
-          .get(this.#projectId);
+          .get(this.#projectId, input.workItemId);
         if (unresolvedDependency || unresolvedFinding)
           throw new MutationConflictError(
             "final parent cannot be accepted with unresolved dependencies or Supervisor findings",
@@ -4651,6 +5218,15 @@ export class ControllerCore {
         { state: string; state_version: number } | undefined;
       if (!run) throw new ControllerError("run control record is missing");
       if (toState === "completed") {
+        const unresolvedFinding = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+          )
+          .get(this.#projectId);
+        if (unresolvedFinding)
+          throw new MutationConflictError(
+            "run cannot complete with unresolved Supervisor findings",
+          );
         const unfinishedWork = this.#database
           .prepare(
             "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state NOT IN ('accepted', 'canceled') LIMIT 1",
@@ -4673,15 +5249,6 @@ export class ControllerCore {
         if (staleAcceptedWork)
           throw new MutationConflictError(
             "run cannot complete with work accepted against a stale input revision",
-          );
-        const unresolvedFinding = this.#database
-          .prepare(
-            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
-          )
-          .get(this.#projectId);
-        if (unresolvedFinding)
-          throw new MutationConflictError(
-            "run cannot complete with unresolved Supervisor findings",
           );
       }
       if (
@@ -5089,13 +5656,11 @@ export class ControllerCore {
           throw new TransitionAuthorizationError(
             "only the Supervisor creates findings",
           );
-        const assignment = this.#database
+        const source = this.#database
           .prepare(
-            `
-        SELECT a.work_item_id, a.seat_id, a.active_generation, a.authority_state, s.role
-        FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
-        WHERE a.project_id = ? AND a.assignment_id = ?
-      `,
+            `SELECT a.work_item_id, a.seat_id, a.active_generation, a.authority_state, s.role
+             FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             WHERE a.project_id = ? AND a.assignment_id = ?`,
           )
           .get(this.#projectId, input.assignmentId) as
           | {
@@ -5107,25 +5672,106 @@ export class ControllerCore {
             }
           | undefined;
         if (
-          !assignment ||
-          assignment.work_item_id !== input.workItemId ||
-          assignment.seat_id !== actor.seatId ||
-          assignment.role !== "Supervisor" ||
-          assignment.active_generation !== input.generation ||
-          assignment.authority_state !== "active"
-        ) {
+          !source ||
+          source.work_item_id !== input.workItemId ||
+          source.seat_id !== actor.seatId ||
+          source.role !== "Supervisor" ||
+          source.active_generation !== input.generation ||
+          source.authority_state !== "active"
+        )
           throw new ControllerError(
             "finding must be bound to the active Supervisor assignment generation",
           );
-        }
+        const target = this.#database
+          .prepare(
+            `SELECT a.work_item_id, a.seat_id, a.active_generation, a.authority_state, s.role
+             FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             WHERE a.project_id = ? AND a.assignment_id = ?`,
+          )
+          .get(this.#projectId, input.affectedAssignmentId) as
+          | {
+              work_item_id: string;
+              seat_id: string;
+              active_generation: number;
+              authority_state: string;
+              role: string;
+            }
+          | undefined;
+        if (
+          !target ||
+          target.work_item_id !== input.affectedWorkItemId ||
+          target.seat_id !== input.affectedSeatId ||
+          target.active_generation !== input.affectedGeneration ||
+          !["active", "contained"].includes(target.authority_state) ||
+          !["PM", "Developer", "Verifier"].includes(target.role)
+        )
+          throw new ControllerError(
+            "finding target must be a current PM, Developer, or Verifier assignment",
+          );
         const now = new Date().toISOString();
+        const deadline = Date.parse(input.acknowledgementDeadline);
+        if (
+          !Number.isFinite(deadline) ||
+          deadline <= Date.parse(now) ||
+          input.escalationRoute !== "operator" ||
+          !input.fingerprint.trim() ||
+          !input.requestedCorrection.trim() ||
+          !input.resolutionCondition.trim()
+        )
+          throw new TypeError(
+            "finding deadline, route, and instructions are invalid",
+          );
+        const duplicate = this.#database
+          .prepare(
+            `SELECT finding_id FROM findings
+             WHERE project_id = ? AND affected_assignment_id = ? AND fingerprint = ?
+               AND (state NOT IN ('resolved', 'escalated') OR cooldown_until > ?)
+             ORDER BY created_at DESC, finding_id DESC LIMIT 1`,
+          )
+          .get(
+            this.#projectId,
+            input.affectedAssignmentId,
+            input.fingerprint,
+            now,
+          ) as { finding_id: string } | undefined;
+        if (duplicate)
+          return {
+            value: { findingId: duplicate.finding_id },
+            event: {
+              entityType: "finding",
+              entityId: duplicate.finding_id,
+              stateVersion: 0,
+              toState: "detected",
+              details: { deduplicated: true },
+            },
+          };
+        const reopened = this.#database
+          .prepare(
+            `SELECT finding_id FROM findings
+             WHERE project_id = ? AND affected_assignment_id = ?
+               AND fingerprint <> ?
+             ORDER BY created_at DESC, finding_id DESC LIMIT 1`,
+          )
+          .get(
+            this.#projectId,
+            input.affectedAssignmentId,
+            input.fingerprint,
+          ) as { finding_id: string } | undefined;
+        const detectedAfter = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
         this.#database
           .prepare(
-            `
-        INSERT INTO findings(project_id, finding_id, work_item_id, assignment_id, generation, fingerprint, severity,
-          evidence_json, requested_correction, resolution_condition, state, state_version, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected', 0, ?, ?)
-      `,
+            `INSERT INTO findings(project_id, finding_id, work_item_id, assignment_id, generation,
+              fingerprint, severity, evidence_json, requested_correction, resolution_condition,
+              state, state_version, created_by, created_at, affected_seat_id, affected_work_item_id,
+              affected_assignment_id, affected_generation, acknowledgement_deadline, escalation_route,
+              detected_after_sequence, reopened_from_finding_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             this.#projectId,
@@ -5140,6 +5786,14 @@ export class ControllerCore {
             input.resolutionCondition,
             actor.actorId,
             now,
+            input.affectedSeatId,
+            input.affectedWorkItemId,
+            input.affectedAssignmentId,
+            input.affectedGeneration,
+            input.acknowledgementDeadline,
+            input.escalationRoute,
+            detectedAfter,
+            reopened?.finding_id ?? null,
           );
         return {
           value: { findingId: input.findingId },
@@ -5148,6 +5802,11 @@ export class ControllerCore {
             entityId: input.findingId,
             stateVersion: 0,
             toState: "detected",
+            details: {
+              affectedAssignmentId: input.affectedAssignmentId,
+              affectedGeneration: input.affectedGeneration,
+              reopenedFromFindingId: reopened?.finding_id ?? null,
+            },
           },
         };
       },
@@ -5163,18 +5822,27 @@ export class ControllerCore {
     const apply = (actor: AuthenticatedActor) => {
       const finding = this.#database
         .prepare(
-          `
-        SELECT work_item_id, assignment_id, resolution_condition, state, state_version
-        FROM findings WHERE project_id = ? AND finding_id = ?
-      `,
+          `SELECT work_item_id, assignment_id,
+            (SELECT active_generation FROM assignments a WHERE a.project_id = findings.project_id
+              AND a.assignment_id = findings.assignment_id) AS generation,
+            resolution_condition, state, state_version,
+            affected_work_item_id, affected_assignment_id, affected_seat_id,
+            affected_generation, detected_after_sequence
+           FROM findings WHERE project_id = ? AND finding_id = ?`,
         )
         .get(this.#projectId, findingId) as
         | {
             work_item_id: string;
             assignment_id: string | null;
+            generation: number | null;
             resolution_condition: string;
             state: string;
             state_version: number;
+            affected_work_item_id: string | null;
+            affected_assignment_id: string | null;
+            affected_seat_id: string | null;
+            affected_generation: number | null;
+            detected_after_sequence: number;
           }
         | undefined;
       if (!finding) throw new ControllerError("finding does not exist");
@@ -5191,46 +5859,54 @@ export class ControllerCore {
         toState === "acknowledged" ||
         toState === "disputed"
       ) {
-        const responseAssignment =
-          actor.role === "controller"
-            ? (finding.assignment_id ?? undefined)
-            : actor.seatId
-              ? toState === "reported"
-                ? (
-                    this.#database
-                      .prepare(
-                        `
-                    SELECT assignment_id FROM assignments
-                    WHERE project_id = ? AND assignment_id = ? AND work_item_id = ?
-                      AND seat_id = ? AND authority_state = 'active'
-                  `,
-                      )
-                      .get(
-                        this.#projectId,
-                        finding.assignment_id,
-                        finding.work_item_id,
-                        actor.seatId,
-                      ) as { assignment_id: string } | undefined
-                  )?.assignment_id
-                : (
-                    this.#database
-                      .prepare(
-                        `
-                    SELECT a.assignment_id FROM assignments a
-                    JOIN work_items responding_work ON responding_work.project_id = a.project_id
-                      AND responding_work.work_item_id = a.work_item_id
-                    WHERE a.project_id = ? AND responding_work.parent_work_item_id = ?
-                      AND a.seat_id = ? AND a.authority_state = 'active'
-                    ORDER BY a.created_at DESC, a.assignment_id DESC LIMIT 1
-                  `,
-                      )
-                      .get(
-                        this.#projectId,
-                        finding.work_item_id,
-                        actor.seatId,
-                      ) as { assignment_id: string } | undefined
-                  )?.assignment_id
-              : undefined;
+        let responseAssignment: string | undefined;
+        if (toState === "reported" && actor.role === "Supervisor") {
+          responseAssignment = (
+            this.#database
+              .prepare(
+                `SELECT assignment_id FROM assignments
+                 WHERE project_id = ? AND assignment_id = ? AND work_item_id = ?
+                   AND seat_id = ? AND active_generation = ? AND authority_state = 'active'`,
+              )
+              .get(
+                this.#projectId,
+                finding.assignment_id,
+                finding.work_item_id,
+                actor.seatId,
+                finding.generation,
+              ) as { assignment_id: string } | undefined
+          )?.assignment_id;
+        } else if (
+          (toState === "acknowledged" || toState === "disputed") &&
+          actor.seatId &&
+          finding.affected_assignment_id &&
+          finding.affected_seat_id &&
+          finding.affected_generation
+        ) {
+          responseAssignment = (
+            this.#database
+              .prepare(
+                `SELECT a.assignment_id FROM assignments a
+                 WHERE a.project_id = ? AND a.seat_id = ?
+                   AND a.authority_state = 'active'
+                   AND (
+                     a.assignment_id = ? OR a.work_item_id IN (
+                       SELECT work_item_id FROM finding_correction_work
+                       WHERE project_id = ? AND finding_id = ?
+                     )
+                   )
+                 ORDER BY CASE WHEN a.assignment_id = ? THEN 0 ELSE 1 END LIMIT 1`,
+              )
+              .get(
+                this.#projectId,
+                actor.seatId,
+                finding.affected_assignment_id,
+                this.#projectId,
+                findingId,
+                finding.affected_assignment_id,
+              ) as { assignment_id: string } | undefined
+          )?.assignment_id;
+        }
         if (!responseAssignment)
           throw new ControllerError(
             "finding response requires its source assignment or an active responding child assignment",
@@ -5259,24 +5935,300 @@ export class ControllerCore {
             actor.actorId,
             now,
           );
+      } else if (toState === "correcting") {
+        const correction = content as { workItemId?: unknown } | null;
+        if (
+          finding.state !== "acknowledged" ||
+          typeof correction?.workItemId !== "string" ||
+          !finding.affected_assignment_id ||
+          !finding.affected_work_item_id ||
+          !finding.affected_seat_id ||
+          !finding.affected_generation
+        )
+          throw new ControllerError(
+            "correction requires an acknowledged finding and a bound worker assignment",
+          );
+        const target = this.#database
+          .prepare(
+            `SELECT a.seat_id, a.active_generation, a.authority_state, s.role
+             FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             WHERE a.project_id = ? AND a.assignment_id = ?`,
+          )
+          .get(this.#projectId, finding.affected_assignment_id) as
+          | {
+              seat_id: string;
+              active_generation: number;
+              authority_state: string;
+              role: string;
+            }
+          | undefined;
+        const work = this.#database
+          .prepare(
+            "SELECT required_role, state FROM work_items WHERE project_id = ? AND work_item_id = ?",
+          )
+          .get(this.#projectId, correction.workItemId) as
+          { required_role: string; state: string } | undefined;
+        const interventions = this.#database
+          .prepare(
+            "SELECT intervention_count FROM findings WHERE project_id = ? AND finding_id = ?",
+          )
+          .get(this.#projectId, findingId) as
+          { intervention_count: number } | undefined;
+        if (
+          !target ||
+          !work ||
+          !["pending", "ready", "running", "awaiting_verification"].includes(
+            work.state,
+          ) ||
+          work.required_role !== target.role ||
+          target.seat_id !== finding.affected_seat_id ||
+          target.active_generation !== finding.affected_generation ||
+          target.authority_state !== "contained" ||
+          !["PM", "Developer", "Verifier"].includes(target.role) ||
+          !interventions ||
+          interventions.intervention_count >= 2
+        )
+          throw new ControllerError(
+            "correction work must target the contained affected assignment within the intervention budget",
+          );
+        const existingCorrection = this.#database
+          .prepare(
+            `SELECT target_assignment_id, target_generation, target_seat_id, target_role
+             FROM finding_correction_work WHERE project_id = ? AND work_item_id = ? AND finding_id = ?`,
+          )
+          .get(this.#projectId, correction.workItemId, findingId) as
+          | {
+              target_assignment_id: string;
+              target_generation: number;
+              target_seat_id: string;
+              target_role: string;
+            }
+          | undefined;
+        if (
+          existingCorrection &&
+          (existingCorrection.target_assignment_id !==
+            finding.affected_assignment_id ||
+            existingCorrection.target_generation !==
+              finding.affected_generation ||
+            existingCorrection.target_seat_id !== target.seat_id ||
+            existingCorrection.target_role !== target.role)
+        )
+          throw new ControllerError(
+            "correction work mapping does not match the finding",
+          );
+        if (!existingCorrection) {
+          this.#database
+            .prepare(
+              `INSERT INTO finding_correction_work(project_id, work_item_id, finding_id,
+                target_assignment_id, target_generation, target_seat_id, target_role, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              this.#projectId,
+              correction.workItemId,
+              findingId,
+              finding.affected_assignment_id,
+              finding.affected_generation,
+              target.seat_id,
+              target.role,
+              now,
+            );
+          this.#database
+            .prepare(
+              "UPDATE findings SET intervention_count = intervention_count + 1 WHERE project_id = ? AND finding_id = ?",
+            )
+            .run(this.#projectId, findingId);
+        }
       } else if (toState === "resolved" || toState === "escalated") {
         if (toState === "resolved") {
           const resolution = content as {
             condition?: unknown;
+            evidenceEventId?: unknown;
+            assignmentId?: unknown;
+            generation?: unknown;
             evidence?: unknown;
           } | null;
+          const correctionWork = this.#database
+            .prepare(
+              `SELECT fcw.work_item_id, fcw.target_generation, fcw.target_role,
+                (SELECT parent_work_item_id FROM work_items
+                 WHERE project_id = fcw.project_id AND work_item_id = fcw.work_item_id)
+                  AS parent_work_item_id
+               FROM finding_correction_work fcw
+               WHERE fcw.project_id = ? AND fcw.finding_id = ?
+               ORDER BY fcw.created_at DESC LIMIT 1`,
+            )
+            .get(this.#projectId, findingId) as
+            | {
+                work_item_id: string;
+                target_generation: number;
+                target_role: string;
+                parent_work_item_id: string | null;
+              }
+            | undefined;
           if (
             !resolution ||
             typeof resolution !== "object" ||
             Array.isArray(content) ||
             resolution.condition !== finding.resolution_condition ||
-            typeof resolution.evidence !== "string" ||
-            resolution.evidence.trim().length === 0
-          ) {
+            typeof resolution.evidenceEventId !== "string" ||
+            typeof resolution.assignmentId !== "string" ||
+            typeof resolution.generation !== "number" ||
+            !Number.isSafeInteger(resolution.generation) ||
+            resolution.generation < 1 ||
+            (!correctionWork &&
+              resolution.generation <= (finding.affected_generation ?? 0)) ||
+            !resolution.evidence ||
+            !finding.affected_work_item_id ||
+            !finding.affected_seat_id
+          )
             throw new ControllerError(
-              "finding resolution must repeat its condition and include non-empty evidence",
+              "finding resolution requires a newer assignment and authoritative evidence event",
             );
+          const proof = this.#database
+            .prepare(
+              `SELECT sequence, entity_type, entity_id, to_state, payload_json
+               FROM controller_events WHERE project_id = ? AND event_id = ?`,
+            )
+            .get(this.#projectId, resolution.evidenceEventId) as
+            | {
+                sequence: number;
+                entity_type: string;
+                entity_id: string;
+                to_state: string | null;
+                payload_json: string;
+              }
+            | undefined;
+          const replacement = this.#database
+            .prepare(
+              `SELECT a.work_item_id, a.seat_id, a.active_generation, a.authority_state,
+                at.state AS attempt_state, at.authority_state AS attempt_authority,
+                s.role, w.state AS work_state
+               FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+               JOIN assignment_attempts at ON at.project_id = a.project_id
+                 AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+               JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+               WHERE a.project_id = ? AND a.assignment_id = ?`,
+            )
+            .get(this.#projectId, resolution.assignmentId) as
+            | {
+                work_item_id: string;
+                seat_id: string;
+                active_generation: number;
+                authority_state: string;
+                attempt_state: string;
+                attempt_authority: string;
+                role: string;
+                work_state: string;
+              }
+            | undefined;
+          let acceptedVerifierChildMatches = false;
+          let acceptedFinalVerifierCorrectionMatches = false;
+          let acceptedBoundVerifierCorrectionMatches = false;
+          if (proof) {
+            try {
+              const eventPayload = JSON.parse(proof.payload_json) as {
+                details?: {
+                  verifierWorkItemIds?: unknown;
+                  assignmentId?: unknown;
+                  finalVerification?: unknown;
+                  verifierCorrection?: unknown;
+                };
+              };
+              acceptedVerifierChildMatches =
+                Array.isArray(eventPayload.details?.verifierWorkItemIds) &&
+                eventPayload.details.verifierWorkItemIds.includes(
+                  correctionWork?.work_item_id,
+                );
+              acceptedFinalVerifierCorrectionMatches =
+                eventPayload.details?.finalVerification === true &&
+                eventPayload.details.assignmentId === resolution.assignmentId;
+              acceptedBoundVerifierCorrectionMatches =
+                eventPayload.details?.verifierCorrection === true &&
+                eventPayload.details.assignmentId === resolution.assignmentId;
+            } catch {
+              acceptedVerifierChildMatches = false;
+              acceptedFinalVerifierCorrectionMatches = false;
+              acceptedBoundVerifierCorrectionMatches = false;
+            }
           }
+          const supervisionProof = this.#database
+            .prepare(
+              `SELECT enabled, health, target_epoch, checkpoint_epoch,
+                checkpoint_assignment_id, checkpoint_event_sequence
+               FROM supervision_control WHERE project_id = ?`,
+            )
+            .get(this.#projectId) as
+            | {
+                enabled: number;
+                health: string;
+                target_epoch: number;
+                checkpoint_epoch: number | null;
+                checkpoint_assignment_id: string | null;
+                checkpoint_event_sequence: number | null;
+              }
+            | undefined;
+          const independentlyRechecked =
+            !supervisionProof?.enabled ||
+            (!!proof &&
+              supervisionProof.health === "healthy" &&
+              supervisionProof.checkpoint_epoch ===
+                supervisionProof.target_epoch &&
+              !!supervisionProof.checkpoint_assignment_id &&
+              supervisionProof.checkpoint_assignment_id !==
+                finding.assignment_id &&
+              supervisionProof.checkpoint_event_sequence !== null &&
+              supervisionProof.checkpoint_event_sequence >= proof.sequence);
+          if (
+            !proof ||
+            !independentlyRechecked ||
+            proof.entity_type !== "work_item" ||
+            (correctionWork?.target_role === "Verifier"
+              ? !(
+                  (acceptedVerifierChildMatches &&
+                    !!correctionWork.parent_work_item_id &&
+                    proof.entity_id === correctionWork.parent_work_item_id) ||
+                  (acceptedFinalVerifierCorrectionMatches &&
+                    proof.entity_id === correctionWork.work_item_id) ||
+                  (acceptedBoundVerifierCorrectionMatches &&
+                    proof.entity_id === correctionWork.work_item_id)
+                )
+              : proof.entity_id !==
+                (correctionWork?.work_item_id ??
+                  finding.affected_work_item_id)) ||
+            proof.to_state !== "accepted" ||
+            !replacement ||
+            replacement.work_item_id !==
+              (correctionWork?.work_item_id ?? finding.affected_work_item_id) ||
+            replacement.seat_id !== finding.affected_seat_id ||
+            replacement.role !== correctionWork?.target_role ||
+            replacement.active_generation !== resolution.generation ||
+            replacement.authority_state !== "contained" ||
+            replacement.attempt_state !== "completed" ||
+            replacement.attempt_authority !== "contained" ||
+            replacement.work_state !== "accepted"
+          )
+            throw new ControllerError(
+              "finding resolution evidence does not prove an accepted, contained correction after detection",
+            );
+          this.#database
+            .prepare(
+              `INSERT INTO finding_resolution_evidence(project_id, evidence_id, finding_id,
+                event_id, assignment_id, generation, condition, evidence_json, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              this.#projectId,
+              randomUUID(),
+              findingId,
+              resolution.evidenceEventId,
+              resolution.assignmentId,
+              resolution.generation,
+              finding.resolution_condition,
+              canonicalJson(resolution.evidence),
+              actor.actorId,
+              now,
+            );
         }
         this.#database
           .prepare(
@@ -5297,9 +6249,17 @@ export class ControllerCore {
       }
       this.#database
         .prepare(
-          "UPDATE findings SET state = ?, state_version = state_version + 1 WHERE project_id = ? AND finding_id = ?",
+          `UPDATE findings SET state = ?, state_version = state_version + 1,
+            cooldown_until = CASE WHEN ? = 'resolved' THEN ? ELSE cooldown_until END
+           WHERE project_id = ? AND finding_id = ?`,
         )
-        .run(toState, this.#projectId, findingId);
+        .run(
+          toState,
+          toState,
+          new Date(Date.parse(now) + 15 * 60_000).toISOString(),
+          this.#projectId,
+          findingId,
+        );
       return {
         value: { state: toState },
         event: {
@@ -5342,6 +6302,489 @@ export class ControllerCore {
       .get(this.#projectId, commandId) as { state: string } | undefined;
     return command?.state;
   }
+  enableSupervision(context: MutationContext): { readonly enabled: true } {
+    return this.#mutateAsController(
+      context,
+      "supervision.enable",
+      "finding:write",
+      {},
+      () => {
+        this.#database
+          .prepare(
+            `UPDATE supervision_control SET enabled = 1, health = 'degraded',
+              checkpoint_epoch = NULL, checkpoint_assignment_id = NULL,
+              checkpoint_event_sequence = NULL, checkpoint_fingerprint = NULL,
+              replacement_attempts = 0, updated_at = ?
+             WHERE project_id = ?`,
+          )
+          .run(new Date().toISOString(), this.#projectId);
+        return {
+          value: { enabled: true },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            toState: "degraded",
+          },
+        };
+      },
+    );
+  }
+
+  beginSupervisorEvaluation(context: MutationContext): {
+    readonly targetEpoch: number;
+    readonly eventUpperSequence: number;
+  } {
+    return this.#mutateAsController(
+      context,
+      "supervision.evaluation.begin",
+      "finding:write",
+      {},
+      () => {
+        const control = this.#database
+          .prepare(
+            "SELECT enabled, target_epoch FROM supervision_control WHERE project_id = ?",
+          )
+          .get(this.#projectId) as
+          { enabled: number; target_epoch: number } | undefined;
+        if (!control?.enabled)
+          throw new MutationConflictError("Supervisor is not enabled");
+        const eventUpperSequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM controller_events WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { sequence: number }
+        ).sequence;
+        this.#database
+          .prepare(
+            "UPDATE supervision_control SET health = 'evaluating', updated_at = ? WHERE project_id = ?",
+          )
+          .run(new Date().toISOString(), this.#projectId);
+        return {
+          value: {
+            targetEpoch: control.target_epoch,
+            eventUpperSequence,
+          },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            toState: "evaluating",
+            details: {
+              targetEpoch: control.target_epoch,
+              eventUpperSequence,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  markSupervisionDegraded(
+    context: MutationContext,
+    reason: string,
+  ): { readonly health: "degraded" } {
+    return this.#mutateAsController(
+      context,
+      "supervision.degraded",
+      "finding:write",
+      { reason },
+      () => {
+        if (!reason.trim() || reason.length > 2_048)
+          throw new TypeError("degraded supervision requires a bounded reason");
+        this.#database
+          .prepare(
+            "UPDATE supervision_control SET enabled = 1, health = 'degraded', updated_at = ? WHERE project_id = ?",
+          )
+          .run(new Date().toISOString(), this.#projectId);
+        return {
+          value: { health: "degraded" },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            toState: "degraded",
+            details: { reason },
+          },
+        };
+      },
+    );
+  }
+
+  claimSupervisorReplacement(context: MutationContext): {
+    readonly replacementAttempts: 1;
+  } {
+    return this.#mutateAsController(
+      context,
+      "supervision.replacement.claim",
+      "finding:write",
+      {},
+      () => {
+        const result = this.#database
+          .prepare(
+            `UPDATE supervision_control SET replacement_attempts = 1,
+              health = 'degraded', updated_at = ?
+             WHERE project_id = ? AND enabled = 1 AND health = 'degraded'
+               AND replacement_attempts = 0`,
+          )
+          .run(new Date().toISOString(), this.#projectId);
+        if (result.changes !== 1)
+          throw new MutationConflictError(
+            "Supervisor replacement budget is exhausted or supervision is not degraded",
+          );
+        return {
+          value: { replacementAttempts: 1 },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            toState: "degraded",
+            details: { replacementAttempts: 1 },
+          },
+        };
+      },
+    );
+  }
+
+  supervisorWindow(
+    eventUpperSequence: number,
+    eventLimit = 32,
+    assignmentLimit = 16,
+  ): {
+    readonly events: readonly {
+      sequence: number;
+      eventId: string;
+      entityType: string;
+      entityId: string;
+      fromState: string | null;
+      toState: string | null;
+      payloadExcerpt: string;
+      createdAt: string;
+    }[];
+    readonly assignments: readonly {
+      assignmentId: string;
+      workItemId: string;
+      seatId: string;
+      role: string;
+      generation: number;
+      state: string;
+      authorityState: string;
+      createdAt: string;
+      handoffAgeMs: number;
+    }[];
+    readonly dependencies: readonly {
+      workItemId: string;
+      blockers: readonly string[];
+    }[];
+    readonly fingerprints: readonly {
+      findingId: string;
+      fingerprint: string;
+      severity: string;
+      state: string;
+    }[];
+    readonly hardViolations: readonly {
+      code: string;
+      seatId: string;
+      assignmentIds: readonly string[];
+    }[];
+  } {
+    this.#assertOpen();
+    if (
+      !Number.isSafeInteger(eventUpperSequence) ||
+      eventUpperSequence < 0 ||
+      !Number.isInteger(eventLimit) ||
+      eventLimit < 1 ||
+      eventLimit > 128 ||
+      !Number.isInteger(assignmentLimit) ||
+      assignmentLimit < 1 ||
+      assignmentLimit > 48
+    )
+      throw new TypeError("Supervisor window bounds are invalid");
+    const now = Date.now();
+    const events = this.#database
+      .prepare(
+        `SELECT sequence, event_id, entity_type, entity_id, from_state, to_state,
+          substr(payload_json, 1, 128) AS payload_excerpt, created_at
+         FROM controller_events WHERE project_id = ? AND sequence <= ?
+         ORDER BY sequence DESC LIMIT ?`,
+      )
+      .all(this.#projectId, eventUpperSequence, eventLimit) as Array<{
+      sequence: number;
+      event_id: string;
+      entity_type: string;
+      entity_id: string;
+      from_state: string | null;
+      to_state: string | null;
+      payload_excerpt: string;
+      created_at: string;
+    }>;
+    const assignments = this.#database
+      .prepare(
+        `SELECT a.assignment_id, a.work_item_id, a.seat_id, s.role,
+          a.active_generation, a.state, a.authority_state, a.created_at
+         FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+         WHERE a.project_id = ?
+         ORDER BY a.created_at DESC, a.assignment_id DESC LIMIT ?`,
+      )
+      .all(this.#projectId, assignmentLimit) as Array<{
+      assignment_id: string;
+      work_item_id: string;
+      seat_id: string;
+      role: string;
+      active_generation: number;
+      state: string;
+      authority_state: string;
+      created_at: string;
+    }>;
+    const snapshot = this.statusSnapshot();
+    const overlappingAuthority = this.#database
+      .prepare(
+        `SELECT seat_id, GROUP_CONCAT(assignment_id) AS assignment_ids
+         FROM assignments WHERE project_id = ? AND authority_state IN ('active', 'unknown')
+         GROUP BY seat_id HAVING COUNT(*) > 1`,
+      )
+      .all(this.#projectId) as Array<{
+      seat_id: string;
+      assignment_ids: string;
+    }>;
+    return {
+      events: events.reverse().map((row) => ({
+        sequence: row.sequence,
+        eventId: row.event_id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        fromState: row.from_state,
+        toState: row.to_state,
+        payloadExcerpt: row.payload_excerpt,
+        createdAt: row.created_at,
+      })),
+      assignments: assignments.map((row) => ({
+        assignmentId: row.assignment_id,
+        workItemId: row.work_item_id,
+        seatId: row.seat_id,
+        role: row.role,
+        generation: row.active_generation,
+        state: row.state,
+        authorityState: row.authority_state,
+        createdAt: row.created_at,
+        handoffAgeMs: Math.max(0, now - Date.parse(row.created_at)),
+      })),
+      dependencies: snapshot.work.slice(-48).map((work) => ({
+        workItemId: work.workItemId,
+        blockers: work.blockers.slice(0, 16),
+      })),
+      fingerprints: snapshot.findings.slice(-24).map((finding) => ({
+        findingId: finding.findingId,
+        fingerprint: finding.fingerprint,
+        severity: finding.severity,
+        state: finding.state,
+      })),
+      hardViolations: overlappingAuthority.map((row) => ({
+        code: "overlapping_authority",
+        seatId: row.seat_id,
+        assignmentIds: row.assignment_ids.split(",").slice(0, 8),
+      })),
+    };
+  }
+
+  recordSupervisorCheckpoint(
+    context: MutationContext,
+    input: {
+      readonly assignmentId: string;
+      readonly generation: number;
+      readonly targetEpoch: number;
+      readonly eventUpperSequence: number;
+      readonly fingerprint: string;
+    },
+  ): { readonly health: "healthy"; readonly targetEpoch: number } {
+    return this.#mutateAsController(
+      context,
+      "supervision.checkpoint",
+      "finding:write",
+      input,
+      () => {
+        const assignment = this.#database
+          .prepare(
+            `SELECT a.work_item_id, a.active_generation, a.authority_state, a.state,
+              at.state AS attempt_state, at.authority_state AS attempt_authority,
+              s.role, w.state AS work_state, c.state AS command_state
+             FROM assignments a JOIN assignment_attempts at
+               ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
+                 AND at.generation = a.active_generation
+             JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+             JOIN commands c ON c.project_id = a.project_id
+               AND c.assignment_id = a.assignment_id AND c.generation = at.generation
+             WHERE a.project_id = ? AND a.assignment_id = ?`,
+          )
+          .get(this.#projectId, input.assignmentId) as
+          | {
+              work_item_id: string;
+              active_generation: number;
+              authority_state: string;
+              state: string;
+              attempt_state: string;
+              attempt_authority: string;
+              role: string;
+              work_state: string;
+              command_state: string;
+            }
+          | undefined;
+        const control = this.#database
+          .prepare(
+            "SELECT enabled, target_epoch, replacement_attempts FROM supervision_control WHERE project_id = ?",
+          )
+          .get(this.#projectId) as
+          | {
+              enabled: number;
+              target_epoch: number;
+              replacement_attempts: number;
+            }
+          | undefined;
+        if (
+          !assignment ||
+          assignment.role !== "Supervisor" ||
+          assignment.active_generation !== input.generation ||
+          assignment.authority_state !== "contained" ||
+          assignment.state !== "completed" ||
+          assignment.attempt_state !== "completed" ||
+          assignment.attempt_authority !== "contained" ||
+          assignment.command_state !== "completed" ||
+          assignment.work_state !== "accepted" ||
+          !control?.enabled ||
+          control.target_epoch !== input.targetEpoch ||
+          !Number.isSafeInteger(input.eventUpperSequence) ||
+          input.eventUpperSequence < 0 ||
+          !/^[a-f0-9]{64}$/.test(input.fingerprint)
+        )
+          throw new MutationConflictError(
+            "Supervisor checkpoint requires an unchanged, receipt-verified, contained evaluation",
+          );
+        this.#database
+          .prepare(
+            `UPDATE supervision_control SET health = 'healthy', checkpoint_epoch = ?,
+              checkpoint_assignment_id = ?, checkpoint_event_sequence = ?,
+              checkpoint_fingerprint = ?, updated_at = ? WHERE project_id = ?`,
+          )
+          .run(
+            input.targetEpoch,
+            input.assignmentId,
+            input.eventUpperSequence,
+            input.fingerprint,
+            new Date().toISOString(),
+            this.#projectId,
+          );
+        return {
+          value: { health: "healthy", targetEpoch: input.targetEpoch },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            fromState: "evaluating",
+            toState: "healthy",
+            details: {
+              assignmentId: input.assignmentId,
+              generation: input.generation,
+              targetEpoch: input.targetEpoch,
+              eventUpperSequence: input.eventUpperSequence,
+              fingerprint: input.fingerprint,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  latestAssignmentForRole(
+    role: "PM" | "Developer" | "Verifier",
+    assignmentId?: string,
+  ):
+    | {
+        readonly workItemId: string;
+        readonly parentWorkItemId: string | null;
+        readonly role: "PM" | "Developer" | "Verifier";
+        readonly seatId: string;
+        readonly assignmentId: string;
+        readonly generation: number;
+      }
+    | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT a.work_item_id, a.seat_id, a.assignment_id, a.active_generation,
+          w.parent_work_item_id
+         FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+         JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+         WHERE a.project_id = ? AND s.role = ? AND (? IS NULL OR a.assignment_id = ?)
+         ORDER BY a.created_at DESC, a.assignment_id DESC LIMIT 1`,
+      )
+      .get(
+        this.#projectId,
+        role,
+        assignmentId ?? null,
+        assignmentId ?? null,
+      ) as
+      | {
+          work_item_id: string;
+          parent_work_item_id: string | null;
+          seat_id: string;
+          assignment_id: string;
+          active_generation: number;
+        }
+      | undefined;
+    return row
+      ? {
+          workItemId: row.work_item_id,
+          parentWorkItemId: row.parent_work_item_id,
+          role,
+          seatId: row.seat_id,
+          assignmentId: row.assignment_id,
+          generation: row.active_generation,
+        }
+      : undefined;
+  }
+  candidateForAssignment(assignmentId: string):
+    | {
+        readonly candidateId: string;
+        readonly commitSha: string;
+        readonly developerAssignmentId: string;
+        readonly workItemId: string;
+      }
+    | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT c.candidate_id, c.commit_sha, c.assignment_id AS developer_assignment_id,
+          a.work_item_id
+         FROM candidates c JOIN assignments a
+           ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
+         WHERE c.project_id = ? AND (
+           c.assignment_id = ? OR c.candidate_id IN (
+             SELECT source_id FROM assignment_input_bindings
+             WHERE project_id = ? AND assignment_id = ? AND input_kind = 'candidate'
+           )
+         )
+         ORDER BY c.created_at DESC, c.candidate_id DESC LIMIT 1`,
+      )
+      .get(this.#projectId, assignmentId, this.#projectId, assignmentId) as
+      | {
+          candidate_id: string;
+          commit_sha: string;
+          developer_assignment_id: string;
+          work_item_id: string;
+        }
+      | undefined;
+    return row
+      ? {
+          candidateId: row.candidate_id,
+          commitSha: row.commit_sha,
+          developerAssignmentId: row.developer_assignment_id,
+          workItemId: row.work_item_id,
+        }
+      : undefined;
+  }
+
   statusSnapshot(): ControllerStatus {
     this.#assertOpen();
     const run = this.#database
@@ -5349,6 +6792,24 @@ export class ControllerCore {
         "SELECT state, state_version FROM run_controls WHERE project_id = ?",
       )
       .get(this.#projectId) as { state: string; state_version: number };
+    const supervision = this.#database
+      .prepare(
+        `SELECT enabled, health, target_epoch, checkpoint_epoch,
+          checkpoint_assignment_id, replacement_attempts
+         FROM supervision_control WHERE project_id = ?`,
+      )
+      .get(this.#projectId) as
+      | {
+          enabled: number;
+          health: "healthy" | "evaluating" | "degraded";
+          target_epoch: number;
+          checkpoint_epoch: number | null;
+          checkpoint_assignment_id: string | null;
+          replacement_attempts: number;
+        }
+      | undefined;
+    if (!supervision)
+      throw new ControllerError("supervision control record is missing");
     const roles = this.#database
       .prepare(
         `
@@ -5399,15 +6860,29 @@ export class ControllerCore {
     const findings = this.#database
       .prepare(
         `
-      SELECT finding_id, severity, state, evidence_json FROM findings
-      WHERE project_id = ? ORDER BY created_at, finding_id
+      SELECT finding_id, affected_work_item_id, affected_seat_id, affected_assignment_id,
+        affected_generation, fingerprint, severity, state, evidence_json, requested_correction,
+        acknowledgement_deadline, resolution_condition, escalation_route, intervention_count,
+        reopened_from_finding_id
+      FROM findings WHERE project_id = ? ORDER BY created_at, finding_id
     `,
       )
       .all(this.#projectId) as Array<{
       finding_id: string;
+      affected_work_item_id: string | null;
+      affected_seat_id: string | null;
+      affected_assignment_id: string | null;
+      affected_generation: number | null;
+      fingerprint: string;
       severity: string;
       state: string;
       evidence_json: string;
+      requested_correction: string;
+      acknowledgement_deadline: string | null;
+      resolution_condition: string;
+      escalation_route: string;
+      intervention_count: number;
+      reopened_from_finding_id: string | null;
     }>;
     const evidence = this.#database
       .prepare(
@@ -5425,6 +6900,40 @@ export class ControllerCore {
       evidence_json: string | null;
       evidence_ref: string | null;
     }>;
+    const verifierEvidenceRows = this.#database
+      .prepare(
+        `SELECT evidence_id, candidate_id, criterion, passed, artifact_ref,
+          observation, exit_status, evidence_hash
+         FROM candidate_evidence WHERE project_id = ?
+         ORDER BY candidate_id, criterion, evidence_id`,
+      )
+      .all(this.#projectId) as Array<{
+      evidence_id: string;
+      candidate_id: string;
+      criterion: string;
+      passed: number;
+      artifact_ref: string;
+      observation: string | null;
+      exit_status: number | null;
+      evidence_hash: string;
+    }>;
+    const verifierEvidenceByCandidate = new Map<
+      string,
+      ControllerStatus["evidence"][number]["verifierEvidence"][number][]
+    >();
+    for (const row of verifierEvidenceRows) {
+      const entries = verifierEvidenceByCandidate.get(row.candidate_id) ?? [];
+      entries.push({
+        evidenceId: row.evidence_id,
+        criterion: row.criterion,
+        passed: row.passed === 1,
+        artifactRef: row.artifact_ref,
+        observation: row.observation,
+        exitStatus: row.exit_status,
+        evidenceHash: row.evidence_hash,
+      });
+      verifierEvidenceByCandidate.set(row.candidate_id, entries);
+    }
     const finalVerificationRows = this.#database
       .prepare(
         `
@@ -5493,6 +7002,14 @@ export class ControllerCore {
       run: { state: run.state, stateVersion: run.state_version },
       stateVersion: this.stateVersion,
       inputRevision: this.inputRevision,
+      supervision: {
+        enabled: supervision.enabled === 1,
+        health: supervision.health,
+        targetEpoch: supervision.target_epoch,
+        checkpointEpoch: supervision.checkpoint_epoch,
+        checkpointAssignmentId: supervision.checkpoint_assignment_id,
+        replacementAttempts: supervision.replacement_attempts,
+      },
       roles: roles.map((row) => ({
         role: row.role,
         seatId: row.seat_id,
@@ -5530,9 +7047,20 @@ export class ControllerCore {
       }),
       findings: findings.map((row) => ({
         findingId: row.finding_id,
+        affectedWorkItemId: row.affected_work_item_id ?? "",
+        affectedSeatId: row.affected_seat_id ?? "",
+        affectedAssignmentId: row.affected_assignment_id ?? "",
+        affectedGeneration: row.affected_generation ?? 0,
+        fingerprint: row.fingerprint,
         severity: row.severity,
         state: row.state,
         evidence: JSON.parse(row.evidence_json) as unknown,
+        requestedCorrection: row.requested_correction,
+        acknowledgementDeadline: row.acknowledgement_deadline ?? "",
+        resolutionCondition: row.resolution_condition,
+        escalationRoute: row.escalation_route,
+        interventionCount: row.intervention_count,
+        reopenedFromFindingId: row.reopened_from_finding_id,
       })),
       evidence: evidence.map((row) => ({
         candidateId: row.candidate_id,
@@ -5542,6 +7070,8 @@ export class ControllerCore {
           ? (JSON.parse(row.evidence_json) as string[])
           : null,
         evidenceRef: row.evidence_ref,
+        verifierEvidence:
+          verifierEvidenceByCandidate.get(row.candidate_id) ?? [],
       })),
       finalVerification: [...finalVerificationByWork.values()],
     };
@@ -5565,6 +7095,22 @@ export class ControllerCore {
       return { kind, id, record: row };
     }
     throw new ControllerError("inspect target does not exist");
+  }
+
+  latestAcceptedWorkEvent(
+    workItemId: string,
+  ): { readonly eventId: string; readonly sequence: number } | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT event_id, sequence FROM controller_events
+         WHERE project_id = ? AND entity_type = 'work_item' AND entity_id = ?
+           AND to_state = 'accepted'
+         ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId, workItemId) as
+      { event_id: string; sequence: number } | undefined;
+    return row ? { eventId: row.event_id, sequence: row.sequence } : undefined;
   }
 
   latestCompletedReport(
@@ -6051,6 +7597,88 @@ export class ControllerCore {
     return acceptanceCriteriaFromContent(JSON.parse(row.content_json));
   }
 
+  #advanceSupervisionEpoch(
+    action: string,
+    payload: unknown,
+    actor: AuthenticatedActor,
+  ): void {
+    const input =
+      payload !== null && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {};
+    const workRole = (workItemId: unknown): string | undefined => {
+      if (typeof workItemId !== "string") return undefined;
+      return (
+        this.#database
+          .prepare(
+            "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+          )
+          .get(this.#projectId, workItemId) as
+          { required_role: string } | undefined
+      )?.required_role;
+    };
+    const isCorrectionWork = (workItemId: unknown): boolean =>
+      typeof workItemId === "string" &&
+      !!this.#database
+        .prepare(
+          "SELECT 1 FROM finding_correction_work WHERE project_id = ? AND work_item_id = ?",
+        )
+        .get(this.#projectId, workItemId);
+    let material = false;
+    if (
+      action === "project.input.revise" ||
+      action === "dependency.add" ||
+      action === "dependency.remove" ||
+      action === "candidate.submit" ||
+      action === "candidate.evidence.record" ||
+      action === "candidate.accept" ||
+      action === "final_verification.accept"
+    )
+      material = true;
+    else if (
+      action === "work.create" &&
+      input.requiredRole !== "Supervisor" &&
+      typeof input.findingId !== "string"
+    )
+      material = true;
+    // Readiness is a gated queue transition; assignment is the supervised dispatch boundary.
+    else if (action === "work.assign")
+      material =
+        workRole(input.workItemId) !== "Supervisor" &&
+        !isCorrectionWork(input.workItemId);
+    else if (action === "work.inputs.rebind" || action === "work.report.accept")
+      material = workRole(input.workItemId) !== "Supervisor";
+    else if (action === "assignment.containment.confirmed") {
+      const row = this.#database
+        .prepare(
+          `SELECT s.role FROM assignments a JOIN seats s
+             ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+           WHERE a.project_id = ? AND a.assignment_id = ?`,
+        )
+        .get(this.#projectId, input.assignmentId) as
+        { role: string } | undefined;
+      material = !!row && row.role !== "Supervisor";
+    } else if (action === "finding.transition") {
+      material =
+        actor.role !== "Supervisor" &&
+        input.toState !== "correcting" &&
+        [
+          "acknowledged",
+          "correcting",
+          "disputed",
+          "resolved",
+          "escalated",
+        ].includes(String(input.toState));
+    }
+    if (!material) return;
+    this.#database
+      .prepare(
+        `UPDATE supervision_control SET target_epoch = target_epoch + 1, updated_at = ?
+         WHERE project_id = ? AND enabled = 1`,
+      )
+      .run(new Date().toISOString(), this.#projectId);
+  }
+
   #isTransitionAllowed(
     entityType: string,
     fromState: string,
@@ -6068,6 +7696,163 @@ export class ControllerCore {
       capability: string;
     }>;
     return rules.some((rule) => actor.capabilities.has(rule.capability));
+  }
+
+  #assertSupervisionReady(workItemId: string, allowBootstrapPm = false): void {
+    const control = this.#database
+      .prepare(
+        "SELECT enabled, health, target_epoch, checkpoint_epoch FROM supervision_control WHERE project_id = ?",
+      )
+      .get(this.#projectId) as
+      | {
+          enabled: number;
+          health: string;
+          target_epoch: number;
+          checkpoint_epoch: number | null;
+        }
+      | undefined;
+    if (!control?.enabled) return;
+    const item = this.#database
+      .prepare(
+        "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+      )
+      .get(this.#projectId, workItemId) as
+      { required_role: string } | undefined;
+    if (!item) throw new ControllerError("work item does not exist");
+    if (item.required_role === "Supervisor") return;
+    const bootstrap =
+      allowBootstrapPm &&
+      item.required_role === "PM" &&
+      control.checkpoint_epoch === null &&
+      !this.#database
+        .prepare(
+          "SELECT 1 FROM work_items WHERE project_id = ? AND required_role = 'PM' AND state = 'accepted' LIMIT 1",
+        )
+        .get(this.#projectId);
+    if (bootstrap) return;
+    if (
+      control.health !== "healthy" ||
+      control.checkpoint_epoch !== control.target_epoch
+    )
+      throw new MutationConflictError(
+        "supervision is degraded or its checkpoint is stale",
+      );
+    const unresolved = this.#database
+      .prepare(
+        "SELECT 1 FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+      )
+      .get(this.#projectId);
+    if (!unresolved) return;
+    const correction = this.#database
+      .prepare(
+        `SELECT f.state, f.intervention_count, c.target_role, c.target_generation,
+          a.active_generation, a.authority_state, a.seat_id, 0 AS verifier_parent
+         FROM finding_correction_work c
+         JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+         JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.target_assignment_id
+         WHERE c.project_id = ? AND c.work_item_id = ?
+         UNION ALL
+         SELECT f.state, f.intervention_count, c.target_role, c.target_generation,
+          a.active_generation, a.authority_state, a.seat_id, 1 AS verifier_parent
+         FROM finding_correction_work c
+         JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+         JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.target_assignment_id
+         JOIN work_items verifier ON verifier.project_id = c.project_id
+           AND verifier.work_item_id = c.work_item_id AND verifier.parent_work_item_id = ?
+         JOIN assignments verifier_assignment ON verifier_assignment.project_id = c.project_id
+           AND verifier_assignment.work_item_id = verifier.work_item_id
+         JOIN assignment_input_bindings binding ON binding.project_id = verifier_assignment.project_id
+           AND binding.assignment_id = verifier_assignment.assignment_id
+           AND binding.input_kind = 'candidate'
+         JOIN work_items candidate_parent ON candidate_parent.project_id = c.project_id
+           AND candidate_parent.work_item_id = verifier.parent_work_item_id
+           AND candidate_parent.required_role = 'Developer'
+           AND candidate_parent.state = 'awaiting_verification'
+         JOIN candidates candidate ON candidate.project_id = binding.project_id
+           AND candidate.candidate_id = binding.source_id
+           AND candidate.input_revision = candidate_parent.input_revision
+           AND candidate.generation = (
+             SELECT MAX(latest_attempt.generation)
+             FROM assignments latest
+             JOIN assignment_attempts latest_attempt
+               ON latest_attempt.project_id = latest.project_id
+               AND latest_attempt.assignment_id = latest.assignment_id
+             JOIN seats latest_seat ON latest_seat.project_id = latest.project_id
+               AND latest_seat.seat_id = latest.seat_id
+             WHERE latest.project_id = candidate_parent.project_id
+               AND latest.work_item_id = candidate_parent.work_item_id
+               AND latest_seat.role = 'Developer'
+           )
+           AND candidate.assignment_id IN (
+             SELECT developer.assignment_id FROM assignments developer
+             JOIN seats developer_seat ON developer_seat.project_id = developer.project_id
+               AND developer_seat.seat_id = developer.seat_id
+             WHERE developer.project_id = c.project_id
+               AND developer.work_item_id = verifier.parent_work_item_id
+               AND developer_seat.role = 'Developer'
+           )
+         WHERE c.project_id = ? AND c.target_role = 'Verifier'
+           AND f.state = 'correcting'
+         LIMIT 1`,
+      )
+      .get(this.#projectId, workItemId, workItemId, this.#projectId) as
+      | {
+          state: string;
+          intervention_count: number;
+          target_role: string;
+          target_generation: number;
+          active_generation: number;
+          authority_state: string;
+          seat_id: string;
+          verifier_parent: number;
+        }
+      | undefined;
+    const occupied = correction
+      ? this.#database
+          .prepare(
+            "SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+          )
+          .get(this.#projectId, correction.seat_id)
+      : true;
+    if (
+      !correction ||
+      (correction.verifier_parent === 1
+        ? item.required_role !== "Developer" ||
+          correction.target_role !== "Verifier" ||
+          correction.state !== "correcting"
+        : correction.target_role !== item.required_role) ||
+      correction.target_generation !== correction.active_generation ||
+      correction.authority_state !== "contained" ||
+      correction.intervention_count > 2 ||
+      !["reported", "acknowledged", "correcting"].includes(correction.state) ||
+      occupied
+    )
+      throw new MutationConflictError(
+        "an unresolved Supervisor finding blocks this acceptance",
+      );
+  }
+
+  #assertSupervisionRunReady(): void {
+    const control = this.#database
+      .prepare(
+        "SELECT enabled, health, target_epoch, checkpoint_epoch FROM supervision_control WHERE project_id = ?",
+      )
+      .get(this.#projectId) as
+      | {
+          enabled: number;
+          health: string;
+          target_epoch: number;
+          checkpoint_epoch: number | null;
+        }
+      | undefined;
+    if (
+      control?.enabled &&
+      (control.health !== "healthy" ||
+        control.checkpoint_epoch !== control.target_epoch)
+    )
+      throw new MutationConflictError(
+        "run cannot complete without a current healthy Supervisor checkpoint",
+      );
   }
 
   #mutate<T>(
@@ -6173,7 +7958,34 @@ export class ControllerCore {
           `expected input revision ${context.inputRevision}, found ${project.current_input_revision}`,
         );
       }
+      if (
+        action === "final_verification.accept" ||
+        action === "work.report.accept"
+      ) {
+        const input = payload as { workItemId?: string };
+        const workItemId = input.workItemId ?? "";
+        const item = this.#database
+          .prepare(
+            "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+          )
+          .get(this.#projectId, workItemId) as
+          { required_role: string } | undefined;
+        if (item?.required_role !== "Supervisor")
+          this.#assertSupervisionReady(
+            workItemId,
+            action === "work.report.accept" && item?.required_role === "PM",
+          );
+      }
+      if (
+        action === "run.transition" &&
+        payload !== null &&
+        typeof payload === "object" &&
+        "toState" in payload &&
+        payload.toState === "completed"
+      )
+        this.#assertSupervisionRunReady();
       const output = apply(actor);
+      this.#advanceSupervisionEpoch(action, payload, actor);
       const nextVersion = project.state_version + 1;
       this.#database
         .prepare(

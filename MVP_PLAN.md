@@ -250,6 +250,8 @@ Detected -> Reported -> Acknowledged -> Correcting -> Verified resolved
 - Unresolved disputes escalate to the operator in this MVP. No silent waiver path is needed.
 - Deduplicate unchanged issues, apply cooldowns, and cap interventions. Changed evidence may reopen an issue with explicit provenance.
 
+The controller persists the finding lifecycle, source Supervisor assignment, affected assignment generation, evidence, disposition, correction-work binding, intervention count, cooldown, and reopen provenance. Supervisor evaluations use event-sequence-bounded snapshots (32 events / 16 assignments by default, with payload excerpts capped at 128 characters) and report a hard monitor for overlapping active/unknown authority on a seat. A blocked evaluation records a finding and role-bound correction work item, then dispatches it and records the bound worker's acknowledgement and correction/dispute response. PM and Developer correction reports are accepted only after their corresponding report/evidence path and a fresh independent Supervisor checkpoint; Verifier corrections are accepted through the exact parent candidate or composed-final-verification acceptance path. Resolution requires the fresh Supervisor to confirm the recorded condition against newly persisted evidence; disputes, failed verification, missing evidence, and stale checkpoints keep the run paused or escalate. Resolution evidence binds the accepted correction event and records the condition/evidence immutably.
+
 ### MVP recovery defaults
 
 These are proposed configurable experiment defaults, not proven production thresholds:

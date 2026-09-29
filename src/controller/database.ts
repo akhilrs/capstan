@@ -68,6 +68,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  9: {
+    version: 9,
+    name: "0009_workflow_supervisor.sql",
+    url: new URL(
+      "../../migrations/0009_workflow_supervisor.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

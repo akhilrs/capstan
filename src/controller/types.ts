@@ -89,6 +89,7 @@ export interface WorkItemInput {
   readonly parentWorkItemId?: string;
   readonly acceptanceCriteria?: readonly string[];
   readonly finalVerification?: boolean;
+  readonly findingId?: string;
 }
 
 export interface SeatInput {
