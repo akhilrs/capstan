@@ -1393,7 +1393,7 @@ export class ControllerCore {
     if (item.run_state !== "active") reasons.push(`run is ${item.run_state}`);
     const supervision = this.#database
       .prepare(
-        `SELECT enabled, health, target_epoch, checkpoint_epoch
+        `SELECT enabled, health, target_epoch, checkpoint_epoch, bootstrap_pm_allowed
          FROM supervision_control WHERE project_id = ?`,
       )
       .get(this.#projectId) as
@@ -1402,12 +1402,14 @@ export class ControllerCore {
           health: string;
           target_epoch: number;
           checkpoint_epoch: number | null;
+          bootstrap_pm_allowed: number;
         }
       | undefined;
     if (supervision?.enabled && item.required_role !== "Supervisor") {
       const bootstrapPm =
         item.required_role === "PM" &&
         supervision.checkpoint_epoch === null &&
+        supervision.bootstrap_pm_allowed === 1 &&
         !this.#database
           .prepare(
             `SELECT 1 FROM assignments a JOIN seats s

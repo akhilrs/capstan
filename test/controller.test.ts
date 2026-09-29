@@ -1797,6 +1797,12 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
   const value = await fixture();
   try {
     const { core, project: info } = value;
+    await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "degraded-bootstrap-pm",
+    );
     core.enableSupervision(context(core, info.ownerCredential));
     core.createWorkItem(context(core, info.ownerCredential), {
       workItemId: "degraded-supervision-work",
@@ -1804,6 +1810,13 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
       description: "This work must not dispatch while supervision is degraded",
       requiredRole: "Developer",
     });
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "degraded-bootstrap-pm-work",
+      title: "Only initially bootstrappable PM",
+      description: "Do not authorize after evaluation starts",
+      requiredRole: "PM",
+    });
+    assert.equal(core.readiness("degraded-bootstrap-pm-work").ready, true);
     const versionBeforeCandidateAcceptance = core.stateVersion;
     assert.throws(
       () =>
@@ -1824,6 +1837,11 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
     );
     const evaluation = core.beginSupervisorEvaluation(
       context(core, info.ownerCredential),
+    );
+    assert.ok(
+      core
+        .readiness("degraded-bootstrap-pm-work")
+        .reasons.some((reason) => reason.includes("supervision is degraded")),
     );
     const window = core.supervisorWindow(evaluation.eventUpperSequence);
     assert.ok(window.events.length <= 32 + 16);
@@ -1846,6 +1864,13 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
     core.markSupervisionDegraded(
       context(core, info.ownerCredential),
       "forced Supervisor evaluation failure",
+    );
+    const pmReadiness = core.readiness("degraded-bootstrap-pm-work");
+    assert.equal(pmReadiness.ready, false);
+    assert.ok(
+      pmReadiness.reasons.some((reason) =>
+        reason.includes("supervision is degraded"),
+      ),
     );
     assert.deepEqual(
       core.claimSupervisorReplacement(context(core, info.ownerCredential)),
