@@ -17,8 +17,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import {
   assertTrackedCheckoutMatchesHead,
+  escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
 } from "../src/cli.js";
 import { listenControl } from "../src/control.js";
@@ -82,6 +84,141 @@ test("Verifier dispatch reserves a slot only while capacity remains", () => {
     () => reserveDispatchSlot(3, 3),
     /correction Verifier dispatch exceeded its bounded budget/,
   );
+});
+
+test("unknown-only Supervisor overlap escalates its finding", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-unknown-overlap-"));
+  let core: ControllerCore | undefined;
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const config = JSON.parse(
+      readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
+    ) as { projectId: string; name: string; stateDirectory: string };
+    const ownerCredential = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    core = await ControllerCore.open({
+      stateDirectory: config.stateDirectory,
+      project: {
+        projectId: config.projectId,
+        name: config.name,
+        ownerCredential,
+        initialInputs: [
+          {
+            kind: "project_config",
+            content: {
+              schemaVersion: 1,
+              projectId: config.projectId,
+              name: config.name,
+              baseSha: "a".repeat(40),
+            },
+          },
+          {
+            kind: "task_brief",
+            content: {
+              taskId: "unknown-overlap",
+              objective: "Escalate an unknown Supervisor overlap",
+            },
+          },
+          { kind: "acceptance_criteria", content: ["Observe overlap"] },
+          {
+            kind: "policy",
+            content: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 2 },
+          },
+          { kind: "plan", content: { schemaVersion: 1 } },
+        ],
+      },
+    });
+    const mutate = (credential: string) => {
+      const requestId = randomUUID();
+      return {
+        credential,
+        requestId,
+        idempotencyKey: requestId,
+        expectedVersion: core!.stateVersion,
+        inputRevision: core!.inputRevision,
+      };
+    };
+    const seatId = "unknown-overlap-supervisor";
+    core.createSeat(mutate(ownerCredential), {
+      seatId,
+      name: "Unknown overlap Supervisor",
+      role: "Supervisor",
+    });
+    const supervisor = core.createActor(mutate(ownerCredential), {
+      displayName: "Unknown overlap Supervisor",
+      role: "Supervisor",
+      seatId,
+    });
+    const assign = (workItemId: string) => {
+      core!.createWorkItem(mutate(ownerCredential), {
+        workItemId,
+        title: workItemId,
+        description: "Observe Supervisor authority",
+        requiredRole: "Supervisor",
+      });
+      core!.markReady(mutate(ownerCredential), workItemId);
+      return core!.assignWorkItem(mutate(ownerCredential), workItemId, seatId);
+    };
+    const previous = assign("unknown-overlap-previous");
+    core.confirmContainment(
+      mutate(ownerCredential),
+      previous.assignmentId,
+      "unknown-overlap-previous-contained",
+    );
+    const current = assign("unknown-overlap-current");
+    const db = new Database(
+      path.join(config.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      db.prepare(
+        "UPDATE assignments SET authority_state = 'unknown' WHERE project_id = ? AND assignment_id IN (?, ?)",
+      ).run(config.projectId, previous.assignmentId, current.assignmentId);
+    } finally {
+      db.close();
+    }
+    const findingId = "unknown-overlap-finding";
+    core.createFinding(mutate(supervisor.credential), {
+      findingId,
+      workItemId: current.workItemId,
+      assignmentId: current.assignmentId,
+      generation: current.generation,
+      affectedWorkItemId: previous.workItemId,
+      affectedSeatId: seatId,
+      affectedAssignmentId: previous.assignmentId,
+      affectedGeneration: previous.generation,
+      fingerprint: "unknown-supervisor-overlap",
+      severity: "critical",
+      evidence: { code: "overlapping_authority" },
+      requestedCorrection: "Operator must resolve Supervisor seat overlap",
+      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
+      resolutionCondition: "Operator verifies exclusive Supervisor authority",
+      escalationRoute: "operator",
+    });
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((entry) => entry.findingId === findingId)?.state,
+      "detected",
+    );
+    escalateSupervisorOverlapFinding(
+      core,
+      findingId,
+      "unknown",
+      supervisor.credential,
+      ownerCredential,
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((entry) => entry.findingId === findingId)?.state,
+      "escalated",
+    );
+  } finally {
+    core?.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("immutable checkout check detects tracked bytes hidden by assume-unchanged", () => {

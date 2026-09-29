@@ -87,6 +87,35 @@ export type CstanInspectJsonV1 = {
   record: Record<string, unknown>;
 };
 class BlockedError extends Error {}
+export function escalateSupervisorOverlapFinding(
+  core: ControllerCore,
+  findingId: string,
+  sourceAuthorityState: string,
+  supervisorCredential: string,
+  operatorCredential: string,
+): void {
+  let state = core
+    .statusSnapshot()
+    .findings.find((entry) => entry.findingId === findingId)?.state;
+  if (state === "detected" && sourceAuthorityState === "active") {
+    core.transitionFinding(
+      context(core, supervisorCredential),
+      findingId,
+      "reported",
+      { observation: "overlapping Supervisor authority" },
+    );
+    state = "reported";
+  }
+  if (state === "reported" || state === "detected")
+    core.transitionFinding(
+      context(core, operatorCredential),
+      findingId,
+      "escalated",
+      {
+        reason: "Supervisor seat cannot correct its own authority overlap",
+      },
+    );
+}
 class InvalidInputError extends Error {}
 
 function fail(message: string, code = EXIT.usage): never {
@@ -1671,28 +1700,13 @@ async function runCli(argv: string[]): Promise<number> {
                 },
               );
               const findingId = finding.findingId;
-              let state = core
-                .statusSnapshot()
-                .findings.find((entry) => entry.findingId === findingId)?.state;
-              if (state === "detected" && source.authorityState === "active") {
-                core.transitionFinding(
-                  context(core, identities.Supervisor.credential),
-                  findingId,
-                  "reported",
-                  { observation: "overlapping Supervisor authority" },
-                );
-                state = "reported";
-              }
-              if (state === "reported")
-                core.transitionFinding(
-                  context(core, credential),
-                  findingId,
-                  "escalated",
-                  {
-                    reason:
-                      "Supervisor seat cannot correct its own authority overlap",
-                  },
-                );
+              escalateSupervisorOverlapFinding(
+                core,
+                findingId,
+                source.authorityState,
+                identities.Supervisor.credential,
+                credential,
+              );
               core.markSupervisionDegraded(
                 context(core, credential),
                 `Supervisor seat overlap recorded as finding ${findingId}`,
