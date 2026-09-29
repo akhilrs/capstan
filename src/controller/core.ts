@@ -8201,6 +8201,17 @@ export class ControllerCore {
       item.required_role === "PM" &&
       control.checkpoint_epoch === null &&
       control.bootstrap_pm_allowed === 1 &&
+      workItemId ===
+        (
+          this.#database
+            .prepare(
+              `SELECT a.work_item_id FROM assignments a
+               JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+               WHERE a.project_id = ? AND w.required_role = 'PM'
+               ORDER BY a.created_at, a.work_item_id LIMIT 1`,
+            )
+            .get(this.#projectId) as { work_item_id: string } | undefined
+        )?.work_item_id &&
       !this.#database
         .prepare(
           "SELECT 1 FROM work_items WHERE project_id = ? AND required_role = 'PM' AND state = 'accepted' LIMIT 1",

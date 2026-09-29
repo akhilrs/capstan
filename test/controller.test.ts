@@ -1921,6 +1921,16 @@ test("PM bootstrap dispatch closes when supervision degrades", async () => {
         "PM",
       ),
     );
+    const beforeOtherPm = core.stateVersion;
+    assert.throws(
+      () =>
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          commands[1]!.commandId,
+        ),
+      /supervision is degraded or its checkpoint is stale/,
+    );
+    assert.equal(core.stateVersion, beforeOtherPm);
     core.markSupervisionDegraded(
       context(core, info.ownerCredential),
       "bootstrap Supervisor failed",
