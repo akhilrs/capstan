@@ -1581,7 +1581,7 @@ async function runCli(argv: string[]): Promise<number> {
             "Supervisor withheld because the PM plan was not accepted";
         const supervisorVerifiedFindings = new Map<
           string,
-          { condition: string; evidence: string }
+          { condition: string; evidence: string; assignmentId: string }
         >();
         const evaluateSupervisor = async (): Promise<string | undefined> => {
           supervisorVerifiedFindings.clear();
@@ -1616,13 +1616,16 @@ async function runCli(argv: string[]): Promise<number> {
                     ReturnType<ControllerCore["latestAssignmentForRole"]>
                   > => entry !== undefined,
                 );
-              const source = assignments.find(
-                (entry) => entry.authorityState === "active",
+              const source =
+                assignments.find(
+                  (entry) => entry.authorityState === "active",
+                ) ?? assignments[0];
+              const target = assignments.find(
+                (entry) => entry.assignmentId !== source?.assignmentId,
               );
-              const target = assignments[0];
               if (!source || !target)
                 throw new Error(
-                  "Supervisor authority overlap has no active durable assignment",
+                  "Supervisor authority overlap has no durable assignment pair",
                 );
               const findingId = randomUUID();
               core.createFinding(
@@ -1659,12 +1662,13 @@ async function runCli(argv: string[]): Promise<number> {
                   escalationRoute: "operator",
                 },
               );
-              core.transitionFinding(
-                context(core, identities.Supervisor.credential),
-                findingId,
-                "reported",
-                { observation: "overlapping Supervisor authority" },
-              );
+              if (source.authorityState === "active")
+                core.transitionFinding(
+                  context(core, identities.Supervisor.credential),
+                  findingId,
+                  "reported",
+                  { observation: "overlapping Supervisor authority" },
+                );
               core.transitionFinding(
                 context(core, credential),
                 findingId,
@@ -1882,6 +1886,7 @@ async function runCli(argv: string[]): Promise<number> {
               supervisorVerifiedFindings.set(finding.findingId, {
                 condition: finding.resolutionCondition,
                 evidence: verified.evidence,
+                assignmentId: assignment.assignmentId,
               });
             }
             const pendingCorrection =
@@ -2637,8 +2642,9 @@ async function runCli(argv: string[]): Promise<number> {
                         generation: correctionAssignment.generation,
                         evidence: {
                           supervisorCheckpointAssignmentId:
-                            core.statusSnapshot().supervision
-                              .checkpointAssignmentId,
+                            verifiedCondition.assignmentId,
+                          supervisorVerificationAssignmentId:
+                            verifiedCondition.assignmentId,
                           correctionEventId: correctionEvidence.eventId,
                           condition: finding.resolutionCondition,
                           supervisorVerificationEvidence:
@@ -2820,8 +2826,9 @@ async function runCli(argv: string[]): Promise<number> {
                       generation: correctionAssignment.generation,
                       evidence: {
                         supervisorCheckpointAssignmentId:
-                          core.statusSnapshot().supervision
-                            .checkpointAssignmentId,
+                          verifiedCondition.assignmentId,
+                        supervisorVerificationAssignmentId:
+                          verifiedCondition.assignmentId,
                         correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:
@@ -3247,8 +3254,9 @@ async function runCli(argv: string[]): Promise<number> {
                       generation: correctionAssignment.generation,
                       evidence: {
                         supervisorCheckpointAssignmentId:
-                          core.statusSnapshot().supervision
-                            .checkpointAssignmentId,
+                          verifiedCondition.assignmentId,
+                        supervisorVerificationAssignmentId:
+                          verifiedCondition.assignmentId,
                         correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:
@@ -3306,8 +3314,9 @@ async function runCli(argv: string[]): Promise<number> {
                       generation: correctionAssignment.generation,
                       evidence: {
                         supervisorCheckpointAssignmentId:
-                          core.statusSnapshot().supervision
-                            .checkpointAssignmentId,
+                          verifiedCondition.assignmentId,
+                        supervisorVerificationAssignmentId:
+                          verifiedCondition.assignmentId,
                         correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:

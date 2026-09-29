@@ -8,7 +8,7 @@ function validPlan() {
     taskId: "demo-1",
     objective: "Implement a bounded sample task",
     acceptanceCriteria: ["The command prints the exact total"],
-    limits: { maxSlices: 4, maxRunMs: 60_000, maxDispatches: 8 },
+    limits: { maxSlices: 4, maxRunMs: 60_000, maxDispatches: 16 },
     slices: [
       {
         id: "parse",
@@ -41,12 +41,15 @@ test("validates a versioned two-slice plan and returns stable content identity",
   assert.equal(first.hash, second.hash);
 });
 
-test("rejects a dispatch limit too small for final-parent verification", () => {
+test("reserves dispatches for required Supervisor evaluations", () => {
   const plan = validPlan();
-  plan.limits.maxDispatches = 6;
-  assert.throws(() => validateWorkflowPlan(plan), /at least 7 role dispatches/);
-  plan.limits.maxDispatches = 7;
-  assert.equal(validateWorkflowPlan(plan).plan.limits.maxDispatches, 7);
+  plan.limits.maxDispatches = 15;
+  assert.throws(
+    () => validateWorkflowPlan(plan),
+    /at least 16 role dispatches, including required Supervisor evaluations/,
+  );
+  plan.limits.maxDispatches = 16;
+  assert.equal(validateWorkflowPlan(plan).plan.limits.maxDispatches, 16);
 });
 
 test("rejects ambiguous fields, missing acceptance, scope traversal, invalid roles and cycles", () => {

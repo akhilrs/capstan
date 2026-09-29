@@ -138,11 +138,14 @@ export function validateWorkflowPlan(value: unknown): ValidatedWorkflowPlan {
     throw new TypeError(
       "slices must contain at least two entries and not exceed maxSlices",
     );
-  // PM, Developer/Verifier for each slice, final-parent Verifier, Supervisor.
-  const requiredDispatches = 2 * raw.slices.length + 3;
+  // PM, Developer/Verifier for each slice, final-parent Verifier, plus the
+  // required Supervisor reviews: initial; before each slice verifier dispatch,
+  // before and after each slice acceptance; and before final verifier dispatch,
+  // before and after final-parent acceptance.
+  const requiredDispatches = 5 * raw.slices.length + 6;
   if ((maxDispatches as number) < requiredDispatches)
     throw new TypeError(
-      `limits.maxDispatches must allow at least ${requiredDispatches} role dispatches for the declared slices`,
+      `limits.maxDispatches must allow at least ${requiredDispatches} role dispatches, including required Supervisor evaluations, for the declared slices`,
     );
   const slices = raw.slices.map((value, index): WorkflowSlice => {
     if (value === null || typeof value !== "object" || Array.isArray(value))

@@ -346,6 +346,7 @@ function receipt(
   sequence: number,
   type: BridgeReceipt["type"],
   role = "Developer",
+  reply = "work finished",
 ): BridgeReceipt {
   return {
     ...identity,
@@ -355,7 +356,7 @@ function receipt(
     timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
     ...(type === "completed"
       ? {
-          reply: "work finished",
+          reply,
           evidenceRef: { journal: "/tmp/journal", sequence },
         }
       : {}),
@@ -1823,8 +1824,8 @@ test("Supervisor seat overlap is a durable operator finding, not a correction di
     );
     try {
       db.prepare(
-        "UPDATE assignments SET authority_state = 'unknown' WHERE project_id = ? AND assignment_id = ?",
-      ).run(info.projectId, previous.assignmentId);
+        "UPDATE assignments SET authority_state = 'unknown' WHERE project_id = ? AND assignment_id IN (?, ?)",
+      ).run(info.projectId, previous.assignmentId, current.assignmentId);
     } finally {
       db.close();
     }
@@ -1847,12 +1848,6 @@ test("Supervisor seat overlap is a durable operator finding, not a correction di
       { findingId: finding.findingId },
     );
     core.transitionFinding(
-      context(core, supervisor.credential),
-      finding.findingId,
-      "reported",
-      { observation: "Supervisor authority overlap" },
-    );
-    core.transitionFinding(
       context(core, info.ownerCredential),
       finding.findingId,
       "escalated",
@@ -1863,6 +1858,13 @@ test("Supervisor seat overlap is a durable operator finding, not a correction di
         .statusSnapshot()
         .findings.find((entry) => entry.findingId === finding.findingId)?.state,
       "escalated",
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((entry) => entry.findingId === finding.findingId)
+        ?.escalationRoute,
+      "operator",
     );
   } finally {
     cleanup(value);
@@ -2820,26 +2822,27 @@ test("finding responses persist their reports and require explicit resolution ev
         ),
       /finding resolution requires a newer assignment/,
     );
-    assert.deepEqual(
-      core.transitionFinding(
-        context(core, info.ownerCredential),
-        "finding-1",
-        "resolved",
-        {
-          condition: "Supervisor confirms correction",
-          evidenceEventId,
-          assignmentId: correctionAssignment.assignmentId,
-          generation: correctionAssignment.generation,
-          evidence: {
-            correctionEventId: evidenceEventId,
-            supervisorCheckpointAssignmentId: "independent-supervisor",
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          "finding-1",
+          "resolved",
+          {
             condition: "Supervisor confirms correction",
-            supervisorVerificationEvidence:
-              "Fresh evidence confirms the requested correction.",
+            evidenceEventId,
+            assignmentId: correctionAssignment.assignmentId,
+            generation: correctionAssignment.generation,
+            evidence: {
+              correctionEventId: evidenceEventId,
+              supervisorCheckpointAssignmentId: "independent-supervisor",
+              condition: "Supervisor confirms correction",
+              supervisorVerificationEvidence:
+                "Fresh evidence confirms the requested correction.",
+            },
           },
-        },
-      ),
-      { state: "resolved" },
+        ),
+      /finding resolution requires a newer assignment|accepted, contained correction/,
     );
     assert.deepEqual(
       core.createFinding(context(core, supervisor.credential), {
@@ -2927,13 +2930,13 @@ test("finding responses persist their reports and require explicit resolution ev
         escalationRoute: "operator",
       },
     );
-    assert.equal(recurrence.findingId, "finding-recurrence");
+    assert.equal(recurrence.findingId, "finding-1");
     assert.equal(
       core
         .statusSnapshot()
         .findings.find((finding) => finding.findingId === recurrence.findingId)
         ?.reopenedFromFindingId,
-      "finding-1",
+      null,
     );
   } finally {
     cleanup(value);
@@ -3459,7 +3462,7 @@ for (const originalAlreadyAccepted of [false, true]) {
     }
   });
 }
-test("Verifier finding correction accepts fresh evidence without reaccepting its parent", async () => {
+test("Verifier correction evidence cannot resolve a finding without fresh Supervisor verification", async () => {
   const value = await fixture();
   try {
     const { core, project: info } = value;
@@ -3794,26 +3797,27 @@ test("Verifier finding correction accepts fresh evidence without reaccepting its
     } finally {
       acceptedEventDb.close();
     }
-    assert.deepEqual(
-      core.transitionFinding(
-        context(core, info.ownerCredential),
-        findingId,
-        "resolved",
-        {
-          condition: "Fresh verification confirms all criteria",
-          evidenceEventId: acceptedEvent.eventId,
-          assignmentId: correctionAssignment.assignmentId,
-          generation: correctionAssignment.generation,
-          evidence: {
-            correctionEventId: acceptedEvent.eventId,
-            supervisorCheckpointAssignmentId: "independent-supervisor",
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          findingId,
+          "resolved",
+          {
             condition: "Fresh verification confirms all criteria",
-            supervisorVerificationEvidence:
-              "Fresh evidence confirms every recorded criterion.",
+            evidenceEventId: acceptedEvent.eventId,
+            assignmentId: correctionAssignment.assignmentId,
+            generation: correctionAssignment.generation,
+            evidence: {
+              correctionEventId: acceptedEvent.eventId,
+              supervisorCheckpointAssignmentId: "independent-supervisor",
+              condition: "Fresh verification confirms all criteria",
+              supervisorVerificationEvidence:
+                "Fresh evidence confirms every recorded criterion.",
+            },
           },
-        },
-      ),
-      { state: "resolved" },
+        ),
+      /finding resolution requires a newer assignment/,
     );
   } finally {
     cleanup(value);
@@ -3860,6 +3864,7 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       assignment: ReturnType<ControllerCore["assignWorkItem"]>,
       role: "PM" | "Supervisor",
       suffix: string,
+      reply = "work finished",
     ) => {
       const identity = {
         commandId: assignment.commandId,
@@ -3869,7 +3874,9 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       };
       let sequence = nextReceiptSequence[role];
       const recordReceipt = (state: BridgeReceipt["type"]) =>
-        core.recordBridgeReceipt(receipt(identity, sequence++, state, role));
+        core.recordBridgeReceipt(
+          receipt(identity, sequence++, state, role, reply),
+        );
       core.beginCommandDelivery(
         context(core, info.ownerCredential),
         identity.commandId,
@@ -3974,6 +3981,7 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       evidence: {
         correctionEventId: acceptedCorrection.eventId,
         supervisorCheckpointAssignmentId: "not-yet-reviewed",
+        supervisorVerificationAssignmentId: "not-yet-reviewed",
         condition: "A later accepted correction is independently reviewed",
         supervisorVerificationEvidence:
           "The Supervisor independently reviewed the accepted correction.",
@@ -3999,7 +4007,22 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       targetEpoch: evaluation.targetEpoch,
       eventUpperSequence: evaluation.eventUpperSequence,
     });
-    completeReport(review, "Supervisor", "resolution-review");
+    completeReport(
+      review,
+      "Supervisor",
+      "resolution-review",
+      JSON.stringify({
+        outcome: "pass",
+        observation: "Correction condition independently verified",
+        verifiedFindings: [
+          {
+            findingId: "checkpoint-required-finding",
+            condition: "A later accepted correction is independently reviewed",
+            evidence: "Verified the accepted contained correction.",
+          },
+        ],
+      }),
+    );
     core.acceptNonCandidateReport(
       context(core, info.ownerCredential),
       "resolution-review",
@@ -4013,6 +4036,22 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       fingerprint: "a".repeat(64),
     });
     resolution.evidence.supervisorCheckpointAssignmentId = review.assignmentId;
+    resolution.evidence.supervisorVerificationAssignmentId =
+      review.assignmentId;
+    resolution.evidence.supervisorVerificationEvidence =
+      "The Supervisor independently reviewed the accepted correction.";
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          "checkpoint-required-finding",
+          "resolved",
+          resolution,
+        ),
+      /accepted, contained correction/,
+    );
+    resolution.evidence.supervisorVerificationEvidence =
+      "Verified the accepted contained correction.";
     assert.deepEqual(
       core.transitionFinding(
         context(core, info.ownerCredential),
@@ -4268,7 +4307,7 @@ test("assignment capsule resolves duplicate-title plan slices by stable ID", asy
       taskId: "duplicate-title-plan",
       objective: "Keep slice scopes unambiguous",
       acceptanceCriteria: ["criterion-one"],
-      limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 7 },
+      limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 16 },
       slices: [
         {
           id: "slice-a",
@@ -5641,7 +5680,7 @@ test("scheduler dispatches Slice B only after Slice A candidate acceptance", asy
       taskId: "serial-slices",
       objective: "Require independent acceptance between serial slices",
       acceptanceCriteria: ["criterion-one"],
-      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 7 },
+      limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 16 },
       slices: [
         {
           id: "first",

@@ -5812,16 +5812,27 @@ export class ControllerCore {
               role: string;
             }
           | undefined;
+        const sourceSupervisorOverlap =
+          source?.role === "Supervisor" &&
+          !!this.#database
+            .prepare(
+              `SELECT 1 FROM assignments
+               WHERE project_id = ? AND seat_id = ?
+                 AND authority_state IN ('active', 'unknown')
+               GROUP BY seat_id HAVING COUNT(*) > 1`,
+            )
+            .get(this.#projectId, source.seat_id);
         if (
           !source ||
           source.work_item_id !== input.workItemId ||
           source.seat_id !== actor.seatId ||
           source.role !== "Supervisor" ||
           source.active_generation !== input.generation ||
-          source.authority_state !== "active"
+          (source.authority_state !== "active" &&
+            !(source.authority_state === "unknown" && sourceSupervisorOverlap))
         )
           throw new ControllerError(
-            "finding must be bound to the active Supervisor assignment generation",
+            "finding must be bound to an active or overlapping unknown Supervisor assignment generation",
           );
         const target = this.#database
           .prepare(
@@ -6243,6 +6254,11 @@ export class ControllerCore {
             typeof proofEvidence.supervisorCheckpointAssignmentId !==
               "string" ||
             !proofEvidence.supervisorCheckpointAssignmentId.trim() ||
+            typeof proofEvidence.supervisorVerificationAssignmentId !==
+              "string" ||
+            !proofEvidence.supervisorVerificationAssignmentId.trim() ||
+            proofEvidence.supervisorCheckpointAssignmentId !==
+              proofEvidence.supervisorVerificationAssignmentId ||
             proofEvidence.condition !== finding.resolution_condition ||
             typeof proofEvidence.supervisorVerificationEvidence !== "string" ||
             !proofEvidence.supervisorVerificationEvidence.trim() ||
@@ -6338,19 +6354,75 @@ export class ControllerCore {
                 checkpoint_event_sequence: number | null;
               }
             | undefined;
+          const supervisorVerificationAssignmentId =
+            proofEvidence?.supervisorVerificationAssignmentId;
+          const verificationAssignment =
+            typeof supervisorVerificationAssignmentId === "string"
+              ? (this.#database
+                  .prepare(
+                    `SELECT a.work_item_id, a.authority_state, s.role, w.state
+                     FROM assignments a
+                     JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+                     JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+                     WHERE a.project_id = ? AND a.assignment_id = ?`,
+                  )
+                  .get(this.#projectId, supervisorVerificationAssignmentId) as
+                  | {
+                      work_item_id: string;
+                      authority_state: string;
+                      role: string;
+                      state: string;
+                    }
+                  | undefined)
+              : undefined;
+          const verificationReport =
+            verificationAssignment?.role === "Supervisor" &&
+            verificationAssignment.authority_state === "contained" &&
+            verificationAssignment.state === "accepted"
+              ? this.latestCompletedReport(
+                  verificationAssignment.work_item_id,
+                  supervisorVerificationAssignmentId as string,
+                )
+              : undefined;
+          let verifiesExactFinding = false;
+          if (verificationReport?.inputRevision === context.inputRevision) {
+            try {
+              const report = JSON.parse(verificationReport.reply) as {
+                verifiedFindings?: unknown;
+              };
+              verifiesExactFinding =
+                Array.isArray(report.verifiedFindings) &&
+                report.verifiedFindings.some((entry) => {
+                  if (
+                    !entry ||
+                    typeof entry !== "object" ||
+                    Array.isArray(entry)
+                  )
+                    return false;
+                  const verified = entry as Record<string, unknown>;
+                  return (
+                    verified.findingId === findingId &&
+                    verified.condition === finding.resolution_condition &&
+                    verified.evidence ===
+                      proofEvidence?.supervisorVerificationEvidence
+                  );
+                });
+            } catch {
+              verifiesExactFinding = false;
+            }
+          }
           const independentlyRechecked =
-            !supervisionProof?.enabled ||
-            (!!proof &&
-              supervisionProof.health === "healthy" &&
-              supervisionProof.checkpoint_epoch ===
-                supervisionProof.target_epoch &&
-              !!supervisionProof.checkpoint_assignment_id &&
-              supervisionProof.checkpoint_assignment_id !==
-                finding.assignment_id &&
-              supervisionProof.checkpoint_event_sequence !== null &&
-              supervisionProof.checkpoint_event_sequence >= proof.sequence &&
-              supervisionProof.checkpoint_assignment_id ===
-                (proofEvidence?.supervisorCheckpointAssignmentId ?? null));
+            !!proof &&
+            verifiesExactFinding &&
+            supervisionProof?.health === "healthy" &&
+            supervisionProof.checkpoint_epoch ===
+              supervisionProof.target_epoch &&
+            supervisionProof.checkpoint_assignment_id ===
+              supervisorVerificationAssignmentId &&
+            supervisionProof.checkpoint_assignment_id !==
+              finding.assignment_id &&
+            supervisionProof.checkpoint_event_sequence !== null &&
+            supervisionProof.checkpoint_event_sequence >= proof.sequence;
           if (
             !proof ||
             !independentlyRechecked ||

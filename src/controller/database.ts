@@ -84,6 +84,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  11: {
+    version: 11,
+    name: "0011_escalate_detected_findings.sql",
+    url: new URL(
+      "../../migrations/0011_escalate_detected_findings.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

@@ -835,7 +835,7 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
         taskId: "over-limit",
         objective: "Reject limits beyond project configuration",
         acceptanceCriteria: ["first criterion", "second criterion"],
-        limits: { maxSlices: 2, maxRunMs: 3_600_001, maxDispatches: 7 },
+        limits: { maxSlices: 2, maxRunMs: 3_600_001, maxDispatches: 16 },
         slices: [
           {
             id: "first",
@@ -869,7 +869,7 @@ test("cstan rejects malformed briefs with its invalid-input exit code before cre
         taskId: "bom-brief",
         objective: "Parse a UTF-8 BOM before runtime preflight",
         acceptanceCriteria: ["The plan is parsed"],
-        limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 7 },
+        limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 16 },
         slices: [
           {
             id: "first",
@@ -938,7 +938,7 @@ test("cstan runtime preflight fails closed before creating controller database",
         taskId: "preflight",
         objective: "Require configured runtime before durable run state",
         acceptanceCriteria: ["first criterion", "second criterion"],
-        limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 7 },
+        limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 16 },
         slices: [
           {
             id: "first",
@@ -1022,7 +1022,7 @@ test("cstan runtime preflight fails closed before creating controller database",
           },
           {
             kind: "policy",
-            content: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 7 },
+            content: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 16 },
           },
           { kind: "plan", content: JSON.parse(readFileSync(brief, "utf8")) },
         ],
@@ -1089,7 +1089,7 @@ test("cstan rejects nested controller state and non-root project clones", () => 
         taskId: "isolation",
         objective: "Keep operator credentials out of role workspaces",
         acceptanceCriteria: ["first", "second"],
-        limits: { maxSlices: 2, maxRunMs: 1000, maxDispatches: 7 },
+        limits: { maxSlices: 2, maxRunMs: 1000, maxDispatches: 16 },
         slices: [
           {
             id: "first",
