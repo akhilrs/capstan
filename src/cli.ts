@@ -1597,8 +1597,10 @@ async function runCli(argv: string[]): Promise<number> {
             const evaluation = core.beginSupervisorEvaluation(
               context(core, credential),
             );
-            const window = core.supervisorWindow(evaluation.eventUpperSequence);
-            const snapshot = core.statusSnapshot();
+            const { window, snapshot } = core.captureSupervisorEvaluation(
+              evaluation.eventUpperSequence,
+              evaluation.targetEpoch,
+            );
             const visibleCandidateIds = new Set([
               ...acceptedCandidateByWorkItem.values(),
               ...candidateUnderReviewByWorkItem.values(),
@@ -1883,6 +1885,15 @@ async function runCli(argv: string[]): Promise<number> {
                 }
                 return undefined;
               })();
+              if (!hardViolationTarget) {
+                const supervisorOverlap = window.hardViolations.find(
+                  (violation) =>
+                    violation.seatId === identities.Supervisor.seatId,
+                );
+                hardViolationTarget = supervisorOverlap?.assignmentIds
+                  .map((id) => core.latestAssignmentForRole("Supervisor", id))
+                  .find((entry) => entry !== undefined);
+              }
               if (!hardViolationTarget)
                 throw new Error(
                   "hard-state violation has no exact worker assignment to record",
@@ -1900,7 +1911,7 @@ async function runCli(argv: string[]): Promise<number> {
                     .find((entry) => entry !== null)
                 : undefined;
               const responsibleRole = hardViolationTarget
-                ? (hardViolationTarget.role as "PM" | "Developer" | "Verifier")
+                ? hardViolationTarget.role
                 : pendingAffected
                   ? (pendingAffected.role as "PM" | "Developer" | "Verifier")
                   : ["PM", "Developer", "Verifier"].includes(
@@ -2018,6 +2029,33 @@ async function runCli(argv: string[]): Promise<number> {
                     "reported",
                     { observation },
                   );
+              }
+              if (affected.role === "Supervisor") {
+                const state = core
+                  .statusSnapshot()
+                  .findings.find(
+                    (entry) => entry.findingId === findingId,
+                  )?.state;
+                if (state === "reported")
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    {
+                      reason:
+                        "overlapping Supervisor authority requires operator intervention",
+                    },
+                  );
+                await containRuntime(
+                  supervisorRuntime.session,
+                  assignment.assignmentId,
+                );
+                containmentProven = true;
+                core.markSupervisionDegraded(
+                  context(core, credential),
+                  `Supervisor seat overlap recorded as finding ${findingId}`,
+                );
+                return `Supervisor seat authority overlap escalated to operator as finding ${findingId}`;
               }
               const currentFindingState = core
                 .statusSnapshot()
@@ -2205,10 +2243,30 @@ async function runCli(argv: string[]): Promise<number> {
                     );
                 }
                 core.markReady(context(core, credential), correctionWorkItemId);
+                const acceptedDeveloperCandidateId =
+                  affected.role === "Developer"
+                    ? acceptedCandidateByWorkItem.get(affected.workItemId)
+                    : undefined;
                 const boundCandidate =
                   affected.role === "Verifier" && !finalVerificationCorrection
                     ? core.candidateForAssignment(affected.assignmentId)
                     : undefined;
+                const acceptedDeveloperCandidate = acceptedDeveloperCandidateId
+                  ? core
+                      .statusSnapshot()
+                      .evidence.find(
+                        (entry) =>
+                          entry.candidateId === acceptedDeveloperCandidateId,
+                      )
+                  : undefined;
+                if (
+                  acceptedDeveloperCandidateId &&
+                  (!acceptedDeveloperCandidate ||
+                    !candidateWorkspaces[acceptedDeveloperCandidateId])
+                )
+                  throw new Error(
+                    "Developer correction has no exact accepted candidate checkout",
+                  );
                 if (
                   affected.role === "Verifier" &&
                   !finalVerificationCorrection &&
@@ -2229,7 +2287,8 @@ async function runCli(argv: string[]): Promise<number> {
                 );
                 correctionAssignmentId = correctionAssignment.assignmentId;
                 correctionRuntime = await (() => {
-                  const candidate = boundCandidate;
+                  const candidate =
+                    boundCandidate ?? acceptedDeveloperCandidate;
                   const candidateWorkspace = candidate
                     ? candidateWorkspaces[candidate.candidateId]
                     : undefined;

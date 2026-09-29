@@ -2502,7 +2502,7 @@ export class ControllerCore {
           .prepare(
             `
         SELECT c.assignment_id, c.attempt, c.generation, c.payload_json, c.state, c.state_version,
-          a.state AS assignment_state, a.authority_state AS assignment_authority,
+          a.work_item_id, a.state AS assignment_state, a.authority_state AS assignment_authority,
           at.state AS attempt_state, at.authority_state AS attempt_authority
         FROM commands c JOIN assignments a
           ON a.project_id = c.project_id AND a.assignment_id = c.assignment_id
@@ -2514,6 +2514,7 @@ export class ControllerCore {
           .get(this.#projectId, commandId) as
           | {
               assignment_id: string;
+              work_item_id: string;
               attempt: number;
               generation: number;
               payload_json: string;
@@ -2544,6 +2545,7 @@ export class ControllerCore {
           throw new ReadinessError(
             `run is ${run.state}; command dispatch is paused`,
           );
+        this.#assertSupervisionReady(command.work_item_id);
         const firstDelivery = command.state === "queued";
         if (
           firstDelivery
@@ -2667,7 +2669,7 @@ export class ControllerCore {
         const command = this.#database
           .prepare(
             `
-          SELECT c.state, c.state_version, a.state AS assignment_state,
+          SELECT c.state, c.state_version, a.work_item_id, a.state AS assignment_state,
             a.authority_state AS assignment_authority, at.state AS attempt_state,
             at.authority_state AS attempt_authority
           FROM commands c JOIN assignments a
@@ -2682,6 +2684,7 @@ export class ControllerCore {
           | {
               state: string;
               state_version: number;
+              work_item_id: string;
               assignment_state: string;
               assignment_authority: string;
               attempt_state: string;
@@ -2706,6 +2709,7 @@ export class ControllerCore {
           throw new ReadinessError(
             `run is ${run.state}; command start is paused`,
           );
+        this.#assertSupervisionReady(command.work_item_id);
         const now = new Date().toISOString();
         this.#database
           .prepare(
@@ -4238,23 +4242,43 @@ export class ControllerCore {
         }
         const developerCorrection = this.#database
           .prepare(
-            `SELECT f.affected_work_item_id, original.state AS original_state
+            `SELECT f.affected_work_item_id, original.state AS original_state,
+              accepted.commit_sha AS accepted_commit_sha
              FROM finding_correction_work correction
              JOIN findings f ON f.project_id = correction.project_id
                AND f.finding_id = correction.finding_id
              JOIN work_items original ON original.project_id = f.project_id
                AND original.work_item_id = f.affected_work_item_id
+             LEFT JOIN candidates accepted ON accepted.project_id = original.project_id
+               AND accepted.candidate_id = original.accepted_candidate_id
              WHERE correction.project_id = ? AND correction.work_item_id = ?
                AND correction.target_role = 'Developer'`,
           )
           .get(this.#projectId, workItemId) as
-          { affected_work_item_id: string; original_state: string } | undefined;
+          | {
+              affected_work_item_id: string;
+              original_state: string;
+              accepted_commit_sha: string | null;
+            }
+          | undefined;
         if (
           developerCorrection &&
-          developerCorrection.original_state !== "awaiting_verification"
+          !(
+            developerCorrection.original_state === "awaiting_verification" ||
+            (developerCorrection.original_state === "accepted" &&
+              developerCorrection.accepted_commit_sha ===
+                (
+                  this.#database
+                    .prepare(
+                      "SELECT base_sha FROM candidates WHERE project_id = ? AND candidate_id = ?",
+                    )
+                    .get(this.#projectId, candidateId) as
+                    { base_sha: string } | undefined
+                )?.base_sha)
+          )
         )
           throw new CandidateBindingError(
-            "Developer correction no longer targets an awaiting-verification original work item",
+            "Developer correction no longer targets the exact original candidate",
           );
         const now = new Date().toISOString();
         this.#database
@@ -4266,17 +4290,21 @@ export class ControllerCore {
           )
           .run(candidateId, this.#projectId, workItemId);
         if (developerCorrection) {
-          this.#database
+          const result = this.#database
             .prepare(
               `UPDATE work_items SET state = 'accepted', accepted_candidate_id = ?,
                 state_version = state_version + 1
                WHERE project_id = ? AND work_item_id = ?
-                 AND state = 'awaiting_verification'`,
+                 AND state IN ('awaiting_verification', 'accepted')`,
             )
             .run(
               candidateId,
               this.#projectId,
               developerCorrection.affected_work_item_id,
+            );
+          if (result.changes !== 1)
+            throw new CandidateBindingError(
+              "Developer correction original changed before acceptance",
             );
         }
         this.#database
@@ -5810,6 +5838,16 @@ export class ControllerCore {
               role: string;
             }
           | undefined;
+        const supervisorOverlap =
+          target?.role === "Supervisor" &&
+          !!this.#database
+            .prepare(
+              `SELECT 1 FROM assignments
+               WHERE project_id = ? AND seat_id = ?
+                 AND authority_state IN ('active', 'unknown')
+               GROUP BY seat_id HAVING COUNT(*) > 1`,
+            )
+            .get(this.#projectId, target.seat_id);
         if (
           !target ||
           target.work_item_id !== input.affectedWorkItemId ||
@@ -5818,10 +5856,11 @@ export class ControllerCore {
           !["active", "contained", "unknown"].includes(
             target.authority_state,
           ) ||
-          !["PM", "Developer", "Verifier"].includes(target.role)
+          (!["PM", "Developer", "Verifier"].includes(target.role) &&
+            !supervisorOverlap)
         )
           throw new ControllerError(
-            "finding target must be a current PM, Developer, or Verifier assignment",
+            "finding target must be a current worker or overlapping Supervisor seat",
           );
         const now = new Date().toISOString();
         const deadline = Date.parse(input.acknowledgementDeadline);
@@ -6827,6 +6866,45 @@ export class ControllerCore {
         })),
     };
   }
+  captureSupervisorEvaluation(
+    eventUpperSequence: number,
+    targetEpoch: number,
+  ): {
+    readonly window: ReturnType<ControllerCore["supervisorWindow"]>;
+    readonly snapshot: ReturnType<ControllerCore["statusSnapshot"]>;
+  } {
+    this.#assertOpen();
+    return this.#database.transaction(() => {
+      const control = this.#database
+        .prepare(
+          "SELECT health, target_epoch FROM supervision_control WHERE project_id = ?",
+        )
+        .get(this.#projectId) as
+        { health: string; target_epoch: number } | undefined;
+      const latest = this.#database
+        .prepare(
+          "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM controller_events WHERE project_id = ?",
+        )
+        .get(this.#projectId) as { sequence: number };
+      if (
+        control?.health !== "evaluating" ||
+        control.target_epoch !== targetEpoch ||
+        latest.sequence !== eventUpperSequence + 1 ||
+        !this.#database
+          .prepare(
+            "SELECT 1 FROM supervisor_evaluations WHERE project_id = ? AND target_epoch = ? AND event_upper_sequence = ?",
+          )
+          .get(this.#projectId, targetEpoch, eventUpperSequence)
+      )
+        throw new MutationConflictError(
+          "Supervisor evaluation context changed after its event boundary",
+        );
+      return {
+        window: this.supervisorWindow(eventUpperSequence),
+        snapshot: this.statusSnapshot(),
+      };
+    })();
+  }
 
   recordSupervisorCheckpoint(
     context: MutationContext,
@@ -6951,13 +7029,13 @@ export class ControllerCore {
   }
 
   latestAssignmentForRole(
-    role: "PM" | "Developer" | "Verifier",
+    role: "PM" | "Developer" | "Verifier" | "Supervisor",
     assignmentId?: string,
   ):
     | {
         readonly workItemId: string;
         readonly parentWorkItemId: string | null;
-        readonly role: "PM" | "Developer" | "Verifier";
+        readonly role: "PM" | "Developer" | "Verifier" | "Supervisor";
         readonly seatId: string;
         readonly assignmentId: string;
         readonly generation: number;
@@ -7900,11 +7978,6 @@ export class ControllerCore {
       typeof input.findingId !== "string"
     )
       material = true;
-    // Readiness is a gated queue transition; assignment is the supervised dispatch boundary.
-    else if (action === "work.assign")
-      material =
-        workRole(input.workItemId) !== "Supervisor" &&
-        !isCorrectionWork(input.workItemId);
     else if (action === "work.inputs.rebind" || action === "work.report.accept")
       material = workRole(input.workItemId) !== "Supervisor";
     else if (action === "assignment.containment.confirmed") {
