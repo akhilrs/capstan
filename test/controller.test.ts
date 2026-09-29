@@ -2896,6 +2896,110 @@ test("developer completions cannot bypass candidate verification acceptance", as
   }
 });
 
+test("finding response rejects an active later generation of its affected assignment", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "generation-response-supervisor",
+    );
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "generation-response-pm",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "generation-response-supervisor-work",
+      title: "Report generation-bound finding",
+      description: "Observe an affected PM assignment",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "generation-response-supervisor-work",
+    );
+    const source = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "generation-response-supervisor-work",
+      supervisor.seatId,
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "generation-response-target-work",
+      title: "Respond to finding",
+      description: "PM work with a generation-bound response",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "generation-response-target-work",
+    );
+    const target = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "generation-response-target-work",
+      pm.seatId,
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "generation-response-finding",
+      workItemId: "generation-response-supervisor-work",
+      assignmentId: source.assignmentId,
+      generation: source.generation,
+      affectedWorkItemId: "generation-response-target-work",
+      affectedSeatId: pm.seatId,
+      affectedAssignmentId: target.assignmentId,
+      affectedGeneration: target.generation,
+      fingerprint: "generation-response-fingerprint",
+      severity: "high",
+      evidence: { observation: "PM issue" },
+      requestedCorrection: "Respond to PM issue",
+      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
+      resolutionCondition: "Independent Supervisor verification",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      "generation-response-finding",
+      "reported",
+      { report: "PM issue" },
+    );
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      db.prepare(
+        "UPDATE assignments SET active_generation = ? WHERE project_id = ? AND assignment_id = ?",
+      ).run(target.generation + 1, info.projectId, target.assignmentId);
+      const version = core.stateVersion;
+      assert.throws(
+        () =>
+          core.transitionFinding(
+            context(core, pm.credential),
+            "generation-response-finding",
+            "acknowledged",
+            { acknowledgement: "Later generation cannot answer old finding" },
+          ),
+        /finding response requires its source assignment/,
+      );
+      assert.equal(core.stateVersion, version);
+      assert.equal(
+        core
+          .statusSnapshot()
+          .findings.find(
+            (finding) => finding.findingId === "generation-response-finding",
+          )?.state,
+        "reported",
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("finding responses persist their reports and require explicit resolution evidence", async () => {
   const value = await fixture();
   try {
