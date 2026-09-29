@@ -10,11 +10,14 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  renameSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { assertTrackedCheckoutMatchesHead } from "../src/cli.js";
 import { listenControl } from "../src/control.js";
 import { ControllerCore } from "../src/controller/core.js";
 const cli = path.resolve("dist/src/cli.js");
@@ -69,6 +72,191 @@ function invokeAsync(
     child.once("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
+
+test("immutable checkout check detects tracked bytes hidden by assume-unchanged", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-checkout-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "source.txt"), "committed\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "seed");
+    const sha = git("rev-parse", "HEAD");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
+    git("update-index", "--assume-unchanged", "source.txt");
+    writeFileSync(path.join(cwd, "source.txt"), "edited but hidden\n");
+    assert.equal(git("status", "--porcelain"), "");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /verification checkout bytes differ/,
+    );
+    writeFileSync(path.join(cwd, "source.txt"), "committed\n");
+    writeFileSync(
+      path.join(cwd, ".git", "info", "exclude"),
+      ".home/\ngenerated.js\n",
+    );
+    mkdirSync(path.join(cwd, ".home"));
+    writeFileSync(path.join(cwd, ".home", "runtime-state"), "isolated home\n");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
+    writeFileSync(path.join(cwd, "generated.js"), "export default 1;\n");
+    assert.equal(git("status", "--porcelain"), "");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /untracked files in verification checkout/,
+    );
+    const alternate = mkdtempSync(
+      path.join(os.tmpdir(), "cstan-alternate-worktree-"),
+    );
+    try {
+      git("config", "core.worktree", alternate);
+      assert.throws(
+        () => assertTrackedCheckoutMatchesHead(cwd, sha),
+        /untracked files in verification checkout/,
+      );
+    } finally {
+      rmSync(alternate, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check rejects a symlinked tracked parent directory", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-parent-"));
+  const external = mkdtempSync(
+    path.join(os.tmpdir(), "cstan-verifier-external-"),
+  );
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    mkdirSync(path.join(cwd, "lib"));
+    writeFileSync(path.join(cwd, "lib", "source.txt"), "committed\n");
+    git("add", "lib/source.txt");
+    git("commit", "--quiet", "-m", "seed");
+    const sha = git("rev-parse", "HEAD");
+    assert.doesNotThrow(() => assertTrackedCheckoutMatchesHead(cwd, sha));
+    git("update-index", "--assume-unchanged", "lib/source.txt");
+    renameSync(path.join(cwd, "lib"), path.join(external, "lib"));
+    symlinkSync(path.join(external, "lib"), path.join(cwd, "lib"));
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, sha),
+      /symlinked parent directory/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check rejects tracked links into mutable runtime home", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-link-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, ".git", "info", "exclude"), ".home/\n");
+    mkdirSync(path.join(cwd, ".home"));
+    writeFileSync(path.join(cwd, ".home", "source.txt"), "mutable\n");
+    symlinkSync(".home/source.txt", path.join(cwd, "source.txt"));
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "link");
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, git("rev-parse", "HEAD")),
+      /unsupported verification checkout entry/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check rejects a symlinked runtime home", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-home-link-"));
+  const external = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-home-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "tracked.txt"), "tracked\n");
+    git("add", "tracked.txt");
+    git("commit", "--quiet", "-m", "seed");
+    writeFileSync(path.join(cwd, ".git", "info", "exclude"), ".home/\n");
+    symlinkSync(external, path.join(cwd, ".home"));
+    assert.throws(
+      () =>
+        assertTrackedCheckoutMatchesHead(
+          cwd,
+          git("rev-parse", "--verify", "HEAD"),
+        ),
+      /root entry .home is not a real directory/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test("immutable checkout check ignores local replacement objects", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-replace-"));
+  try {
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("config", "user.name", "Capstan Test");
+    git("config", "user.email", "capstan@example.invalid");
+    writeFileSync(path.join(cwd, "source.txt"), "original\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "original");
+    const original = git("rev-parse", "HEAD");
+    writeFileSync(path.join(cwd, "source.txt"), "substitute\n");
+    git("add", "source.txt");
+    git("commit", "--quiet", "-m", "replacement");
+    const replacement = git("rev-parse", "HEAD");
+    git("replace", original, replacement);
+    assert.throws(
+      () => assertTrackedCheckoutMatchesHead(cwd, original),
+      /verification checkout bytes differ/,
+    );
+    const objectDirectory = process.env.GIT_OBJECT_DIRECTORY;
+    process.env.GIT_OBJECT_DIRECTORY = path.join(cwd, "missing-objects");
+    try {
+      assert.throws(
+        () => assertTrackedCheckoutMatchesHead(cwd, original),
+        /verification checkout bytes differ/,
+      );
+    } finally {
+      if (objectDirectory === undefined)
+        delete process.env.GIT_OBJECT_DIRECTORY;
+      else process.env.GIT_OBJECT_DIRECTORY = objectDirectory;
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 test("cstan init creates private project-local config and status exposes four seats as JSON", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-cli-"));
@@ -344,6 +532,7 @@ test("cstan status reads the authenticated live control socket through the execu
       baseSha: "a".repeat(40),
       changedScope: ["src/status.ts"],
       limitations: [],
+      evidence: ["implemented and verified"],
     });
     core.createWorkItem(mutate(credential), {
       workItemId: "status-verifier-work",
@@ -369,6 +558,8 @@ test("cstan status reads the authenticated live control socket through the execu
         criterion: "The controller is active",
         passed: true,
         artifactRef: "artifact://status/candidate-evidence",
+        observation: "status checks passed",
+        exitStatus: 0,
       },
     );
     core.acceptCandidate(
@@ -438,6 +629,7 @@ test("cstan status reads the authenticated live control socket through the execu
         commitSha: string;
         reportHash: string;
         evidenceRef: string | null;
+        developerEvidence: string[];
       }[];
       limits: { maxSlices: number; maxRunMs: number; maxDispatches: number };
       nextLegalActions: string[];
@@ -487,6 +679,7 @@ test("cstan status reads the authenticated live control socket through the execu
     assert.ok(evidence);
     assert.equal(evidence.candidateId, candidate.candidateId);
     assert.equal(evidence.commitSha, "c".repeat(40));
+    assert.deepEqual(evidence.developerEvidence, ["implemented and verified"]);
     assert.match(evidence.reportHash, /^[a-f0-9]{64}$/);
     assert.equal(evidence.evidenceRef, "artifact://status/candidate-evidence");
     assert.deepEqual(result.nextLegalActions, ["wait", "mark_ready"]);

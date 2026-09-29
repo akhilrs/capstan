@@ -112,6 +112,7 @@ export interface CandidateInput {
   readonly assignmentId: string;
   readonly commitSha: string;
   readonly baseSha: string;
+  readonly evidence: readonly string[];
   readonly changedScope: readonly string[];
   readonly limitations: readonly string[];
 }
@@ -122,6 +123,8 @@ export interface EvidenceInput {
   readonly criterion: string;
   readonly passed: boolean;
   readonly artifactRef: string;
+  readonly observation: string;
+  readonly exitStatus: number;
 }
 
 export interface BridgeIdentity {

@@ -17,7 +17,7 @@
   "tasks": [
     {
       "id": "jsonl-summary-feature",
-      "prompt": "Implement a JSONL summarization CLI. Input is strict UTF-8 without BOM. Each LF-terminated or final unterminated nonblank line is one record; CRLF is one line break, while a lone CR is whitespace within a line and never a record delimiter. Empty input and lines containing only ASCII space, tab, form-feed, carriage return, or LF emit no output and succeed; CRLF is one line break, and a lone CR is whitespace. Every record must be an object with exactly string category and finite safe-integer numeric amount; categories must be Unicode scalar-value strings (no lone surrogates); null, booleans, scalars, arrays, duplicate keys after JSON unescaping, missing or extra keys, and non-finite or unsafe amounts are malformed. Group with collision-safe storage by exact Unicode code-point category order, sum only safe integers, and serialize each group as exactly one compact Node JSON.stringify-compatible JSON object `{\"category\":<JSON string>,\"amount\":<integer>}` followed by LF, with category first. On malformed JSONL, write exactly `invalid JSONL at line <n>\\n` to stderr, write no stdout, and exit 1.",
+      "prompt": "Implement a JSONL summarization CLI. Input is strict UTF-8 without BOM. Each LF-terminated or final unterminated nonblank line is one record; CRLF is one line break, while a lone CR is whitespace within a line and never a record delimiter. Empty input and lines containing only ASCII space, tab, form-feed, carriage return, or LF emit no output and succeed; CRLF is one line break, and a lone CR is whitespace. Every record must be an object with exactly string category and finite safe-integer numeric amount; categories must be Unicode scalar-value strings (no lone surrogates); null, booleans, scalars, arrays, duplicate keys after JSON unescaping, missing or extra keys, and non-finite or unsafe amounts are malformed. Group with collision-safe storage by exact Unicode code-point category order, sum only safe integers, and serialize each group as exactly one compact Node JSON.stringify-compatible JSON object `{\"category\":<JSON string>,\"amount\":<integer>}` followed by LF, with category first. On malformed JSONL, write exactly `invalid JSONL at line <n>\\n` to stderr, where n is the earliest malformed input line; write no stdout, and exit 1.",
       "permitted_paths": ["lib/summary.js", "bin/summary.js"],
       "files": [
         {"path": "lib/summary.js", "mode": "0644", "base64": "ZXhwb3J0IGNvbnN0IHN1bW1hcml6ZSA9ICgpID0+IHsgdGhyb3cgbmV3IEVycm9yKCdpbXBsZW1lbnQnKTsgfTsK"},
@@ -78,6 +78,7 @@
         {"stdin": "\u00a0\n", "stdout": "", "stderr": "invalid JSONL at line 1\n", "exit": 1},
         {"stdin": "// comment\n", "stdout": "", "stderr": "invalid JSONL at line 1\n", "exit": 1},
         {"stdin": "# comment\n", "stdout": "", "stderr": "invalid JSONL at line 1\n", "exit": 1},
+        {"stdin": "{\"category\":\"a\",\"amount\":1.0000000000000001}\n{\"category\":\"b\",\"amount\":false}\n", "stdout": "", "stderr": "invalid JSONL at line 1\n", "exit": 1},
         {"stdin": "{\"category\":\"a\",\"amount\":1} // comment\n", "stdout": "", "stderr": "invalid JSONL at line 1\n", "exit": 1}
       ],
       "reset": "materialize files from this manifest into a new run root"

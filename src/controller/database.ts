@@ -52,6 +52,22 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  7: {
+    version: 7,
+    name: "0007_candidate_developer_evidence.sql",
+    url: new URL(
+      "../../migrations/0007_candidate_developer_evidence.sql",
+      import.meta.url,
+    ),
+  },
+  8: {
+    version: 8,
+    name: "0008_verifier_evidence_observations.sql",
+    url: new URL(
+      "../../migrations/0008_verifier_evidence_observations.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(
