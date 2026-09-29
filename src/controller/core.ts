@@ -2545,7 +2545,7 @@ export class ControllerCore {
           throw new ReadinessError(
             `run is ${run.state}; command dispatch is paused`,
           );
-        this.#assertSupervisionReady(command.work_item_id);
+        this.#assertSupervisionReady(command.work_item_id, true);
         const firstDelivery = command.state === "queued";
         if (
           firstDelivery
@@ -2709,7 +2709,7 @@ export class ControllerCore {
           throw new ReadinessError(
             `run is ${run.state}; command start is paused`,
           );
-        this.#assertSupervisionReady(command.work_item_id);
+        this.#assertSupervisionReady(command.work_item_id, true);
         const now = new Date().toISOString();
         this.#database
           .prepare(
@@ -8298,11 +8298,20 @@ export class ControllerCore {
         const workItemId = input.workItemId ?? "";
         const item = this.#database
           .prepare(
-            "SELECT required_role FROM work_items WHERE project_id = ? AND work_item_id = ?",
+            `SELECT w.required_role,
+              EXISTS (
+                SELECT 1 FROM finding_correction_work c
+                WHERE c.project_id = w.project_id AND c.work_item_id = w.work_item_id
+              ) AS is_correction
+             FROM work_items w WHERE w.project_id = ? AND w.work_item_id = ?`,
           )
           .get(this.#projectId, workItemId) as
-          { required_role: string } | undefined;
-        if (item?.required_role !== "Supervisor")
+          { required_role: string; is_correction: number } | undefined;
+        const isPmCorrectionReport =
+          action === "work.report.accept" &&
+          item?.required_role === "PM" &&
+          item.is_correction === 1;
+        if (item?.required_role !== "Supervisor" && !isPmCorrectionReport)
           this.#assertSupervisionReady(
             workItemId,
             action === "work.report.accept" && item?.required_role === "PM",

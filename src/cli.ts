@@ -1601,6 +1601,85 @@ async function runCli(argv: string[]): Promise<number> {
               evaluation.eventUpperSequence,
               evaluation.targetEpoch,
             );
+            const supervisorOverlap = window.hardViolations.find(
+              (violation) => violation.seatId === identities.Supervisor.seatId,
+            );
+            if (supervisorOverlap) {
+              const assignments = supervisorOverlap.assignmentIds
+                .map((assignmentId) =>
+                  core.latestAssignmentForRole("Supervisor", assignmentId),
+                )
+                .filter(
+                  (
+                    entry,
+                  ): entry is NonNullable<
+                    ReturnType<ControllerCore["latestAssignmentForRole"]>
+                  > => entry !== undefined,
+                );
+              const source = assignments.find(
+                (entry) => entry.authorityState === "active",
+              );
+              const target = assignments[0];
+              if (!source || !target)
+                throw new Error(
+                  "Supervisor authority overlap has no active durable assignment",
+                );
+              const findingId = randomUUID();
+              core.createFinding(
+                context(core, identities.Supervisor.credential),
+                {
+                  findingId,
+                  workItemId: source.workItemId,
+                  assignmentId: source.assignmentId,
+                  generation: source.generation,
+                  affectedWorkItemId: target.workItemId,
+                  affectedSeatId: target.seatId,
+                  affectedAssignmentId: target.assignmentId,
+                  affectedGeneration: target.generation,
+                  fingerprint: createHash("sha256")
+                    .update(
+                      JSON.stringify({
+                        code: "overlapping_authority",
+                        seatId: supervisorOverlap.seatId,
+                        assignmentIds: [
+                          ...supervisorOverlap.assignmentIds,
+                        ].sort(),
+                      }),
+                    )
+                    .digest("hex"),
+                  severity: "critical",
+                  evidence: { violation: supervisorOverlap },
+                  requestedCorrection:
+                    "Operator must restore exclusive Supervisor authority",
+                  acknowledgementDeadline: new Date(
+                    Math.min(deadlineMs, Date.now() + 15 * 60_000),
+                  ).toISOString(),
+                  resolutionCondition:
+                    "Operator verifies exclusive Supervisor authority",
+                  escalationRoute: "operator",
+                },
+              );
+              core.transitionFinding(
+                context(core, identities.Supervisor.credential),
+                findingId,
+                "reported",
+                { observation: "overlapping Supervisor authority" },
+              );
+              core.transitionFinding(
+                context(core, credential),
+                findingId,
+                "escalated",
+                {
+                  reason:
+                    "Supervisor seat cannot correct its own authority overlap",
+                },
+              );
+              core.markSupervisionDegraded(
+                context(core, credential),
+                `Supervisor seat overlap recorded as finding ${findingId}`,
+              );
+              return `Supervisor seat authority overlap escalated to operator as finding ${findingId}`;
+            }
             const visibleCandidateIds = new Set([
               ...acceptedCandidateByWorkItem.values(),
               ...candidateUnderReviewByWorkItem.values(),
@@ -1908,7 +1987,7 @@ async function runCli(argv: string[]): Promise<number> {
                         pendingCorrection.affectedAssignmentId,
                       ),
                     )
-                    .find((entry) => entry !== null)
+                    .find((entry) => entry !== undefined)
                 : undefined;
               const responsibleRole = hardViolationTarget
                 ? hardViolationTarget.role
@@ -1958,6 +2037,13 @@ async function runCli(argv: string[]): Promise<number> {
                     (latest, event) =>
                       (event.entityId === affected!.assignmentId ||
                         event.entityId === affected!.workItemId) &&
+                      ![
+                        '"action":"assignment.containment.confirmed"',
+                        '"action":"finding.transition"',
+                        '"action":"work.report.accept"',
+                      ].some((action) =>
+                        event.payloadExcerpt.includes(action),
+                      ) &&
                       (!latest || event.sequence > latest.sequence)
                         ? event
                         : latest,
@@ -1970,7 +2056,7 @@ async function runCli(argv: string[]): Promise<number> {
                     reply.evidenceEventIds[0] !== latestRelatedEvent?.eventId
                   )
                     throw new Error(
-                      "Supervisor finding must cite the latest exact event for its affected assignment or work item",
+                      "Supervisor finding must cite the latest material event for its affected assignment or work item",
                     );
                   evidenceEventIds = [latestRelatedEvent.eventId];
                 }
