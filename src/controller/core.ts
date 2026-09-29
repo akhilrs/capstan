@@ -1481,9 +1481,13 @@ export class ControllerCore {
           const occupied = this.#database
             .prepare(
               `SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ?
-               AND authority_state IN ('active', 'unknown') LIMIT 1`,
+               AND assignment_id <> ? AND authority_state IN ('active', 'unknown') LIMIT 1`,
             )
-            .get(this.#projectId, correction.target_seat_id);
+            .get(
+              this.#projectId,
+              correction.target_seat_id,
+              correction.target_assignment_id,
+            );
           if (
             (correction.verifier_child === 1
               ? item.required_role !== "Verifier" ||
