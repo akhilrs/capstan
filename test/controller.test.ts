@@ -1866,6 +1866,92 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
   }
 });
 
+test("PM bootstrap dispatch closes when supervision degrades", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const firstPm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "bootstrap-first-pm",
+    );
+    const secondPm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "bootstrap-second-pm",
+    );
+    const commands: AssignmentResult[] = [];
+    for (const [workItemId, seatId] of [
+      ["bootstrap-first-work", firstPm.seatId],
+      ["bootstrap-second-work", secondPm.seatId],
+    ] as const) {
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId,
+        title: workItemId,
+        description: "PM bootstrap work",
+        requiredRole: "PM",
+      });
+      core.markReady(context(core, info.ownerCredential), workItemId);
+      commands.push(
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          workItemId,
+          seatId,
+        ),
+      );
+    }
+    core.enableSupervision(context(core, info.ownerCredential));
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      commands[0]!.commandId,
+    );
+    const first = commands[0]!;
+    core.recordBridgeReceipt(
+      receipt(
+        {
+          commandId: first.commandId,
+          assignmentId: first.assignmentId,
+          attempt: first.attempt,
+          generation: first.generation,
+        },
+        1,
+        "accepted",
+        "PM",
+      ),
+    );
+    core.markSupervisionDegraded(
+      context(core, info.ownerCredential),
+      "bootstrap Supervisor failed",
+    );
+    const version = core.stateVersion;
+    assert.throws(
+      () =>
+        core.beginCommandStart(
+          context(core, info.ownerCredential),
+          first.commandId,
+        ),
+      /supervision is degraded or its checkpoint is stale/,
+    );
+    assert.throws(
+      () =>
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          commands[1]!.commandId,
+        ),
+      /supervision is degraded or its checkpoint is stale/,
+    );
+    assert.throws(
+      () => core.enableSupervision(context(core, info.ownerCredential)),
+      /Supervisor is already enabled/,
+    );
+    assert.equal(core.stateVersion, version);
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("Supervisor event references retain an older assignment beyond the event window", async () => {
   const value = await fixture();
   try {
@@ -3009,6 +3095,43 @@ test("finding response rejects an active later generation of its affected assign
       resolutionCondition: "Independent Supervisor verification",
       escalationRoute: "operator",
     });
+    const sourceDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      sourceDb
+        .prepare(
+          "UPDATE assignments SET active_generation = ? WHERE project_id = ? AND assignment_id = ?",
+        )
+        .run(source.generation + 1, info.projectId, source.assignmentId);
+      const version = core.stateVersion;
+      assert.throws(
+        () =>
+          core.transitionFinding(
+            context(core, supervisor.credential),
+            "generation-response-finding",
+            "reported",
+            { report: "Later source generation cannot report old finding" },
+          ),
+        /finding response requires its source assignment/,
+      );
+      assert.equal(core.stateVersion, version);
+      assert.equal(
+        core
+          .statusSnapshot()
+          .findings.find(
+            (finding) => finding.findingId === "generation-response-finding",
+          )?.state,
+        "detected",
+      );
+    } finally {
+      sourceDb
+        .prepare(
+          "UPDATE assignments SET active_generation = ? WHERE project_id = ? AND assignment_id = ?",
+        )
+        .run(source.generation, info.projectId, source.assignmentId);
+      sourceDb.close();
+    }
     core.transitionFinding(
       context(core, supervisor.credential),
       "generation-response-finding",

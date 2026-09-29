@@ -39,6 +39,7 @@ CREATE INDEX findings_dedup_lookup
 CREATE TABLE supervision_control (
   project_id TEXT PRIMARY KEY REFERENCES projects(project_id),
   enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+  bootstrap_pm_allowed INTEGER NOT NULL DEFAULT 0 CHECK (bootstrap_pm_allowed IN (0, 1)),
   health TEXT NOT NULL CHECK (health IN ('healthy', 'evaluating', 'degraded')),
   target_epoch INTEGER NOT NULL CHECK (target_epoch >= 0),
   checkpoint_epoch INTEGER,

@@ -6004,9 +6004,7 @@ export class ControllerCore {
     const apply = (actor: AuthenticatedActor) => {
       const finding = this.#database
         .prepare(
-          `SELECT work_item_id, assignment_id,
-            (SELECT active_generation FROM assignments a WHERE a.project_id = findings.project_id
-              AND a.assignment_id = findings.assignment_id) AS generation,
+          `SELECT work_item_id, assignment_id, generation,
             resolution_condition, state, state_version,
             affected_work_item_id, affected_assignment_id, affected_seat_id,
             affected_generation, detected_after_sequence
@@ -6576,9 +6574,17 @@ export class ControllerCore {
       "finding:write",
       {},
       () => {
+        const existing = this.#database
+          .prepare(
+            "SELECT enabled FROM supervision_control WHERE project_id = ?",
+          )
+          .get(this.#projectId) as { enabled: number } | undefined;
+        if (existing?.enabled)
+          throw new MutationConflictError("Supervisor is already enabled");
         this.#database
           .prepare(
             `UPDATE supervision_control SET enabled = 1, health = 'degraded',
+              bootstrap_pm_allowed = 1,
               checkpoint_epoch = NULL, checkpoint_assignment_id = NULL,
               checkpoint_event_sequence = NULL, checkpoint_fingerprint = NULL,
               replacement_attempts = 0, updated_at = ?
@@ -6632,7 +6638,7 @@ export class ControllerCore {
           .run(this.#projectId, control.target_epoch, eventUpperSequence, now);
         this.#database
           .prepare(
-            "UPDATE supervision_control SET health = 'evaluating', updated_at = ? WHERE project_id = ?",
+            "UPDATE supervision_control SET health = 'evaluating', bootstrap_pm_allowed = 0, updated_at = ? WHERE project_id = ?",
           )
           .run(now, this.#projectId);
         return {
@@ -6723,7 +6729,7 @@ export class ControllerCore {
           throw new TypeError("degraded supervision requires a bounded reason");
         this.#database
           .prepare(
-            "UPDATE supervision_control SET enabled = 1, health = 'degraded', updated_at = ? WHERE project_id = ?",
+            "UPDATE supervision_control SET enabled = 1, health = 'degraded', bootstrap_pm_allowed = 0, updated_at = ? WHERE project_id = ?",
           )
           .run(new Date().toISOString(), this.#projectId);
         return {
@@ -8163,7 +8169,7 @@ export class ControllerCore {
   #assertSupervisionReady(workItemId: string, allowBootstrapPm = false): void {
     const control = this.#database
       .prepare(
-        "SELECT enabled, health, target_epoch, checkpoint_epoch FROM supervision_control WHERE project_id = ?",
+        "SELECT enabled, health, target_epoch, checkpoint_epoch, bootstrap_pm_allowed FROM supervision_control WHERE project_id = ?",
       )
       .get(this.#projectId) as
       | {
@@ -8171,6 +8177,7 @@ export class ControllerCore {
           health: string;
           target_epoch: number;
           checkpoint_epoch: number | null;
+          bootstrap_pm_allowed: number;
         }
       | undefined;
     if (!control?.enabled) return;
@@ -8186,6 +8193,7 @@ export class ControllerCore {
       allowBootstrapPm &&
       item.required_role === "PM" &&
       control.checkpoint_epoch === null &&
+      control.bootstrap_pm_allowed === 1 &&
       !this.#database
         .prepare(
           "SELECT 1 FROM work_items WHERE project_id = ? AND required_role = 'PM' AND state = 'accepted' LIMIT 1",
