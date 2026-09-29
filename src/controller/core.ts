@@ -1820,6 +1820,17 @@ export class ControllerCore {
             "assignment seat must be active, match the work item role, and have an active actor",
           );
         }
+        const correctionSeat = this.#database
+          .prepare(
+            `SELECT target_seat_id FROM finding_correction_work
+             WHERE project_id = ? AND work_item_id = ?`,
+          )
+          .get(this.#projectId, workItemId) as
+          { target_seat_id: string } | undefined;
+        if (correctionSeat && correctionSeat.target_seat_id !== seatId)
+          throw new ControllerError(
+            "finding correction must be assigned to its affected seat",
+          );
         const occupiedSeat = this.#database
           .prepare(
             `
@@ -6059,7 +6070,7 @@ export class ControllerCore {
               .prepare(
                 `SELECT a.assignment_id FROM assignments a
                  WHERE a.project_id = ? AND a.seat_id = ?
-                   AND a.authority_state = 'active'
+                   AND a.seat_id = ? AND a.authority_state = 'active'
                    AND (
                      (a.assignment_id = ? AND a.active_generation = ?)
                      OR EXISTS (
@@ -6075,6 +6086,7 @@ export class ControllerCore {
               .get(
                 this.#projectId,
                 actor.seatId,
+                finding.affected_seat_id,
                 finding.affected_assignment_id,
                 finding.affected_generation,
                 this.#projectId,

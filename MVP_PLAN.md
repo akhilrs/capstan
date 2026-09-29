@@ -244,7 +244,7 @@ Detected -> Reported -> Acknowledged -> Correcting -> Verified resolved
 ```
 
 - Report delivery, agent acknowledgement, and verified resolution are separate persisted events.
-- Corrections route to the responsible role, including the PM or Verifier, not only the Developer.
+- Corrections route to the affected assignment's seat and responsible role, including the PM or Verifier, not only the Developer; another seat with the same role cannot answer the finding.
 - The responsible role provides an assignment-bound acknowledgement and a correction/dispute response.
 - The Supervisor checks new evidence against the stated resolution condition; a worker saying “fixed” is insufficient.
 - Unresolved disputes escalate to the operator in this MVP. No silent waiver path is needed.

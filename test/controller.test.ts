@@ -2208,7 +2208,7 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
     cleanup(value);
   }
 });
-test("an active finding correction can be delivered and started under supervision", async () => {
+test("finding correction stays on the affected seat through response and delivery", async () => {
   const value = await fixture();
   try {
     const { core, project: info } = value;
@@ -2217,6 +2217,12 @@ test("an active finding correction can be delivered and started under supervisio
       info.ownerCredential,
       "PM",
       "correction-delivery-pm",
+    );
+    const otherPm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "correction-delivery-other-pm",
     );
     const supervisor = await addSeatAndActor(
       core,
@@ -2293,11 +2299,55 @@ test("an active finding correction can be delivered and started under supervisio
       context(core, info.ownerCredential),
       "correction-delivery-work",
     );
+    const beforeWrongSeat = core.stateVersion;
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "correction-delivery-work",
+          otherPm.seatId,
+        ),
+      /finding correction must be assigned to its affected seat/,
+    );
+    assert.equal(core.stateVersion, beforeWrongSeat);
     const correction = core.assignWorkItem(
       context(core, info.ownerCredential),
       "correction-delivery-work",
       pm.seatId,
     );
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      db.prepare(
+        "UPDATE assignments SET seat_id = ? WHERE project_id = ? AND assignment_id = ?",
+      ).run(otherPm.seatId, info.projectId, correction.assignmentId);
+      const beforeWrongResponse = core.stateVersion;
+      assert.throws(
+        () =>
+          core.transitionFinding(
+            context(core, otherPm.credential),
+            "correction-delivery-finding",
+            "acknowledged",
+            { acknowledgement: "Wrong seat cannot answer" },
+          ),
+        /finding response requires its source assignment/,
+      );
+      assert.equal(core.stateVersion, beforeWrongResponse);
+      assert.equal(
+        core
+          .statusSnapshot()
+          .findings.find(
+            (finding) => finding.findingId === "correction-delivery-finding",
+          )?.state,
+        "reported",
+      );
+    } finally {
+      db.prepare(
+        "UPDATE assignments SET seat_id = ? WHERE project_id = ? AND assignment_id = ?",
+      ).run(pm.seatId, info.projectId, correction.assignmentId);
+      db.close();
+    }
     core.enableSupervision(context(core, info.ownerCredential));
     const evaluation = core.beginSupervisorEvaluation(
       context(core, info.ownerCredential),
