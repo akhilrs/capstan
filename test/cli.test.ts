@@ -20,6 +20,7 @@ import { test } from "node:test";
 import Database from "better-sqlite3";
 import {
   assertTrackedCheckoutMatchesHead,
+  createFindingFingerprint,
   escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
 } from "../src/cli.js";
@@ -83,6 +84,30 @@ test("Verifier dispatch reserves a slot only while capacity remains", () => {
   assert.throws(
     () => reserveDispatchSlot(3, 3),
     /correction Verifier dispatch exceeded its bounded budget/,
+  );
+});
+
+test("finding fingerprints distinguish defects supported by the same event", () => {
+  const event = ["event-123"];
+  const first = createFindingFingerprint(
+    "assignment-1",
+    event,
+    "The accepted report omitted the required artifact",
+  );
+  const distinct = createFindingFingerprint(
+    "assignment-1",
+    event,
+    "The accepted report used an invalid candidate revision",
+  );
+
+  assert.notEqual(first, distinct);
+  assert.equal(
+    first,
+    createFindingFingerprint(
+      "assignment-1",
+      event,
+      "  THE accepted report omitted\n the required artifact ",
+    ),
   );
 });
 

@@ -250,6 +250,25 @@ function workflowWorkItemId(taskId: string, sliceId: string): string {
     .digest("hex")
     .slice(0, 24)}`;
 }
+export function createFindingFingerprint(
+  affectedAssignmentId: string,
+  evidence: unknown,
+  defectIdentity?: string,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        affectedAssignmentId,
+        evidence,
+        ...(defectIdentity === undefined
+          ? {}
+          : {
+              defect: defectIdentity.trim().replace(/\s+/g, " ").toLowerCase(),
+            }),
+      }),
+    )
+    .digest("hex");
+}
 
 function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
   const gitEnv = { ...process.env };
@@ -2120,14 +2139,13 @@ async function runCli(argv: string[]): Promise<number> {
                     affectedSeatId: affected.seatId,
                     affectedAssignmentId: affected.assignmentId,
                     affectedGeneration: affected.generation,
-                    fingerprint: createHash("sha256")
-                      .update(
-                        JSON.stringify({
-                          affectedAssignmentId: affected.assignmentId,
-                          evidence: fingerprintEvidence,
-                        }),
-                      )
-                      .digest("hex"),
+                    fingerprint: createFindingFingerprint(
+                      affected.assignmentId,
+                      fingerprintEvidence,
+                      window.hardViolations.length > 0
+                        ? undefined
+                        : reply.observation,
+                    ),
                     severity: "high",
                     evidence: { observation, evidenceEventIds },
                     requestedCorrection: observation.slice(0, 2048),
@@ -2527,7 +2545,7 @@ async function runCli(argv: string[]): Promise<number> {
                   affected.role === "PM"
                 ) {
                   core.acceptNonCandidateReport(
-                    correctionContext,
+                    context(core, credential),
                     correctionWorkItemId,
                     correctionAssignment.assignmentId,
                   );
