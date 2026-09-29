@@ -1831,7 +1831,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
-              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must name the exact affectedAssignmentId and cite exactly one latest event whose context.events.entityId matches that assignmentId or workItemId. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","diagnosis":"stable concise defect identity for a blocked outcome","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must include diagnosis, name the exact affectedAssignmentId and cite exactly one latest event whose context.events.entityId matches that assignmentId or workItemId. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition.`,
               requiredRole: "Supervisor",
             });
             core.markReady(context(core, credential), supervisorWorkItemId);
@@ -2144,7 +2144,9 @@ async function runCli(argv: string[]): Promise<number> {
                       fingerprintEvidence,
                       window.hardViolations.length > 0
                         ? undefined
-                        : reply.observation,
+                        : typeof reply.diagnosis === "string"
+                          ? reply.diagnosis
+                          : undefined,
                     ),
                     severity: "high",
                     evidence: { observation, evidenceEventIds },

@@ -8153,14 +8153,14 @@ export class ControllerCore {
     if (!unresolved) return;
     const correction = this.#database
       .prepare(
-        `SELECT f.state, f.intervention_count, c.target_role, c.target_generation,
+        `SELECT f.state, f.intervention_count, c.target_assignment_id, c.target_role, c.target_generation,
           a.active_generation, a.authority_state, a.seat_id, 0 AS verifier_parent
          FROM finding_correction_work c
          JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
          JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.target_assignment_id
          WHERE c.project_id = ? AND c.work_item_id = ?
          UNION ALL
-         SELECT f.state, f.intervention_count, c.target_role, c.target_generation,
+         SELECT f.state, f.intervention_count, c.target_assignment_id, c.target_role, c.target_generation,
           a.active_generation, a.authority_state, a.seat_id, 1 AS verifier_parent
          FROM finding_correction_work c
          JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
@@ -8207,6 +8207,7 @@ export class ControllerCore {
       | {
           state: string;
           intervention_count: number;
+          target_assignment_id: string;
           target_role: string;
           target_generation: number;
           active_generation: number;
@@ -8218,9 +8219,13 @@ export class ControllerCore {
     const occupied = correction
       ? this.#database
           .prepare(
-            "SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+            "SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ? AND assignment_id <> ? AND authority_state IN ('active', 'unknown') LIMIT 1",
           )
-          .get(this.#projectId, correction.seat_id)
+          .get(
+            this.#projectId,
+            correction.seat_id,
+            correction.target_assignment_id,
+          )
       : true;
     if (
       !correction ||
