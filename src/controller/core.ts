@@ -8283,9 +8283,37 @@ export class ControllerCore {
            )
          WHERE c.project_id = ? AND c.target_role = 'Verifier'
            AND f.state = 'correcting'
+         UNION ALL
+         SELECT f.state, f.intervention_count, c.target_assignment_id, c.target_role, c.target_generation,
+          a.active_generation, a.authority_state, a.seat_id, 2 AS verifier_parent
+         FROM work_items child
+         JOIN finding_correction_work c ON c.project_id = child.project_id
+           AND c.work_item_id = child.parent_work_item_id
+         JOIN findings f ON f.project_id = c.project_id AND f.finding_id = c.finding_id
+         JOIN assignments a ON a.project_id = c.project_id AND a.assignment_id = c.target_assignment_id
+         JOIN work_items correction_parent ON correction_parent.project_id = c.project_id
+           AND correction_parent.work_item_id = c.work_item_id
+           AND correction_parent.state = 'awaiting_verification'
+         JOIN assignments developer ON developer.project_id = c.project_id
+           AND developer.work_item_id = c.work_item_id
+         JOIN candidates candidate ON candidate.project_id = developer.project_id
+           AND candidate.assignment_id = developer.assignment_id
+           AND candidate.generation = developer.active_generation
+           AND candidate.input_revision = correction_parent.input_revision
+         WHERE child.project_id = ? AND child.work_item_id = ?
+           AND child.required_role = 'Verifier' AND c.target_role = 'Developer'
+           AND f.state = 'correcting'
+           AND child.acceptance_criteria_json IS NOT NULL
          LIMIT 1`,
       )
-      .get(this.#projectId, workItemId, workItemId, this.#projectId) as
+      .get(
+        this.#projectId,
+        workItemId,
+        workItemId,
+        this.#projectId,
+        this.#projectId,
+        workItemId,
+      ) as
       | {
           state: string;
           intervention_count: number;
@@ -8316,7 +8344,11 @@ export class ControllerCore {
         ? item.required_role !== "Developer" ||
           correction.target_role !== "Verifier" ||
           correction.state !== "correcting"
-        : correction.target_role !== item.required_role) ||
+        : correction.verifier_parent === 2
+          ? item.required_role !== "Verifier" ||
+            correction.target_role !== "Developer" ||
+            correction.state !== "correcting"
+          : correction.target_role !== item.required_role) ||
       correction.target_generation !== correction.active_generation ||
       correction.authority_state !== "contained" ||
       correction.intervention_count > 2 ||

@@ -4330,6 +4330,233 @@ for (const originalAlreadyAccepted of [false, true]) {
     }
   });
 }
+
+test("Developer correction Verifier child dispatches under healthy supervision", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "correction-child-developer",
+    );
+    const verifier = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Verifier",
+      "correction-child-verifier",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "correction-child-supervisor",
+    );
+    const createAssigned = (
+      workItemId: string,
+      role: "Developer" | "Supervisor",
+      seatId: string,
+    ) => {
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId,
+        title: workItemId,
+        description: "Correction delivery",
+        requiredRole: role,
+        ...(role === "Developer"
+          ? { acceptanceCriteria: ["criterion-one"] }
+          : {}),
+      });
+      core.markReady(context(core, info.ownerCredential), workItemId);
+      return core.assignWorkItem(
+        context(core, info.ownerCredential),
+        workItemId,
+        seatId,
+      );
+    };
+    const complete = (
+      assignment: AssignmentResult,
+      role: "Developer" | "Supervisor",
+    ) => {
+      const identity = {
+        commandId: assignment.commandId,
+        assignmentId: assignment.assignmentId,
+        attempt: assignment.attempt,
+        generation: assignment.generation,
+      };
+      core.beginCommandDelivery(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
+      core.recordBridgeReceipt(receipt(identity, 1, "accepted", role));
+      core.beginCommandStart(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
+      core.recordBridgeReceipt(receipt(identity, 2, "submitted", role));
+      core.recordBridgeReceipt(receipt(identity, 3, "working", role));
+      core.recordBridgeReceipt(receipt(identity, 4, "completed", role));
+      core.confirmContainment(
+        context(core, info.ownerCredential),
+        identity.assignmentId,
+        `containment:${identity.assignmentId}`,
+      );
+    };
+    const original = createAssigned(
+      "correction-child-original",
+      "Developer",
+      developer.seatId,
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      original.assignmentId,
+      "containment:correction-child-original",
+    );
+    const source = createAssigned(
+      "correction-child-source",
+      "Supervisor",
+      supervisor.seatId,
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "correction-child-finding",
+      workItemId: "correction-child-source",
+      assignmentId: source.assignmentId,
+      generation: source.generation,
+      affectedWorkItemId: "correction-child-original",
+      affectedSeatId: developer.seatId,
+      affectedAssignmentId: original.assignmentId,
+      affectedGeneration: original.generation,
+      fingerprint: "correction-child-fingerprint",
+      severity: "high",
+      evidence: { observation: "Correct the Developer assignment" },
+      requestedCorrection: "Submit and verify corrected candidate",
+      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
+      resolutionCondition: "Independent verification of correction",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      "correction-child-finding",
+      "reported",
+      { observation: "Correct the Developer assignment" },
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      source.assignmentId,
+      "containment:correction-child-source",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "correction-child-work",
+      findingId: "correction-child-finding",
+      title: "Correct Developer assignment",
+      description: "Deliver corrected candidate",
+      requiredRole: "Developer",
+      acceptanceCriteria: ["criterion-one"],
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "correction-child-work",
+    );
+    const correction = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "correction-child-work",
+      developer.seatId,
+    );
+    core.transitionFinding(
+      context(core, developer.credential),
+      "correction-child-finding",
+      "acknowledged",
+      { acknowledgement: "Correcting" },
+    );
+    core.transitionFinding(
+      context(core, info.ownerCredential),
+      "correction-child-finding",
+      "correcting",
+      { workItemId: "correction-child-work" },
+    );
+    complete(correction, "Developer");
+    const candidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "correction-child-candidate",
+        assignmentId: correction.assignmentId,
+        commitSha: "c".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src/correction.ts"],
+        limitations: [],
+        evidence: ["corrected implementation"],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "correction-child-verifier-work",
+      title: "Verify corrected candidate",
+      description: "Independently verify correction",
+      requiredRole: "Verifier",
+      acceptanceCriteria: ["criterion-one"],
+      parentWorkItemId: "correction-child-work",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "correction-child-verifier-work",
+    );
+    const child = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "correction-child-verifier-work",
+      verifier.seatId,
+      candidate.candidateId,
+    );
+    const review = createAssigned(
+      "correction-child-review",
+      "Supervisor",
+      supervisor.seatId,
+    );
+    core.enableSupervision(context(core, info.ownerCredential));
+    const evaluation = core.beginSupervisorEvaluation(
+      context(core, info.ownerCredential),
+    );
+    core.bindSupervisorEvaluation(context(core, info.ownerCredential), {
+      assignmentId: review.assignmentId,
+      generation: review.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+    });
+    complete(review, "Supervisor");
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "correction-child-review",
+      review.assignmentId,
+    );
+    core.recordSupervisorCheckpoint(context(core, info.ownerCredential), {
+      assignmentId: review.assignmentId,
+      generation: review.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+      fingerprint: "e".repeat(64),
+    });
+    const childIdentity = {
+      commandId: child.commandId,
+      assignmentId: child.assignmentId,
+      attempt: child.attempt,
+      generation: child.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      child.commandId,
+    );
+    core.recordBridgeReceipt(receipt(childIdentity, 1, "accepted", "Verifier"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      child.commandId,
+    );
+    core.recordBridgeReceipt(
+      receipt(childIdentity, 2, "submitted", "Verifier"),
+    );
+    core.recordBridgeReceipt(receipt(childIdentity, 3, "working", "Verifier"));
+    assert.equal(core.commandState(child.commandId), "started");
+  } finally {
+    cleanup(value);
+  }
+});
 test("Verifier correction evidence cannot resolve a finding without fresh Supervisor verification", async () => {
   const value = await fixture();
   try {

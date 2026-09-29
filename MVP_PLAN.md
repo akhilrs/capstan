@@ -259,6 +259,8 @@ The detailed window has at most 32 recent events plus 16 contextual latest-mater
 
 Supervisor evaluation records bind the captured event boundary and epoch to the exact assigned Supervisor generation; the controller captures the event window and authoritative snapshot in one database read transaction and rejects intervening mutations. A checkpoint cannot claim a later event boundary than its bound evaluation. Delivery and start recheck supervision after assignment, so a stale epoch cannot start ordinary work. A hard authority overlap on the Supervisor seat persists an operator-routed finding and degrades supervision without dispatching correction to that seat. An already accepted Developer slice can only be superseded by a separately verified correction based on its currently accepted candidate.
 
+A Verifier child bound to a Developer correction candidate may deliver and start under a healthy checkpoint while the finding remains open; ordinary unrelated Verifier work remains blocked until resolution.
+
 Only the first assigned PM work item may deliver and start before the first Supervisor evaluation or checkpoint; beginning evaluation or marking supervision degraded permanently closes this bootstrap exception. A finding report is bound to its stored source Supervisor generation, not the assignment's later active generation. Only the newest evaluation for the current epoch can checkpoint while health remains evaluating; an older accepted report cannot undo a later evaluation or degradation.
 
 ### MVP recovery defaults
