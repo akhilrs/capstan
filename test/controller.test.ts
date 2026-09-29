@@ -2294,6 +2294,112 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
     cleanup(value);
   }
 });
+
+test("stale Supervisor evaluation cannot restore healthy supervision", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "stale-checkpoint-supervisor",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "stale-checkpoint-work",
+      title: "Evaluate before degradation",
+      description: "Previously accepted evaluation",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "stale-checkpoint-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "stale-checkpoint-work",
+      supervisor.seatId,
+    );
+    core.enableSupervision(context(core, info.ownerCredential));
+    const evaluation = core.beginSupervisorEvaluation(
+      context(core, info.ownerCredential),
+    );
+    core.bindSupervisorEvaluation(context(core, info.ownerCredential), {
+      assignmentId: assignment.assignmentId,
+      generation: assignment.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+    });
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "Supervisor"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "Supervisor"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "containment:stale-checkpoint",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "stale-checkpoint-work",
+      assignment.assignmentId,
+    );
+    const checkpoint = {
+      assignmentId: assignment.assignmentId,
+      generation: assignment.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+      fingerprint: "c".repeat(64),
+    };
+    core.markSupervisionDegraded(
+      context(core, info.ownerCredential),
+      "Supervisor checkpoint invalidated",
+    );
+    const degradedVersion = core.stateVersion;
+    assert.throws(
+      () =>
+        core.recordSupervisorCheckpoint(
+          context(core, info.ownerCredential),
+          checkpoint,
+        ),
+      /contained evaluation/,
+    );
+    assert.equal(core.stateVersion, degradedVersion);
+    assert.equal(core.statusSnapshot().supervision.health, "degraded");
+    const newer = core.beginSupervisorEvaluation(
+      context(core, info.ownerCredential),
+    );
+    assert.equal(newer.targetEpoch, evaluation.targetEpoch);
+    assert.ok(newer.eventUpperSequence > evaluation.eventUpperSequence);
+    const evaluatingVersion = core.stateVersion;
+    assert.throws(
+      () =>
+        core.recordSupervisorCheckpoint(
+          context(core, info.ownerCredential),
+          checkpoint,
+        ),
+      /contained evaluation/,
+    );
+    assert.equal(core.stateVersion, evaluatingVersion);
+    assert.equal(core.statusSnapshot().supervision.health, "evaluating");
+  } finally {
+    cleanup(value);
+  }
+});
 test("finding correction stays on the affected seat through response and delivery", async () => {
   const value = await fixture();
   try {

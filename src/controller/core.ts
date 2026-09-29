@@ -7087,11 +7087,12 @@ export class ControllerCore {
           | undefined;
         const control = this.#database
           .prepare(
-            "SELECT enabled, target_epoch, replacement_attempts FROM supervision_control WHERE project_id = ?",
+            "SELECT enabled, health, target_epoch, replacement_attempts FROM supervision_control WHERE project_id = ?",
           )
           .get(this.#projectId) as
           | {
               enabled: number;
+              health: string;
               target_epoch: number;
               replacement_attempts: number;
             }
@@ -7100,7 +7101,11 @@ export class ControllerCore {
           .prepare(
             `SELECT 1 AS present FROM supervisor_evaluations
              WHERE project_id = ? AND target_epoch = ? AND event_upper_sequence = ?
-               AND assignment_id = ? AND generation = ?`,
+               AND assignment_id = ? AND generation = ?
+               AND event_upper_sequence = (
+                 SELECT MAX(event_upper_sequence) FROM supervisor_evaluations
+                 WHERE project_id = ? AND target_epoch = ?
+               )`,
           )
           .get(
             this.#projectId,
@@ -7108,6 +7113,8 @@ export class ControllerCore {
             input.eventUpperSequence,
             input.assignmentId,
             input.generation,
+            this.#projectId,
+            input.targetEpoch,
           );
         if (
           !assignment ||
@@ -7120,6 +7127,7 @@ export class ControllerCore {
           assignment.command_state !== "completed" ||
           assignment.work_state !== "accepted" ||
           !control?.enabled ||
+          control.health !== "evaluating" ||
           control.target_epoch !== input.targetEpoch ||
           !evaluation ||
           !Number.isSafeInteger(input.eventUpperSequence) ||
