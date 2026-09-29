@@ -5890,7 +5890,7 @@ export class ControllerCore {
           .prepare(
             `SELECT finding_id FROM findings
              WHERE project_id = ? AND affected_assignment_id = ? AND fingerprint = ?
-               AND (state NOT IN ('resolved', 'escalated') OR cooldown_until > ?)
+               AND (state <> 'resolved' OR cooldown_until > ?)
              ORDER BY created_at DESC, finding_id DESC LIMIT 1`,
           )
           .get(

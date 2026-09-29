@@ -105,7 +105,8 @@ test("legacy finding target migration binds only one durable delivery target", (
       INSERT INTO findings VALUES
         ('p', 'unique', NULL, NULL, NULL, NULL, 'reported'),
         ('p', 'ambiguous', NULL, NULL, NULL, NULL, 'reported'),
-        ('p', 'ambiguous-generation', NULL, NULL, NULL, NULL, 'reported');
+        ('p', 'ambiguous-generation', NULL, NULL, NULL, NULL, 'reported'),
+        ('p', 'conflicting-seat', NULL, NULL, NULL, NULL, 'reported');
       INSERT INTO assignments VALUES
         ('p', 'a1', 'seat-1', 'work-1'),
         ('p', 'a2', 'seat-2', 'work-2');
@@ -118,7 +119,9 @@ test("legacy finding target migration binds only one durable delivery target", (
         ('p', 'ambiguous', 'd2', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
         ('p', 'ambiguous', 'd3', 'seat-2', 'c2', '2026-01-01T00:00:01Z'),
         ('p', 'ambiguous-generation', 'd4', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
-        ('p', 'ambiguous-generation', 'd5', 'seat-1', 'c3', '2026-01-01T00:00:01Z');
+        ('p', 'ambiguous-generation', 'd5', 'seat-1', 'c3', '2026-01-01T00:00:01Z'),
+        ('p', 'conflicting-seat', 'd6', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
+        ('p', 'conflicting-seat', 'd7', 'seat-2', 'c1', '2026-01-01T00:00:01Z');
     `);
     db.exec(
       readFileSync(
@@ -157,6 +160,19 @@ test("legacy finding target migration binds only one durable delivery target", (
         )
         .get(),
       { affected_assignment_id: null, affected_generation: null },
+    );
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT affected_assignment_id, affected_seat_id, affected_work_item_id, affected_generation FROM findings WHERE finding_id = 'conflicting-seat'",
+        )
+        .get(),
+      {
+        affected_assignment_id: null,
+        affected_seat_id: null,
+        affected_work_item_id: null,
+        affected_generation: null,
+      },
     );
   } finally {
     db.close();
@@ -3053,6 +3069,12 @@ test("finding responses persist their reports and require explicit resolution ev
       },
     );
     assert.deepEqual(escalatedDuplicate, { findingId: "finding-1" });
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((finding) => finding.findingId === "finding-1")?.state,
+      "escalated",
+    );
   } finally {
     cleanup(value);
   }

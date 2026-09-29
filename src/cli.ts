@@ -1635,11 +1635,11 @@ async function runCli(argv: string[]): Promise<number> {
                 throw new Error(
                   "Supervisor authority overlap has no durable assignment pair",
                 );
-              const findingId = randomUUID();
-              core.createFinding(
+              const requestedFindingId = randomUUID();
+              const finding = core.createFinding(
                 context(core, identities.Supervisor.credential),
                 {
-                  findingId,
+                  findingId: requestedFindingId,
                   workItemId: source.workItemId,
                   assignmentId: source.assignmentId,
                   generation: source.generation,
@@ -1670,22 +1670,29 @@ async function runCli(argv: string[]): Promise<number> {
                   escalationRoute: "operator",
                 },
               );
-              if (source.authorityState === "active")
+              const findingId = finding.findingId;
+              let state = core
+                .statusSnapshot()
+                .findings.find((entry) => entry.findingId === findingId)?.state;
+              if (state === "detected" && source.authorityState === "active") {
                 core.transitionFinding(
                   context(core, identities.Supervisor.credential),
                   findingId,
                   "reported",
                   { observation: "overlapping Supervisor authority" },
                 );
-              core.transitionFinding(
-                context(core, credential),
-                findingId,
-                "escalated",
-                {
-                  reason:
-                    "Supervisor seat cannot correct its own authority overlap",
-                },
-              );
+                state = "reported";
+              }
+              if (state === "reported")
+                core.transitionFinding(
+                  context(core, credential),
+                  findingId,
+                  "escalated",
+                  {
+                    reason:
+                      "Supervisor seat cannot correct its own authority overlap",
+                  },
+                );
               core.markSupervisionDegraded(
                 context(core, credential),
                 `Supervisor seat overlap recorded as finding ${findingId}`,
