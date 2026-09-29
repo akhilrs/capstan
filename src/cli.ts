@@ -232,6 +232,14 @@ function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
   gitEnv.GIT_CONFIG_PARAMETERS = "";
   return gitEnv;
 }
+export function reserveDispatchSlot(
+  dispatches: number,
+  maxDispatches: number,
+): number {
+  if (dispatches >= maxDispatches)
+    throw new Error("correction Verifier dispatch exceeded its bounded budget");
+  return dispatches + 1;
+}
 
 export function assertTrackedCheckoutMatchesHead(
   workspace: string,
@@ -3068,6 +3076,14 @@ async function runCli(argv: string[]): Promise<number> {
                   const dispatchReadinessBlocker = await evaluateSupervisor();
                   if (dispatchReadinessBlocker)
                     return `Supervisor correction Verifier dispatch remains blocked: ${dispatchReadinessBlocker}`;
+                  if (Date.now() >= findingDeadlineMs)
+                    throw new Error(
+                      "correction Verifier dispatch exceeded its bounded budget",
+                    );
+                  dispatches = reserveDispatchSlot(
+                    dispatches,
+                    plan.limits.maxDispatches,
+                  );
                   core.markReady(context(core, credential), verifierWorkItemId);
                   const verifierAssignment = core.assignWorkItem(
                     context(core, credential),
@@ -3089,7 +3105,6 @@ async function runCli(argv: string[]): Promise<number> {
                   );
                   runtimeCommands[verifierRuntime.session.sessionId] =
                     verifierAssignment.commandId;
-                  dispatches += 1;
                   let verifierContained = false;
                   try {
                     core.transitionRuntimeSession(

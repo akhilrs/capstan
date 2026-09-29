@@ -79,6 +79,89 @@ test("canonical JSON rejects non-enumerable and extra array properties", () => {
   assert.throws(() => canonicalJson(extra), /extra properties/);
   assert.throws(() => canonicalJson(invalidIndex), /extra properties/);
 });
+test("legacy finding target migration binds only one durable delivery target", () => {
+  const db = new Database(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE findings (
+        project_id TEXT NOT NULL, finding_id TEXT NOT NULL,
+        affected_assignment_id TEXT, affected_seat_id TEXT,
+        affected_work_item_id TEXT, affected_generation INTEGER,
+        state TEXT NOT NULL
+      );
+      CREATE TABLE finding_deliveries (
+        project_id TEXT NOT NULL, finding_id TEXT NOT NULL,
+        delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, command_id TEXT NOT NULL,
+        delivered_at TEXT
+      );
+      CREATE TABLE commands (
+        project_id TEXT NOT NULL, command_id TEXT NOT NULL,
+        assignment_id TEXT NOT NULL, generation INTEGER NOT NULL
+      );
+      CREATE TABLE assignments (
+        project_id TEXT NOT NULL, assignment_id TEXT NOT NULL,
+        seat_id TEXT NOT NULL, work_item_id TEXT NOT NULL
+      );
+      INSERT INTO findings VALUES
+        ('p', 'unique', NULL, NULL, NULL, NULL, 'reported'),
+        ('p', 'ambiguous', NULL, NULL, NULL, NULL, 'reported'),
+        ('p', 'ambiguous-generation', NULL, NULL, NULL, NULL, 'reported');
+      INSERT INTO assignments VALUES
+        ('p', 'a1', 'seat-1', 'work-1'),
+        ('p', 'a2', 'seat-2', 'work-2');
+      INSERT INTO commands VALUES
+        ('p', 'c1', 'a1', 3),
+        ('p', 'c2', 'a2', 4),
+        ('p', 'c3', 'a1', 4);
+      INSERT INTO finding_deliveries VALUES
+        ('p', 'unique', 'd1', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
+        ('p', 'ambiguous', 'd2', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
+        ('p', 'ambiguous', 'd3', 'seat-2', 'c2', '2026-01-01T00:00:01Z'),
+        ('p', 'ambiguous-generation', 'd4', 'seat-1', 'c1', '2026-01-01T00:00:00Z'),
+        ('p', 'ambiguous-generation', 'd5', 'seat-1', 'c3', '2026-01-01T00:00:01Z');
+    `);
+    db.exec(
+      readFileSync(
+        new URL(
+          "../migrations/0012_backfill_finding_targets.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT affected_assignment_id, affected_seat_id, affected_work_item_id, affected_generation FROM findings WHERE finding_id = 'unique'",
+        )
+        .get(),
+      {
+        affected_assignment_id: "a1",
+        affected_seat_id: "seat-1",
+        affected_work_item_id: "work-1",
+        affected_generation: 3,
+      },
+    );
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT affected_assignment_id, affected_seat_id FROM findings WHERE finding_id = 'ambiguous'",
+        )
+        .get(),
+      { affected_assignment_id: null, affected_seat_id: null },
+    );
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT affected_assignment_id, affected_generation FROM findings WHERE finding_id = 'ambiguous-generation'",
+        )
+        .get(),
+      { affected_assignment_id: null, affected_generation: null },
+    );
+  } finally {
+    db.close();
+  }
+});
 
 const inputKinds = [
   "project_config",
@@ -2938,6 +3021,38 @@ test("finding responses persist their reports and require explicit resolution ev
         ?.reopenedFromFindingId,
       null,
     );
+    assert.deepEqual(
+      core.transitionFinding(
+        context(core, info.ownerCredential),
+        "finding-1",
+        "escalated",
+        { reason: "operator intervention required" },
+      ),
+      { state: "escalated" },
+    );
+    const escalatedDuplicate = core.createFinding(
+      context(core, supervisor.credential),
+      {
+        findingId: "finding-after-escalation",
+        workItemId: "finding-supervisor-work",
+        assignmentId: supervisorAssignment.assignmentId,
+        generation: supervisorAssignment.generation,
+        affectedWorkItemId: "finding-pm-work",
+        affectedSeatId: pm.seatId,
+        affectedAssignmentId: pmAssignment.assignmentId,
+        affectedGeneration: pmAssignment.generation,
+        fingerprint: "finding-fingerprint",
+        severity: "medium",
+        evidence: { source: "repeat after escalation" },
+        requestedCorrection: "Address the issue",
+        acknowledgementDeadline: new Date(
+          Date.now() + 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        resolutionCondition: "Supervisor confirms correction",
+        escalationRoute: "operator",
+      },
+    );
+    assert.deepEqual(escalatedDuplicate, { findingId: "finding-1" });
   } finally {
     cleanup(value);
   }

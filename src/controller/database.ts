@@ -92,6 +92,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  12: {
+    version: 12,
+    name: "0012_backfill_finding_targets.sql",
+    url: new URL(
+      "../../migrations/0012_backfill_finding_targets.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

@@ -17,7 +17,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { assertTrackedCheckoutMatchesHead } from "../src/cli.js";
+import {
+  assertTrackedCheckoutMatchesHead,
+  reserveDispatchSlot,
+} from "../src/cli.js";
 import { listenControl } from "../src/control.js";
 import { ControllerCore } from "../src/controller/core.js";
 const cli = path.resolve("dist/src/cli.js");
@@ -72,6 +75,14 @@ function invokeAsync(
     child.once("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
+
+test("Verifier dispatch reserves a slot only while capacity remains", () => {
+  assert.equal(reserveDispatchSlot(2, 3), 3);
+  assert.throws(
+    () => reserveDispatchSlot(3, 3),
+    /correction Verifier dispatch exceeded its bounded budget/,
+  );
+});
 
 test("immutable checkout check detects tracked bytes hidden by assume-unchanged", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-verifier-checkout-"));

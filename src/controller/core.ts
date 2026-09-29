@@ -6494,7 +6494,7 @@ export class ControllerCore {
       this.#database
         .prepare(
           `UPDATE findings SET state = ?, state_version = state_version + 1,
-            cooldown_until = CASE WHEN ? = 'resolved' THEN ? ELSE cooldown_until END
+            cooldown_until = CASE WHEN ? IN ('resolved', 'escalated') THEN ? ELSE cooldown_until END
            WHERE project_id = ? AND finding_id = ?`,
         )
         .run(
