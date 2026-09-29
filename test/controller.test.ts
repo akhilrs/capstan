@@ -1866,6 +1866,76 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
   }
 });
 
+test("Supervisor event references retain an older assignment beyond the event window", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "old-event-pm",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "old-event-supervisor",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "old-event-work",
+      title: "Earlier PM assignment",
+      description: "Remain reportable after later assignments",
+      requiredRole: "PM",
+    });
+    core.markReady(context(core, info.ownerCredential), "old-event-work");
+    const older = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "old-event-work",
+      pm.seatId,
+    );
+    for (let index = 0; index < 18; index += 1) {
+      const id = `later-supervisor-${index}`;
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId: id,
+        title: id,
+        description: "Later evaluation",
+        requiredRole: "Supervisor",
+      });
+      core.markReady(context(core, info.ownerCredential), id);
+      const assignment = core.assignWorkItem(
+        context(core, info.ownerCredential),
+        id,
+        supervisor.seatId,
+      );
+      core.confirmContainment(
+        context(core, info.ownerCredential),
+        assignment.assignmentId,
+        `never-started:${id}`,
+      );
+    }
+    core.enableSupervision(context(core, info.ownerCredential));
+    const window = core.supervisorWindow(
+      core.beginSupervisorEvaluation(context(core, info.ownerCredential))
+        .eventUpperSequence,
+    );
+    assert.ok(window.events.length <= 48);
+    assert.ok(window.eventRefs.length <= 64);
+    const reference = window.eventRefs.find(
+      (entry) => entry.assignmentId === older.assignmentId,
+    );
+    assert.equal(reference?.generation, older.generation);
+    assert.equal(reference?.role, "PM");
+    assert.ok(reference?.eventId);
+    assert.equal(
+      window.events.some((event) => event.eventId === reference.eventId),
+      false,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("Supervisor seat overlap is a durable operator finding, not a correction dispatch", async () => {
   const value = await fixture();
   try {
@@ -2138,6 +2208,164 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
     cleanup(value);
   }
 });
+test("an active finding correction can be delivered and started under supervision", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "correction-delivery-pm",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "correction-delivery-supervisor",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "correction-delivery-supervisor-work",
+      title: "Inspect correction",
+      description: "Report PM finding",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "correction-delivery-supervisor-work",
+    );
+    const supervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "correction-delivery-supervisor-work",
+      supervisor.seatId,
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "correction-delivery-original",
+      title: "Affected PM work",
+      description: "Original work requiring correction",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "correction-delivery-original",
+    );
+    const original = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "correction-delivery-original",
+      pm.seatId,
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      original.assignmentId,
+      "proof:original-never-started",
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "correction-delivery-finding",
+      workItemId: "correction-delivery-supervisor-work",
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      affectedWorkItemId: "correction-delivery-original",
+      affectedSeatId: pm.seatId,
+      affectedAssignmentId: original.assignmentId,
+      affectedGeneration: original.generation,
+      fingerprint: "correction-delivery-fingerprint",
+      severity: "high",
+      evidence: { observation: "PM work needs correction" },
+      requestedCorrection: "Correct the PM work",
+      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
+      resolutionCondition: "Supervisor verifies correction",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      "correction-delivery-finding",
+      "reported",
+      { report: "PM work needs correction" },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "correction-delivery-work",
+      findingId: "correction-delivery-finding",
+      title: "Correct PM work",
+      description: "Respond to the finding",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "correction-delivery-work",
+    );
+    const correction = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "correction-delivery-work",
+      pm.seatId,
+    );
+    core.enableSupervision(context(core, info.ownerCredential));
+    const evaluation = core.beginSupervisorEvaluation(
+      context(core, info.ownerCredential),
+    );
+    core.bindSupervisorEvaluation(context(core, info.ownerCredential), {
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+    });
+    const identity = {
+      commandId: supervisorAssignment.commandId,
+      assignmentId: supervisorAssignment.assignmentId,
+      attempt: supervisorAssignment.attempt,
+      generation: supervisorAssignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "Supervisor"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "Supervisor"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      supervisorAssignment.assignmentId,
+      "proof:checkpoint-supervisor-contained",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "correction-delivery-supervisor-work",
+      supervisorAssignment.assignmentId,
+    );
+    core.recordSupervisorCheckpoint(context(core, info.ownerCredential), {
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+      fingerprint: "b".repeat(64),
+    });
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      correction.commandId,
+    );
+    const correctionIdentity = {
+      commandId: correction.commandId,
+      assignmentId: correction.assignmentId,
+      attempt: correction.attempt,
+      generation: correction.generation,
+    };
+    core.recordBridgeReceipt(receipt(correctionIdentity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      correction.commandId,
+    );
+    core.recordBridgeReceipt(receipt(correctionIdentity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(correctionIdentity, 3, "working", "PM"));
+    assert.equal(core.commandState(correction.commandId), "started");
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("contained failed Supervisor work can be canceled before replacement", async () => {
   const value = await fixture();
   try {

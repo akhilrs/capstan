@@ -6789,6 +6789,13 @@ export class ControllerCore {
       createdAt: string;
       handoffAgeMs: number;
     }[];
+    readonly eventRefs: readonly {
+      assignmentId: string;
+      workItemId: string;
+      role: string;
+      generation: number;
+      eventId: string;
+    }[];
     readonly dependencies: readonly {
       workItemId: string;
       blockers: readonly string[];
@@ -6837,10 +6844,14 @@ export class ControllerCore {
     }>;
     const relevantEvents = this.#database
       .prepare(
-        `SELECT event.sequence, event.event_id, event.entity_type, event.entity_id,
+        `SELECT relevant_assignments.assignment_id, relevant_assignments.work_item_id,
+          relevant_assignments.active_generation, seat.role,
+          event.sequence, event.event_id, event.entity_type, event.entity_id,
           event.from_state, event.to_state,
           substr(event.payload_json, 1, 128) AS payload_excerpt, event.created_at
          FROM assignments relevant_assignments
+         JOIN seats seat ON seat.project_id = relevant_assignments.project_id
+           AND seat.seat_id = relevant_assignments.seat_id
          JOIN controller_events event ON event.project_id = relevant_assignments.project_id
            AND event.sequence = (
              SELECT MAX(relevant.sequence) FROM controller_events relevant
@@ -6850,6 +6861,9 @@ export class ControllerCore {
                      AND relevant.entity_id = relevant_assignments.assignment_id)
                  OR (relevant.entity_type = 'work_item'
                      AND relevant.entity_id = relevant_assignments.work_item_id))
+               AND relevant.payload_json NOT LIKE '%"action":"assignment.containment.confirmed"%'
+               AND relevant.payload_json NOT LIKE '%"action":"finding.transition"%'
+               AND relevant.payload_json NOT LIKE '%"action":"work.report.accept"%'
                AND relevant.sequence = event.sequence
            )
          WHERE relevant_assignments.project_id = ? AND event.sequence <= ?
@@ -6859,10 +6873,27 @@ export class ControllerCore {
         eventUpperSequence,
         this.#projectId,
         eventUpperSequence,
-        assignmentLimit,
-      ) as typeof events;
+        64,
+      ) as Array<
+      (typeof events)[number] & {
+        assignment_id: string;
+        work_item_id: string;
+        role: string;
+        active_generation: number;
+      }
+    >;
+    const eventRefs = relevantEvents.map((row) => ({
+      assignmentId: row.assignment_id,
+      workItemId: row.work_item_id,
+      role: row.role,
+      generation: row.active_generation,
+      eventId: row.event_id,
+    }));
     const eventById = new Map(
-      [...events, ...relevantEvents].map((event) => [event.event_id, event]),
+      [...events, ...relevantEvents.slice(0, assignmentLimit)].map((event) => [
+        event.event_id,
+        event,
+      ]),
     );
     const boundedEvents = [...eventById.values()]
       .sort((left, right) => left.sequence - right.sequence)
@@ -6912,6 +6943,7 @@ export class ControllerCore {
       overlappingBySeat.set(row.seat_id, assignmentIds);
     }
     return {
+      eventRefs,
       events: boundedEvents,
       assignments: assignments.map((row) => ({
         assignmentId: row.assignment_id,
@@ -8220,12 +8252,13 @@ export class ControllerCore {
     const occupied = correction
       ? this.#database
           .prepare(
-            "SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ? AND assignment_id <> ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+            "SELECT 1 FROM assignments WHERE project_id = ? AND seat_id = ? AND assignment_id <> ? AND work_item_id <> ? AND authority_state IN ('active', 'unknown') LIMIT 1",
           )
           .get(
             this.#projectId,
             correction.seat_id,
             correction.target_assignment_id,
+            workItemId,
           )
       : true;
     if (

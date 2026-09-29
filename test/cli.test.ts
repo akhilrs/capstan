@@ -21,6 +21,7 @@ import Database from "better-sqlite3";
 import {
   assertTrackedCheckoutMatchesHead,
   createFindingFingerprint,
+  findingDefectIdentity,
   escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
 } from "../src/cli.js";
@@ -87,21 +88,26 @@ test("Verifier dispatch reserves a slot only while capacity remains", () => {
   );
 });
 
-test("finding fingerprints distinguish defects supported by the same event", () => {
-  const first = createFindingFingerprint(
-    "assignment-1",
-    "event-123:artifact-missing",
-  );
-  const distinct = createFindingFingerprint(
-    "assignment-1",
-    "event-123:invalid-revision",
-  );
-
-  assert.notEqual(first, distinct);
-  assert.equal(
+test("Supervisor defect codes preserve distinct same-event findings without paraphrase duplicates", () => {
+  const fingerprint = (code: unknown) =>
+    createFindingFingerprint(
+      "assignment-1",
+      findingDefectIdentity("event-123", code),
+    );
+  const first = fingerprint("artifact-missing");
+  assert.equal(first, fingerprint(" ARTIFACT-MISSING "));
+  assert.notEqual(first, fingerprint("invalid-revision"));
+  assert.notEqual(
     first,
-    createFindingFingerprint("assignment-1", "event-123:artifact-missing"),
+    createFindingFingerprint(
+      "assignment-2",
+      findingDefectIdentity("event-123", "artifact-missing"),
+    ),
   );
+  assert.throws(() => fingerprint(undefined), /requires a defectCode/);
+  assert.throws(() => fingerprint("  "), /bounded stable code/);
+  assert.throws(() => fingerprint("x".repeat(65)), /bounded stable code/);
+  assert.throws(() => fingerprint("free text"), /bounded stable code/);
 });
 
 test("unknown-only Supervisor overlap escalates its finding", async () => {

@@ -250,6 +250,20 @@ function workflowWorkItemId(taskId: string, sliceId: string): string {
     .digest("hex")
     .slice(0, 24)}`;
 }
+export function findingDefectIdentity(
+  eventId: string | undefined,
+  code: unknown,
+): string {
+  if (!eventId)
+    throw new Error("Supervisor blocked evaluation requires a cited event");
+  if (typeof code !== "string")
+    throw new Error("Supervisor blocked evaluation requires a defectCode");
+  const normalized = code.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(normalized))
+    throw new Error("Supervisor defectCode must be a bounded stable code");
+  return `${eventId}:${normalized}`;
+}
+
 export function createFindingFingerprint(
   affectedAssignmentId: string,
   stableIdentity: string,
@@ -1751,6 +1765,7 @@ async function runCli(argv: string[]): Promise<number> {
               epoch: evaluation.targetEpoch,
               eventUpperSequence: evaluation.eventUpperSequence,
               events: window.events,
+              eventRefs: window.eventRefs,
               assignments: window.assignments,
               dependencies: window.dependencies,
               fingerprints: window.fingerprints,
@@ -1820,7 +1835,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
-              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","defectCode":"required stable concise defect code for a blocked outcome","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","affectedGeneration":number from context.assignments,"evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must include defectCode, name the exact affectedAssignmentId and affectedGeneration from context.assignments, and cite exactly one latest event whose context.events.entityId matches that assignmentId or its work item; a finding response must not target a different assignment generation.`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","defectCode":"stable concise defect code for a blocked outcome","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context.eventRefs","affectedGeneration":number from context.eventRefs,"evidenceEventIds":["exact latest related event ID from context.eventRefs"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must include a stable defectCode (ASCII letters, digits, period, underscore or hyphen; 1-64 characters), name the exact affectedAssignmentId and affectedGeneration from context.eventRefs, and cite exactly that assignment's latest eventRef.eventId. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition.`,
               requiredRole: "Supervisor",
             });
             core.markReady(context(core, credential), supervisorWorkItemId);
@@ -1931,9 +1946,7 @@ async function runCli(argv: string[]): Promise<number> {
                 ? snapshot.findings.find(
                     (finding) =>
                       finding.state === "reported" &&
-                      (reply.outcome !== "blocked" ||
-                        finding.affectedAssignmentId ===
-                          reply.affectedAssignmentId) &&
+                      reply.outcome !== "blocked" &&
                       (snapshot.work.some(
                         (work) =>
                           work.workItemId ===
@@ -2069,7 +2082,7 @@ async function runCli(argv: string[]): Promise<number> {
               const affectedGeneration =
                 hardViolationTarget?.generation ??
                 pendingAffected?.generation ??
-                window.assignments.find(
+                window.eventRefs.find(
                   (entry) => entry.assignmentId === affected.assignmentId,
                 )?.generation;
               if (
@@ -2089,23 +2102,8 @@ async function runCli(argv: string[]): Promise<number> {
               } else {
                 let evidenceEventIds: string[] = [];
                 if (window.hardViolations.length === 0) {
-                  const latestRelatedEvent = window.events.reduce<
-                    (typeof window.events)[number] | undefined
-                  >(
-                    (latest, event) =>
-                      (event.entityId === affected!.assignmentId ||
-                        event.entityId === affected!.workItemId) &&
-                      ![
-                        '"action":"assignment.containment.confirmed"',
-                        '"action":"finding.transition"',
-                        '"action":"work.report.accept"',
-                      ].some((action) =>
-                        event.payloadExcerpt.includes(action),
-                      ) &&
-                      (!latest || event.sequence > latest.sequence)
-                        ? event
-                        : latest,
-                    undefined,
+                  const latestRelatedEvent = window.eventRefs.find(
+                    (entry) => entry.assignmentId === affected.assignmentId,
                   );
                   if (
                     !Array.isArray(reply.evidenceEventIds) ||
@@ -2133,9 +2131,10 @@ async function runCli(argv: string[]): Promise<number> {
                             ),
                           ),
                       )
-                    : `${evidenceEventIds[0]}:${String(reply.defectCode ?? "")
-                        .trim()
-                        .toLowerCase()}`;
+                    : findingDefectIdentity(
+                        evidenceEventIds[0],
+                        reply.defectCode,
+                      );
                 const requestedFindingId = randomUUID();
                 const finding = core.createFinding(
                   context(core, identities.Supervisor.credential),
