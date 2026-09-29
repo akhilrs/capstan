@@ -1869,6 +1869,84 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
     cleanup(value);
   }
 });
+test("contained failed Supervisor work can be canceled before replacement", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "failed-supervisor",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "failed-supervisor-work",
+      title: "Evaluate the workflow",
+      description: "This evaluation will fail before a valid report",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "failed-supervisor-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "failed-supervisor-work",
+      supervisor.seatId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "Supervisor"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "Supervisor"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "Supervisor"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "containment:failed-supervisor",
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "failed-supervisor-work")
+        ?.state,
+      "blocked",
+    );
+    assert.deepEqual(
+      core.cancelSupervisorReport(
+        context(core, info.ownerCredential),
+        "failed-supervisor-work",
+        assignment.assignmentId,
+        "Supervisor runtime ended without a valid report",
+      ),
+      { canceledWorkItemId: "failed-supervisor-work" },
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((work) => work.workItemId === "failed-supervisor-work")
+        ?.state,
+      "canceled",
+    );
+    assert.deepEqual(
+      core.transitionRun(context(core, info.ownerCredential), "completed"),
+      { state: "completed" },
+    );
+  } finally {
+    cleanup(value);
+  }
+});
 
 test("operator requests can invoke controller-only terminal run transitions", async () => {
   const value = await fixture();
@@ -2621,6 +2699,210 @@ test("finding responses persist their reports and require explicit resolution ev
         ?.reopenedFromFindingId,
       "finding-1",
     );
+  } finally {
+    cleanup(value);
+  }
+});
+test("finding correction budget permits two attempts and rejects a third", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "intervention-supervisor",
+    );
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "intervention-pm",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "intervention-supervisor-work",
+      title: "Supervisor report",
+      description: "Report the affected PM work",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "intervention-supervisor-work",
+    );
+    const supervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "intervention-supervisor-work",
+      supervisor.seatId,
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "intervention-target-work",
+      title: "Affected PM work",
+      description: "Complete the affected work",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "intervention-target-work",
+    );
+    const targetAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "intervention-target-work",
+      pm.seatId,
+    );
+    const exactAssignment = core.latestAssignmentForRole(
+      "PM",
+      targetAssignment.assignmentId,
+    );
+    assert.equal(exactAssignment?.assignmentId, targetAssignment.assignmentId);
+    assert.equal(exactAssignment?.authorityState, "active");
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "intervention-finding",
+      workItemId: "intervention-supervisor-work",
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      affectedWorkItemId: "intervention-target-work",
+      affectedSeatId: pm.seatId,
+      affectedAssignmentId: targetAssignment.assignmentId,
+      affectedGeneration: targetAssignment.generation,
+      fingerprint: "intervention-fingerprint",
+      severity: "medium",
+      evidence: { observation: "target work needs correction" },
+      requestedCorrection: "Correct the PM work",
+      acknowledgementDeadline: new Date(
+        Date.now() + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      resolutionCondition: "Supervisor confirms the corrected PM work",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      "intervention-finding",
+      "reported",
+      { report: "Correct this work" },
+    );
+    core.transitionFinding(
+      context(core, pm.credential),
+      "intervention-finding",
+      "acknowledged",
+      { acknowledgment: "I will correct it" },
+    );
+    core.createFinding(context(core, supervisor.credential), {
+      findingId: "intervention-dispute",
+      workItemId: "intervention-supervisor-work",
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      affectedWorkItemId: "intervention-target-work",
+      affectedSeatId: pm.seatId,
+      affectedAssignmentId: targetAssignment.assignmentId,
+      affectedGeneration: targetAssignment.generation,
+      fingerprint: "intervention-dispute-fingerprint",
+      severity: "medium",
+      evidence: { observation: "the PM disputes this separate finding" },
+      requestedCorrection: "Explain the disputed finding",
+      acknowledgementDeadline: new Date(
+        Date.now() + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      resolutionCondition: "The dispute is reviewed",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      "intervention-dispute",
+      "reported",
+      { report: "Please correct or dispute" },
+    );
+    core.transitionFinding(
+      context(core, pm.credential),
+      "intervention-dispute",
+      "acknowledged",
+      { acknowledgment: "I will review it" },
+    );
+    core.transitionFinding(
+      context(core, pm.credential),
+      "intervention-dispute",
+      "disputed",
+      { response: "The evidence does not apply" },
+    );
+    core.transitionFinding(
+      context(core, info.ownerCredential),
+      "intervention-dispute",
+      "escalated",
+      { reason: "worker dispute: The evidence does not apply" },
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((entry) => entry.findingId === "intervention-dispute")
+        ?.state,
+      "escalated",
+    );
+    const identity = {
+      commandId: targetAssignment.commandId,
+      assignmentId: targetAssignment.assignmentId,
+      attempt: targetAssignment.attempt,
+      generation: targetAssignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted", "PM"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      identity.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "submitted", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 3, "working", "PM"));
+    core.recordBridgeReceipt(receipt(identity, 4, "completed", "PM"));
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      targetAssignment.assignmentId,
+      "containment:intervention-target",
+    );
+    core.acceptNonCandidateReport(
+      context(core, info.ownerCredential),
+      "intervention-target-work",
+      targetAssignment.assignmentId,
+    );
+
+    for (const workItemId of [
+      "intervention-correction-one",
+      "intervention-correction-two",
+    ]) {
+      core.createWorkItem(context(core, info.ownerCredential), {
+        workItemId,
+        findingId: "intervention-finding",
+        title: "Correct finding",
+        description: "Apply one bounded correction attempt",
+        requiredRole: "PM",
+      });
+      core.transitionFinding(
+        context(core, info.ownerCredential),
+        "intervention-finding",
+        "correcting",
+        { workItemId },
+      );
+    }
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((entry) => entry.findingId === "intervention-finding")
+        ?.interventionCount,
+      2,
+    );
+    const versionBeforeThirdAttempt = core.stateVersion;
+    assert.throws(
+      () =>
+        core.createWorkItem(context(core, info.ownerCredential), {
+          workItemId: "intervention-correction-three",
+          findingId: "intervention-finding",
+          title: "Exceed correction budget",
+          description: "This correction must not be scheduled",
+          requiredRole: "PM",
+        }),
+      /within the intervention budget/,
+    );
+    assert.equal(core.stateVersion, versionBeforeThirdAttempt);
   } finally {
     cleanup(value);
   }

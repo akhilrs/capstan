@@ -1147,7 +1147,9 @@ export class ControllerCore {
             target.final_verification === 1;
           if (
             !finding ||
-            !["reported", "acknowledged"].includes(finding.state) ||
+            !["reported", "acknowledged", "correcting"].includes(
+              finding.state,
+            ) ||
             !target ||
             finding.intervention_count >= 2 ||
             finding.affected_generation !== target.active_generation ||
@@ -4858,6 +4860,73 @@ export class ControllerCore {
     );
   }
 
+  cancelSupervisorReport(
+    context: MutationContext,
+    workItemId: string,
+    assignmentId: string,
+    reason: string,
+  ): { readonly canceledWorkItemId: string } {
+    return this.#mutateAsController(
+      context,
+      "work.report.reject",
+      "work:assign",
+      { workItemId, assignmentId, reason },
+      (actor) => {
+        const report = this.#database
+          .prepare(
+            `SELECT w.state, w.state_version, a.authority_state, s.role
+             FROM work_items w
+             JOIN assignments a ON a.project_id = w.project_id AND a.work_item_id = w.work_item_id
+             JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
+             WHERE w.project_id = ? AND w.work_item_id = ? AND a.assignment_id = ?`,
+          )
+          .get(this.#projectId, workItemId, assignmentId) as
+          | {
+              state: string;
+              state_version: number;
+              authority_state: string;
+              role: string;
+            }
+          | undefined;
+        if (
+          actor.role !== "controller" ||
+          typeof reason !== "string" ||
+          !reason.trim() ||
+          reason.length > 2048 ||
+          !report ||
+          report.role !== "Supervisor" ||
+          report.authority_state !== "contained" ||
+          !["blocked", "awaiting_verification"].includes(report.state) ||
+          !this.#isTransitionAllowed(
+            "work_item",
+            report.state,
+            "canceled",
+            actor,
+          )
+        )
+          throw new MutationConflictError(
+            "only a contained, unaccepted Supervisor report can be canceled",
+          );
+        this.#database
+          .prepare(
+            `UPDATE work_items SET state = 'canceled', state_version = state_version + 1
+             WHERE project_id = ? AND work_item_id = ? AND state = ? AND state_version = ?`,
+          )
+          .run(this.#projectId, workItemId, report.state, report.state_version);
+        return {
+          value: { canceledWorkItemId: workItemId },
+          event: {
+            entityType: "work_item",
+            entityId: workItemId,
+            stateVersion: report.state_version + 1,
+            fromState: report.state,
+            toState: "canceled",
+            details: { assignmentId, reason },
+          },
+        };
+      },
+    );
+  }
   confirmContainment(
     context: MutationContext,
     assignmentId: string,
@@ -5938,7 +6007,7 @@ export class ControllerCore {
       } else if (toState === "correcting") {
         const correction = content as { workItemId?: unknown } | null;
         if (
-          finding.state !== "acknowledged" ||
+          !["acknowledged", "correcting"].includes(finding.state) ||
           typeof correction?.workItemId !== "string" ||
           !finding.affected_assignment_id ||
           !finding.affected_work_item_id ||
@@ -5946,7 +6015,7 @@ export class ControllerCore {
           !finding.affected_generation
         )
           throw new ControllerError(
-            "correction requires an acknowledged finding and a bound worker assignment",
+            "correction requires an acknowledged or correcting finding and a bound worker assignment",
           );
         const target = this.#database
           .prepare(
@@ -5974,23 +6043,6 @@ export class ControllerCore {
           )
           .get(this.#projectId, findingId) as
           { intervention_count: number } | undefined;
-        if (
-          !target ||
-          !work ||
-          !["pending", "ready", "running", "awaiting_verification"].includes(
-            work.state,
-          ) ||
-          work.required_role !== target.role ||
-          target.seat_id !== finding.affected_seat_id ||
-          target.active_generation !== finding.affected_generation ||
-          target.authority_state !== "contained" ||
-          !["PM", "Developer", "Verifier"].includes(target.role) ||
-          !interventions ||
-          interventions.intervention_count >= 2
-        )
-          throw new ControllerError(
-            "correction work must target the contained affected assignment within the intervention budget",
-          );
         const existingCorrection = this.#database
           .prepare(
             `SELECT target_assignment_id, target_generation, target_seat_id, target_role
@@ -6004,6 +6056,22 @@ export class ControllerCore {
               target_role: string;
             }
           | undefined;
+        if (
+          !target ||
+          !work ||
+          !["pending", "ready", "running", "awaiting_verification"].includes(
+            work.state,
+          ) ||
+          work.required_role !== target.role ||
+          target.seat_id !== finding.affected_seat_id ||
+          target.active_generation !== finding.affected_generation ||
+          target.authority_state !== "contained" ||
+          !interventions ||
+          (!existingCorrection && interventions.intervention_count >= 2)
+        )
+          throw new ControllerError(
+            "correction work must target the contained affected assignment within the intervention budget",
+          );
         if (
           existingCorrection &&
           (existingCorrection.target_assignment_id !==
@@ -6707,13 +6775,14 @@ export class ControllerCore {
         readonly seatId: string;
         readonly assignmentId: string;
         readonly generation: number;
+        readonly authorityState: string;
       }
     | undefined {
     this.#assertOpen();
     const row = this.#database
       .prepare(
         `SELECT a.work_item_id, a.seat_id, a.assignment_id, a.active_generation,
-          w.parent_work_item_id
+          a.authority_state, w.parent_work_item_id
          FROM assignments a JOIN seats s ON s.project_id = a.project_id AND s.seat_id = a.seat_id
          JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
          WHERE a.project_id = ? AND s.role = ? AND (? IS NULL OR a.assignment_id = ?)
@@ -6731,6 +6800,7 @@ export class ControllerCore {
           seat_id: string;
           assignment_id: string;
           active_generation: number;
+          authority_state: string;
         }
       | undefined;
     return row
@@ -6741,6 +6811,7 @@ export class ControllerCore {
           seatId: row.seat_id,
           assignmentId: row.assignment_id,
           generation: row.active_generation,
+          authorityState: row.authority_state,
         }
       : undefined;
   }
@@ -7625,7 +7696,9 @@ export class ControllerCore {
         )
         .get(this.#projectId, workItemId);
     let material = false;
-    if (
+    if (action === "dependency.add" && isCorrectionWork(input.workItemId))
+      material = false;
+    else if (
       action === "project.input.revise" ||
       action === "dependency.add" ||
       action === "dependency.remove" ||

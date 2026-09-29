@@ -94,8 +94,12 @@ BEFORE DELETE ON finding_resolution_evidence
 BEGIN SELECT RAISE(ABORT, 'finding resolution evidence is immutable'); END;
 
 INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES
+  ('work_item', 'blocked', 'canceled', 'controller', 'work:assign');
+INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES
   ('finding', 'correcting', 'escalated', 'controller', 'finding:write'),
   ('finding', 'disputed', 'escalated', 'controller', 'finding:write');
+INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES
+  ('finding', 'correcting', 'correcting', 'controller', 'finding:write');
 INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES
   ('finding', 'acknowledged', 'disputed', 'Verifier', 'finding:write');
 INSERT INTO transition_rules(entity_type, from_state, to_state, role, capability) VALUES

@@ -1588,6 +1588,7 @@ async function runCli(argv: string[]): Promise<number> {
           let runtime: Awaited<ReturnType<typeof provisionRuntime>> | undefined;
           let assignmentId: string | undefined;
           let containmentProven = false;
+          let supervisorWorkItemId: string | undefined;
           try {
             if (dispatches >= plan.limits.maxDispatches)
               throw new Error(
@@ -1693,7 +1694,7 @@ async function runCli(argv: string[]): Promise<number> {
             const boundedJson = JSON.stringify(boundedContext);
             if (boundedJson.length > 24_000)
               throw new Error("bounded Supervisor context exceeds 24 KB");
-            const supervisorWorkItemId = `supervisor-${randomUUID()}`;
+            supervisorWorkItemId = `supervisor-${randomUUID()}`;
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
@@ -1814,13 +1815,33 @@ async function runCli(argv: string[]): Promise<number> {
             let correctionWorkItemId: string | undefined;
             let isDeduplicated = false;
             if (blocked) {
-              const hardViolationTarget = window.assignments.find(
+              const boundedHardViolationTarget = window.assignments.find(
                 (entry) =>
                   ["PM", "Developer", "Verifier"].includes(entry.role) &&
                   window.hardViolations.some((violation) =>
                     violation.assignmentIds.includes(entry.assignmentId),
                   ),
               );
+              const hardViolationTarget =
+                boundedHardViolationTarget ??
+                (() => {
+                  for (const violation of window.hardViolations) {
+                    for (const assignmentId of violation.assignmentIds) {
+                      for (const role of [
+                        "PM",
+                        "Developer",
+                        "Verifier",
+                      ] as const) {
+                        const exactAssignment = core.latestAssignmentForRole(
+                          role,
+                          assignmentId,
+                        );
+                        if (exactAssignment) return exactAssignment;
+                      }
+                    }
+                  }
+                  return undefined;
+                })();
               if (
                 hardViolationTarget &&
                 hardViolationTarget.authorityState !== "contained"
@@ -2011,10 +2032,30 @@ async function runCli(argv: string[]): Promise<number> {
               let correctionAssignmentId: string | undefined;
               let correctionContained = false;
               try {
-                core.markReady(context(core, credential), correctionWorkItemId);
                 const finalVerificationCorrection =
                   affected.role === "Verifier" &&
                   affected.parentWorkItemId === null;
+                if (finalVerificationCorrection) {
+                  const finalSliceWorkItemIds = plan.slices.map((slice) =>
+                    workflowWorkItemId(plan.taskId, slice.id),
+                  );
+                  if (
+                    finalSliceWorkItemIds.some(
+                      (workItemId) =>
+                        !acceptedCandidateByWorkItem.has(workItemId),
+                    )
+                  )
+                    throw new Error(
+                      "final Verifier correction requires every accepted slice",
+                    );
+                  for (const workItemId of finalSliceWorkItemIds)
+                    core.addDependency(
+                      context(core, credential),
+                      correctionWorkItemId,
+                      workItemId,
+                    );
+                }
+                core.markReady(context(core, credential), correctionWorkItemId);
                 const boundCandidate =
                   affected.role === "Verifier" && !finalVerificationCorrection
                     ? core.candidateForAssignment(affected.assignmentId)
@@ -2144,6 +2185,15 @@ async function runCli(argv: string[]): Promise<number> {
                   correctionAssignment.assignmentId,
                 );
                 correctionContained = true;
+                if (correctionReply.disposition === "disputed") {
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    { reason: `worker dispute: ${correctionReply.response}` },
+                  );
+                  return `Supervisor finding ${findingId} was disputed and escalated to the operator`;
+                }
                 if (
                   correctionReply.disposition === "correcting" &&
                   affected.role === "Verifier"
@@ -3022,6 +3072,27 @@ async function runCli(argv: string[]): Promise<number> {
             }
             if (assignmentId && containmentProven) {
               try {
+                const failedSupervisorWork = supervisorWorkItemId
+                  ? core
+                      .statusSnapshot()
+                      .work.find(
+                        (work) => work.workItemId === supervisorWorkItemId,
+                      )
+                  : undefined;
+                if (
+                  supervisorWorkItemId &&
+                  assignmentId &&
+                  failedSupervisorWork &&
+                  ["blocked", "awaiting_verification"].includes(
+                    failedSupervisorWork.state,
+                  )
+                )
+                  core.cancelSupervisorReport(
+                    context(core, credential),
+                    supervisorWorkItemId,
+                    assignmentId,
+                    "Supervisor evaluation failed after containment",
+                  );
                 core.claimSupervisorReplacement(context(core, credential));
                 return await evaluateSupervisor();
               } catch {
