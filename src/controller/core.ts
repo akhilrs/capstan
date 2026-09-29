@@ -6860,7 +6860,16 @@ export class ControllerCore {
                AND ((relevant.entity_type = 'assignment_attempt'
                      AND relevant.entity_id = relevant_assignments.assignment_id)
                  OR (relevant.entity_type = 'work_item'
-                     AND relevant.entity_id = relevant_assignments.work_item_id))
+                     AND relevant.entity_id = relevant_assignments.work_item_id)
+                 OR (relevant.entity_type = 'work_item'
+                     AND relevant.to_state = 'accepted'
+                     AND EXISTS (
+                       SELECT 1 FROM finding_correction_work correction
+                       WHERE correction.project_id = relevant.project_id
+                         AND correction.work_item_id = relevant.entity_id
+                         AND correction.target_assignment_id = relevant_assignments.assignment_id
+                         AND correction.target_generation = relevant_assignments.active_generation
+                     )))
                AND relevant.payload_json NOT LIKE '%"action":"assignment.containment.confirmed"%'
                AND relevant.payload_json NOT LIKE '%"action":"finding.transition"%'
                AND relevant.payload_json NOT LIKE '%"action":"work.report.accept"%'

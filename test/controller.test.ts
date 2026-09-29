@@ -3780,6 +3780,12 @@ for (const originalAlreadyAccepted of [false, true]) {
           },
         ],
       );
+      const previousEvent = core
+        .supervisorWindow(Number.MAX_SAFE_INTEGER)
+        .eventRefs.find(
+          (entry) => entry.assignmentId === originalAssignment.assignmentId,
+        )?.eventId;
+      assert.ok(previousEvent);
       assert.deepEqual(
         core.acceptCandidate(
           context(core, info.ownerCredential),
@@ -3788,6 +3794,13 @@ for (const originalAlreadyAccepted of [false, true]) {
         ),
         { acceptedCandidateId: correctionCandidate.candidateId },
       );
+      const correctedEvent = core
+        .supervisorWindow(Number.MAX_SAFE_INTEGER)
+        .eventRefs.find(
+          (entry) => entry.assignmentId === originalAssignment.assignmentId,
+        )?.eventId;
+      assert.ok(correctedEvent);
+      assert.notEqual(correctedEvent, previousEvent);
       const original = core
         .statusSnapshot()
         .work.find(
@@ -3809,6 +3822,21 @@ for (const originalAlreadyAccepted of [false, true]) {
             }
           ).accepted_candidate_id,
           correctionCandidate.candidateId,
+        );
+        assert.equal(
+          (
+            originalDb
+              .prepare(
+                `SELECT event_id FROM controller_events
+                 WHERE project_id = ? AND entity_type = 'work_item'
+                   AND entity_id = ? AND to_state = 'accepted'
+                 ORDER BY sequence DESC LIMIT 1`,
+              )
+              .get(info.projectId, "developer-correction-work") as {
+              event_id: string;
+            }
+          ).event_id,
+          correctedEvent,
         );
       } finally {
         originalDb.close();
