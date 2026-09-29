@@ -1726,7 +1726,11 @@ test("degraded supervision blocks assignment readiness and run completion", asyn
       context(core, info.ownerCredential),
     );
     const window = core.supervisorWindow(evaluation.eventUpperSequence);
-    assert.ok(window.events.length <= 32);
+    assert.ok(window.events.length <= 32 + 16);
+    assert.equal(
+      new Set(window.events.map((event) => event.eventId)).size,
+      window.events.length,
+    );
     assert.ok(
       window.events.every(
         (event) =>
@@ -1842,6 +1846,23 @@ test("only a completed contained Supervisor report checkpoints its epoch", async
       "checkpoint-supervisor-work",
       assignment.assignmentId,
     );
+    assert.throws(
+      () =>
+        core.recordSupervisorCheckpoint(context(core, info.ownerCredential), {
+          assignmentId: assignment.assignmentId,
+          generation: assignment.generation,
+          targetEpoch: evaluation.targetEpoch,
+          eventUpperSequence: evaluation.eventUpperSequence,
+          fingerprint: "a".repeat(64),
+        }),
+      /contained evaluation/,
+    );
+    core.bindSupervisorEvaluation(context(core, info.ownerCredential), {
+      assignmentId: assignment.assignmentId,
+      generation: assignment.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+    });
     assert.deepEqual(
       core.recordSupervisorCheckpoint(context(core, info.ownerCredential), {
         assignmentId: assignment.assignmentId,
@@ -2714,10 +2735,56 @@ test("finding responses persist their reports and require explicit resolution ev
       resolutionCondition: "Supervisor confirms changed correction",
       escalationRoute: "operator",
     });
-    assert.deepEqual(
+    assert.equal(
       core
         .statusSnapshot()
         .findings.find((finding) => finding.findingId === reopened.findingId)
+        ?.reopenedFromFindingId,
+      null,
+    );
+    const recurrenceDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      recurrenceDb
+        .prepare(
+          "UPDATE findings SET cooldown_until = ? WHERE project_id = ? AND finding_id = ?",
+        )
+        .run(
+          new Date(Date.now() - 1).toISOString(),
+          info.projectId,
+          "finding-1",
+        );
+    } finally {
+      recurrenceDb.close();
+    }
+    const recurrence = core.createFinding(
+      context(core, supervisor.credential),
+      {
+        findingId: "finding-recurrence",
+        workItemId: "finding-supervisor-work",
+        assignmentId: supervisorAssignment.assignmentId,
+        generation: supervisorAssignment.generation,
+        affectedWorkItemId: "finding-pm-work",
+        affectedSeatId: pm.seatId,
+        affectedAssignmentId: pmAssignment.assignmentId,
+        affectedGeneration: pmAssignment.generation,
+        fingerprint: "finding-fingerprint",
+        severity: "medium",
+        evidence: { source: "recurrence" },
+        requestedCorrection: "Address the recurring issue",
+        acknowledgementDeadline: new Date(
+          Date.now() + 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        resolutionCondition: "Supervisor confirms recurring correction",
+        escalationRoute: "operator",
+      },
+    );
+    assert.equal(recurrence.findingId, "finding-recurrence");
+    assert.equal(
+      core
+        .statusSnapshot()
+        .findings.find((finding) => finding.findingId === recurrence.findingId)
         ?.reopenedFromFindingId,
       "finding-1",
     );
@@ -2925,6 +2992,268 @@ test("finding correction budget permits two attempts and rejects a third", async
       /within the intervention budget/,
     );
     assert.equal(core.stateVersion, versionBeforeThirdAttempt);
+  } finally {
+    cleanup(value);
+  }
+});
+test("accepted Developer correction supersedes the stale original candidate", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "developer-correction-supersedes",
+    );
+    const verifier = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Verifier",
+      "developer-correction-verifier",
+    );
+    const supervisor = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Supervisor",
+      "developer-correction-supervisor",
+    );
+    const bridgeSequences = new Map<string, number>();
+    const complete = (
+      assignment: AssignmentResult,
+      role: "Developer" | "Verifier" | "Supervisor",
+    ) => {
+      const identity = {
+        commandId: assignment.commandId,
+        assignmentId: assignment.assignmentId,
+        attempt: assignment.attempt,
+        generation: assignment.generation,
+      };
+      let sequence = bridgeSequences.get(assignment.seatId) ?? 0;
+      core.beginCommandDelivery(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
+      core.recordBridgeReceipt(receipt(identity, ++sequence, "accepted", role));
+      core.beginCommandStart(
+        context(core, info.ownerCredential),
+        identity.commandId,
+      );
+      core.recordBridgeReceipt(
+        receipt(identity, ++sequence, "submitted", role),
+      );
+      core.recordBridgeReceipt(receipt(identity, ++sequence, "working", role));
+      core.recordBridgeReceipt(
+        receipt(identity, ++sequence, "completed", role),
+      );
+      bridgeSequences.set(assignment.seatId, sequence);
+    };
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "developer-correction-original",
+      title: "Original candidate",
+      description: "Original work remains under verification",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "developer-correction-original",
+    );
+    const originalAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "developer-correction-original",
+      developer.seatId,
+    );
+    complete(originalAssignment, "Developer");
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      originalAssignment.assignmentId,
+      "developer-correction-original-contained",
+    );
+    const originalCandidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "developer-correction-original-candidate",
+        assignmentId: originalAssignment.assignmentId,
+        commitSha: "a".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src/original.ts"],
+        limitations: [],
+        evidence: ["original implementation"],
+      },
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find(
+          (work) => work.workItemId === "developer-correction-original",
+        )?.state,
+      "awaiting_verification",
+    );
+
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "developer-correction-supervisor-work",
+      title: "Supervisor finding",
+      description: "Report the developer issue",
+      requiredRole: "Supervisor",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "developer-correction-supervisor-work",
+    );
+    const supervisorAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "developer-correction-supervisor-work",
+      supervisor.seatId,
+    );
+    const findingId = "developer-correction-finding";
+    core.createFinding(context(core, supervisor.credential), {
+      findingId,
+      workItemId: "developer-correction-supervisor-work",
+      assignmentId: supervisorAssignment.assignmentId,
+      generation: supervisorAssignment.generation,
+      affectedWorkItemId: "developer-correction-original",
+      affectedSeatId: developer.seatId,
+      affectedAssignmentId: originalAssignment.assignmentId,
+      affectedGeneration: originalAssignment.generation,
+      fingerprint: "developer-correction-fingerprint",
+      severity: "high",
+      evidence: { observation: "Original candidate requires correction" },
+      requestedCorrection: "Fix the reported issue",
+      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
+      resolutionCondition:
+        "Correction candidate passes independent verification",
+      escalationRoute: "operator",
+    });
+    core.transitionFinding(
+      context(core, supervisor.credential),
+      findingId,
+      "reported",
+      { observation: "Original candidate requires correction" },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "developer-correction-work",
+      findingId,
+      title: "Correct original candidate",
+      description: "Submit a corrected candidate",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "developer-correction-work",
+    );
+    const correctionAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "developer-correction-work",
+      developer.seatId,
+    );
+    core.transitionFinding(
+      context(core, developer.credential),
+      findingId,
+      "acknowledged",
+      { acknowledgment: "Correction assignment accepted" },
+    );
+    core.transitionFinding(
+      context(core, info.ownerCredential),
+      findingId,
+      "correcting",
+      { workItemId: "developer-correction-work" },
+    );
+    complete(correctionAssignment, "Developer");
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      correctionAssignment.assignmentId,
+      "developer-correction-contained",
+    );
+    const correctionCandidate = core.submitCandidate(
+      context(core, developer.credential),
+      {
+        candidateId: "developer-correction-candidate",
+        assignmentId: correctionAssignment.assignmentId,
+        commitSha: "c".repeat(40),
+        baseSha: "b".repeat(40),
+        changedScope: ["src/original.ts"],
+        limitations: [],
+        evidence: ["corrected implementation"],
+      },
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "developer-correction-verifier-work",
+      title: "Verify correction",
+      description: "Verify every correction criterion",
+      requiredRole: "Verifier",
+      parentWorkItemId: "developer-correction-work",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "developer-correction-verifier-work",
+    );
+    const verifierAssignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "developer-correction-verifier-work",
+      verifier.seatId,
+      correctionCandidate.candidateId,
+    );
+    complete(verifierAssignment, "Verifier");
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      verifierAssignment.assignmentId,
+      "developer-correction-verifier-contained",
+    );
+    core.recordEvidenceBatch(
+      context(core, verifier.credential),
+      verifierAssignment.assignmentId,
+      [
+        {
+          evidenceId: "developer-correction-verification-evidence",
+          candidateId: correctionCandidate.candidateId,
+          criterion: "criterion-one",
+          passed: true,
+          artifactRef: "artifact://developer-correction/verification",
+          observation: "criterion-one passed on the corrected candidate",
+          exitStatus: 0,
+        },
+      ],
+    );
+    assert.deepEqual(
+      core.acceptCandidate(
+        context(core, info.ownerCredential),
+        "developer-correction-work",
+        correctionCandidate.candidateId,
+      ),
+      { acceptedCandidateId: correctionCandidate.candidateId },
+    );
+    const original = core
+      .statusSnapshot()
+      .work.find((work) => work.workItemId === "developer-correction-original");
+    assert.equal(original?.state, "accepted");
+    const originalDb = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      assert.equal(
+        (
+          originalDb
+            .prepare(
+              "SELECT accepted_candidate_id FROM work_items WHERE project_id = ? AND work_item_id = ?",
+            )
+            .get(info.projectId, "developer-correction-original") as {
+            accepted_candidate_id: string;
+          }
+        ).accepted_candidate_id,
+        correctionCandidate.candidateId,
+      );
+    } finally {
+      originalDb.close();
+    }
+    assert.throws(
+      () =>
+        core.acceptCandidate(
+          context(core, info.ownerCredential),
+          "developer-correction-original",
+          originalCandidate.candidateId,
+        ),
+      CandidateBindingError,
+    );
   } finally {
     cleanup(value);
   }
@@ -3166,6 +3495,20 @@ test("Verifier finding correction accepts fresh evidence without reaccepting its
         },
       ],
     );
+    core.transitionRun(context(core, info.ownerCredential), "paused");
+    const versionBeforePausedAcceptance = core.stateVersion;
+    assert.throws(
+      () =>
+        core.acceptVerifierCorrection(context(core, info.ownerCredential), {
+          findingId,
+          workItemId: correctionWorkItemId,
+          assignmentId: correctionAssignment.assignmentId,
+          candidateId: candidate.candidateId,
+        }),
+      CandidateBindingError,
+    );
+    assert.equal(core.stateVersion, versionBeforePausedAcceptance);
+    core.transitionRun(context(core, info.ownerCredential), "active");
     assert.throws(
       () =>
         core.acceptVerifierCorrection(context(core, info.ownerCredential), {
@@ -3449,6 +3792,12 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
     const evaluation = core.beginSupervisorEvaluation(
       context(core, info.ownerCredential),
     );
+    core.bindSupervisorEvaluation(context(core, info.ownerCredential), {
+      assignmentId: review.assignmentId,
+      generation: review.generation,
+      targetEpoch: evaluation.targetEpoch,
+      eventUpperSequence: evaluation.eventUpperSequence,
+    });
     completeReport(review, "Supervisor", "resolution-review");
     core.acceptNonCandidateReport(
       context(core, info.ownerCredential),

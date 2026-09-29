@@ -1698,7 +1698,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
-              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["exact related event ids from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must name the exact affectedAssignmentId and cite one or more related evidenceEventIds from context.events. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["one exact latest related event ID from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must name the exact affectedAssignmentId and cite exactly one latest event whose context.events.entityId matches that assignmentId or workItemId. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
               requiredRole: "Supervisor",
             });
             core.markReady(context(core, credential), supervisorWorkItemId);
@@ -1708,6 +1708,12 @@ async function runCli(argv: string[]): Promise<number> {
               identities.Supervisor.seatId,
             );
             assignmentId = assignment.assignmentId;
+            core.bindSupervisorEvaluation(context(core, credential), {
+              assignmentId: assignment.assignmentId,
+              generation: assignment.generation,
+              targetEpoch: evaluation.targetEpoch,
+              eventUpperSequence: evaluation.eventUpperSequence,
+            });
             const evidenceCandidates = snapshot.evidence
               .filter((entry) => visibleCandidateIds.has(entry.candidateId))
               .slice(-12)
@@ -1935,34 +1941,27 @@ async function runCli(argv: string[]): Promise<number> {
               } else {
                 let evidenceEventIds: string[] = [];
                 if (window.hardViolations.length === 0) {
-                  if (
-                    !Array.isArray(reply.evidenceEventIds) ||
-                    reply.evidenceEventIds.length < 1 ||
-                    reply.evidenceEventIds.length > 8 ||
-                    reply.evidenceEventIds.some(
-                      (id) => typeof id !== "string" || !id.trim(),
-                    ) ||
-                    new Set(reply.evidenceEventIds).size !==
-                      reply.evidenceEventIds.length
-                  )
-                    throw new Error(
-                      "Supervisor finding must cite one to eight unique context event IDs",
-                    );
-                  const citedEvents = reply.evidenceEventIds.map((id) =>
-                    window.events.find((event) => event.eventId === id),
+                  const latestRelatedEvent = window.events.reduce<
+                    (typeof window.events)[number] | undefined
+                  >(
+                    (latest, event) =>
+                      (event.entityId === affected!.assignmentId ||
+                        event.entityId === affected!.workItemId) &&
+                      (!latest || event.sequence > latest.sequence)
+                        ? event
+                        : latest,
+                    undefined,
                   );
                   if (
-                    citedEvents.some((event) => !event) ||
-                    !citedEvents.some(
-                      (event) =>
-                        event!.entityId === affected!.assignmentId ||
-                        event!.entityId === affected!.workItemId,
-                    )
+                    !Array.isArray(reply.evidenceEventIds) ||
+                    reply.evidenceEventIds.length !== 1 ||
+                    typeof reply.evidenceEventIds[0] !== "string" ||
+                    reply.evidenceEventIds[0] !== latestRelatedEvent?.eventId
                   )
                     throw new Error(
-                      "Supervisor finding evidence must include an event for its exact affected assignment or work item",
+                      "Supervisor finding must cite the latest exact event for its affected assignment or work item",
                     );
-                  evidenceEventIds = [...reply.evidenceEventIds].sort();
+                  evidenceEventIds = [latestRelatedEvent.eventId];
                 }
                 const fingerprintEvidence =
                   window.hardViolations.length > 0
@@ -2012,29 +2011,34 @@ async function runCli(argv: string[]): Promise<number> {
                 findingId = finding.findingId;
                 correctionWorkItemId = `correction-${findingId}`;
                 isDeduplicated = findingId !== requestedFindingId;
-                if (!isDeduplicated) {
+                if (!isDeduplicated)
                   core.transitionFinding(
                     context(core, identities.Supervisor.credential),
                     findingId,
                     "reported",
                     { observation },
                   );
-                  if (affected.authorityState !== "contained") {
-                    const targetSession = allSessions.find(
-                      (session) =>
-                        runtimeAssignments[session.sessionId] ===
-                        affected!.assignmentId,
-                    );
-                    if (!targetSession)
-                      throw new Error(
-                        `Supervisor finding ${findingId} is durable but affected authority is ${affected.authorityState} without an identifiable runtime; correction is paused`,
-                      );
-                    await containRuntime(targetSession, affected.assignmentId);
-                    throw new Error(
-                      `Supervisor finding ${findingId} is durable; the affected runtime was contained and needs a fresh Supervisor evaluation before correction binding`,
-                    );
-                  }
-                }
+              }
+              const currentFindingState = core
+                .statusSnapshot()
+                .findings.find((entry) => entry.findingId === findingId)?.state;
+              if (
+                currentFindingState !== "resolved" &&
+                affected.authorityState !== "contained"
+              ) {
+                const targetSession = allSessions.find(
+                  (session) =>
+                    runtimeAssignments[session.sessionId] ===
+                    affected!.assignmentId,
+                );
+                if (!targetSession)
+                  throw new Error(
+                    `Supervisor finding ${findingId} is durable but affected authority is ${affected.authorityState} without an identifiable runtime; correction is paused`,
+                  );
+                await containRuntime(targetSession, affected.assignmentId);
+                throw new Error(
+                  `Supervisor finding ${findingId} is durable; the affected runtime was contained and needs a fresh Supervisor evaluation before correction binding`,
+                );
               }
               const existingCorrectionWork = core
                 .statusSnapshot()
@@ -2075,14 +2079,6 @@ async function runCli(argv: string[]): Promise<number> {
                           }
                       : {}),
                 });
-              }
-              if (
-                hardViolationTarget &&
-                hardViolationTarget.authorityState !== "contained"
-              ) {
-                throw new Error(
-                  `hard-violation finding ${findingId} still has uncontained target authority; correction is paused`,
-                );
               }
             }
             await containRuntime(
@@ -2169,6 +2165,17 @@ async function runCli(argv: string[]): Promise<number> {
                 : Number.NaN;
               if (!Number.isFinite(findingDeadlineMs))
                 throw new Error("finding acknowledgement deadline is invalid");
+              if (Date.now() >= findingDeadlineMs) {
+                core.transitionFinding(
+                  context(core, credential),
+                  findingId,
+                  "escalated",
+                  {
+                    reason: "acknowledgement deadline expired before dispatch",
+                  },
+                );
+                return `Supervisor finding ${findingId} escalated before correction dispatch because its acknowledgement deadline expired`;
+              }
               let correctionRuntime:
                 Awaited<ReturnType<typeof provisionRuntime>> | undefined;
               let correctionAssignmentId: string | undefined;
@@ -3208,6 +3215,22 @@ async function runCli(argv: string[]): Promise<number> {
                     { reason: "acknowledgement deadline expired" },
                   );
                   return `Supervisor finding ${findingId} escalated after its acknowledgement deadline: ${correctionReason}`;
+                }
+                if (
+                  currentFinding &&
+                  currentFinding.state !== "resolved" &&
+                  currentFinding.state !== "escalated"
+                ) {
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    {
+                      reason: `contained correction handoff failed; operator review required: ${correctionReason}`,
+                    },
+                  );
+                  supervisorMustPause = true;
+                  return `Supervisor finding ${findingId} escalated to the operator after correction handoff failure: ${correctionReason}`;
                 }
                 return `Supervisor finding recorded; correction handoff failed: ${correctionReason}`;
               }

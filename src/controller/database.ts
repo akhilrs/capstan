@@ -76,6 +76,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  10: {
+    version: 10,
+    name: "0010_supervisor_evaluation_bindings.sql",
+    url: new URL(
+      "../../migrations/0010_supervisor_evaluation_bindings.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

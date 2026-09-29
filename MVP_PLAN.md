@@ -248,8 +248,8 @@ Detected -> Reported -> Acknowledged -> Correcting -> Verified resolved
 - The responsible role provides an assignment-bound acknowledgement and a correction/dispute response.
 - The Supervisor checks new evidence against the stated resolution condition; a worker saying “fixed” is insufficient.
 - Unresolved disputes escalate to the operator in this MVP. No silent waiver path is needed.
-- Deduplicate unchanged issues, apply cooldowns, and cap interventions. Changed evidence may reopen an issue with explicit provenance.
-- Fingerprints use cited evidence-event IDs (or deterministic hard-monitor inputs), not Supervisor prose, so paraphrase does not reset the intervention budget. Resolved findings suppress unchanged reports only through their cooldown; reopen provenance points only to a resolved finding.
+- Deduplicate unchanged issues, apply cooldowns, and cap interventions. A post-cooldown recurrence of the same issue records explicit provenance; distinct evidence records a new unlinked finding.
+- Fingerprints use the latest event for the exact affected assignment/work item (or deterministic hard-monitor inputs), not Supervisor prose or extra citations, so paraphrase and unrelated activity do not reset the intervention budget. Resolved findings suppress unchanged reports only through their cooldown; reopen provenance links only to a resolved recurrence of the same fingerprint.
 - A PM correction response cannot mutate the accepted active plan. The bound response is recorded, then escalated to the operator rather than treating an unchanged plan as corrected.
 - Resolution proof must include the accepted correction event, exact condition, fresh Supervisor checkpoint assignment, and non-empty independent verification evidence.
 
