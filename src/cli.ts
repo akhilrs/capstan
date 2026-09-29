@@ -1698,7 +1698,7 @@ async function runCli(argv: string[]): Promise<number> {
             core.createWorkItem(context(core, credential), {
               workItemId: supervisorWorkItemId,
               title: `Evaluate workflow epoch ${evaluation.targetEpoch}`,
-              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. On blocked, identify the responsibleRole. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
+              description: `Inspect this bounded workflow context, the read-only checkout at /workspace, and relevant artifacts under /evidence. Return JSON {"outcome":"pass"|"blocked","observation":"...","responsibleRole":"PM"|"Developer"|"Verifier","affectedAssignmentId":"exact assignment from context","evidenceEventIds":["exact related event ids from context.events"],"verifiedFindings":[{"findingId":"...","condition":"exact recorded resolution condition","evidence":"new evidence supporting that condition"}]}. Every blocked report must name the exact affectedAssignmentId and cite one or more related evidenceEventIds from context.events. Include verifiedFindings only when fresh evidence meets an open finding's exact resolution condition. Use blocked only for a deterministic hard-state violation or an actionable workflow issue. Review candidate and final-verification evidence before accepting the workflow. Do not claim a worker report is evidence of resolution. Context: ${boundedJson}`,
               requiredRole: "Supervisor",
             });
             core.markReady(context(core, credential), supervisorWorkItemId);
@@ -1797,8 +1797,31 @@ async function runCli(argv: string[]): Promise<number> {
                 evidence: verified.evidence,
               });
             }
+            const pendingCorrection =
+              window.hardViolations.length === 0
+                ? snapshot.findings.find(
+                    (finding) =>
+                      finding.state === "reported" &&
+                      (reply.outcome !== "blocked" ||
+                        finding.affectedAssignmentId ===
+                          reply.affectedAssignmentId) &&
+                      (snapshot.work.some(
+                        (work) =>
+                          work.workItemId ===
+                            `correction-${finding.findingId}` &&
+                          ["pending", "ready", "blocked"].includes(work.state),
+                      ) ||
+                        !snapshot.work.some(
+                          (work) =>
+                            work.workItemId ===
+                            `correction-${finding.findingId}`,
+                        )),
+                  )
+                : undefined;
             const blocked =
-              reply.outcome === "blocked" || window.hardViolations.length > 0;
+              reply.outcome === "blocked" ||
+              window.hardViolations.length > 0 ||
+              pendingCorrection !== undefined;
             const observation =
               window.hardViolations.length > 0
                 ? JSON.stringify({
@@ -1814,7 +1837,12 @@ async function runCli(argv: string[]): Promise<number> {
             let findingId: string | undefined;
             let correctionWorkItemId: string | undefined;
             let isDeduplicated = false;
-            if (blocked) {
+            let hardViolationTarget:
+              | NonNullable<
+                  ReturnType<ControllerCore["latestAssignmentForRole"]>
+                >
+              | undefined;
+            if (window.hardViolations.length > 0) {
               const boundedHardViolationTarget = window.assignments.find(
                 (entry) =>
                   ["PM", "Developer", "Verifier"].includes(entry.role) &&
@@ -1822,140 +1850,224 @@ async function runCli(argv: string[]): Promise<number> {
                     violation.assignmentIds.includes(entry.assignmentId),
                   ),
               );
-              const hardViolationTarget =
-                boundedHardViolationTarget ??
-                (() => {
-                  for (const violation of window.hardViolations) {
-                    for (const assignmentId of violation.assignmentIds) {
-                      for (const role of [
-                        "PM",
-                        "Developer",
-                        "Verifier",
-                      ] as const) {
-                        const exactAssignment = core.latestAssignmentForRole(
-                          role,
-                          assignmentId,
-                        );
-                        if (exactAssignment) return exactAssignment;
-                      }
+              hardViolationTarget = (() => {
+                if (boundedHardViolationTarget) {
+                  for (const role of ["PM", "Developer", "Verifier"] as const) {
+                    const exactAssignment = core.latestAssignmentForRole(
+                      role,
+                      boundedHardViolationTarget.assignmentId,
+                    );
+                    if (exactAssignment) return exactAssignment;
+                  }
+                }
+                for (const violation of window.hardViolations) {
+                  for (const assignmentId of violation.assignmentIds) {
+                    for (const role of [
+                      "PM",
+                      "Developer",
+                      "Verifier",
+                    ] as const) {
+                      const exactAssignment = core.latestAssignmentForRole(
+                        role,
+                        assignmentId,
+                      );
+                      if (exactAssignment) return exactAssignment;
                     }
                   }
-                  return undefined;
-                })();
-              if (
-                hardViolationTarget &&
-                hardViolationTarget.authorityState !== "contained"
-              ) {
-                if (
-                  hardViolationTarget.authorityState !== "active" &&
-                  hardViolationTarget.authorityState !== "unknown"
-                )
-                  throw new Error(
-                    "hard-violation target authority is not contained and cannot be safely rebound",
-                  );
-                const targetSession = allSessions.find(
-                  (session) =>
-                    runtimeAssignments[session.sessionId] ===
-                    hardViolationTarget.assignmentId,
-                );
-                if (!targetSession)
-                  throw new Error(
-                    "hard-violation target authority is active or unknown without an identifiable runtime; correction is paused",
-                  );
-                await containRuntime(
-                  targetSession,
-                  hardViolationTarget.assignmentId,
-                );
+                }
+                return undefined;
+              })();
+              if (!hardViolationTarget)
                 throw new Error(
-                  "hard-violation target was contained; Supervisor must freshly evaluate before correction binding",
+                  "hard-state violation has no exact worker assignment to record",
                 );
-              }
-              if (window.hardViolations.length > 0 && !hardViolationTarget)
-                throw new Error(
-                  "hard-state violation has no bounded worker assignment to correct",
-                );
+            }
+            if (blocked) {
+              const pendingAffected = pendingCorrection
+                ? (["PM", "Developer", "Verifier"] as const)
+                    .map((role) =>
+                      core.latestAssignmentForRole(
+                        role,
+                        pendingCorrection.affectedAssignmentId,
+                      ),
+                    )
+                    .find((entry) => entry !== null)
+                : undefined;
               const responsibleRole = hardViolationTarget
                 ? (hardViolationTarget.role as "PM" | "Developer" | "Verifier")
-                : ["PM", "Developer", "Verifier"].includes(
-                      String(reply.responsibleRole),
-                    )
-                  ? (reply.responsibleRole as "PM" | "Developer" | "Verifier")
-                  : undefined;
+                : pendingAffected
+                  ? (pendingAffected.role as "PM" | "Developer" | "Verifier")
+                  : ["PM", "Developer", "Verifier"].includes(
+                        String(reply.responsibleRole),
+                      )
+                    ? (reply.responsibleRole as "PM" | "Developer" | "Verifier")
+                    : undefined;
               if (!responsibleRole)
                 throw new Error(
                   "Supervisor blocked evaluation without a responsible worker role",
                 );
-              affected = core.latestAssignmentForRole(
-                responsibleRole,
-                hardViolationTarget?.assignmentId,
-              );
+              const requestedAssignmentId =
+                pendingCorrection?.affectedAssignmentId ??
+                hardViolationTarget?.assignmentId ??
+                reply.affectedAssignmentId;
+              if (
+                typeof requestedAssignmentId !== "string" ||
+                !requestedAssignmentId.trim()
+              )
+                throw new Error(
+                  "Supervisor finding must identify its exact affected assignment",
+                );
+              affected =
+                pendingAffected ??
+                core.latestAssignmentForRole(
+                  responsibleRole,
+                  requestedAssignmentId,
+                ) ??
+                undefined;
               if (!affected)
                 throw new Error(
-                  "Supervisor finding has no affected worker assignment",
+                  "Supervisor finding has no exact affected worker assignment",
                 );
-              const requestedFindingId = randomUUID();
-              const finding = core.createFinding(
-                context(core, identities.Supervisor.credential),
-                {
-                  findingId: requestedFindingId,
-                  workItemId: supervisorWorkItemId,
-                  assignmentId: assignment.assignmentId,
-                  generation: assignment.generation,
-                  affectedWorkItemId: affected.workItemId,
-                  affectedSeatId: affected.seatId,
-                  affectedAssignmentId: affected.assignmentId,
-                  affectedGeneration: affected.generation,
-                  fingerprint: createHash("sha256")
-                    .update(
-                      JSON.stringify({
-                        affectedAssignmentId: affected.assignmentId,
-                        observation: observation.trim(),
-                      }),
+              if (pendingCorrection) {
+                findingId = pendingCorrection.findingId;
+                correctionWorkItemId = `correction-${findingId}`;
+                isDeduplicated = true;
+              } else {
+                let evidenceEventIds: string[] = [];
+                if (window.hardViolations.length === 0) {
+                  if (
+                    !Array.isArray(reply.evidenceEventIds) ||
+                    reply.evidenceEventIds.length < 1 ||
+                    reply.evidenceEventIds.length > 8 ||
+                    reply.evidenceEventIds.some(
+                      (id) => typeof id !== "string" || !id.trim(),
+                    ) ||
+                    new Set(reply.evidenceEventIds).size !==
+                      reply.evidenceEventIds.length
+                  )
+                    throw new Error(
+                      "Supervisor finding must cite one to eight unique context event IDs",
+                    );
+                  const citedEvents = reply.evidenceEventIds.map((id) =>
+                    window.events.find((event) => event.eventId === id),
+                  );
+                  if (
+                    citedEvents.some((event) => !event) ||
+                    !citedEvents.some(
+                      (event) =>
+                        event!.entityId === affected!.assignmentId ||
+                        event!.entityId === affected!.workItemId,
                     )
-                    .digest("hex"),
-                  severity: "high",
-                  evidence: { observation },
-                  requestedCorrection: observation.slice(0, 2048),
-                  acknowledgementDeadline: new Date(
-                    Math.min(deadlineMs, Date.now() + 15 * 60_000),
-                  ).toISOString(),
-                  resolutionCondition:
-                    "The bound correction is accepted and a fresh independent Supervisor checkpoint confirms this observation is resolved",
-                  escalationRoute: "operator",
-                },
-              );
-              findingId = finding.findingId;
-              correctionWorkItemId = `correction-${findingId}`;
-              isDeduplicated = findingId !== requestedFindingId;
-              const correctionTarget = affected;
-              if (!correctionTarget)
-                throw new Error("Supervisor correction target is unavailable");
-              if (!isDeduplicated) {
-                core.transitionFinding(
+                  )
+                    throw new Error(
+                      "Supervisor finding evidence must include an event for its exact affected assignment or work item",
+                    );
+                  evidenceEventIds = [...reply.evidenceEventIds].sort();
+                }
+                const fingerprintEvidence =
+                  window.hardViolations.length > 0
+                    ? window.hardViolations
+                        .map((violation) => ({
+                          code: violation.code,
+                          seatId: violation.seatId,
+                          assignmentIds: [...violation.assignmentIds].sort(),
+                        }))
+                        .sort((left, right) =>
+                          JSON.stringify(left).localeCompare(
+                            JSON.stringify(right),
+                          ),
+                        )
+                    : evidenceEventIds;
+                const requestedFindingId = randomUUID();
+                const finding = core.createFinding(
                   context(core, identities.Supervisor.credential),
-                  findingId,
-                  "reported",
-                  { observation },
+                  {
+                    findingId: requestedFindingId,
+                    workItemId: supervisorWorkItemId,
+                    assignmentId: assignment.assignmentId,
+                    generation: assignment.generation,
+                    affectedWorkItemId: affected.workItemId,
+                    affectedSeatId: affected.seatId,
+                    affectedAssignmentId: affected.assignmentId,
+                    affectedGeneration: affected.generation,
+                    fingerprint: createHash("sha256")
+                      .update(
+                        JSON.stringify({
+                          affectedAssignmentId: affected.assignmentId,
+                          evidence: fingerprintEvidence,
+                        }),
+                      )
+                      .digest("hex"),
+                    severity: "high",
+                    evidence: { observation, evidenceEventIds },
+                    requestedCorrection: observation.slice(0, 2048),
+                    acknowledgementDeadline: new Date(
+                      Math.min(deadlineMs, Date.now() + 15 * 60_000),
+                    ).toISOString(),
+                    resolutionCondition:
+                      "The bound correction is accepted and a fresh independent Supervisor checkpoint confirms this observation is resolved",
+                    escalationRoute: "operator",
+                  },
                 );
+                findingId = finding.findingId;
+                correctionWorkItemId = `correction-${findingId}`;
+                isDeduplicated = findingId !== requestedFindingId;
+                if (!isDeduplicated) {
+                  core.transitionFinding(
+                    context(core, identities.Supervisor.credential),
+                    findingId,
+                    "reported",
+                    { observation },
+                  );
+                  if (affected.authorityState !== "contained") {
+                    const targetSession = allSessions.find(
+                      (session) =>
+                        runtimeAssignments[session.sessionId] ===
+                        affected!.assignmentId,
+                    );
+                    if (!targetSession)
+                      throw new Error(
+                        `Supervisor finding ${findingId} is durable but affected authority is ${affected.authorityState} without an identifiable runtime; correction is paused`,
+                      );
+                    await containRuntime(targetSession, affected.assignmentId);
+                    throw new Error(
+                      `Supervisor finding ${findingId} is durable; the affected runtime was contained and needs a fresh Supervisor evaluation before correction binding`,
+                    );
+                  }
+                }
+              }
+              const existingCorrectionWork = core
+                .statusSnapshot()
+                .work.some((work) => work.workItemId === correctionWorkItemId);
+              if (
+                !existingCorrectionWork &&
+                core
+                  .statusSnapshot()
+                  .findings.some(
+                    (entry) =>
+                      entry.findingId === findingId &&
+                      entry.state === "reported",
+                  )
+              ) {
                 core.createWorkItem(context(core, credential), {
                   workItemId: correctionWorkItemId,
                   findingId,
                   title: `Correct Supervisor finding ${findingId}`,
-                  description: `Acknowledge this finding and provide an assignment-bound correction or dispute: ${observation.slice(0, 2048)}`,
-                  requiredRole: correctionTarget.role,
-                  ...(correctionTarget.role === "Developer"
+                  description: `Acknowledge this finding and provide an assignment-bound correction or dispute: ${observation.slice(0, 2048)}${affected.role === "PM" ? " A PM response cannot revise the accepted active run plan; a proposed plan change will be escalated to the operator rather than treated as applied." : ""}`,
+                  requiredRole: affected.role,
+                  ...(affected.role === "Developer"
                     ? {
                         acceptanceCriteria:
                           plan.slices.find(
                             (slice) =>
                               workflowWorkItemId(plan.taskId, slice.id) ===
-                              correctionTarget.workItemId,
+                              affected!.workItemId,
                           )?.acceptanceCriteria ?? plan.acceptanceCriteria,
                       }
-                    : correctionTarget.role === "Verifier"
-                      ? correctionTarget.parentWorkItemId
+                    : affected.role === "Verifier"
+                      ? affected.parentWorkItemId
                         ? {
-                            parentWorkItemId: correctionTarget.parentWorkItemId,
+                            parentWorkItemId: affected.parentWorkItemId,
                           }
                         : {
                             finalVerification: true,
@@ -1963,6 +2075,14 @@ async function runCli(argv: string[]): Promise<number> {
                           }
                       : {}),
                 });
+              }
+              if (
+                hardViolationTarget &&
+                hardViolationTarget.authorityState !== "contained"
+              ) {
+                throw new Error(
+                  `hard-violation finding ${findingId} still has uncontained target authority; correction is paused`,
+                );
               }
             }
             await containRuntime(
@@ -1994,6 +2114,15 @@ async function runCli(argv: string[]): Promise<number> {
                 const existing = core
                   .statusSnapshot()
                   .findings.find((entry) => entry.findingId === findingId);
+                if (existing?.state === "resolved") {
+                  const unresolved = core
+                    .statusSnapshot()
+                    .findings.some((entry) => entry.state !== "resolved");
+                  supervisorMustPause = unresolved;
+                  return unresolved
+                    ? `Supervisor finding ${findingId} was suppressed during cooldown; other findings remain unresolved`
+                    : undefined;
+                }
                 if (
                   existing?.state === "reported" &&
                   Date.now() >= Date.parse(existing.acknowledgementDeadline)
@@ -2006,7 +2135,20 @@ async function runCli(argv: string[]): Promise<number> {
                   );
                   return `Supervisor finding ${findingId} escalated after its acknowledgement deadline`;
                 }
-                return `Supervisor finding ${findingId} remains unresolved; duplicate observation was not dispatched again`;
+                const correctionPending = core
+                  .statusSnapshot()
+                  .work.some(
+                    (work) =>
+                      work.workItemId === correctionWorkItemId &&
+                      ["pending", "ready", "blocked"].includes(work.state),
+                  );
+                if (
+                  existing?.state !== "reported" ||
+                  !correctionPending ||
+                  !affected ||
+                  !correctionWorkItemId
+                )
+                  return `Supervisor finding ${findingId} remains unresolved; duplicate observation was not dispatched again`;
               }
               if (!affected || !findingId || !correctionWorkItemId)
                 throw new Error("Supervisor correction target is unavailable");
@@ -2196,6 +2338,26 @@ async function runCli(argv: string[]): Promise<number> {
                 }
                 if (
                   correctionReply.disposition === "correcting" &&
+                  affected.role === "PM"
+                ) {
+                  core.acceptNonCandidateReport(
+                    correctionContext,
+                    correctionWorkItemId,
+                    correctionAssignment.assignmentId,
+                  );
+                  core.transitionFinding(
+                    context(core, credential),
+                    findingId,
+                    "escalated",
+                    {
+                      reason:
+                        "PM correction response was recorded, but the accepted active run plan cannot be revised by a correction assignment",
+                    },
+                  );
+                  return `PM correction response for finding ${findingId} was recorded; the unchanged accepted plan was escalated to the operator`;
+                }
+                if (
+                  correctionReply.disposition === "correcting" &&
                   affected.role === "Verifier"
                 ) {
                   if (finalVerificationCorrection) {
@@ -2325,7 +2487,7 @@ async function runCli(argv: string[]): Promise<number> {
                           supervisorCheckpointAssignmentId:
                             core.statusSnapshot().supervision
                               .checkpointAssignmentId,
-                          acceptedCorrectionEventId: correctionEvidence.eventId,
+                          correctionEventId: correctionEvidence.eventId,
                           condition: finding.resolutionCondition,
                           supervisorVerificationEvidence:
                             verifiedCondition.evidence,
@@ -2508,7 +2670,7 @@ async function runCli(argv: string[]): Promise<number> {
                         supervisorCheckpointAssignmentId:
                           core.statusSnapshot().supervision
                             .checkpointAssignmentId,
-                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:
                           verifiedCondition.evidence,
@@ -2935,7 +3097,7 @@ async function runCli(argv: string[]): Promise<number> {
                         supervisorCheckpointAssignmentId:
                           core.statusSnapshot().supervision
                             .checkpointAssignmentId,
-                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:
                           verifiedCondition.evidence,
@@ -2994,7 +3156,7 @@ async function runCli(argv: string[]): Promise<number> {
                         supervisorCheckpointAssignmentId:
                           core.statusSnapshot().supervision
                             .checkpointAssignmentId,
-                        acceptedCorrectionEventId: correctionEvidence.eventId,
+                        correctionEventId: correctionEvidence.eventId,
                         condition: finding.resolutionCondition,
                         supervisorVerificationEvidence:
                           verifiedCondition.evidence,

@@ -5771,7 +5771,9 @@ export class ControllerCore {
           target.work_item_id !== input.affectedWorkItemId ||
           target.seat_id !== input.affectedSeatId ||
           target.active_generation !== input.affectedGeneration ||
-          !["active", "contained"].includes(target.authority_state) ||
+          !["active", "contained", "unknown"].includes(
+            target.authority_state,
+          ) ||
           !["PM", "Developer", "Verifier"].includes(target.role)
         )
           throw new ControllerError(
@@ -5818,7 +5820,7 @@ export class ControllerCore {
           .prepare(
             `SELECT finding_id FROM findings
              WHERE project_id = ? AND affected_assignment_id = ?
-               AND fingerprint <> ?
+               AND fingerprint <> ? AND state = 'resolved'
              ORDER BY created_at DESC, finding_id DESC LIMIT 1`,
           )
           .get(
@@ -6134,19 +6136,34 @@ export class ControllerCore {
                 parent_work_item_id: string | null;
               }
             | undefined;
+          const evidence = resolution?.evidence;
+          const proofEvidence =
+            evidence && typeof evidence === "object" && !Array.isArray(evidence)
+              ? (evidence as Record<string, unknown>)
+              : undefined;
           if (
             !resolution ||
             typeof resolution !== "object" ||
-            Array.isArray(content) ||
+            Array.isArray(resolution) ||
             resolution.condition !== finding.resolution_condition ||
             typeof resolution.evidenceEventId !== "string" ||
             typeof resolution.assignmentId !== "string" ||
             typeof resolution.generation !== "number" ||
             !Number.isSafeInteger(resolution.generation) ||
             resolution.generation < 1 ||
+            !proofEvidence ||
+            typeof proofEvidence.correctionEventId !== "string" ||
+            proofEvidence.correctionEventId !== resolution.evidenceEventId ||
+            !proofEvidence.correctionEventId.trim() ||
+            typeof proofEvidence.supervisorCheckpointAssignmentId !==
+              "string" ||
+            !proofEvidence.supervisorCheckpointAssignmentId.trim() ||
+            proofEvidence.condition !== finding.resolution_condition ||
+            typeof proofEvidence.supervisorVerificationEvidence !== "string" ||
+            !proofEvidence.supervisorVerificationEvidence.trim() ||
+            proofEvidence.supervisorVerificationEvidence.length > 2048 ||
             (!correctionWork &&
               resolution.generation <= (finding.affected_generation ?? 0)) ||
-            !resolution.evidence ||
             !finding.affected_work_item_id ||
             !finding.affected_seat_id
           )
@@ -6246,7 +6263,9 @@ export class ControllerCore {
               supervisionProof.checkpoint_assignment_id !==
                 finding.assignment_id &&
               supervisionProof.checkpoint_event_sequence !== null &&
-              supervisionProof.checkpoint_event_sequence >= proof.sequence);
+              supervisionProof.checkpoint_event_sequence >= proof.sequence &&
+              supervisionProof.checkpoint_assignment_id ===
+                (proofEvidence?.supervisorCheckpointAssignmentId ?? null));
           if (
             !proof ||
             !independentlyRechecked ||

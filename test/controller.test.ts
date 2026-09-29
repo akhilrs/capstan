@@ -2636,6 +2636,22 @@ test("finding responses persist their reports and require explicit resolution ev
       /finding resolution requires a newer assignment/,
     );
     assert.equal(core.stateVersion, versionBeforeInvalidResolution);
+    assert.throws(
+      () =>
+        core.transitionFinding(
+          context(core, info.ownerCredential),
+          "finding-1",
+          "resolved",
+          {
+            condition: "Supervisor confirms correction",
+            evidenceEventId,
+            assignmentId: correctionAssignment.assignmentId,
+            generation: correctionAssignment.generation,
+            evidence: {},
+          },
+        ),
+      /finding resolution requires a newer assignment/,
+    );
     assert.deepEqual(
       core.transitionFinding(
         context(core, info.ownerCredential),
@@ -2646,7 +2662,13 @@ test("finding responses persist their reports and require explicit resolution ev
           evidenceEventId,
           assignmentId: correctionAssignment.assignmentId,
           generation: correctionAssignment.generation,
-          evidence: { check: "passed" },
+          evidence: {
+            correctionEventId: evidenceEventId,
+            supervisorCheckpointAssignmentId: "independent-supervisor",
+            condition: "Supervisor confirms correction",
+            supervisorVerificationEvidence:
+              "Fresh evidence confirms the requested correction.",
+          },
         },
       ),
       { state: "resolved" },
@@ -3239,8 +3261,11 @@ test("Verifier finding correction accepts fresh evidence without reaccepting its
           assignmentId: correctionAssignment.assignmentId,
           generation: correctionAssignment.generation,
           evidence: {
+            correctionEventId: acceptedEvent.eventId,
+            supervisorCheckpointAssignmentId: "independent-supervisor",
             condition: "Fresh verification confirms all criteria",
-            acceptedCorrectionEventId: acceptedEvent.eventId,
+            supervisorVerificationEvidence:
+              "Fresh evidence confirms every recorded criterion.",
           },
         },
       ),
@@ -3402,7 +3427,13 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       evidenceEventId: acceptedCorrection.eventId,
       assignmentId: correction.assignmentId,
       generation: correction.generation,
-      evidence: { correctionEventId: acceptedCorrection.eventId },
+      evidence: {
+        correctionEventId: acceptedCorrection.eventId,
+        supervisorCheckpointAssignmentId: "not-yet-reviewed",
+        condition: "A later accepted correction is independently reviewed",
+        supervisorVerificationEvidence:
+          "The Supervisor independently reviewed the accepted correction.",
+      },
     };
     assert.throws(
       () =>
@@ -3431,6 +3462,7 @@ test("finding resolution requires a current independent Supervisor checkpoint", 
       eventUpperSequence: evaluation.eventUpperSequence,
       fingerprint: "a".repeat(64),
     });
+    resolution.evidence.supervisorCheckpointAssignmentId = review.assignmentId;
     assert.deepEqual(
       core.transitionFinding(
         context(core, info.ownerCredential),
