@@ -1,3 +1,8 @@
+import type {
+  DeferralReason,
+  MessageState,
+  MessagingAction,
+} from "./messaging.js";
 export const roles = [
   "operator",
   "controller",
@@ -58,6 +63,9 @@ export type Capability =
   | "run:control"
   | "usage:write"
   | "actor:manage"
+  | "message:send"
+  | "message:receive"
+  | "message:resolve"
   | "recovery:write"
   | "controller:reconcile";
 
@@ -192,4 +200,75 @@ export interface ControllerOptions {
   readonly project: InitialProject;
   readonly workspaceRoot?: string;
   readonly runtimeWorkspacePath?: string;
+  readonly clock?: () => Date;
+}
+
+export type AgentKind = Exclude<Role, "operator" | "controller">;
+
+export interface AgentInput {
+  readonly agentId: string;
+  readonly roleName: string;
+  readonly seatId: string;
+  readonly actorId: string;
+}
+
+export interface AgentRecord {
+  readonly agentId: string;
+  readonly roleName: string;
+  readonly kind: AgentKind;
+  readonly seatId: string;
+  readonly actorId: string;
+  readonly generation: number;
+  readonly state: "active" | "ended";
+  readonly lastActivityAt: string;
+}
+
+export interface ReplacedAgent {
+  readonly agentId: string;
+  readonly generation: number;
+  readonly actorId: string;
+  readonly credential: string;
+  readonly cancelledMessageIds: readonly string[];
+}
+
+export interface MessageInput {
+  readonly recipientAgentId: string;
+  readonly body: string;
+}
+
+export interface MessageRecord {
+  readonly messageId: string;
+  readonly sequence: number;
+  readonly recipientAgentId: string;
+  readonly recipientGeneration: number;
+  readonly senderActorId: string;
+  readonly body: string;
+  readonly state: MessageState;
+  readonly stateVersion: number;
+  readonly queuedAt: string;
+  readonly deferredAt: string | null;
+  readonly deferredReason: DeferralReason | null;
+  readonly sentAt: string | null;
+  readonly ackedAt: string | null;
+  readonly sendAttempts: number;
+  readonly cancelReason: string | null;
+  readonly notifiedAt: string | null;
+  readonly lastNotifiedAt: string | null;
+}
+
+export interface MessageRejectionRecord {
+  readonly rejectionId: string;
+  readonly messageId: string | null;
+  readonly action: string;
+  readonly code: string;
+  readonly fromState: string | null;
+  readonly attemptedState: string | null;
+  readonly actorId: string;
+  readonly reason: string;
+}
+
+export interface MessagingAdvance {
+  readonly applied: readonly string[];
+  readonly actions: readonly MessagingAction[];
+  readonly stalledAgentIds: readonly string[];
 }

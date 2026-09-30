@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import {
+  AuthorizationError,
   authenticateActor,
   credentialHash,
   issueCredential,
@@ -23,8 +24,28 @@ import {
 } from "./database.js";
 import { M1BridgeAdapter } from "./m1-bridge.js";
 import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
+import {
+  DEFERRAL_REASONS,
+  HERDR_STATES,
+  RESOLUTION_DECISIONS,
+  evaluateMessaging,
+  isFinalState,
+  isLegalTransition,
+  queueHead,
+  resolutionTarget,
+  type AgentFacts,
+  type DeferralReason,
+  type HerdrState,
+  type MessageFacts,
+  type MessageState,
+  type MessagingEvaluation,
+  type MessagingTimers,
+  type ResolutionDecision,
+} from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import type {
+  AgentInput,
+  AgentRecord,
   AssignmentResult,
   BridgeReceipt,
   CandidateInput,
@@ -34,8 +55,13 @@ import type {
   InitialProject,
   FindingState,
   InputKind,
+  MessageInput,
+  MessageRecord,
+  MessageRejectionRecord,
+  MessagingAdvance,
   MutationContext,
   ProjectInput,
+  ReplacedAgent,
   ReplacementInput,
   Role,
   RunState,
@@ -55,6 +81,9 @@ const ROLE_KINDS: readonly string[] = [
   "Verifier",
   "Supervisor",
 ];
+const AGENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+const MAX_MESSAGE_BYTES = 16 * 1024;
+const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 
 export class ControllerError extends Error {
   override readonly name: string = "ControllerError";
@@ -78,6 +107,101 @@ export class InputRevisionConflictError extends MutationConflictError {
 
 export class TransitionAuthorizationError extends ControllerError {
   override readonly name = "TransitionAuthorizationError";
+}
+
+export class MessageTransitionError extends ControllerError {
+  override readonly name = "MessageTransitionError";
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+class NoMessageTransitionDue extends Error {}
+
+interface MessageRejection {
+  readonly rejected: true;
+  readonly code: string;
+  readonly message: string;
+}
+
+function isMessageRejection(value: unknown): value is MessageRejection {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "rejected" in value &&
+    value.rejected === true
+  );
+}
+
+interface AgentRow {
+  readonly agent_id: string;
+  readonly role_name: string;
+  readonly kind: AgentRecord["kind"];
+  readonly seat_id: string;
+  readonly actor_id: string;
+  readonly generation: number;
+  readonly state: "active" | "ended";
+  readonly last_activity_at: string;
+}
+
+interface MessageRow {
+  readonly message_id: string;
+  readonly sequence: number;
+  readonly recipient_agent_id: string;
+  readonly recipient_generation: number;
+  readonly sender_actor_id: string;
+  readonly body: string;
+  readonly state: MessageState;
+  readonly state_version: number;
+  readonly queued_at: string;
+  readonly deferred_at: string | null;
+  readonly deferred_reason: DeferralReason | null;
+  readonly sent_at: string | null;
+  readonly acked_at: string | null;
+  readonly send_attempts: number;
+  readonly cancel_reason: string | null;
+  readonly notified_at: string | null;
+  readonly last_notified_at: string | null;
+}
+
+function messageRecord(row: MessageRow): MessageRecord {
+  return {
+    messageId: row.message_id,
+    sequence: row.sequence,
+    recipientAgentId: row.recipient_agent_id,
+    recipientGeneration: row.recipient_generation,
+    senderActorId: row.sender_actor_id,
+    body: row.body,
+    state: row.state,
+    stateVersion: row.state_version,
+    queuedAt: row.queued_at,
+    deferredAt: row.deferred_at,
+    deferredReason: row.deferred_reason,
+    sentAt: row.sent_at,
+    ackedAt: row.acked_at,
+    sendAttempts: row.send_attempts,
+    cancelReason: row.cancel_reason,
+    notifiedAt: row.notified_at,
+    lastNotifiedAt: row.last_notified_at,
+  };
+}
+
+function advance(
+  evaluation: MessagingEvaluation,
+  applied: readonly string[],
+): MessagingAdvance {
+  return {
+    applied,
+    actions: evaluation.actions,
+    stalledAgentIds: evaluation.stalledAgentIds,
+  };
+}
+
+function returnsCredential(action: string): boolean {
+  return action === "actor.create" || action === "agent.replace";
 }
 
 export class ReadinessError extends ControllerError {
@@ -356,6 +480,7 @@ export class ControllerCore {
   readonly #internalActorId: string;
   readonly #workspaceRoot: string;
   readonly #runtimeWorkspacePath: string | undefined;
+  readonly #clock: () => Date;
   #closed = false;
 
   private constructor(
@@ -366,6 +491,7 @@ export class ControllerCore {
     workspaceRoot: string,
     runtimeWorkspacePath: string | undefined,
     readOnly = false,
+    clock: () => Date = () => new Date(),
   ) {
     this.#database = database;
     this.#lock = lock;
@@ -374,6 +500,7 @@ export class ControllerCore {
     this.#internalActorId = internalActorId;
     this.#workspaceRoot = workspaceRoot;
     this.#runtimeWorkspacePath = runtimeWorkspacePath;
+    this.#clock = clock;
   }
 
   static async open(options: ControllerOptions): Promise<ControllerCore> {
@@ -471,6 +598,8 @@ export class ControllerCore {
         internalActor.actor_id,
         workspaceRoot,
         runtimeWorkspacePath,
+        false,
+        options.clock,
       );
       core.#reconcileUncertainAssignments();
       return core;
@@ -563,6 +692,7 @@ export class ControllerCore {
         workspaceRoot,
         runtimeWorkspacePath,
         true,
+        options.clock,
       );
     } catch (error) {
       database?.close();
@@ -767,30 +897,14 @@ export class ControllerCore {
           );
         }
         const now = new Date().toISOString();
-        this.#database
-          .prepare(
-            `
-        INSERT INTO actors(actor_id, project_id, display_name, role, seat_id, credential_hash, active, is_internal, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?)
-      `,
-          )
-          .run(
-            actorId,
-            this.#projectId,
-            input.displayName,
-            input.role,
-            seatId,
-            hash,
-            now,
-          );
-        this.#database
-          .prepare(
-            `
-        INSERT INTO capability_grants(project_id, actor_id, capability, granted_by, granted_at)
-        SELECT ?, ?, capability, ?, ? FROM role_capabilities WHERE role = ?
-      `,
-          )
-          .run(this.#projectId, actorId, actor.actorId, now, input.role);
+        this.#insertActor(actor.actorId, {
+          actorId,
+          displayName: input.displayName,
+          role: input.role,
+          seatId,
+          credentialHash: hash,
+          now,
+        });
         return {
           value: { actorId, credential },
           event: { entityType: "actor", entityId: actorId, stateVersion: 0 },
@@ -1178,6 +1292,1405 @@ export class ControllerCore {
       reactivated,
       retired,
     };
+  }
+
+  registerAgent(context: MutationContext, input: AgentInput): AgentRecord {
+    if (!AGENT_ID_PATTERN.test(input.agentId))
+      throw new TypeError("agent id must be 1-64 safe ASCII characters");
+    return this.#mutate(
+      context,
+      "agent.register",
+      "actor:manage",
+      {
+        agentId: input.agentId,
+        roleName: input.roleName,
+        seatId: input.seatId,
+        actorId: input.actorId,
+      },
+      () => {
+        const definition = this.roleDefinitions().find(
+          (candidate) => candidate.name === input.roleName,
+        );
+        if (definition?.state !== "active")
+          throw new ControllerError(
+            "agent role is not an active configured role definition",
+          );
+        const seat = this.#database
+          .prepare(
+            "SELECT role, state FROM seats WHERE project_id = ? AND seat_id = ?",
+          )
+          .get(this.#projectId, input.seatId) as
+          { role: string; state: string } | undefined;
+        if (!seat || seat.state !== "active" || seat.role !== definition.kind)
+          throw new ControllerError(
+            "agent seat must be active and match the role kind",
+          );
+        const actorRow = this.#database
+          .prepare(
+            "SELECT role, seat_id, active, revoked_at, is_internal FROM actors WHERE project_id = ? AND actor_id = ?",
+          )
+          .get(this.#projectId, input.actorId) as
+          | {
+              role: string;
+              seat_id: string | null;
+              active: number;
+              revoked_at: string | null;
+              is_internal: number;
+            }
+          | undefined;
+        if (
+          !actorRow ||
+          actorRow.active !== 1 ||
+          actorRow.revoked_at !== null ||
+          actorRow.is_internal !== 0 ||
+          actorRow.role !== definition.kind ||
+          actorRow.seat_id !== input.seatId
+        )
+          throw new ControllerError(
+            "agent actor must be active, of the role kind and attached to the agent seat",
+          );
+        const taken = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM agents WHERE project_id = ? AND (actor_id = ? OR agent_id = ? OR (seat_id = ? AND state = 'active')) LIMIT 1",
+          )
+          .get(this.#projectId, input.actorId, input.agentId, input.seatId);
+        if (taken)
+          throw new MutationConflictError(
+            "agent id, actor or seat is already bound to an agent",
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "INSERT INTO agents(project_id, agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)",
+          )
+          .run(
+            this.#projectId,
+            input.agentId,
+            input.roleName,
+            definition.kind,
+            input.seatId,
+            input.actorId,
+            now,
+            now,
+          );
+        return {
+          value: this.#agentRecord(input.agentId)!,
+          event: {
+            entityType: "agent",
+            entityId: input.agentId,
+            stateVersion: 1,
+            toState: "active",
+          },
+        };
+      },
+    );
+  }
+
+  agentRecord(agentId: string): AgentRecord | undefined {
+    this.#assertOpen();
+    return this.#agentRecord(agentId);
+  }
+
+  recordAgentObservation(
+    context: MutationContext,
+    agentId: string,
+    state: HerdrState,
+  ): { readonly recorded: boolean } {
+    if (!HERDR_STATES.includes(state))
+      throw new TypeError("unknown Herdr state");
+    this.#authorize(context.credential, "controller:reconcile");
+    const latest = this.#database
+      .prepare(
+        "SELECT herdr_state FROM agent_state_history WHERE project_id = ? AND agent_id = ? ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(this.#projectId, agentId) as { herdr_state: string } | undefined;
+    if (latest?.herdr_state === state) return { recorded: false };
+    return this.#mutate(
+      context,
+      "agent.observe",
+      "controller:reconcile",
+      { agentId, state },
+      () => {
+        const agent = this.#agentRow(agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError("agent is not active");
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
+            )
+            .get(this.#projectId, agentId) as { next: number }
+        ).next;
+        this.#database
+          .prepare(
+            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) VALUES (?, ?, ?, ?, ?)",
+          )
+          .run(this.#projectId, agentId, sequence, state, this.#now());
+        return {
+          value: { recorded: true },
+          event: {
+            entityType: "agent_observation",
+            entityId: agentId,
+            stateVersion: sequence,
+            toState: state,
+          },
+        };
+      },
+    );
+  }
+
+  endAgent(
+    context: MutationContext,
+    agentId: string,
+  ): { readonly cancelledMessageIds: readonly string[] } {
+    return this.#mutate(
+      context,
+      "agent.end",
+      "actor:manage",
+      { agentId },
+      (actor) => {
+        const agent = this.#agentRow(agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError("agent is not active");
+        this.#assertSeatFreeOfAuthority(agent.seat_id);
+        const now = this.#now();
+        this.#revokeSeatActors(agent.seat_id, now);
+        this.#closeWaits(agentId, now);
+        this.#database
+          .prepare(
+            "UPDATE agents SET state = 'ended', ended_at = ? WHERE project_id = ? AND agent_id = ?",
+          )
+          .run(now, this.#projectId, agentId);
+        const cancelled = this.#cancelMessagesOf(
+          actor,
+          context,
+          agentId,
+          "agent_ended",
+          now,
+        );
+        return {
+          value: { cancelledMessageIds: cancelled },
+          event: {
+            entityType: "agent",
+            entityId: agentId,
+            stateVersion: agent.generation,
+            fromState: "active",
+            toState: "ended",
+            details: { cancelledMessageIds: cancelled },
+          },
+        };
+      },
+    );
+  }
+
+  replaceAgentGeneration(
+    context: MutationContext,
+    agentId: string,
+  ): ReplacedAgent {
+    return this.#mutate(
+      context,
+      "agent.replace",
+      "actor:manage",
+      { agentId },
+      (actor) => {
+        const agent = this.#agentRow(agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError("agent is not active");
+        this.#assertSeatFreeOfAuthority(agent.seat_id);
+        const now = this.#now();
+        this.#revokeSeatActors(agent.seat_id, now);
+        const actorId = randomUUID();
+        const credential = issueCredential();
+        this.#insertActor(actor.actorId, {
+          actorId,
+          displayName: `${agent.role_name} generation ${agent.generation + 1}`,
+          role: agent.kind,
+          seatId: agent.seat_id,
+          credentialHash: credentialHash(credential),
+          now,
+        });
+        const generation = agent.generation + 1;
+        this.#database
+          .prepare(
+            "UPDATE agents SET actor_id = ?, generation = ?, last_activity_at = ? WHERE project_id = ? AND agent_id = ?",
+          )
+          .run(actorId, generation, now, this.#projectId, agentId);
+        this.#closeWaits(agentId, now);
+        const cancelled = this.#cancelMessagesOf(
+          actor,
+          context,
+          agentId,
+          "generation_replaced",
+          now,
+        );
+        return {
+          value: {
+            agentId,
+            generation,
+            actorId,
+            credential,
+            cancelledMessageIds: cancelled,
+          },
+          event: {
+            entityType: "agent",
+            entityId: agentId,
+            stateVersion: generation,
+            fromState: String(agent.generation),
+            toState: String(generation),
+            details: { cancelledMessageIds: cancelled },
+          },
+        };
+      },
+    );
+  }
+
+  enqueueMessage(
+    context: MutationContext,
+    input: MessageInput,
+  ): { readonly messageId: string } {
+    const bytes = Buffer.byteLength(input.body, "utf8");
+    if (
+      typeof input.body !== "string" ||
+      bytes === 0 ||
+      bytes > MAX_MESSAGE_BYTES ||
+      input.body.includes("\u0000")
+    )
+      throw new TypeError(
+        `message body must be 1 to ${MAX_MESSAGE_BYTES} bytes without NUL`,
+      );
+    const bodyHash = sha256(input.body);
+    return this.#messageMutation(
+      context,
+      "message.enqueue",
+      "message:send",
+      { recipientAgentId: input.recipientAgentId, bodyHash, bodyBytes: bytes },
+      (actor) => {
+        const agent = this.#agentRow(input.recipientAgentId);
+        if (agent?.state !== "active")
+          return this.#reject(actor, "message.enqueue", {
+            code: "unknown_recipient",
+            message: "message recipient is not an active agent",
+          });
+        const now = this.#now();
+        const messageId = randomUUID();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM messages WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        this.#database
+          .prepare(
+            `INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
+              body, body_hash, state, state_version, queued_at, send_attempts, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            messageId,
+            sequence,
+            agent.agent_id,
+            agent.generation,
+            actor.actorId,
+            input.body,
+            bodyHash,
+            now,
+            now,
+            now,
+          );
+        return {
+          value: { messageId },
+          event: {
+            entityType: "message",
+            entityId: messageId,
+            stateVersion: 0,
+            toState: "queued",
+            details: { recipientAgentId: agent.agent_id, bodyHash },
+          },
+        };
+      },
+    );
+  }
+
+  message(messageId: string): MessageRecord | undefined {
+    this.#assertOpen();
+    const row = this.#messageRow(messageId);
+    return row === undefined ? undefined : messageRecord(row);
+  }
+
+  messagesFor(agentId: string): readonly MessageRecord[] {
+    this.#assertOpen();
+    return this.#messageRowsFor(agentId).map(messageRecord);
+  }
+
+  messageRejections(): readonly MessageRejectionRecord[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT rejection_id, message_id, action, code, from_state, attempted_state, actor_id, reason FROM message_rejections WHERE project_id = ? ORDER BY created_at, rejection_id",
+        )
+        .all(this.#projectId) as Array<{
+        rejection_id: string;
+        message_id: string | null;
+        action: string;
+        code: string;
+        from_state: string | null;
+        attempted_state: string | null;
+        actor_id: string;
+        reason: string;
+      }>
+    ).map((row) => ({
+      rejectionId: row.rejection_id,
+      messageId: row.message_id,
+      action: row.action,
+      code: row.code,
+      fromState: row.from_state,
+      attemptedState: row.attempted_state,
+      actorId: row.actor_id,
+      reason: row.reason,
+    }));
+  }
+
+  agentInbox(credential: string, agentId?: string): readonly MessageRecord[] {
+    this.#assertOpen();
+    const actor = authenticateActor(
+      this.#database,
+      this.#projectId,
+      credential,
+    );
+    let target: string | undefined;
+    if (actor.role === "operator") target = agentId;
+    else {
+      requireCapability(actor, "message:receive");
+      target = this.#agentByActor(actor.actorId)?.agent_id;
+      if (agentId !== undefined && agentId !== target)
+        throw new AuthorizationError("an agent reads only its own inbox");
+    }
+    if (target === undefined) return [];
+    const rows = this.#messageRowsFor(target);
+    const head = queueHead(rows);
+    return rows
+      .filter(
+        (row) =>
+          row.message_id === head?.message_id ||
+          row.state === "sent" ||
+          row.state === "unacked",
+      )
+      .map(messageRecord);
+  }
+
+  pullMessage(context: MutationContext): {
+    readonly message: MessageRecord | null;
+  } {
+    const actor = this.#authorize(context.credential, "message:receive");
+    const agent = this.#agentByActor(actor.actorId);
+    if (agent?.kind === "PM") {
+      const head = queueHead(this.#messageRowsFor(agent.agent_id));
+      if (head?.state !== "queued") return { message: null };
+    }
+    return this.#messageMutation(
+      context,
+      "message.pull",
+      "message:receive",
+      {},
+      (caller) => {
+        const recipient = this.#agentByActor(caller.actorId);
+        if (recipient === undefined)
+          return this.#reject(caller, "message.pull", {
+            code: "not_an_agent",
+            message: "the caller is not the current actor of an active agent",
+          });
+        if (recipient.kind !== "PM")
+          return this.#reject(caller, "message.pull", {
+            code: "pull_not_allowed",
+            message: "only the PM pulls messages; workers receive pushes",
+          });
+        const head = queueHead(this.#messageRowsFor(recipient.agent_id));
+        if (head?.state !== "queued")
+          return this.#reject(caller, "message.pull", {
+            code: "nothing_to_pull",
+            message: "the queue head is not waiting to be sent",
+          });
+        const now = this.#now();
+        const version = this.#updateMessage(
+          head,
+          "sent",
+          {
+            sent_at: now,
+            send_attempts: head.send_attempts + 1,
+          },
+          now,
+        );
+        this.#touchAgent(recipient.agent_id, now);
+        return {
+          value: { message: messageRecord(this.#messageRow(head.message_id)!) },
+          event: {
+            entityType: "message",
+            entityId: head.message_id,
+            stateVersion: version,
+            fromState: "queued",
+            toState: "sent",
+          },
+        };
+      },
+    );
+  }
+
+  recordDeferral(
+    context: MutationContext,
+    messageId: string,
+    reason: DeferralReason,
+  ): MessageRecord {
+    if (!DEFERRAL_REASONS.includes(reason))
+      throw new TypeError("unknown deferral reason");
+    this.#authorize(context.credential, "controller:reconcile");
+    const current = this.#messageRow(messageId);
+    if (current?.state === "deferred" && current.deferred_reason === reason)
+      return messageRecord(current);
+    return this.#messageMutation(
+      context,
+      "message.defer",
+      "controller:reconcile",
+      { messageId, reason },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        const refused = this.#refuseDelivery(
+          actor,
+          "message.defer",
+          row,
+          "deferred",
+        );
+        if (refused) return refused;
+        const now = this.#now();
+        const from = row!.state;
+        const version =
+          from === "queued"
+            ? this.#updateMessage(
+                row!,
+                "deferred",
+                { deferred_at: now, deferred_reason: reason },
+                now,
+              )
+            : this.#updateMessage(
+                row!,
+                "deferred",
+                { deferred_reason: reason },
+                now,
+              );
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: from === "queued" ? "message" : "message_note",
+            entityId: messageId,
+            stateVersion: version,
+            fromState: from,
+            toState: "deferred",
+            details: { reason },
+          },
+        };
+      },
+    );
+  }
+
+  recordInputClear(
+    context: MutationContext,
+    messageId: string,
+    text: string,
+  ): { readonly clearId: string } {
+    if (
+      typeof text !== "string" ||
+      Buffer.byteLength(text, "utf8") > MAX_INPUT_CLEAR_BYTES
+    )
+      throw new TypeError(
+        `input text must be at most ${MAX_INPUT_CLEAR_BYTES} bytes`,
+      );
+    const textHash = sha256(text);
+    return this.#messageMutation(
+      context,
+      "message.input_clear",
+      "controller:reconcile",
+      { messageId, textHash },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        if (
+          row?.state !== "deferred" ||
+          row.deferred_reason !== "input_not_empty"
+        )
+          return this.#reject(actor, "message.input_clear", {
+            messageId,
+            code: "not_input_deferred",
+            message:
+              "input text is recorded only for a message deferred because the input line is not empty",
+            fromState: row?.state,
+          });
+        const clearId = randomUUID();
+        this.#database
+          .prepare(
+            "INSERT INTO message_input_clears(project_id, clear_id, message_id, text, text_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            this.#projectId,
+            clearId,
+            messageId,
+            text,
+            textHash,
+            this.#now(),
+          );
+        return {
+          value: { clearId },
+          event: {
+            entityType: "message_note",
+            entityId: messageId,
+            stateVersion: row.state_version,
+            fromState: "deferred",
+            toState: "deferred",
+            details: { inputCleared: true, textHash },
+          },
+        };
+      },
+    );
+  }
+
+  recordSent(context: MutationContext, messageId: string): MessageRecord {
+    return this.#messageMutation(
+      context,
+      "message.sent",
+      "controller:reconcile",
+      { messageId },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        const refused = this.#refuseDelivery(
+          actor,
+          "message.sent",
+          row,
+          "sent",
+        );
+        if (refused) return refused;
+        const now = this.#now();
+        const from = row!.state;
+        const version = this.#updateMessage(
+          row!,
+          "sent",
+          {
+            sent_at: now,
+            send_attempts: row!.send_attempts + 1,
+          },
+          now,
+        );
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: "message",
+            entityId: messageId,
+            stateVersion: version,
+            fromState: from,
+            toState: "sent",
+          },
+        };
+      },
+    );
+  }
+
+  recordFailure(
+    context: MutationContext,
+    messageId: string,
+    reason: string,
+  ): MessageRecord {
+    if (
+      typeof reason !== "string" ||
+      reason.length === 0 ||
+      reason.length > 500
+    )
+      throw new TypeError("failure reason must be 1 to 500 characters");
+    return this.#messageMutation(
+      context,
+      "message.fail",
+      "controller:reconcile",
+      { messageId, reason },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        const refused = this.#refuseDelivery(
+          actor,
+          "message.fail",
+          row,
+          "failed",
+        );
+        if (refused) return refused;
+        const from = row!.state;
+        const version = this.#updateMessage(
+          row!,
+          "failed",
+          { cancel_reason: reason },
+          this.#now(),
+        );
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: "message",
+            entityId: messageId,
+            stateVersion: version,
+            fromState: from,
+            toState: "failed",
+            details: { reason },
+          },
+        };
+      },
+    );
+  }
+
+  recordNotification(
+    context: MutationContext,
+    messageId: string,
+  ): MessageRecord {
+    return this.#messageMutation(
+      context,
+      "message.notified",
+      "controller:reconcile",
+      { messageId },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        const head =
+          row === undefined
+            ? undefined
+            : queueHead(this.#messageRowsFor(row.recipient_agent_id));
+        if (
+          row === undefined ||
+          head?.message_id !== row.message_id ||
+          isFinalState(row.state)
+        )
+          return this.#reject(actor, "message.notified", {
+            messageId,
+            code: "not_notifiable",
+            message: "only the head of a queue that is not final is notified",
+            fromState: row?.state,
+          });
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "UPDATE messages SET notified_at = COALESCE(notified_at, ?), last_notified_at = ?, updated_at = ? WHERE project_id = ? AND message_id = ?",
+          )
+          .run(now, now, now, this.#projectId, messageId);
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: "message_note",
+            entityId: messageId,
+            stateVersion: row.state_version,
+            fromState: row.state,
+            toState: row.state,
+            details: { notified: true },
+          },
+        };
+      },
+    );
+  }
+
+  ackMessage(context: MutationContext, messageId: string): MessageRecord {
+    return this.#messageMutation(
+      context,
+      "message.ack",
+      "message:receive",
+      { messageId },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        const row = this.#messageRow(messageId);
+        if (agent === undefined)
+          return this.#reject(actor, "message.ack", {
+            messageId,
+            code: "not_an_agent",
+            message: "the caller is not the current actor of an active agent",
+            fromState: row?.state,
+          });
+        if (row === undefined)
+          return this.#reject(actor, "message.ack", {
+            messageId,
+            code: "unknown_message",
+            message: "message does not exist",
+          });
+        if (row.recipient_agent_id !== agent.agent_id)
+          return this.#reject(actor, "message.ack", {
+            messageId,
+            code: "not_recipient",
+            message: "only the recipient agent may ack a message",
+            fromState: row?.state,
+          });
+        const to: MessageState =
+          row.state === "unacked" ? "acked_late" : "acked";
+        if (!isLegalTransition(row.state, to))
+          return this.#reject(actor, "message.ack", {
+            messageId,
+            code: "illegal_transition",
+            message: `a message in state ${row.state} cannot be acked`,
+            fromState: row.state,
+            attemptedState: to,
+          });
+        const now = this.#now();
+        const version = this.#updateMessage(row, to, { acked_at: now }, now);
+        this.#touchAgent(agent.agent_id, now);
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: "message",
+            entityId: messageId,
+            stateVersion: version,
+            fromState: row.state,
+            toState: to,
+          },
+        };
+      },
+    );
+  }
+
+  resolveMessage(
+    context: MutationContext,
+    messageId: string,
+    decision: ResolutionDecision,
+    note?: string,
+  ): MessageRecord {
+    if (!RESOLUTION_DECISIONS.includes(decision))
+      throw new TypeError("unknown resolution decision");
+    if (note !== undefined && (typeof note !== "string" || note.length > 1000))
+      throw new TypeError("resolution note must be at most 1000 characters");
+    return this.#messageMutation(
+      context,
+      "message.resolve",
+      "message:resolve",
+      { messageId, decision, note: note ?? null },
+      (actor) => {
+        const row = this.#messageRow(messageId);
+        if (row === undefined)
+          return this.#reject(actor, "message.resolve", {
+            messageId,
+            code: "unknown_message",
+            message: "message does not exist",
+          });
+        const recipient = this.#agentRow(row.recipient_agent_id);
+        if (recipient?.kind === "PM" && actor.role !== "operator")
+          return this.#reject(actor, "message.resolve", {
+            messageId,
+            code: "operator_only",
+            message:
+              "a message addressed to the PM is resolved only by the operator",
+            fromState: row.state,
+          });
+        const to = resolutionTarget(decision, row.state);
+        if (to === undefined)
+          return this.#reject(actor, "message.resolve", {
+            messageId,
+            code: "illegal_resolution",
+            message: `${decision} does not apply to a message in state ${row.state}`,
+            fromState: row.state,
+          });
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "INSERT INTO message_resolutions(project_id, resolution_id, message_id, decision, decided_by, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            this.#projectId,
+            randomUUID(),
+            messageId,
+            decision,
+            actor.actorId,
+            note ?? null,
+            now,
+          );
+        const version =
+          decision === "retry"
+            ? this.#updateMessage(
+                row,
+                "queued",
+                { queued_at: now, deferred_at: null, deferred_reason: null },
+                now,
+              )
+            : this.#updateMessage(
+                row,
+                "cancelled",
+                { cancel_reason: `resolution_${decision}` },
+                now,
+              );
+        return {
+          value: messageRecord(this.#messageRow(messageId)!),
+          event: {
+            entityType: "message",
+            entityId: messageId,
+            stateVersion: version,
+            fromState: row.state,
+            toState: to,
+            details: { decision },
+          },
+        };
+      },
+    );
+  }
+
+  beginWait(context: MutationContext): { readonly waitId: string } {
+    return this.#messageMutation(
+      context,
+      "wait.begin",
+      "message:receive",
+      {},
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (agent === undefined)
+          return this.#reject(actor, "wait.begin", {
+            code: "not_an_agent",
+            message: "the caller is not the current actor of an active agent",
+          });
+        const waitId = randomUUID();
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "INSERT INTO agent_waits(project_id, wait_id, agent_id, started_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(this.#projectId, waitId, agent.agent_id, now);
+        this.#touchAgent(agent.agent_id, now);
+        return {
+          value: { waitId },
+          event: {
+            entityType: "agent_wait",
+            entityId: waitId,
+            stateVersion: 0,
+            toState: "open",
+            details: { agentId: agent.agent_id },
+          },
+        };
+      },
+    );
+  }
+
+  endWait(
+    context: MutationContext,
+    waitId: string,
+  ): { readonly ended: boolean } {
+    return this.#messageMutation(
+      context,
+      "wait.end",
+      "message:receive",
+      { waitId },
+      (actor) => this.#endWait(actor, waitId),
+    );
+  }
+
+  endWaitAsController(
+    context: MutationContext,
+    waitId: string,
+  ): { readonly ended: boolean } {
+    return this.#messageMutation(
+      context,
+      "wait.end_controller",
+      "controller:reconcile",
+      { waitId },
+      (actor) => this.#endWait(actor, waitId),
+    );
+  }
+
+  advanceMessaging(
+    context: MutationContext,
+    timers: MessagingTimers,
+  ): MessagingAdvance {
+    this.#authorize(context.credential, "controller:reconcile");
+    const first = this.#evaluateMessaging(timers);
+    if (first.transitions.length === 0) return advance(first, []);
+    try {
+      return this.#mutate(
+        context,
+        "message.advance",
+        "controller:reconcile",
+        { timers },
+        (actor) => {
+          const evaluation = this.#evaluateMessaging(timers);
+          if (evaluation.transitions.length === 0)
+            throw new NoMessageTransitionDue();
+          const now = this.#now();
+          const applied: string[] = [];
+          for (const transition of evaluation.transitions) {
+            const row = this.#messageRow(transition.messageId);
+            const from: MessageState =
+              transition.to === "unacked" ? "sent" : "deferred";
+            if (row?.state !== from) continue;
+            const version = this.#updateMessage(row, transition.to, {}, now);
+            this.#appendMessageEvent(actor, context, {
+              messageId: row.message_id,
+              from,
+              to: transition.to,
+              stateVersion: version,
+              details: { timer: true },
+            });
+            applied.push(row.message_id);
+          }
+          return {
+            value: advance(evaluation, applied),
+            event: {
+              entityType: "message_timer",
+              entityId: this.#projectId,
+              stateVersion: 0,
+              details: {
+                transitions: applied,
+                actions: evaluation.actions.length,
+              },
+            },
+          };
+        },
+      );
+    } catch (error) {
+      if (error instanceof NoMessageTransitionDue) return advance(first, []);
+      throw error;
+    }
+  }
+
+  #evaluateMessaging(timers: MessagingTimers): MessagingEvaluation {
+    const nowMs = this.#clock().getTime();
+    const agentRows = this.#database
+      .prepare(
+        "SELECT agent_id, kind, last_activity_at FROM agents WHERE project_id = ? AND state = 'active'",
+      )
+      .all(this.#projectId) as Array<{
+      agent_id: string;
+      kind: AgentFacts["kind"];
+      last_activity_at: string;
+    }>;
+    const agents: AgentFacts[] = agentRows.map((row) => ({
+      agentId: row.agent_id,
+      kind: row.kind,
+      lastActivityMs: Date.parse(row.last_activity_at),
+      observations: (
+        this.#database
+          .prepare(
+            "SELECT herdr_state, observed_at FROM agent_state_history WHERE project_id = ? AND agent_id = ? ORDER BY sequence",
+          )
+          .all(this.#projectId, row.agent_id) as Array<{
+          herdr_state: HerdrState;
+          observed_at: string;
+        }>
+      ).map((entry) => ({
+        state: entry.herdr_state,
+        atMs: Date.parse(entry.observed_at),
+      })),
+      waits: (
+        this.#database
+          .prepare(
+            "SELECT started_at, ended_at FROM agent_waits WHERE project_id = ? AND agent_id = ?",
+          )
+          .all(this.#projectId, row.agent_id) as Array<{
+          started_at: string;
+          ended_at: string | null;
+        }>
+      ).map((entry) => ({
+        startMs: Date.parse(entry.started_at),
+        endMs: entry.ended_at === null ? null : Date.parse(entry.ended_at),
+      })),
+    }));
+    const messages: MessageFacts[] = (
+      this.#database
+        .prepare(
+          `SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
+           WHERE m.project_id = ? AND a.state = 'active' AND m.state NOT IN ('acked', 'acked_late', 'cancelled')
+           ORDER BY m.sequence`,
+        )
+        .all(this.#projectId) as MessageRow[]
+    ).map((row) => ({
+      messageId: row.message_id,
+      recipientAgentId: row.recipient_agent_id,
+      state: row.state,
+      sequence: row.sequence,
+      queuedMs: Date.parse(row.queued_at),
+      sentMs: row.sent_at === null ? null : Date.parse(row.sent_at),
+      deferredMs: row.deferred_at === null ? null : Date.parse(row.deferred_at),
+      deferredReason: row.deferred_reason,
+      lastNotifiedMs:
+        row.last_notified_at === null ? null : Date.parse(row.last_notified_at),
+    }));
+    return evaluateMessaging(agents, messages, nowMs, timers);
+  }
+
+  #now(): string {
+    return this.#clock().toISOString();
+  }
+
+  #authorize(credential: string, capability: Capability): AuthenticatedActor {
+    this.#assertOpen();
+    this.#assertWritable();
+    const actor = authenticateActor(
+      this.#database,
+      this.#projectId,
+      credential,
+    );
+    requireCapability(actor, capability);
+    return actor;
+  }
+
+  #agentRow(agentId: string): AgentRow | undefined {
+    return this.#database
+      .prepare("SELECT * FROM agents WHERE project_id = ? AND agent_id = ?")
+      .get(this.#projectId, agentId) as AgentRow | undefined;
+  }
+
+  #agentByActor(actorId: string): AgentRow | undefined {
+    return this.#database
+      .prepare(
+        "SELECT * FROM agents WHERE project_id = ? AND actor_id = ? AND state = 'active'",
+      )
+      .get(this.#projectId, actorId) as AgentRow | undefined;
+  }
+
+  #agentRecord(agentId: string): AgentRecord | undefined {
+    const row = this.#agentRow(agentId);
+    return row === undefined
+      ? undefined
+      : {
+          agentId: row.agent_id,
+          roleName: row.role_name,
+          kind: row.kind,
+          seatId: row.seat_id,
+          actorId: row.actor_id,
+          generation: row.generation,
+          state: row.state,
+          lastActivityAt: row.last_activity_at,
+        };
+  }
+
+  #touchAgent(agentId: string, now: string): void {
+    this.#database
+      .prepare(
+        "UPDATE agents SET last_activity_at = ? WHERE project_id = ? AND agent_id = ?",
+      )
+      .run(now, this.#projectId, agentId);
+  }
+
+  #messageRow(messageId: string): MessageRow | undefined {
+    return this.#database
+      .prepare("SELECT * FROM messages WHERE project_id = ? AND message_id = ?")
+      .get(this.#projectId, messageId) as MessageRow | undefined;
+  }
+
+  #messageRowsFor(agentId: string): MessageRow[] {
+    return this.#database
+      .prepare(
+        "SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence",
+      )
+      .all(this.#projectId, agentId) as MessageRow[];
+  }
+
+  #updateMessage(
+    row: MessageRow,
+    to: MessageState,
+    extra: Readonly<Record<string, string | number | null>>,
+    now: string,
+  ): number {
+    const columns = Object.keys(extra);
+    const result = this.#database
+      .prepare(
+        `UPDATE messages SET state = ?, state_version = state_version + 1, updated_at = ?${columns
+          .map((column) => `, ${column} = ?`)
+          .join("")} WHERE project_id = ? AND message_id = ? AND state = ?`,
+      )
+      .run(
+        to,
+        now,
+        ...columns.map((column) => extra[column]!),
+        this.#projectId,
+        row.message_id,
+        row.state,
+      );
+    if (result.changes !== 1)
+      throw new ControllerError("message state changed during the mutation");
+    return row.state_version + 1;
+  }
+
+  #reject(
+    actor: AuthenticatedActor,
+    action: string,
+    rejection: {
+      readonly messageId?: string | undefined;
+      readonly code: string;
+      readonly message: string;
+      readonly fromState?: string | undefined;
+      readonly attemptedState?: string | undefined;
+    },
+  ): MutationOutput<MessageRejection> {
+    const rejectionId = randomUUID();
+    this.#database
+      .prepare(
+        "INSERT INTO message_rejections(project_id, rejection_id, message_id, action, code, from_state, attempted_state, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        this.#projectId,
+        rejectionId,
+        rejection.messageId ?? null,
+        action,
+        rejection.code,
+        rejection.fromState ?? null,
+        rejection.attemptedState ?? null,
+        actor.actorId,
+        rejection.message,
+        this.#now(),
+      );
+    return {
+      value: {
+        rejected: true,
+        code: rejection.code,
+        message: rejection.message,
+      },
+      event: {
+        entityType: "message_rejection",
+        entityId: rejectionId,
+        stateVersion: 0,
+        ...(rejection.fromState === undefined
+          ? {}
+          : { fromState: rejection.fromState }),
+        details: {
+          action,
+          code: rejection.code,
+          messageId: rejection.messageId ?? null,
+          attemptedState: rejection.attemptedState ?? null,
+        },
+      },
+    };
+  }
+
+  #messageMutation<T>(
+    context: MutationContext,
+    action: string,
+    capability: Capability,
+    payload: unknown,
+    apply: (actor: AuthenticatedActor) => MutationOutput<T | MessageRejection>,
+  ): T {
+    const result = this.#mutate<T | MessageRejection>(
+      context,
+      action,
+      capability,
+      payload,
+      apply,
+    );
+    if (isMessageRejection(result))
+      throw new MessageTransitionError(result.code, result.message);
+    return result;
+  }
+
+  #refuseDelivery(
+    actor: AuthenticatedActor,
+    action: string,
+    row: MessageRow | undefined,
+    attempted: MessageState,
+  ): MutationOutput<MessageRejection> | undefined {
+    if (row === undefined)
+      return this.#reject(actor, action, {
+        code: "unknown_message",
+        message: "message does not exist",
+        attemptedState: attempted,
+      });
+    if (
+      !isLegalTransition(row.state, attempted) &&
+      !(row.state === "deferred" && attempted === "deferred")
+    )
+      return this.#reject(actor, action, {
+        messageId: row.message_id,
+        code: "illegal_transition",
+        message: `a message in state ${row.state} cannot become ${attempted}`,
+        fromState: row.state,
+        attemptedState: attempted,
+      });
+    const head = queueHead(this.#messageRowsFor(row.recipient_agent_id));
+    if (head?.message_id !== row.message_id)
+      return this.#reject(actor, action, {
+        messageId: row.message_id,
+        code: "not_head",
+        message: "an earlier message to the same recipient is unresolved",
+        fromState: row.state,
+        attemptedState: attempted,
+      });
+    return undefined;
+  }
+
+  #appendMessageEvent(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    event: {
+      readonly messageId: string;
+      readonly from: string;
+      readonly to: string;
+      readonly stateVersion: number;
+      readonly details?: unknown;
+    },
+  ): void {
+    const project = this.#database
+      .prepare("SELECT state_version FROM projects WHERE project_id = ?")
+      .get(this.#projectId) as { state_version: number };
+    const sequence = (
+      this.#database
+        .prepare(
+          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
+        )
+        .get(this.#projectId) as { next: number }
+    ).next;
+    this.#database
+      .prepare(
+        `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
+          state_version, actor_id, request_id, input_revision, payload_json, created_at)
+         VALUES (?, ?, ?, 'message', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        this.#projectId,
+        sequence,
+        randomUUID(),
+        event.messageId,
+        event.from,
+        event.to,
+        project.state_version + 1,
+        actor.actorId,
+        context.requestId,
+        context.inputRevision,
+        canonicalJson({
+          action: "message.transition",
+          payload: { batch: true },
+          entityVersion: event.stateVersion,
+          details: event.details ?? null,
+        }),
+        new Date().toISOString(),
+      );
+  }
+
+  #cancelMessagesOf(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    agentId: string,
+    reason: string,
+    now: string,
+  ): string[] {
+    const cancelled: string[] = [];
+    for (const row of this.#messageRowsFor(agentId)) {
+      if (isFinalState(row.state)) continue;
+      const version = this.#updateMessage(
+        row,
+        "cancelled",
+        { cancel_reason: reason },
+        now,
+      );
+      this.#appendMessageEvent(actor, context, {
+        messageId: row.message_id,
+        from: row.state,
+        to: "cancelled",
+        stateVersion: version,
+        details: { reason },
+      });
+      cancelled.push(row.message_id);
+    }
+    return cancelled;
+  }
+
+  #closeWaits(agentId: string, now: string): void {
+    this.#database
+      .prepare(
+        "UPDATE agent_waits SET ended_at = ? WHERE project_id = ? AND agent_id = ? AND ended_at IS NULL",
+      )
+      .run(now, this.#projectId, agentId);
+  }
+
+  #endWait(
+    actor: AuthenticatedActor,
+    waitId: string,
+  ): MutationOutput<{ readonly ended: boolean } | MessageRejection> {
+    const wait = this.#database
+      .prepare(
+        "SELECT agent_id, ended_at FROM agent_waits WHERE project_id = ? AND wait_id = ?",
+      )
+      .get(this.#projectId, waitId) as
+      { agent_id: string; ended_at: string | null } | undefined;
+    const caller = this.#agentByActor(actor.actorId);
+    const allowed =
+      actor.capabilities.has("controller:reconcile") ||
+      (caller !== undefined && caller.agent_id === wait?.agent_id);
+    if (wait === undefined || !allowed)
+      return this.#reject(actor, "wait.end", {
+        code: wait === undefined ? "unknown_wait" : "not_wait_owner",
+        message: "the wait does not exist or belongs to another agent",
+      });
+    const now = this.#now();
+    if (wait.ended_at === null)
+      this.#database
+        .prepare(
+          "UPDATE agent_waits SET ended_at = ? WHERE project_id = ? AND wait_id = ?",
+        )
+        .run(now, this.#projectId, waitId);
+    if (caller !== undefined && caller.agent_id === wait.agent_id)
+      this.#touchAgent(caller.agent_id, now);
+    return {
+      value: { ended: wait.ended_at === null },
+      event: {
+        entityType: "agent_wait",
+        entityId: waitId,
+        stateVersion: 1,
+        fromState: "open",
+        toState: "closed",
+      },
+    };
+  }
+
+  #assertSeatFreeOfAuthority(seatId: string): void {
+    const activeAuthority = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM assignments WHERE project_id = ? AND seat_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+      )
+      .get(this.#projectId, seatId);
+    if (activeAuthority)
+      throw new MutationConflictError(
+        "the agent seat has an assignment with active or uncertain authority; end or revoke it first",
+      );
+  }
+
+  #revokeSeatActors(seatId: string, now: string): void {
+    const actors = this.#database
+      .prepare(
+        "SELECT actor_id FROM actors WHERE project_id = ? AND seat_id = ? AND active = 1 AND revoked_at IS NULL",
+      )
+      .all(this.#projectId, seatId) as Array<{ actor_id: string }>;
+    for (const { actor_id: actorId } of actors) {
+      this.#database
+        .prepare(
+          "UPDATE actors SET active = 0, revoked_at = ? WHERE project_id = ? AND actor_id = ?",
+        )
+        .run(now, this.#projectId, actorId);
+      this.#database
+        .prepare(
+          "UPDATE capability_grants SET revoked_at = ? WHERE project_id = ? AND actor_id = ? AND revoked_at IS NULL",
+        )
+        .run(now, this.#projectId, actorId);
+    }
+  }
+
+  #insertActor(
+    grantedBy: string,
+    actor: {
+      readonly actorId: string;
+      readonly displayName: string;
+      readonly role: string;
+      readonly seatId: string | null;
+      readonly credentialHash: string;
+      readonly now: string;
+    },
+  ): void {
+    this.#database
+      .prepare(
+        `INSERT INTO actors(actor_id, project_id, display_name, role, seat_id, credential_hash, active, is_internal, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?)`,
+      )
+      .run(
+        actor.actorId,
+        this.#projectId,
+        actor.displayName,
+        actor.role,
+        actor.seatId,
+        actor.credentialHash,
+        actor.now,
+      );
+    this.#database
+      .prepare(
+        "INSERT INTO capability_grants(project_id, actor_id, capability, granted_by, granted_at) SELECT ?, ?, capability, ?, ? FROM role_capabilities WHERE role = ?",
+      )
+      .run(this.#projectId, actor.actorId, grantedBy, actor.now, actor.role);
   }
 
   createWorkItem(
@@ -9234,7 +10747,7 @@ export class ControllerCore {
           );
         }
         const value = (
-          action === "actor.create"
+          returnsCredential(action)
             ? decryptActorResult(
                 existing.result_json,
                 context.credential,
@@ -9366,7 +10879,7 @@ export class ControllerCore {
           context.requestId,
           actor.actorId,
           requestHash,
-          action === "actor.create"
+          returnsCredential(action)
             ? encryptActorResult(
                 output.value,
                 context.credential,

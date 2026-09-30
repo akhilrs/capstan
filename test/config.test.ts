@@ -86,6 +86,7 @@ test("a valid configuration resolves every default", () => {
       pmNotifyAfterSeconds: 300,
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
+      workerAckTimeoutSeconds: 600,
     });
     assert.deepEqual(config.hosts, [
       {
@@ -592,6 +593,28 @@ test("an empty or control-laden prompt file is rejected", () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("worker_ack_timeout_seconds is configurable and bounded", () => {
+  const withTimer = (value: string): string =>
+    VALID.replace(
+      "schema_version = 1\n",
+      `schema_version = 1\n[timers]\nworker_ack_timeout_seconds = ${value}\n\n`,
+    );
+  withConfig(withTimer("45"), (directory) => {
+    assert.equal(
+      loadCapstanConfig(directory).timers.workerAckTimeoutSeconds,
+      45,
+    );
+  });
+  assertRejected(
+    withTimer("0"),
+    /timers\.worker_ack_timeout_seconds must be between 1 and 86400/,
+  );
+  assertRejected(
+    withTimer("1.5"),
+    /timers\.worker_ack_timeout_seconds must be an integer/,
+  );
 });
 
 test("the loader accepts a byte-order mark", () => {

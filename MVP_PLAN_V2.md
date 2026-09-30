@@ -81,6 +81,16 @@ The controller runs with no PM alive. If the daemon dies, `cstan start` (or any 
 
 **No automatic resend, ever.** A resend can run an instruction twice, and pane reading is not a reliable trigger (E3, E4). Reading the pane after `unacked` is evidence shown to the PM or operator.
 
+**Rules fixed by the controller core (PM-22, migration 0015).** These make the paragraphs above exact; nothing here relaxes them.
+
+- **Timers are computed, not stored.** The controller records each change of an agent's observed Herdr state and each registered `wait` (open until it returns; the daemon closes it when the `cstan wait` connection drops). Timers are evaluated from those facts and the clock. For the PM ack and notification timers, time counts while the PM is not `working` and all time inside a registered wait counts. Stall time counts only while the agent is `working` outside every wait, measured from its last own command. An agent with no observation counts as not `working`.
+- **Worker ack timeout.** A `sent` worker message becomes `unacked` after `worker_ack_timeout_seconds` (default 600) of wall-clock time, in `capstan.toml` under `[timers]`.
+- **Resolutions.** `retry` returns a `deferred`, `sent`, `unacked`, `expired` or `failed` message to `queued` and restarts its notification clock; `skip` and `cancel` move it to `cancelled` and also apply to a `queued` message. A message addressed to the PM is resolved only by the operator. Every resolution is a recorded row.
+- **Notification.** Only the head of a PM queue notifies; later messages are blocked behind it.
+- **Record before send.** The driver records `recordSent` (and, for a non-empty input line, records the text with `recordInputClear` first) before it performs the physical send. A crash between the record and the send leaves the message `sent`; nobody acks it, it becomes `unacked`, and the PM or operator decides. The reverse order could send a message twice after a crash and is not allowed.
+- **Generations.** An agent's actor changes with each generation: `replaceAgentGeneration` revokes the old actor, issues a new one, closes the agent's waits and cancels every open message of the old generation in one mutation. A token of an earlier generation fails in authentication.
+- **Rejections.** An illegal transition, an ack by a non-recipient and a delivery of a message that is not the queue head are written to `message_rejections` and raised as an error; the same call replayed with the same idempotency key raises the same error.
+
 Each message carries an id and asks for `cstan ack <id>`. The ack shows receipt, not understanding, and is forgeable (E5). A nonce adds nothing against a same-user forger and is left out of the slice.
 
 ## 6. Facts are verified, not trusted

@@ -50,6 +50,7 @@ export type ResolvedTimers = {
   readonly pmNotifyAfterSeconds: number;
   readonly notifyIntervalSeconds: number;
   readonly stallAfterSeconds: number;
+  readonly workerAckTimeoutSeconds: number;
 };
 
 export type ResolvedHost = {
@@ -106,6 +107,7 @@ const TIMER_DEFAULTS = {
   pm_notify_after_seconds: [300, 1, 86_400],
   notify_interval_seconds: [600, 1, 86_400],
   stall_after_seconds: [900, 1, 86_400],
+  worker_ack_timeout_seconds: [600, 1, 86_400],
 } as const;
 
 type Table = Record<string, unknown>;
@@ -210,6 +212,7 @@ export function parseCapstanConfig(
     pmNotifyAfterSeconds: timerValue("pm_notify_after_seconds"),
     notifyIntervalSeconds: timerValue("notify_interval_seconds"),
     stallAfterSeconds: timerValue("stall_after_seconds"),
+    workerAckTimeoutSeconds: timerValue("worker_ack_timeout_seconds"),
   };
 
   const hosts = resolveHosts(requiredTable(root.hosts, "hosts"));
