@@ -20,6 +20,15 @@ CREATE TABLE fallback_panes (
   created_at TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 
+CREATE TABLE orphan_panes (
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  pane_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, pane_id),
+  FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, agent_id)
+) STRICT, WITHOUT ROWID;
+
 CREATE TABLE pm_restarts (
   project_id TEXT NOT NULL REFERENCES projects(project_id),
   restart_id TEXT NOT NULL,

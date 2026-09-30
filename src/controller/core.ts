@@ -91,6 +91,21 @@ const MAX_SUMMARY_BYTES = 32 * 1024;
 const MAX_OBJECTIVE_BYTES = 8 * 1024;
 const TRUNCATION_MARKER = "[truncated]";
 
+/** At most `limit` code points of a text, cut where a user-perceived character ends so a joined or combined character is never split. */
+function cutAtCharacters(text: string, limit: number): string {
+  let out = "";
+  let count = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  }).segment(text)) {
+    const size = Array.from(segment).length;
+    if (count + size > limit) break;
+    out += segment;
+    count += size;
+  }
+  return out;
+}
+
 /** The task brief as the summary shows it: whole when small, otherwise a marked preview. */
 function objectiveOf(contentJson: string | undefined): unknown {
   if (contentJson === undefined) return null;
@@ -99,7 +114,7 @@ function objectiveOf(contentJson: string | undefined): unknown {
   return {
     truncated: true,
     // The start of the brief's JSON text, cut on a character boundary; it may end mid-value.
-    rawJsonPreview: Array.from(contentJson).slice(0, 2000).join(""),
+    rawJsonPreview: cutAtCharacters(contentJson, 2000),
   };
 }
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -1727,6 +1742,7 @@ export class ControllerCore {
     const seen = new Set<string>();
     const messages: PmRestartSummary["messages"][number][] = [];
     let truncated = work.length > MAX_SUMMARY_WORK;
+    const carriedIds = new Set<string>();
     const add = (message: PmRestartSummary["messages"][number]): void => {
       if (seen.has(message.messageId)) return;
       seen.add(message.messageId);
@@ -1742,23 +1758,26 @@ export class ControllerCore {
         state: row.state,
       });
     }
-    for (const summary of carried)
-      for (const message of summary.messages) add(message);
+    for (const summary of carried) {
+      if (summary.truncated) truncated = true;
+      for (const message of summary.messages) {
+        carriedIds.add(message.messageId);
+        add(message);
+      }
+    }
     if (messages.length > MAX_SUMMARY_MESSAGES) truncated = true;
     const bounded = messages.slice(0, MAX_SUMMARY_MESSAGES).map((message) => {
-      // A body carried from an earlier summary already ends in the marker; it
-      // is not cut, and not counted as cut, a second time.
-      const cut = message.body.endsWith(TRUNCATION_MARKER);
-      const length = Array.from(message.body).length;
+      // A body carried from an earlier summary was cut once already.
       if (
-        length <= MAX_SUMMARY_BODY ||
-        (cut && length === MAX_SUMMARY_BODY + TRUNCATION_MARKER.length)
+        carriedIds.has(message.messageId) &&
+        message.body.endsWith(TRUNCATION_MARKER)
       )
         return message;
+      if (Array.from(message.body).length <= MAX_SUMMARY_BODY) return message;
       truncated = true;
       return {
         ...message,
-        body: `${Array.from(message.body).slice(0, MAX_SUMMARY_BODY).join("")}${TRUNCATION_MARKER}`,
+        body: `${cutAtCharacters(message.body, MAX_SUMMARY_BODY)}${TRUNCATION_MARKER}`,
       };
     });
     const summary: {
@@ -2084,6 +2103,93 @@ export class ControllerCore {
         };
       },
     );
+  }
+
+  /** A live pane of a replaced PM that could not be closed; kept in the ledger so a daemon restart still knows it. */
+  recordOrphanPane(
+    context: MutationContext,
+    input: { readonly paneId: string; readonly agentId: string },
+  ): { readonly recorded: true } {
+    safeId(input.paneId, "pane id");
+    safeId(input.agentId, "agent id");
+    return this.#mutate(
+      context,
+      "orphan_pane.record",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        if (this.#agentRow(input.agentId) === undefined)
+          throw new ControllerError("an orphan pane belongs to a known agent");
+        this.#database
+          .prepare(
+            "INSERT OR IGNORE INTO orphan_panes(project_id, pane_id, agent_id, created_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(this.#projectId, input.paneId, input.agentId, this.#now());
+        return {
+          value: { recorded: true as const },
+          event: {
+            entityType: "orphan_pane",
+            entityId: input.paneId,
+            stateVersion: 0,
+            details: { agentId: input.agentId },
+          },
+        };
+      },
+    );
+  }
+
+  clearOrphanPane(
+    context: MutationContext,
+    paneId: string,
+  ): { readonly cleared: boolean } {
+    safeId(paneId, "pane id");
+    this.#assertOpen();
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM orphan_panes WHERE project_id = ? AND pane_id = ?",
+        )
+        .get(this.#projectId, paneId) === undefined
+    ) {
+      this.#authorize(context.credential, "controller:reconcile");
+      return { cleared: false };
+    }
+    return this.#mutate(
+      context,
+      "orphan_pane.clear",
+      "controller:reconcile",
+      { paneId },
+      () => {
+        this.#database
+          .prepare(
+            "DELETE FROM orphan_panes WHERE project_id = ? AND pane_id = ?",
+          )
+          .run(this.#projectId, paneId);
+        return {
+          value: { cleared: true },
+          event: {
+            entityType: "orphan_pane",
+            entityId: paneId,
+            stateVersion: 0,
+            details: { cleared: true },
+          },
+        };
+      },
+    );
+  }
+
+  orphanPanes(
+    credential: string,
+  ): readonly { readonly paneId: string; readonly agentId: string }[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT pane_id, agent_id FROM orphan_panes WHERE project_id = ? ORDER BY created_at, pane_id",
+        )
+        .all(this.#projectId) as Array<{ pane_id: string; agent_id: string }>
+    ).map((row) => ({ paneId: row.pane_id, agentId: row.agent_id }));
   }
 
   agentPanes(credential: string): readonly AgentPaneRecord[] {

@@ -1298,3 +1298,77 @@ test("a SHA-256 repository is named as unsupported instead of reported as having
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("an orphan pane is kept in the ledger, so a new launcher after a daemon restart still lists and retries it", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.closeError = new HerdrError("pane_close_failed", "busy");
+    await w.launcher.restartPm();
+    const pane = w.launcher.status().orphanPanes[0]!.paneId;
+    const afterRestart = w.reopen();
+    assert.deepEqual(afterRestart.status().orphanPanes, [
+      { agentId: "pm-1", paneId: pane },
+    ]);
+    w.adapter.closeError = undefined;
+    await afterRestart.adoptAll();
+    assert.deepEqual(afterRestart.status().orphanPanes, []);
+    assert.ok(w.adapter.calls.includes(`close:${pane}`));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("when git cannot say whether a worktree exists the branch and the row are kept, never deleted", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const seat = w.core.createSeat(ctx(w.core, w.owner), {
+      seatId: "developer-seat",
+      name: "developer",
+      role: "Developer",
+    });
+    const actor = w.core.createActor(ctx(w.core, w.owner), {
+      displayName: "d",
+      role: "Developer",
+      seatId: seat.seatId,
+    });
+    w.core.registerAgent(ctx(w.core, w.owner), {
+      agentId: "developer-1",
+      roleName: "developer",
+      seatId: seat.seatId,
+      actorId: actor.actorId,
+    });
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: "developer-1",
+      workspaceId: null,
+      paneId: null,
+      worktreePath: null,
+      branch: "capstan/developer-1",
+      baseSha: SHA,
+    });
+    w.git.byBranchError = new LauncherError(
+      "git_error",
+      "git could not list the worktrees",
+    );
+    await w.launcher.adoptAll();
+    assert.deepEqual(w.git.deleted, []);
+    assert.deepEqual(w.git.removed, []);
+    assert.ok(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      "the row stays",
+    );
+    assert.ok(eventNames(w).includes("worktree_unknown"));
+    w.git.byBranchError = undefined;
+    w.git.byBranch.set("capstan/developer-1", "/tmp/found");
+    await w.launcher.adoptAll();
+    assert.deepEqual(w.git.removed, ["/tmp/found"]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      false,
+    );
+  } finally {
+    w.cleanup();
+  }
+});

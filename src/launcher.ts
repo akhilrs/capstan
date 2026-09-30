@@ -140,7 +140,7 @@ export function defaultGit(projectRoot: string): GitRunner {
   return {
     headSha() {
       const result = git(["rev-parse", "HEAD"]);
-      const sha = result.stdout.trim();
+      const sha = typeof result.stdout === "string" ? result.stdout.trim() : "";
       if (/^[0-9a-f]{64}$/.test(sha))
         throw new LauncherError(
           "git_error",
@@ -159,7 +159,12 @@ export function defaultGit(projectRoot: string): GitRunner {
       git(["update-ref", "-d", `refs/heads/${branch}`, sha]).status === 0,
     worktreeByBranch(branch) {
       const result = git(["worktree", "list", "--porcelain", "-z"]);
-      if (result.status !== 0) return undefined;
+      // A failing git (or one too old for -z) must never read as "no worktree".
+      if (result.status !== 0 || typeof result.stdout !== "string")
+        throw new LauncherError(
+          "git_error",
+          "git could not list the worktrees",
+        );
       let current: string | undefined;
       for (const line of result.stdout.split("\0")) {
         if (line.startsWith("worktree "))
@@ -187,7 +192,6 @@ export class Launcher {
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
   #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
-  #orphanPanes: LauncherStatus["orphanPanes"][number][] = [];
 
   constructor(options: LauncherOptions) {
     this.#core = options.core;
@@ -226,7 +230,7 @@ export class Launcher {
     );
     return {
       cleanupFailed: [...blocked, ...leftovers],
-      orphanPanes: [...this.#orphanPanes],
+      orphanPanes: this.#core.orphanPanes(this.#credential),
     };
   }
 
@@ -606,8 +610,10 @@ export class Launcher {
         try {
           await this.#close(oldPane);
         } catch (error) {
-          if (!this.#orphanPanes.some((o) => o.paneId === oldPane))
-            this.#orphanPanes.push({ agentId: agent.agentId, paneId: oldPane });
+          this.#core.recordOrphanPane(this.#context(), {
+            agentId: agent.agentId,
+            paneId: oldPane,
+          });
           this.#adapter.forgetPane(oldPane);
           this.#log("old_pane_not_closed", {
             paneId: oldPane,
@@ -849,11 +855,16 @@ export class Launcher {
       }
     }
     let removed = true;
-    const worktreePath =
-      info.worktreePath ??
-      (info.branch === undefined
-        ? undefined
-        : this.#git.worktreeByBranch(info.branch));
+    let worktreePath = info.worktreePath;
+    if (worktreePath === undefined && info.branch !== undefined) {
+      try {
+        worktreePath = this.#git.worktreeByBranch(info.branch);
+      } catch (error) {
+        // Unknown is not "none": keep the branch and the row for the next start.
+        this.#log("worktree_unknown", { agentId, error: String(error) });
+        return;
+      }
+    }
     if (worktreePath !== undefined) {
       removed = this.#git.worktreeRemove(worktreePath);
       if (!removed) {
@@ -897,12 +908,10 @@ export class Launcher {
   }
 
   async #adoptAll(budget: Budget): Promise<void> {
-    for (const orphan of [...this.#orphanPanes]) {
+    for (const orphan of this.#core.orphanPanes(this.#credential)) {
       try {
         await this.#close(orphan.paneId);
-        this.#orphanPanes = this.#orphanPanes.filter(
-          (entry) => entry.paneId !== orphan.paneId,
-        );
+        this.#core.clearOrphanPane(this.#context(), orphan.paneId);
       } catch {
         // Still open; it stays listed.
       }

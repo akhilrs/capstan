@@ -475,7 +475,7 @@ test("a very large task brief is shown as a marked preview so the summary always
   }
 });
 
-test("a carried body that was already cut is not cut or flagged a second time", async () => {
+test("a carried body that was already cut is not cut again and the flag is kept", async () => {
   const h = await harness();
   try {
     h.core.enqueueMessage(ctx(h.core, h.owner), {
@@ -494,7 +494,11 @@ test("a carried body that was already cut is not cut or flagged a second time", 
       h.pm.agentId,
     );
     assert.equal(second.summary.messages[0]!.body, cut, "unchanged");
-    assert.equal(second.summary.truncated, false, "nothing new was cut");
+    assert.equal(
+      second.summary.truncated,
+      true,
+      "the earlier cut is still reported",
+    );
   } finally {
     await close(h);
   }
@@ -513,6 +517,86 @@ test("a fresh body that merely ends in the marker text is still cut and flagged"
     ).summary;
     assert.equal(summary.truncated, true);
     assert.equal(Array.from(summary.messages[0]!.body).length, 2011);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a carried summary that was cut keeps the truncated flag, and a body is cut where a joined character ends", async () => {
+  const h = await harness();
+  try {
+    h.core.enqueueMessage(ctx(h.core, h.owner), {
+      recipientAgentId: h.pm.agentId,
+      body: "z".repeat(2500),
+    });
+    h.core.restartAgentGeneration(ctx(h.core, h.owner), h.pm.agentId);
+    const again = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.equal(
+      again.summary.truncated,
+      true,
+      "the earlier cut is still reported",
+    );
+    assert.equal(again.summary.messages[0]!.body.length, 2011);
+  } finally {
+    await close(h);
+  }
+  const g = await harness();
+  try {
+    const family = "👨‍👩‍👧";
+    g.core.enqueueMessage(ctx(g.core, g.owner), {
+      recipientAgentId: g.pm.agentId,
+      body: `${"x".repeat(1998)}${family}${"y".repeat(100)}`,
+    });
+    const body = g.core.restartAgentGeneration(
+      ctx(g.core, g.owner),
+      g.pm.agentId,
+    ).summary.messages[0]!.body;
+    assert.equal(
+      body,
+      `${"x".repeat(1998)}[truncated]`,
+      "the family is not split",
+    );
+  } finally {
+    await close(g);
+  }
+});
+
+test("orphan panes are recorded once, read back and cleared, for a controller only", async () => {
+  const h = await harness();
+  try {
+    h.core.recordOrphanPane(ctx(h.core, h.owner), {
+      paneId: "w9:p1",
+      agentId: h.pm.agentId,
+    });
+    h.core.recordOrphanPane(ctx(h.core, h.owner), {
+      paneId: "w9:p1",
+      agentId: h.pm.agentId,
+    });
+    assert.deepEqual(h.core.orphanPanes(h.owner), [
+      { paneId: "w9:p1", agentId: h.pm.agentId },
+    ]);
+    assert.throws(
+      () =>
+        h.core.recordOrphanPane(ctx(h.core, h.owner), {
+          paneId: "w9:p2",
+          agentId: "nobody",
+        }),
+      /known agent/,
+    );
+    assert.throws(
+      () => h.core.orphanPanes(h.developer.credential),
+      /capabilit|authoriz|permit/i,
+    );
+    assert.deepEqual(h.core.clearOrphanPane(ctx(h.core, h.owner), "w9:p1"), {
+      cleared: true,
+    });
+    assert.deepEqual(h.core.clearOrphanPane(ctx(h.core, h.owner), "w9:p1"), {
+      cleared: false,
+    });
+    assert.deepEqual(h.core.orphanPanes(h.owner), []);
   } finally {
     await close(h);
   }
