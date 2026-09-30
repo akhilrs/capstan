@@ -350,6 +350,29 @@ try {
   assert.equal((await request(abortedBridgeSocket, afterUnknown)).type, "error", "restart cannot reuse a seat after abort without containment");
   await handlers.get("session_shutdown")();
 
+  const containment = {
+    type: "contained",
+    role: "PM",
+    sequence: receiptSequence,
+    commandId: unknownCommand.commandId,
+    assignmentId: unknownCommand.assignmentId,
+    attempt: unknownCommand.attempt,
+    generation: unknownCommand.generation,
+  };
+  fs.writeSync(journalFd, `${JSON.stringify(containment)}\n`);
+  fs.fsyncSync(journalFd);
+  const containedBridgeSocket = path.join(temp, "bridge-contained-recovered.sock");
+  Object.assign(process.env, { CAPSTAN_BRIDGE_SOCKET: containedBridgeSocket });
+  handlers.clear();
+  herdrBridge(pi);
+  await handlers.get("session_start")({}, { isIdle: () => true, abort() {} });
+  assert.equal((await request(containedBridgeSocket, { type: "get", commandId: unknownCommand.commandId })).state, "unknown");
+  const resumed = await request(containedBridgeSocket, afterUnknown);
+  assert.equal(resumed.type, "ack", "only a controller-issued containment journal marker frees the old slot");
+  assert.equal(resumed.durable, true);
+  await waitForJournal(unknownJournal, ["accepted", "submitted", "working", "agent_end_without_reply", "aborted", "contained", "accepted", "submitted"]);
+  await handlers.get("session_shutdown")();
+
   async function isolated(label) {
     const socket = path.join(temp, `${label}.sock`);
     const file = path.join(temp, `${label}.jsonl`);

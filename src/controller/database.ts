@@ -100,6 +100,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  13: {
+    version: 13,
+    name: "0013_reconcile_queued_commands.sql",
+    url: new URL(
+      "../../migrations/0013_reconcile_queued_commands.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

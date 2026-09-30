@@ -5,10 +5,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ControllerCore, type ControllerStatus } from "./controller/core.js";
+import {
+  ControllerCore,
+  type CompletedWorkReport,
+  type ControllerStatus,
+} from "./controller/core.js";
 import {
   M1BridgeAdapter,
   expectedReceiptPeer,
+  type BridgeCommandSnapshot,
 } from "./controller/m1-bridge.js";
 import { FileMutationContextStore } from "./controller/mutation-contexts.js";
 import {
@@ -588,7 +593,7 @@ async function inspectController(
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json]",
+    "usage: cstan init | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json]",
   );
 }
 
@@ -751,10 +756,9 @@ async function runCli(argv: string[]): Promise<number> {
       credential,
       projectInputs(config, plan, baseSha),
     );
-    if (fs.existsSync(path.join(config.stateDirectory, "controller.sqlite")))
-      throw new BlockedError(
-        "a prior controller run exists; restart reconciliation is required and redispatch is unsafe",
-      );
+    const priorDatabase = fs.existsSync(
+      path.join(config.stateDirectory, "controller.sqlite"),
+    );
     const providerHost = process.env.M1_PROVIDER_HOST;
     if (!providerHost)
       throw new Error(
@@ -824,26 +828,218 @@ async function runCli(argv: string[]): Promise<number> {
         fs.realpathSync(socketRoot) !== socketRoot
       )
         throw new Error("temporary runtime socket root is not private");
+      const recoveredSessions: RoleRuntimeSession[] = [];
+      if (priorDatabase) {
+        const contextsPath = path.join(
+          config.stateDirectory,
+          "mutation-contexts.json",
+        );
+        if (!fs.existsSync(contextsPath))
+          throw new BlockedError(
+            "restart cannot recover stable scheduler identities because mutation context history is missing",
+          );
+        core.reconcile();
+        const snapshot = core.statusSnapshot();
+        if (
+          snapshot.run.state !== "active" &&
+          snapshot.run.state !== "paused" &&
+          snapshot.run.state !== "canceling"
+        )
+          throw new BlockedError(
+            `restart cannot resume a run in ${snapshot.run.state} state`,
+          );
+        const activeSessions = core
+          .listRuntimeSessions()
+          .filter((session) => session.state !== "exited");
+        const recoveryErrors: string[] = [];
+        for (const session of activeSessions) {
+          try {
+            const metadataPath = path.join(
+              config.stateDirectory,
+              "runtime",
+              "runtime-sessions",
+              `${session.sessionId}.json`,
+            );
+            const metadataDirectory = path.dirname(metadataPath);
+            const directoryStat = fs.lstatSync(metadataDirectory);
+            if (
+              !directoryStat.isDirectory() ||
+              directoryStat.isSymbolicLink() ||
+              (process.getuid && directoryStat.uid !== process.getuid()) ||
+              (directoryStat.mode & 0o077) !== 0 ||
+              fs.realpathSync(metadataDirectory) !== metadataDirectory
+            )
+              throw new Error("runtime metadata directory is not private");
+            const metadataStat = fs.lstatSync(metadataPath);
+            if (
+              !metadataStat.isFile() ||
+              metadataStat.isSymbolicLink() ||
+              (process.getuid && metadataStat.uid !== process.getuid()) ||
+              (metadataStat.mode & 0o077) !== 0
+            )
+              throw new Error("runtime metadata is not a private regular file");
+            const metadata = objectRecord(readJson(metadataPath));
+            const recoveredSession = objectRecord(metadata?.session);
+            if (recoveredSession?.sessionId !== session.sessionId)
+              throw new Error(
+                "runtime metadata does not match persisted session identity",
+              );
+            const attemptedCommand = session.assignmentId
+              ? core.attemptedPrestartCommand(session.assignmentId)
+              : undefined;
+            let prestartSnapshot: BridgeCommandSnapshot | undefined;
+            let inspectionFailure: unknown;
+            if (attemptedCommand) {
+              try {
+                if (
+                  typeof recoveredSession.bridgeSocketPath !== "string" ||
+                  typeof recoveredSession.receiptSocketPath !== "string"
+                )
+                  throw new Error("persisted bridge endpoints are missing");
+                const inspector = new M1BridgeAdapter(
+                  core,
+                  recoveredSession.receiptSocketPath,
+                  recoveredSession.bridgeSocketPath,
+                  { allowUnauthenticatedLocalPeers: true },
+                );
+                prestartSnapshot =
+                  await inspector.inspectUncertainCommand(attemptedCommand);
+              } catch (error) {
+                inspectionFailure = error;
+              }
+            }
+            const proof = await manager.recover(session.sessionId);
+            if (
+              recoveredSession?.seatId !== session.seatId ||
+              (session.containerId &&
+                session.containerId !== proof.containerId) ||
+              recoveredSession.containerId !== proof.containerId
+            )
+              throw new Error(
+                "runtime recovery proof does not match the persisted session identity",
+              );
+            if (!session.assignmentId)
+              throw new Error(
+                "persisted runtime has no assignment association",
+              );
+            if (inspectionFailure)
+              throw new Error(
+                `physical runtime was contained, but the prestart bridge snapshot is unavailable: ${String(inspectionFailure)}`,
+              );
+            if (!core.assignmentIsContained(session.assignmentId))
+              core.confirmContainment(
+                context(core, credential),
+                session.assignmentId,
+                JSON.stringify(proof),
+                prestartSnapshot,
+              );
+            recoveredSessions.push(
+              recoveredSession as unknown as RoleRuntimeSession,
+            );
+            const current = core
+              .listRuntimeSessions()
+              .find((entry) => entry.sessionId === session.sessionId);
+            if (current?.state === "ready" || current?.state === "starting")
+              core.transitionRuntimeSession(
+                context(core, credential),
+                session.sessionId,
+                "unknown",
+              );
+            if (
+              current?.state === "ready" ||
+              current?.state === "working" ||
+              current?.state === "starting" ||
+              current?.state === "unknown"
+            )
+              core.transitionRuntimeSession(
+                context(core, credential),
+                session.sessionId,
+                "stopping",
+              );
+            if (
+              current?.state === "ready" ||
+              current?.state === "working" ||
+              current?.state === "starting" ||
+              current?.state === "unknown" ||
+              current?.state === "stopping"
+            )
+              core.transitionRuntimeSession(
+                context(core, credential),
+                session.sessionId,
+                "exited",
+              );
+          } catch (error) {
+            recoveryErrors.push(`${session.sessionId}: ${String(error)}`);
+          }
+        }
+        const registeredSessions = new Set(
+          core.listRuntimeSessions().map((session) => session.sessionId),
+        );
+        for (const sessionId of manager.listPersistedSessionIds()) {
+          if (registeredSessions.has(sessionId)) continue;
+          try {
+            const proof = await manager.recover(sessionId);
+            if (
+              !proof.containerAbsent ||
+              !proof.cgroupEmpty ||
+              !proof.egressPolicyRemoved ||
+              !proof.networkRemoved
+            )
+              throw new Error("orphan runtime containment was not proven");
+          } catch (error) {
+            recoveryErrors.push(
+              `${sessionId}: unregistered runtime containment failed: ${String(error)}`,
+            );
+          }
+        }
+        if (recoveryErrors.length)
+          throw new BlockedError(
+            `restart recovery could not prove containment; run remains visibly blocked: ${recoveryErrors.join("; ")}`,
+          );
+        for (const session of recoveredSessions) {
+          allSessions.push(session);
+          containedSessions.add(session.sessionId);
+        }
+        if (snapshot.run.state === "canceling") {
+          if (core.hasUncontainedAssignmentAuthority())
+            throw new BlockedError(
+              "restart cannot finish cancellation while assignment authority remains uncontained",
+            );
+          core.transitionRun(context(core, credential), "canceled");
+          throw new BlockedError(
+            "prior cancellation is now contained and terminal; this run will not resume dispatch",
+          );
+        }
+      }
       const contexts = new FileMutationContextStore(
         path.join(config.stateDirectory, "mutation-contexts.json"),
         credential,
         validateWorkflowPlan(plan).hash,
       );
       const roleNames = ["PM", "Developer", "Verifier", "Supervisor"] as const;
+      const persistedRoles = priorDatabase ? core.statusSnapshot().roles : [];
+      const seatId = (role: (typeof roleNames)[number]) => {
+        const existing = persistedRoles.find((entry) => entry.role === role);
+        if (priorDatabase && !existing)
+          throw new BlockedError(
+            `restart cannot reconstruct the persisted ${role} seat`,
+          );
+        return existing?.seatId ?? `${role.toLowerCase()}-${randomUUID()}`;
+      };
       const seats = {
-        PM: { seatId: `pm-${randomUUID()}`, name: "PM", displayName: "PM" },
+        PM: { seatId: seatId("PM"), name: "PM", displayName: "PM" },
         Developer: {
-          seatId: `developer-${randomUUID()}`,
+          seatId: seatId("Developer"),
           name: "Developer",
           displayName: "Developer",
         },
         Verifier: {
-          seatId: `verifier-${randomUUID()}`,
+          seatId: seatId("Verifier"),
           name: "Verifier",
           displayName: "Verifier",
         },
         Supervisor: {
-          seatId: `supervisor-${randomUUID()}`,
+          seatId: seatId("Supervisor"),
           name: "Supervisor",
           displayName: "Supervisor",
         },
@@ -868,16 +1064,152 @@ async function runCli(argv: string[]): Promise<number> {
       const runtimeCommands: Record<string, string> = {};
       const uncertainCommandSnapshots = new Map<
         string,
-        Awaited<ReturnType<M1BridgeAdapter["inspectUncertainCommand"]>>
+        BridgeCommandSnapshot
       >();
+      let provisionFailureUnproven = false;
       let dispatches = 0;
+      const persistedSessionCount = priorDatabase
+        ? core.listRuntimeSessions().length
+        : 0;
+      const progressedWorkCount = priorDatabase
+        ? core
+            .statusSnapshot()
+            .work.filter(
+              (work) => !["pending", "ready", "blocked"].includes(work.state),
+            ).length
+        : 0;
+      dispatches = priorDatabase
+        ? Math.min(
+            plan.limits.maxDispatches,
+            Math.max(persistedSessionCount, progressedWorkCount),
+          )
+        : 0;
+      for (const session of recoveredSessions) {
+        sessions[session.seatId] = session;
+        const persisted = core
+          .listRuntimeSessions()
+          .find((entry) => entry.sessionId === session.sessionId);
+        if (!persisted?.assignmentId) continue;
+        runtimeAssignments[session.sessionId] = persisted.assignmentId;
+        if (
+          !["PM", "Developer", "Verifier", "Supervisor"].includes(session.role)
+        )
+          continue;
+        const assignment = core.latestAssignmentForRole(
+          session.role as "PM" | "Developer" | "Verifier" | "Supervisor",
+          persisted.assignmentId,
+        );
+        const report = assignment
+          ? core.latestCompletedReport(
+              assignment.workItemId,
+              persisted.assignmentId,
+            )
+          : undefined;
+        if (!assignment)
+          throw new BlockedError(
+            `persisted runtime has no matching assignment ${persisted.assignmentId}`,
+          );
+        if (
+          assignment.seatId !== session.seatId ||
+          path.resolve(session.workspace) !==
+            path.resolve(
+              workspaceRoot,
+              assignment.seatId,
+              assignment.workItemId,
+              String(assignment.generation),
+            )
+        )
+          throw new BlockedError(
+            `persisted runtime workspace does not match assignment ${assignment.assignmentId}`,
+          );
+        if (report && session.role === "Developer") {
+          const reported = objectRecord(
+            parseJsonWithoutDuplicateMembers(report.reply),
+          );
+          if (
+            typeof reported?.baseSha !== "string" ||
+            !/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(reported.baseSha)
+          )
+            throw new BlockedError(
+              `reported Developer base is unavailable for ${assignment.assignmentId}`,
+            );
+          workspaceMetadata[session.sessionId] = {
+            workspace: session.workspace,
+            baseSha: reported.baseSha,
+          };
+        }
+      }
       const verifiedGitEnv = sanitizedGitEnvironment();
+      if (priorDatabase) {
+        const snapshot = core.statusSnapshot();
+        for (const evidence of snapshot.evidence) {
+          const candidate = objectRecord(
+            objectRecord(core.inspect(evidence.candidateId))?.record,
+          );
+          const assignmentId = candidate?.assignment_id;
+          if (typeof assignmentId !== "string") continue;
+          const assignment = core.latestAssignmentForRole(
+            "Developer",
+            assignmentId,
+          );
+          if (!assignment) continue;
+          const workspace = path.join(
+            workspaceRoot,
+            assignment.seatId,
+            assignment.workItemId,
+            String(assignment.generation),
+          );
+          try {
+            assertTrackedCheckoutMatchesHead(workspace, evidence.commitSha);
+            candidateWorkspaces[evidence.candidateId] = workspace;
+          } catch {
+            continue;
+          }
+          const work = snapshot.work.find(
+            (entry) => entry.workItemId === assignment.workItemId,
+          );
+          if (work?.state === "awaiting_verification")
+            candidateUnderReviewByWorkItem.set(
+              work.workItemId,
+              evidence.candidateId,
+            );
+        }
+        for (const work of snapshot.work) {
+          if (work.state !== "accepted") continue;
+          const record = objectRecord(
+            objectRecord(core.inspect(work.workItemId))?.record,
+          );
+          const candidateId = record?.accepted_candidate_id;
+          if (
+            typeof candidateId === "string" &&
+            candidateWorkspaces[candidateId]
+          )
+            acceptedCandidateByWorkItem.set(work.workItemId, candidateId);
+        }
+      }
       let closeControl: (() => Promise<void>) | undefined;
       let stopping = false;
-      let pmWorkItemId = "";
+      let paused =
+        priorDatabase && core.statusSnapshot().run.state === "paused";
+      const priorPmAssignment = priorDatabase
+        ? core.latestAssignmentForRole("PM")
+        : undefined;
+      let pmAssignmentId = priorPmAssignment?.assignmentId ?? "";
+      let pmWorkItemId = priorPmAssignment?.workItemId ?? "";
       const signal = () => {
         stopping = true;
       };
+      const waitForDispatchPermission = async () => {
+        while (paused && !stopping && Date.now() < deadlineMs) {
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, 100);
+          await promise;
+        }
+        if (stopping) throw new Error("run canceled before dispatch");
+        if (Date.now() >= deadlineMs)
+          throw new Error("maxRunMs exceeded before dispatch");
+      };
+      const pendingProvisions = new Set<Promise<unknown>>();
       const provisionRuntime = async (
         role: Exclude<Role, "operator" | "controller">,
         seatId: string,
@@ -895,6 +1227,7 @@ async function runCli(argv: string[]): Promise<number> {
         baseSha: string;
         evidenceDirectory?: string;
       }> => {
+        await waitForDispatchPermission();
         const workspace = path.join(
           workspaceRoot,
           seatId,
@@ -1189,12 +1522,33 @@ async function runCli(argv: string[]): Promise<number> {
             fs.chmodSync(evidenceDirectory, 0o700);
           }
         }
-        const session = await manager.provision(role, seatId, workspace, {
+        const pending = manager.provision(role, seatId, workspace, {
           journalPath: path.join(journalDir, `${role.toLowerCase()}.jsonl`),
           receiptSocketPath: receiptPath,
           bridgeSocketPath: bridgePath,
           ...(evidenceDirectory ? { evidenceDirectory } : {}),
         });
+        const tracked = pending.then(
+          (session) => {
+            sessions[seatId] = session;
+            runtimeAssignments[session.sessionId] = assignmentId;
+            allSessions.push(session);
+            return undefined;
+          },
+          (error: unknown) => {
+            provisionFailureUnproven = true;
+            return error;
+          },
+        );
+        pendingProvisions.add(tracked);
+        let session: RoleRuntimeSession;
+        try {
+          session = await pending;
+        } finally {
+          pendingProvisions.delete(tracked);
+        }
+        if (stopping)
+          throw new Error("run canceled while a role runtime was provisioning");
         peerVerifiers[seatId]!.current = expectedReceiptPeer(
           session.helperPath,
           session.expectedOmpHostPid,
@@ -1206,6 +1560,15 @@ async function runCli(argv: string[]): Promise<number> {
           provider: "m1",
           profile: session.profile,
           workspace,
+        });
+        core.recordUsage(context(core, credential), {
+          observationId: randomUUID(),
+          sessionId: session.sessionId,
+          assignmentId,
+          provider: "m1",
+          metric: "runtime_usage",
+          availability: "unavailable",
+          detail: { reason: "provider usage accounting is unavailable" },
         });
         core.recordRuntimeIdentity(
           context(core, credential),
@@ -1221,9 +1584,6 @@ async function runCli(argv: string[]): Promise<number> {
           session.sessionId,
           "ready",
         );
-        runtimeAssignments[session.sessionId] = assignmentId;
-        sessions[seatId] = session;
-        allSessions.push(session);
         workspaceMetadata[session.sessionId] = {
           workspace,
           baseSha: actualBase.stdout.trim(),
@@ -1240,11 +1600,18 @@ async function runCli(argv: string[]): Promise<number> {
         assignmentId: string,
       ) => {
         const runtime = core
-          .statusSnapshot()
-          .roles.find((entry) => entry.seatId === session.seatId);
+          .listRuntimeSessions()
+          .find((entry) => entry.sessionId === session.sessionId);
+        if (runtime?.state === "ready")
+          core.transitionRuntimeSession(
+            context(core, credential),
+            session.sessionId,
+            "unknown",
+          );
         if (
-          runtime?.sessionState === "ready" ||
-          runtime?.sessionState === "working"
+          runtime?.state === "ready" ||
+          runtime?.state === "working" ||
+          runtime?.state === "unknown"
         )
           core.transitionRuntimeSession(
             context(core, credential),
@@ -1260,11 +1627,12 @@ async function runCli(argv: string[]): Promise<number> {
           assignmentId,
           JSON.stringify(proof),
         );
-        core.transitionRuntimeSession(
-          context(core, credential),
-          session.sessionId,
-          "exited",
-        );
+        if (runtime)
+          core.transitionRuntimeSession(
+            context(core, credential),
+            session.sessionId,
+            "exited",
+          );
         containedSessions.add(session.sessionId);
         return proof;
       };
@@ -1313,6 +1681,29 @@ async function runCli(argv: string[]): Promise<number> {
         }
         for (const session of allSessions) {
           if (containedSessions.has(session.sessionId)) continue;
+          try {
+            const runtime = core
+              .listRuntimeSessions()
+              .find((entry) => entry.sessionId === session.sessionId);
+            if (runtime?.state === "ready")
+              core.transitionRuntimeSession(
+                context(core, credential),
+                session.sessionId,
+                "unknown",
+              );
+            if (
+              runtime?.state === "ready" ||
+              runtime?.state === "working" ||
+              runtime?.state === "unknown"
+            )
+              core.transitionRuntimeSession(
+                context(core, credential),
+                session.sessionId,
+                "stopping",
+              );
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
           try {
             const proof = await manager!.stopAndContain(
               session.role,
@@ -1439,12 +1830,96 @@ async function runCli(argv: string[]): Promise<number> {
         process.off("SIGTERM", signal);
       };
       let cleanupComplete = false;
+      const cancellations = new Set<Promise<void>>();
+      let operatorCancellationIncomplete = false;
       try {
         closeControl = await listenControl(
           path.join(config.stateDirectory, "control.sock"),
           credential,
           core,
+          async (action) => {
+            const operator = context(core, credential);
+            if (action === "pause") {
+              const state = core.statusSnapshot().run.state;
+              if (state === "active") core.transitionRun(operator, "paused");
+              else if (state !== "paused")
+                throw new BlockedError(
+                  "only an active or paused run can pause",
+                );
+              paused = true;
+              return core.statusSnapshot().run;
+            }
+            if (action === "resume") {
+              if (core.statusSnapshot().run.state !== "paused")
+                throw new BlockedError("only a paused run can resume");
+              await inspectUncertainCommands();
+              if (
+                core
+                  .listRuntimeSessions()
+                  .some((session) => session.state === "unknown") ||
+                Object.values(runtimeCommands).some((commandId) =>
+                  ["unknown", "attempting"].includes(
+                    core.commandState(commandId) ?? "",
+                  ),
+                )
+              )
+                throw new BlockedError(
+                  "live resume requires operator reconciliation of uncertain runtime or command authority",
+                );
+              core.transitionRun(operator, "active");
+              paused = false;
+              return core.statusSnapshot().run;
+            }
+            if (cancellations.size)
+              throw new BlockedError("cancellation is already in progress");
+            const settled = Promise.withResolvers<void>();
+            cancellations.add(settled.promise);
+            try {
+              stopping = true;
+              operatorCancellationIncomplete = true;
+              paused = false;
+              const state = core.statusSnapshot().run.state;
+              if (state === "active" || state === "paused")
+                core.transitionRun(operator, "canceling");
+              core.revokeActiveAssignments(
+                context(core, credential),
+                "operator requested cancellation",
+              );
+              const pendingResults = await Promise.all([...pendingProvisions]);
+              const failures = pendingResults
+                .filter((result) => result !== undefined)
+                .map(
+                  (result) => `runtime provisioning failed: ${String(result)}`,
+                );
+              if (provisionFailureUnproven && failures.length === 0)
+                failures.push(
+                  "runtime provisioning failed without a containment proof",
+                );
+              for (const session of allSessions) {
+                if (containedSessions.has(session.sessionId)) continue;
+                try {
+                  await containRuntime(
+                    session,
+                    runtimeAssignments[session.sessionId]!,
+                  );
+                } catch (error) {
+                  failures.push(`${session.sessionId}: ${String(error)}`);
+                }
+              }
+              if (failures.length)
+                throw new Error(
+                  `cancellation containment incomplete; run remains canceling: ${failures.join("; ")}`,
+                );
+              core.transitionRun(context(core, credential), "canceled");
+              operatorCancellationIncomplete = false;
+              return core.statusSnapshot().run;
+            } finally {
+              settled.resolve();
+              cancellations.delete(settled.promise);
+            }
+          },
         );
+        await waitForDispatchPermission();
         const scheduler = new WorkflowScheduler({
           plan: validateWorkflowPlan(plan),
           core,
@@ -1460,7 +1935,7 @@ async function runCli(argv: string[]): Promise<number> {
             if (!pmWork || pmWork.state !== "accepted") return false;
             const report = core.latestCompletedReport(
               pmWorkItemId,
-              pmAssignment.assignmentId,
+              pmAssignmentId,
             );
             if (
               !report ||
@@ -1537,6 +2012,7 @@ async function runCli(argv: string[]): Promise<number> {
                   ? "run canceled before Developer dispatch"
                   : "maxRunMs exceeded before Developer dispatch",
               );
+            await waitForDispatchPermission();
             core.transitionRuntimeSession(
               context(core, credential),
               session.sessionId,
@@ -1549,65 +2025,172 @@ async function runCli(argv: string[]): Promise<number> {
           },
         });
         const identities = scheduler.initialize();
-        core.enableSupervision(context(core, credential));
+        if (!core.statusSnapshot().supervision.enabled)
+          core.enableSupervision(context(core, credential));
         if (Date.now() >= deadlineMs)
           throw new Error("maxRunMs exceeded before PM assignment");
-        pmWorkItemId = `pm-${randomUUID()}`;
-        core.createWorkItem(context(core, credential), {
-          workItemId: pmWorkItemId,
-          title: `Review and accept plan ${plan.taskId}`,
-          description: `Review the already validated plan without changing it. Return JSON {"planHash":"..."} with planHash exactly equal to ${validateWorkflowPlan(plan).hash} to approve it. Any other result leaves the plan unaccepted. The acceptance criteria are: ${plan.acceptanceCriteria.join("; ")}`,
-          requiredRole: "PM",
-        });
-        for (const slice of plan.slices)
-          core.addDependency(
-            context(core, credential),
-            workflowWorkItemId(plan.taskId, slice.id),
-            pmWorkItemId,
-          );
-        core.markReady(context(core, credential), pmWorkItemId);
-        const pmAssignment = core.assignWorkItem(
-          context(core, credential),
-          pmWorkItemId,
-          identities.PM.seatId,
-        );
         let blocker: string | undefined;
         let supervisorMustPause = false;
-        const pmRuntime = await provisionRuntime(
-          "PM",
-          identities.PM.seatId,
-          pmWorkItemId,
-          pmAssignment.generation,
-          pmAssignment.assignmentId,
-        );
-        runtimeCommands[pmRuntime.session.sessionId] = pmAssignment.commandId;
-        if (stopping) blocker = "run canceled by signal";
-        else if (Date.now() >= deadlineMs)
-          blocker = "maxRunMs exceeded before PM dispatch";
-        else {
-          if (dispatches >= plan.limits.maxDispatches)
-            throw new Error("maxDispatches exhausted before PM dispatch");
-          dispatches += 1;
-          core.transitionRuntimeSession(
-            context(core, credential),
-            pmRuntime.session.sessionId,
-            "working",
-          );
-          await pmRuntime.adapter.dispatchAndStart(
-            context(core, credential),
-            pmAssignment.commandId,
-          );
+        const pmTitle = `Review and accept plan ${plan.taskId}`;
+        let pmWork = core
+          .statusSnapshot()
+          .work.find((work) => work.role === "PM" && work.title === pmTitle);
+        if (priorPmAssignment) {
+          pmWorkItemId = priorPmAssignment.workItemId;
+          if (!pmWork || pmWork.workItemId !== pmWorkItemId)
+            throw new BlockedError(
+              "restart PM assignment does not match the validated plan work item",
+            );
+        } else {
+          pmWorkItemId = pmWork?.workItemId ?? `pm-${randomUUID()}`;
+          if (!pmWork) {
+            core.createWorkItem(context(core, credential), {
+              workItemId: pmWorkItemId,
+              title: pmTitle,
+              description: `Review the already validated plan without changing it. Return JSON {"planHash":"..."} with planHash exactly equal to ${validateWorkflowPlan(plan).hash} to approve it. Any other result leaves the plan unaccepted. The acceptance criteria are: ${plan.acceptanceCriteria.join("; ")}`,
+              requiredRole: "PM",
+            });
+            pmWork = core
+              .statusSnapshot()
+              .work.find((work) => work.workItemId === pmWorkItemId);
+            for (const slice of plan.slices)
+              core.addDependency(
+                context(core, credential),
+                workflowWorkItemId(plan.taskId, slice.id),
+                pmWorkItemId,
+              );
+          }
         }
-        const pmReport =
-          stopping || blocker
-            ? undefined
-            : await waitForReport(pmWorkItemId, pmAssignment.assignmentId);
+        if (pmWork?.state !== "accepted") {
+          for (const slice of plan.slices) {
+            const workItemId = workflowWorkItemId(plan.taskId, slice.id);
+            const hasPlanGate = core
+              .readiness(workItemId)
+              .reasons.some((reason) =>
+                reason.startsWith(`dependency ${pmWorkItemId} `),
+              );
+            if (!hasPlanGate)
+              core.addDependency(
+                context(core, credential),
+                workItemId,
+                pmWorkItemId,
+              );
+          }
+        }
+        let pmReport: CompletedWorkReport | undefined;
+        if (
+          priorPmAssignment &&
+          (pmWork?.state === "accepted" ||
+            pmWork?.state === "awaiting_verification")
+        ) {
+          pmAssignmentId = priorPmAssignment.assignmentId;
+          pmReport = core.latestCompletedReport(pmWorkItemId, pmAssignmentId);
+          if (
+            !pmReport ||
+            pmReport.authorityState !== "contained" ||
+            pmReport.role !== "PM" ||
+            pmReport.inputRevision !== core.inputRevision
+          )
+            throw new BlockedError(
+              "restart cannot prove the persisted PM report accepted the current plan",
+            );
+        } else {
+          let recoveryId: string | undefined;
+          if (pmWork?.state === "pending")
+            core.markReady(context(core, credential), pmWorkItemId);
+          else if (pmWork?.state === "blocked" && priorPmAssignment) {
+            if (priorPmAssignment.authorityState !== "contained")
+              throw new BlockedError(
+                "restart PM authority is not proven contained; refusing replacement",
+              );
+            recoveryId = core.pendingReplacementRecovery(
+              pmWorkItemId,
+              priorPmAssignment.assignmentId,
+            );
+            if (!recoveryId) {
+              const recovery = core.recordRecovery(context(core, credential), {
+                workItemId: pmWorkItemId,
+                assignmentId: priorPmAssignment.assignmentId,
+                recoveryId: randomUUID(),
+                recoveryType: "worker_replacement",
+                reason: "restart after proven PM runtime containment",
+              });
+              if (recovery.outcome !== "pending")
+                throw new BlockedError(
+                  `PM replacement was not authorized: ${recovery.outcome}`,
+                );
+              recoveryId = recovery.recoveryId;
+            }
+            core.markReady(context(core, credential), pmWorkItemId);
+          } else if (pmWork?.state === "ready" && priorPmAssignment) {
+            if (priorPmAssignment.authorityState !== "contained")
+              throw new BlockedError(
+                "restart PM authority is not proven contained; refusing replacement",
+              );
+            recoveryId = core.pendingReplacementRecovery(
+              pmWorkItemId,
+              priorPmAssignment.assignmentId,
+            );
+            if (!recoveryId)
+              throw new BlockedError(
+                "ready PM replacement has no pending contained recovery",
+              );
+          } else if (pmWork?.state !== "ready")
+            throw new BlockedError(
+              `PM work is ${pmWork?.state ?? "missing"} and cannot be safely assigned`,
+            );
+          if (dispatches >= plan.limits.maxDispatches)
+            throw new BlockedError(
+              "maxDispatches exhausted before PM replacement",
+            );
+          const pmAssignment = core.assignWorkItem(
+            context(core, credential),
+            pmWorkItemId,
+            identities.PM.seatId,
+            undefined,
+            recoveryId,
+          );
+          pmAssignmentId = pmAssignment.assignmentId;
+          const pmRuntime = await provisionRuntime(
+            "PM",
+            identities.PM.seatId,
+            pmWorkItemId,
+            pmAssignment.generation,
+            pmAssignment.assignmentId,
+          );
+          runtimeCommands[pmRuntime.session.sessionId] = pmAssignment.commandId;
+          if (stopping) blocker = "run canceled by signal";
+          else if (Date.now() >= deadlineMs)
+            blocker = "maxRunMs exceeded before PM dispatch";
+          else {
+            if (dispatches >= plan.limits.maxDispatches)
+              throw new Error("maxDispatches exhausted before PM dispatch");
+            dispatches += 1;
+            await waitForDispatchPermission();
+            core.transitionRuntimeSession(
+              context(core, credential),
+              pmRuntime.session.sessionId,
+              "working",
+            );
+            await pmRuntime.adapter.dispatchAndStart(
+              context(core, credential),
+              pmAssignment.commandId,
+            );
+          }
+          pmReport =
+            stopping || blocker
+              ? undefined
+              : await waitForReport(pmWorkItemId, pmAssignment.assignmentId);
+          if (!pmReport)
+            blocker ??= stopping
+              ? "run canceled by signal"
+              : "PM report did not complete before the bounded run deadline";
+        }
         if (!pmReport)
-          blocker ??= stopping
-            ? "run canceled by signal"
-            : "PM report did not complete before the bounded run deadline";
+          blocker ??=
+            "PM report did not complete before the bounded run deadline";
         else if (
-          pmReport.assignmentId !== pmAssignment.assignmentId ||
+          pmReport.assignmentId !== pmAssignmentId ||
           pmReport.role !== "PM" ||
           pmReport.inputRevision !== core.inputRevision
         )
@@ -1615,19 +2198,21 @@ async function runCli(argv: string[]): Promise<number> {
             "PM report does not match the active plan-review assignment",
           );
         else {
-          await containRuntime(pmRuntime.session, pmAssignment.assignmentId);
+          const pmSession = sessions[identities.PM.seatId];
+          if (pmSession && !containedSessions.has(pmSession.sessionId))
+            await containRuntime(pmSession, pmAssignmentId);
           const pmReply = objectRecord(
             parseJsonWithoutDuplicateMembers(pmReport.reply),
           );
           const acceptedPlanHash = pmReply?.planHash;
-          if (acceptedPlanHash === validateWorkflowPlan(plan).hash)
+          if (acceptedPlanHash !== validateWorkflowPlan(plan).hash)
+            blocker = "PM report did not affirm the exact validated plan hash";
+          else if (pmWork?.state !== "accepted")
             core.acceptNonCandidateReport(
               context(core, credential),
               pmWorkItemId,
-              pmAssignment.assignmentId,
+              pmAssignmentId,
             );
-          else
-            blocker = "PM report did not affirm the exact validated plan hash";
         }
         const planWasAccepted = core
           .statusSnapshot()
@@ -1764,21 +2349,11 @@ async function runCli(argv: string[]): Promise<number> {
               acceptanceCriteria: plan.acceptanceCriteria.slice(0, 32),
               epoch: evaluation.targetEpoch,
               eventUpperSequence: evaluation.eventUpperSequence,
-              events: window.events,
+              events: window.events.slice(),
               eventRefs: window.eventRefs,
               assignments: window.assignments,
               dependencies: window.dependencies,
               fingerprints: window.fingerprints,
-              progress: window.events.map((event) => ({
-                sequence: event.sequence,
-                entityType: event.entityType,
-                entityId: event.entityId,
-                toState: event.toState,
-              })),
-              handoffAges: window.assignments.map((assignment) => ({
-                assignmentId: assignment.assignmentId,
-                handoffAgeMs: assignment.handoffAgeMs,
-              })),
               limits: {
                 maxRunMs: plan.limits.maxRunMs,
                 maxDispatches: plan.limits.maxDispatches,
@@ -1828,8 +2403,15 @@ async function runCli(argv: string[]): Promise<number> {
                   })),
                 })),
             };
-            const boundedJson = JSON.stringify(boundedContext);
-            if (boundedJson.length > 24_000)
+            let boundedJson = JSON.stringify(boundedContext);
+            while (
+              Buffer.byteLength(boundedJson) > 24_000 &&
+              boundedContext.events.length > 8
+            ) {
+              boundedContext.events.shift();
+              boundedJson = JSON.stringify(boundedContext);
+            }
+            if (Buffer.byteLength(boundedJson) > 24_000)
               throw new Error("bounded Supervisor context exceeds 24 KB");
             supervisorWorkItemId = `supervisor-${randomUUID()}`;
             core.createWorkItem(context(core, credential), {
@@ -1876,6 +2458,7 @@ async function runCli(argv: string[]): Promise<number> {
               throw new Error(
                 "Supervisor evaluation exceeded the run deadline",
               );
+            await waitForDispatchPermission();
             dispatches += 1;
             core.transitionRuntimeSession(
               context(core, credential),
@@ -2464,6 +3047,7 @@ async function runCli(argv: string[]): Promise<number> {
                   throw new Error(
                     "correction dispatch exceeded the run boundary",
                   );
+                await waitForDispatchPermission();
                 dispatches += 1;
                 core.transitionRuntimeSession(
                   context(core, credential),
@@ -3151,6 +3735,7 @@ async function runCli(argv: string[]): Promise<number> {
                     verifierAssignment.commandId;
                   let verifierContained = false;
                   try {
+                    await waitForDispatchPermission();
                     core.transitionRuntimeSession(
                       context(core, credential),
                       verifierRuntime.session.sessionId,
@@ -3501,8 +4086,80 @@ async function runCli(argv: string[]): Promise<number> {
             return `Supervisor unavailable: ${reason}`;
           }
         };
+        const stepScheduler = async (): Promise<SchedulerStep> => {
+          if (stopping || Date.now() >= deadlineMs)
+            return {
+              state: "stopped",
+              reason: stopping
+                ? "run canceled by signal"
+                : "maxRunMs exceeded before slice dispatch",
+            };
+          await waitForDispatchPermission();
+          if (dispatches >= plan.limits.maxDispatches) {
+            const work = core.statusSnapshot().work;
+            return plan.slices.every((slice) =>
+              work.some(
+                (item) =>
+                  item.workItemId ===
+                    workflowWorkItemId(plan.taskId, slice.id) &&
+                  item.state === "accepted",
+              ),
+            )
+              ? { state: "complete" }
+              : {
+                  state: "stopped",
+                  reason: "maxDispatches exhausted before slice dispatch",
+                };
+          }
+          const planWorkIds = new Set(
+            plan.slices.map((slice) =>
+              workflowWorkItemId(plan.taskId, slice.id),
+            ),
+          );
+          const blockedWork = core
+            .statusSnapshot()
+            .work.find(
+              (work) =>
+                planWorkIds.has(work.workItemId) &&
+                (work.state === "blocked" || work.state === "ready"),
+            );
+          if (!blockedWork) return scheduler.step();
+          const previous = core
+            .listRuntimeSessions()
+            .flatMap((session) => {
+              if (!session.assignmentId) return [];
+              const assignment = core.latestAssignmentForRole(
+                "Developer",
+                session.assignmentId,
+              );
+              return assignment?.workItemId === blockedWork.workItemId
+                ? [assignment]
+                : [];
+            })
+            .find((assignment) => assignment.authorityState === "contained");
+          if (!previous) return scheduler.step();
+          let recoveryId = core.pendingReplacementRecovery(
+            blockedWork.workItemId,
+            previous.assignmentId,
+          );
+          if (!recoveryId) {
+            const recovery = core.recordRecovery(context(core, credential), {
+              workItemId: blockedWork.workItemId,
+              assignmentId: previous.assignmentId,
+              recoveryId: randomUUID(),
+              recoveryType: "worker_replacement",
+              reason: "restart after verified prior-session containment",
+            });
+            if (recovery.outcome !== "pending") return scheduler.step();
+            recoveryId = recovery.recoveryId;
+          }
+          return scheduler.step({
+            workItemId: blockedWork.workItemId,
+            recoveryId,
+          });
+        };
         if (!blocker && planWasAccepted) blocker = await evaluateSupervisor();
-        let step = await scheduler.step();
+        let step = await stepScheduler();
         while (
           !stopping &&
           !blocker &&
@@ -3781,12 +4438,12 @@ async function runCli(argv: string[]): Promise<number> {
           candidateUnderReviewByWorkItem.set(workItemId, candidateId);
           if (stopping) {
             blocker = "run canceled by signal";
-            step = await scheduler.step();
+            step = await stepScheduler();
             break;
           }
           if (dispatches >= plan.limits.maxDispatches) {
             blocker = "maxDispatches reached before Verifier evidence";
-            step = await scheduler.step();
+            step = await stepScheduler();
             break;
           }
           const verifierWorkItemId = `verify-${randomUUID()}`;
@@ -3817,6 +4474,7 @@ async function runCli(argv: string[]): Promise<number> {
           );
           runtimeCommands[verifierRuntime.session.sessionId] =
             verifierAssignment.commandId;
+          await waitForDispatchPermission();
           dispatches += 1;
           core.transitionRuntimeSession(
             context(core, credential),
@@ -3833,7 +4491,7 @@ async function runCli(argv: string[]): Promise<number> {
           );
           if (!verifierReport) {
             blocker = `Verifier report for candidate ${candidateId} did not complete before the bounded deadline`;
-            step = await scheduler.step();
+            step = await stepScheduler();
             break;
           }
           if (
@@ -3956,7 +4614,7 @@ async function runCli(argv: string[]): Promise<number> {
               Date.now() >= deadlineMs
             ) {
               blocker = `Verifier rejected candidate ${candidateId} for ${failed.criterion}; no bounded remediation budget remains`;
-              step = await scheduler.step();
+              step = await stepScheduler();
               break;
             }
             const recoveryId = randomUUID();
@@ -3969,7 +4627,7 @@ async function runCli(argv: string[]): Promise<number> {
             });
             if (recovery.outcome !== "pending") {
               blocker = `Verifier rejected candidate ${candidateId}; bounded remediation limit ${recovery.limit} reached`;
-              step = await scheduler.step();
+              step = await stepScheduler();
               break;
             }
             blocker = await evaluateSupervisor();
@@ -3992,7 +4650,7 @@ async function runCli(argv: string[]): Promise<number> {
           candidateUnderReviewByWorkItem.delete(workItemId);
           blocker = await evaluateSupervisor();
           if (blocker) break;
-          step = await scheduler.step();
+          step = await stepScheduler();
         }
         if (
           !stopping &&
@@ -4087,6 +4745,7 @@ async function runCli(argv: string[]): Promise<number> {
                 blocker = "maxRunMs exceeded before final-parent dispatch";
               else if (stopping) blocker = "run canceled by signal";
               else {
+                await waitForDispatchPermission();
                 dispatches += 1;
                 core.transitionRuntimeSession(
                   context(core, credential),
@@ -4222,27 +4881,6 @@ async function runCli(argv: string[]): Promise<number> {
           blocker = "maxRunMs exceeded";
         else if (!blocker && step.state === "stopped") blocker = step.reason;
         const cleanupErrors: unknown[] = [];
-        for (const session of allSessions) {
-          if (containedSessions.has(session.sessionId)) continue;
-          const runtime = core
-            .statusSnapshot()
-            .roles.find((entry) => entry.seatId === session.seatId);
-          if (
-            runtime?.sessionState === "ready" ||
-            runtime?.sessionState === "working"
-          ) {
-            try {
-              core.transitionRuntimeSession(
-                context(core, credential),
-                session.sessionId,
-                "stopping",
-              );
-            } catch (error) {
-              cleanupErrors.push(error);
-            }
-          }
-        }
-        await containPendingSessions(cleanupErrors);
         const closeServer = closeControl;
         closeControl = undefined;
         try {
@@ -4250,6 +4888,8 @@ async function runCli(argv: string[]): Promise<number> {
         } catch (error) {
           cleanupErrors.push(error);
         }
+        await Promise.all([...cancellations]);
+        await containPendingSessions(cleanupErrors);
         for (const adapter of Object.values(adapters)) {
           try {
             await adapter.close();
@@ -4271,8 +4911,12 @@ async function runCli(argv: string[]): Promise<number> {
         if (completed)
           core.transitionRun(context(core, credential), "completed");
         else if (stopping) {
-          core.transitionRun(context(core, credential), "canceling");
-          core.transitionRun(context(core, credential), "canceled");
+          const runState = core.statusSnapshot().run.state;
+          if (runState !== "canceled") {
+            if (runState !== "canceling")
+              core.transitionRun(context(core, credential), "canceling");
+            core.transitionRun(context(core, credential), "canceled");
+          }
         } else if (supervisorMustPause)
           core.transitionRun(context(core, credential), "paused");
         else core.transitionRun(context(core, credential), "failed");
@@ -4301,27 +4945,6 @@ async function runCli(argv: string[]): Promise<number> {
       } finally {
         const cleanupErrors: unknown[] = [];
         if (!cleanupComplete) {
-          for (const session of allSessions) {
-            if (containedSessions.has(session.sessionId)) continue;
-            const runtime = core
-              .statusSnapshot()
-              .roles.find((entry) => entry.seatId === session.seatId);
-            if (
-              runtime?.sessionState === "ready" ||
-              runtime?.sessionState === "working"
-            ) {
-              try {
-                core.transitionRuntimeSession(
-                  context(core, credential),
-                  session.sessionId,
-                  "stopping",
-                );
-              } catch (error) {
-                cleanupErrors.push(error);
-              }
-            }
-          }
-          await containPendingSessions(cleanupErrors);
           const closeServer = closeControl;
           closeControl = undefined;
           try {
@@ -4329,6 +4952,8 @@ async function runCli(argv: string[]): Promise<number> {
           } catch (error) {
             cleanupErrors.push(error);
           }
+          await Promise.all([...cancellations]);
+          await containPendingSessions(cleanupErrors);
           for (const adapter of Object.values(adapters)) {
             try {
               await adapter.close();
@@ -4343,11 +4968,20 @@ async function runCli(argv: string[]): Promise<number> {
         }
         if (cleanupErrors.length === 0) {
           try {
-            if (core.statusSnapshot().run.state === "active")
+            const runState = core.statusSnapshot().run.state;
+            if (stopping && runState !== "canceled") {
+              if (runState !== "canceling")
+                core.transitionRun(context(core, credential), "canceling");
+              if (!operatorCancellationIncomplete && !provisionFailureUnproven)
+                core.transitionRun(context(core, credential), "canceled");
+            } else if (
+              runState === "active" ||
+              (runState === "paused" && Date.now() >= deadlineMs)
+            )
               core.transitionRun(context(core, credential), "failed");
           } catch (error) {
             process.stderr.write(
-              `cstan cleanup warning: could not mark aborted run failed: ${String(error)}\n`,
+              `cstan cleanup warning: could not mark aborted run terminal: ${String(error)}\n`,
             );
           }
         }
@@ -4372,6 +5006,25 @@ async function runCli(argv: string[]): Promise<number> {
         core.close();
       }
     }
+  }
+  if (command === "pause" || command === "resume" || command === "cancel") {
+    const parsed = parseOptions(rest);
+    if (parsed.positional.length !== 0) usage();
+    const { config, credential } = loadConfig(cwd);
+    const socketPath = path.join(config.stateDirectory, "control.sock");
+    let result: unknown;
+    try {
+      result = await requestControl(socketPath, credential, command);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/ENOENT|ECONNREFUSED|connect/i.test(message))
+        throw new BlockedError(
+          `${command} requires the foreground controller; run --brief is required for restart reconciliation`,
+        );
+      throw error;
+    }
+    output({ schemaVersion: 1, ...objectRecord(result) }, parsed.json);
+    return EXIT.ok;
   }
   if (command === "status") {
     const { config, credential } = loadConfig(cwd);

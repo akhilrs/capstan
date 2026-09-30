@@ -2,11 +2,16 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  closeSync,
+  fsyncSync,
+  openSync,
   lstatSync,
   mkdirSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   writeFileSync,
+  linkSync,
   unlinkSync,
 } from "node:fs";
 import os from "node:os";
@@ -85,8 +90,8 @@ export interface RoleRuntimeContainmentProof {
   readonly egressPolicyRemoved: true;
   readonly networkRemoved: true;
   readonly workspaceMount: string;
-  readonly forcedKill: boolean;
-  readonly exitCode: number;
+  readonly forcedKill: boolean | null;
+  readonly exitCode: number | null;
 }
 
 interface RuntimeBinaries {
@@ -190,6 +195,8 @@ export class RoleRuntimeManager {
     string,
     { readonly dev: number; readonly ino: number }
   >();
+  readonly #sessionCgroups = new Map<string, string>();
+  readonly #metadataDirectory: string;
   #counter = 0;
 
   constructor(options: RoleRuntimeManagerOptions) {
@@ -275,6 +282,21 @@ export class RoleRuntimeManager {
       throw new Error(`Worker Node must be ${NODE_VERSION}`);
     mkdirSync(options.stateRoot, { recursive: true, mode: 0o700 });
     const stateRoot = validatePath(options.stateRoot, "stateRoot", "directory");
+    this.#metadataDirectory = path.join(stateRoot, "runtime-sessions");
+    mkdirSync(this.#metadataDirectory, { recursive: true, mode: 0o700 });
+    this.#assertPrivateDirectory(
+      this.#metadataDirectory,
+      "runtime metadata directory",
+    );
+    for (const filename of readdirSync(this.#metadataDirectory)) {
+      if (!filename.endsWith(".json")) continue;
+      const match = /:(\d+)\.json$/.exec(filename);
+      if (!match) throw new Error("Invalid persisted runtime session name");
+      const ordinal = Number(match[1]);
+      if (!Number.isSafeInteger(ordinal) || ordinal < 1)
+        throw new Error("Invalid persisted runtime session ordinal");
+      this.#counter = Math.max(this.#counter, ordinal);
+    }
     const peer = path.join(stateRoot, "m1-receipt-peer");
     const egressKiller = path.join(stateRoot, "m1-egress-kill");
     run("cc", [
@@ -322,6 +344,16 @@ export class RoleRuntimeManager {
       egressHelper,
     };
     this.#token = token;
+  }
+
+  listPersistedSessionIds(): readonly string[] {
+    return readdirSync(this.#metadataDirectory)
+      .filter((filename) => filename.endsWith(".json"))
+      .map((filename) => {
+        const sessionId = filename.slice(0, -".json".length);
+        safeId(sessionId, "sessionId");
+        return sessionId;
+      });
   }
 
   async provision(
@@ -841,7 +873,22 @@ export class RoleRuntimeManager {
         configPath: `/home/worker/.omp/profiles/${profile}/agent/config.yml`,
         state: "ready",
       });
+      const containerState = JSON.parse(
+        run(this.#docker, [
+          "inspect",
+          "--format",
+          "{{json .State}}",
+          containerId,
+        ]),
+      ) as { Running: boolean; Pid: number };
+      if (!containerState.Running)
+        throw new Error(
+          "container stopped before runtime identity persistence",
+        );
+      const cgroupPath = this.#cgroupPath(containerId, containerState.Pid);
+      this.#writeSessionMetadata(session, bridgeIdentity, cgroupPath);
       this.#bridgeSockets.set(sessionId, bridgeIdentity);
+      this.#sessionCgroups.set(sessionId, cgroupPath);
       this.#sessions.set(roleKey, session);
       this.#roleJournal.set(role, journalPath);
       return session;
@@ -856,8 +903,8 @@ export class RoleRuntimeManager {
               containerId,
             ]),
           ) as { Running?: boolean; Paused?: boolean };
-          if (state.Running && !state.Paused)
-            run(this.#docker, ["pause", containerId]);
+          if (state.Running)
+            run(this.#docker, ["kill", "--signal", "KILL", containerId]);
           run(
             process.execPath,
             [
@@ -892,6 +939,97 @@ export class RoleRuntimeManager {
     }
   }
 
+  async recover(sessionId: string): Promise<RoleRuntimeContainmentProof> {
+    safeId(sessionId, "sessionId");
+    const metadataPath = this.#metadataPath(sessionId);
+    let metadata: unknown;
+    try {
+      metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    } catch (error) {
+      throw new Error(
+        `Unable to load persisted runtime identity for ${sessionId}: ${String(error)}`,
+        { cause: error },
+      );
+    }
+    if (
+      !metadata ||
+      typeof metadata !== "object" ||
+      !("session" in metadata) ||
+      !("bridgeIdentity" in metadata) ||
+      !("cgroupPath" in metadata)
+    )
+      throw new Error(`Invalid persisted runtime identity for ${sessionId}`);
+    const { session, bridgeIdentity, cgroupPath } = metadata as {
+      session: RoleRuntimeSession;
+      bridgeIdentity: { readonly dev: number; readonly ino: number };
+      cgroupPath: string;
+    };
+    if (
+      !session ||
+      session.sessionId !== sessionId ||
+      !ROLE_NAMES.has(session.role) ||
+      typeof session.seatId !== "string" ||
+      typeof session.containerId !== "string" ||
+      !/^[a-f0-9]{64}$/.test(session.containerId) ||
+      typeof session.containerName !== "string" ||
+      typeof session.networkName !== "string" ||
+      typeof session.workspace !== "string" ||
+      !bridgeIdentity ||
+      !Number.isSafeInteger(bridgeIdentity.dev) ||
+      !Number.isSafeInteger(bridgeIdentity.ino) ||
+      typeof cgroupPath !== "string" ||
+      !path.isAbsolute(cgroupPath) ||
+      !path.resolve(cgroupPath).startsWith("/sys/fs/cgroup/") ||
+      !cgroupPath.includes(session.containerId)
+    )
+      throw new Error(`Invalid persisted runtime identity for ${sessionId}`);
+    const roleKey = `${session.role}:${session.seatId}`;
+    const existing = this.#sessions.get(roleKey);
+    if (existing && existing.sessionId !== sessionId)
+      throw new Error(`runtime already exists for seat ${session.seatId}`);
+    this.#sessions.set(roleKey, session);
+    this.#bridgeSockets.set(sessionId, bridgeIdentity);
+    this.#sessionCgroups.set(sessionId, cgroupPath);
+    return this.stopAndContain(session.role, sessionId);
+  }
+
+  #metadataPath(sessionId: string): string {
+    return path.join(this.#metadataDirectory, `${sessionId}.json`);
+  }
+
+  #writeSessionMetadata(
+    session: RoleRuntimeSession,
+    bridgeIdentity: { readonly dev: number; readonly ino: number },
+    cgroupPath: string,
+  ): void {
+    const destination = this.#metadataPath(session.sessionId);
+    const temporary = `${destination}.${process.pid}.tmp`;
+    writeFileSync(
+      temporary,
+      JSON.stringify({ session, bridgeIdentity, cgroupPath }),
+      { flag: "wx", mode: 0o600 },
+    );
+    const file = openSync(temporary, "r");
+    try {
+      fsyncSync(file);
+    } finally {
+      closeSync(file);
+    }
+    try {
+      linkSync(temporary, destination);
+    } catch (error) {
+      unlinkSync(temporary);
+      throw error;
+    }
+    unlinkSync(temporary);
+    const directory = openSync(this.#metadataDirectory, "r");
+    try {
+      fsyncSync(directory);
+    } finally {
+      closeSync(directory);
+    }
+  }
+
   async stopAndContain(
     role: Role,
     sessionId: string,
@@ -901,50 +1039,59 @@ export class RoleRuntimeManager {
     );
     if (!pair) throw new Error(`unknown runtime session ${sessionId}`);
     const [key, session] = pair;
-    let forcedKill = false;
+    let forcedKill: boolean | null = false;
     try {
-      const state = JSON.parse(
-        run(this.#docker, [
-          "inspect",
-          "--format",
-          "{{json .State}}",
-          session.containerId,
-        ]),
-      ) as {
-        Running: boolean;
-        Paused: boolean;
-        Pid: number;
-        ExitCode: number;
-      };
-      const cgroup = state.Running
-        ? this.#cgroupPath(session.containerId, state.Pid)
-        : null;
-      if (state.Running && !state.Paused) {
-        try {
-          run(this.#docker, ["pause", session.containerId]);
-        } catch {
-          forcedKill = true;
-          run(this.#docker, ["kill", "--signal", "KILL", session.containerId]);
-        }
+      let state:
+        | { Running: boolean; Paused: boolean; Pid: number; ExitCode: number }
+        | undefined;
+      try {
+        state = JSON.parse(
+          run(this.#docker, [
+            "inspect",
+            "--format",
+            "{{json .State}}",
+            session.containerId,
+          ]),
+        ) as typeof state;
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/No such (?:object|container)/i.test(error.message)
+        )
+          throw error;
+        forcedKill = null;
       }
-      const stopped = JSON.parse(
-        run(this.#docker, [
-          "inspect",
-          "--format",
-          "{{json .State}}",
-          session.containerId,
-        ]),
-      ) as {
-        Running: boolean;
-        Paused: boolean;
-        Pid: number;
-        ExitCode: number;
-      };
-      if (stopped.Running && !stopped.Paused)
-        throw new Error("worker remains live before egress policy removal");
-      if (cgroup && !stopped.Paused)
-        this.#assertCgroupEmpty(session.containerId, cgroup);
-      if (stopped.ExitCode === 137) forcedKill = true;
+      const cgroup = state?.Running
+        ? this.#cgroupPath(session.containerId, state.Pid)
+        : this.#sessionCgroups.get(sessionId);
+      if (!cgroup)
+        throw new Error("missing persisted container cgroup identity");
+      if (state?.Running) {
+        forcedKill = true;
+        run(this.#docker, ["kill", "--signal", "KILL", session.containerId]);
+      }
+      let stopped:
+        | { Running: boolean; Paused: boolean; Pid: number; ExitCode: number }
+        | undefined;
+      if (state) {
+        stopped = JSON.parse(
+          run(this.#docker, [
+            "inspect",
+            "--format",
+            "{{json .State}}",
+            session.containerId,
+          ]),
+        ) as {
+          Running: boolean;
+          Paused: boolean;
+          Pid: number;
+          ExitCode: number;
+        };
+        if (stopped.Running)
+          throw new Error("worker remains live before egress policy removal");
+      }
+      this.#assertCgroupEmpty(session.containerId, cgroup);
+      if (stopped?.ExitCode === 137) forcedKill = true;
       const egress = JSON.parse(
         run(
           process.execPath,
@@ -962,7 +1109,7 @@ export class RoleRuntimeManager {
       ) as { removed?: boolean };
       if (egress.removed !== true)
         throw new Error("M1 egress helper did not confirm policy removal");
-      run(this.#docker, ["rm", "-f", session.containerId]);
+      if (stopped) run(this.#docker, ["rm", "-f", session.containerId]);
       let absent = false;
       try {
         run(this.#docker, ["inspect", session.containerId]);
@@ -980,8 +1127,30 @@ export class RoleRuntimeManager {
         throw new Error("missing observed bridge socket identity");
       this.#removeBridgeSocket(session.bridgeSocketPath, bridgeIdentity);
       this.#bridgeSockets.delete(sessionId);
-      run(this.#docker, ["network", "rm", session.networkName]);
-      if (cgroup) this.#assertCgroupEmpty(session.containerId, cgroup);
+      this.#sessionCgroups.delete(sessionId);
+      let networkExists = false;
+      try {
+        run(this.#docker, ["network", "inspect", session.networkName]);
+        networkExists = true;
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/network .* not found/i.test(error.message)
+        )
+          throw error;
+      }
+      if (networkExists)
+        run(this.#docker, ["network", "rm", session.networkName]);
+      try {
+        run(this.#docker, ["network", "inspect", session.networkName]);
+        throw new Error("runtime network remains after removal");
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/network .* not found/i.test(error.message)
+        )
+          throw error;
+      }
       this.#sessions.delete(key);
       return Object.freeze({
         contained: true,
@@ -993,7 +1162,7 @@ export class RoleRuntimeManager {
         networkRemoved: true,
         workspaceMount: session.workspace,
         forcedKill,
-        exitCode: stopped.ExitCode,
+        exitCode: stopped?.ExitCode ?? null,
       });
     } catch (error) {
       throw new Error(
@@ -1063,6 +1232,8 @@ export class RoleRuntimeManager {
   }
 
   #assertCgroupEmpty(containerId: string, cgroup: string): void {
+    // A Docker-stopped container's cgroup can already have been removed;
+    // kernel cgroup removal requires all member processes to have exited.
     if (!existsSync(path.join(cgroup, "cgroup.events"))) return;
     const events = readFileSync(path.join(cgroup, "cgroup.events"), "utf8");
     const pids = Number(

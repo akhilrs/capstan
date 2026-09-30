@@ -1202,9 +1202,6 @@ test("cstan runtime preflight fails closed before creating controller database",
     });
     core.close();
     core = undefined;
-    const priorRun = invoke(cwd, "run", "--brief", brief);
-    assert.equal(priorRun.status, 4, priorRun.stderr);
-    assert.match(priorRun.stderr, /prior controller run exists/);
     rmSync(path.join(cwd, ".capstan/state"), { recursive: true, force: true });
     mkdirSync(path.join(cwd, ".capstan/state"), { mode: 0o700 });
     for (const args of [
