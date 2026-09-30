@@ -980,7 +980,15 @@ async function runCli(argv: string[]): Promise<number> {
         const registeredSessions = new Set(
           core.listRuntimeSessions().map((session) => session.sessionId),
         );
-        for (const sessionId of manager.listPersistedSessionIds()) {
+        let persistedSessionIds: readonly string[] = [];
+        try {
+          persistedSessionIds = manager.listPersistedSessionIds();
+        } catch (error) {
+          recoveryErrors.push(
+            `persisted runtime sessions could not be listed: ${String(error)}`,
+          );
+        }
+        for (const sessionId of persistedSessionIds) {
           if (registeredSessions.has(sessionId)) continue;
           try {
             const proof = await manager.recover(sessionId);
