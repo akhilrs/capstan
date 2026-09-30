@@ -4124,20 +4124,15 @@ async function runCli(argv: string[]): Promise<number> {
                 (work.state === "blocked" || work.state === "ready"),
             );
           if (!blockedWork) return scheduler.step();
-          const previous = core
-            .listRuntimeSessions()
-            .flatMap((session) => {
-              if (!session.assignmentId) return [];
-              const assignment = core.latestAssignmentForRole(
-                "Developer",
-                session.assignmentId,
-              );
-              return assignment?.workItemId === blockedWork.workItemId
-                ? [assignment]
-                : [];
-            })
-            .find((assignment) => assignment.authorityState === "contained");
+          const previous = core.latestAssignmentForWorkItem(
+            blockedWork.workItemId,
+          );
           if (!previous) return scheduler.step();
+          if (previous.authorityState !== "contained")
+            return {
+              state: "stopped",
+              reason: "latest Developer assignment authority is not contained",
+            };
           let recoveryId = core.pendingReplacementRecovery(
             blockedWork.workItemId,
             previous.assignmentId,

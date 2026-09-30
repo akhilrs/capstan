@@ -25,7 +25,7 @@ import {
   escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
 } from "../src/cli.js";
-import { listenControl } from "../src/control.js";
+import { listenControl, requestControl } from "../src/control.js";
 import { ControllerCore } from "../src/controller/core.js";
 const cli = path.resolve("dist/src/cli.js");
 
@@ -1342,6 +1342,73 @@ test("cstan inspect requires an identifier and returns the usage exit code", () 
     assert.equal(inspect.status, 2);
     assert.match(inspect.stderr, /usage:/);
   } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("cstan pause and cancel need the live controller and an authenticated socket", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-control-"));
+  let core: ControllerCore | undefined;
+  let closeControl: (() => Promise<void>) | undefined;
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const offline = invoke(cwd, "pause");
+    assert.equal(offline.status, 4);
+    assert.match(offline.stderr, /requires the foreground controller/);
+
+    const config = JSON.parse(
+      readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
+    ) as { projectId: string; name: string; stateDirectory: string };
+    const credential = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    core = await ControllerCore.open({
+      stateDirectory: config.stateDirectory,
+      project: {
+        projectId: config.projectId,
+        name: config.name,
+        ownerCredential: credential,
+        initialInputs: [
+          { kind: "project_config", content: { name: config.name } },
+          { kind: "task_brief", content: { objective: "control" } },
+          { kind: "acceptance_criteria", content: ["control"] },
+          { kind: "policy", content: { maxRunMs: 60_000 } },
+          { kind: "plan", content: { slices: [] } },
+        ],
+      },
+      workspaceRoot: cwd,
+    });
+    const actions: string[] = [];
+    const socketPath = path.join(config.stateDirectory, "control.sock");
+    closeControl = await listenControl(
+      socketPath,
+      credential,
+      core,
+      async (action) => {
+        actions.push(action);
+        if (action === "cancel")
+          throw new Error("cancellation containment incomplete");
+        return { run: { state: "paused" } };
+      },
+    );
+    await assert.rejects(
+      requestControl(socketPath, "wrong-credential", "pause"),
+      /unauthorized/,
+    );
+    assert.deepEqual(actions, []);
+
+    const pause = await invokeAsync(cwd, "pause");
+    assert.equal(pause.status, 0, pause.stderr);
+    assert.deepEqual(actions, ["pause"]);
+
+    const cancel = await invokeAsync(cwd, "cancel");
+    assert.equal(cancel.status, 5);
+    assert.match(cancel.stderr, /containment incomplete/);
+    assert.deepEqual(actions, ["pause", "cancel"]);
+  } finally {
+    await closeControl?.();
+    core?.close();
     rmSync(cwd, { recursive: true, force: true });
   }
 });

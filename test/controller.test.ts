@@ -7145,6 +7145,14 @@ test("replacement revokes the old generation before containment and preserves it
       ),
       replacement.recoveryId,
     );
+    assert.deepEqual(
+      core.latestAssignmentForWorkItem("replace-before-stop-work"),
+      {
+        assignmentId: original.assignmentId,
+        generation: original.generation,
+        authorityState: "contained",
+      },
+    );
     core.markReady(
       context(core, info.ownerCredential),
       "replace-before-stop-work",
@@ -7157,6 +7165,14 @@ test("replacement revokes the old generation before containment and preserves it
       replacement.recoveryId,
     );
     assert.equal(next.generation, original.generation + 1);
+    assert.deepEqual(
+      core.latestAssignmentForWorkItem("replace-before-stop-work"),
+      {
+        assignmentId: next.assignmentId,
+        generation: next.generation,
+        authorityState: "active",
+      },
+    );
     assert.equal(
       core.pendingReplacementRecovery(
         "replace-before-stop-work",

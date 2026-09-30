@@ -1732,17 +1732,7 @@ export class ControllerCore {
             }
           | undefined;
         if (!item) throw new ControllerError("work item does not exist");
-        const latestAssignment = this.#database
-          .prepare(
-            `
-        SELECT a.assignment_id, a.authority_state FROM assignments a
-        JOIN assignment_attempts at ON at.project_id = a.project_id
-          AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
-        WHERE a.project_id = ? AND a.work_item_id = ? ORDER BY at.generation DESC LIMIT 1
-      `,
-          )
-          .get(this.#projectId, workItemId) as
-          { assignment_id: string; authority_state: string } | undefined;
+        const latestAssignment = this.#latestAssignmentRow(workItemId);
         let recovery:
           | {
               recovery_id: string;
@@ -7442,6 +7432,49 @@ export class ControllerCore {
         };
       },
     );
+  }
+
+  #latestAssignmentRow(workItemId: string):
+    | {
+        assignment_id: string;
+        active_generation: number;
+        authority_state: string;
+      }
+    | undefined {
+    return this.#database
+      .prepare(
+        `SELECT a.assignment_id, a.active_generation, a.authority_state
+         FROM assignments a
+         JOIN assignment_attempts at ON at.project_id = a.project_id
+           AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+         WHERE a.project_id = ? AND a.work_item_id = ?
+         ORDER BY at.generation DESC LIMIT 1`,
+      )
+      .get(this.#projectId, workItemId) as
+      | {
+          assignment_id: string;
+          active_generation: number;
+          authority_state: string;
+        }
+      | undefined;
+  }
+
+  latestAssignmentForWorkItem(workItemId: string):
+    | {
+        readonly assignmentId: string;
+        readonly generation: number;
+        readonly authorityState: string;
+      }
+    | undefined {
+    this.#assertOpen();
+    const row = this.#latestAssignmentRow(workItemId);
+    return row
+      ? {
+          assignmentId: row.assignment_id,
+          generation: row.active_generation,
+          authorityState: row.authority_state,
+        }
+      : undefined;
   }
 
   latestAssignmentForRole(
