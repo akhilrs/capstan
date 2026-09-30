@@ -1,5 +1,7 @@
 # Capstan MVP Plan
 
+> **Notice (2026-09-30, PM-20): superseded in part.** The direction changed: no Docker, no per-role network or firewall, no OMP-extension bridge; interactive agents run in Herdr panes and git worktrees. `MVP_PLAN_V2.md` and `decisions/DEC-005-capstan-v2-direction.md` are now the plan of record. The Docker, network, egress and OMP-bridge material below (mainly sections 5.2 and 9 and the M1 qualification text) is history. The controller core, ledger and recovery material is reused. Nothing below was edited.
+
 ## 1. Purpose and status
 
 **Product:** Capstan. **CLI executable:** `cstan`. **Project directory:** `../capstan/`, separate from claw8.
