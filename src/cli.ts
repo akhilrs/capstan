@@ -1059,24 +1059,34 @@ async function runCli(argv: string[]): Promise<number> {
         cliPath: fileURLToPath(import.meta.url),
         env: process.env,
       });
-      const launched =
-        fs.existsSync(path.join(cwd, CONFIG_FILE_NAME)) && !launchDisabled()
-          ? await callDaemon(
-              operator.socketPath,
-              operator.credential,
-              "launch",
-              [],
-              LAUNCHER_CLIENT_TIMEOUT_MS,
-            )
-          : undefined;
       let launch: unknown;
       let failed = false;
-      if (launched?.kind === "response") {
-        if (launched.response.ok) {
-          launch = launched.response.result;
-          failed = (launch as { state?: string }).state === "failed";
-        } else {
-          launch = `${launched.response.code}: ${launched.response.message}`;
+      if (
+        fs.existsSync(path.join(cwd, CONFIG_FILE_NAME)) &&
+        !launchDisabled()
+      ) {
+        // The daemon is up whatever happens here, so a launch that cannot be
+        // reported is shown as the launch's own failure, not as a missing controller.
+        try {
+          const launched = await callDaemon(
+            operator.socketPath,
+            operator.credential,
+            "launch",
+            [],
+            LAUNCHER_CLIENT_TIMEOUT_MS,
+          );
+          if (launched.kind !== "response") {
+            launch = "launch: the controller answered in an unexpected form";
+            failed = true;
+          } else if (launched.response.ok) {
+            launch = launched.response.result;
+            failed = (launch as { state?: string }).state === "failed";
+          } else {
+            launch = `${launched.response.code}: ${launched.response.message}`;
+            failed = true;
+          }
+        } catch (error) {
+          launch = `launch: ${error instanceof Error ? error.message : String(error)}`;
           failed = true;
         }
       }

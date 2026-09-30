@@ -489,6 +489,11 @@ export class HerdrAdapter {
     }
   }
 
+  /** Drops a pane from the registry without touching Herdr, for a pane that could not be closed and must no longer block its agent name. */
+  forgetPane(paneId: string): void {
+    this.#panes.delete(paneId);
+  }
+
   /** The pane the adapter registered for an agent, if any. */
   paneForAgent(agentId: string): string | undefined {
     for (const [paneId, entry] of this.#panes)

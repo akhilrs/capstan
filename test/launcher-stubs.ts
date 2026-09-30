@@ -144,6 +144,13 @@ export class StubAdapter implements LauncherAdapter {
     this.agentPanes.set(input.agent, input.paneId);
   }
 
+  forgetPane(paneId: string): void {
+    this.calls.push(`forget:${paneId}`);
+    this.entries.delete(paneId);
+    for (const [agent, pane] of this.agentPanes)
+      if (pane === paneId) this.agentPanes.delete(agent);
+  }
+
   async adoptShellPane(paneId: string) {
     const error = this.adoptErrors.get(paneId);
     if (error) throw error;

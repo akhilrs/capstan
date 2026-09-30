@@ -983,3 +983,161 @@ test("the agent environment helper and the wrapper directory exist for every age
     w.cleanup();
   }
 });
+
+test("an ended agent's leftover worktree and branch are released at the next start and its row is cleared", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    w.core.endAgent(ctx(w.core, w.owner), "developer-1");
+    w.git.removed = [];
+    w.git.deleted = [];
+    await w.reopen().adoptAll();
+    assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      false,
+    );
+    assert.deepEqual(w.launcher.status().cleanupFailed, []);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worktree git refuses to remove keeps its row, is listed by status after a restart, and is retried until it goes", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.startError = new Error("start failed");
+    w.git.removeOk = false;
+    await assert.rejects(w.launcher.spawn("developer"));
+    const fresh = w.reopen();
+    assert.deepEqual(fresh.status().cleanupFailed, [
+      {
+        agentId: "developer-1",
+        reason: "the worktree could not be removed without force",
+        worktreePath: "/tmp/work/developer-1",
+      },
+    ]);
+    await fresh.adoptAll();
+    assert.equal(
+      fresh.status().cleanupFailed.length,
+      1,
+      "still refused, still listed",
+    );
+    w.git.removeOk = true;
+    await fresh.adoptAll();
+    assert.deepEqual(fresh.status().cleanupFailed, []);
+    assert.deepEqual(w.git.deleted.at(-1), ["capstan/developer-1", SHA]);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a restart closes the recorded old pane even when adoption did not register it, and lists it when it cannot be closed", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const oldPane = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!.paneId!;
+    const fresh = new StubAdapter();
+    const launcher = new Launcher({
+      core: w.core,
+      adapter: fresh,
+      config: config(),
+      projectRoot: w.root,
+      cliPath: "/c.js",
+      socketPath: "/s",
+      credential: w.owner,
+      git: w.git,
+      baseEnvironment: { PATH: "/usr/bin" },
+    });
+    fresh.adoptErrors.set(oldPane, new HerdrError("timeout", "slow"));
+    const result = await launcher.restartPm();
+    assert.equal(result.state, "started");
+    assert.ok(
+      fresh.calls.includes(`close:${oldPane}`),
+      "the recorded pane was closed",
+    );
+
+    const again = new StubAdapter();
+    const second = new Launcher({
+      core: w.core,
+      adapter: again,
+      config: config(),
+      projectRoot: w.root,
+      cliPath: "/c.js",
+      socketPath: "/s",
+      credential: w.owner,
+      git: w.git,
+      baseEnvironment: { PATH: "/usr/bin" },
+    });
+    const current = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!.paneId!;
+    again.adoptErrors.set(current, new HerdrError("timeout", "slow"));
+    again.closeError = new HerdrError("pane_close_failed", "busy");
+    const last = await second.restartPm();
+    assert.equal(last.state, "started");
+    assert.deepEqual(second.status().orphanPanes, [
+      { agentId: "pm-1", paneId: current },
+    ]);
+    assert.ok(
+      again.calls.includes(`forget:${current}`),
+      "the old pane no longer blocks the agent name",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a hub that cannot be re-adopted for a transient reason is not replaced by a second hub; a vanished hub is", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const hub = w.core.fallbackPane(w.owner)!;
+    const fresh = new StubAdapter();
+    const make = (adapter: StubAdapter) =>
+      new Launcher({
+        core: w.core,
+        adapter,
+        config: config(),
+        projectRoot: w.root,
+        cliPath: "/c.js",
+        socketPath: "/s",
+        credential: w.owner,
+        git: w.git,
+        baseEnvironment: { PATH: "/usr/bin" },
+      });
+    fresh.adoptErrors.set(hub.paneId, new HerdrError("timeout", "slow"));
+    const launcher = make(fresh);
+    const pmPane = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!.paneId!;
+    fresh.entries.set(pmPane, { agent: "pm-1" });
+    fresh.agentPanes.set("pm-1", pmPane);
+    await assert.rejects(
+      launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError && e.code === "hub_unavailable",
+    );
+    assert.deepEqual(
+      w.core.fallbackPane(w.owner),
+      hub,
+      "the recorded hub is untouched",
+    );
+    assert.ok(
+      !fresh.calls.some((c) => c.startsWith("workspace:capstan-watch")),
+      "no second hub",
+    );
+
+    fresh.adoptErrors.set(hub.paneId, new PaneGone("gone"));
+    const result = await launcher.spawn("developer");
+    assert.equal(result.state, "started");
+    assert.notDeepEqual(w.core.fallbackPane(w.owner), hub);
+  } finally {
+    w.cleanup();
+  }
+});

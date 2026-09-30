@@ -9,7 +9,8 @@ import type { PmRestartSummary } from "./controller/core.js";
 export const CSTAN_ALLOW_RULE = "Bash(cstan *)";
 
 const SUMMARY_FENCE = "=====";
-export const MAX_PROMPT_BYTES = 64 * 1024;
+/** Room for a role prompt of 64 KiB, a summary of 32 KiB and the command reference. */
+export const MAX_PROMPT_BYTES = 160 * 1024;
 
 export interface PromptInput {
   readonly roleName: string;

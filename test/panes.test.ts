@@ -399,3 +399,51 @@ test("seatActorIds lists the active actors of a seat", async () => {
     await close(h);
   }
 });
+
+test("a summary always fits its budget, and a body is cut by characters, not UTF-16 units", async () => {
+  const h = await harness();
+  try {
+    for (let i = 0; i < 40; i += 1)
+      h.core.enqueueMessage(ctx(h.core, h.owner), {
+        recipientAgentId: h.pm.agentId,
+        body: `${i} ${"x".repeat(2400)}`,
+      });
+    for (let i = 0; i < 150; i += 1) addWork(h, `w-${i}`, "running");
+    const result = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(result.summary), "utf8") <= 32 * 1024,
+    );
+    assert.equal(result.summary.truncated, true);
+    assert.ok(result.summary.messages.length < 40);
+  } finally {
+    await close(h);
+  }
+  const g = await harness();
+  try {
+    // 2000 astral characters are 4000 UTF-16 units: exactly at the limit, not over it.
+    g.core.enqueueMessage(ctx(g.core, g.owner), {
+      recipientAgentId: g.pm.agentId,
+      body: "😀".repeat(2000),
+    });
+    g.core.enqueueMessage(ctx(g.core, g.owner), {
+      recipientAgentId: g.pm.agentId,
+      body: "😀".repeat(2001),
+    });
+    const summary = g.core.restartAgentGeneration(
+      ctx(g.core, g.owner),
+      g.pm.agentId,
+    ).summary;
+    const [exact, over] = summary.messages;
+    assert.equal(
+      exact!.body,
+      "😀".repeat(2000),
+      "a body at the limit is kept whole",
+    );
+    assert.equal(over!.body, `${"😀".repeat(2000)}[truncated]`);
+  } finally {
+    await close(g);
+  }
+});

@@ -41,6 +41,7 @@ export type LauncherAdapter = Pick<
   | "closePane"
   | "adoptPane"
   | "adoptShellPane"
+  | "forgetPane"
   | "runInPane"
   | "writePromptFile"
   | "paneForAgent"
@@ -198,8 +199,20 @@ export class Launcher {
   }
 
   status(): LauncherStatus {
+    // A worktree that could not be removed keeps its ledger row, so it is
+    // reported from the ledger and survives a daemon restart.
+    const leftovers = this.#core
+      .agentPanes(this.#credential)
+      .filter((row) => this.#core.agentRecord(row.agentId)?.state === "ended")
+      .map((row) => ({
+        agentId: row.agentId,
+        reason: "the worktree could not be removed without force",
+        ...(row.worktreePath === null
+          ? {}
+          : { worktreePath: row.worktreePath }),
+      }));
     return {
-      cleanupFailed: [...this.#cleanupFailed],
+      cleanupFailed: [...this.#cleanupFailed, ...leftovers],
       orphanPanes: [...this.#orphanPanes],
     };
   }
@@ -438,8 +451,21 @@ export class Launcher {
 
   async #ensureHub(budget: Budget): Promise<NonNullable<LaunchResult["hub"]>> {
     const row = this.#core.fallbackPane(this.#credential);
-    if (row !== undefined && this.#adapter.paneEntry(row.paneId) !== undefined)
-      return "present";
+    if (row !== undefined) {
+      if (this.#adapter.paneEntry(row.paneId) !== undefined) return "present";
+      // Re-adopt before opening another hub: a second one would hide the
+      // worktrees that hang under the first.
+      try {
+        await this.#adapter.adoptShellPane(row.paneId, row.workspaceId);
+        return "present";
+      } catch (error) {
+        if (!(error instanceof PaneGone)) {
+          this.#log("hub_adopt_failed", { error: String(error) });
+          return "failed";
+        }
+        this.#core.clearFallbackPane(this.#context());
+      }
+    }
     try {
       budget.check("opening the watch pane");
       const workspace = await this.#adapter.createWorkspace({
@@ -550,19 +576,27 @@ export class Launcher {
         this.#context(),
         agent.agentId,
       );
-      const oldPane = this.#adapter.paneForAgent(agent.agentId);
+      // The recorded pane counts even when adoption did not register it, so a
+      // live old PM is closed or listed, never silently dropped.
+      const oldPane =
+        this.#adapter.paneForAgent(agent.agentId) ??
+        this.#core
+          .agentPanes(this.#credential)
+          .find((r) => r.agentId === agent.agentId)?.paneId ??
+        undefined;
       if (oldPane !== undefined) {
         try {
           await this.#adapter.closePane(oldPane);
-          this.#core.clearAgentPane(this.#context(), agent.agentId);
         } catch (error) {
           this.#orphanPanes.push({ agentId: agent.agentId, paneId: oldPane });
+          this.#adapter.forgetPane(oldPane);
           this.#log("old_pane_not_closed", {
             paneId: oldPane,
             error: String(error),
           });
         }
-      } else this.#core.clearAgentPane(this.#context(), agent.agentId);
+      }
+      this.#core.clearAgentPane(this.#context(), agent.agentId);
       if (!replaced.summary.truncated) {
         const listed = new Set(
           replaced.summary.messages.map((m) => m.messageId),
@@ -754,7 +788,6 @@ export class Launcher {
       baseSha?: string;
     },
   ): Promise<void> {
-    const budget = this.#budget(CLEANUP_BUDGET_MS);
     try {
       this.#core.endAgent(this.#context(), agentId);
     } catch (error) {
@@ -765,6 +798,25 @@ export class Launcher {
       this.#log("cleanup_blocked", { agentId, error: String(error) });
       return;
     }
+    await this.#releaseResources(agentId, info);
+  }
+
+  /**
+   * Everything an ended agent still holds: its pane, its worktree (never
+   * forced) and its branch (only at the base commit). The pane row goes last
+   * and only when the worktree is gone, so a refused removal stays in the
+   * ledger and the next start retries it.
+   */
+  async #releaseResources(
+    agentId: string,
+    info: {
+      worktreePath?: string;
+      paneId?: string;
+      branch?: string;
+      baseSha?: string;
+    },
+  ): Promise<void> {
+    const budget = this.#budget(CLEANUP_BUDGET_MS);
     if (info.paneId !== undefined && this.#within(budget)) {
       try {
         await this.#adapter.closePane(info.paneId);
@@ -785,14 +837,11 @@ export class Launcher {
     if (worktreePath !== undefined) {
       removed = this.#git.worktreeRemove(worktreePath);
       if (!removed) {
-        this.#cleanupFailed.push({
-          agentId,
-          reason: "the worktree could not be removed without force",
-          worktreePath,
-        });
+        this.#log("worktree_kept", { agentId, worktreePath });
+        return;
       }
     }
-    if (removed && info.branch !== undefined && info.baseSha !== undefined) {
+    if (info.branch !== undefined && info.baseSha !== undefined) {
       if (!this.#git.deleteBranchIf(info.branch, info.baseSha))
         this.#log("branch_kept", { agentId, branch: info.branch });
     }
@@ -824,17 +873,14 @@ export class Launcher {
       }
       const agent = this.#core.agentRecord(row.agentId);
       if (agent === undefined || agent.state !== "active") {
-        if (row.paneId !== null) {
-          try {
-            await this.#adapter.closePane(row.paneId);
-          } catch (error) {
-            this.#log("stale_pane_not_closed", {
-              agentId: row.agentId,
-              error: String(error),
-            });
-          }
-        }
-        this.#core.clearAgentPane(this.#context(), row.agentId);
+        await this.#releaseResources(row.agentId, {
+          ...(row.paneId === null ? {} : { paneId: row.paneId }),
+          ...(row.branch === null ? {} : { branch: row.branch }),
+          ...(row.baseSha === null ? {} : { baseSha: row.baseSha }),
+          ...(row.worktreePath === null
+            ? {}
+            : { worktreePath: row.worktreePath }),
+        });
         continue;
       }
       if (row.paneId === null) {

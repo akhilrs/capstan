@@ -87,6 +87,7 @@ export const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const MAX_SUMMARY_MESSAGES = 50;
 const MAX_SUMMARY_BODY = 2000;
 const MAX_SUMMARY_WORK = 200;
+const MAX_SUMMARY_BYTES = 32 * 1024;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
@@ -1731,14 +1732,21 @@ export class ControllerCore {
       for (const message of summary.messages) add(message);
     if (messages.length > MAX_SUMMARY_MESSAGES) truncated = true;
     const bounded = messages.slice(0, MAX_SUMMARY_MESSAGES).map((message) => {
-      if (message.body.length <= MAX_SUMMARY_BODY) return message;
+      if (Array.from(message.body).length <= MAX_SUMMARY_BODY) return message;
       truncated = true;
       return {
         ...message,
         body: `${Array.from(message.body).slice(0, MAX_SUMMARY_BODY).join("")}[truncated]`,
       };
     });
-    return {
+    const summary: {
+      objective: unknown;
+      openWork: PmRestartSummary["openWork"][number][];
+      messages: PmRestartSummary["messages"][number][];
+      truncated: boolean;
+      summarizedGeneration: number;
+      generatedAt: string;
+    } = {
       objective: brief === undefined ? null : JSON.parse(brief.content_json),
       openWork: work.slice(0, MAX_SUMMARY_WORK).map((item) => ({
         workItemId: item.workItemId,
@@ -1753,6 +1761,17 @@ export class ControllerCore {
       summarizedGeneration: generation,
       generatedAt: this.#now(),
     };
+    // A summary must fit the prompt it is rendered into: shed messages, then
+    // work items, from the end until its JSON is small enough.
+    while (
+      Buffer.byteLength(JSON.stringify(summary), "utf8") > MAX_SUMMARY_BYTES &&
+      (summary.messages.length > 0 || summary.openWork.length > 0)
+    ) {
+      if (summary.messages.length > 0) summary.messages.pop();
+      else summary.openWork.pop();
+      summary.truncated = true;
+    }
+    return summary;
   }
 
   /**
