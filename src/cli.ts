@@ -543,6 +543,12 @@ function loadConfig(cwd: string): { config: Config; credential: string } {
   }
 }
 
+function isControllerUnreachable(error: unknown): boolean {
+  return (
+    error instanceof Error && "syscall" in error && error.syscall === "connect"
+  );
+}
+
 async function inspectController(
   config: Config,
   credential: string,
@@ -553,8 +559,7 @@ async function inspectController(
   try {
     return await requestControl(socketPath, credential, action, id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/ENOENT|ECONNREFUSED|connect/i.test(message)) throw error;
+    if (!isControllerUnreachable(error)) throw error;
   }
   const databasePath = path.join(config.stateDirectory, "controller.sqlite");
   if (!fs.existsSync(databasePath)) {
@@ -5044,8 +5049,7 @@ async function runCli(argv: string[]): Promise<number> {
     try {
       result = await requestControl(socketPath, credential, command);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/ENOENT|ECONNREFUSED|connect/i.test(message))
+      if (isControllerUnreachable(error))
         throw new BlockedError(
           `${command} requires the foreground controller; run --brief is required for restart reconciliation`,
         );

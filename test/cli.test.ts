@@ -1389,7 +1389,9 @@ test("cstan pause and cancel need the live controller and an authenticated socke
       async (action) => {
         actions.push(action);
         if (action === "cancel")
-          throw new Error("cancellation containment incomplete");
+          throw new Error(
+            "cancellation containment incomplete: Cannot connect to the Docker daemon",
+          );
         if (action === "resume") await resumeGate.promise;
         return { run: { state: "paused" } };
       },
@@ -1406,7 +1408,8 @@ test("cstan pause and cancel need the live controller and an authenticated socke
 
     const cancel = await invokeAsync(cwd, "cancel");
     assert.equal(cancel.status, 5);
-    assert.match(cancel.stderr, /containment incomplete/);
+    assert.match(cancel.stderr, /containment incomplete.*Docker daemon/);
+    assert.doesNotMatch(cancel.stderr, /requires the foreground controller/);
     assert.deepEqual(actions, ["pause", "cancel"]);
 
     const abandoned = net.createConnection(socketPath);
