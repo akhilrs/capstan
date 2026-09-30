@@ -187,6 +187,7 @@ function facts(overrides: Partial<MessageFacts>): MessageFacts {
     sentMs: 0,
     deferredMs: null,
     deferredReason: null,
+    inputClearRecorded: false,
     lastNotifiedMs: null,
     ...overrides,
   };
@@ -273,6 +274,34 @@ test("a deferred worker message expires when busy and clears input when the line
   assert.deepEqual(cleared.transitions, []);
   assert.deepEqual(cleared.actions, [
     { kind: "clear_then_send", messageId: "m1", notifyOperator: true },
+  ]);
+});
+
+test("clear_then_send notifies the operator only until the input text has been recorded", () => {
+  const base = {
+    recipientAgentId: "dev",
+    state: "deferred" as const,
+    sentMs: null,
+    deferredMs: 0,
+    deferredReason: "input_not_empty" as const,
+  };
+  const before = evaluateMessaging(
+    [worker()],
+    [facts(base)],
+    500 * SECOND,
+    timers,
+  );
+  assert.deepEqual(before.actions, [
+    { kind: "clear_then_send", messageId: "m1", notifyOperator: true },
+  ]);
+  const after = evaluateMessaging(
+    [worker()],
+    [facts({ ...base, inputClearRecorded: true })],
+    500 * SECOND,
+    timers,
+  );
+  assert.deepEqual(after.actions, [
+    { kind: "clear_then_send", messageId: "m1", notifyOperator: false },
   ]);
 });
 

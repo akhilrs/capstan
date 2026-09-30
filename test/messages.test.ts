@@ -531,11 +531,13 @@ test("a retry restarts the notification clock", async () => {
     core.advanceMessaging(w.ctx(), timers);
     assert.equal(stateOf(w, message), "unacked");
     core.resolveMessage(w.ctx(), message, "retry");
+    assert.equal(core.message(message)!.notifiedAt, null);
+    assert.equal(core.message(message)!.lastNotifiedAt, null);
     w.advance(100);
     assert.deepEqual(core.advanceMessaging(w.ctx(), timers).actions, []);
     w.advance(200);
     assert.deepEqual(core.advanceMessaging(w.ctx(), timers).actions, [
-      { kind: "notify_operator", messageId: message, repeat: true },
+      { kind: "notify_operator", messageId: message, repeat: false },
     ]);
   } finally {
     close(w);
@@ -593,6 +595,116 @@ test("the controller may close a wait whose connection dropped; other agents may
     assert.deepEqual(w.core.endWaitAsController(w.ctx(), waitId), {
       ended: false,
     });
+    const version = w.core.stateVersion;
+    assert.deepEqual(w.core.endWaitAsController(w.ctx(), waitId), {
+      ended: false,
+    });
+    assert.deepEqual(w.core.endWait(w.ctx(w.pm.credential), waitId), {
+      ended: false,
+    });
+    assert.equal(w.core.stateVersion, version);
+    assert.throws(
+      () => w.core.endWaitAsController(w.ctx(), "missing"),
+      MessageTransitionError,
+    );
+    assert.deepEqual(
+      w.core
+        .messageRejections()
+        .map((rejection) => rejection.action)
+        .sort(),
+      ["wait.end", "wait.end_controller"],
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("an agent's own commands count as activity for the stall timer", async () => {
+  const w = await world();
+  try {
+    const { core, developer, pm } = w;
+    core.recordAgentObservation(w.ctx(), developer.agentId, "working");
+    w.advance(800);
+    send(w, pm, "status", developer.credential);
+    w.advance(800);
+    assert.deepEqual(
+      core.advanceMessaging(w.ctx(), timers).stalledAgentIds,
+      [],
+    );
+    w.advance(100);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).stalledAgentIds, [
+      developer.agentId,
+    ]);
+
+    core.recordAgentObservation(w.ctx(), pm.agentId, "working");
+    const toWorker = send(w, developer, "stuck");
+    core.recordFailure(w.ctx(), toWorker, "gone");
+    w.advance(800);
+    core.resolveMessage(w.ctx(pm.credential), toWorker, "cancel");
+    w.advance(800);
+    assert.ok(
+      !core
+        .advanceMessaging(w.ctx(), timers)
+        .stalledAgentIds.includes(pm.agentId),
+    );
+    w.advance(200);
+    assert.ok(
+      core
+        .advanceMessaging(w.ctx(), timers)
+        .stalledAgentIds.includes(pm.agentId),
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("a new generation does not inherit stall time from the previous one", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    core.recordAgentObservation(w.ctx(), developer.agentId, "working");
+    w.advance(5000);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).stalledAgentIds, [
+      developer.agentId,
+    ]);
+    core.replaceAgentGeneration(w.ctx(), developer.agentId);
+    w.advance(5000);
+    assert.deepEqual(
+      core.advanceMessaging(w.ctx(), timers).stalledAgentIds,
+      [],
+    );
+    core.recordAgentObservation(w.ctx(), developer.agentId, "working");
+    w.advance(900);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).stalledAgentIds, [
+      developer.agentId,
+    ]);
+  } finally {
+    close(w);
+  }
+});
+
+test("evaluation gives the same result with a long observation history", async () => {
+  const w = await world();
+  try {
+    const { core, pm } = w;
+    for (let step = 0; step < 150; step += 1) {
+      core.recordAgentObservation(
+        w.ctx(),
+        pm.agentId,
+        step % 2 === 0 ? "idle" : "working",
+      );
+      w.advance(10);
+    }
+    core.recordAgentObservation(w.ctx(), pm.agentId, "working");
+    w.advance(10);
+    const message = send(w, pm, "check", w.developer.credential);
+    core.pullMessage(w.ctx(pm.credential));
+    w.advance(5000);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).applied, []);
+    const { waitId } = core.beginWait(w.ctx(pm.credential));
+    w.advance(600);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).applied, [message]);
+    core.endWait(w.ctx(pm.credential), waitId);
   } finally {
     close(w);
   }
@@ -915,6 +1027,9 @@ test("a worker deferred on a non-empty input line logs the text, clears after th
       { kind: "clear_then_send", messageId: message, notifyOperator: true },
     ]);
     core.recordInputClear(w.ctx(), message, "half typed by the operator");
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).actions, [
+      { kind: "clear_then_send", messageId: message, notifyOperator: false },
+    ]);
     core.recordSent(w.ctx(), message);
     assert.equal(core.message(message)!.sendAttempts, 1);
     const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));

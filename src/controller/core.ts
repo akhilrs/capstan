@@ -1516,6 +1516,11 @@ export class ControllerCore {
           )
           .run(actorId, generation, now, this.#projectId, agentId);
         this.#closeWaits(agentId, now);
+        this.#database
+          .prepare(
+            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', ? FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
+          )
+          .run(this.#projectId, agentId, now, this.#projectId, agentId);
         const cancelled = this.#cancelMessagesOf(
           actor,
           context,
@@ -1599,6 +1604,9 @@ export class ControllerCore {
             now,
             now,
           );
+        const senderAgent = this.#agentByActor(actor.actorId);
+        if (senderAgent !== undefined)
+          this.#touchAgent(senderAgent.agent_id, now);
         return {
           value: { messageId },
           event: {
@@ -2097,12 +2105,20 @@ export class ControllerCore {
             note ?? null,
             now,
           );
+        const resolver = this.#agentByActor(actor.actorId);
+        if (resolver !== undefined) this.#touchAgent(resolver.agent_id, now);
         const version =
           decision === "retry"
             ? this.#updateMessage(
                 row,
                 "queued",
-                { queued_at: now, deferred_at: null, deferred_reason: null },
+                {
+                  queued_at: now,
+                  deferred_at: null,
+                  deferred_reason: null,
+                  notified_at: null,
+                  last_notified_at: null,
+                },
                 now,
               )
             : this.#updateMessage(
@@ -2165,12 +2181,14 @@ export class ControllerCore {
     context: MutationContext,
     waitId: string,
   ): { readonly ended: boolean } {
+    const caller = this.#authorize(context.credential, "message:receive");
+    if (this.#waitAlreadyClosedFor(caller, waitId)) return { ended: false };
     return this.#messageMutation(
       context,
       "wait.end",
       "message:receive",
       { waitId },
-      (actor) => this.#endWait(actor, waitId),
+      (actor) => this.#endWait(actor, "wait.end", waitId),
     );
   }
 
@@ -2178,12 +2196,14 @@ export class ControllerCore {
     context: MutationContext,
     waitId: string,
   ): { readonly ended: boolean } {
+    const caller = this.#authorize(context.credential, "controller:reconcile");
+    if (this.#waitAlreadyClosedFor(caller, waitId)) return { ended: false };
     return this.#messageMutation(
       context,
       "wait.end_controller",
       "controller:reconcile",
       { waitId },
-      (actor) => this.#endWait(actor, waitId),
+      (actor) => this.#endWait(actor, "wait.end_controller", waitId),
     );
   }
 
@@ -2243,54 +2263,17 @@ export class ControllerCore {
 
   #evaluateMessaging(timers: MessagingTimers): MessagingEvaluation {
     const nowMs = this.#clock().getTime();
-    const agentRows = this.#database
-      .prepare(
-        "SELECT agent_id, kind, last_activity_at FROM agents WHERE project_id = ? AND state = 'active'",
-      )
-      .all(this.#projectId) as Array<{
-      agent_id: string;
-      kind: AgentFacts["kind"];
-      last_activity_at: string;
-    }>;
-    const agents: AgentFacts[] = agentRows.map((row) => ({
-      agentId: row.agent_id,
-      kind: row.kind,
-      lastActivityMs: Date.parse(row.last_activity_at),
-      observations: (
-        this.#database
-          .prepare(
-            "SELECT herdr_state, observed_at FROM agent_state_history WHERE project_id = ? AND agent_id = ? ORDER BY sequence",
-          )
-          .all(this.#projectId, row.agent_id) as Array<{
-          herdr_state: HerdrState;
-          observed_at: string;
-        }>
-      ).map((entry) => ({
-        state: entry.herdr_state,
-        atMs: Date.parse(entry.observed_at),
-      })),
-      waits: (
-        this.#database
-          .prepare(
-            "SELECT started_at, ended_at FROM agent_waits WHERE project_id = ? AND agent_id = ?",
-          )
-          .all(this.#projectId, row.agent_id) as Array<{
-          started_at: string;
-          ended_at: string | null;
-        }>
-      ).map((entry) => ({
-        startMs: Date.parse(entry.started_at),
-        endMs: entry.ended_at === null ? null : Date.parse(entry.ended_at),
-      })),
-    }));
     const messages: MessageFacts[] = (
       this.#database
         .prepare(
-          `SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
+          `SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id) AS input_clear_recorded
+           FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
            WHERE m.project_id = ? AND a.state = 'active' AND m.state NOT IN ('acked', 'acked_late', 'cancelled')
            ORDER BY m.sequence`,
         )
-        .all(this.#projectId) as MessageRow[]
+        .all(this.#projectId) as Array<
+        MessageRow & { input_clear_recorded: number }
+      >
     ).map((row) => ({
       messageId: row.message_id,
       recipientAgentId: row.recipient_agent_id,
@@ -2300,9 +2283,72 @@ export class ControllerCore {
       sentMs: row.sent_at === null ? null : Date.parse(row.sent_at),
       deferredMs: row.deferred_at === null ? null : Date.parse(row.deferred_at),
       deferredReason: row.deferred_reason,
+      inputClearRecorded: row.input_clear_recorded === 1,
       lastNotifiedMs:
         row.last_notified_at === null ? null : Date.parse(row.last_notified_at),
     }));
+    const agentRows = this.#database
+      .prepare(
+        "SELECT agent_id, kind, last_activity_at FROM agents WHERE project_id = ? AND state = 'active'",
+      )
+      .all(this.#projectId) as Array<{
+      agent_id: string;
+      kind: AgentFacts["kind"];
+      last_activity_at: string;
+    }>;
+    const agents: AgentFacts[] = agentRows.map((row) => {
+      const lastActivityMs = Date.parse(row.last_activity_at);
+      // No timer looks further back than the agent's last activity or its
+      // oldest open message, so older history cannot change any result.
+      const cutoffMs = Math.min(
+        lastActivityMs,
+        ...messages
+          .filter((message) => message.recipientAgentId === row.agent_id)
+          .map((message) => message.queuedMs),
+      );
+      const cutoff = new Date(cutoffMs).toISOString();
+      const entries = this.#database
+        .prepare(
+          `SELECT herdr_state, observed_at FROM agent_state_history
+           WHERE project_id = ? AND agent_id = ? AND observed_at >= ? ORDER BY sequence`,
+        )
+        .all(this.#projectId, row.agent_id, cutoff) as Array<{
+        herdr_state: HerdrState;
+        observed_at: string;
+      }>;
+      const before = this.#database
+        .prepare(
+          `SELECT herdr_state, observed_at FROM agent_state_history
+           WHERE project_id = ? AND agent_id = ? AND observed_at < ? ORDER BY sequence DESC LIMIT 1`,
+        )
+        .get(this.#projectId, row.agent_id, cutoff) as
+        { herdr_state: HerdrState; observed_at: string } | undefined;
+      const waits = this.#database
+        .prepare(
+          `SELECT started_at, ended_at FROM agent_waits
+           WHERE project_id = ? AND agent_id = ? AND (ended_at IS NULL OR ended_at >= ?)`,
+        )
+        .all(this.#projectId, row.agent_id, cutoff) as Array<{
+        started_at: string;
+        ended_at: string | null;
+      }>;
+      return {
+        agentId: row.agent_id,
+        kind: row.kind,
+        lastActivityMs,
+        observations: (before === undefined
+          ? entries
+          : [before, ...entries]
+        ).map((entry) => ({
+          state: entry.herdr_state,
+          atMs: Date.parse(entry.observed_at),
+        })),
+        waits: waits.map((entry) => ({
+          startMs: Date.parse(entry.started_at),
+          endMs: entry.ended_at === null ? null : Date.parse(entry.ended_at),
+        })),
+      };
+    });
     return evaluateMessaging(agents, messages, nowMs, timers);
   }
 
@@ -2589,8 +2635,23 @@ export class ControllerCore {
       .run(now, this.#projectId, agentId);
   }
 
+  #waitAlreadyClosedFor(actor: AuthenticatedActor, waitId: string): boolean {
+    const wait = this.#database
+      .prepare(
+        "SELECT agent_id, ended_at FROM agent_waits WHERE project_id = ? AND wait_id = ?",
+      )
+      .get(this.#projectId, waitId) as
+      { agent_id: string; ended_at: string | null } | undefined;
+    if (wait === undefined || wait.ended_at === null) return false;
+    return (
+      actor.capabilities.has("controller:reconcile") ||
+      this.#agentByActor(actor.actorId)?.agent_id === wait.agent_id
+    );
+  }
+
   #endWait(
     actor: AuthenticatedActor,
+    action: string,
     waitId: string,
   ): MutationOutput<{ readonly ended: boolean } | MessageRejection> {
     const wait = this.#database
@@ -2604,7 +2665,7 @@ export class ControllerCore {
       actor.capabilities.has("controller:reconcile") ||
       (caller !== undefined && caller.agent_id === wait?.agent_id);
     if (wait === undefined || !allowed)
-      return this.#reject(actor, "wait.end", {
+      return this.#reject(actor, action, {
         code: wait === undefined ? "unknown_wait" : "not_wait_owner",
         message: "the wait does not exist or belongs to another agent",
       });

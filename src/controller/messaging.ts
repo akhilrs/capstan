@@ -184,6 +184,7 @@ export interface MessageFacts {
   readonly sentMs: number | null;
   readonly deferredMs: number | null;
   readonly deferredReason: DeferralReason | null;
+  readonly inputClearRecorded: boolean;
   readonly lastNotifiedMs: number | null;
 }
 
@@ -196,7 +197,7 @@ export type MessagingAction =
   | {
       readonly kind: "clear_then_send";
       readonly messageId: string;
-      readonly notifyOperator: true;
+      readonly notifyOperator: boolean;
     }
   | {
       readonly kind: "notify_operator";
@@ -252,7 +253,7 @@ export function evaluateMessaging(
           actions.push({
             kind: "clear_then_send",
             messageId: head.messageId,
-            notifyOperator: true,
+            notifyOperator: !head.inputClearRecorded,
           });
         else transitions.push({ messageId: head.messageId, to: "expired" });
       }
