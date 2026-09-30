@@ -110,6 +110,18 @@ An environment-variable credential only labels a reporter. Any same-user process
 
 With the installed hook, the idle and blocked states that were explained came from screen-detection rules with a remotely updated manifest (E3). Herdr state decides when to send and spots `blocked`. Stalls (`working` with no receipt and no registered wait for a configured time) are detected by controller timers from Stage 2, not by the Supervisor, and reported to the PM and operator. Nothing that matters relies on Herdr state alone. Pinning or disabling manifest auto-update is an open item; a Claude Code, Herdr or manifest update is a revisit trigger (DEC-005).
 
+The Herdr adapter (`src/herdr`, Stage 2d) is the only code that types into a pane. Facts it relies on, all probed against Herdr 0.9.1 in an isolated session (`TESTED_HERDR_VERSION`; another version is a revisit trigger):
+
+- The session is always named (`herdr --session NAME`, `HERDR_*` removed from the environment), so the operator's default session cannot be reached by omission.
+- Herdr reports a failed command as JSON on stderr with a non-zero exit; `agent start` needs a timeout of about 5 seconds or more and reports `agent_not_ready` when the agent is blocked at the trust dialog, which the adapter reports as `blocked_at_startup`.
+- Every pane is registered with a role and a phase. A PM pane accepts only its launch; after that no send, clear or dialog answer reaches it. An unregistered, fresh or tainted pane accepts nothing.
+- A guarded send delivers only when the agent state is `idle` or `done`, the input line is readable and empty, and the state is still idle after that read. The caller's record runs before `agent prompt`, and a failing record sends nothing. Every other case is a deferral with a reason.
+- Clearing text a user left in the input line needs the maximum deferral to have elapsed and an idle agent. The text is handed to `discard` and each key is logged before it is sent. Up to five `ctrl+u` rounds run; a line that does not clear is `ClearFailed`.
+- The trust dialog is answered only for a worker pane whose worktree path equals the dialog path, with exactly the options `No, exit` and `Yes, I trust this folder`. Enter is sent only after a second read shows the trusted option selected.
+- Agent shells start with `env -i` plus an allowlist; the token is delivered through a 0600 file that the new shell deletes, so it never appears on the command line or the screen.
+
+Not verified: `ctrl+u` on a multi-line input in real Claude Code (the stand-in models it), and the `done` state. The delivery driver, pane re-registration after a restart and surfacing `PromptUnrecognized` belong to PM-25.
+
 ## 8. Permissions and how agents learn the commands
 
 - **Per-role profile** in `capstan.toml`: host, model, permission mode, allow and deny rules, and for workers `-- --settings '{"disableAllHooks":true}'` so the operator's own hooks (claw8) do not interfere (verified in the spike's additional finding on global Claude configuration). Turning hooks off also drops guards the operator may want, and the rest of `~/.claude` was not examined. Auto permission mode is off for spawned agents unless the profile says so; an agent that inherits auto mode runs commands without asking.
