@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
-    "fs-ext": "2.1.1"
+    "fs-ext": "2.1.1",
+    "smol-toml": "1.8.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",

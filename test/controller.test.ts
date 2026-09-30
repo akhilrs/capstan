@@ -43,6 +43,7 @@ import type {
   InitialProject,
   MutationContext,
   Role,
+  RoleDefinitionInput,
 } from "../src/controller/types.js";
 import { canonicalJson, digestJson } from "../src/controller/canonical.js";
 test("canonical JSON rejects accessor-backed values without invoking them", () => {
@@ -8326,6 +8327,353 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
       ).acceptedCandidateId,
       freshCandidate.candidateId,
     );
+  } finally {
+    cleanup(value);
+  }
+});
+
+function desiredRoles(
+  overrides: Partial<Record<string, Partial<RoleDefinitionInput>>> = {},
+): RoleDefinitionInput[] {
+  const base: RoleDefinitionInput[] = [
+    { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+    {
+      name: "reviewer",
+      kind: "Verifier",
+      host: "claude",
+      configHash: "b".repeat(64),
+    },
+  ];
+  return base.map((role) => ({ ...role, ...overrides[role.name] }));
+}
+
+function ledgerCounts(stateDirectory: string, projectId: string) {
+  const db = new Database(path.join(stateDirectory, "controller.sqlite"));
+  try {
+    const count = (table: string): number =>
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE project_id = ?`)
+          .get(projectId) as { n: number }
+      ).n;
+    return {
+      version: (
+        db
+          .prepare("SELECT state_version FROM projects WHERE project_id = ?")
+          .get(projectId) as { state_version: number }
+      ).state_version,
+      events: count("controller_events"),
+      requests: count("mutation_requests"),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+test("migration 0014 adds one table and leaves every existing row unchanged", async () => {
+  const value = await fixture();
+  const { core, project: info } = value;
+  try {
+    await addSeatAndActor(core, info.ownerCredential, "Developer", "before");
+    core.syncRoleDefinitions(
+      context(core, info.ownerCredential),
+      desiredRoles(),
+    );
+    core.close();
+    const databasePath = path.join(value.stateDirectory, "controller.sqlite");
+    const snapshot = (db: Database.Database): Record<string, unknown[]> => {
+      const tables = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions') ORDER BY name",
+          )
+          .all() as Array<{ name: string }>
+      ).map((table) => table.name);
+      return Object.fromEntries(
+        tables.map((name) => [
+          name,
+          db
+            .prepare(`SELECT * FROM ${name}`)
+            .all()
+            .map((row) => JSON.stringify(row))
+            .sort(),
+        ]),
+      );
+    };
+    const db = new Database(databasePath);
+    let before: Record<string, unknown[]>;
+    try {
+      db.exec("DROP TABLE role_definitions");
+      db.prepare("DELETE FROM schema_migrations WHERE version = 14").run();
+      before = snapshot(db);
+    } finally {
+      db.close();
+    }
+    const reopened = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    reopened.close();
+    const check = new Database(databasePath);
+    try {
+      assert.deepEqual(snapshot(check), before);
+      assert.deepEqual(check.pragma("foreign_key_check"), []);
+      assert.deepEqual(
+        check
+          .prepare(
+            "SELECT version, name FROM schema_migrations WHERE version >= 13 ORDER BY version",
+          )
+          .all(),
+        [
+          { version: 13, name: "0013_reconcile_queued_commands.sql" },
+          { version: 14, name: "0014_role_definitions.sql" },
+        ],
+      );
+      assert.equal(
+        (
+          check.prepare("SELECT COUNT(*) AS n FROM role_definitions").get() as {
+            n: number;
+          }
+        ).n,
+        0,
+      );
+    } finally {
+      check.close();
+    }
+    assert.ok(
+      readdirSync(value.stateDirectory).some((entry) =>
+        entry.startsWith("controller.sqlite.pre-v14-"),
+      ),
+      "a backup is taken before the migration",
+    );
+  } finally {
+    rmSync(value.stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("role sync inserts, updates, retires and reactivates with an audited event", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const owner = info.ownerCredential;
+    assert.deepEqual(core.roleDefinitions(), []);
+    const first = core.syncRoleDefinitions(
+      context(core, owner),
+      desiredRoles(),
+    );
+    assert.deepEqual(first, {
+      changed: true,
+      inserted: ["pm", "reviewer"],
+      updated: [],
+      reactivated: [],
+      retired: [],
+    });
+    assert.equal(core.roleKind("reviewer"), "Verifier");
+    assert.throws(
+      () => core.roleKind("designer"),
+      /not an active configured role/,
+    );
+
+    const second = core.syncRoleDefinitions(
+      context(core, owner),
+      desiredRoles({
+        reviewer: { host: "codex", configHash: "c".repeat(64) },
+      }).slice(1),
+    );
+    assert.deepEqual(second.updated, ["reviewer"]);
+    assert.deepEqual(second.retired, ["pm"]);
+    assert.throws(() => core.roleKind("pm"), /not an active configured role/);
+    assert.deepEqual(
+      core.roleDefinitions().map((role) => [role.name, role.host, role.state]),
+      [
+        ["pm", "claude", "retired"],
+        ["reviewer", "codex", "active"],
+      ],
+    );
+
+    const third = core.syncRoleDefinitions(
+      context(core, owner),
+      desiredRoles({ reviewer: { host: "codex", configHash: "c".repeat(64) } }),
+    );
+    assert.deepEqual(third.reactivated, ["pm"]);
+    assert.equal(core.roleKind("pm"), "PM");
+
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const events = db
+        .prepare(
+          "SELECT entity_type, entity_id, payload_json FROM controller_events WHERE entity_type = 'role_definition' ORDER BY sequence",
+        )
+        .all() as Array<{
+        entity_type: string;
+        entity_id: string;
+        payload_json: string;
+      }>;
+      assert.equal(events.length, 3);
+      assert.equal(events[0]!.entity_id, info.projectId);
+      const payload = JSON.parse(events[1]!.payload_json) as {
+        action: string;
+        payload: { roles: unknown[] };
+        details: { updated: string[]; retired: string[] };
+      };
+      assert.equal(payload.action, "role.sync");
+      assert.deepEqual(payload.payload.roles, [
+        {
+          name: "reviewer",
+          kind: "Verifier",
+          host: "codex",
+          configHash: "c".repeat(64),
+        },
+      ]);
+      assert.deepEqual(payload.details.updated, ["reviewer"]);
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("a repeated identical role sync writes nothing", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.syncRoleDefinitions(
+      context(core, info.ownerCredential),
+      desiredRoles(),
+    );
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    const result = core.syncRoleDefinitions(
+      context(core, info.ownerCredential),
+      desiredRoles(),
+    );
+    assert.equal(result.changed, false);
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("a role sync with a stale context conflicts and writes nothing", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const stale = context(core, info.ownerCredential);
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "interleaved-seat",
+      name: "interleaved",
+      role: "Developer",
+    });
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    assert.throws(
+      () => core.syncRoleDefinitions(stale, desiredRoles()),
+      StateVersionConflictError,
+    );
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+    assert.deepEqual(core.roleDefinitions(), []);
+    assert.equal(
+      core.syncRoleDefinitions(
+        context(core, info.ownerCredential),
+        desiredRoles(),
+      ).changed,
+      true,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("every write to seats and role definitions bumps the project version", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const versions = [core.stateVersion];
+    core.createSeat(context(core, info.ownerCredential), {
+      seatId: "version-seat",
+      name: "version",
+      role: "Developer",
+    });
+    versions.push(core.stateVersion);
+    core.syncRoleDefinitions(
+      context(core, info.ownerCredential),
+      desiredRoles(),
+    );
+    versions.push(core.stateVersion);
+    assert.deepEqual(
+      versions.map(
+        (version, index) => index === 0 || version > versions[index - 1]!,
+      ),
+      [true, true, true],
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("a role kind cannot change while a seat is named after the role", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const owner = info.ownerCredential;
+    core.syncRoleDefinitions(context(core, owner), desiredRoles());
+    core.createSeat(context(core, owner), {
+      seatId: "reviewer-seat",
+      name: "reviewer",
+      role: "Verifier",
+    });
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(
+          context(core, owner),
+          desiredRoles({
+            reviewer: { kind: "Developer", configHash: "d".repeat(64) },
+          }),
+        ),
+      MutationConflictError,
+    );
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+    const changed = core.syncRoleDefinitions(
+      context(core, owner),
+      desiredRoles({ pm: { kind: "Supervisor", configHash: "e".repeat(64) } }),
+    );
+    assert.deepEqual(changed.updated, ["pm"]);
+    assert.equal(core.roleKind("pm"), "Supervisor");
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("role sync needs the actor:manage capability and unique names", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(core, info.ownerCredential, "PM", "sync");
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(context(core, pm.credential), desiredRoles()),
+      AuthorizationError,
+    );
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(context(core, info.ownerCredential), [
+          ...desiredRoles(),
+          ...desiredRoles(),
+        ]),
+      /role names must be unique/,
+    );
+    assert.deepEqual(core.roleDefinitions(), []);
   } finally {
     cleanup(value);
   }

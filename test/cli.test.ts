@@ -24,9 +24,12 @@ import {
   findingDefectIdentity,
   escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
+  syncConfiguredRoles,
 } from "../src/cli.js";
 import { listenControl, requestControl } from "../src/control.js";
+import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
+import type { MutationContext } from "../src/controller/types.js";
 const cli = path.resolve("dist/src/cli.js");
 
 function invokeWithEnv(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
@@ -1432,6 +1435,230 @@ test("cstan pause and cancel need the live controller and an authenticated socke
   } finally {
     resumeGate.resolve();
     await closeControl?.();
+    core?.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+const configInputKinds = [
+  "project_config",
+  "task_brief",
+  "acceptance_criteria",
+  "policy",
+  "plan",
+] as const;
+
+async function openInitializedCore(cwd: string): Promise<ControllerCore> {
+  const config = JSON.parse(
+    readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
+  ) as { projectId: string; name: string; stateDirectory: string };
+  return ControllerCore.open({
+    stateDirectory: config.stateDirectory,
+    project: {
+      projectId: config.projectId,
+      name: config.name,
+      ownerCredential: readFileSync(
+        path.join(cwd, ".capstan/operator.key"),
+        "utf8",
+      ).trim(),
+      initialInputs: configInputKinds.map((kind) => ({
+        kind,
+        content:
+          kind === "acceptance_criteria"
+            ? ["criterion"]
+            : { kind, revision: 1 },
+      })),
+    },
+  });
+}
+
+test("cstan init writes a starter capstan.toml and never replaces an existing one", () => {
+  const fresh = mkdtempSync(path.join(os.tmpdir(), "cstan-config-init-"));
+  const existing = mkdtempSync(path.join(os.tmpdir(), "cstan-config-keep-"));
+  try {
+    const created = invoke(fresh, "init");
+    assert.equal(created.status, 0, created.stderr);
+    assert.match(created.stdout, /Wrote starter capstan\.toml/);
+    assert.equal(
+      statSync(path.join(fresh, "capstan.toml")).mode & 0o777,
+      0o600,
+    );
+    const check = invoke(fresh, "config", "check");
+    assert.equal(check.status, 0, check.stderr);
+    const resolved = JSON.parse(check.stdout) as {
+      roles: Array<{ name: string }>;
+    };
+    assert.deepEqual(
+      resolved.roles.map((role) => role.name),
+      ["pm", "developer", "reviewer"],
+    );
+
+    const custom =
+      'schema_version = 1\n# mine\n[hosts.h]\nkind = "claude"\n[roles.lead]\nkind = "PM"\nhost = "h"\n';
+    writeFileSync(path.join(existing, "capstan.toml"), custom, { mode: 0o600 });
+    const kept = invoke(existing, "init");
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.match(kept.stdout, /Kept existing capstan\.toml/);
+    assert.equal(
+      readFileSync(path.join(existing, "capstan.toml"), "utf8"),
+      custom,
+    );
+  } finally {
+    rmSync(fresh, { recursive: true, force: true });
+    rmSync(existing, { recursive: true, force: true });
+  }
+});
+
+test("cstan config check exits 3 for a missing or invalid file and does not echo a secret", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-check-"));
+  try {
+    const missing = invoke(cwd, "config", "check");
+    assert.equal(missing.status, 3);
+    assert.match(missing.stderr, /capstan\.toml does not exist/);
+    writeFileSync(
+      path.join(cwd, "capstan.toml"),
+      "model = sk-live-ABCDEFGHIJKLMNOP1234\n",
+      {
+        mode: 0o600,
+      },
+    );
+    const invalid = invoke(cwd, "config", "check");
+    assert.equal(invalid.status, 3);
+    assert.match(invalid.stderr, /not valid TOML at line 1/);
+    assert.ok(!invalid.stderr.includes("ABCDEFGH"));
+    assert.equal(invoke(cwd, "config").status, 2);
+    assert.equal(invoke(cwd, "config", "check", "extra").status, 2);
+    assert.equal(invoke(cwd, "config", "other").status, 2);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("cstan config sync writes once and a second run writes nothing", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-sync-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const blocked = invoke(cwd, "config", "sync");
+    assert.equal(blocked.status, 4);
+    assert.match(blocked.stderr, /controller record does not exist/);
+
+    (await openInitializedCore(cwd)).close();
+    const first = invoke(cwd, "config", "sync");
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(first.stdout), {
+      schemaVersion: 1,
+      changed: true,
+      inserted: ["developer", "pm", "reviewer"],
+      updated: [],
+      reactivated: [],
+      retired: [],
+    });
+    const versionOf = async (): Promise<number> => {
+      const core = await openInitializedCore(cwd);
+      try {
+        return core.stateVersion;
+      } finally {
+        core.close();
+      }
+    };
+    const afterFirst = await versionOf();
+    const second = invoke(cwd, "config", "sync");
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(
+      (JSON.parse(second.stdout) as { changed: boolean }).changed,
+      false,
+    );
+    assert.equal(await versionOf(), afterFirst);
+
+    const toml = path.join(cwd, "capstan.toml");
+    writeFileSync(
+      toml,
+      readFileSync(toml, "utf8").replace(
+        'kind = "Verifier"',
+        'kind = "Verifier"\nmodel = "opus"',
+      ),
+      { mode: 0o600 },
+    );
+    const third = invoke(cwd, "config", "sync");
+    assert.equal(third.status, 0, third.stderr);
+    assert.deepEqual(
+      (JSON.parse(third.stdout) as { updated: string[] }).updated,
+      ["reviewer"],
+    );
+
+    writeFileSync(
+      toml,
+      readFileSync(toml, "utf8").replace(
+        "schema_version = 1\n",
+        'schema_version = 1\n[project]\nname = "other"\n',
+      ),
+      { mode: 0o600 },
+    );
+    const mismatched = invoke(cwd, "config", "sync");
+    assert.equal(mismatched.status, 3);
+    assert.match(mismatched.stderr, /project\.name does not match/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("role sync retries one version conflict and exits blocked on a second", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-conflict-"));
+  let core: ControllerCore | undefined;
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    core = await openInitializedCore(cwd);
+    const credential = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    const roleConfig = loadCapstanConfig(cwd);
+    let interleavedSeats = 0;
+    let conflictsToForce = 0;
+    const freshContext = (): MutationContext => ({
+      credential,
+      requestId: `req-${randomUUID()}`,
+      idempotencyKey: `idem-${randomUUID()}`,
+      expectedVersion: core!.stateVersion,
+      inputRevision: core!.inputRevision,
+    });
+    const contextThenInterleave = (): MutationContext => {
+      const stale = freshContext();
+      if (conflictsToForce > 0) {
+        conflictsToForce -= 1;
+        interleavedSeats += 1;
+        core!.createSeat(freshContext(), {
+          seatId: `interleaved-${interleavedSeats}`,
+          name: `interleaved-${interleavedSeats}`,
+          role: "Developer",
+        });
+      }
+      return stale;
+    };
+    conflictsToForce = 1;
+    assert.equal(
+      syncConfiguredRoles(core, roleConfig, contextThenInterleave).changed,
+      true,
+    );
+    assert.equal(core.roleDefinitions().length, 3);
+    const changed = {
+      ...roleConfig,
+      roles: roleConfig.roles.map((role) => ({
+        ...role,
+        configHash: "f".repeat(64),
+      })),
+    };
+    conflictsToForce = 2;
+    assert.throws(
+      () => syncConfiguredRoles(core!, changed, contextThenInterleave),
+      /conflicted with another change twice/,
+    );
+    assert.ok(
+      core
+        .roleDefinitions()
+        .every((role) => role.configHash !== "f".repeat(64)),
+    );
+  } finally {
     core?.close();
     rmSync(cwd, { recursive: true, force: true });
   }

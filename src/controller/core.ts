@@ -41,6 +41,9 @@ import type {
   RunState,
   RuntimeSessionSummary,
   RuntimeState,
+  RoleDefinition,
+  RoleDefinitionInput,
+  RoleSyncResult,
   SeatInput,
   WorkItemInput,
 } from "./types.js";
@@ -980,6 +983,156 @@ export class ControllerCore {
         event: { entityType: "seat", entityId: input.seatId, stateVersion: 0 },
       };
     });
+  }
+
+  roleDefinitions(): readonly RoleDefinition[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT role_name, kind, host, config_hash, state FROM role_definitions WHERE project_id = ? ORDER BY role_name",
+        )
+        .all(this.#projectId) as Array<{
+        role_name: string;
+        kind: RoleDefinition["kind"];
+        host: string;
+        config_hash: string;
+        state: RoleDefinition["state"];
+      }>
+    ).map((row) => ({
+      name: row.role_name,
+      kind: row.kind,
+      host: row.host,
+      configHash: row.config_hash,
+      state: row.state,
+    }));
+  }
+
+  roleKind(roleName: string): RoleDefinition["kind"] {
+    const definition = this.roleDefinitions().find(
+      (candidate) => candidate.name === roleName,
+    );
+    if (definition?.state !== "active")
+      throw new ControllerError(
+        "role is not an active configured role definition",
+      );
+    return definition.kind;
+  }
+
+  syncRoleDefinitions(
+    context: MutationContext,
+    desired: readonly RoleDefinitionInput[],
+  ): RoleSyncResult {
+    const sorted = [...desired].sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    );
+    if (new Set(sorted.map((role) => role.name)).size !== sorted.length)
+      throw new TypeError("role names must be unique");
+    const difference = this.#roleDifference(sorted);
+    if (!difference.changed) return difference;
+    // Every write to role_definitions and seats must bump projects.state_version:
+    // the caller creates the context before this pre-check, so a matching
+    // expected version proves the rows read above are still current.
+    return this.#mutate(
+      context,
+      "role.sync",
+      "actor:manage",
+      { roles: sorted },
+      () => {
+        const now = new Date().toISOString();
+        const insert = this.#database.prepare(
+          "INSERT INTO role_definitions(project_id, role_name, kind, host, config_hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+        );
+        const update = this.#database.prepare(
+          "UPDATE role_definitions SET kind = ?, host = ?, config_hash = ?, state = 'active', updated_at = ? WHERE project_id = ? AND role_name = ?",
+        );
+        const retire = this.#database.prepare(
+          "UPDATE role_definitions SET state = 'retired', updated_at = ? WHERE project_id = ? AND role_name = ?",
+        );
+        const byName = new Map(sorted.map((role) => [role.name, role]));
+        for (const name of difference.inserted) {
+          const role = byName.get(name)!;
+          insert.run(
+            this.#projectId,
+            name,
+            role.kind,
+            role.host,
+            role.configHash,
+            now,
+            now,
+          );
+        }
+        for (const name of [...difference.updated, ...difference.reactivated]) {
+          const role = byName.get(name)!;
+          update.run(
+            role.kind,
+            role.host,
+            role.configHash,
+            now,
+            this.#projectId,
+            name,
+          );
+        }
+        for (const name of difference.retired)
+          retire.run(now, this.#projectId, name);
+        return {
+          value: difference,
+          event: {
+            entityType: "role_definition",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: difference,
+          },
+        };
+      },
+    );
+  }
+
+  #roleDifference(desired: readonly RoleDefinitionInput[]): RoleSyncResult {
+    const stored = new Map(
+      this.roleDefinitions().map((definition) => [definition.name, definition]),
+    );
+    const seatNames = new Set(
+      (
+        this.#database
+          .prepare("SELECT name FROM seats WHERE project_id = ?")
+          .all(this.#projectId) as Array<{ name: string }>
+      ).map((seat) => seat.name),
+    );
+    const inserted: string[] = [];
+    const updated: string[] = [];
+    const reactivated: string[] = [];
+    const retired: string[] = [];
+    for (const role of desired) {
+      const current = stored.get(role.name);
+      if (!current) {
+        inserted.push(role.name);
+        continue;
+      }
+      const differs =
+        current.kind !== role.kind ||
+        current.host !== role.host ||
+        current.configHash !== role.configHash;
+      if (current.kind !== role.kind && seatNames.has(role.name))
+        throw new MutationConflictError(
+          "role kind cannot change while a seat is named after the role",
+        );
+      if (current.state === "retired") reactivated.push(role.name);
+      else if (differs) updated.push(role.name);
+    }
+    const wanted = new Set(desired.map((role) => role.name));
+    for (const definition of stored.values())
+      if (definition.state === "active" && !wanted.has(definition.name))
+        retired.push(definition.name);
+    return {
+      changed:
+        inserted.length + updated.length + reactivated.length + retired.length >
+        0,
+      inserted,
+      updated,
+      reactivated,
+      retired,
+    };
   }
 
   createWorkItem(

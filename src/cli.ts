@@ -9,6 +9,7 @@ import {
   ControllerCore,
   type CompletedWorkReport,
   type ControllerStatus,
+  StateVersionConflictError,
 } from "./controller/core.js";
 import {
   M1BridgeAdapter,
@@ -31,6 +32,7 @@ import type {
   MutationContext,
   ProjectInput,
   Role,
+  RoleSyncResult,
 } from "./controller/types.js";
 import {
   RoleRuntimeManager,
@@ -38,6 +40,13 @@ import {
   type RoleRuntimeSession,
 } from "./runtime/role-runtime-manager.js";
 import { listenControl, requestControl } from "./control.js";
+import {
+  CONFIG_FILE_NAME,
+  ConfigError,
+  STARTER_CONFIG,
+  loadCapstanConfig,
+  type CapstanConfig,
+} from "./config/capstan-config.js";
 
 const CONFIG_NAME = ".capstan/project.json";
 const KEY_NAME = ".capstan/operator.key";
@@ -596,9 +605,43 @@ async function inspectController(
   }
 }
 
+export function syncConfiguredRoles(
+  core: ControllerCore,
+  roleConfig: CapstanConfig,
+  newContext: () => MutationContext,
+): RoleSyncResult {
+  const desired = roleConfig.roles.map((role) => ({
+    name: role.name,
+    kind: role.kind,
+    host: role.host,
+    configHash: role.configHash,
+  }));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return core.syncRoleDefinitions(newContext(), desired);
+    } catch (error) {
+      if (!(error instanceof StateVersionConflictError)) throw error;
+      if (attempt > 0)
+        throw new BlockedError(
+          "role sync conflicted with another change twice; run the command again",
+        );
+    }
+  }
+}
+
+function loadRoleConfig(cwd: string): CapstanConfig {
+  try {
+    return loadCapstanConfig(cwd);
+  } catch (error) {
+    if (error instanceof ConfigError)
+      throw new InvalidInputError(error.message);
+    throw error;
+  }
+}
+
 function usage(): never {
   fail(
-    "usage: cstan init | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json]",
+    "usage: cstan init | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json]",
   );
 }
 
@@ -675,9 +718,54 @@ async function runCli(argv: string[]): Promise<number> {
       mode: 0o600,
     });
     fs.mkdirSync(config.stateDirectory, { recursive: true, mode: 0o700 });
+    const starterPath = path.join(cwd, CONFIG_FILE_NAME);
+    let starterWritten = false;
+    if (!fs.existsSync(starterPath)) {
+      fs.writeFileSync(starterPath, STARTER_CONFIG, {
+        flag: "wx",
+        mode: 0o600,
+      });
+      starterWritten = true;
+    }
     process.stdout.write(
-      `Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
+      `${starterWritten ? `Wrote starter ${CONFIG_FILE_NAME}\n` : `Kept existing ${CONFIG_FILE_NAME}\n`}Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
     );
+    return EXIT.ok;
+  }
+  if (command === "config") {
+    const [subcommand, ...extra] = rest;
+    if ((subcommand !== "check" && subcommand !== "sync") || extra.length !== 0)
+      usage();
+    const roleConfig = loadRoleConfig(cwd);
+    if (subcommand === "check") {
+      process.stdout.write(`${JSON.stringify(roleConfig, null, 2)}\n`);
+      return EXIT.ok;
+    }
+    const { config, credential } = loadConfig(cwd);
+    if (
+      roleConfig.projectName !== null &&
+      roleConfig.projectName !== config.name
+    )
+      throw new InvalidInputError(
+        `${CONFIG_FILE_NAME} project.name does not match the initialized project`,
+      );
+    if (!fs.existsSync(path.join(config.stateDirectory, "controller.sqlite")))
+      throw new BlockedError(
+        "controller record does not exist; create it before syncing roles",
+      );
+    const core = await ControllerCore.open({
+      stateDirectory: config.stateDirectory,
+      project: project(config, credential, []),
+      workspaceRoot: cwd,
+    });
+    try {
+      const result = syncConfiguredRoles(core, roleConfig, () =>
+        context(core, credential),
+      );
+      output({ schemaVersion: 1, ...result }, true);
+    } finally {
+      core.close();
+    }
     return EXIT.ok;
   }
   if (command === "run") {

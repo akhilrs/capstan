@@ -108,6 +108,11 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  14: {
+    version: 14,
+    name: "0014_role_definitions.sql",
+    url: new URL("../../migrations/0014_role_definitions.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(
