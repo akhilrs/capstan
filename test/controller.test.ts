@@ -8385,7 +8385,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'pm_restarts', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -8405,6 +8405,9 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "pm_restarts",
+        "agent_panes",
+        "fallback_panes",
         "message_input_clears",
         "message_rejections",
         "message_resolutions",
@@ -8446,6 +8449,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 13, name: "0013_reconcile_queued_commands.sql" },
           { version: 14, name: "0014_role_definitions.sql" },
           { version: 15, name: "0015_messages.sql" },
+          { version: 16, name: "0016_panes_and_pm_restarts.sql" },
         ],
       );
       assert.equal(

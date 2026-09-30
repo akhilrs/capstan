@@ -834,3 +834,26 @@ test("a prompt file is resolved inside the project and only its hash is kept", (
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("the prompt text is kept on the role for the launcher and is not part of the role hash", () => {
+  const inline = VALID.replace(
+    'kind = "PM"',
+    'kind = "PM"\nprompt = "Work carefully.\\nAsk when unsure."',
+  );
+  withConfig(inline, (directory) => {
+    const role = loadCapstanConfig(directory).roles.find(
+      (r) => r.name === "pm",
+    )!;
+    assert.equal(role.promptText, "Work carefully.\nAsk when unsure.");
+    assert.equal(role.prompt.source, "inline");
+    assert.ok(
+      !JSON.stringify(role).includes("Work carefully"),
+      "config check prints roles as JSON and must not echo the text",
+    );
+  });
+  withConfig(VALID, (directory) => {
+    assert.ok(
+      loadCapstanConfig(directory).roles.every((r) => r.promptText === null),
+    );
+  });
+});

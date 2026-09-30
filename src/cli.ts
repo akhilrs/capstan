@@ -667,7 +667,14 @@ const DAEMON_LOG_NAME = "daemon.log";
 const ROUTED_COMMANDS: ReadonlySet<string> = new Set(
   Object.keys(ROUTES).filter(
     (name) =>
-      !["status", "ping", "shutdown", "cancel", "pm-restart"].includes(name),
+      ![
+        "status",
+        "ping",
+        "shutdown",
+        "cancel",
+        "pm-restart",
+        "launch",
+      ].includes(name),
   ),
 );
 
@@ -739,6 +746,12 @@ function controllerUnavailable(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+const LAUNCHER_CLIENT_TIMEOUT_MS = 600_000;
+
+/** CAPSTAN_LAUNCH=off keeps the daemon away from Herdr: no driver, no launcher, no PM launch at start. The test suite sets it so no test touches a real Herdr session. */
+function launchDisabled(): boolean {
+  return process.env.CAPSTAN_LAUNCH === "off";
+}
 const WAIT_CLIENT_TIMEOUT_MS = (MAX_WAIT_TIMEOUT_SECONDS + 30) * 1000;
 
 function renderMessages(result: unknown): string {
@@ -823,7 +836,11 @@ async function runRouted(
         credential,
         command,
         args,
-        command === "wait" ? WAIT_CLIENT_TIMEOUT_MS : undefined,
+        command === "wait"
+          ? WAIT_CLIENT_TIMEOUT_MS
+          : command === "spawn" || command === "pm-restart"
+            ? LAUNCHER_CLIENT_TIMEOUT_MS
+            : undefined,
       ),
       json,
       command,
@@ -843,7 +860,7 @@ async function runRouted(
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan pm restart",
   );
 }
 
@@ -985,7 +1002,7 @@ async function runCli(argv: string[]): Promise<number> {
       ? loadRoleConfig(cwd)
       : undefined;
     const adapter =
-      capstan === undefined
+      capstan === undefined || launchDisabled()
         ? undefined
         : new HerdrAdapter({
             run: createHerdrRunner({ session: capstan.herdrSession }),
@@ -1018,6 +1035,7 @@ async function runCli(argv: string[]): Promise<number> {
         ...(capstan === undefined ? {} : { capstan }),
         ...(adapter === undefined ? {} : { adapter }),
         ...(notifier === undefined ? {} : { notifier }),
+        cliPath: fileURLToPath(import.meta.url),
       });
     } catch (error) {
       if (error instanceof ControllerOwnershipError)
@@ -1041,10 +1059,37 @@ async function runCli(argv: string[]): Promise<number> {
         cliPath: fileURLToPath(import.meta.url),
         env: process.env,
       });
+      const launched =
+        fs.existsSync(path.join(cwd, CONFIG_FILE_NAME)) && !launchDisabled()
+          ? await callDaemon(
+              operator.socketPath,
+              operator.credential,
+              "launch",
+              [],
+              LAUNCHER_CLIENT_TIMEOUT_MS,
+            )
+          : undefined;
+      let launch: unknown;
+      let failed = false;
+      if (launched?.kind === "response") {
+        if (launched.response.ok) {
+          launch = launched.response.result;
+          failed = (launch as { state?: string }).state === "failed";
+        } else {
+          launch = `${launched.response.code}: ${launched.response.message}`;
+          failed = true;
+        }
+      }
       output(
-        { running: true, pid: result.pid, started: result.started },
+        {
+          running: true,
+          pid: result.pid,
+          started: result.started,
+          ...(launch === undefined ? {} : { launch }),
+        },
         parsed.json,
       );
+      if (failed) return EXIT.blocked;
     } catch (error) {
       throw controllerUnavailable(error);
     }

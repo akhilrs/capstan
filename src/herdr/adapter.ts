@@ -50,6 +50,9 @@ export class PmPaneError extends AdapterError {
 export class PhaseError extends AdapterError {
   override readonly name = "PhaseError";
 }
+export class PaneGone extends AdapterError {
+  override readonly name = "PaneGone";
+}
 export class AgentPaneMismatch extends AdapterError {
   override readonly name = "AgentPaneMismatch";
 }
@@ -397,6 +400,93 @@ export class HerdrAdapter {
     requireMatch(paneId, PANE_PATTERN, "pane id");
     await this.#runChecked(["pane", "close", paneId]);
     this.#panes.delete(paneId);
+  }
+
+  /**
+   * Registers a pane an earlier adapter instance created (a daemon that
+   * restarted), after Herdr confirms the pane exists and that the agent name
+   * still points at it. Nothing is registered otherwise.
+   */
+  async adoptPane(input: {
+    paneId: string;
+    role: PaneRole;
+    agent: string;
+    workspaceId: string | null;
+    worktreePath: string | null;
+  }): Promise<void> {
+    requireMatch(input.paneId, PANE_PATTERN, "pane id");
+    if (!isAgentName(input.agent))
+      throw new InvalidArgumentError("agent name is not acceptable");
+    if (this.#panes.has(input.paneId))
+      throw new PhaseError("the pane is already registered");
+    await this.#assertPaneExists(input.paneId);
+    const state = await this.agentState(input.agent);
+    if (state.paneId !== input.paneId)
+      throw new AgentPaneMismatch(
+        "the agent name points at another pane than the recorded one",
+      );
+    this.#panes.set(input.paneId, {
+      role: input.role,
+      phase: "started",
+      kind: "claude",
+      agent: input.agent,
+      ...(input.workspaceId === null ? {} : { workspaceId: input.workspaceId }),
+      ...(input.worktreePath === null
+        ? {}
+        : { worktreePath: input.worktreePath }),
+    });
+  }
+
+  /** Registers the fallback watch pane of an earlier instance; it never takes input from the adapter again. */
+  async adoptShellPane(
+    paneId: string,
+    workspaceId: string | null,
+  ): Promise<void> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    await this.#assertPaneExists(paneId);
+    this.#panes.set(paneId, {
+      role: "worker",
+      phase: "started",
+      kind: "shell",
+      ...(workspaceId === null ? {} : { workspaceId }),
+    });
+  }
+
+  /** Runs one command in a shell pane the adapter just created (fresh or prepared), then retires the pane from input. */
+  async runInPane(paneId: string, command: string): Promise<void> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    const entry = this.#panes.get(paneId);
+    if (entry === undefined)
+      throw new UnknownPaneError("the pane was not created by this adapter");
+    if (
+      entry.role !== "worker" ||
+      entry.kind !== "shell" ||
+      (entry.phase !== "fresh" && entry.phase !== "prepared")
+    )
+      throw new PhaseError(
+        "only a fresh or prepared shell pane runs a command",
+      );
+    if (
+      typeof command !== "string" ||
+      command.trim() === "" ||
+      command.length > 2000 ||
+      !command.isWellFormed() ||
+      CONTROL_CHARACTERS.test(command)
+    )
+      throw new InvalidArgumentError("the command is not acceptable");
+    await this.#waitForFreshPrompt(paneId);
+    await this.#runChecked(["pane", "run", paneId, command]);
+    this.#panes.set(paneId, { ...entry, phase: "started" });
+  }
+
+  async #assertPaneExists(paneId: string): Promise<void> {
+    try {
+      await runJson(this.#run, ["pane", "get", paneId]);
+    } catch (error) {
+      if (error instanceof HerdrError && /not_found|no_such/.test(error.code))
+        throw new PaneGone("Herdr has no such pane");
+      throw error;
+    }
   }
 
   /** The pane the adapter registered for an agent, if any. */

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+
+// No test may reach a real Herdr session: the daemon and `cstan start` stay out of it.
+process.env.CAPSTAN_LAUNCH = "off";
 import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
@@ -2815,7 +2818,7 @@ test("a bad CAPSTAN_SOCKET is named and cstan pm restart accepts --json in eithe
       assert.equal(result.status, 4, `${args.join(" ")}: ${result.stderr}`);
       assert.match(
         result.stderr,
-        /not_implemented: pm-restart is not implemented yet/,
+        /not_configured: restarting the PM needs capstan.toml and Herdr/,
       );
     }
     assert.equal(invoke(cwd, "pm").status, 2);

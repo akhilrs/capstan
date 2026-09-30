@@ -118,6 +118,14 @@ const migrations: Readonly<
     name: "0015_messages.sql",
     url: new URL("../../migrations/0015_messages.sql", import.meta.url),
   },
+  16: {
+    version: 16,
+    name: "0016_panes_and_pm_restarts.sql",
+    url: new URL(
+      "../../migrations/0016_panes_and_pm_restarts.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

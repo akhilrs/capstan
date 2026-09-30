@@ -78,6 +78,8 @@ export type ResolvedRole = {
     readonly path: string | null;
     readonly hash: string | null;
   };
+  /** The prompt's text, kept for the launcher; it is not part of the role hash (the hash covers it through `prompt.hash`). */
+  readonly promptText: string | null;
   readonly configHash: string;
 };
 
@@ -381,7 +383,7 @@ function resolveRoles(
       role.hooks === undefined
         ? "off"
         : enumValue(role.hooks, `${at}.hooks`, ["off", "inherit"] as const);
-    const prompt = resolvePrompt(role, at, projectRoot);
+    const { prompt, text: promptText } = resolvePrompt(role, at, projectRoot);
     const resolved = {
       name,
       kind,
@@ -394,13 +396,19 @@ function resolveRoles(
       prompt,
     };
     const { source, hash } = prompt;
-    return {
+    const result = {
       ...resolved,
       configHash: digestJson({
         role: { ...resolved, prompt: { source, hash } },
         host,
       }),
     };
+    // Not enumerable: `cstan config check` prints roles as JSON and must not echo prompt text.
+    Object.defineProperty(result, "promptText", {
+      value: promptText,
+      enumerable: false,
+    });
+    return result as typeof result & { readonly promptText: string | null };
   });
 }
 
@@ -408,7 +416,7 @@ function resolvePrompt(
   role: Table,
   at: string,
   projectRoot: string,
-): ResolvedRole["prompt"] {
+): { prompt: ResolvedRole["prompt"]; text: string | null } {
   if (role.prompt !== undefined && role.prompt_file !== undefined)
     throw new ConfigError(`${at} sets both prompt and prompt_file`);
   if (role.prompt !== undefined) {
@@ -419,10 +427,13 @@ function resolvePrompt(
       true,
     );
     guardCredentialShape(text, `${at}.prompt`);
-    return { source: "inline", path: null, hash: sha256(text) };
+    return {
+      prompt: { source: "inline", path: null, hash: sha256(text) },
+      text,
+    };
   }
   if (role.prompt_file === undefined)
-    return { source: "none", path: null, hash: null };
+    return { prompt: { source: "none", path: null, hash: null }, text: null };
   const relative = requiredString(role.prompt_file, `${at}.prompt_file`, 200);
   if (path.isAbsolute(relative))
     throw new ConfigError(`${at}.prompt_file must be relative to the project`);
@@ -473,7 +484,10 @@ function resolvePrompt(
     throw new ConfigError(`${at}.prompt_file must not be empty`);
   assertSafeText(text, `${at}.prompt_file`, true);
   guardCredentialShape(text, `${at}.prompt_file`);
-  return { source: "file", path: realFile, hash: sha256(text) };
+  return {
+    prompt: { source: "file", path: realFile, hash: sha256(text) },
+    text,
+  };
 }
 
 function isExecutablePath(command: string): boolean {
