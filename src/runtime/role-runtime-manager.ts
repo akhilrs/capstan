@@ -27,6 +27,7 @@ const NODE_VERSION = "v24.6.0";
 const IMAGE =
   "ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3";
 const ROLE_NAMES = new Set<Role>(["PM", "Developer", "Verifier", "Supervisor"]);
+const MISSING_NETWORK = /network .* not found|No such network/i;
 
 export interface RoleControllerPaths {
   readonly journalPath: string;
@@ -1131,10 +1132,7 @@ export class RoleRuntimeManager {
         run(this.#docker, ["network", "inspect", session.networkName]);
         networkExists = true;
       } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !/network .* not found/i.test(error.message)
-        )
+        if (!(error instanceof Error) || !MISSING_NETWORK.test(error.message))
           throw error;
       }
       if (networkExists)
@@ -1143,10 +1141,7 @@ export class RoleRuntimeManager {
         run(this.#docker, ["network", "inspect", session.networkName]);
         throw new Error("runtime network remains after removal");
       } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !/network .* not found/i.test(error.message)
-        )
+        if (!(error instanceof Error) || !MISSING_NETWORK.test(error.message))
           throw error;
       }
       this.#bridgeSockets.delete(sessionId);

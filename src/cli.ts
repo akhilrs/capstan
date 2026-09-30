@@ -1907,8 +1907,16 @@ async function runCli(argv: string[]): Promise<number> {
             }
             if (cancellations.size)
               throw new BlockedError("cancellation is already in progress");
-            if (core.statusSnapshot().run.state === "canceled")
+            const runStateBeforeCancel = core.statusSnapshot().run.state;
+            if (runStateBeforeCancel === "canceled")
               return core.statusSnapshot().run;
+            if (
+              runStateBeforeCancel === "completed" ||
+              runStateBeforeCancel === "failed"
+            )
+              throw new BlockedError(
+                `a ${runStateBeforeCancel} run cannot be canceled`,
+              );
             const settled = Promise.withResolvers<void>();
             cancellations.add(settled.promise);
             try {
