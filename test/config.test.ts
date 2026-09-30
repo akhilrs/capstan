@@ -408,6 +408,7 @@ const unsafeValues: ReadonlyArray<[string, string]> = [
   ["a bidi override in model", 'model = "a\\u202Eb"'],
   ["a zero-width space in model", 'model = "a\\u200Bb"'],
   ["a line separator in allow", 'allow = ["a\\u2028b"]'],
+  ["a carriage-return escape in model", 'model = "a\\r\\nb"'],
   ["a whitespace-only allow entry", 'allow = ["   "]'],
   ["a whitespace-only prompt", 'prompt = "  \\n "'],
   ["an escape sequence in a prompt", 'prompt = "a\\u001bb"'],
@@ -452,6 +453,54 @@ test("a prompt may contain joiners but single-line fields may not, and single-li
       'kind = "Verifier"\nallow = ["Bash(ls) "]',
     ),
     /allow\[0\] must not have leading or trailing whitespace/,
+  );
+});
+
+test("a file with a byte-order mark and CRLF endings loads", () => {
+  withConfig(
+    Buffer.from(`\uFEFF${VALID.replaceAll("\n", "\r\n")}`),
+    (directory) => {
+      assert.equal(loadCapstanConfig(directory).roles.length, 2);
+    },
+  );
+});
+
+for (const [name, command] of [
+  ["a leading dash", "-rf"],
+  ["a bare dot", "."],
+  ["a double dot", ".."],
+  ["a space", "my tool"],
+])
+  test(`the loader rejects a host command with ${name}`, () =>
+    assertRejected(
+      VALID.replace(
+        'kind = "claude"',
+        `kind = "claude"\ncommand = "${command}"`,
+      ),
+      /command must be an executable name or path/,
+    ));
+
+test("the loader accepts a relative or absolute host command path", () => {
+  for (const command of ["./bin/claude", "/usr/local/bin/claude", "claude-2"])
+    withConfig(
+      VALID.replace(
+        'kind = "claude"',
+        `kind = "claude"\ncommand = "${command}"`,
+      ),
+      (directory) => {
+        assert.equal(loadCapstanConfig(directory).hosts[0]!.command, command);
+      },
+    );
+});
+
+test("a project name that looks like a credential is rejected", () => {
+  assertRejected(
+    VALID.replace(
+      "schema_version = 1\n",
+      'schema_version = 1\n[project]\nname = "sk-live-ABCDEFGHIJKLMNOP1234"\n\n',
+    ),
+    /project\.name looks like a credential/,
+    "ABCDEFGH",
   );
 });
 

@@ -86,11 +86,11 @@ export type CapstanConfig = {
 };
 
 const MAX_FILE_BYTES = 64 * 1024;
-const MAX_PROMPT_CHARS = 16 * 1024;
+const MAX_PROMPT_CHARS = MAX_FILE_BYTES;
 const MAX_LIST_ENTRIES = 64;
 const MAX_ENTRY_CHARS = 200;
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
-const COMMAND_PATTERN = /^[A-Za-z0-9._/-]{1,200}$/;
+const COMMAND_PATTERN = /^(?:\.\/)?[A-Za-z0-9_/][A-Za-z0-9._/-]{0,199}$/;
 const UNSAFE_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const CREDENTIAL_SHAPES: readonly RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{8,}/,
@@ -190,6 +190,7 @@ export function parseCapstanConfig(
   const project = optionalTable(root.project, "project");
   rejectUnknownKeys(project, ["name"], "project");
   const projectName = optionalString(project.name, "project.name", 256);
+  if (projectName !== null) guardCredentialShape(projectName, "project.name");
 
   const timerTable = optionalTable(root.timers, "timers");
   rejectUnknownKeys(timerTable, Object.keys(TIMER_DEFAULTS), "timers");

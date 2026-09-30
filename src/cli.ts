@@ -751,7 +751,7 @@ async function runCli(argv: string[]): Promise<number> {
     const { config, credential } = loadConfig(cwd);
     if (
       roleConfig.projectName !== null &&
-      roleConfig.projectName !== config.name
+      roleConfig.projectName.normalize("NFC") !== config.name.normalize("NFC")
     )
       throw new InvalidInputError(
         `${CONFIG_FILE_NAME} project.name does not match the initialized project`,

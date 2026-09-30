@@ -1616,6 +1616,29 @@ test("cstan config sync writes once and a second run writes nothing", async () =
   }
 });
 
+test("cstan config sync matches the project name across Unicode normalization forms", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-caf\u00e9-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    (await openInitializedCore(cwd)).close();
+    const name = path.basename(cwd);
+    assert.notEqual(name.normalize("NFD"), name.normalize("NFC"));
+    const toml = path.join(cwd, "capstan.toml");
+    writeFileSync(
+      toml,
+      readFileSync(toml, "utf8").replace(
+        "schema_version = 1\n",
+        `schema_version = 1\n[project]\nname = ${JSON.stringify(name.normalize("NFD"))}\n\n`,
+      ),
+      { mode: 0o600 },
+    );
+    const result = invoke(cwd, "config", "sync");
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("role sync retries one version conflict and exits blocked on a second", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-conflict-"));
   let core: ControllerCore | undefined;
