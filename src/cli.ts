@@ -781,9 +781,11 @@ async function runRouted(
   } catch (error) {
     const code =
       error instanceof Error && "code" in error ? String(error.code) : "";
-    if (agent && (code === "ENOENT" || code === "ECONNREFUSED"))
+    if (code === "ENOENT" || code === "ECONNREFUSED")
       throw new BlockedError(
-        "the controller is not running; ask the operator to run cstan start",
+        agent
+          ? "the controller is not running; ask the operator to run cstan start"
+          : "the controller stopped answering; run the command again to restart it",
       );
     throw error;
   }
@@ -987,7 +989,8 @@ async function runCli(argv: string[]): Promise<number> {
   if (
     command === "ping" ||
     (command !== undefined && ROUTED_COMMANDS.has(command)) ||
-    (command === "pm" && parseOptions(rest).positional[0] === "restart")
+    (command === "pm" &&
+      rest.filter((arg) => arg !== "--json")[0] === "restart")
   ) {
     const parsed = parseOptions(rest);
     if (command === "pm") parsed.positional.shift();

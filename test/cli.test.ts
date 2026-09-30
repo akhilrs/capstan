@@ -2650,6 +2650,11 @@ test("a bad CAPSTAN_SOCKET is named and cstan pm restart accepts --json in eithe
     }
     assert.equal(invoke(cwd, "pm").status, 2);
     assert.equal(invoke(cwd, "pm", "--json").status, 2);
+    assert.equal(
+      invoke(cwd, "pm", "--", "restart").status,
+      2,
+      "-- ends option parsing, so this is not the restart subcommand",
+    );
   } finally {
     killDaemon(cwd);
     rmSync(cwd, { recursive: true, force: true });

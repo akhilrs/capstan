@@ -303,6 +303,15 @@ export function logTail(logPath: string, fromOffset: number): string {
   }
 }
 
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
 export async function stopDaemon(
   socketPath: string,
   credential: string,
@@ -312,6 +321,7 @@ export async function stopDaemon(
   if (first.outcome === "down") return "not_running";
   const blocked = unavailable(first);
   if (blocked) throw blocked;
+  const pid = first.outcome === "running" ? first.pid : 0;
   const result = await callDaemon(socketPath, credential, "shutdown");
   if (result.kind !== "response" || !result.response.ok)
     throw new ControllerUnavailableError(
@@ -321,11 +331,18 @@ export async function stopDaemon(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    if ((await pingDaemon(socketPath, credential)).outcome === "down")
+    // Stopped means the process is gone: the kernel then releases the project
+    // lock. A closed listener alone is not enough, because the daemon frees
+    // the lock a moment after it stops accepting connections.
+    if (
+      pid > 0
+        ? !processAlive(pid)
+        : (await pingDaemon(socketPath, credential)).outcome === "down"
+    )
       return "stopped";
   }
   throw new ControllerUnavailableError(
     "start_timeout",
-    "the daemon did not stop in time; check the pid file in the state directory",
+    "the daemon did not exit in time; check the pid file in the state directory",
   );
 }

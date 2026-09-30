@@ -23,6 +23,7 @@ import {
   ensureDaemon,
   logTail,
   openDaemonLog,
+  stopDaemon,
   pingDaemon,
   scrubEnvironment,
 } from "../src/client.js";
@@ -815,6 +816,42 @@ test("the log tail starts at this run, strips control characters and stays short
       "(log unreadable)",
     );
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("stopDaemon returns only after the daemon process has exited, not when the listener closes", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-stop-"));
+  const socketPath = path.join(directory, "control.sock");
+  const script = `
+    const net = require("node:net");
+    const server = net.createServer((socket) => {
+      socket.once("data", (chunk) => {
+        const request = JSON.parse(chunk.toString("utf8"));
+        if (request.command === "shutdown") {
+          socket.end(JSON.stringify({ ok: true, result: { stopping: true } }) + "\\n");
+          server.close();
+          setTimeout(() => process.exit(0), 1200);
+        } else {
+          socket.end(JSON.stringify({ ok: true, result: { pong: true, pid: process.pid } }) + "\\n");
+        }
+      });
+    });
+    server.listen(process.argv[1], () => console.log("up"));
+  `;
+  const child = spawn(process.execPath, ["-e", script, socketPath], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  try {
+    await new Promise<void>((resolve) =>
+      child.stdout.once("data", () => resolve()),
+    );
+    const began = Date.now();
+    assert.equal(await stopDaemon(socketPath, "c".repeat(40), 8000), "stopped");
+    assert.ok(Date.now() - began >= 1000, "returned before the process exited");
+    assert.throws(() => process.kill(child.pid!, 0), /ESRCH/);
+  } finally {
+    child.kill("SIGKILL");
     rmSync(directory, { recursive: true, force: true });
   }
 });
