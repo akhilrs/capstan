@@ -1527,6 +1527,8 @@ async function runCli(argv: string[]): Promise<number> {
             fs.chmodSync(evidenceDirectory, 0o700);
           }
         }
+        if (stopping)
+          throw new Error("run canceled before runtime provisioning");
         const pending = manager.provision(role, seatId, workspace, {
           journalPath: path.join(journalDir, `${role.toLowerCase()}.jsonl`),
           receiptSocketPath: receiptPath,
@@ -1856,6 +1858,7 @@ async function runCli(argv: string[]): Promise<number> {
       let cleanupComplete = false;
       const cancellations = new Set<Promise<void>>();
       let operatorCancellationIncomplete = false;
+      let pauseRequests = 0;
       try {
         closeControl = await listenControl(
           path.join(config.stateDirectory, "control.sock"),
@@ -1870,13 +1873,19 @@ async function runCli(argv: string[]): Promise<number> {
                 throw new BlockedError(
                   "only an active or paused run can pause",
                 );
+              pauseRequests++;
               paused = true;
               return core.statusSnapshot().run;
             }
             if (action === "resume") {
               if (core.statusSnapshot().run.state !== "paused")
                 throw new BlockedError("only a paused run can resume");
+              const pauseRequestsBefore = pauseRequests;
               await inspectUncertainCommands(true);
+              if (pauseRequests !== pauseRequestsBefore)
+                throw new BlockedError(
+                  "a pause was requested while resume was reconciling; the run stays paused",
+                );
               if (
                 core
                   .listRuntimeSessions()
@@ -1898,6 +1907,8 @@ async function runCli(argv: string[]): Promise<number> {
             }
             if (cancellations.size)
               throw new BlockedError("cancellation is already in progress");
+            if (core.statusSnapshot().run.state === "canceled")
+              return core.statusSnapshot().run;
             const settled = Promise.withResolvers<void>();
             cancellations.add(settled.promise);
             try {
