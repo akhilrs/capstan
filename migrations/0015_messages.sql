@@ -116,6 +116,7 @@ CREATE TABLE message_input_clears (
 CREATE TABLE message_rejections (
   project_id TEXT NOT NULL REFERENCES projects(project_id),
   rejection_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
   message_id TEXT,
   action TEXT NOT NULL,
   code TEXT NOT NULL,
@@ -125,6 +126,7 @@ CREATE TABLE message_rejections (
   reason TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY (project_id, rejection_id),
+  UNIQUE (project_id, sequence),
   FOREIGN KEY (project_id, actor_id) REFERENCES actors(project_id, actor_id)
 ) STRICT, WITHOUT ROWID;
 

@@ -1132,6 +1132,9 @@ test("enqueue validates the body and needs the send capability; audit payloads n
       "\ufeffbom",
       "a\u0085b",
       "a\u2028b",
+      "\u200d\u200c",
+      "a\ud800b",
+      "a\u{e0041}b",
       "x".repeat(16 * 1024 + 1),
       42 as never,
       undefined as never,
@@ -1324,6 +1327,84 @@ test("a retry with the same idempotency key returns the stored result, not the f
   }
 });
 
+test("advanceMessaging needs exactly the six timers", async () => {
+  const w = await world();
+  try {
+    const missing: Record<string, number> = { ...timers };
+    delete missing.workerAckTimeoutSeconds;
+    assert.throws(
+      () => w.core.advanceMessaging(w.ctx(), missing as never),
+      /workerAckTimeoutSeconds/,
+    );
+    assert.throws(
+      () => w.core.advanceMessaging(w.ctx(), { ...timers, extra: 1 } as never),
+      /unknown timer extra/,
+    );
+    assert.throws(
+      () => w.core.advanceMessaging(w.ctx(), null as never),
+      TypeError,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("agent ids and lookups share one 128 character rule", async () => {
+  const w = await world();
+  try {
+    const { core, owner } = w;
+    core.createSeat(w.ctx(owner), {
+      seatId: "long-seat",
+      name: "long",
+      role: "Developer",
+    });
+    const actor = core.createActor(w.ctx(owner), {
+      displayName: "long",
+      role: "Developer",
+      seatId: "long-seat",
+    });
+    const agentId = `a${"b".repeat(126)}c`;
+    core.registerAgent(w.ctx(owner), {
+      agentId,
+      roleName: "developer",
+      seatId: "long-seat",
+      actorId: actor.actorId,
+    });
+    assert.equal(core.agentRecord(agentId)!.agentId, agentId);
+    assert.equal(core.messagesFor(agentId).length, 0);
+    assert.throws(
+      () =>
+        core.registerAgent(w.ctx(owner), {
+          agentId: "x".repeat(129),
+          roleName: "developer",
+          seatId: "long-seat",
+          actorId: actor.actorId,
+        }),
+      TypeError,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("rejections come back in the order they were recorded even with a frozen clock", async () => {
+  const w = await world();
+  try {
+    const ids = Array.from({ length: 25 }, (_, index) => `missing-${index}`);
+    for (const id of ids)
+      assert.throws(
+        () => w.core.ackMessage(w.ctx(w.developer.credential), id),
+        MessageTransitionError,
+      );
+    assert.deepEqual(
+      w.core.messageRejections().map((rejection) => rejection.messageId),
+      ids,
+    );
+  } finally {
+    close(w);
+  }
+});
+
 test("advanceMessaging rejects timers that are not positive finite numbers", async () => {
   const w = await world();
   try {
@@ -1359,6 +1440,8 @@ test("a clock that moves backwards never produces out-of-order history or a wait
     w.advance(-500);
     core.recordAgentObservation(w.ctx(), pm.agentId, "idle");
     core.endWait(w.ctx(pm.credential), waitId);
+    w.advance(-1000);
+    core.replaceAgentGeneration(w.ctx(), pm.agentId);
     const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
     try {
       const history = (

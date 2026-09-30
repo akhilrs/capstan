@@ -81,7 +81,6 @@ const ROLE_KINDS: readonly string[] = [
   "Verifier",
   "Supervisor",
 ];
-const AGENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -99,8 +98,13 @@ function safeText(
   maxChars: number,
   multiline: boolean,
 ): string {
-  if (typeof value !== "string" || value.trim().length === 0)
+  if (
+    typeof value !== "string" ||
+    value.replace(/[\u200c\u200d]/g, "").trim().length === 0
+  )
     throw new TypeError(`${label} must be a non-empty string`);
+  if (!value.isWellFormed())
+    throw new TypeError(`${label} must be well-formed UTF-16`);
   if (value.length > maxChars)
     throw new TypeError(`${label} must be at most ${maxChars} characters`);
   const checked = multiline ? value.replace(/[\n\t\u200c\u200d]/g, "") : value;
@@ -111,10 +115,26 @@ function safeText(
   return value;
 }
 
+const TIMER_NAMES: readonly (keyof MessagingTimers)[] = [
+  "maxDeferralSeconds",
+  "pmAckTimeoutSeconds",
+  "pmNotifyAfterSeconds",
+  "notifyIntervalSeconds",
+  "stallAfterSeconds",
+  "workerAckTimeoutSeconds",
+];
+
 function assertTimers(timers: MessagingTimers): void {
-  for (const [name, value] of Object.entries(timers))
-    if (!Number.isFinite(value) || value <= 0)
+  if (typeof timers !== "object" || timers === null)
+    throw new TypeError("timers must be an object");
+  for (const name of Object.keys(timers))
+    if (!TIMER_NAMES.includes(name as keyof MessagingTimers))
+      throw new TypeError(`unknown timer ${name}`);
+  for (const name of TIMER_NAMES) {
+    const value: unknown = timers[name];
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
       throw new TypeError(`timer ${name} must be a positive finite number`);
+  }
 }
 
 export class ControllerError extends Error {
@@ -1322,11 +1342,7 @@ export class ControllerCore {
   }
 
   registerAgent(context: MutationContext, input: AgentInput): AgentRecord {
-    if (
-      typeof input.agentId !== "string" ||
-      !AGENT_ID_PATTERN.test(input.agentId)
-    )
-      throw new TypeError("agent id must be 1-64 safe ASCII characters");
+    safeId(input.agentId, "agent id");
     safeId(input.seatId, "seat id");
     safeId(input.actorId, "actor id");
     if (
@@ -1568,7 +1584,7 @@ export class ControllerCore {
         this.#closeWaits(agentId, now);
         this.#database
           .prepare(
-            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', ? FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
+            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
           )
           .run(this.#projectId, agentId, now, this.#projectId, agentId);
         const cancelled = this.#cancelMessagesOf(
@@ -1686,7 +1702,7 @@ export class ControllerCore {
     return (
       this.#database
         .prepare(
-          "SELECT rejection_id, message_id, action, code, from_state, attempted_state, actor_id, reason FROM message_rejections WHERE project_id = ? ORDER BY created_at, rejection_id",
+          "SELECT rejection_id, message_id, action, code, from_state, attempted_state, actor_id, reason FROM message_rejections WHERE project_id = ? ORDER BY sequence",
         )
         .all(this.#projectId) as Array<{
         rejection_id: string;
@@ -2537,11 +2553,12 @@ export class ControllerCore {
     const rejectionId = randomUUID();
     this.#database
       .prepare(
-        "INSERT INTO message_rejections(project_id, rejection_id, message_id, action, code, from_state, attempted_state, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO message_rejections(project_id, rejection_id, sequence, message_id, action, code, from_state, attempted_state, actor_id, reason, created_at) VALUES (?, ?, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM message_rejections WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         this.#projectId,
         rejectionId,
+        this.#projectId,
         rejection.messageId ?? null,
         action,
         rejection.code,
