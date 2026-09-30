@@ -41,6 +41,20 @@ import {
 } from "./runtime/role-runtime-manager.js";
 import { listenControl, requestControl } from "./control.js";
 import {
+  ControllerUnavailableError,
+  callDaemon,
+  ensureDaemon,
+  stopDaemon,
+  type WireResult,
+} from "./client.js";
+import {
+  PLACEHOLDER_INPUTS,
+  ROUTES,
+  SOCKET_NAME,
+  runDaemon,
+} from "./daemon.js";
+import { ControllerOwnershipError } from "./controller/ownership.js";
+import {
   CONFIG_FILE_NAME,
   ConfigError,
   STARTER_CONFIG,
@@ -639,9 +653,126 @@ function loadRoleConfig(cwd: string): CapstanConfig {
   }
 }
 
+const DAEMON_LOG_NAME = "daemon.log";
+const ROUTED_COMMANDS: ReadonlySet<string> = new Set(
+  Object.keys(ROUTES).filter(
+    (name) => !["status", "ping", "shutdown", "cancel"].includes(name),
+  ),
+);
+
+function agentEnvironment():
+  { readonly token: string; readonly socketPath: string } | undefined {
+  const token = process.env.CAPSTAN_TOKEN;
+  const socketPath = process.env.CAPSTAN_SOCKET;
+  return token && socketPath && path.isAbsolute(socketPath)
+    ? { token, socketPath }
+    : undefined;
+}
+
+function loadOperator(cwd: string): {
+  config: Config;
+  credential: string;
+  socketPath: string;
+  logPath: string;
+} {
+  try {
+    const { config, credential } = loadConfig(cwd);
+    return {
+      config,
+      credential,
+      socketPath: path.join(config.stateDirectory, SOCKET_NAME),
+      logPath: path.join(cwd, ".capstan", DAEMON_LOG_NAME),
+    };
+  } catch (error) {
+    throw new InvalidInputError(
+      `operator commands need the operator credential in .capstan of the working directory: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function ensureRunning(
+  cwd: string,
+): Promise<ReturnType<typeof loadOperator>> {
+  const operator = loadOperator(cwd);
+  try {
+    await ensureDaemon({
+      socketPath: operator.socketPath,
+      credential: operator.credential,
+      projectRoot: cwd,
+      logPath: operator.logPath,
+      cliPath: fileURLToPath(import.meta.url),
+      env: process.env,
+    });
+  } catch (error) {
+    throw controllerUnavailable(error);
+  }
+  return operator;
+}
+
+function controllerUnavailable(error: unknown): Error {
+  if (error instanceof ControllerUnavailableError)
+    return error.reason === "legacy" || error.reason === "refused"
+      ? new BlockedError(error.message)
+      : new Error(error.message);
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function handleWire(result: WireResult, json: boolean): number {
+  if (result.kind === "legacy")
+    throw new BlockedError(
+      "a foreground cstan run controller owns this project; the daemon commands are unavailable",
+    );
+  const response = result.response;
+  if (response.ok) {
+    output(response.result, json);
+    return EXIT.ok;
+  }
+  if (response.code === "invalid_request")
+    throw new InvalidInputError(response.message);
+  if (response.code === "error") throw new Error(response.message);
+  throw new BlockedError(`${response.code}: ${response.message}`);
+}
+
+async function runRouted(
+  command: string,
+  args: string[],
+  cwd: string,
+  json: boolean,
+): Promise<number> {
+  const route = ROUTES[command]!;
+  const agent = agentEnvironment();
+  let socketPath: string;
+  let credential: string;
+  if (route.access === "agent" || (route.access === "read" && agent)) {
+    if (!agent)
+      throw new InvalidInputError(
+        "this command must be run by an agent (CAPSTAN_TOKEN and CAPSTAN_SOCKET are not set)",
+      );
+    socketPath = agent.socketPath;
+    credential = agent.token;
+  } else {
+    const operator = await ensureRunning(cwd);
+    ({ socketPath, credential } = operator);
+  }
+  try {
+    return handleWire(
+      await callDaemon(socketPath, credential, command, args),
+      json,
+    );
+  } catch (error) {
+    const code =
+      error instanceof Error && "code" in error ? String(error.code) : "";
+    if (agent && (code === "ENOENT" || code === "ECONNREFUSED"))
+      throw new BlockedError(
+        "the controller is not running; ask the operator to run cstan start",
+      );
+    throw error;
+  }
+}
+
 function usage(): never {
   fail(
-    "usage: cstan init | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json]",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan pm restart",
   );
 }
 
@@ -774,6 +905,72 @@ async function runCli(argv: string[]): Promise<number> {
       core.close();
     }
     return EXIT.ok;
+  }
+  if (command === "daemon") {
+    if (rest.length !== 0) usage();
+    const { config, credential } = loadConfig(cwd);
+    const stamp = (): string => new Date().toISOString();
+    try {
+      await runDaemon({
+        stateDirectory: config.stateDirectory,
+        project: project(config, credential, PLACEHOLDER_INPUTS),
+        workspaceRoot: cwd,
+        log: (entry) =>
+          process.stdout.write(
+            `${JSON.stringify({ ts: stamp(), ...entry })}\n`,
+          ),
+        announce: (line) => process.stdout.write(`${stamp()} ${line}\n`),
+      });
+    } catch (error) {
+      if (error instanceof ControllerOwnershipError)
+        throw new BlockedError(error.message);
+      throw error;
+    }
+    return EXIT.ok;
+  }
+  if (command === "start") {
+    const parsed = parseOptions(rest);
+    if (parsed.positional.length !== 0) usage();
+    const operator = loadOperator(cwd);
+    try {
+      const result = await ensureDaemon({
+        socketPath: operator.socketPath,
+        credential: operator.credential,
+        projectRoot: cwd,
+        logPath: operator.logPath,
+        cliPath: fileURLToPath(import.meta.url),
+        env: process.env,
+      });
+      output(
+        { running: true, pid: result.pid, started: result.started },
+        parsed.json,
+      );
+    } catch (error) {
+      throw controllerUnavailable(error);
+    }
+    return EXIT.ok;
+  }
+  if (command === "stop") {
+    const parsed = parseOptions(rest);
+    if (parsed.positional.length !== 0) usage();
+    const operator = loadOperator(cwd);
+    try {
+      const result = await stopDaemon(operator.socketPath, operator.credential);
+      output({ running: false, result }, parsed.json);
+    } catch (error) {
+      throw controllerUnavailable(error);
+    }
+    return EXIT.ok;
+  }
+  if (
+    command === "ping" ||
+    (command !== undefined && ROUTED_COMMANDS.has(command)) ||
+    (command === "pm" && rest[0] === "restart")
+  ) {
+    const parsed = parseOptions(command === "pm" ? rest.slice(1) : rest);
+    const name = command === "pm" ? "pm-restart" : command;
+    if (name === "ping" && parsed.positional.length !== 0) usage();
+    return await runRouted(name, parsed.positional, cwd, parsed.json);
   }
   if (command === "run") {
     const briefAt = rest.indexOf("--brief");
@@ -5166,6 +5363,11 @@ async function runCli(argv: string[]): Promise<number> {
       }
     }
   }
+  if (command === "cancel") {
+    const routed = parseOptions(rest);
+    if (routed.positional.length === 1)
+      return await runRouted("cancel", routed.positional, cwd, routed.json);
+  }
   if (command === "pause" || command === "resume" || command === "cancel") {
     const parsed = parseOptions(rest);
     if (parsed.positional.length !== 0) usage();
@@ -5183,6 +5385,11 @@ async function runCli(argv: string[]): Promise<number> {
     }
     output({ schemaVersion: 1, ...objectRecord(result) }, parsed.json);
     return EXIT.ok;
+  }
+  if (command === "status" && agentEnvironment()) {
+    const parsed = parseOptions(rest);
+    if (parsed.positional.length !== 0) usage();
+    return await runRouted("status", [], cwd, parsed.json);
   }
   if (command === "status") {
     const { config, credential } = loadConfig(cwd);

@@ -272,3 +272,10 @@ export interface MessagingAdvance {
   readonly actions: readonly MessagingAction[];
   readonly stalledAgentIds: readonly string[];
 }
+
+export interface Identity {
+  readonly actorId: string;
+  readonly role: Role;
+  readonly capabilities: readonly string[];
+  readonly agent: AgentRecord | null;
+}
