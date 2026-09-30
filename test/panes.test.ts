@@ -466,10 +466,35 @@ test("a very large task brief is shown as a marked preview so the summary always
     ).summary;
     const objective = summary.objective as {
       truncated: boolean;
-      preview: string;
+      rawJsonPreview: string;
     };
     assert.equal(objective.truncated, true);
-    assert.ok(Array.from(objective.preview).length <= 2000);
+    assert.ok(Array.from(objective.rawJsonPreview).length <= 2000);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a carried body that was already cut is not cut or flagged a second time", async () => {
+  const h = await harness();
+  try {
+    h.core.enqueueMessage(ctx(h.core, h.owner), {
+      recipientAgentId: h.pm.agentId,
+      body: "z".repeat(2500),
+    });
+    const first = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.equal(first.summary.truncated, true);
+    const cut = first.summary.messages[0]!.body;
+    assert.ok(cut.endsWith("[truncated]"));
+    const second = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.equal(second.summary.messages[0]!.body, cut, "unchanged");
+    assert.equal(second.summary.truncated, false, "nothing new was cut");
   } finally {
     await close(h);
   }

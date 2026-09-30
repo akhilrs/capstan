@@ -206,7 +206,10 @@ export class Launcher {
       .filter((row) => this.#core.agentRecord(row.agentId)?.state === "ended")
       .map((row) => ({
         agentId: row.agentId,
-        reason: "the worktree could not be removed without force",
+        reason:
+          row.worktreePath === null
+            ? "a record of an ended agent is waiting to be cleaned up"
+            : "the worktree could not be removed without force",
         ...(row.worktreePath === null
           ? {}
           : { worktreePath: row.worktreePath }),

@@ -10,14 +10,16 @@ export const CSTAN_ALLOW_RULE = "Bash(cstan *)";
 
 const SUMMARY_FENCE = "=====";
 
-/** JSON text for a value, with format characters and line separators written as escapes so no text inside it can start a line of its own or look like a fence. */
+/** JSON text for a value, with control and format characters and line separators written as escapes so no text inside it can start a line of its own or look like a fence. */
 function quoted(value: unknown): string {
-  return JSON.stringify(value).replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, (character) =>
-    Array.from(
-      { length: character.length },
-      (_, index) =>
-        `\\u${character.charCodeAt(index).toString(16).padStart(4, "0")}`,
-    ).join(""),
+  return JSON.stringify(value).replace(
+    /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
+    (character) =>
+      Array.from(
+        { length: character.length },
+        (_, index) =>
+          `\\u${character.charCodeAt(index).toString(16).padStart(4, "0")}`,
+      ).join(""),
   );
 }
 /** Room for a role prompt of 64 KiB, a summary of 32 KiB and the command reference. */

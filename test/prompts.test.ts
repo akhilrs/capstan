@@ -137,7 +137,7 @@ test("format characters and line separators inside data are written as escapes, 
       ],
     },
   });
-  assert.ok(!/[\u2028\u2029\u202e]/.test(text));
+  assert.ok(!/[\u0085\u009b\u007f\u2028\u2029\u202e]/.test(text));
   assert.ok(!text.includes("\u{e0041}"));
   assert.match(text, /\\u2028/);
   assert.equal(

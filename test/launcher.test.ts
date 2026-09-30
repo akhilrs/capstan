@@ -1183,3 +1183,43 @@ test("status lists an unfinished cleanup once, forgets it when the agent has end
     w.cleanup();
   }
 });
+
+test("a leftover row without a worktree path is reported as a record waiting to be cleaned up", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const seat = w.core.createSeat(ctx(w.core, w.owner), {
+      seatId: "developer-seat",
+      name: "developer",
+      role: "Developer",
+    });
+    const actor = w.core.createActor(ctx(w.core, w.owner), {
+      displayName: "d",
+      role: "Developer",
+      seatId: seat.seatId,
+    });
+    w.core.registerAgent(ctx(w.core, w.owner), {
+      agentId: "developer-1",
+      roleName: "developer",
+      seatId: seat.seatId,
+      actorId: actor.actorId,
+    });
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: "developer-1",
+      workspaceId: "w9",
+      paneId: "w9:p1",
+      worktreePath: null,
+      branch: null,
+      baseSha: null,
+    });
+    w.core.endAgent(ctx(w.core, w.owner), "developer-1");
+    assert.deepEqual(w.launcher.status().cleanupFailed, [
+      {
+        agentId: "developer-1",
+        reason: "a record of an ended agent is waiting to be cleaned up",
+      },
+    ]);
+  } finally {
+    w.cleanup();
+  }
+});

@@ -750,7 +750,9 @@ const LAUNCHER_CLIENT_TIMEOUT_MS = 600_000;
 
 /** CAPSTAN_LAUNCH=off keeps the daemon away from Herdr: no driver, no launcher, no PM launch at start. The test suite sets it so no test touches a real Herdr session. */
 function launchDisabled(): boolean {
-  return process.env.CAPSTAN_LAUNCH === "off";
+  return ["off", "0", "false", "no"].includes(
+    (process.env.CAPSTAN_LAUNCH ?? "").trim().toLowerCase(),
+  );
 }
 const WAIT_CLIENT_TIMEOUT_MS = (MAX_WAIT_TIMEOUT_SECONDS + 30) * 1000;
 
@@ -1080,7 +1082,10 @@ async function runCli(argv: string[]): Promise<number> {
             failed = true;
           } else if (launched.response.ok) {
             launch = launched.response.result;
-            failed = (launch as { state?: string }).state === "failed";
+            failed =
+              typeof launch === "object" &&
+              launch !== null &&
+              (launch as { state?: string }).state === "failed";
           } else {
             launch = `${launched.response.code}: ${launched.response.message}`;
             failed = true;
