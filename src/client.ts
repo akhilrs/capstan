@@ -200,6 +200,7 @@ export async function ensureDaemon(
 
   const fd = openDaemonLog(options.logPath);
   let exitCode: number | undefined;
+  let spawnError: string | undefined;
   try {
     const child = spawn(
       process.execPath,
@@ -215,6 +216,9 @@ export async function ensureDaemon(
     child.once("exit", (code) => {
       exitCode = code ?? 1;
     });
+    child.once("error", (error) => {
+      spawnError = error.message;
+    });
   } finally {
     fs.closeSync(fd);
   }
@@ -224,6 +228,11 @@ export async function ensureDaemon(
     const outcome = await pingDaemon(options.socketPath, options.credential);
     if (outcome.outcome === "running")
       return { pid: outcome.pid, started: true };
+    if (spawnError !== undefined)
+      throw new ControllerUnavailableError(
+        "start_failed",
+        `the daemon could not be started: ${spawnError}`,
+      );
     // Exit code 4 means the child lost the lock race: another controller is
     // starting, so keep polling. Any other exit is a real startup failure.
     if (exitCode !== undefined && exitCode !== 4)

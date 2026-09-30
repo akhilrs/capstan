@@ -2262,3 +2262,78 @@ test("a daemon that dies during startup is reported at once with the log tail", 
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("two cstan start commands at once end with one daemon and both succeed", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-race-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const [left, right] = await Promise.all([
+      invokeAsync(cwd, "start", "--json"),
+      invokeAsync(cwd, "start", "--json"),
+    ]);
+    assert.equal(left.status, 0, left.stderr);
+    assert.equal(right.status, 0, right.stderr);
+    const results = [left, right].map(
+      (run) => JSON.parse(run.stdout) as { pid: number; started: boolean },
+    );
+    assert.equal(results[0]!.pid, results[1]!.pid);
+    assert.equal(results[0]!.pid, daemonPid(cwd));
+    assert.ok(
+      results.some((result) => result.started),
+      "one of them started the daemon",
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("SIGTERM stops the daemon cleanly and the next start needs no recovery", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-term-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const first = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+    };
+    process.kill(first.pid, "SIGTERM");
+    await waitGone(first.pid);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/control.sock")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+    );
+    const second = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+      started: boolean;
+    };
+    assert.equal(second.started, true);
+    assert.notEqual(second.pid, first.pid);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the pm-restart alias is not a command, and daemon without a project explains what is missing", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-alias-"));
+  const empty = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-empty-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const alias = invoke(cwd, "pm-restart");
+    assert.equal(alias.status, 2);
+    assert.equal(daemonPid(cwd), undefined);
+    const noProject = invoke(empty, "daemon");
+    assert.equal(noProject.status, 3);
+    assert.match(
+      noProject.stderr,
+      /operator commands need the operator credential in \.capstan/,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(empty, { recursive: true, force: true });
+  }
+});

@@ -18,7 +18,9 @@ import path from "node:path";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import {
+  ControllerUnavailableError,
   callDaemon,
+  ensureDaemon,
   openDaemonLog,
   pingDaemon,
   scrubEnvironment,
@@ -576,6 +578,107 @@ test("frames: exactly the limit is accepted, one byte more is dropped, bad input
     assert.equal(code(await call(h, h.owner, "ping")), "ok");
   } finally {
     await close(h);
+  }
+});
+
+test("frames may arrive in pieces and the limit still applies; excess connections are dropped", async () => {
+  const h = await harness();
+  try {
+    const request = JSON.stringify({
+      v: 1,
+      credential: h.owner,
+      command: "ping",
+      args: [],
+      pad: "",
+    });
+    const build = (size: number): Buffer =>
+      Buffer.from(
+        request.replace(
+          '"pad":""',
+          `"pad":"${"p".repeat(size - Buffer.byteLength(request))}"`,
+        ),
+      );
+    const pieces = (payload: Buffer, count: number): Buffer[] => {
+      const size = Math.ceil(payload.length / count);
+      return Array.from({ length: count }, (_, index) =>
+        payload.subarray(index * size, (index + 1) * size),
+      );
+    };
+    const send = (parts: Buffer[]): Promise<string> =>
+      new Promise((resolve) => {
+        const socket = net.createConnection(h.socketPath);
+        let data = "";
+        socket.on("data", (chunk) => (data += chunk.toString("utf8")));
+        socket.on("close", () => resolve(data));
+        socket.on("error", () => resolve(data));
+        socket.on("connect", () => {
+          void (async () => {
+            for (const part of parts) {
+              socket.write(part);
+              await new Promise((done) => setTimeout(done, 20));
+            }
+          })();
+        });
+        socket.setTimeout(3000, () => socket.destroy());
+      });
+    const exact = Buffer.concat([build(MAX_FRAME_BYTES), Buffer.from("\n")]);
+    assert.equal(
+      (JSON.parse(await send(pieces(exact, 4))) as { ok: boolean }).ok,
+      true,
+    );
+    const over = Buffer.concat([build(MAX_FRAME_BYTES + 1), Buffer.from("\n")]);
+    assert.equal(await send(pieces(over, 4)), "");
+
+    const idle: net.Socket[] = [];
+    let dropped = 0;
+    await new Promise<void>((resolve) => {
+      let settled = 0;
+      for (let index = 0; index < 90; index += 1) {
+        const socket = net.createConnection(h.socketPath);
+        idle.push(socket);
+        socket.on("close", () => {
+          dropped += 1;
+        });
+        socket.on("error", () => {});
+        socket.on("connect", () => {
+          settled += 1;
+          if (settled === 90) setTimeout(resolve, 300);
+        });
+      }
+      setTimeout(resolve, 2000);
+    });
+    assert.ok(
+      dropped >= 20,
+      `expected the connection cap to drop connections, dropped ${dropped}`,
+    );
+    for (const socket of idle) socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(code(await call(h, h.owner, "ping")), "ok");
+  } finally {
+    await close(h);
+  }
+});
+
+test("a daemon that cannot be spawned is reported as a startup failure", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-spawn-"));
+  try {
+    await assert.rejects(
+      ensureDaemon({
+        socketPath: path.join(directory, "control.sock"),
+        credential: "c".repeat(40),
+        projectRoot: path.join(directory, "does-not-exist"),
+        logPath: path.join(directory, "daemon.log"),
+        cliPath: "/nonexistent/cli.js",
+        env: {},
+        timeoutMs: 3000,
+      }),
+      (error: unknown) =>
+        error instanceof ControllerUnavailableError &&
+        error.reason === "start_failed" &&
+        /could not be started/.test(error.message),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

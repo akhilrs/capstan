@@ -656,7 +656,8 @@ function loadRoleConfig(cwd: string): CapstanConfig {
 const DAEMON_LOG_NAME = "daemon.log";
 const ROUTED_COMMANDS: ReadonlySet<string> = new Set(
   Object.keys(ROUTES).filter(
-    (name) => !["status", "ping", "shutdown", "cancel"].includes(name),
+    (name) =>
+      !["status", "ping", "shutdown", "cancel", "pm-restart"].includes(name),
   ),
 );
 
@@ -908,7 +909,7 @@ async function runCli(argv: string[]): Promise<number> {
   }
   if (command === "daemon") {
     if (rest.length !== 0) usage();
-    const { config, credential } = loadConfig(cwd);
+    const { config, credential } = loadOperator(cwd);
     const stamp = (): string => new Date().toISOString();
     try {
       await runDaemon({

@@ -20,6 +20,7 @@ import type { Identity, InitialProject } from "./controller/types.js";
 export const MAX_FRAME_BYTES = 65_536;
 const MAX_ARGS = 16;
 const REQUEST_TIMEOUT_MS = 5_000;
+const MAX_CONNECTIONS = 64;
 export const SOCKET_NAME = "control.sock";
 export const PID_NAME = "daemon.pid";
 
@@ -333,21 +334,23 @@ export async function startDaemonServer(options: {
   const server = net.createServer((socket) => {
     socket.on("error", () => socket.destroy());
     socket.setTimeout(REQUEST_TIMEOUT_MS, () => socket.destroy());
-    let bytes = Buffer.alloc(0);
+    const chunks: Buffer[] = [];
+    let received = 0;
     socket.on("data", (chunk: Buffer) => {
-      bytes = Buffer.concat([bytes, chunk]);
-      const newline = bytes.indexOf(10);
+      const newline = chunk.indexOf(10);
       if (newline < 0) {
-        if (bytes.length > MAX_FRAME_BYTES) socket.destroy();
+        chunks.push(chunk);
+        received += chunk.length;
+        if (received > MAX_FRAME_BYTES) socket.destroy();
         return;
       }
-      if (newline > MAX_FRAME_BYTES) {
+      if (received + newline > MAX_FRAME_BYTES) {
         socket.destroy();
         return;
       }
-      const frame = bytes.subarray(0, newline);
+      const frame = Buffer.concat([...chunks, chunk.subarray(0, newline)]);
       socket.removeAllListeners("data");
-      handle(frame, socket).catch((error: unknown) => {
+      handle(frame, socket).catch(() => {
         respond(socket, failure("error", "internal error"));
         log({
           command: "?",
@@ -356,10 +359,19 @@ export async function startDaemonServer(options: {
           code: "error",
           ms: 0,
         });
-        void error;
       });
     });
   });
+  server.maxConnections = MAX_CONNECTIONS;
+  server.on("error", () =>
+    log({
+      command: "server",
+      actorId: null,
+      role: null,
+      code: "server_error",
+      ms: 0,
+    }),
+  );
 
   const previousUmask = process.umask(0o077);
   try {
@@ -471,19 +483,28 @@ export interface DaemonOptions {
 export async function runDaemon(options: DaemonOptions): Promise<void> {
   const socketPath = path.join(options.stateDirectory, SOCKET_NAME);
   const pidPath = path.join(options.stateDirectory, PID_NAME);
-  const core = await ControllerCore.open({
-    stateDirectory: options.stateDirectory,
-    project: options.project,
-    workspaceRoot: options.workspaceRoot,
-  });
-  let server: DaemonServer | undefined;
   let stopRequested!: () => void;
   const stop = new Promise<void>((resolve) => {
     stopRequested = resolve;
   });
+  // Handlers go in before open: a signal during migrations or reconcile must
+  // still end in a clean close instead of killing the process mid-way.
   const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
   const handler = (): void => stopRequested();
+  for (const signal of signals) process.on(signal, handler);
+  let core: ControllerCore | undefined;
+  let server: DaemonServer | undefined;
+  let stopping = false;
+  void stop.then(() => {
+    stopping = true;
+  });
   try {
+    core = await ControllerCore.open({
+      stateDirectory: options.stateDirectory,
+      project: options.project,
+      workspaceRoot: options.workspaceRoot,
+    });
+    if (stopping) return;
     server = await startDaemonServer({
       socketPath,
       core,
@@ -491,14 +512,15 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       onShutdown: stopRequested,
     });
     writePidFile(pidPath);
-    for (const signal of signals) process.on(signal, handler);
     options.announce?.(`daemon ready pid=${process.pid}`);
     await stop;
   } finally {
     for (const signal of signals) process.off(signal, handler);
     if (server !== undefined) await server.close();
-    removePidFile(pidPath);
-    core.close();
+    if (core !== undefined) {
+      removePidFile(pidPath);
+      core.close();
+    }
   }
 }
 
