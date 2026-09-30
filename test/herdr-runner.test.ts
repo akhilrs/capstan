@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   HerdrError,
+  describeOutput,
   createHerdrRunner,
   herdrEnvironment,
   runJson,
@@ -202,4 +203,11 @@ test("a byte order mark does not hide a result and Herdr error text is cleaned",
       !/[\p{Cc}\p{Cf}]/u.test(error.message) &&
       /hi/.test(error.message),
   );
+});
+
+test("describeOutput cuts by code point and never leaves a lone surrogate", () => {
+  const text = "😀".repeat(300);
+  const shown = describeOutput(text);
+  assert.equal(Array.from(shown).length, 200);
+  assert.ok(shown.isWellFormed());
 });

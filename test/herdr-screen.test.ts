@@ -311,3 +311,16 @@ test("an input box whose two rule lines differ in width is not read", () => {
     "text",
   );
 });
+
+test("a carriage return inside a line is a line break, so an overwritten redraw cannot hide text", () => {
+  const rule = "─".repeat(20);
+  assert.notEqual(
+    extractInputLine(
+      "claude",
+      [rule, "❯\u00a0old text\r❯\u00a0", rule].join("\n"),
+    ),
+    "",
+  );
+  assert.equal(freshPromptReady("stale\r❯ typed\r❯"), true);
+  assert.equal(freshPromptReady("❯ typed\rstale"), false);
+});

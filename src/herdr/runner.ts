@@ -108,10 +108,9 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
 /** Control characters and length are removed so Herdr output cannot inject escape sequences into logs. */
 export function describeOutput(text: string): string {
   return (
-    text
-      .replace(/[\p{Cc}\p{Cf}]/gu, " ")
-      .trim()
-      .slice(0, 200) || "no output"
+    Array.from(text.replace(/[\p{Cc}\p{Cf}]/gu, " ").trim())
+      .slice(0, 200)
+      .join("") || "no output"
   );
 }
 

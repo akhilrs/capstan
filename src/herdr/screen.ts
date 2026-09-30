@@ -12,7 +12,7 @@ export function stripAnsi(text: string): string {
 }
 
 function splitLines(text: string): string[] {
-  return text.split(/\r?\n/);
+  return text.split(/\r\n|\n|\r/);
 }
 
 interface StyledCharacter {

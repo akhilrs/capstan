@@ -121,9 +121,20 @@ const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
 const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
-const UNSAFE_TEXT =
-  /[\p{Cc}\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/u;
-const ALLOWED_TEXT_CONTROLS = /[\n\t]/g;
+/** The same characters the controller refuses in a message body. */
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
+const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
+/** In Claude Code a first character of / ! or # runs a command instead of sending text. */
+const COMMAND_START = /^\s*[/!#]/;
+
+function isSafeText(text: unknown): text is string {
+  return (
+    typeof text === "string" &&
+    text.trim() !== "" &&
+    text.isWellFormed() &&
+    !UNSAFE_TEXT.test(text.replace(ALLOWED_TEXT_CHARACTERS, ""))
+  );
+}
 const ENVIRONMENT_KEY = /^[A-Z_][A-Z0-9_]*$/;
 const ALLOWLISTED_BASE = [
   "PATH",
@@ -251,7 +262,7 @@ export class HerdrAdapter {
     return entry === undefined ? undefined : { ...entry };
   }
 
-  /** Removes the adapter's temporary files. */
+  /** Removes the adapter's temporary files, prompt files included, so call it only after every agent that reads one has started. */
   close(): void {
     if (this.#promptDirectory !== undefined)
       fs.rmSync(this.#promptDirectory, { recursive: true, force: true });
@@ -505,12 +516,7 @@ export class HerdrAdapter {
   }
 
   writePromptFile(text: string): string {
-    if (
-      typeof text !== "string" ||
-      text.trim() === "" ||
-      !text.isWellFormed() ||
-      UNSAFE_TEXT.test(text.replace(ALLOWED_TEXT_CONTROLS, ""))
-    )
+    if (!isSafeText(text))
       throw new InvalidArgumentError("prompt text is not acceptable");
     this.#promptDirectory ??= fs.mkdtempSync(
       path.join(this.#tempRoot, "capstan-prompts-"),
@@ -618,10 +624,8 @@ export class HerdrAdapter {
   }): Promise<SendOutcome> {
     const entry = this.#assertTypable(input.paneId, "send");
     if (
-      typeof input.text !== "string" ||
-      input.text.trim() === "" ||
-      !input.text.isWellFormed() ||
-      UNSAFE_TEXT.test(input.text.replace(ALLOWED_TEXT_CONTROLS, "")) ||
+      !isSafeText(input.text) ||
+      COMMAND_START.test(input.text) ||
       Buffer.byteLength(input.text, "utf8") > MAX_TEXT_BYTES
     )
       throw new InvalidArgumentError("message text is not acceptable");
@@ -659,7 +663,16 @@ export class HerdrAdapter {
     discard: (text: string) => void | Promise<void>;
     log: KeyLogger;
   }): Promise<{ cleared: boolean; text: string }> {
-    if (!(input.deferredForMs >= input.maxDeferralMs))
+    if (
+      !Number.isFinite(input.deferredForMs) ||
+      !Number.isFinite(input.maxDeferralMs) ||
+      input.deferredForMs < 0 ||
+      input.maxDeferralMs <= 0
+    )
+      throw new InvalidArgumentError(
+        "the deferral times must be finite, and the maximum must be positive",
+      );
+    if (input.deferredForMs < input.maxDeferralMs)
       throw new DeferralNotElapsed("the maximum deferral has not elapsed");
     const entry = this.#assertTypable(input.paneId, "clear");
     if (entry.agent === undefined)

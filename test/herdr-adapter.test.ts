@@ -2077,3 +2077,102 @@ test("more invisible text characters, lone surrogates in arguments and environme
     h.fake.cleanup();
   }
 });
+
+test("text that would run a Claude Code command, or hides format characters, is refused and joiners are kept", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    for (const text of [
+      "/clear",
+      "  /exit now",
+      "!rm -rf x",
+      "# remember this",
+      "a\u200bb",
+      "a\u2060b",
+      "a\u00adb",
+      "a\u{e0041}b",
+      "a\ufdd0b",
+    ])
+      await assert.rejects(
+        h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        InvalidArgumentError,
+        JSON.stringify(text),
+      );
+    assert.equal(h.fake.calls.length, 0);
+    for (const text of [
+      "see /clear later",
+      "note: #1 and !x",
+      "a\u200db\u200cc",
+    ])
+      assert.deepEqual(
+        await h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        { sent: true },
+      );
+    assert.doesNotThrow(() =>
+      h.adapter.writePromptFile("/system prompt may start with a slash"),
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the clear refuses deferral times that are not finite, negative, or a zero maximum", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h, idleScreen("typed"));
+    for (const [deferredForMs = 0, maxDeferralMs = 0] of [
+      [0, 0],
+      [5, -1],
+      [-1, 5],
+      [Number.NaN, 5],
+      [5, Number.NaN],
+      [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY],
+    ])
+      await assert.rejects(
+        h.adapter.clearAfterDeferral({
+          paneId: worker.paneId,
+          deferredForMs,
+          maxDeferralMs,
+          discard: () => {},
+          log: () => {},
+        }),
+        InvalidArgumentError,
+        `${deferredForMs}/${maxDeferralMs}`,
+      );
+    assert.equal(h.fake.events.length, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a dialog path that is not absolute, such as one starting with a tilde, is not answered", async () => {
+  const h = harness();
+  try {
+    const worker = await blockedWorker(h, "yes");
+    worker.pane.screen = worker.pane.screen.replace(
+      worker.checkout,
+      "~/some/worktree",
+    );
+    assert.deepEqual(
+      await h.adapter.answerTrustDialog({
+        paneId: worker.paneId,
+        log: () => {},
+      }),
+      { handled: false, reason: "path_mismatch" },
+    );
+    assert.equal(h.fake.events.length, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
