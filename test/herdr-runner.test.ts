@@ -159,3 +159,47 @@ test("a non-zero exit is a failure even when stdout parses as a result, and stde
       !/\p{Cc}/u.test(error.message),
   );
 });
+
+test("a multibyte character split across output chunks is decoded whole", async () => {
+  const fake = stub("printf '\\342\\235'; sleep 0.3; printf '\\257 ok'");
+  try {
+    const run = createHerdrRunner({
+      session: "capstan-t5",
+      binary: fake.binary,
+    });
+    assert.equal((await run(["x"])).stdout, "❯ ok");
+  } finally {
+    fake.cleanup();
+  }
+});
+
+test("a byte order mark does not hide a result and Herdr error text is cleaned", async () => {
+  assert.deepEqual(
+    await runJson(
+      async () => ({
+        code: 0,
+        stdout: '\uFEFF{"id":"x","result":{"a":1}}',
+        stderr: "",
+      }),
+      ["x"],
+    ),
+    { a: 1 },
+  );
+  await assert.rejects(
+    runJson(
+      async () => ({
+        code: 1,
+        stdout: "",
+        stderr: JSON.stringify({
+          error: { code: "bad\u001b[31m", message: "hi\u001b[31m \u202ethere" },
+        }),
+      }),
+      ["x"],
+    ),
+    (error: unknown) =>
+      error instanceof HerdrError &&
+      error.code === "error" &&
+      !/[\p{Cc}\p{Cf}]/u.test(error.message) &&
+      /hi/.test(error.message),
+  );
+});

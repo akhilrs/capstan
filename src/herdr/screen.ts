@@ -1,4 +1,6 @@
-const CSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const ESCAPE_SEQUENCE =
+  /\u001b(?:\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\[[0-?]*[ -/]*[@-~]|[ -/]*[0-Z\\^-~])/;
+const ESCAPE_SEQUENCES = new RegExp(ESCAPE_SEQUENCE.source, "g");
 const RULE_LINE = /^─{10,}$/;
 const PROMPT_SYMBOLS: readonly string[] = ["❯", "$", "#", "%"];
 
@@ -6,7 +8,7 @@ export const TRUST_YES = "Yes, I trust this folder";
 export const TRUST_NO = "No, exit";
 
 export function stripAnsi(text: string): string {
-  return text.replace(CSI, "");
+  return text.replace(ESCAPE_SEQUENCES, "");
 }
 
 function splitLines(text: string): string[] {
@@ -24,12 +26,13 @@ function styledCharacters(line: string): StyledCharacter[] {
   let dim = false;
   let index = 0;
   while (index < line.length) {
-    const sequence = /^\u001b\[([0-9;?]*)([ -/]*)([@-~])/.exec(
+    const sequence = new RegExp(`^${ESCAPE_SEQUENCE.source}`).exec(
       line.slice(index),
     );
     if (sequence) {
-      if (sequence[3] === "m") {
-        const params = (sequence[1] ?? "").split(";");
+      const sgr = /^\u001b\[([0-9;:]*)m$/.exec(sequence[0]);
+      if (sgr) {
+        const params = (sgr[1] ?? "").split(";");
         for (let cursor = 0; cursor < params.length; cursor += 1) {
           const code = params[cursor] === "" ? 0 : Number(params[cursor]);
           if (code === 0 || code === 22) dim = false;

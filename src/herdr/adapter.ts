@@ -120,6 +120,9 @@ const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
+const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
+const UNSAFE_TEXT = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u;
+const ALLOWED_TEXT_CONTROLS = /[\n\t]/g;
 const ENVIRONMENT_KEY = /^[A-Z_][A-Z0-9_]*$/;
 const ALLOWLISTED_BASE = [
   "PATH",
@@ -194,6 +197,15 @@ export function claudeArguments(
       throw new InvalidArgumentError(
         "an agent argument is empty or has control characters",
       );
+  const values = [
+    ...(role.model === null ? [] : [role.model]),
+    ...role.allow,
+    ...role.deny,
+  ];
+  if (values.some((value) => value.startsWith("-")))
+    throw new InvalidArgumentError(
+      "a model, allow or deny value must not start with a dash",
+    );
   return args;
 }
 
@@ -409,9 +421,13 @@ export class HerdrAdapter {
     if (entry.phase !== "fresh")
       throw new PhaseError("only a fresh pane can be prepared");
     const environment = input.environment;
-    const home = requireMatch(environment.HOME, SIMPLE_VALUE, "HOME");
-    const pathValue = requireMatch(environment.PATH, SIMPLE_VALUE, "PATH");
-    const term = requireMatch(environment.TERM, SIMPLE_VALUE, "TERM");
+    const home = requireMatch(environment.HOME, NON_EMPTY_SIMPLE_VALUE, "HOME");
+    const pathValue = requireMatch(
+      environment.PATH,
+      NON_EMPTY_SIMPLE_VALUE,
+      "PATH",
+    );
+    const term = requireMatch(environment.TERM, NON_EMPTY_SIMPLE_VALUE, "TERM");
     for (const [name, value] of Object.entries(environment)) {
       if (!ENVIRONMENT_KEY.test(name))
         throw new InvalidArgumentError(
@@ -481,8 +497,9 @@ export class HerdrAdapter {
   writePromptFile(text: string): string {
     if (
       typeof text !== "string" ||
-      text.length === 0 ||
-      text.includes("\u0000")
+      text.trim() === "" ||
+      !text.isWellFormed() ||
+      UNSAFE_TEXT.test(text.replace(ALLOWED_TEXT_CONTROLS, ""))
     )
       throw new InvalidArgumentError("prompt text is not acceptable");
     this.#promptDirectory ??= fs.mkdtempSync(
@@ -587,8 +604,9 @@ export class HerdrAdapter {
     const entry = this.#assertTypable(input.paneId, "send");
     if (
       typeof input.text !== "string" ||
-      input.text.length === 0 ||
-      input.text.includes("\u0000") ||
+      input.text.trim() === "" ||
+      !input.text.isWellFormed() ||
+      UNSAFE_TEXT.test(input.text.replace(ALLOWED_TEXT_CONTROLS, "")) ||
       Buffer.byteLength(input.text, "utf8") > MAX_TEXT_BYTES
     )
       throw new InvalidArgumentError("message text is not acceptable");

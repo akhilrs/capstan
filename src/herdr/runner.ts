@@ -60,8 +60,8 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
         env: environment,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      let stdout = "";
-      let stderr = "";
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
       let size = 0;
       let failure: Error | undefined;
       const stop = (error: Error): void => {
@@ -74,7 +74,7 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
         callOptions?.timeoutMs ?? timeoutMs,
       );
       const collect =
-        (append: (text: string) => void) =>
+        (chunks: Buffer[]) =>
         (chunk: Buffer): void => {
           size += chunk.length;
           if (size > MAX_OUTPUT_BYTES)
@@ -84,20 +84,10 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
                 "herdr output exceeded the limit",
               ),
             );
-          else append(chunk.toString("utf8"));
+          else chunks.push(chunk);
         };
-      child.stdout.on(
-        "data",
-        collect((text) => {
-          stdout += text;
-        }),
-      );
-      child.stderr.on(
-        "data",
-        collect((text) => {
-          stderr += text;
-        }),
-      );
+      child.stdout.on("data", collect(stdoutChunks));
+      child.stderr.on("data", collect(stderrChunks));
       child.once("error", (error) => {
         clearTimeout(timer);
         reject(error);
@@ -105,7 +95,12 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
       child.once("close", (code) => {
         clearTimeout(timer);
         if (failure) reject(failure);
-        else resolve({ code: code ?? 1, stdout, stderr });
+        else
+          resolve({
+            code: code ?? 1,
+            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+            stderr: Buffer.concat(stderrChunks).toString("utf8"),
+          });
       });
     });
 }
@@ -114,7 +109,7 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
 export function describeOutput(text: string): string {
   return (
     text
-      .replace(/\p{Cc}/gu, " ")
+      .replace(/[\p{Cc}\p{Cf}]/gu, " ")
       .trim()
       .slice(0, 200) || "no output"
   );
@@ -122,14 +117,19 @@ export function describeOutput(text: string): string {
 
 function errorFrom(text: string): HerdrError | undefined {
   try {
-    const body: unknown = JSON.parse(text);
+    const body: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
     if (typeof body !== "object" || body === null) return undefined;
     const error = (body as { error?: unknown }).error;
     if (typeof error !== "object" || error === null) return undefined;
     const details = error as { code?: unknown; message?: unknown };
     return new HerdrError(
-      typeof details.code === "string" ? details.code : "error",
-      typeof details.message === "string" ? details.message : "herdr failed",
+      typeof details.code === "string" &&
+        /^[A-Za-z0-9_.-]{1,64}$/.test(details.code)
+        ? details.code
+        : "error",
+      typeof details.message === "string"
+        ? describeOutput(details.message)
+        : "herdr failed",
     );
   } catch {
     return undefined;
@@ -161,7 +161,7 @@ export async function runJson(
   if (outcome.code !== 0) throw failureOf(args, outcome);
   let body: unknown;
   try {
-    body = JSON.parse(outcome.stdout);
+    body = JSON.parse(outcome.stdout.replace(/^\uFEFF/, ""));
   } catch {
     throw new HerdrError(
       "bad_output",

@@ -1901,3 +1901,101 @@ test("a failing pane command reports Herdr's stderr error code and no control ch
     h.fake.cleanup();
   }
 });
+
+test("message text must be well formed, printable and not blank, and a leading dash is ordinary text", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    for (const text of [
+      "   ",
+      "\n\t",
+      "a\u001bb",
+      "a\rb",
+      "a\u001b[201~b",
+      "a\u007fb",
+      "a\u202eb",
+      "lone \ud800 surrogate",
+    ])
+      await assert.rejects(
+        h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        InvalidArgumentError,
+        JSON.stringify(text),
+      );
+    assert.equal(h.fake.calls.length, 0);
+    for (const text of ["--help", "line one\n\tline two", "ünïcode ✓"])
+      assert.deepEqual(
+        await h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        { sent: true },
+      );
+    assert.throws(
+      () => h.adapter.writePromptFile("a\u001bb"),
+      InvalidArgumentError,
+    );
+    assert.throws(
+      () => h.adapter.writePromptFile("  \n"),
+      InvalidArgumentError,
+    );
+    assert.throws(
+      () => h.adapter.writePromptFile("lone \ud800"),
+      InvalidArgumentError,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a role value that starts with a dash is refused and an empty HOME, PATH or TERM is refused", async () => {
+  const base = {
+    model: null,
+    permissionMode: "default",
+    allow: [],
+    deny: [],
+    hooks: "inherit",
+  } as const;
+  assert.throws(
+    () => claudeArguments({ ...base, model: "--settings" }),
+    InvalidArgumentError,
+  );
+  assert.throws(
+    () =>
+      claudeArguments({
+        ...base,
+        allow: ["Read", "--dangerously-skip-permissions"],
+      }),
+    InvalidArgumentError,
+  );
+  assert.throws(
+    () => claudeArguments({ ...base, deny: ["-x"] }),
+    InvalidArgumentError,
+  );
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "v1",
+      label: "v1",
+    });
+    for (const name of ["HOME", "PATH", "TERM"])
+      await assert.rejects(
+        h.adapter.prepareShell({
+          paneId,
+          environment: { ...CLEAN_ENV, [name]: "" },
+        }),
+        InvalidArgumentError,
+        name,
+      );
+    assert.equal(h.fake.callsTo("pane", "run").length, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});

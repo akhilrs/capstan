@@ -269,3 +269,26 @@ test("stripAnsi removes color and attribute sequences", () => {
     "red dim",
   );
 });
+
+test("escape sequences other than plain CSI are removed and colon sub-parameters do not upset the dim reading", () => {
+  const ESC = "\u001b";
+  assert.equal(
+    stripAnsi(
+      `${ESC}]0;title\u0007a${ESC}[38:2::1:2:3mb${ESC}[4:3mc${ESC}[?25hd${ESC}]8;;http://x${ESC}\\e${ESC}=f`,
+    ),
+    "abcdef",
+  );
+  const rule = "─".repeat(20);
+  const screen = [
+    rule,
+    `❯\u00a0${ESC}[0m${ESC}[2m${ESC}[38:2::9:9:9mTry it${ESC}[0m`,
+    rule,
+  ].join("\n");
+  assert.equal(extractInputLine("claude", screen), "");
+  const typed = [
+    rule,
+    `❯\u00a0${ESC}]0;t\u0007${ESC}[4:3mhello${ESC}[0m`,
+    rule,
+  ].join("\n");
+  assert.equal(extractInputLine("claude", typed), "hello");
+});
