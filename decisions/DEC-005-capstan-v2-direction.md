@@ -21,7 +21,7 @@ Evidence for this decision: the PM-19 spike (`docs/spike-herdr-agents.md`, six e
 2. The controller is a long-running daemon separate from the PM, with a single-instance lock. Its SQLite ledger stays the authority for workflow state.
 3. All agent-to-agent text goes through the controller (`cstan send`), one writer and one strict FIFO per recipient. Only the controller sends input to, starts, stops or closes agents in Herdr; no agent, including the PM, does so by policy. Read-only inspection (`herdr agent list`, `read`, `wait`) is allowed for the Supervisor and for diagnosis. Nothing enforces any of this (see the trust model).
 4. Workflow facts (reports, acks, review requests, findings) are recorded when an agent runs a `cstan` command. Completion is never inferred from terminal text or Herdr's state. The controller verifies what it can, but an environment credential only labels a reporter (spike E5).
-5. Roles come from configuration instead of the fixed list in `src/controller/types.ts`; for the first slice the configured names are aliases onto the existing capability roles (`reviewer` is `Verifier`), and the database migration is additive (`MVP_PLAN_V2.md` section 9).
+5. Roles come from configuration with a free name and one of four kinds (`PM`, `Developer`, `Verifier`, `Supervisor`). The kind decides the capabilities, and the existing role columns keep their CHECK constraints. The database migration is additive (`MVP_PLAN_V2.md` section 9).
 
 ## What this supersedes
 

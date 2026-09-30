@@ -98,6 +98,25 @@ export interface SeatInput {
   readonly role: Exclude<Role, "operator" | "controller">;
 }
 
+export interface RoleDefinitionInput {
+  readonly name: string;
+  readonly kind: Exclude<Role, "operator" | "controller">;
+  readonly host: string;
+  readonly configHash: string;
+}
+
+export interface RoleDefinition extends RoleDefinitionInput {
+  readonly state: "active" | "retired";
+}
+
+export interface RoleSyncResult {
+  readonly changed: boolean;
+  readonly inserted: readonly string[];
+  readonly updated: readonly string[];
+  readonly reactivated: readonly string[];
+  readonly retired: readonly string[];
+}
+
 export interface AssignmentResult {
   readonly assignmentId: string;
   readonly attempt: number;
