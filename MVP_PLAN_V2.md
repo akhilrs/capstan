@@ -1,0 +1,181 @@
+# Capstan MVP Plan v2
+
+## 1. Purpose and status
+
+**Status:** proposed with DEC-005 (PM-20). It becomes the plan of record when the PR that adds it is merged by the operator. `MVP_PLAN.md` (M0 to M3) is superseded in part: its Docker, network, egress and OMP-bridge material is history; its controller-core, ledger and recovery material is reused.
+
+**Product:** Capstan; **CLI:** `cstan`. The operator runs `cstan` in a project. It opens the configured agent host in Herdr. The first agent is the PM: the operator types the requirement to it and talks with it. The PM asks Capstan to spawn other agents (developer, reviewer, later designer, tester and a Supervisor). Agents are interactive and persistent. The task ends when the work is integrated, independently verified and accepted.
+
+**Evidence base.** The PM-19 spike (`docs/spike-herdr-agents.md`, experiments E1 to E6 with Claude Code in an isolated Herdr session, each run once) and an external plan review of the redesign (findings R-1 to R-9, section 14). Where this plan relies on something the spike did not test, it says so (section 12).
+
+**Working names.** Command names (`cstan start`, `send`, `inbox`, `wait`, `ack`, `report`, `ask`, `request-review`, `finding`, `status`, `pm restart`) and the config file `capstan.toml` are working names.
+
+## 2. Decisions taken by the operator
+
+No Docker, no per-role networking or firewall. One trusted single-user VM. Isolation is git worktrees created by `herdr worktree create`. Containment is process-group only. Herdr stays. Agents are interactive and persistent. The PM is the interactive main agent and asks Capstan, never Herdr directly, to spawn and message agents. A separate always-on Supervisor. Claude Code first, Codex and OMP later by configuration. Per-role settings in `capstan.toml`. Build a thin vertical slice first: PM, one developer, one reviewer. The Supervisor comes after the slice. See DEC-005 for what this supersedes and for the trust model.
+
+## 3. Hypotheses kept from the MVP
+
+| ID | Hypothesis | Status in v2 |
+| --- | --- | --- |
+| H1 | Separate agents can collaborate without one shared conversation | kept; tested from Stage 2 |
+| H2 | Durable state prevents forgotten ownership and next actions | kept; Stage 6 |
+| H3 | Independent supervision can break an unproductive loop | kept; Stage 5; independence is by convention only (same account and VM) |
+| H4 | Failure recovery does not introduce duplicate execution | kept; Stages 2 and 6 |
+| H5 | Independent verification prevents premature completion | kept; Stages 3 and 4 |
+| H6 | Coordination cost is measurable and potentially worthwhile | kept; comparison against a baseline is after the slice |
+
+## 4. Architecture
+
+```
+ operator ── cstan start ──► reads capstan.toml (roles: host, model, permissions)
+                              │
+        ┌─────────────────────▼───────────────────────────────────────────────┐
+        │ CONTROLLER DAEMON (separate process, single-instance lock)          │
+        │  SQLite ledger: work, assignments, generations, messages, receipts, │
+        │                 candidates, findings, events                        │
+        │  Herdr adapter: the only process that talks to Herdr                │
+        │  message queue: one writer and one FIFO per recipient               │
+        │  control socket (Unix, 0600): `cstan` commands from agents/operator │
+        └───────┬───────────────┬───────────────┬─────────────────┬───────────┘
+                │ herdr          │ herdr          │ herdr            │
+                ▼                ▼                ▼                  ▼
+      pane: PM (Claude Code)  pane: developer  pane: reviewer   pane: supervisor
+      operator types here     worktree g1      read-only        (after the slice)
+                │                │                │
+                └── agents report facts by running `cstan ...` (receipts) ──┘
+```
+
+Two channels:
+
+1. **Conversation** goes through the controller's Herdr adapter: guidance, questions, answers.
+2. **Facts** are `cstan` commands run inside the agent's pane: `report`, `ask`, `ack`, `inbox`, `wait`, `request-review`, `finding`. Completion is never inferred from the terminal or from Herdr's state. It is a receipt.
+
+The controller runs with no PM alive. If the daemon dies, `cstan start` (or any `cstan` command) restarts it and reconciles. An automatic supervisor for the daemon, for example a systemd user unit, is a later item.
+
+## 5. Messaging
+
+`cstan send` is the only path for agent-to-agent text. The controller keeps one queue and one writer per worker pane and one strict FIFO order per recipient.
+
+**Principle for reading panes.** Reading the screen may block or defer an action, or be shown as evidence. It never causes a state change or an automatic resend. Exactly two cases let a screen read gate an action, both logged (DEC-005): the pre-send empty-input check for worker panes, and the startup trust dialog.
+
+**Workers (push).** A message is delivered only when the agent's Herdr state is `idle` or `done` and a read of the pane shows an empty input line. Otherwise it is `deferred`. It never sends while the agent is `working` or `blocked`. If the input line is still not empty after the maximum deferral, the controller may clear it with `ctrl+u`, but only after reading and logging the text and notifying the operator.
+
+**The PM (pull; nothing is ever typed into the PM pane).** The operator may be typing in the PM pane, and text already in an input line merges with a later prompt (spike E4). So:
+
+- The PM's role prompt tells it to run `cstan inbox` at the start of every turn and, only while it is actively waiting on delegated work, to call `cstan wait --timeout 90` in a loop.
+- `capstan.toml` rejects a wait timeout that is not below the host's shell-command timeout (about two minutes by default for Claude Code; configurable per host). A wait therefore ends by itself and the PM decides whether to call it again.
+- `inbox` and `wait` print message text and move the message to `sent`. They do not ack. The PM acks each message with `cstan ack <id>`, as workers do. Whether the operator was notified is a separate flag (`notified_at`), not a state.
+- `inbox` and `wait` also re-print the PM's own messages that are `sent` and not yet acked. That is a re-read, not a resend, and lets the PM ack after an interruption without the operator's help.
+- Strict FIFO applies, so `inbox` returns the oldest unresolved message and the next message becomes eligible when it is acked: one message per ack. This is a known throughput limit of the slice; batching is a later item. A gate case checks several queued worker reports (section 11, Stage 2).
+- The operator's own `cstan inbox` is read-only (peek) by default, so it cannot move PM messages to `sent` unseen.
+- An interrupted, timed-out or backgrounded `wait` is routine, not a residual case: the operator presses Esc to talk to the PM (the host queues typed input until the call returns) and the model may send the command to the background. Because the ack is explicit, a message printed by such a call stays `sent`, is never lost, and becomes `unacked` after the timeout. While the PM has a registered `wait` in progress, including a backgrounded one until it returns, the controller exempts it from stall timers, because Herdr shows the PM as `working` during the wait. Each `wait` is a tool call; the context cost per loop is measured in Stage 2.
+- PM ack timeout: default 10 minutes, and the timer does not run while the PM's Herdr state is `working`, so a long PM turn does not send every printed message to `unacked`.
+- Notification: if messages stay unacknowledged past the maximum deferral, the controller raises a `herdr notification` to the operator and repeats it every N minutes (default 10) while the queue is blocked. If `herdr notification` does not work, a pane the controller owns runs `cstan status --watch` (typing into an owned pane is safe) and rings the terminal bell. There is no automatic skip: a blocked PM queue waits for the operator.
+- Optional enhancement, verified in Stage 2 and dropped if it fails: a `UserPromptSubmit` hook for the PM that runs `cstan inbox --peek` (a one-line count, marks nothing). It needs the operator's hooks excluded (`--setting-sources project,local`, with the Capstan hook added through `--settings`, because `--settings` alone merges with `~/.claude`), and that may also drop Herdr's own Claude hook. No `Stop` hook that adds context is used: it would force the PM to continue, which is controller-driven input.
+
+**Message states.** `queued`, `deferred` (agent busy or blocked, or input line not empty; has a maximum deferral, then `expired`), `sent`, `acked`, `acked_late` (an ack arriving after `unacked`), `unacked` (no ack in the timeout), `expired`, `cancelled` (the recipient's generation was replaced or the task ended), `failed`.
+
+**Ordering.** Every unresolved state (`deferred`, `sent`, `unacked`, `expired`, `failed`) blocks later messages to the same recipient. Resolved states (`acked`, `acked_late`, `cancelled`) do not. Who resolves a blocked message: for a worker, the PM or the operator; for the PM, only the operator, because the PM cannot resolve a message addressed to itself. Resolution is a recorded decision: `retry` (an explicit resend), `skip` or `cancel`.
+
+**No automatic resend, ever.** A resend can run an instruction twice, and pane reading is not a reliable trigger (E3, E4). Reading the pane after `unacked` is evidence shown to the PM or operator.
+
+Each message carries an id and asks for `cstan ack <id>`. The ack shows receipt, not understanding, and is forgeable (E5). A nonce adds nothing against a same-user forger and is left out of the slice.
+
+## 6. Facts are verified, not trusted
+
+An environment-variable credential only labels a reporter. Any same-user process can read it and forge acks and reports (E5). The controller narrows what a forger can do; it does not close it:
+
+- A reported commit must exist on the branch recorded for that agent's current generation; the generation must be current; the state transition must be legal; acceptance needs an independent reviewer receipt bound to that exact commit.
+- Not closed: a process holding a stolen token that also has a valid commit on that branch is accepted. Any same-user process can commit into any worktree. This is a known hole (DEC-005), and the Stage 3 gate records it as a documented limit, not as a pass.
+- Tokens are per agent and per generation and are never printed. The ledger records the claimed identity together with the evidence that was checked.
+
+**Operator authority and the control channel.** `cstan` reaches the daemon over a Unix socket in the state directory (mode 0600). Any process of the same user can use it. Agent commands (`report`, `ask`, `ack`, `inbox`, `wait`, `request-review`, `finding`) need the agent's token. Operator commands (`assign`, `cancel`, `send` as the operator, `pm restart`, resolving a blocked message) need an operator credential that is not put in any agent's environment, and each role's profile carries host deny rules for them. Both controls are only as strong as the same-user boundary: an agent that reads the operator credential file, or ignores its deny rules, can forge the operator's authority. This is a listed residual risk, not a solved problem.
+
+## 7. Herdr state is a hint
+
+With the installed hook, the idle and blocked states that were explained came from screen-detection rules with a remotely updated manifest (E3). Herdr state decides when to send and spots `blocked`. Stalls (`working` with no receipt and no registered wait for a configured time) are detected by controller timers from Stage 2, not by the Supervisor, and reported to the PM and operator. Nothing that matters relies on Herdr state alone. Pinning or disabling manifest auto-update is an open item; a Claude Code, Herdr or manifest update is a revisit trigger (DEC-005).
+
+## 8. Permissions and how agents learn the commands
+
+- **Per-role profile** in `capstan.toml`: host, model, permission mode, allow and deny rules, and for workers `-- --settings '{"disableAllHooks":true}'` so the operator's own hooks (claw8) do not interfere (verified in the spike's additional finding on global Claude configuration). Turning hooks off also drops guards the operator may want, and the rest of `~/.claude` was not examined. Auto permission mode is off for spawned agents unless the profile says so; an agent that inherits auto mode runs commands without asking.
+- **`cstan` is allow-listed per role.** In default permission mode a command outside the allow rules prompts (E3). The agent learns the commands from a role prompt passed with `--append-system-prompt`. Both are verified in Stage 2, before anything depends on `ack`.
+- **Confinement.** `--add-dir` adds directories; it does not limit an agent to one. Confinement to the worktree relies on the working directory plus per-role allow and deny rules for writes, and holds only as far as the host enforces them. This plan claims no more.
+- **Prompts.** A permission prompt makes the agent `blocked`. The controller notifies the operator. The PM never answers permission prompts. Nothing presses Enter on a prompt without reading it: the trust dialog defaults to "No, exit" and the permission prompt defaults to "Yes" (E1, E3).
+- **Trust dialog exception** (DEC-005): the controller may answer the startup trust dialog for a worktree path it has just created, after reading that the dialog names exactly that path and choosing the option by its text. This is a screen-driven keypress, so it is scraping and it is logged. Pre-trusting through the host's configuration is preferred if it works.
+
+## 9. Recovery, roles and persistent agents
+
+- **PM failure and takeover.** The controller runs without the PM. `cstan pm restart` (Stage 2, with the slice) starts a new PM with a summary rebuilt from the ledger: objective, decisions, open work, unacknowledged messages. The operator can always act through `cstan` directly (`status`, `assign`, `cancel`, `send`, `inbox`).
+- **Persistent agents.** An agent lives until the task ends. Its assignment holds many rounds (an instruction, then a report). A replacement happens only on failure and is seeded from the ledger. Automatic recycling for heavy context is out of the slice.
+- **Roles from configuration.** Roles come from config instead of the fixed list in `src/controller/auth.ts` and the fixed `role_capabilities` keys. The migration is additive: new roles, agents, messages and rounds tables; a roles table seeded with the four existing roles so existing `seats`, `actors` and `assignments` rows keep working; the existing migrations and rows are untouched; `auth.ts` reads roles from the database instead of the constant. The slice defaults are `pm`, `developer`, `reviewer`; `supervisor` is added in Stage 5.
+
+## 10. Worktrees, branches, review and integration
+
+- **Branches.** Named `cap/<task>/<agent>-g<generation>`. A branch belongs to one agent generation. After a replacement, the new generation gets a new branch created from the last accepted candidate, or from the old branch tip only if the ledger records that tip as the resume point. "The agent's branch" always means the branch recorded in the ledger for the current generation.
+- **Reviewer.** `cstan request-review` makes the controller create a worktree on a review branch at the given commit (`herdr worktree create --base <commit>`), start a reviewer there with a read-only profile, and remove the worktree and branch after the report. Findings come back through `cstan report`. The reviewer is never the author's session (controller-enforced). One review round per request.
+- **Integration.** A controller operation in a separate integration worktree. The base is the main branch head at the time of integration, recorded in the ledger; the merge order is the order the PM recorded in the ledger. A conflict blocks and is reported to the PM; the controller never resolves it with a model. A developer may be assigned to resolve it as a new candidate. The integrated commit is re-verified by a reviewer before acceptance.
+- **Cleanup.** Worktrees are removed at task end or on cancel (`herdr worktree remove`). Branches are kept until the PM or operator confirms deletion.
+- **Supervisor (after the slice).** Always on, read-only by permission profile, watching through `herdr agent list/read/wait` and controller digests, reporting through `cstan finding`. The controller routes findings through the same message path. Independence is by convention only.
+
+## 11. Build order (each stage has an exit gate with a stated oracle)
+
+| Stage | Work | Exit gate |
+| --- | --- | --- |
+| 0 | Spike PM-19 | Done and externally reviewed. |
+| 1 | This plan and DEC-005 (PM-20) | Externally reviewed and merged. |
+| 2 | Message path, PM entry and daemon lifecycle: `capstan.toml`, `cstan start`, the daemon with a single-instance lock, `cstan pm restart`, the Herdr adapter, `cstan send`, `inbox` and `wait`, the message state machine, `cstan` allow-listed and taught by role prompt, controller stall timers. Also verified here because the gate depends on them: that `cstan wait` and `inbox` work as the PM's pull path and that `herdr notification` works (with its fallback). | The Stage 2 gate, listed below the table. |
+| 3 | Spawn and facts: a developer in a worktree, `cstan report`, controller-side verification | (a) a forged report for a commit that is not on that agent's branch, using a stolen token from another process, is rejected; (b) a forged report with the stolen token and a valid commit on that branch IS accepted, and the ledger shows the claimed identity and the evidence: this is recorded as the known hole, not as a pass. |
+| 4 | Reviewer and integration | Independent review, findings, fix and re-review, with the reviewer never the author's session (oracle: session ids in the ledger); an integration conflict blocks and is reported; worktrees and review branches are removed afterwards. |
+| 5 | Supervisor and findings routing | A repeated failure injected in a scenario is detected, routed, and its resolution checked. |
+| 6 | Recovery: agent replacement, controller restart and crash; failure-injection harness rewritten for pane and process failures (PM-13 rescoped) | No duplicate execution (oracle: the agent is instructed to append one line to a file per instruction id; after a controller crash and an agent replacement the file has exactly one line per instruction id, or exactly two for an instruction whose resend was explicitly recorded) and no accepted stale report. |
+| 7 | Codex and OMP adapters; removal of the Docker code and M1 scripts | Each host passes the Stage 2 gate; nothing Docker-related remains in the build. |
+
+
+### Stage 2 gate
+
+Run on real Claude Code sessions in an isolated Herdr session. Every case names its oracle.
+
+- (a) 10 consecutive PM to developer rounds with every message answered exactly once (oracle: one answer per message id in the transcript, and `acked` for each in the message log).
+- (b) with text already in a worker's input line the message is deferred, then delivered without merging (oracle: received text equals sent text), or, after the maximum deferral, cleared with the text logged.
+- (c) a message queued while the agent is `working` is not sent until `idle` or `done` (oracle: send timestamps against recorded Herdr state history).
+- (d) killing the developer's pane mid-round leaves the message `unacked` or `cancelled`, never silently lost, with no resend (oracle: message log).
+- (e) `pm restart` gives a PM that can list the open work.
+- (f) the PM pull path: with the operator typing in the PM pane nothing is ever typed into it (oracle: pane input history shows only the operator's keys); a message reaches the PM through `inbox` and `wait`, moves to `sent`, and reaches `acked` only by an explicit `cstan ack`; operator typing during a `wait`, an Esc interrupt of the `wait`, a `wait` that hits the shell-command timeout and a `wait` sent to the background each leave printed messages `sent` and later `unacked` if never acked, never `acked` and never lost (oracle: message log after each case); several queued worker reports are delivered one per ack in order with none dropped; the PM is not flagged by stall timers during a registered `wait`, including a backgrounded one (oracle: finding log); a message left unacknowledged past the maximum deferral raises a `herdr notification`, repeated at the configured interval, and the fallback pane plus bell works with the notification disabled; the per-loop context cost of `wait` is measured and recorded; optional item: with `--setting-sources project,local` the operator's hooks do not run in the PM, the Capstan hook does, and the PM's Herdr state still works.
+- (g) a message that expires or goes unacked blocks the next message to that recipient until a recorded resolution (oracle: message log ordering).
+
+## 12. Not verified
+
+Stated so nobody builds on them as facts: Codex and OMP behavior; `cstan wait` under Claude Code's shell-command behavior (tested in Stage 2; fallback: `cstan inbox` at the start of each turn plus the operator notification); `herdr notification` (tested in Stage 2; fallback: a controller-owned `cstan status --watch` pane plus bell); selective Claude Code hooks for the PM through `--setting-sources` (optional; tested in Stage 2 with a check that Herdr state still works); the updated Herdr Claude hook; long tasks and context growth; agent death and replacement; several agents interfering; pre-trusting worktrees; scrubbing the Herdr server's environment; pinning the detection manifest; cost.
+
+## 13. Verification approach and cost
+
+Deterministic tests for the message state machine, framing, fact verification and the migration. Real-host scenarios with Claude Code in an isolated named Herdr session (the spike's pattern), with evidence and negative results kept; no canned agent replies as evidence. Real-host runs spend the operator's Claude account, so each stage states its expected usage and the operator sets a cap before any long run. No cap has been set yet.
+
+## 14. Traceability
+
+**External plan review of the redesign (R-1 to R-9).**
+
+| Finding | Where handled |
+| --- | --- |
+| R-1 impersonation is easy | Section 6 (facts verified, known hole); DEC-005 trust model |
+| R-2 the ledger can be bypassed | Sections 4 and 5 (all sends through the controller); DEC-005 (unenforced, detection later) |
+| R-3 permission answers by the PM are fragile | Section 8 (profiles, operator answers, PM never) |
+| R-4 the PM is a single point of failure | Sections 4 and 9 (daemon, `pm restart`, operator commands) |
+| R-5 typed messages can interleave or be lost | Section 5 (one writer, idle gating, explicit ack, pull for the PM) |
+| R-6 the spike is too narrow | Done in PM-19, with the extra cases; Stage 2 gates add more |
+| R-7 open roles need a data-model change | Section 9 (additive migration) |
+| R-8 merging is missing | Section 10 (controller integration and re-verification) |
+| R-9 independence and scope | Section 3 and section 10 (by convention; recycling and persistent reviewers cut from the slice) |
+
+**Spike recommendations (`docs/spike-herdr-agents.md`).**
+
+| Recommendation | Where handled |
+| --- | --- |
+| 1 Capstan sends every message; one writer; idle gating; ack | Section 5 |
+| 2 Controller verifies reported facts | Section 6 |
+| 3 Herdr state is a hint | Section 7 |
+| 4 Never press Enter blindly; pre-trust; per-role permissions | Section 8 |
+| 5 Controlled per-role config; hooks off through `--settings` | Section 8 |
+| 6 Detect unrouted prompts by count | DEC-005: partial, not in the slice |
+| 7 Prefer `herdr worktree create` | Section 10 |
