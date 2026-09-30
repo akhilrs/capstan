@@ -36,7 +36,7 @@ Evidence for this decision: the PM-19 spike (`docs/spike-herdr-agents.md`, six e
 
 Reading a pane to diagnose or to show evidence is allowed. Reading a pane never causes a state change or an automatic resend. Exactly two cases let a screen read gate an action, and each is logged:
 
-1. Before a controller message to a worker pane: a read shows the input line is empty. If it is not, the message is deferred. After the maximum deferral the controller may clear the line with `ctrl+u`, but only after logging the text it read and notifying the operator.
+1. Before a controller message to a worker pane: a read shows the input line is empty. If it is not, the message is deferred. After the maximum deferral the controller reads and logs the text, notifies the operator, clears the line with `ctrl+u`, and then sends the message.
 2. The startup trust dialog for a worktree path the controller has just created: the controller may answer it only after reading that the dialog names exactly that path, choosing the option by its text. Pre-trusting through the host's configuration is preferred if it works. Every keypress is logged.
 
 The controller never types into the PM pane: the operator may be typing there, and text already in an input line merges with a later prompt (spike E4).
