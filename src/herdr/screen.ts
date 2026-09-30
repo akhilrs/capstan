@@ -90,6 +90,8 @@ export function extractInputLine(
   const bottom = rules[rules.length - 1]!;
   const top = rules[rules.length - 2]!;
   if (bottom - top < 2) return undefined;
+  if (plain[top]!.trim().length !== plain[bottom]!.trim().length)
+    return undefined;
   const first = plain[top + 1]!;
   if (!/^\s*❯(?:[  ]|$)/u.test(first)) return undefined;
 

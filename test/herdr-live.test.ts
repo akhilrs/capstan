@@ -147,6 +147,33 @@ test(
             : undefined,
         "the stand-in agent to log the message",
       );
+      for (const [text, seen] of [
+        ["--help", "--help\n"],
+        ["line one\nline two", "line one\nline two\n"],
+      ] as const) {
+        assert.deepEqual(
+          await adapter.guardedSend({
+            paneId: worktree.paneId,
+            text,
+            beforeSend: () => {},
+          }),
+          { sent: true },
+        );
+        await until(
+          async () =>
+            readFileSync(live.messageLog, "utf8").includes(`${seen}---`)
+              ? true
+              : undefined,
+          `the stand-in agent to log ${JSON.stringify(text)}`,
+        );
+        await until(
+          async () =>
+            (await adapter.readInput(worktree.paneId)) === ""
+              ? true
+              : undefined,
+          "the input line to be empty again",
+        );
+      }
       const argumentLines = readFileSync(live.argsLog, "utf8")
         .trimEnd()
         .split("\n");

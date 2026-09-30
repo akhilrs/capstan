@@ -1999,3 +1999,81 @@ test("a role value that starts with a dash is refused and an empty HOME, PATH or
     h.fake.cleanup();
   }
 });
+
+test("more invisible text characters, lone surrogates in arguments and environment, and a NaN start timeout are refused", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    for (const text of [
+      "a\u200eb",
+      "a\u200fb",
+      "a\u061cb",
+      "a\u2028b",
+      "a\u2029b",
+      "a\ufeffb",
+    ])
+      await assert.rejects(
+        h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        InvalidArgumentError,
+        JSON.stringify(text),
+      );
+    assert.equal(h.fake.calls.length, 0);
+    const base = {
+      model: null,
+      permissionMode: "default",
+      allow: [],
+      deny: [],
+      hooks: "inherit",
+    } as const;
+    assert.throws(
+      () => claudeArguments({ ...base, allow: ["a\ud800"] }),
+      InvalidArgumentError,
+    );
+    assert.throws(
+      () => buildAgentEnvironment({}, { GOOD: "a\ud800" }),
+      InvalidArgumentError,
+    );
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "n1",
+      label: "n1",
+    });
+    await assert.rejects(
+      h.adapter.prepareShell({
+        paneId,
+        environment: { ...CLEAN_ENV, GOOD: "a\ud800" },
+      }),
+      InvalidArgumentError,
+    );
+    for (const timeoutMs of [Number.NaN, Number.POSITIVE_INFINITY])
+      await assert.rejects(
+        h.adapter.startAgent({
+          name: "n1",
+          kind: "claude",
+          paneId,
+          args: [],
+          environment: CLEAN_ENV,
+          timeoutMs,
+        }),
+        InvalidArgumentError,
+      );
+    await assert.rejects(
+      h.adapter.startAgent({
+        name: "n1",
+        kind: "claude",
+        paneId,
+        args: ["a\ud800"],
+        environment: CLEAN_ENV,
+      }),
+      InvalidArgumentError,
+    );
+    assert.equal(h.fake.callsTo("pane", "run").length, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});

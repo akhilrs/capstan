@@ -292,3 +292,22 @@ test("escape sequences other than plain CSI are removed and colon sub-parameters
   ].join("\n");
   assert.equal(extractInputLine("claude", typed), "hello");
 });
+
+test("an input box whose two rule lines differ in width is not read", () => {
+  const long = "─".repeat(40);
+  const typedRule = "─".repeat(12);
+  assert.equal(
+    extractInputLine(
+      "claude",
+      [long, `❯\u00a0text`, typedRule, "  footer"].join("\n"),
+    ),
+    undefined,
+  );
+  assert.equal(
+    extractInputLine(
+      "claude",
+      [long, `❯\u00a0text`, long, "  footer"].join("\n"),
+    ),
+    "text",
+  );
+});

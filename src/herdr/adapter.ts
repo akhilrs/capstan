@@ -121,7 +121,8 @@ const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
 const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
-const UNSAFE_TEXT = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u;
+const UNSAFE_TEXT =
+  /[\p{Cc}\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/u;
 const ALLOWED_TEXT_CONTROLS = /[\n\t]/g;
 const ENVIRONMENT_KEY = /^[A-Z_][A-Z0-9_]*$/;
 const ALLOWLISTED_BASE = [
@@ -162,7 +163,11 @@ export function buildAgentEnvironment(
       throw new InvalidArgumentError(
         `environment name ${name} is not acceptable`,
       );
-    if (typeof value !== "string" || /[\p{Cc}]/u.test(value))
+    if (
+      typeof value !== "string" ||
+      !value.isWellFormed() ||
+      /[\p{Cc}]/u.test(value)
+    )
       throw new InvalidArgumentError(
         `environment value for ${name} is not acceptable`,
       );
@@ -192,6 +197,7 @@ export function claudeArguments(
     if (
       typeof arg !== "string" ||
       arg.length === 0 ||
+      !arg.isWellFormed() ||
       CONTROL_CHARACTERS.test(arg)
     )
       throw new InvalidArgumentError(
@@ -433,7 +439,11 @@ export class HerdrAdapter {
         throw new InvalidArgumentError(
           `environment name ${name} is not acceptable`,
         );
-      if (typeof value !== "string" || CONTROL_CHARACTERS.test(value))
+      if (
+        typeof value !== "string" ||
+        !value.isWellFormed() ||
+        CONTROL_CHARACTERS.test(value)
+      )
         throw new InvalidArgumentError(
           `environment value for ${name} is not acceptable`,
         );
@@ -533,11 +543,16 @@ export class HerdrAdapter {
       if (
         typeof arg !== "string" ||
         arg.length === 0 ||
+        !arg.isWellFormed() ||
         CONTROL_CHARACTERS.test(arg)
       )
         throw new InvalidArgumentError(
           "an agent argument is empty or has control characters",
         );
+    if (input.timeoutMs !== undefined && !Number.isFinite(input.timeoutMs))
+      throw new InvalidArgumentError(
+        "the start timeout must be a finite number",
+      );
     const timeoutMs = Math.max(input.timeoutMs ?? 30_000, 5_000);
     let entry = this.#assertTypable(input.paneId, "start");
     if (entry.phase === "fresh" && input.environment === undefined)
