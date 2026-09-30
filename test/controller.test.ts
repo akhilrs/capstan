@@ -8618,6 +8618,44 @@ test("every write to seats and role definitions bumps the project version", asyn
   }
 });
 
+test("replaying an applied kind change after a seat took the name returns the stored result", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const owner = info.ownerCredential;
+    core.syncRoleDefinitions(context(core, owner), desiredRoles());
+    const change = context(core, owner);
+    const applied = core.syncRoleDefinitions(
+      change,
+      desiredRoles({
+        reviewer: { kind: "Developer", configHash: "9".repeat(64) },
+      }),
+    );
+    assert.deepEqual(applied.updated, ["reviewer"]);
+    core.createSeat(context(core, owner), {
+      seatId: "late-seat",
+      name: "reviewer",
+      role: "Developer",
+    });
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    assert.deepEqual(
+      core.syncRoleDefinitions(
+        change,
+        desiredRoles({
+          reviewer: { kind: "Developer", configHash: "9".repeat(64) },
+        }),
+      ),
+      applied,
+    );
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("a role kind cannot change while a seat is named after the role", async () => {
   const value = await fixture();
   try {

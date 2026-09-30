@@ -1034,14 +1034,14 @@ export class ControllerCore {
       authenticateActor(this.#database, this.#projectId, context.credential),
       "actor:manage",
     );
-    const difference = this.#roleDifference(sorted);
     const isReplay =
       this.#database
         .prepare(
           "SELECT 1 FROM mutation_requests WHERE project_id = ? AND idempotency_key = ?",
         )
         .get(this.#projectId, context.idempotencyKey) !== undefined;
-    if (!difference.changed && !isReplay) return difference;
+    const planned = isReplay ? undefined : this.#roleDifference(sorted);
+    if (planned !== undefined && !planned.changed) return planned;
     // Every write to role_definitions and seats must bump projects.state_version:
     // the caller creates the context before this pre-check, so a matching
     // expected version proves the rows read above are still current.
@@ -1051,6 +1051,7 @@ export class ControllerCore {
       "actor:manage",
       { roles: sorted },
       () => {
+        const difference = planned ?? this.#roleDifference(sorted);
         const now = new Date().toISOString();
         const insert = this.#database.prepare(
           "INSERT INTO role_definitions(project_id, role_name, kind, host, config_hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",

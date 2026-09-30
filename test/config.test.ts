@@ -281,7 +281,7 @@ const rejections: ReadonlyArray<[string, string, RegExp]> = [
       'kind = "Verifier"',
       'kind = "Verifier"\nmodel = "a\\u0001b"',
     ),
-    /model contains control characters/,
+    /model contains control, format or line-separator characters/,
   ],
   [
     "too many allow entries",
@@ -356,6 +356,102 @@ test("the loader rejects an oversize file, invalid UTF-8 and a missing file", ()
     assert.throws(
       () => loadCapstanConfig(directory),
       /capstan\.toml does not exist/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("CRLF and LF files give the same prompt hash and multi-line prompts load", () => {
+  const withPrompt = (eol: string): string =>
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nprompt = """\nLine one\n\tindented\nLine two"""',
+    ).replaceAll("\n", eol);
+  const hashOf = (text: string): string | null =>
+    withConfig(text, (directory) => {
+      const reviewer = loadCapstanConfig(directory).roles.find(
+        (role) => role.name === "reviewer",
+      )!;
+      return reviewer.prompt.hash;
+    });
+  const lf = hashOf(withPrompt("\n"));
+  assert.match(lf ?? "", /^[0-9a-f]{64}$/);
+  assert.equal(hashOf(withPrompt("\r\n")), lf);
+
+  const directory = projectDirectory();
+  try {
+    writeFileSync(path.join(directory, "lf.md"), "One\nTwo\n");
+    writeFileSync(path.join(directory, "crlf.md"), "﻿One\r\nTwo\r\n");
+    const fileHash = (name: string): string | null => {
+      write(
+        directory,
+        VALID.replace(
+          'kind = "Verifier"',
+          `kind = "Verifier"\nprompt_file = "${name}"`,
+        ),
+      );
+      return loadCapstanConfig(directory).roles.find(
+        (role) => role.name === "reviewer",
+      )!.prompt.hash;
+    };
+    assert.equal(fileHash("crlf.md"), fileHash("lf.md"));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const unsafeValues: ReadonlyArray<[string, string]> = [
+  ["a newline escape in model", 'model = "a\\nb"'],
+  ["a tab escape in model", 'model = "a\\tb"'],
+  ["a C1 control in model", 'model = "a\\u0085b"'],
+  ["a bidi override in model", 'model = "a\\u202Eb"'],
+  ["a zero-width space in model", 'model = "a\\u200Bb"'],
+  ["a line separator in allow", 'allow = ["a\\u2028b"]'],
+  ["a whitespace-only allow entry", 'allow = ["   "]'],
+  ["a whitespace-only prompt", 'prompt = "  \\n "'],
+  ["an escape sequence in a prompt", 'prompt = "a\\u001bb"'],
+  ["a bidi override in a prompt", 'prompt = "a\\u202Eb"'],
+];
+for (const [name, line] of unsafeValues)
+  test(`the loader rejects ${name}`, () =>
+    assertRejected(
+      VALID.replace('kind = "Verifier"', `kind = "Verifier"\n${line}`),
+      /(contains control, format or line-separator characters|must be a non-empty string)/,
+    ));
+
+test("a prompt may contain newlines and tabs", () => {
+  withConfig(
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nprompt = "a\\n\\tb"',
+    ),
+    (directory) => {
+      const reviewer = loadCapstanConfig(directory).roles.find(
+        (role) => role.name === "reviewer",
+      )!;
+      assert.equal(reviewer.prompt.source, "inline");
+    },
+  );
+});
+
+test("an empty or control-laden prompt file is rejected", () => {
+  const directory = projectDirectory();
+  try {
+    const config = VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nprompt_file = "p.md"',
+    );
+    write(directory, config);
+    writeFileSync(path.join(directory, "p.md"), " \n");
+    assert.throws(
+      () => loadCapstanConfig(directory),
+      /prompt_file must not be empty/,
+    );
+    writeFileSync(path.join(directory, "p.md"), "a\u001bb");
+    assert.throws(
+      () => loadCapstanConfig(directory),
+      /prompt_file contains control, format or line-separator characters/,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

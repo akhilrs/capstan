@@ -91,7 +91,7 @@ const MAX_LIST_ENTRIES = 64;
 const MAX_ENTRY_CHARS = 200;
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 const COMMAND_PATTERN = /^[A-Za-z0-9._/-]{1,200}$/;
-const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+const UNSAFE_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const CREDENTIAL_SHAPES: readonly RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{8,}/,
   /\bgh[pousr]_[A-Za-z0-9]{8,}/,
@@ -164,7 +164,8 @@ export function parseCapstanConfig(
   } catch {
     throw new ConfigError(`${CONFIG_FILE_NAME} is not valid UTF-8`);
   }
-  if (source.startsWith("﻿")) source = source.slice(1);
+  if (source.startsWith("\uFEFF")) source = source.slice(1);
+  source = source.replace(/\r\n/g, "\n");
 
   let root: Table;
   try {
@@ -351,7 +352,12 @@ function resolvePrompt(
   if (role.prompt !== undefined && role.prompt_file !== undefined)
     throw new ConfigError(`${at} sets both prompt and prompt_file`);
   if (role.prompt !== undefined) {
-    const text = requiredString(role.prompt, `${at}.prompt`, MAX_PROMPT_CHARS);
+    const text = requiredString(
+      role.prompt,
+      `${at}.prompt`,
+      MAX_PROMPT_CHARS,
+      true,
+    );
     guardCredentialShape(text, `${at}.prompt`);
     return { source: "inline", path: null, hash: sha256(text) };
   }
@@ -383,6 +389,10 @@ function resolvePrompt(
           `${at}.prompt_file must be a regular file of at most ${MAX_FILE_BYTES} bytes`,
         );
       bytes = fs.readFileSync(descriptor);
+      if (bytes.length > MAX_FILE_BYTES)
+        throw new ConfigError(
+          `${at}.prompt_file must be a regular file of at most ${MAX_FILE_BYTES} bytes`,
+        );
     } finally {
       fs.closeSync(descriptor);
     }
@@ -392,10 +402,16 @@ function resolvePrompt(
   }
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+      .decode(bytes)
+      .replace(/^\uFEFF/, "")
+      .replace(/\r\n/g, "\n");
   } catch {
     throw new ConfigError(`${at}.prompt_file is not valid UTF-8`);
   }
+  if (text.trim().length === 0)
+    throw new ConfigError(`${at}.prompt_file must not be empty`);
+  assertSafeText(text, `${at}.prompt_file`, true);
   guardCredentialShape(text, `${at}.prompt_file`);
   return { source: "file", path: realFile, hash: sha256(text) };
 }
@@ -439,14 +455,26 @@ function requiredTable(value: unknown, at: string): Table {
   return value;
 }
 
-function requiredString(value: unknown, at: string, maxChars: number): string {
-  if (typeof value !== "string" || value.length === 0)
+function requiredString(
+  value: unknown,
+  at: string,
+  maxChars: number,
+  multiline = false,
+): string {
+  if (typeof value !== "string" || value.trim().length === 0)
     throw new ConfigError(`${at} must be a non-empty string`);
   if (value.length > maxChars)
     throw new ConfigError(`${at} exceeds ${maxChars} characters`);
-  if (CONTROL_CHARACTERS.test(value))
-    throw new ConfigError(`${at} contains control characters`);
+  assertSafeText(value, at, multiline);
   return value;
+}
+
+function assertSafeText(value: string, at: string, multiline: boolean): void {
+  const checked = multiline ? value.replace(/[\n\t]/g, "") : value;
+  if (UNSAFE_CHARACTERS.test(checked))
+    throw new ConfigError(
+      `${at} contains control, format or line-separator characters`,
+    );
 }
 
 function optionalString(
