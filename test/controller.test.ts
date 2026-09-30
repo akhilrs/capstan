@@ -8385,7 +8385,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -8396,6 +8396,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
             .prepare(`SELECT * FROM ${name}`)
             .all()
             .map((row) => JSON.stringify(row))
+            .filter((row) => !row.includes('"message:'))
             .sort(),
         ]),
       );
@@ -8403,8 +8404,25 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     const db = new Database(databasePath);
     let before: Record<string, unknown[]>;
     try {
-      db.exec("DROP TABLE role_definitions");
-      db.prepare("DELETE FROM schema_migrations WHERE version = 14").run();
+      for (const table of [
+        "message_input_clears",
+        "message_rejections",
+        "message_resolutions",
+        "rounds",
+        "messages",
+        "agent_waits",
+        "agent_state_history",
+        "agents",
+        "role_definitions",
+      ])
+        db.exec(`DROP TABLE ${table}`);
+      db.exec(
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%'",
+      );
+      db.exec(
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%'",
+      );
+      db.prepare("DELETE FROM schema_migrations WHERE version >= 14").run();
       before = snapshot(db);
     } finally {
       db.close();
@@ -8427,6 +8445,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
         [
           { version: 13, name: "0013_reconcile_queued_commands.sql" },
           { version: 14, name: "0014_role_definitions.sql" },
+          { version: 15, name: "0015_messages.sql" },
         ],
       );
       assert.equal(
