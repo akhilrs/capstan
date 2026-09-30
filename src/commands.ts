@@ -34,13 +34,49 @@ const VALIDATION_MESSAGE = /^(?:[a-z][^\n]*\b(?:must|needs)\b|unknown\b)/;
 // `cstan inbox` output. It is tested on a normalized copy (NFKC, lower case,
 // no combining marks, joiners or blank fillers) and only horizontal space may
 // precede the text, so the scan is linear in the body length.
-const IGNORABLE = /[\p{Mn}\u200c\u200d\u2800\u115f\u1160\u3164\uffa0]/gu;
+const IGNORABLE = /[\p{M}\u200c\u200d\u2800\u115f\u1160\u3164\uffa0]/gu;
+// Cyrillic and Greek letters that look like the Latin letters of the frame text.
+const CONFUSABLES: Readonly<Record<string, string>> = {
+  а: "a",
+  с: "c",
+  е: "e",
+  і: "i",
+  о: "o",
+  р: "p",
+  ѕ: "s",
+  т: "t",
+  ԁ: "d",
+  ɡ: "g",
+  һ: "h",
+  к: "k",
+  м: "m",
+  ո: "n",
+  ɑ: "a",
+  α: "a",
+  ε: "e",
+  ι: "i",
+  ο: "o",
+  ρ: "p",
+  τ: "t",
+  κ: "k",
+  μ: "m",
+  ν: "v",
+  ѡ: "w",
+  у: "y",
+  ɴ: "n",
+  г: "r",
+};
+const CONFUSABLE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "gu");
 const FRAME_LOOKALIKE =
   /^[ \t]*(?:\[capstan message |acknowledge with: cstan ack |message \S+ \[[a-z_]+\] from )/m;
 
 function imitatesFrame(body: string): boolean {
   return FRAME_LOOKALIKE.test(
-    body.normalize("NFKC").toLowerCase().replace(IGNORABLE, ""),
+    body
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(IGNORABLE, "")
+      .replace(CONFUSABLE, (letter) => CONFUSABLES[letter] ?? letter),
   );
 }
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;

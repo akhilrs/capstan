@@ -32,7 +32,7 @@ function list<T>(value: unknown): T[] {
 export function signalsOf(status: Record<string, unknown>): Set<string> {
   const signals = new Set<string>();
   for (const message of list<WatchedMessage>(status.messages))
-    if (message.lastNotifiedAt !== null)
+    if (message.lastNotifiedAt != null)
       signals.add(`notified:${message.messageId}:${message.lastNotifiedAt}`);
   for (const clear of list<{ clearId: string }>(status.inputClears))
     signals.add(`clear:${clear.clearId}`);

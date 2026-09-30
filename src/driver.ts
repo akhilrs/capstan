@@ -93,7 +93,9 @@ type SkipReason =
   | "herdr_error"
   | "clear_wait";
 
-function truncateForRecord(text: string): string {
+function truncateForRecord(input: string): string {
+  // The core refuses text that is not well-formed UTF-16.
+  const text = input.toWellFormed();
   if (Buffer.byteLength(text, "utf8") <= MAX_INPUT_CLEAR_BYTES) return text;
   const budget = MAX_INPUT_CLEAR_BYTES - Buffer.byteLength(TRUNCATION_MARKER);
   let out = "";
@@ -388,6 +390,13 @@ export class DeliveryDriver {
     }
     if (error instanceof ClearFailed) {
       this.#countFailure(message, "input line could not be cleared");
+      this.#skip(message.messageId, agent.agentId, "herdr_error");
+      return;
+    }
+    if (error instanceof TypeError) {
+      // The core refused the text it was asked to record; retrying the same
+      // text can only fail the same way, so this counts toward the limit.
+      this.#countFailure(message, "the typed text could not be recorded");
       this.#skip(message.messageId, agent.agentId, "herdr_error");
       return;
     }

@@ -712,6 +712,46 @@ test("clear edge cases: an empty line records nothing, stale discards stop the k
   }
 });
 
+test("pane text with a lone surrogate is recorded well formed, and text the core refuses ends in a counted failure", async () => {
+  const w = await world();
+  try {
+    const id = queue(w, w.h.developer.agentId);
+    w.adapter.sendImpl = async () => ({
+      sent: false,
+      reason: "input_not_empty",
+    });
+    await w.tick();
+    w.advance((TIMERS.maxDeferralSeconds + 1) * 1000);
+    w.adapter.clearImpl = async (input) => {
+      await input.discard("a\ud800b");
+      return { cleared: true, text: "a\ud800b" };
+    };
+    await w.tick();
+    const db = new Database(
+      path.join(w.h.stateDirectory, "controller.sqlite"),
+      {
+        readonly: true,
+      },
+    );
+    try {
+      const row = db
+        .prepare("SELECT text FROM message_input_clears WHERE message_id = ?")
+        .get(id) as { text: string };
+      assert.equal(row.text, "a\ufffdb");
+    } finally {
+      db.close();
+    }
+
+    w.adapter.clearImpl = async () => {
+      throw new TypeError("input text must be non-empty");
+    };
+    for (let i = 0; i < FAILURE_LIMIT; i += 1) await w.tick();
+    assert.equal(state(w, id), "failed");
+  } finally {
+    await close(w.h);
+  }
+});
+
 test("clear errors: not idle and unreadable lines skip the agent; a line that never clears ends in a recorded failure", async () => {
   const w = await world();
   try {

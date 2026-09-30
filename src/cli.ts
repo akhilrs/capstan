@@ -795,6 +795,10 @@ async function runRouted(
   const route = ROUTES[command]!;
   if (args.some((value) => value.length === 0))
     throw new InvalidInputError("command arguments must not be empty");
+  if (args.some((value) => value.includes("\ufffd")))
+    throw new InvalidInputError(
+      "a command argument holds a replacement character, so its text was not valid UTF-8",
+    );
   const agent = route.access === "operator" ? undefined : agentEnvironment();
   const useAgent =
     route.access === "agent" ||

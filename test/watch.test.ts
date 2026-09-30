@@ -144,3 +144,19 @@ test("a truncated message list and recorded clears are shown, and a missing fiel
   assert.match(text, /input clears recorded: 2/);
   assert.ok(!text.includes("undefined"));
 });
+
+test("a message without a lastNotifiedAt field never rings", async () => {
+  const out = await run([
+    status({
+      messages: [{ messageId: "m-1", recipientAgentId: "x", state: "sent" }],
+    }),
+    status({
+      messages: [{ messageId: "m-1", recipientAgentId: "x", state: "sent" }],
+    }),
+  ]);
+  assert.deepEqual(
+    out.map((text) => text.includes("\u0007")),
+    [false, false],
+  );
+  assert.equal(signalsOf(status({ messages: [{ messageId: "m-1" }] })).size, 0);
+});

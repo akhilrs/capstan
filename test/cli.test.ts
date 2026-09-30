@@ -2337,6 +2337,9 @@ test("the message commands work end to end through the executable: send, inbox, 
       assert.equal(status.status, 3, JSON.stringify(bad));
       assert.match(status.stderr, /--interval must be an integer from 1 to 60/);
     }
+    const replacement = invoke(cwd, "send", "@pm", "broken \ufffd text");
+    assert.equal(replacement.status, 3);
+    assert.match(replacement.stderr, /replacement character/);
     const literal = invoke(cwd, "status", "--", "--watch");
     assert.equal(
       literal.status,
