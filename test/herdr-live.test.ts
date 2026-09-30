@@ -189,6 +189,7 @@ test(
         kind: "claude",
         paneId: workspace.paneId,
         args: [],
+        environment,
         timeoutMs: 20_000,
       });
       const calls: string[][] = [];

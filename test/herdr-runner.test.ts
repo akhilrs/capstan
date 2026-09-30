@@ -119,3 +119,43 @@ test("runJson returns the result and turns an error object on stdout or stderr i
         error instanceof HerdrError && error.code === "bad_output",
     );
 });
+
+test("a per-call timeout overrides the runner limit", async () => {
+  const slow = stub("sleep 1; printf done");
+  try {
+    const run = createHerdrRunner({
+      session: "capstan-t4",
+      binary: slow.binary,
+      timeoutMs: 200,
+    });
+    assert.equal((await run(["x"], { timeoutMs: 5000 })).stdout, "done");
+    await assert.rejects(run(["x"]), HerdrError);
+  } finally {
+    slow.cleanup();
+  }
+});
+
+test("a non-zero exit is a failure even when stdout parses as a result, and stderr wins over stdout noise", async () => {
+  await assert.rejects(
+    runJson(
+      async () => ({
+        code: 1,
+        stdout: '{"id":"x","result":{"a":1}}',
+        stderr: '{"error":{"code":"agent_not_ready","message":"blocked"}}',
+      }),
+      ["agent"],
+    ),
+    (error: unknown) =>
+      error instanceof HerdrError && error.code === "agent_not_ready",
+  );
+  await assert.rejects(
+    runJson(
+      async () => ({ code: 2, stdout: "noise", stderr: "plain\u001b[1m text" }),
+      ["agent"],
+    ),
+    (error: unknown) =>
+      error instanceof HerdrError &&
+      error.code === "exit" &&
+      !/\p{Cc}/u.test(error.message),
+  );
+});

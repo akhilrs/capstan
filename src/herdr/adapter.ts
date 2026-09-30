@@ -10,7 +10,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ResolvedRole } from "../config/capstan-config.js";
 import type { DeferralReason } from "../controller/messaging.js";
-import { HerdrError, runJson, type HerdrRunner } from "./runner.js";
+import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
 import {
   TRUST_NO,
   TRUST_YES,
@@ -76,6 +76,9 @@ export class DialogStillOpen extends AdapterError {
 export class UnsupportedHostError extends AdapterError {
   override readonly name = "UnsupportedHostError";
 }
+export class SendAfterRecordError extends AdapterError {
+  override readonly name = "SendAfterRecordError";
+}
 export class InvalidArgumentError extends AdapterError {
   override readonly name = "InvalidArgumentError";
 }
@@ -110,6 +113,7 @@ export interface AdapterOptions {
 }
 
 const MAX_CLEAR_ROUNDS = 5;
+const AGENT_START_MARGIN_MS = 10_000;
 const MAX_TEXT_BYTES = 16 * 1024;
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
@@ -382,11 +386,7 @@ export class HerdrAdapter {
       String(options.lines ?? 80),
       ...(options.ansi ? ["--ansi"] : []),
     ]);
-    if (outcome.code !== 0)
-      throw new HerdrError(
-        "read",
-        `herdr pane read failed: ${outcome.stderr.trim().slice(0, 200)}`,
-      );
+    if (outcome.code !== 0) throw failureOf(["pane", "read"], outcome);
     return outcome.stdout;
   }
 
@@ -523,14 +523,16 @@ export class HerdrAdapter {
         );
     const timeoutMs = Math.max(input.timeoutMs ?? 30_000, 5_000);
     let entry = this.#assertTypable(input.paneId, "start");
+    if (entry.phase === "fresh" && input.environment === undefined)
+      throw new InvalidArgumentError(
+        "a fresh pane needs an environment so its shell starts clean",
+      );
     if (entry.phase === "fresh" && input.environment !== undefined) {
       await this.prepareShell({
         paneId: input.paneId,
         environment: input.environment,
       });
       entry = this.#assertTypable(input.paneId, "start");
-    } else if (entry.phase === "fresh") {
-      await this.#waitForFreshPrompt(input.paneId);
     } else if ((await this.readInput(input.paneId)) !== "") {
       this.#panes.set(input.paneId, { ...entry, phase: "tainted" });
       throw new PromptUnrecognized(
@@ -538,19 +540,23 @@ export class HerdrAdapter {
       );
     }
     try {
-      await runJson(this.#run, [
-        "agent",
-        "start",
-        input.name,
-        "--kind",
-        input.kind,
-        "--pane",
-        input.paneId,
-        "--timeout",
-        String(timeoutMs),
-        "--",
-        ...input.args,
-      ]);
+      await runJson(
+        this.#run,
+        [
+          "agent",
+          "start",
+          input.name,
+          "--kind",
+          input.kind,
+          "--pane",
+          input.paneId,
+          "--timeout",
+          String(timeoutMs),
+          "--",
+          ...input.args,
+        ],
+        { timeoutMs: timeoutMs + AGENT_START_MARGIN_MS },
+      );
     } catch (error) {
       if (error instanceof HerdrError && error.code === "agent_not_ready") {
         this.#panes.set(input.paneId, {
@@ -602,7 +608,14 @@ export class HerdrAdapter {
     const second = deferralFor(await this.#stateFor(agent, input.paneId));
     if (second !== undefined) return { sent: false, reason: second };
     await input.beforeSend();
-    await runJson(this.#run, ["agent", "prompt", agent, input.text]);
+    try {
+      await runJson(this.#run, ["agent", "prompt", agent, input.text]);
+    } catch (error) {
+      throw new SendAfterRecordError(
+        "the message was recorded but Herdr did not accept the prompt",
+        { cause: error },
+      );
+    }
     return { sent: true };
   }
 
@@ -629,14 +642,23 @@ export class HerdrAdapter {
     if (text === "") return { cleared: false, text: "" };
     await input.discard(text);
     for (let round = 0; round < MAX_CLEAR_ROUNDS; round += 1) {
+      if (round > 0) {
+        const again = await this.#stateFor(entry.agent, input.paneId);
+        if (deferralFor(again) !== undefined)
+          throw new NotIdle("the agent stopped being idle during the clear");
+      }
       await this.#sendKey(
         input.paneId,
         "ctrl+u",
         "clear the input line after the maximum deferral",
         input.log,
       );
-      if ((await this.readInput(input.paneId)) === "")
-        return { cleared: true, text };
+      const remaining = await this.readInput(input.paneId);
+      if (remaining === "") return { cleared: true, text };
+      if (remaining === undefined)
+        throw new InputUnreadable(
+          "the input line cannot be read after a clear key",
+        );
     }
     throw new ClearFailed(
       `the input line is not empty after ${MAX_CLEAR_ROUNDS} rounds`,
@@ -721,25 +743,7 @@ export class HerdrAdapter {
   /** For commands that print nothing on success: a non-zero exit or a JSON error is a failure. */
   async #runChecked(args: readonly string[]): Promise<void> {
     const outcome = await this.#run(args);
-    let error: { code?: unknown; message?: unknown } | undefined;
-    try {
-      const body: unknown = JSON.parse(outcome.stdout);
-      if (typeof body === "object" && body !== null && "error" in body)
-        error = (body as { error: { code?: unknown; message?: unknown } })
-          .error;
-    } catch {
-      // Silence is the normal answer.
-    }
-    if (error !== undefined)
-      throw new HerdrError(
-        typeof error.code === "string" ? error.code : "error",
-        typeof error.message === "string" ? error.message : "herdr failed",
-      );
-    if (outcome.code !== 0)
-      throw new HerdrError(
-        "exit",
-        `herdr ${args[0] ?? ""} failed (exit ${outcome.code})`,
-      );
+    if (outcome.code !== 0) throw failureOf(args, outcome);
   }
 
   #record(value: unknown, label: string): Record<string, unknown> {

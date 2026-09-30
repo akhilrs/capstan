@@ -24,6 +24,7 @@ import {
   NotIdle,
   PhaseError,
   PmPaneError,
+  SendAfterRecordError,
   PromptUnrecognized,
   ShellNotReady,
   UnknownPaneError,
@@ -60,6 +61,7 @@ function idleScreen(...typed: string[]): string {
 }
 
 const SHELL_READY = "user in dir\r\n❯ ";
+const CLEAN_ENV = { HOME: "/h", PATH: "/p", TERM: "t" };
 
 interface FakePane {
   paneId: string;
@@ -83,7 +85,16 @@ class FakeHerdr {
   );
   startError: { code: string; message: string } | undefined;
   onKey: ((pane: FakePane, key: string) => void) | undefined;
-  onRun: ((pane: FakePane, command: string) => void) | undefined;
+  onRun: ((pane: FakePane, command: string) => void) | undefined = (
+    pane,
+    command,
+  ) => {
+    const rc = /--rcfile '([^']+)'/.exec(command);
+    if (rc) {
+      rmSync(path.dirname(rc[1]!), { recursive: true, force: true });
+      pane.screen = "❯ ";
+    }
+  };
   private counter = 0;
 
   cleanup(): void {
@@ -238,7 +249,13 @@ async function startedWorker(
     branch: "cap/task/dev-g1",
     label: "dev",
   });
-  await h.adapter.startAgent({ name: "dev", kind: "claude", paneId, args: [] });
+  await h.adapter.startAgent({
+    name: "dev",
+    kind: "claude",
+    paneId,
+    args: [],
+    environment: CLEAN_ENV,
+  });
   const pane = h.fake.panes.get(paneId)!;
   pane.screen = screen;
   h.fake.agentStates.set("dev", { paneId, statuses });
@@ -337,7 +354,13 @@ test("no input method makes a Herdr call for an unregistered pane, a PM pane pas
           environment: { HOME: "/h", PATH: "/p", TERM: "t" },
         }),
       start: () =>
-        h.adapter.startAgent({ name: "x", kind: "claude", paneId, args: [] }),
+        h.adapter.startAgent({
+          name: "x",
+          kind: "claude",
+          paneId,
+          args: [],
+          environment: CLEAN_ENV,
+        }),
     });
     const before = () => h.fake.calls.length;
 
@@ -378,6 +401,7 @@ test("no input method makes a Herdr call for an unregistered pane, a PM pane pas
       kind: "claude",
       paneId: pm.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     assert.equal(h.adapter.paneEntry(pm.paneId)!.phase, "started");
     const started = before();
@@ -534,6 +558,7 @@ test("a name that no longer points at the registered pane is refused before anyt
       kind: "claude",
       paneId: other.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     h.fake.panes.get(other.paneId)!.screen = idleScreen();
     h.fake.agentStates.set("dev2", second);
@@ -580,6 +605,7 @@ test("the record happens before the physical send, and a failing record sends no
       kind: "claude",
       paneId: entry.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     h.fake.panes.get(entry.paneId)!.screen = idleScreen();
     h.fake.agentStates.set("dev3", {
@@ -675,6 +701,7 @@ test("the clear waits for the deferral, needs an idle agent, logs the text befor
       kind: "claude",
       paneId: entry.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     const pane = h.fake.panes.get(entry.paneId)!;
     pane.screen = idleScreen("half typed");
@@ -927,6 +954,7 @@ test("the trust dialog is answered with logged keys in order and Enter only afte
       kind: "claude",
       paneId: entry.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     const pane = h.fake.panes.get(entry.paneId)!;
     pane.screen = dialogScreen(entry.path);
@@ -1110,6 +1138,7 @@ test("the dialog handler needs a blocked agent at its own pane, a worktree pane 
       kind: "claude",
       paneId: workspace.paneId,
       args: [],
+      environment: CLEAN_ENV,
     });
     h.fake.agentStates.set("plain", {
       paneId: workspace.paneId,
@@ -1350,7 +1379,13 @@ test("a shell that never shows its prompt taints the pane, the temporary files a
     assert.equal(h.adapter.paneEntry(paneId)!.phase, "tainted");
     assert.equal(readdirCount(h.fake.root, "capstan-shell-"), 0);
     await assert.rejects(
-      h.adapter.startAgent({ name: "a", kind: "claude", paneId, args: [] }),
+      h.adapter.startAgent({
+        name: "a",
+        kind: "claude",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
       PhaseError,
     );
     await assert.rejects(
@@ -1426,6 +1461,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
         kind: "claude",
         paneId,
         args: ["--model", "opus"],
+        environment: CLEAN_ENV,
         timeoutMs: 1000,
       }),
       { status: "started" },
@@ -1453,7 +1489,13 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
       workspaceId: h.fake.panes.get(paneId)!.workspaceId,
     });
     await assert.rejects(
-      h.adapter.startAgent({ name: "two", kind: "claude", paneId, args: [] }),
+      h.adapter.startAgent({
+        name: "two",
+        kind: "claude",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
       PhaseError,
     );
 
@@ -1468,6 +1510,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
         kind: "claude",
         paneId: second.paneId,
         args: [],
+        environment: CLEAN_ENV,
       }),
       InvalidArgumentError,
     );
@@ -1477,6 +1520,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
         kind: "codex",
         paneId: second.paneId,
         args: [],
+        environment: CLEAN_ENV,
       }),
       UnsupportedHostError,
     );
@@ -1487,6 +1531,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
           kind: "claude",
           paneId: second.paneId,
           args,
+          environment: CLEAN_ENV,
         }),
         InvalidArgumentError,
       );
@@ -1500,6 +1545,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
         kind: "claude",
         paneId: second.paneId,
         args: [],
+        environment: CLEAN_ENV,
       }),
       { status: "blocked_at_startup" },
     );
@@ -1521,6 +1567,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
         kind: "claude",
         paneId: third.paneId,
         args: [],
+        environment: CLEAN_ENV,
       }),
       (error: unknown) =>
         error instanceof HerdrError && error.code === "agent_start_failed",
@@ -1542,7 +1589,13 @@ test("starting in a fresh pane needs a bare prompt and a prepared pane needs an 
     });
     h.fake.panes.get(paneId)!.screen = "❯ half typed";
     await assert.rejects(
-      h.adapter.startAgent({ name: "a", kind: "claude", paneId, args: [] }),
+      h.adapter.startAgent({
+        name: "a",
+        kind: "claude",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
       PromptUnrecognized,
     );
     assert.equal(h.fake.callsTo("agent", "start").length, 0);
@@ -1565,6 +1618,7 @@ test("starting in a fresh pane needs a bare prompt and a prepared pane needs an 
         kind: "claude",
         paneId: prepared.paneId,
         args: [],
+        environment: CLEAN_ENV,
       }),
       PromptUnrecognized,
     );
@@ -1650,6 +1704,198 @@ test("prompt files are private and removed on close", () => {
     );
     h.adapter.close();
     assert.equal(existsSync(file), false);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a fresh pane cannot start an agent without a clean environment and no call is made", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "e1",
+      label: "e1",
+    });
+    const before = h.fake.calls.length;
+    await assert.rejects(
+      h.adapter.startAgent({ name: "x", kind: "claude", paneId, args: [] }),
+      InvalidArgumentError,
+    );
+    assert.equal(h.fake.calls.length, before);
+    assert.equal(h.adapter.paneEntry(paneId)!.phase, "fresh");
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the agent start call gets a runner limit longer than the start timeout", async () => {
+  const h = harness();
+  try {
+    const seen: Array<number | undefined> = [];
+    const original = h.fake.run;
+    const adapter = new HerdrAdapter({
+      run: async (args, options) => {
+        if (args[0] === "agent" && args[1] === "start")
+          seen.push(options?.timeoutMs);
+        return original(args);
+      },
+      tempRoot: h.fake.root,
+      sleep: async () => {},
+      now: () => 0,
+    });
+    const { paneId } = await adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "t1",
+      label: "t1",
+    });
+    await adapter.startAgent({
+      name: "t1",
+      kind: "claude",
+      paneId,
+      args: [],
+      environment: CLEAN_ENV,
+      timeoutMs: 40_000,
+    });
+    assert.deepEqual(seen, [50_000]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the clear stops when the agent stops being idle or the line becomes unreadable, and sends no further keys", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h, idleScreen("a", "b", "c"));
+    const keys: string[] = [];
+    h.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["idle", "idle", "blocked"],
+    });
+    const lines = { value: ["a", "b", "c"] };
+    h.fake.onKey = ctrlUClearsOneLine(lines, worker.pane);
+    await assert.rejects(
+      h.adapter.clearAfterDeferral({
+        paneId: worker.paneId,
+        deferredForMs: 1,
+        maxDeferralMs: 1,
+        discard: () => {},
+        log: (entry) => {
+          keys.push(entry.key);
+        },
+      }),
+      NotIdle,
+    );
+    assert.equal(keys.length, 2);
+
+    worker.pane.screen = idleScreen("x");
+    h.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["idle"],
+    });
+    h.fake.onKey = (pane) => {
+      pane.screen = "the input box is gone";
+    };
+    keys.length = 0;
+    await assert.rejects(
+      h.adapter.clearAfterDeferral({
+        paneId: worker.paneId,
+        deferredForMs: 1,
+        maxDeferralMs: 1,
+        discard: () => {},
+        log: (entry) => {
+          keys.push(entry.key);
+        },
+      }),
+      InputUnreadable,
+    );
+    assert.equal(keys.length, 1);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a prompt Herdr refuses after the record is reported as its own error with the cause", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    const original = h.fake.run;
+    const failing = new HerdrAdapter({
+      run: async (args) =>
+        args[0] === "agent" && args[1] === "prompt"
+          ? {
+              code: 1,
+              stdout: "",
+              stderr: '{"error":{"code":"agent_gone","message":"gone"}}',
+            }
+          : original(args),
+      tempRoot: h.fake.root,
+      sleep: async () => {},
+      now: () => 0,
+    });
+    const entry = await failing.createWorktree({
+      workspaceId: "w9",
+      branch: "f1",
+      label: "f1",
+    });
+    await failing.startAgent({
+      name: "f1",
+      kind: "claude",
+      paneId: entry.paneId,
+      args: [],
+      environment: CLEAN_ENV,
+    });
+    h.fake.panes.get(entry.paneId)!.screen = idleScreen();
+    h.fake.agentStates.set("f1", { paneId: entry.paneId, statuses: ["idle"] });
+    let recorded = 0;
+    await assert.rejects(
+      failing.guardedSend({
+        paneId: entry.paneId,
+        text: "x",
+        beforeSend: () => {
+          recorded += 1;
+        },
+      }),
+      (error: unknown) =>
+        error instanceof SendAfterRecordError &&
+        error.cause instanceof HerdrError &&
+        error.cause.code === "agent_gone",
+    );
+    assert.equal(recorded, 1);
+    void worker;
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a failing pane command reports Herdr's stderr error code and no control characters", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "r1",
+      label: "r1",
+    });
+    const original = h.fake.run;
+    const adapter = new HerdrAdapter({
+      run: async (args) =>
+        args[0] === "pane" && args[1] === "read"
+          ? { code: 1, stdout: "", stderr: "boom\u001b[31m red\u0007" }
+          : original(args),
+      tempRoot: h.fake.root,
+    });
+    await assert.rejects(adapter.readScreen(paneId), (error: unknown) => {
+      assert.ok(error instanceof HerdrError);
+      assert.ok(!/\p{Cc}/u.test(error.message));
+      assert.match(error.message, /boom/);
+      return true;
+    });
+    void paneId;
   } finally {
     h.adapter.close();
     h.fake.cleanup();

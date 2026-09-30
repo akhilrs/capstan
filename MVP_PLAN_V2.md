@@ -118,7 +118,7 @@ The Herdr adapter (`src/herdr`, Stage 2d) is the only code that types into a pan
 - A guarded send delivers only when the agent state is `idle` or `done`, the input line is readable and empty, and the state is still idle after that read. The caller's record runs before `agent prompt`, and a failing record sends nothing. Every other case is a deferral with a reason.
 - Clearing text a user left in the input line needs the maximum deferral to have elapsed and an idle agent. The text is handed to `discard` and each key is logged before it is sent. Up to five `ctrl+u` rounds run; a line that does not clear is `ClearFailed`.
 - The trust dialog is answered only for a worker pane whose worktree path equals the dialog path, with exactly the options `No, exit` and `Yes, I trust this folder`. Enter is sent only after a second read shows the trusted option selected.
-- Agent shells start with `env -i` plus an allowlist; the token is delivered through a 0600 file that the new shell deletes, so it never appears on the command line or the screen.
+- Agent shells start with `env -i` plus an allowlist, and an agent cannot be started in a fresh pane without one; the token is delivered through a 0600 file that the new shell deletes, so it never appears on the command line or the screen.
 
 Not verified: `ctrl+u` on a multi-line input in real Claude Code (the stand-in models it), and the `done` state. The delivery driver, pane re-registration after a restart and surfacing `PromptUnrecognized` belong to PM-25.
 

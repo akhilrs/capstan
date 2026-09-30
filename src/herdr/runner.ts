@@ -9,7 +9,15 @@ export interface HerdrResult {
   readonly stderr: string;
 }
 
-export type HerdrRunner = (args: readonly string[]) => Promise<HerdrResult>;
+export interface RunOptions {
+  /** Overrides the runner's own limit for one call, for commands that wait on Herdr by design. */
+  readonly timeoutMs?: number;
+}
+
+export type HerdrRunner = (
+  args: readonly string[],
+  options?: RunOptions,
+) => Promise<HerdrResult>;
 
 export class HerdrError extends Error {
   override readonly name = "HerdrError";
@@ -46,7 +54,7 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
   const binary = options.binary ?? "herdr";
   const timeoutMs = options.timeoutMs ?? 30_000;
   const environment = herdrEnvironment(options.env ?? process.env);
-  return (args) =>
+  return (args, callOptions) =>
     new Promise<HerdrResult>((resolve, reject) => {
       const child = spawn(binary, ["--session", options.session, ...args], {
         env: environment,
@@ -63,7 +71,7 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
       const timer = setTimeout(
         () =>
           stop(new HerdrError("timeout", `herdr ${args[0] ?? ""} timed out`)),
-        timeoutMs,
+        callOptions?.timeoutMs ?? timeoutMs,
       );
       const collect =
         (append: (text: string) => void) =>
@@ -102,27 +110,62 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
     });
 }
 
-/** Runs a Herdr command that answers with `{id, result}` JSON and returns the result, or throws the `{error}` as a HerdrError. */
+/** Control characters and length are removed so Herdr output cannot inject escape sequences into logs. */
+export function describeOutput(text: string): string {
+  return (
+    text
+      .replace(/\p{Cc}/gu, " ")
+      .trim()
+      .slice(0, 200) || "no output"
+  );
+}
+
+function errorFrom(text: string): HerdrError | undefined {
+  try {
+    const body: unknown = JSON.parse(text);
+    if (typeof body !== "object" || body === null) return undefined;
+    const error = (body as { error?: unknown }).error;
+    if (typeof error !== "object" || error === null) return undefined;
+    const details = error as { code?: unknown; message?: unknown };
+    return new HerdrError(
+      typeof details.code === "string" ? details.code : "error",
+      typeof details.message === "string" ? details.message : "herdr failed",
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/** The failure a non-zero exit stands for. Herdr writes it as JSON on stderr, and older shapes used stdout. */
+export function failureOf(
+  args: readonly string[],
+  outcome: HerdrResult,
+): HerdrError {
+  return (
+    errorFrom(outcome.stderr) ??
+    errorFrom(outcome.stdout) ??
+    new HerdrError(
+      "exit",
+      `herdr ${args[0] ?? ""} failed (exit ${outcome.code}): ${describeOutput(outcome.stderr)}`,
+    )
+  );
+}
+
+/** Runs a Herdr command that answers with `{id, result}` JSON and returns the result, or throws the failure as a HerdrError. */
 export async function runJson(
   runner: HerdrRunner,
   args: readonly string[],
+  options?: RunOptions,
 ): Promise<Record<string, unknown>> {
-  const outcome = await runner(args);
+  const outcome = await runner(args, options);
+  if (outcome.code !== 0) throw failureOf(args, outcome);
   let body: unknown;
   try {
-    // Herdr reports a failed command as JSON on stderr with a non-zero exit.
-    body = JSON.parse(
-      outcome.stdout.trim() === "" ? outcome.stderr : outcome.stdout,
-    );
+    body = JSON.parse(outcome.stdout);
   } catch {
     throw new HerdrError(
       "bad_output",
-      `herdr ${args[0] ?? ""} did not answer with JSON (exit ${outcome.code}): ${
-        outcome.stderr
-          .replace(/\p{Cc}/gu, " ")
-          .trim()
-          .slice(0, 200) || "no error output"
-      }`,
+      `herdr ${args[0] ?? ""} did not answer with JSON: ${describeOutput(outcome.stdout)}`,
     );
   }
   if (typeof body !== "object" || body === null || Array.isArray(body))
@@ -131,14 +174,8 @@ export async function runJson(
       "herdr answered with an unexpected shape",
     );
   const record = body as Record<string, unknown>;
-  const error = record.error;
-  if (typeof error === "object" && error !== null) {
-    const details = error as { code?: unknown; message?: unknown };
-    throw new HerdrError(
-      typeof details.code === "string" ? details.code : "error",
-      typeof details.message === "string" ? details.message : "herdr failed",
-    );
-  }
+  const error = errorFrom(outcome.stdout);
+  if (error !== undefined) throw error;
   const result = record.result;
   if (typeof result !== "object" || result === null || Array.isArray(result))
     throw new HerdrError("bad_output", "herdr answered without a result");
