@@ -112,3 +112,22 @@ test("the rendered block lists agents, unresolved messages, stuck entries and st
   assert.match(renderWatch(status()), /messages: none unresolved/);
   assert.equal(signalsOf(status()).size, 0);
 });
+
+test("everything from the daemon is shown without control or format characters", () => {
+  const text = renderWatch(
+    status({
+      agents: [{ agentId: "a\u001b[31m", kind: "PM\u202e", state: "active" }],
+      messages: [
+        {
+          messageId: "m\u0007",
+          recipientAgentId: "r\u2028",
+          state: "s\u001b",
+          lastNotifiedAt: "t\u200d",
+        },
+      ],
+      stuck: [{ messageId: "m\u001b", reason: "why\u0000" }],
+      stalledAgentIds: ["x\u0007"],
+    }),
+  );
+  assert.ok(!/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(text.replace(/\n/g, " ")));
+});

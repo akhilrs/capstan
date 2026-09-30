@@ -16,7 +16,10 @@ import type {
   MessageRecord,
   MutationContext,
 } from "./controller/types.js";
-import type { ResolutionDecision } from "./controller/messaging.js";
+import {
+  RESOLUTION_DECISIONS,
+  type ResolutionDecision,
+} from "./controller/messaging.js";
 import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   type CapstanConfig,
@@ -26,8 +29,11 @@ import { newContext } from "./context.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
-const VALIDATION_MESSAGE = /\bmust\b|^unknown\b|\binvalid\b/;
-const FRAME_LOOKALIKE = /^(?:\[capstan message |Acknowledge with: cstan ack )/m;
+const VALIDATION_MESSAGE = /^(?:[a-z][^\n]*\b(?:must|needs)\b|unknown\b)/;
+// A line that, once spaces and zero-width joiners are ignored, reads like the
+// driver's frame or like a message header in `cstan inbox` output.
+const FRAME_LOOKALIKE =
+  /^[\s\u200c\u200d]*(?:\[capstan message |Acknowledge with: cstan ack |message \S+ \[[a-z_]+\] from )/m;
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
@@ -107,7 +113,11 @@ export function mapError(error: unknown): CommandResponse {
     return fail("conflict", error.message);
   // The core's validators throw TypeErrors whose messages say what the input
   // must be; any other TypeError is a bug and is not shown to the client.
-  if (error instanceof TypeError && VALIDATION_MESSAGE.test(error.message))
+  if (
+    error instanceof TypeError &&
+    VALIDATION_MESSAGE.test(error.message) &&
+    !/Received /.test(error.message)
+  )
     return fail(
       "invalid_request",
       Array.from(error.message.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " "))
@@ -297,6 +307,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           string,
           string | undefined,
         ];
+        if (!(RESOLUTION_DECISIONS as readonly string[]).includes(decision))
+          return fail(
+            "invalid_request",
+            `the decision must be one of ${RESOLUTION_DECISIONS.join(", ")}`,
+          );
         const before = core.message(messageId)?.state;
         const record = core.resolveMessage(
           context(call.credential),

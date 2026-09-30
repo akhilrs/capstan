@@ -18,6 +18,11 @@ interface WatchedMessage {
 
 const BELL = "\u0007";
 
+/** Everything from the daemon is shown without control or format characters. */
+function clean(value: unknown): string {
+  return String(value).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ");
+}
+
 function list<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -41,18 +46,19 @@ export function renderWatch(status: Record<string, unknown>): string {
     status.agents,
   );
   lines.push(
-    `agents: ${agents.map((a) => `${a.agentId} (${a.kind}, ${a.state})`).join(", ") || "none"}`,
+    `agents: ${agents.map((a) => `${clean(a.agentId)} (${clean(a.kind)}, ${clean(a.state)})`).join(", ") || "none"}`,
   );
   const messages = list<WatchedMessage>(status.messages);
   if (messages.length === 0) lines.push("messages: none unresolved");
   for (const m of messages)
     lines.push(
-      `message ${m.messageId} -> ${m.recipientAgentId} [${m.state}] notified: ${m.lastNotifiedAt ?? "no"}`,
+      `message ${clean(m.messageId)} -> ${clean(m.recipientAgentId)} [${clean(m.state)}] notified: ${clean(m.lastNotifiedAt ?? "no")}`,
     );
   for (const s of list<{ messageId: string; reason: string }>(status.stuck))
-    lines.push(`stuck ${s.messageId}: ${s.reason}`);
+    lines.push(`stuck ${clean(s.messageId)}: ${clean(s.reason)}`);
   const stalled = list<string>(status.stalledAgentIds);
-  if (stalled.length > 0) lines.push(`stalled: ${stalled.join(", ")}`);
+  if (stalled.length > 0)
+    lines.push(`stalled: ${stalled.map(clean).join(", ")}`);
   return lines.join("\n");
 }
 
