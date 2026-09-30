@@ -19,20 +19,20 @@ Evidence for this decision: the PM-19 spike (`docs/spike-herdr-agents.md`, six e
 
 1. Remove Docker, per-role networks, the egress allowlist, the TLS/SNI proxy, the C kill helper, cgroup-empty proofs, the container image pin and the M1 qualification scripts from the MVP path. Containment is process-group only.
 2. The controller is a long-running daemon separate from the PM, with a single-instance lock. Its SQLite ledger stays the authority for workflow state.
-3. All agent-to-agent text goes through the controller (`cstan send`), one writer and one strict FIFO per recipient. No agent, including the PM, drives Herdr directly by policy. Nothing enforces this (see the trust model).
+3. All agent-to-agent text goes through the controller (`cstan send`), one writer and one strict FIFO per recipient. Only the controller sends input to, starts, stops or closes agents in Herdr; no agent, including the PM, does so by policy. Read-only inspection (`herdr agent list`, `read`, `wait`) is allowed for the Supervisor and for diagnosis. Nothing enforces any of this (see the trust model).
 4. Workflow facts (reports, acks, review requests, findings) are recorded when an agent runs a `cstan` command. Completion is never inferred from terminal text or Herdr's state. The controller verifies what it can, but an environment credential only labels a reporter (spike E5).
-5. Roles come from configuration instead of a fixed list; the database migration is additive.
+5. Roles come from configuration instead of the fixed list in `src/controller/types.ts`; for the first slice the configured names are aliases onto the existing capability roles (`reviewer` is `Verifier`), and the database migration is additive (`MVP_PLAN_V2.md` section 9).
 
 ## What this supersedes
 
 | Earlier decision | What changes | What stays |
 | --- | --- | --- |
 | DEC-001 | The consequence that M1 must prove the OMP/Herdr bridge and Docker containment. | The decision to build a small independent TypeScript controller, and the OpenRig licence position. |
-| DEC-002 | The selected-path qualification (Docker, egress policy, OMP bridge, receipt journal) becomes historical evidence, not a requirement. | The rule that Herdr prompt delivery is not command authority. v2 uses prompts only to deliver controller-mediated messages; authority stays with receipts. |
-| DEC-003 | Its revisit trigger "the operating model adds concurrent Herdr clients" is met by design (agents and the controller all use Herdr) and is accepted here with the residual risks below. The ban on terminal scraping is narrowed (see below). | The statement that Herdr does not enforce exclusive command authority, and that this is an operational assumption, not a guarantee. |
-| DEC-004 | The M1 bridge adapter, the Docker-specific runtime recovery and the fixed role list. | The SQLite/WAL controller core, transition and capability tables, idempotent versioned mutations, generations, receipts as a concept, candidate binding, findings, restart reconciliation, and the project lock. |
+| DEC-002 | The selected-path qualification (Docker, egress policy, OMP bridge, receipt journal) becomes historical evidence, not a requirement. | The Decision paragraph: terminal transcript scraping and Herdr prompt delivery are not Capstan's command authority. v2 uses prompts only to deliver controller-mediated messages; authority stays with receipts. |
+| DEC-003 | Two of its three revisit triggers are met by design and accepted here with the residual risks below: "independent Herdr activity is observed during a Capstan assignment" (agents and the PM can run `herdr` themselves) and "the operating model adds concurrent Herdr clients" (agents and the controller all use Herdr). The third, "a future acceptance requirement again demands technically enforced sole authority", is not met and v2 does not require enforcement. Its statement that no terminal transcript scraping is authorized is narrowed by the rule below. | The statement that Herdr does not enforce exclusive command authority, and that this is an operational assumption, not a guarantee. |
+| DEC-004 | The M1 bridge adapter, the Docker-specific runtime recovery, the fixed role list, the four-seat workflow and its statement that terminal scraping is not authorized (narrowed by the rule below). | The SQLite/WAL controller core, transition and capability tables, idempotent versioned mutations, generations, receipts as a concept, candidate binding, findings, restart reconciliation, and the project lock. |
 
-## Rule on reading panes (revises DEC-003)
+## Rule on reading panes (narrows the scraping statements in DEC-003 and DEC-004; DEC-002's rule on authority stands)
 
 Reading a pane to diagnose or to show evidence is allowed. Reading a pane never causes a state change or an automatic resend. Exactly two cases let a screen read gate an action, and each is logged:
 
@@ -70,4 +70,4 @@ Stop and revisit this decision if: a second user or an untrusted party can reach
 
 ## Not verified
 
-Codex and OMP behavior; an updated Herdr Claude hook; long tasks and context growth; agent death and replacement; several agents interfering; pre-trusting worktrees; scrubbing the Herdr server's environment; pinning the detection manifest; `herdr notification`; `cstan wait` under Claude Code's shell-command behavior; selective PM hooks through `--setting-sources`. Each is assigned to a stage in `MVP_PLAN_V2.md` with a fallback.
+Codex and OMP behavior; an updated Herdr Claude hook; long tasks and context growth; agent death and replacement; several agents interfering; pre-trusting worktrees; scrubbing the Herdr server's environment; pinning the detection manifest; `herdr notification`; `cstan wait` under Claude Code's shell-command behavior; selective PM hooks through `--setting-sources`. `MVP_PLAN_V2.md` section 12 lists each item with the stage that tests it and a fallback where one exists; some items have none yet.
