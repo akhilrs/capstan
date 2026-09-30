@@ -13,6 +13,9 @@ import { test } from "node:test";
 import {
   CONFIG_FILE_NAME,
   ConfigError,
+  DEFAULT_HERDR_SESSION,
+  DEFAULT_WAIT_TIMEOUT_SECONDS,
+  MAX_WAIT_TIMEOUT_SECONDS,
   STARTER_CONFIG,
   loadCapstanConfig,
 } from "../src/config/capstan-config.js";
@@ -113,7 +116,28 @@ test("a valid configuration resolves every default", () => {
     );
     for (const role of config.roles)
       assert.match(role.configHash, /^[0-9a-f]{64}$/);
+    assert.equal(config.herdrSession, DEFAULT_HERDR_SESSION);
+    assert.deepEqual(config.notifications, { herdr: true, fallback: true });
+    assert.equal(DEFAULT_WAIT_TIMEOUT_SECONDS, 90);
+    assert.equal(MAX_WAIT_TIMEOUT_SECONDS, 3600);
   });
+});
+
+test("herdr_session and the notification channels are read, and validated", () => {
+  withConfig(
+    `schema_version = 1\nherdr_session = "capstan-work"\n\n[notifications]\nherdr = false\nfallback = true\n\n${VALID.replace("schema_version = 1\n\n", "")}`,
+    (directory) => {
+      const config = loadCapstanConfig(directory);
+      assert.equal(config.herdrSession, "capstan-work");
+      assert.deepEqual(config.notifications, { herdr: false, fallback: true });
+    },
+  );
+  withConfig(`${VALID}\n[notifications]\nfallback = false\n`, (directory) =>
+    assert.deepEqual(loadCapstanConfig(directory).notifications, {
+      herdr: true,
+      fallback: false,
+    }),
+  );
 });
 
 test("the starter configuration written by init is valid", () => {
@@ -156,6 +180,37 @@ test("a role hash changes with the role and with its host block", () => {
 });
 
 const rejections: ReadonlyArray<[string, string, RegExp]> = [
+  [
+    "an invalid herdr_session",
+    VALID.replace(
+      "schema_version = 1\n",
+      'schema_version = 1\nherdr_session = "-bad name"\n',
+    ),
+    /herdr_session must match/,
+  ],
+  [
+    "a non-string herdr_session",
+    VALID.replace(
+      "schema_version = 1\n",
+      "schema_version = 1\nherdr_session = 5\n",
+    ),
+    /herdr_session/,
+  ],
+  [
+    "both notification channels off",
+    `${VALID}\n[notifications]\nherdr = false\nfallback = false\n`,
+    /must not both be false/,
+  ],
+  [
+    "a non-boolean notification channel",
+    `${VALID}\n[notifications]\nherdr = "yes"\n`,
+    /notifications\.herdr must be true or false/,
+  ],
+  [
+    "an unknown notification key",
+    `${VALID}\n[notifications]\nemail = true\n`,
+    /notifications has 1 unknown key/,
+  ],
   [
     "a wrong schema version",
     VALID.replace("schema_version = 1", "schema_version = 2"),

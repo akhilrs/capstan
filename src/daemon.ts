@@ -15,6 +15,11 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { AuthenticationError } from "./controller/auth.js";
 import { ControllerCore } from "./controller/core.js";
+import { createCommandHandlers, type CommandSet } from "./commands.js";
+import type { CapstanConfig } from "./config/capstan-config.js";
+import { newContext } from "./context.js";
+import { DeliveryDriver, type DriverAdapter } from "./driver.js";
+import type { Notifier } from "./notifier.js";
 import type { Identity, InitialProject } from "./controller/types.js";
 
 export const MAX_FRAME_BYTES = 65_536;
@@ -22,10 +27,11 @@ export const MAX_RESPONSE_BYTES = 1_048_576;
 const MAX_ARGS = 16;
 const REQUEST_TIMEOUT_MS = 5_000;
 const MAX_CONNECTIONS = 64;
+const DRAIN_FLUSH_MS = 1_000;
 export const SOCKET_NAME = "control.sock";
 export const PID_NAME = "daemon.pid";
 
-export type CommandAccess = "read" | "agent" | "operator";
+export type CommandAccess = "read" | "agent" | "operator" | "any";
 export type ErrorCode =
   | "unauthorized"
   | "forbidden"
@@ -33,6 +39,16 @@ export type ErrorCode =
   | "invalid_request"
   | "not_implemented"
   | "conflict"
+  | "rejected"
+  | "shutting_down"
+  | "superseded"
+  | "unknown_recipient"
+  | "unknown_agent"
+  | "ambiguous_recipient"
+  | "recipient_not_allowed"
+  | "recipient_not_deliverable"
+  | "self_send"
+  | "body_too_large"
   | "error";
 
 export type CommandResponse =
@@ -49,18 +65,18 @@ const STUB_STAGE = "Stage 2e";
 export const ROUTES: Readonly<Record<string, Route>> = {
   status: { access: "read" },
   ping: { access: "read" },
-  inbox: { access: "agent", stub: STUB_STAGE },
-  ack: { access: "agent", stub: STUB_STAGE },
-  wait: { access: "agent", stub: STUB_STAGE },
+  inbox: { access: "any" },
+  ack: { access: "agent" },
+  wait: { access: "agent" },
   report: { access: "agent", stub: STUB_STAGE },
   ask: { access: "agent", stub: STUB_STAGE },
   "request-review": { access: "agent", stub: STUB_STAGE },
   finding: { access: "agent", stub: STUB_STAGE },
   assign: { access: "operator", stub: STUB_STAGE },
-  cancel: { access: "operator", stub: STUB_STAGE },
-  send: { access: "operator", stub: STUB_STAGE },
+  cancel: { access: "operator" },
+  send: { access: "any" },
   "pm-restart": { access: "operator", stub: STUB_STAGE },
-  resolve: { access: "operator", stub: STUB_STAGE },
+  resolve: { access: "operator" },
   shutdown: { access: "operator" },
 };
 
@@ -95,14 +111,19 @@ export interface LogEntry {
   readonly ms: number;
   readonly argCount?: number;
   readonly argBytes?: number;
+  readonly detail?: Record<string, unknown>;
 }
 
 export type Logger = (entry: LogEntry) => void;
 
 export interface DaemonServer {
   readonly closed: Promise<void>;
-  /** Stops accepting connections; the socket file stays until cleanup(). */
+  /** Stops accepting, drains every handler and closes; the socket file stays until cleanup(). */
   stop(): Promise<void>;
+  /** Step 1 of an ordered stop: no new connections. */
+  stopAccepting(): void;
+  /** Step 3 of an ordered stop: abort handlers, await them, destroy what is left. */
+  drain(): Promise<void>;
   /** Removes the socket file if it is still ours. */
   cleanup(): void;
   close(): Promise<void>;
@@ -119,6 +140,7 @@ function respond(
   let text = JSON.stringify(response);
   if (Buffer.byteLength(text) + 1 > limit)
     text = JSON.stringify(failure("error", "response exceeds the size limit"));
+  if (socket.destroyed || !socket.writable) return;
   socket.end(`${text}\n`);
 }
 
@@ -137,7 +159,7 @@ function allowed(
   access: CommandAccess,
   actor: Exclude<Actor, "other">,
 ): boolean {
-  if (access === "read") return true;
+  if (access === "read" || access === "any") return true;
   return access === actor;
 }
 
@@ -151,14 +173,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+interface Connection {
+  readonly socket: net.Socket;
+  readonly controller: AbortController;
+  timer: NodeJS.Timeout | undefined;
+  dispatched: boolean;
+  isWait: boolean;
+}
+
 export async function startDaemonServer(options: {
   socketPath: string;
   core: ControllerCore;
   log: Logger;
   onShutdown: () => void;
+  commands?: CommandSet;
   maxResponseBytes?: number;
 }): Promise<DaemonServer> {
-  const { socketPath, core, log, onShutdown } = options;
+  const { socketPath, core, log, onShutdown, commands } = options;
+  const connections = new Set<Connection>();
+  const running = new Set<Promise<void>>();
+  let draining = false;
+  let listenClosed: Promise<void> = Promise.resolve();
+  const arm = (connection: Connection, ms: number): void => {
+    clearTimeout(connection.timer);
+    connection.timer = setTimeout(() => connection.socket.destroy(), ms);
+  };
   removeStaleSocket(socketPath);
   const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
   const send = (
@@ -166,7 +205,11 @@ export async function startDaemonServer(options: {
     response: CommandResponse | Record<string, unknown>,
   ): void => respond(socket, response, limit);
 
-  const handle = async (frame: Buffer, socket: net.Socket): Promise<void> => {
+  const handle = async (
+    frame: Buffer,
+    socket: net.Socket,
+    connection: Connection,
+  ): Promise<void> => {
     const started = Date.now();
     let request: unknown;
     try {
@@ -277,6 +320,33 @@ export async function startDaemonServer(options: {
         ),
         extra,
       );
+    const handler = commands?.handlers[command];
+    if (handler !== undefined) {
+      const limitMs = commands?.limitMs(command, identity);
+      if (limitMs !== undefined) {
+        connection.isWait = true;
+        arm(connection, Math.max(6_000, limitMs + REQUEST_TIMEOUT_MS));
+      }
+      const response = await handler({
+        credential: request.credential as string,
+        identity,
+        args: args as string[],
+        signal: connection.controller.signal,
+        ...(limitMs === undefined ? {} : { limitMs }),
+      });
+      if (response === null) {
+        log({
+          command,
+          actorId: identity.actorId,
+          role: identity.role,
+          code: "closed",
+          ms: Date.now() - started,
+          ...extra,
+        });
+        return;
+      }
+      return finish(response, extra);
+    }
     switch (command) {
       case "ping":
         return finish({ ok: true, result: { pong: true, pid: process.pid } });
@@ -350,9 +420,36 @@ export async function startDaemonServer(options: {
     return done({ error: "invalid control request" }, "invalid_request");
   };
 
-  const server = net.createServer((socket) => {
+  const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+    const connection: Connection = {
+      socket,
+      controller: new AbortController(),
+      timer: undefined,
+      dispatched: false,
+      isWait: false,
+    };
+    connections.add(connection);
     socket.on("error", () => socket.destroy());
-    socket.setTimeout(REQUEST_TIMEOUT_MS, () => socket.destroy());
+    socket.on("close", () => {
+      clearTimeout(connection.timer);
+      connections.delete(connection);
+      if (!connection.controller.signal.aborted)
+        connection.controller.abort("closed");
+    });
+    socket.on("end", () => {
+      // A client that half-closes after its frame still gets its reply, except
+      // for wait, which the client cannot outlive; before a frame it is a drop.
+      if (!connection.dispatched || connection.isWait) {
+        if (!connection.controller.signal.aborted)
+          connection.controller.abort("closed");
+        socket.destroy();
+      }
+    });
+    if (draining) {
+      send(socket, failure("shutting_down", "the daemon is shutting down"));
+      return;
+    }
+    arm(connection, REQUEST_TIMEOUT_MS);
     const chunks: Buffer[] = [];
     let received = 0;
     socket.on("data", (chunk: Buffer) => {
@@ -369,16 +466,23 @@ export async function startDaemonServer(options: {
       }
       const frame = Buffer.concat([...chunks, chunk.subarray(0, newline)]);
       socket.removeAllListeners("data");
-      handle(frame, socket).catch(() => {
-        send(socket, failure("error", "internal error"));
-        log({
-          command: "?",
-          actorId: null,
-          role: null,
-          code: "error",
-          ms: 0,
-        });
-      });
+      // Later bytes are discarded but the socket keeps flowing, so a closed
+      // client is noticed at once and extra bytes cannot extend the deadline.
+      socket.on("data", () => undefined);
+      connection.dispatched = true;
+      const work: Promise<void> = handle(frame, socket, connection)
+        .catch(() => {
+          send(socket, failure("error", "internal error"));
+          log({
+            command: "?",
+            actorId: null,
+            role: null,
+            code: "error",
+            ms: 0,
+          });
+        })
+        .finally(() => running.delete(work));
+      running.add(work);
     });
   });
   server.maxConnections = MAX_CONNECTIONS;
@@ -423,11 +527,41 @@ export async function startDaemonServer(options: {
   const closed = new Promise<void>((resolve) => {
     closedResolve = resolve;
   });
-  const stop = async (): Promise<void> => {
+  const stopAccepting = (): void => {
+    draining = true;
     if (server.listening)
-      await new Promise<void>((resolve, reject) =>
+      listenClosed = new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
+  };
+  const drain = async (): Promise<void> => {
+    for (const connection of connections)
+      if (!connection.controller.signal.aborted)
+        connection.controller.abort("shutdown");
+    await Promise.allSettled([...running]);
+    // A socket that was already answered is ended and must flush its reply
+    // (a shutting_down or superseded code) before it closes; only a socket
+    // that never got a request is destroyed at once.
+    for (const connection of connections)
+      if (!connection.socket.writableEnded) connection.socket.destroy();
+    const flushing = [...connections].map(
+      (connection) =>
+        new Promise<void>((resolve) =>
+          connection.socket.once("close", resolve),
+        ),
+    );
+    await Promise.race([
+      Promise.all(flushing),
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, DRAIN_FLUSH_MS).unref(),
+      ),
+    ]);
+    for (const connection of connections) connection.socket.destroy();
+    await listenClosed;
+  };
+  const stop = async (): Promise<void> => {
+    stopAccepting();
+    await drain();
   };
   const cleanup = (): void => {
     try {
@@ -451,6 +585,8 @@ export async function startDaemonServer(options: {
   return {
     closed,
     stop,
+    stopAccepting,
+    drain,
     cleanup,
     close: async () => {
       await stop();
@@ -512,6 +648,11 @@ export interface DaemonOptions {
   readonly workspaceRoot: string;
   readonly log: Logger;
   readonly announce?: (event: { event: string; pid: number }) => void;
+  /** With an adapter and a notifier, the delivery driver runs; without them only the commands do. */
+  readonly capstan?: CapstanConfig;
+  readonly adapter?: DriverAdapter;
+  readonly notifier?: Notifier;
+  readonly tickMs?: number;
 }
 
 /** Runs until SIGTERM, SIGINT or the shutdown command. */
@@ -529,6 +670,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   for (const signal of signals) process.on(signal, handler);
   let core: ControllerCore | undefined;
   let server: DaemonServer | undefined;
+  let driver: DeliveryDriver | undefined;
   let stopping = false;
   void stop.then(() => {
     stopping = true;
@@ -540,12 +682,47 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       workspaceRoot: options.workspaceRoot,
     });
     if (stopping) return;
+    const credential = options.project.ownerCredential;
+    const detailLog = (event: string, detail: Record<string, unknown>): void =>
+      options.log({
+        command: `daemon:${event}`,
+        actorId: null,
+        role: null,
+        code: "info",
+        ms: 0,
+        detail,
+      });
+    closeStaleWaits(core, credential, detailLog);
+    if (
+      options.capstan !== undefined &&
+      options.adapter !== undefined &&
+      options.notifier !== undefined
+    )
+      driver = new DeliveryDriver({
+        core,
+        adapter: options.adapter,
+        timers: options.capstan.timers,
+        notifier: options.notifier,
+        credential,
+        log: detailLog,
+        ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
+      });
+    const commands = createCommandHandlers({
+      core,
+      ...(options.capstan === undefined ? {} : { config: options.capstan }),
+      controllerCredential: credential,
+      driverSnapshot: () =>
+        driver?.snapshot() ?? { stalledAgentIds: [], stuck: [] },
+      log: detailLog,
+    });
     server = await startDaemonServer({
       socketPath,
       core,
       log: options.log,
       onShutdown: stopRequested,
+      commands,
     });
+    driver?.start();
     writePidFile(pidPath);
     options.announce?.({ event: "ready", pid: process.pid });
     await stop;
@@ -554,7 +731,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     // cannot kill the process and leave the socket and pid file behind. The
     // socket goes last: once it is gone, the project lock is already free, so
     // a stop followed by a start never loses the lock to a dying daemon.
-    if (server !== undefined) await server.stop();
+    // Order: no new connections, no new ticks, then abort and await every
+    // running handler, so nothing touches the database after it closes.
+    server?.stopAccepting();
+    await driver?.stop();
+    if (server !== undefined) await server.drain();
     if (core !== undefined) {
       core.close();
       options.announce?.({ event: "lock_released", pid: process.pid });
@@ -566,6 +747,23 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     if (core !== undefined) removePidFile(pidPath);
     for (const signal of signals) process.off(signal, handler);
   }
+}
+
+/** A wait cannot outlive its connection, so any row still open at start belongs to a dead process. */
+export function closeStaleWaits(
+  core: ControllerCore,
+  credential: string,
+  log: (event: string, detail: Record<string, unknown>) => void,
+): void {
+  for (const wait of core.openWaits(credential))
+    try {
+      core.endWaitAsController(newContext(core, credential), wait.waitId);
+    } catch (error) {
+      log("stale_wait_not_closed", {
+        waitId: wait.waitId,
+        error: String(error),
+      });
+    }
 }
 
 function writePidFile(pidPath: string): void {

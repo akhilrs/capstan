@@ -8,6 +8,7 @@ import {
   claudeArguments,
   type KeyLogEntry,
 } from "../src/herdr/adapter.js";
+import { HerdrError } from "../src/herdr/runner.js";
 import {
   defaultSessionSnapshot,
   liveUnavailable,
@@ -42,6 +43,16 @@ test(
     try {
       const { adapter, repo } = live;
       assert.equal(await adapter.version(), "herdr 0.9.1");
+
+      // A fresh isolated session has notifications disabled: Herdr answers
+      // exit 0 with shown:false, and the adapter must report that as a failure.
+      await assert.rejects(
+        adapter.notify("Capstan: PM message waiting", "Message m-1 is waiting"),
+        (error: unknown) =>
+          error instanceof HerdrError &&
+          error.code === "notification_not_shown" &&
+          /disabled/.test(error.message),
+      );
 
       const workspace = await adapter.createWorkspace({
         cwd: repo,
