@@ -251,7 +251,7 @@ export interface MessageRecord {
   readonly sentAt: string | null;
   readonly ackedAt: string | null;
   readonly sendAttempts: number;
-  readonly cancelReason: string | null;
+  readonly stateReason: string | null;
   readonly notifiedAt: string | null;
   readonly lastNotifiedAt: string | null;
 }

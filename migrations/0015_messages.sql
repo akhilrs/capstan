@@ -38,6 +38,7 @@ CREATE TABLE agent_waits (
   started_at TEXT NOT NULL,
   ended_at TEXT,
   PRIMARY KEY (project_id, wait_id),
+  CHECK (ended_at IS NULL OR ended_at >= started_at),
   FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, agent_id)
 ) STRICT, WITHOUT ROWID;
 
@@ -60,7 +61,7 @@ CREATE TABLE messages (
   sent_at TEXT,
   acked_at TEXT,
   send_attempts INTEGER NOT NULL CHECK (send_attempts >= 0),
-  cancel_reason TEXT,
+  state_reason TEXT,
   notified_at TEXT,
   last_notified_at TEXT,
   created_at TEXT NOT NULL,
@@ -141,7 +142,7 @@ INSERT INTO role_capabilities(role, capability) VALUES
   ('Verifier', 'message:receive'), ('Supervisor', 'message:receive'),
   ('operator', 'message:resolve'), ('PM', 'message:resolve');
 
-INSERT INTO capability_grants(project_id, actor_id, capability, granted_by, granted_at)
+INSERT OR IGNORE INTO capability_grants(project_id, actor_id, capability, granted_by, granted_at)
 SELECT a.project_id, a.actor_id, rc.capability, internal.actor_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM actors a
 JOIN role_capabilities rc ON rc.role = a.role AND rc.capability IN ('message:send', 'message:receive', 'message:resolve')

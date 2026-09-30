@@ -774,7 +774,7 @@ test("replacing a generation cancels every open message, closes waits and voids 
     );
     for (const id of replaced.cancelledMessageIds) {
       assert.equal(stateOf(w, id), "cancelled");
-      assert.equal(core.message(id)!.cancelReason, "generation_replaced");
+      assert.equal(core.message(id)!.stateReason, "generation_replaced");
     }
     assert.equal(stateOf(w, queued), "acked");
     assert.equal(stateOf(w, deferred), "acked");
@@ -865,7 +865,7 @@ for (const target of [
         [message, behind].sort(),
       );
       assert.equal(stateOf(w, message), "cancelled");
-      assert.equal(core.message(message)!.cancelReason, "generation_replaced");
+      assert.equal(core.message(message)!.stateReason, "generation_replaced");
       assert.equal(stateOf(w, behind), "cancelled");
     } finally {
       close(w);
@@ -880,7 +880,7 @@ test("an ended agent cancels its messages, loses its actor and frees the seat", 
     const { waitId } = core.beginWait(w.ctx(reviewer.credential));
     const result = core.endAgent(w.ctx(), reviewer.agentId);
     assert.deepEqual(result.cancelledMessageIds, [pending]);
-    assert.equal(core.message(pending)!.cancelReason, "agent_ended");
+    assert.equal(core.message(pending)!.stateReason, "agent_ended");
     assert.equal(core.agentRecord(reviewer.agentId)!.state, "ended");
     assert.throws(
       () => core.beginWait(w.ctx(reviewer.credential)),
@@ -1121,7 +1121,21 @@ test("enqueue validates the body and needs the send capability; audit payloads n
   const w = await world();
   try {
     const { core, developer } = w;
-    for (const body of ["", "a\u0000b", "x".repeat(16 * 1024 + 1)])
+    for (const body of [
+      "",
+      "   ",
+      "a\u0000b",
+      "a\u001bb",
+      "a\u0003b",
+      "line\rreturn",
+      "a\u202eb",
+      "\ufeffbom",
+      "a\u0085b",
+      "a\u2028b",
+      "x".repeat(16 * 1024 + 1),
+      42 as never,
+      undefined as never,
+    ])
       assert.throws(
         () =>
           core.enqueueMessage(w.ctx(), {
@@ -1151,6 +1165,222 @@ test("enqueue validates the body and needs the send capability; audit payloads n
       db.close();
     }
     assert.throws(() => core.beginWait(w.ctx(w.owner)), AuthorizationError);
+  } finally {
+    close(w);
+  }
+});
+
+test("a multi-line body with tabs and joiner characters is accepted", async () => {
+  const w = await world();
+  try {
+    const id = send(w, w.developer, "line one\n\tindented\u200d\nline three");
+    assert.equal(
+      w.core.message(id)!.body,
+      "line one\n\tindented\u200d\nline three",
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("ids, reasons and notes are validated at the API boundary", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const id = send(w, developer);
+    for (const bad of [
+      "",
+      "a b",
+      "x".repeat(129),
+      123 as never,
+      undefined as never,
+    ]) {
+      assert.throws(
+        () =>
+          core.enqueueMessage(w.ctx(), { recipientAgentId: bad, body: "x" }),
+        TypeError,
+      );
+      assert.throws(() => core.message(bad), TypeError);
+      assert.throws(() => core.recordSent(w.ctx(), bad), TypeError);
+      assert.throws(
+        () => core.ackMessage(w.ctx(developer.credential), bad),
+        TypeError,
+      );
+      assert.throws(
+        () => core.endWait(w.ctx(developer.credential), bad),
+        TypeError,
+      );
+      assert.throws(() => core.endAgent(w.ctx(), bad), TypeError);
+      assert.throws(() => core.replaceAgentGeneration(w.ctx(), bad), TypeError);
+      assert.throws(
+        () => core.recordAgentObservation(w.ctx(), bad, "idle"),
+        TypeError,
+      );
+    }
+    assert.throws(
+      () =>
+        core.registerAgent(w.ctx(), {
+          agentId: undefined as never,
+          roleName: "developer",
+          seatId: "s",
+          actorId: "a",
+        }),
+      TypeError,
+    );
+    assert.throws(
+      () =>
+        core.registerAgent(w.ctx(), {
+          agentId: "ok",
+          roleName: "Developer",
+          seatId: "s",
+          actorId: "a",
+        }),
+      TypeError,
+    );
+    core.recordFailure(w.ctx(), id, "gone");
+    for (const note of ["", "  ", "a\u001bb", "x".repeat(1001), 5 as never])
+      assert.throws(
+        () => core.resolveMessage(w.ctx(), id, "retry", note),
+        TypeError,
+      );
+    for (const reason of ["", "  ", "two\nlines", "x".repeat(501), 5 as never])
+      assert.throws(() => core.recordFailure(w.ctx(), id, reason), TypeError);
+    assert.equal(stateOf(w, id), "failed");
+    core.resolveMessage(w.ctx(), id, "retry", "multi\nline note is fine");
+    assert.equal(stateOf(w, id), "queued");
+  } finally {
+    close(w);
+  }
+});
+
+test("a retry clears the stored failure reason", async () => {
+  const w = await world();
+  try {
+    const id = send(w, w.developer);
+    w.core.recordFailure(w.ctx(), id, "pane closed");
+    assert.equal(w.core.message(id)!.stateReason, "pane closed");
+    w.core.resolveMessage(w.ctx(), id, "retry");
+    assert.equal(w.core.message(id)!.stateReason, null);
+  } finally {
+    close(w);
+  }
+});
+
+test("a retry with the same idempotency key returns the stored result, not the fast-path result", async () => {
+  const w = await world();
+  try {
+    const { core, pm, developer } = w;
+    const message = send(w, pm, "check", developer.credential);
+    const pull = w.ctx(pm.credential);
+    assert.equal(core.pullMessage(pull).message?.messageId, message);
+    assert.equal(core.pullMessage(pull).message?.messageId, message);
+    assert.equal(core.message(message)!.sendAttempts, 1);
+
+    const { waitId } = core.beginWait(w.ctx(pm.credential));
+    const end = w.ctx(pm.credential);
+    assert.deepEqual(core.endWait(end, waitId), { ended: true });
+    assert.deepEqual(core.endWait(end, waitId), { ended: true });
+    const second = core.beginWait(w.ctx(developer.credential));
+    const controllerEnd = w.ctx();
+    assert.deepEqual(core.endWaitAsController(controllerEnd, second.waitId), {
+      ended: true,
+    });
+    assert.deepEqual(core.endWaitAsController(controllerEnd, second.waitId), {
+      ended: true,
+    });
+
+    const observe = w.ctx();
+    assert.deepEqual(
+      core.recordAgentObservation(observe, pm.agentId, "working"),
+      { recorded: true },
+    );
+    assert.deepEqual(
+      core.recordAgentObservation(observe, pm.agentId, "working"),
+      { recorded: true },
+    );
+
+    const queued = send(w, developer, "wait a moment");
+    const defer = w.ctx();
+    core.recordDeferral(defer, queued, "agent_busy");
+    assert.equal(
+      core.recordDeferral(defer, queued, "agent_busy").state,
+      "deferred",
+    );
+    assert.equal(
+      events(w, "message").filter(
+        (event) => event.entity_id === queued && event.to_state === "deferred",
+      ).length,
+      1,
+    );
+
+    core.recordSent(w.ctx(), queued);
+    w.advance(601);
+    const tick = w.ctx();
+    assert.deepEqual(core.advanceMessaging(tick, timers).applied, [queued]);
+    assert.deepEqual(core.advanceMessaging(tick, timers).applied, [queued]);
+    assert.equal(stateOf(w, queued), "unacked");
+  } finally {
+    close(w);
+  }
+});
+
+test("advanceMessaging rejects timers that are not positive finite numbers", async () => {
+  const w = await world();
+  try {
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+      assert.throws(
+        () =>
+          w.core.advanceMessaging(w.ctx(), {
+            ...timers,
+            pmAckTimeoutSeconds: bad,
+          }),
+        TypeError,
+      );
+    assert.throws(
+      () =>
+        w.core.advanceMessaging(w.ctx(), {
+          ...timers,
+          stallAfterSeconds: "900" as never,
+        }),
+      TypeError,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("a clock that moves backwards never produces out-of-order history or a wait that ends before it starts", async () => {
+  const w = await world();
+  try {
+    const { core, pm } = w;
+    core.recordAgentObservation(w.ctx(), pm.agentId, "working");
+    w.advance(100);
+    const { waitId } = core.beginWait(w.ctx(pm.credential));
+    w.advance(-500);
+    core.recordAgentObservation(w.ctx(), pm.agentId, "idle");
+    core.endWait(w.ctx(pm.credential), waitId);
+    const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+    try {
+      const history = (
+        db
+          .prepare(
+            "SELECT observed_at FROM agent_state_history WHERE agent_id = ? ORDER BY sequence",
+          )
+          .all(pm.agentId) as Array<{ observed_at: string }>
+      ).map((row) => row.observed_at);
+      assert.deepEqual(history, [...history].sort());
+      const wait = db
+        .prepare(
+          "SELECT started_at, ended_at FROM agent_waits WHERE wait_id = ?",
+        )
+        .get(waitId) as {
+        started_at: string;
+        ended_at: string;
+      };
+      assert.ok(wait.ended_at >= wait.started_at);
+    } finally {
+      db.close();
+    }
   } finally {
     close(w);
   }

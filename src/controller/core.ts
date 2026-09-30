@@ -84,6 +84,38 @@ const ROLE_KINDS: readonly string[] = [
 const AGENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
+const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+
+function safeId(value: unknown, label: string): string {
+  if (typeof value !== "string" || !SAFE_ID_PATTERN.test(value))
+    throw new TypeError(`${label} must be 1-128 safe ASCII characters`);
+  return value;
+}
+
+function safeText(
+  value: unknown,
+  label: string,
+  maxChars: number,
+  multiline: boolean,
+): string {
+  if (typeof value !== "string" || value.trim().length === 0)
+    throw new TypeError(`${label} must be a non-empty string`);
+  if (value.length > maxChars)
+    throw new TypeError(`${label} must be at most ${maxChars} characters`);
+  const checked = multiline ? value.replace(/[\n\t\u200c\u200d]/g, "") : value;
+  if (UNSAFE_TEXT.test(checked))
+    throw new TypeError(
+      `${label} must not contain control, format or line-separator characters`,
+    );
+  return value;
+}
+
+function assertTimers(timers: MessagingTimers): void {
+  for (const [name, value] of Object.entries(timers))
+    if (!Number.isFinite(value) || value <= 0)
+      throw new TypeError(`timer ${name} must be a positive finite number`);
+}
 
 export class ControllerError extends Error {
   override readonly name: string = "ControllerError";
@@ -162,7 +194,7 @@ interface MessageRow {
   readonly sent_at: string | null;
   readonly acked_at: string | null;
   readonly send_attempts: number;
-  readonly cancel_reason: string | null;
+  readonly state_reason: string | null;
   readonly notified_at: string | null;
   readonly last_notified_at: string | null;
 }
@@ -183,7 +215,7 @@ function messageRecord(row: MessageRow): MessageRecord {
     sentAt: row.sent_at,
     ackedAt: row.acked_at,
     sendAttempts: row.send_attempts,
-    cancelReason: row.cancel_reason,
+    stateReason: row.state_reason,
     notifiedAt: row.notified_at,
     lastNotifiedAt: row.last_notified_at,
   };
@@ -1177,12 +1209,7 @@ export class ControllerCore {
       authenticateActor(this.#database, this.#projectId, context.credential),
       "actor:manage",
     );
-    const isReplay =
-      this.#database
-        .prepare(
-          "SELECT 1 FROM mutation_requests WHERE project_id = ? AND idempotency_key = ?",
-        )
-        .get(this.#projectId, context.idempotencyKey) !== undefined;
+    const isReplay = this.#hasStoredRequest(context);
     const planned = isReplay ? undefined : this.#roleDifference(sorted);
     if (planned !== undefined && !planned.changed) return planned;
     // Every write to role_definitions and seats must bump projects.state_version:
@@ -1295,8 +1322,18 @@ export class ControllerCore {
   }
 
   registerAgent(context: MutationContext, input: AgentInput): AgentRecord {
-    if (!AGENT_ID_PATTERN.test(input.agentId))
+    if (
+      typeof input.agentId !== "string" ||
+      !AGENT_ID_PATTERN.test(input.agentId)
+    )
       throw new TypeError("agent id must be 1-64 safe ASCII characters");
+    safeId(input.seatId, "seat id");
+    safeId(input.actorId, "actor id");
+    if (
+      typeof input.roleName !== "string" ||
+      !ROLE_NAME_PATTERN.test(input.roleName)
+    )
+      throw new TypeError("role name must be a lowercase configured role name");
     return this.#mutate(
       context,
       "agent.register",
@@ -1396,6 +1433,7 @@ export class ControllerCore {
     agentId: string,
     state: HerdrState,
   ): { readonly recorded: boolean } {
+    safeId(agentId, "agent id");
     if (!HERDR_STATES.includes(state))
       throw new TypeError("unknown Herdr state");
     this.#authorize(context.credential, "controller:reconcile");
@@ -1404,7 +1442,8 @@ export class ControllerCore {
         "SELECT herdr_state FROM agent_state_history WHERE project_id = ? AND agent_id = ? ORDER BY sequence DESC LIMIT 1",
       )
       .get(this.#projectId, agentId) as { herdr_state: string } | undefined;
-    if (latest?.herdr_state === state) return { recorded: false };
+    if (latest?.herdr_state === state && !this.#hasStoredRequest(context))
+      return { recorded: false };
     return this.#mutate(
       context,
       "agent.observe",
@@ -1423,9 +1462,18 @@ export class ControllerCore {
         ).next;
         this.#database
           .prepare(
-            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, ?, ?, MAX(?, COALESCE((SELECT MAX(observed_at) FROM agent_state_history WHERE project_id = ? AND agent_id = ?), ?))",
           )
-          .run(this.#projectId, agentId, sequence, state, this.#now());
+          .run(
+            this.#projectId,
+            agentId,
+            sequence,
+            state,
+            this.#now(),
+            this.#projectId,
+            agentId,
+            "",
+          );
         return {
           value: { recorded: true },
           event: {
@@ -1443,6 +1491,7 @@ export class ControllerCore {
     context: MutationContext,
     agentId: string,
   ): { readonly cancelledMessageIds: readonly string[] } {
+    safeId(agentId, "agent id");
     return this.#mutate(
       context,
       "agent.end",
@@ -1487,6 +1536,7 @@ export class ControllerCore {
     context: MutationContext,
     agentId: string,
   ): ReplacedAgent {
+    safeId(agentId, "agent id");
     return this.#mutate(
       context,
       "agent.replace",
@@ -1553,15 +1603,12 @@ export class ControllerCore {
     context: MutationContext,
     input: MessageInput,
   ): { readonly messageId: string } {
+    safeId(input.recipientAgentId, "recipient agent id");
+    safeText(input.body, "message body", MAX_MESSAGE_BYTES, true);
     const bytes = Buffer.byteLength(input.body, "utf8");
-    if (
-      typeof input.body !== "string" ||
-      bytes === 0 ||
-      bytes > MAX_MESSAGE_BYTES ||
-      input.body.includes("\u0000")
-    )
+    if (bytes > MAX_MESSAGE_BYTES)
       throw new TypeError(
-        `message body must be 1 to ${MAX_MESSAGE_BYTES} bytes without NUL`,
+        `message body must be at most ${MAX_MESSAGE_BYTES} bytes`,
       );
     const bodyHash = sha256(input.body);
     return this.#messageMutation(
@@ -1623,12 +1670,14 @@ export class ControllerCore {
 
   message(messageId: string): MessageRecord | undefined {
     this.#assertOpen();
+    safeId(messageId, "message id");
     const row = this.#messageRow(messageId);
     return row === undefined ? undefined : messageRecord(row);
   }
 
   messagesFor(agentId: string): readonly MessageRecord[] {
     this.#assertOpen();
+    safeId(agentId, "agent id");
     return this.#messageRowsFor(agentId).map(messageRecord);
   }
 
@@ -1694,7 +1743,7 @@ export class ControllerCore {
   } {
     const actor = this.#authorize(context.credential, "message:receive");
     const agent = this.#agentByActor(actor.actorId);
-    if (agent?.kind === "PM") {
+    if (agent?.kind === "PM" && !this.#hasStoredRequest(context)) {
       const head = queueHead(this.#messageRowsFor(agent.agent_id));
       if (head?.state !== "queued") return { message: null };
     }
@@ -1751,11 +1800,16 @@ export class ControllerCore {
     messageId: string,
     reason: DeferralReason,
   ): MessageRecord {
+    safeId(messageId, "message id");
     if (!DEFERRAL_REASONS.includes(reason))
       throw new TypeError("unknown deferral reason");
     this.#authorize(context.credential, "controller:reconcile");
     const current = this.#messageRow(messageId);
-    if (current?.state === "deferred" && current.deferred_reason === reason)
+    if (
+      current?.state === "deferred" &&
+      current.deferred_reason === reason &&
+      !this.#hasStoredRequest(context)
+    )
       return messageRecord(current);
     return this.#messageMutation(
       context,
@@ -1807,6 +1861,7 @@ export class ControllerCore {
     messageId: string,
     text: string,
   ): { readonly clearId: string } {
+    safeId(messageId, "message id");
     if (
       typeof text !== "string" ||
       Buffer.byteLength(text, "utf8") > MAX_INPUT_CLEAR_BYTES
@@ -1862,6 +1917,7 @@ export class ControllerCore {
   }
 
   recordSent(context: MutationContext, messageId: string): MessageRecord {
+    safeId(messageId, "message id");
     return this.#messageMutation(
       context,
       "message.sent",
@@ -1906,12 +1962,8 @@ export class ControllerCore {
     messageId: string,
     reason: string,
   ): MessageRecord {
-    if (
-      typeof reason !== "string" ||
-      reason.length === 0 ||
-      reason.length > 500
-    )
-      throw new TypeError("failure reason must be 1 to 500 characters");
+    safeId(messageId, "message id");
+    safeText(reason, "failure reason", 500, false);
     return this.#messageMutation(
       context,
       "message.fail",
@@ -1930,7 +1982,7 @@ export class ControllerCore {
         const version = this.#updateMessage(
           row!,
           "failed",
-          { cancel_reason: reason },
+          { state_reason: reason },
           this.#now(),
         );
         return {
@@ -1952,6 +2004,7 @@ export class ControllerCore {
     context: MutationContext,
     messageId: string,
   ): MessageRecord {
+    safeId(messageId, "message id");
     return this.#messageMutation(
       context,
       "message.notified",
@@ -1996,6 +2049,7 @@ export class ControllerCore {
   }
 
   ackMessage(context: MutationContext, messageId: string): MessageRecord {
+    safeId(messageId, "message id");
     return this.#messageMutation(
       context,
       "message.ack",
@@ -2057,10 +2111,10 @@ export class ControllerCore {
     decision: ResolutionDecision,
     note?: string,
   ): MessageRecord {
+    safeId(messageId, "message id");
     if (!RESOLUTION_DECISIONS.includes(decision))
       throw new TypeError("unknown resolution decision");
-    if (note !== undefined && (typeof note !== "string" || note.length > 1000))
-      throw new TypeError("resolution note must be at most 1000 characters");
+    if (note !== undefined) safeText(note, "resolution note", 1000, true);
     return this.#messageMutation(
       context,
       "message.resolve",
@@ -2118,13 +2172,14 @@ export class ControllerCore {
                   deferred_reason: null,
                   notified_at: null,
                   last_notified_at: null,
+                  state_reason: null,
                 },
                 now,
               )
             : this.#updateMessage(
                 row,
                 "cancelled",
-                { cancel_reason: `resolution_${decision}` },
+                { state_reason: `resolution_${decision}` },
                 now,
               );
         return {
@@ -2181,8 +2236,13 @@ export class ControllerCore {
     context: MutationContext,
     waitId: string,
   ): { readonly ended: boolean } {
+    safeId(waitId, "wait id");
     const caller = this.#authorize(context.credential, "message:receive");
-    if (this.#waitAlreadyClosedFor(caller, waitId)) return { ended: false };
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#waitAlreadyClosedFor(caller, waitId)
+    )
+      return { ended: false };
     return this.#messageMutation(
       context,
       "wait.end",
@@ -2196,8 +2256,13 @@ export class ControllerCore {
     context: MutationContext,
     waitId: string,
   ): { readonly ended: boolean } {
+    safeId(waitId, "wait id");
     const caller = this.#authorize(context.credential, "controller:reconcile");
-    if (this.#waitAlreadyClosedFor(caller, waitId)) return { ended: false };
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#waitAlreadyClosedFor(caller, waitId)
+    )
+      return { ended: false };
     return this.#messageMutation(
       context,
       "wait.end_controller",
@@ -2211,9 +2276,11 @@ export class ControllerCore {
     context: MutationContext,
     timers: MessagingTimers,
   ): MessagingAdvance {
+    assertTimers(timers);
     this.#authorize(context.credential, "controller:reconcile");
     const first = this.#evaluateMessaging(timers);
-    if (first.transitions.length === 0) return advance(first, []);
+    if (first.transitions.length === 0 && !this.#hasStoredRequest(context))
+      return advance(first, []);
     try {
       return this.#mutate(
         context,
@@ -2350,6 +2417,16 @@ export class ControllerCore {
       };
     });
     return evaluateMessaging(agents, messages, nowMs, timers);
+  }
+
+  #hasStoredRequest(context: MutationContext): boolean {
+    return (
+      this.#database
+        .prepare(
+          "SELECT 1 FROM mutation_requests WHERE project_id = ? AND idempotency_key = ?",
+        )
+        .get(this.#projectId, context.idempotencyKey) !== undefined
+    );
   }
 
   #now(): string {
@@ -2612,7 +2689,7 @@ export class ControllerCore {
       const version = this.#updateMessage(
         row,
         "cancelled",
-        { cancel_reason: reason },
+        { state_reason: reason },
         now,
       );
       this.#appendMessageEvent(actor, context, {
@@ -2630,7 +2707,7 @@ export class ControllerCore {
   #closeWaits(agentId: string, now: string): void {
     this.#database
       .prepare(
-        "UPDATE agent_waits SET ended_at = ? WHERE project_id = ? AND agent_id = ? AND ended_at IS NULL",
+        "UPDATE agent_waits SET ended_at = MAX(?, started_at) WHERE project_id = ? AND agent_id = ? AND ended_at IS NULL",
       )
       .run(now, this.#projectId, agentId);
   }
@@ -2673,7 +2750,7 @@ export class ControllerCore {
     if (wait.ended_at === null)
       this.#database
         .prepare(
-          "UPDATE agent_waits SET ended_at = ? WHERE project_id = ? AND wait_id = ?",
+          "UPDATE agent_waits SET ended_at = MAX(?, started_at) WHERE project_id = ? AND wait_id = ?",
         )
         .run(now, this.#projectId, waitId);
     if (caller !== undefined && caller.agent_id === wait.agent_id)
