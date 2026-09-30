@@ -499,3 +499,21 @@ test("a carried body that was already cut is not cut or flagged a second time", 
     await close(h);
   }
 });
+
+test("a fresh body that merely ends in the marker text is still cut and flagged", async () => {
+  const h = await harness();
+  try {
+    h.core.enqueueMessage(ctx(h.core, h.owner), {
+      recipientAgentId: h.pm.agentId,
+      body: `${"q".repeat(2500)}[truncated]`,
+    });
+    const summary = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    ).summary;
+    assert.equal(summary.truncated, true);
+    assert.equal(Array.from(summary.messages[0]!.body).length, 2011);
+  } finally {
+    await close(h);
+  }
+});

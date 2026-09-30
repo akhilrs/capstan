@@ -19,6 +19,7 @@ import {
   claudeArguments,
   type HerdrAdapter,
 } from "./herdr/adapter.js";
+import { HerdrError } from "./herdr/runner.js";
 import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
 
@@ -140,6 +141,11 @@ export function defaultGit(projectRoot: string): GitRunner {
     headSha() {
       const result = git(["rev-parse", "HEAD"]);
       const sha = result.stdout.trim();
+      if (/^[0-9a-f]{64}$/.test(sha))
+        throw new LauncherError(
+          "git_error",
+          "this repository uses SHA-256 object names; only SHA-1 repositories are supported",
+        );
       if (result.status !== 0 || !/^[0-9a-f]{40}$/.test(sha))
         throw new LauncherError(
           "git_error",
@@ -373,6 +379,11 @@ export class Launcher {
 
   /** The one environment every agent starts with: the allowlist, its token and socket, and `cstan` first on PATH. */
   #environment(token: string | null): Record<string, string> {
+    if (this.#root.includes(":"))
+      throw new LauncherError(
+        "unsupported_root",
+        "a project path with a colon cannot be put on PATH, so cstan would not be found",
+      );
     const bin = this.#ensureWrapper();
     const basePath = this.#baseEnvironment.PATH;
     const extras: Record<string, string> = {
@@ -445,7 +456,7 @@ export class Launcher {
           };
     } catch (error) {
       try {
-        await this.#adapter.closePane(workspace.paneId);
+        await this.#close(workspace.paneId);
       } catch (closeError) {
         this.#log("pane_not_closed", {
           paneId: workspace.paneId,
@@ -593,7 +604,7 @@ export class Launcher {
         undefined;
       if (oldPane !== undefined) {
         try {
-          await this.#adapter.closePane(oldPane);
+          await this.#close(oldPane);
         } catch (error) {
           if (!this.#orphanPanes.some((o) => o.paneId === oldPane))
             this.#orphanPanes.push({ agentId: agent.agentId, paneId: oldPane });
@@ -828,7 +839,7 @@ export class Launcher {
     const budget = this.#budget(CLEANUP_BUDGET_MS);
     if (info.paneId !== undefined && this.#within(budget)) {
       try {
-        await this.#adapter.closePane(info.paneId);
+        await this.#close(info.paneId);
       } catch (error) {
         this.#log("pane_not_closed", {
           agentId,
@@ -861,6 +872,19 @@ export class Launcher {
     }
   }
 
+  /** Closes a pane; a pane Herdr no longer knows counts as closed. */
+  async #close(paneId: string): Promise<void> {
+    try {
+      await this.#adapter.closePane(paneId);
+    } catch (error) {
+      if (error instanceof HerdrError && /not_found|no_such/.test(error.code)) {
+        this.#adapter.forgetPane(paneId);
+        return;
+      }
+      throw error;
+    }
+  }
+
   #within(budget: Budget): boolean {
     return this.#now() <= budget.deadline;
   }
@@ -875,7 +899,7 @@ export class Launcher {
   async #adoptAll(budget: Budget): Promise<void> {
     for (const orphan of [...this.#orphanPanes]) {
       try {
-        await this.#adapter.closePane(orphan.paneId);
+        await this.#close(orphan.paneId);
         this.#orphanPanes = this.#orphanPanes.filter(
           (entry) => entry.paneId !== orphan.paneId,
         );

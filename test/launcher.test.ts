@@ -15,7 +15,7 @@ import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import type { CapstanConfig } from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
-import { Launcher, LauncherError } from "../src/launcher.js";
+import { Launcher, LauncherError, defaultGit } from "../src/launcher.js";
 import { CSTAN_ALLOW_RULE } from "../src/prompts.js";
 import {
   AgentPaneMismatch,
@@ -1221,5 +1221,80 @@ test("a leftover row without a worktree path is reported as a record waiting to 
     ]);
   } finally {
     w.cleanup();
+  }
+});
+
+test("a pane Herdr no longer knows counts as closed, never as an orphan", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.closeError = new HerdrError("pane_not_found", "no such pane");
+    const result = await w.launcher.restartPm();
+    assert.equal(result.state, "started");
+    assert.deepEqual(w.launcher.status().orphanPanes, []);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a project path with a colon is refused because cstan could not be found on PATH", async () => {
+  const w = await world();
+  try {
+    const odd = new Launcher({
+      core: w.core,
+      adapter: w.adapter,
+      config: config(),
+      projectRoot: path.join(w.root, "a:b"),
+      cliPath: "/c.js",
+      socketPath: "/s",
+      credential: w.owner,
+      git: w.git,
+      baseEnvironment: { PATH: "/usr/bin" },
+    });
+    const result = await odd.launchPm();
+    assert.equal(result.state, "failed");
+    assert.match(result.reason!, /colon/);
+    assert.equal(
+      w.core.listAgents().filter((a) => a.state === "active").length,
+      0,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a SHA-256 repository is named as unsupported instead of reported as having no commit", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-sha256-"));
+  try {
+    const init = spawnSync(
+      "git",
+      ["init", "-q", "--object-format=sha256", root],
+      { encoding: "utf8" },
+    );
+    if (init.status !== 0) return; // this git cannot make one; nothing to check
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "x",
+      ],
+      { cwd: root },
+    );
+    assert.throws(
+      () => defaultGit(root).headSha(),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "git_error" &&
+        /SHA-256/.test(e.message),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

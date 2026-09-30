@@ -1087,7 +1087,11 @@ async function runCli(argv: string[]): Promise<number> {
               launch !== null &&
               (launch as { state?: string }).state === "failed";
           } else {
-            launch = `${launched.response.code}: ${launched.response.message}`;
+            launch = `${launched.response.code}: ${launched.response.message}${
+              launched.response.code === "not_configured"
+                ? " (a daemon started before capstan.toml existed reads it only at start: run cstan stop and cstan start)"
+                : ""
+            }`;
             failed = true;
           }
         } catch (error) {

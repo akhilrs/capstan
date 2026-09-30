@@ -1750,7 +1750,10 @@ export class ControllerCore {
       // is not cut, and not counted as cut, a second time.
       const cut = message.body.endsWith(TRUNCATION_MARKER);
       const length = Array.from(message.body).length;
-      if (length <= MAX_SUMMARY_BODY + (cut ? TRUNCATION_MARKER.length : 0))
+      if (
+        length <= MAX_SUMMARY_BODY ||
+        (cut && length === MAX_SUMMARY_BODY + TRUNCATION_MARKER.length)
+      )
         return message;
       truncated = true;
       return {
