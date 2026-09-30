@@ -324,3 +324,32 @@ test("a carriage return inside a line is a line break, so an overwritten redraw 
   assert.equal(freshPromptReady("stale\r❯ typed\r❯"), true);
   assert.equal(freshPromptReady("❯ typed\rstale"), false);
 });
+
+test("dim continuation text is not typed input and leftover control characters make a screen unreadable", () => {
+  const ESC = "\u001b";
+  const rule = "─".repeat(20);
+  const dimHint = `  ${ESC}[2mpress tab to accept${ESC}[0m`;
+  assert.equal(
+    extractInputLine(
+      "claude",
+      [rule, `❯\u00a0${ESC}[2mTry it${ESC}[0m`, dimHint, rule].join("\n"),
+    ),
+    "",
+  );
+  assert.equal(
+    extractInputLine(
+      "claude",
+      [rule, `❯\u00a0`, "  real text", rule].join("\n"),
+    ),
+    "\n  real text",
+  );
+  for (const junk of [`${ESC}`, "\u009b", "\u0000", "\u0007", `${ESC}]0;cut`])
+    assert.equal(
+      extractInputLine("claude", [rule, `❯\u00a0text${junk}`, rule].join("\n")),
+      undefined,
+      JSON.stringify(junk),
+    );
+  assert.equal(extractInputLine("shell", `out\n❯ abc\u0007`), undefined);
+  assert.equal(freshPromptReady("x\n❯\u0007"), false);
+  assert.equal(stripAnsi("a\u009b31mb"), "ab");
+});

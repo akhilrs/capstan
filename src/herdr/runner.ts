@@ -37,6 +37,17 @@ export function herdrEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return copy;
 }
 
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/** Invalid UTF-8 is an error, so a bad decode never shows up as text on a screen. */
+function decodeStrictly(bytes: Buffer): string {
+  try {
+    return STRICT_UTF8.decode(bytes);
+  } catch {
+    throw new HerdrError("bad_output", "herdr wrote text that is not UTF-8");
+  }
+}
+
 export interface RunnerOptions {
   /** Required: the session is always named, so the operator's session cannot be reached by omission or inheritance. */
   readonly session: string;
@@ -94,13 +105,19 @@ export function createHerdrRunner(options: RunnerOptions): HerdrRunner {
       });
       child.once("close", (code) => {
         clearTimeout(timer);
-        if (failure) reject(failure);
-        else
+        if (failure) {
+          reject(failure);
+          return;
+        }
+        try {
           resolve({
             code: code ?? 1,
-            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-            stderr: Buffer.concat(stderrChunks).toString("utf8"),
+            stdout: decodeStrictly(Buffer.concat(stdoutChunks)),
+            stderr: decodeStrictly(Buffer.concat(stderrChunks)),
           });
+        } catch (error) {
+          reject(error);
+        }
       });
     });
 }

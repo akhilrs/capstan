@@ -1,5 +1,7 @@
+const LEFTOVER_CONTROL =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 const ESCAPE_SEQUENCE =
-  /\u001b(?:\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\[[0-?]*[ -/]*[@-~]|[ -/]*[0-Z\\^-~])/;
+  /(?:\u001b(?:\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\[[0-?]*[ -/]*[@-~]|[ -/]*[0-Z\\^-~])|\u009b[0-?]*[ -/]*[@-~])/;
 const ESCAPE_SEQUENCES = new RegExp(ESCAPE_SEQUENCE.source, "g");
 const RULE_LINE = /^─{10,}$/;
 const PROMPT_SYMBOLS: readonly string[] = ["❯", "$", "#", "%"];
@@ -78,6 +80,7 @@ export function extractInputLine(
     while (last >= 0 && plain[last]!.trim() === "") last -= 1;
     if (last < 0) return undefined;
     const match = /^❯(?:[  ](.*))?$/u.exec(plain[last]!.trimEnd());
+    if (LEFTOVER_CONTROL.test(plain[last]!)) return undefined;
     return match ? (match[1] ?? "").trimEnd() : undefined;
   }
   if (kind !== "claude") return undefined;
@@ -91,6 +94,8 @@ export function extractInputLine(
   const top = rules[rules.length - 2]!;
   if (bottom - top < 2) return undefined;
   if (plain[top]!.trim().length !== plain[bottom]!.trim().length)
+    return undefined;
+  if (plain.slice(top, bottom + 1).some((line) => LEFTOVER_CONTROL.test(line)))
     return undefined;
   const first = plain[top + 1]!;
   if (!/^\s*❯(?:[  ]|$)/u.test(first)) return undefined;
@@ -114,9 +119,14 @@ export function extractInputLine(
           .map((entry) => entry.character)
           .join("")
           .trimEnd();
-  const continuation = plain
-    .slice(top + 2, bottom)
-    .map((line) => line.trimEnd());
+  const continuation = raw.slice(top + 2, bottom).map((line, offset) => {
+    const visible = styledCharacters(line).filter(
+      (entry) => !isBlank(entry.character),
+    );
+    return visible.length > 0 && visible.every((entry) => entry.dim)
+      ? ""
+      : plain[top + 2 + offset]!.trimEnd();
+  });
   return [firstText, ...continuation].join("\n").trimEnd();
 }
 
@@ -125,7 +135,11 @@ export function freshPromptReady(plainScreen: string): boolean {
   const lines = splitLines(plainScreen);
   let last = lines.length - 1;
   while (last >= 0 && lines[last]!.trim() === "") last -= 1;
-  return last >= 0 && PROMPT_SYMBOLS.includes(lines[last]!.trim());
+  return (
+    last >= 0 &&
+    !LEFTOVER_CONTROL.test(lines[last]!) &&
+    PROMPT_SYMBOLS.includes(lines[last]!.trim())
+  );
 }
 
 export interface TrustOption {

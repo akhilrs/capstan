@@ -211,3 +211,16 @@ test("describeOutput cuts by code point and never leaves a lone surrogate", () =
   assert.equal(Array.from(shown).length, 200);
   assert.ok(shown.isWellFormed());
 });
+
+test("output that is not valid UTF-8 is an error, not replacement characters", async () => {
+  const bad = stub("printf '\\377\\376'");
+  try {
+    await assert.rejects(
+      createHerdrRunner({ session: "capstan-t6", binary: bad.binary })(["x"]),
+      (error: unknown) =>
+        error instanceof HerdrError && error.code === "bad_output",
+    );
+  } finally {
+    bad.cleanup();
+  }
+});

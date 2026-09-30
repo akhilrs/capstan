@@ -124,8 +124,8 @@ const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
 const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
-/** In Claude Code a first character of / ! or # runs a command instead of sending text. */
-const COMMAND_START = /^\s*[/!#]/;
+/** In Claude Code a first character of / ! # ? or @ (or a tab) acts on the input box instead of adding text. */
+const COMMAND_START = /^(?:\t|\s*[/!#?@])/;
 
 function isSafeText(text: unknown): text is string {
   return (
@@ -687,6 +687,7 @@ export class HerdrAdapter {
       );
     if (text === "") return { cleared: false, text: "" };
     await input.discard(text);
+    let known = text;
     for (let round = 0; round < MAX_CLEAR_ROUNDS; round += 1) {
       if (round > 0) {
         const again = await this.#stateFor(entry.agent, input.paneId);
@@ -705,6 +706,10 @@ export class HerdrAdapter {
         throw new InputUnreadable(
           "the input line cannot be read after a clear key",
         );
+      if (!known.includes(remaining)) {
+        known += `\n${remaining}`;
+        await input.discard(remaining);
+      }
     }
     throw new ClearFailed(
       `the input line is not empty after ${MAX_CLEAR_ROUNDS} rounds`,

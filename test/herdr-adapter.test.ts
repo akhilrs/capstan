@@ -2176,3 +2176,63 @@ test("a dialog path that is not absolute, such as one starting with a tilde, is 
     h.fake.cleanup();
   }
 });
+
+test("a clear that meets text typed between rounds discards it before the next key", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h, idleScreen("first"));
+    const discarded: string[] = [];
+    const keys: string[] = [];
+    let round = 0;
+    h.fake.onKey = (pane) => {
+      round += 1;
+      pane.screen = round === 1 ? idleScreen("surprise") : idleScreen();
+    };
+    const cleared = await h.adapter.clearAfterDeferral({
+      paneId: worker.paneId,
+      deferredForMs: 1,
+      maxDeferralMs: 1,
+      discard: (text) => {
+        discarded.push(text);
+        assert.equal(keys.length, discarded.length - 1);
+      },
+      log: (entry) => {
+        keys.push(entry.key);
+      },
+    });
+    assert.deepEqual(cleared, { cleared: true, text: "first" });
+    assert.deepEqual(discarded, ["first", "surprise"]);
+    assert.equal(keys.length, 2);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("text that starts with a tab, question mark or at sign is refused", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    for (const text of ["?help", "@file", "\tindented", "  ?x"])
+      await assert.rejects(
+        h.adapter.guardedSend({
+          paneId: worker.paneId,
+          text,
+          beforeSend: () => {},
+        }),
+        InvalidArgumentError,
+        JSON.stringify(text),
+      );
+    assert.deepEqual(
+      await h.adapter.guardedSend({
+        paneId: worker.paneId,
+        text: "ok? see @file",
+        beforeSend: () => {},
+      }),
+      { sent: true },
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
