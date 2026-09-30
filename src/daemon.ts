@@ -107,14 +107,13 @@ export interface DaemonServer {
 const LEGACY_FOREGROUND_ONLY =
   "pause, resume and cancel require the foreground cstan run controller";
 
-let responseLimit = MAX_RESPONSE_BYTES;
-
 function respond(
   socket: net.Socket,
   response: CommandResponse | Record<string, unknown>,
+  limit: number,
 ): void {
   let text = JSON.stringify(response);
-  if (Buffer.byteLength(text) + 1 > responseLimit)
+  if (Buffer.byteLength(text) + 1 > limit)
     text = JSON.stringify(failure("error", "response exceeds the size limit"));
   socket.end(`${text}\n`);
 }
@@ -157,7 +156,11 @@ export async function startDaemonServer(options: {
 }): Promise<DaemonServer> {
   const { socketPath, core, log, onShutdown } = options;
   removeStaleSocket(socketPath);
-  responseLimit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  const send = (
+    socket: net.Socket,
+    response: CommandResponse | Record<string, unknown>,
+  ): void => respond(socket, response, limit);
 
   const handle = async (frame: Buffer, socket: net.Socket): Promise<void> => {
     const started = Date.now();
@@ -165,7 +168,7 @@ export async function startDaemonServer(options: {
     try {
       request = parseFrame(frame);
     } catch {
-      respond(socket, failure("invalid_request", "request is not valid JSON"));
+      send(socket, failure("invalid_request", "request is not valid JSON"));
       log({
         command: "?",
         actorId: null,
@@ -186,7 +189,7 @@ export async function startDaemonServer(options: {
       request.command.length === 0 ||
       request.command.length > 64
     ) {
-      respond(socket, failure("invalid_request", "malformed command request"));
+      send(socket, failure("invalid_request", "malformed command request"));
       log({
         command: "?",
         actorId: null,
@@ -204,7 +207,7 @@ export async function startDaemonServer(options: {
       identity = core.identify(request.credential);
     } catch (error) {
       if (!(error instanceof AuthenticationError)) throw error;
-      respond(socket, failure("unauthorized", "credential not accepted"));
+      send(socket, failure("unauthorized", "credential not accepted"));
       log({
         command,
         actorId: null,
@@ -218,7 +221,7 @@ export async function startDaemonServer(options: {
       response: CommandResponse,
       extra: Partial<LogEntry> = {},
     ): void => {
-      respond(socket, response);
+      send(socket, response);
       log({
         command,
         actorId: identity.actorId,
@@ -249,10 +252,13 @@ export async function startDaemonServer(options: {
     if (
       !Array.isArray(args) ||
       args.length > MAX_ARGS ||
-      args.some((value) => typeof value !== "string")
+      args.some((value) => typeof value !== "string" || value.length === 0)
     )
       return finish(
-        failure("invalid_request", `args must be at most ${MAX_ARGS} strings`),
+        failure(
+          "invalid_request",
+          `args must be at most ${MAX_ARGS} non-empty strings`,
+        ),
       );
     const argBytes = (args as string[]).reduce(
       (total, value) => total + Buffer.byteLength(value),
@@ -302,7 +308,7 @@ export async function startDaemonServer(options: {
     const action =
       typeof request.action === "string" ? request.action.slice(0, 32) : "?";
     const done = (body: Record<string, unknown>, code: string): void => {
-      respond(socket, body);
+      send(socket, body);
       log({
         command: `legacy:${action}`,
         actorId: identity?.actorId ?? null,
@@ -360,7 +366,7 @@ export async function startDaemonServer(options: {
       const frame = Buffer.concat([...chunks, chunk.subarray(0, newline)]);
       socket.removeAllListeners("data");
       handle(frame, socket).catch(() => {
-        respond(socket, failure("error", "internal error"));
+        send(socket, failure("error", "internal error"));
         log({
           command: "?",
           actorId: null,

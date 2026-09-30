@@ -511,8 +511,13 @@ function render(value: unknown): string {
 }
 
 function parseOptions(args: string[]): { positional: string[]; json: boolean } {
-  const json = args.includes("--json");
-  return { positional: args.filter((arg) => arg !== "--json"), json };
+  const separator = args.indexOf("--");
+  const options = separator < 0 ? args : args.slice(0, separator);
+  const literal = separator < 0 ? [] : args.slice(separator + 1);
+  return {
+    positional: [...options.filter((arg) => arg !== "--json"), ...literal],
+    json: options.includes("--json"),
+  };
 }
 
 function loadConfig(cwd: string): { config: Config; credential: string } {
@@ -670,6 +675,10 @@ function agentEnvironment():
     throw new InvalidInputError(
       "CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set, and CAPSTAN_SOCKET must be an absolute path",
     );
+  if (/[\s\p{Cc}]/u.test(token))
+    throw new InvalidInputError(
+      "CAPSTAN_TOKEN must not contain whitespace or control characters",
+    );
   return { token, socketPath };
 }
 
@@ -744,6 +753,8 @@ async function runRouted(
   json: boolean,
 ): Promise<number> {
   const route = ROUTES[command]!;
+  if (args.some((value) => value.length === 0))
+    throw new InvalidInputError("command arguments must not be empty");
   const agent = route.access === "operator" ? undefined : agentEnvironment();
   let socketPath: string;
   let credential: string;

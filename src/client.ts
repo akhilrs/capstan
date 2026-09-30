@@ -203,6 +203,7 @@ export async function ensureDaemon(
   if (blocked) throw blocked;
 
   const fd = openDaemonLog(options.logPath);
+  const logOffset = fs.fstatSync(fd).size;
   let exitCode: number | undefined;
   let spawnError: string | undefined;
   try {
@@ -242,7 +243,7 @@ export async function ensureDaemon(
     if (exitCode !== undefined && exitCode !== 4)
       throw new ControllerUnavailableError(
         "start_failed",
-        `the daemon exited during startup (exit code ${exitCode}): ${logTail(options.logPath)}`,
+        `the daemon exited during startup (exit code ${exitCode}): ${logTail(options.logPath, logOffset)}`,
       );
     const failed = unavailable(outcome);
     if (failed && outcome.outcome !== "unreachable") throw failed;
@@ -253,10 +254,28 @@ export async function ensureDaemon(
   );
 }
 
-function logTail(logPath: string): string {
+export function logTail(logPath: string, fromOffset: number): string {
   try {
-    const text = fs.readFileSync(logPath, "utf8").trimEnd().split("\n");
-    return text.slice(-3).join(" | ").slice(-400) || "(log is empty)";
+    const fd = fs.openSync(
+      logPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(fromOffset, size - 4096);
+      const buffer = Buffer.alloc(Math.max(0, size - start));
+      fs.readSync(fd, buffer, 0, buffer.length, start);
+      const lines = buffer
+        .toString("utf8")
+        .replace(/[\p{Cc}\p{Cf}]/gu, (ch) => (ch === "\n" ? "\n" : " "))
+        .trimEnd()
+        .split("\n");
+      return (
+        lines.slice(-3).join(" | ").slice(-400) || "(the daemon wrote nothing)"
+      );
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
     return "(log unreadable)";
   }

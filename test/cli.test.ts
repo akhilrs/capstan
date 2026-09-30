@@ -2427,3 +2427,120 @@ test("two termination signals in a row still leave no socket or pid file", async
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("routed arguments keep a literal --json after --, empty arguments are refused and a bad token is named", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-args-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    const literal = invoke(cwd, "send", "--", "--json");
+    assert.equal(literal.status, 4);
+    assert.match(
+      literal.stderr,
+      /not_implemented/,
+      "the text was not treated as --json output",
+    );
+    const entries = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            command?: string;
+            argCount?: number;
+            argBytes?: number;
+          },
+      );
+    const sendEntry = entries
+      .filter((entry) => entry.command === "send")
+      .at(-1)!;
+    assert.deepEqual(
+      [sendEntry.argCount, sendEntry.argBytes],
+      [1, "--json".length],
+    );
+    const asOption = invoke(cwd, "send", "hello", "--json");
+    const optionEntry = readFileSync(
+      path.join(cwd, ".capstan/daemon.log"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")
+      .map(
+        (line) => JSON.parse(line) as { command?: string; argCount?: number },
+      )
+      .filter((entry) => entry.command === "send")
+      .at(-1)!;
+    assert.equal(asOption.status, 4);
+    assert.equal(
+      optionEntry.argCount,
+      1,
+      "--json before the separator is an option",
+    );
+
+    for (const args of [
+      ["cancel", ""],
+      ["send", ""],
+    ]) {
+      const result = invoke(cwd, ...args);
+      assert.equal(result.status, 3, args.join(" "));
+      assert.match(result.stderr, /command arguments must not be empty/);
+    }
+    for (const token of [
+      " ",
+      "abc def",
+      `${"t".repeat(40)}\n`,
+      `${"t".repeat(40)}\r`,
+    ]) {
+      const result = invokeWithEnv(
+        cwd,
+        {
+          CAPSTAN_TOKEN: token,
+          CAPSTAN_SOCKET: path.join(cwd, ".capstan/state/control.sock"),
+          M1_PROVIDER_HOST: "",
+        },
+        "inbox",
+      );
+      assert.equal(result.status, 3, JSON.stringify(token));
+      assert.match(
+        result.stderr,
+        /CAPSTAN_TOKEN must not contain whitespace or control characters/,
+      );
+    }
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a failed start shows only this start's log lines, without control characters", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-tail-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(
+      path.join(cwd, ".capstan/daemon.log"),
+      "OLD-RUN-LINE from an earlier start\n\u001b[31mOLD-ANSI\u001b[0m\n",
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(cwd, ".capstan/state/control.sock"),
+      "not a socket",
+      { mode: 0o600 },
+    );
+    const result = invoke(cwd, "start");
+    assert.equal(result.status, 5, result.stderr);
+    assert.match(
+      result.stderr,
+      /control socket path exists and is not a socket/,
+    );
+    assert.ok(
+      !result.stderr.includes("OLD-RUN-LINE") &&
+        !result.stderr.includes("OLD-ANSI"),
+    );
+    assert.ok(
+      !/[\u0000-\u0009\u000b-\u001f]/.test(result.stderr.replace(/\n$/, "")),
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

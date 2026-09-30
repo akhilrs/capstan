@@ -21,6 +21,7 @@ import {
   ControllerUnavailableError,
   callDaemon,
   ensureDaemon,
+  logTail,
   openDaemonLog,
   pingDaemon,
   scrubEnvironment,
@@ -720,6 +721,101 @@ test("a reply above the size limit becomes an error reply, and a long legacy act
     await server.close();
     core.close();
     rmSync(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a byte-order mark is rejected, a CRLF terminator is accepted, empty arguments are refused and the reply limit is per server", async () => {
+  const h = await harness();
+  try {
+    const good = JSON.stringify({
+      v: 1,
+      credential: h.owner,
+      command: "ping",
+      args: [],
+    });
+    const bom = await rawExchange(
+      h.socketPath,
+      Buffer.concat([
+        Buffer.from([0xef, 0xbb, 0xbf]),
+        Buffer.from(`${good}\n`),
+      ]),
+    );
+    assert.equal((JSON.parse(bom) as { code: string }).code, "invalid_request");
+    const crlf = await rawExchange(h.socketPath, Buffer.from(`${good}\r\n`));
+    assert.equal((JSON.parse(crlf) as { ok: boolean }).ok, true);
+    const empty = JSON.stringify({
+      v: 1,
+      credential: h.owner,
+      command: "ping",
+      args: [""],
+    });
+    assert.equal(
+      (
+        JSON.parse(
+          await rawExchange(h.socketPath, Buffer.from(`${empty}\n`)),
+        ) as { code: string }
+      ).code,
+      "invalid_request",
+    );
+    const tiny = await startDaemonServer({
+      socketPath: path.join(h.stateDirectory, "tiny.sock"),
+      core: h.core,
+      log: () => {},
+      onShutdown: () => {},
+      maxResponseBytes: 50,
+    });
+    try {
+      const small = await callDaemon(
+        path.join(h.stateDirectory, "tiny.sock"),
+        h.owner,
+        "status",
+      );
+      assert.equal((small as { response: { ok: boolean } }).response.ok, false);
+      const normal = await call(h, h.owner, "status");
+      assert.equal(
+        normal.ok,
+        true,
+        "a limit set on one server does not leak into another",
+      );
+    } finally {
+      await tiny.close();
+    }
+  } finally {
+    await close(h);
+  }
+});
+
+test("the log tail starts at this run, strips control characters and stays short", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-tail-"));
+  try {
+    const logPath = path.join(directory, "daemon.log");
+    const old = "OLD LINE\n";
+    writeFileSync(
+      logPath,
+      `${old}first\nsecond\nthird \u001b[31mred\u001b[0m\u0007 bell\rX\nfourth\n`,
+      { mode: 0o600 },
+    );
+    const tail = logTail(logPath, Buffer.byteLength(old));
+    assert.ok(!tail.includes("OLD LINE"));
+    assert.ok(
+      !/[\u0000-\u0009\u000b-\u001f\u007f]/.test(tail),
+      JSON.stringify(tail),
+    );
+    assert.match(
+      tail,
+      /^third .*red.* bell.X \| fourth$|^second \| third .*red.* bell.X \| fourth$/,
+    );
+    writeFileSync(logPath, `${"x".repeat(10_000)}\nlast\n`, { mode: 0o600 });
+    assert.ok(logTail(logPath, 0).length <= 400);
+    assert.match(logTail(logPath, 0), /last$/);
+    writeFileSync(logPath, "", { mode: 0o600 });
+    assert.equal(logTail(logPath, 0), "(the daemon wrote nothing)");
+    assert.equal(
+      logTail(path.join(directory, "missing.log"), 0),
+      "(log unreadable)",
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
