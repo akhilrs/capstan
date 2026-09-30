@@ -1111,6 +1111,43 @@ test("an input clear belongs to one deferral cycle: a retry that defers again is
   }
 });
 
+test("a reason change back to input_not_empty starts a new input cycle and an empty clear is refused", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const message = send(w, developer, "type ahead");
+    core.recordDeferral(w.ctx(), message, "input_not_empty");
+    w.advance(120);
+    core.recordInputClear(w.ctx(), message, "X");
+    const notify = () =>
+      (
+        core.advanceMessaging(w.ctx(), timers).actions[0] as {
+          notifyOperator: boolean;
+        }
+      ).notifyOperator;
+    assert.equal(notify(), false);
+    core.recordDeferral(w.ctx(), message, "agent_busy");
+    core.recordDeferral(w.ctx(), message, "input_not_empty");
+    assert.equal(notify(), true);
+    assert.throws(() => core.recordInputClear(w.ctx(), message, ""), TypeError);
+    core.recordInputClear(w.ctx(), message, "Y");
+    assert.equal(notify(), false);
+  } finally {
+    close(w);
+  }
+});
+
+test("the operator inbox validates the agent id", async () => {
+  const w = await world();
+  try {
+    assert.throws(() => w.core.agentInbox(w.owner, ""), TypeError);
+    assert.throws(() => w.core.agentInbox(w.owner, "a b"), TypeError);
+    assert.deepEqual(w.core.agentInbox(w.owner, w.pm.agentId), []);
+  } finally {
+    close(w);
+  }
+});
+
 test("a changed deferral reason is a note, not a transition", async () => {
   const w = await world();
   try {
@@ -1184,6 +1221,9 @@ test("enqueue validates the body and needs the send capability; audit payloads n
       "a\u2028b",
       "\u200d\u200c",
       "\ufe0f",
+      "a\ufdd0b",
+      "a\uffffb",
+      "a\u{1fffe}b",
       "\u3164",
       "\u115f\u1160",
       "\u2800",

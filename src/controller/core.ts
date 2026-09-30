@@ -86,7 +86,7 @@ const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
-const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
 
 function safeId(value: unknown, label: string): string {
   if (typeof value !== "string" || !SAFE_ID_PATTERN.test(value))
@@ -1731,6 +1731,7 @@ export class ControllerCore {
 
   agentInbox(credential: string, agentId?: string): readonly MessageRecord[] {
     this.#assertOpen();
+    if (agentId !== undefined) safeId(agentId, "agent id");
     const actor = authenticateActor(
       this.#database,
       this.#projectId,
@@ -1861,7 +1862,13 @@ export class ControllerCore {
             : this.#updateMessage(
                 row!,
                 "deferred",
-                { deferred_reason: reason },
+                {
+                  deferred_reason: reason,
+                  deferral_count:
+                    reason === "input_not_empty"
+                      ? row!.deferral_count + 1
+                      : row!.deferral_count,
+                },
                 now,
               );
         return {
@@ -1887,11 +1894,12 @@ export class ControllerCore {
     safeId(messageId, "message id");
     if (
       typeof text !== "string" ||
+      text.length === 0 ||
       !text.isWellFormed() ||
       Buffer.byteLength(text, "utf8") > MAX_INPUT_CLEAR_BYTES
     )
       throw new TypeError(
-        `input text must be well-formed and at most ${MAX_INPUT_CLEAR_BYTES} bytes`,
+        `input text must be non-empty, well-formed and at most ${MAX_INPUT_CLEAR_BYTES} bytes`,
       );
     const textHash = sha256(text);
     return this.#messageMutation(
