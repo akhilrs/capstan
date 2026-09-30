@@ -8040,7 +8040,8 @@ export class ControllerCore {
         const rows = this.#database
           .prepare(
             `SELECT a.assignment_id, a.active_generation, a.work_item_id,
-              a.state AS assignment_state, at.attempt, at.state AS attempt_state,
+              a.state AS assignment_state, a.authority_state,
+              at.attempt, at.state AS attempt_state,
               c.command_id, c.state AS command_state,
               w.state AS work_state, w.state_version AS work_version
              FROM assignments a JOIN assignment_attempts at
@@ -8057,6 +8058,7 @@ export class ControllerCore {
           active_generation: number;
           work_item_id: string;
           assignment_state: string;
+          authority_state: string;
           attempt: number;
           attempt_state: string;
           command_id: string;
@@ -8065,11 +8067,28 @@ export class ControllerCore {
           work_version: number;
         }>;
         const now = new Date().toISOString();
+        const revokedAssignmentIds: string[] = [];
         for (const row of rows) {
           const preserveReportedCompletion =
             row.command_state === "completed" &&
             row.assignment_state === "reported" &&
             row.attempt_state === "reported";
+          if (
+            row.work_state === "running" ||
+            row.work_state === "awaiting_verification"
+          )
+            this.#database
+              .prepare(
+                `UPDATE work_items SET state = 'blocked', state_version = state_version + 1
+                 WHERE project_id = ? AND work_item_id = ?`,
+              )
+              .run(this.#projectId, row.work_item_id);
+          if (
+            row.authority_state === "unknown" &&
+            (row.assignment_state === "revoked" || preserveReportedCompletion)
+          )
+            continue;
+          revokedAssignmentIds.push(row.assignment_id);
           if (preserveReportedCompletion) {
             this.#database
               .prepare(
@@ -8120,28 +8139,21 @@ export class ControllerCore {
               now,
             );
           }
-          if (
-            row.work_state === "running" ||
-            row.work_state === "awaiting_verification"
-          )
-            this.#database
-              .prepare(
-                `UPDATE work_items SET state = 'blocked', state_version = state_version + 1
-                 WHERE project_id = ? AND work_item_id = ?`,
-              )
-              .run(this.#projectId, row.work_item_id);
         }
+        const runControl = this.#database
+          .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+          .get(this.#projectId) as { state: string } | undefined;
         return {
-          value: { assignmentIds: rows.map((row) => row.assignment_id) },
+          value: { assignmentIds: revokedAssignmentIds },
           event: {
             entityType: "run_control",
             entityId: this.#projectId,
             stateVersion: 0,
-            fromState: "active",
+            fromState: runControl?.state ?? "active",
             toState: "revoked",
             details: {
               reason,
-              assignmentIds: rows.map((row) => row.assignment_id),
+              assignmentIds: revokedAssignmentIds,
             },
           },
         };

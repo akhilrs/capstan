@@ -6941,6 +6941,13 @@ test("active revocation preserves an already reported completion until containme
       ),
       { assignmentIds: [assignment.assignmentId] },
     );
+    assert.deepEqual(
+      core.revokeActiveAssignments(
+        context(core, info.ownerCredential),
+        "cancel requested again",
+      ),
+      { assignmentIds: [] },
+    );
     const db = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
       {

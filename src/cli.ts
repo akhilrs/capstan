@@ -1658,10 +1658,12 @@ async function runCli(argv: string[]): Promise<number> {
         inFlightContainments.set(session.sessionId, attempt);
         return attempt;
       };
-      const inspectUncertainCommands = async () => {
+      const inspectUncertainCommands = async (skipContained = false) => {
         for (const session of allSessions) {
           const commandId = runtimeCommands[session.sessionId];
           if (!commandId || uncertainCommandSnapshots.has(session.sessionId))
+            continue;
+          if (skipContained && containedSessions.has(session.sessionId))
             continue;
           const state = core.commandState(commandId);
           if (state !== "attempting" && state !== "unknown") continue;
@@ -1874,15 +1876,17 @@ async function runCli(argv: string[]): Promise<number> {
             if (action === "resume") {
               if (core.statusSnapshot().run.state !== "paused")
                 throw new BlockedError("only a paused run can resume");
-              await inspectUncertainCommands();
+              await inspectUncertainCommands(true);
               if (
                 core
                   .listRuntimeSessions()
                   .some((session) => session.state === "unknown") ||
-                Object.values(runtimeCommands).some((commandId) =>
-                  ["unknown", "attempting"].includes(
-                    core.commandState(commandId) ?? "",
-                  ),
+                Object.entries(runtimeCommands).some(
+                  ([sessionId, commandId]) =>
+                    !containedSessions.has(sessionId) &&
+                    ["unknown", "attempting"].includes(
+                      core.commandState(commandId) ?? "",
+                    ),
                 )
               )
                 throw new BlockedError(

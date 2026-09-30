@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -1003,7 +1003,7 @@ export class RoleRuntimeManager {
     cgroupPath: string,
   ): void {
     const destination = this.#metadataPath(session.sessionId);
-    const temporary = `${destination}.${process.pid}.tmp`;
+    const temporary = `${destination}.${randomUUID()}.tmp`;
     writeFileSync(
       temporary,
       JSON.stringify({ session, bridgeIdentity, cgroupPath }),
