@@ -719,13 +719,20 @@ async function runCli(argv: string[]): Promise<number> {
     });
     fs.mkdirSync(config.stateDirectory, { recursive: true, mode: 0o700 });
     const starterPath = path.join(cwd, CONFIG_FILE_NAME);
-    let starterWritten = false;
-    if (!fs.existsSync(starterPath)) {
+    let starterWritten = true;
+    try {
       fs.writeFileSync(starterPath, STARTER_CONFIG, {
         flag: "wx",
         mode: 0o600,
       });
-      starterWritten = true;
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "EEXIST"
+      ))
+        throw error;
+      starterWritten = false;
     }
     process.stdout.write(
       `${starterWritten ? `Wrote starter ${CONFIG_FILE_NAME}\n` : `Kept existing ${CONFIG_FILE_NAME}\n`}Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,

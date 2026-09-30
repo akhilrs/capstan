@@ -8655,6 +8655,59 @@ test("a role kind cannot change while a seat is named after the role", async () 
   }
 });
 
+test("a role sync that changes nothing still authenticates and authorizes the caller", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    core.syncRoleDefinitions(
+      context(core, info.ownerCredential),
+      desiredRoles(),
+    );
+    const pm = await addSeatAndActor(core, info.ownerCredential, "PM", "probe");
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(context(core, pm.credential), desiredRoles()),
+      AuthorizationError,
+    );
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(
+          context(core, `${"x".repeat(40)}`),
+          desiredRoles({ reviewer: { kind: "Developer" } }),
+        ),
+      AuthenticationError,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("replaying an applied role sync returns the original result and writes nothing", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const applied = context(core, info.ownerCredential);
+    const first = core.syncRoleDefinitions(applied, desiredRoles());
+    assert.equal(first.changed, true);
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    assert.deepEqual(core.syncRoleDefinitions(applied, desiredRoles()), first);
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+    assert.throws(
+      () =>
+        core.syncRoleDefinitions(
+          applied,
+          desiredRoles({ pm: { host: "codex" } }),
+        ),
+      IdempotencyConflictError,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("role sync needs the actor:manage capability and unique names", async () => {
   const value = await fixture();
   try {

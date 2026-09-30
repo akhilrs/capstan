@@ -112,29 +112,40 @@ type Table = Record<string, unknown>;
 
 export function loadCapstanConfig(projectRoot: string): CapstanConfig {
   const file = path.join(projectRoot, CONFIG_FILE_NAME);
-  let stat: fs.Stats;
+  let descriptor: number;
   try {
-    stat = fs.lstatSync(file);
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+    const code = error instanceof Error && "code" in error ? error.code : "";
+    if (code === "ENOENT")
       throw new ConfigError(`${CONFIG_FILE_NAME} does not exist`);
+    if (code === "ELOOP")
+      throw new ConfigError(`${CONFIG_FILE_NAME} must be a regular file`);
     throw error;
   }
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new ConfigError(`${CONFIG_FILE_NAME} must be a regular file`);
-  if (process.getuid && stat.uid !== process.getuid())
-    throw new ConfigError(
-      `${CONFIG_FILE_NAME} must be owned by the current user`,
-    );
-  if ((stat.mode & 0o022) !== 0)
-    throw new ConfigError(
-      `${CONFIG_FILE_NAME} must not be writable by group or others`,
-    );
-  if (stat.size > MAX_FILE_BYTES)
-    throw new ConfigError(
-      `${CONFIG_FILE_NAME} exceeds ${MAX_FILE_BYTES} bytes`,
-    );
-  return parseCapstanConfig(fs.readFileSync(file), projectRoot);
+  try {
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile())
+      throw new ConfigError(`${CONFIG_FILE_NAME} must be a regular file`);
+    if (process.getuid && stat.uid !== process.getuid())
+      throw new ConfigError(
+        `${CONFIG_FILE_NAME} must be owned by the current user`,
+      );
+    if ((stat.mode & 0o022) !== 0)
+      throw new ConfigError(
+        `${CONFIG_FILE_NAME} must not be writable by group or others`,
+      );
+    if (stat.size > MAX_FILE_BYTES)
+      throw new ConfigError(
+        `${CONFIG_FILE_NAME} exceeds ${MAX_FILE_BYTES} bytes`,
+      );
+    return parseCapstanConfig(fs.readFileSync(descriptor), projectRoot);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 export function parseCapstanConfig(
@@ -359,19 +370,33 @@ function resolvePrompt(
   }
   if (!realFile.startsWith(`${realRoot}${path.sep}`))
     throw new ConfigError(`${at}.prompt_file must stay inside the project`);
-  const stat = fs.statSync(realFile);
-  if (!stat.isFile() || stat.size > MAX_FILE_BYTES)
-    throw new ConfigError(
-      `${at}.prompt_file must be a regular file of at most ${MAX_FILE_BYTES} bytes`,
+  let bytes: Buffer;
+  try {
+    const descriptor = fs.openSync(
+      realFile,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
     );
+    try {
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile() || stat.size > MAX_FILE_BYTES)
+        throw new ConfigError(
+          `${at}.prompt_file must be a regular file of at most ${MAX_FILE_BYTES} bytes`,
+        );
+      bytes = fs.readFileSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  } catch (error) {
+    if (error instanceof ConfigError) throw error;
+    throw new ConfigError(`${at}.prompt_file cannot be read as a regular file`);
+  }
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(
-      fs.readFileSync(realFile),
-    );
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     throw new ConfigError(`${at}.prompt_file is not valid UTF-8`);
   }
+  guardCredentialShape(text, `${at}.prompt_file`);
   return { source: "file", path: realFile, hash: sha256(text) };
 }
 

@@ -1509,6 +1509,20 @@ test("cstan init writes a starter capstan.toml and never replaces an existing on
   }
 });
 
+test("cstan init keeps a dangling capstan.toml symlink instead of failing half-done", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-dangling-"));
+  try {
+    symlinkSync("nowhere.toml", path.join(cwd, "capstan.toml"));
+    const result = invoke(cwd, "init");
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Kept existing capstan\.toml/);
+    assert.ok(existsSync(path.join(cwd, ".capstan/operator.key")));
+    assert.ok(existsSync(path.join(cwd, ".capstan/project.json")));
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cstan config check exits 3 for a missing or invalid file and does not echo a secret", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-check-"));
   try {

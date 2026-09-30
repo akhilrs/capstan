@@ -1028,8 +1028,20 @@ export class ControllerCore {
     );
     if (new Set(sorted.map((role) => role.name)).size !== sorted.length)
       throw new TypeError("role names must be unique");
+    this.#assertOpen();
+    this.#assertWritable();
+    requireCapability(
+      authenticateActor(this.#database, this.#projectId, context.credential),
+      "actor:manage",
+    );
     const difference = this.#roleDifference(sorted);
-    if (!difference.changed) return difference;
+    const isReplay =
+      this.#database
+        .prepare(
+          "SELECT 1 FROM mutation_requests WHERE project_id = ? AND idempotency_key = ?",
+        )
+        .get(this.#projectId, context.idempotencyKey) !== undefined;
+    if (!difference.changed && !isReplay) return difference;
     // Every write to role_definitions and seats must bump projects.state_version:
     // the caller creates the context before this pre-check, so a matching
     // expected version proves the rows read above are still current.

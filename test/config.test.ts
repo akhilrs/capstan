@@ -295,6 +295,59 @@ const rejections: ReadonlyArray<[string, string, RegExp]> = [
 for (const [name, content, pattern] of rejections)
   test(`the loader rejects ${name}`, () => assertRejected(content, pattern));
 
+test("a prompt file holding a credential shape is rejected and a path outside the project is refused", () => {
+  const directory = projectDirectory();
+  const outside = path.join(
+    path.dirname(directory),
+    `${path.basename(directory)}-outside.md`,
+  );
+  try {
+    writeFileSync(
+      path.join(directory, "leaky.md"),
+      "token sk-live-ABCDEFGHIJKLMNOP1234\n",
+    );
+    write(
+      directory,
+      VALID.replace(
+        'kind = "Verifier"',
+        'kind = "Verifier"\nprompt_file = "leaky.md"',
+      ),
+    );
+    assert.throws(
+      () => loadCapstanConfig(directory),
+      (error: unknown) =>
+        error instanceof ConfigError &&
+        /prompt_file looks like a credential/.test(error.message) &&
+        !error.message.includes("ABCDEFGH"),
+    );
+    writeFileSync(outside, "exists but outside");
+    write(
+      directory,
+      VALID.replace(
+        'kind = "Verifier"',
+        `kind = "Verifier"\nprompt_file = "../${path.basename(outside)}"`,
+      ),
+    );
+    assert.throws(
+      () => loadCapstanConfig(directory),
+      /prompt_file must stay inside the project/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(outside, { force: true });
+  }
+});
+
+test("a dangling capstan.toml symlink is rejected as not a regular file", () => {
+  const directory = projectDirectory();
+  try {
+    symlinkSync("missing.toml", path.join(directory, CONFIG_FILE_NAME));
+    assert.throws(() => loadCapstanConfig(directory), /must be a regular file/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("the loader rejects an oversize file, invalid UTF-8 and a missing file", () => {
   assertRejected(`${VALID}\n# ${"x".repeat(70_000)}\n`, /exceeds 65536 bytes/);
   assertRejected(Buffer.from([0x73, 0xff, 0xfe]), /not valid UTF-8/);
