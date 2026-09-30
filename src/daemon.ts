@@ -27,6 +27,7 @@ export const MAX_RESPONSE_BYTES = 1_048_576;
 const MAX_ARGS = 16;
 const REQUEST_TIMEOUT_MS = 5_000;
 const MAX_CONNECTIONS = 64;
+const DRAIN_FLUSH_MS = 1_000;
 export const SOCKET_NAME = "control.sock";
 export const PID_NAME = "daemon.pid";
 
@@ -538,6 +539,23 @@ export async function startDaemonServer(options: {
       if (!connection.controller.signal.aborted)
         connection.controller.abort("shutdown");
     await Promise.allSettled([...running]);
+    // A socket that was already answered is ended and must flush its reply
+    // (a shutting_down or superseded code) before it closes; only a socket
+    // that never got a request is destroyed at once.
+    for (const connection of connections)
+      if (!connection.socket.writableEnded) connection.socket.destroy();
+    const flushing = [...connections].map(
+      (connection) =>
+        new Promise<void>((resolve) =>
+          connection.socket.once("close", resolve),
+        ),
+    );
+    await Promise.race([
+      Promise.all(flushing),
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, DRAIN_FLUSH_MS).unref(),
+      ),
+    ]);
     for (const connection of connections) connection.socket.destroy();
     await listenClosed;
   };

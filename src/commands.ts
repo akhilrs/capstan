@@ -103,7 +103,11 @@ export function mapError(error: unknown): CommandResponse {
     return fail("rejected", `${error.code}: ${error.message}`);
   if (error instanceof MutationConflictError)
     return fail("conflict", error.message);
-  if (error instanceof TypeError) return fail("invalid_request", error.message);
+  if (error instanceof TypeError)
+    return fail(
+      "invalid_request",
+      error.message.replace(/[\p{Cc}\p{Cf}]/gu, " ").slice(0, 200),
+    );
   return fail("error", "the command failed");
 }
 

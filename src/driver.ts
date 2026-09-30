@@ -121,6 +121,8 @@ export class DeliveryDriver {
   #timer: NodeJS.Timeout | undefined;
   #stalled: readonly string[] = [];
   readonly #once = new Set<string>();
+  /** Once-keys whose condition occurred in the current tick; the rest are forgotten so a recurrence is reported again. */
+  #seen = new Set<string>();
   readonly #failures = new Map<string, number>();
   readonly #skipCounts = new Map<
     string,
@@ -180,6 +182,7 @@ export class DeliveryDriver {
   }
 
   #logOnce(key: string, event: string, details: Record<string, unknown>): void {
+    this.#seen.add(key);
     if (this.#once.has(key)) return;
     this.#once.add(key);
     this.#log(event, details);
@@ -193,6 +196,7 @@ export class DeliveryDriver {
   async #tick(): Promise<void> {
     this.#tickSkips = new Map();
     this.#skippedAgents = new Set();
+    this.#seen = new Set();
     const agents = this.#core.listAgents().filter((a) => a.state === "active");
     for (const agent of agents) await this.#observe(agent);
     await this.#advance();
@@ -200,6 +204,7 @@ export class DeliveryDriver {
       if (agent.kind !== "PM" && !this.#skippedAgents.has(agent.agentId))
         await this.#deliver(agent);
     await this.#updateStuck();
+    this.#forget();
   }
 
   async #observe(agent: AgentRecord): Promise<void> {
@@ -539,6 +544,17 @@ export class DeliveryDriver {
     }
   }
 
+  /** Drops once-keys whose condition did not occur this tick and failure counts of messages that left the delivery queue. */
+  #forget(): void {
+    for (const key of [...this.#once])
+      if (!this.#seen.has(key)) this.#once.delete(key);
+    for (const messageId of [...this.#failures.keys()]) {
+      const state = this.#core.message(messageId)?.state;
+      if (state !== "queued" && state !== "deferred")
+        this.#failures.delete(messageId);
+    }
+  }
+
   async #updateStuck(): Promise<void> {
     for (const [messageId, reason] of this.#tickSkips) {
       const previous = this.#skipCounts.get(messageId);
@@ -559,6 +575,7 @@ export class DeliveryDriver {
         continue;
       stuck.push({ messageId, reason });
       const key = `${messageId}|delivery_stuck|${reason}`;
+      this.#seen.add(key);
       if (this.#once.has(key)) continue;
       this.#once.add(key);
       const message = this.#core.message(messageId);

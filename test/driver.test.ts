@@ -439,6 +439,36 @@ test("a pane owned by another agent, a tainted pane and a bad agent name are ski
   }
 });
 
+test("a recurrence of a stuck condition is reported again after it cleared in between", async () => {
+  const w = await world();
+  try {
+    const id = queue(w, w.h.developer.agentId);
+    const pane = w.adapter.panes.get(w.h.developer.agentId)!;
+    const breakPane = (): void =>
+      void w.adapter.entries.set(pane, { agent: "other" });
+    const fixPane = (): void =>
+      void w.adapter.entries.set(pane, { agent: w.h.developer.agentId });
+    const stuckNotes = (): number =>
+      w.notifier.sent.filter((n) => n.kind === "delivery_stuck").length;
+
+    breakPane();
+    for (let i = 0; i < STUCK_AFTER_TICKS; i += 1) await w.tick();
+    assert.equal(stuckNotes(), 1);
+
+    fixPane();
+    w.adapter.sendImpl = async () => ({ sent: false, reason: "agent_busy" });
+    await w.tick();
+    assert.deepEqual(w.driver.snapshot().stuck, [], "the condition cleared");
+    assert.equal(state(w, id), "deferred");
+
+    breakPane();
+    for (let i = 0; i < STUCK_AFTER_TICKS; i += 1) await w.tick();
+    assert.equal(stuckNotes(), 2, "a second episode is reported again");
+  } finally {
+    await close(w.h);
+  }
+});
+
 test("an over-long frame is failed without touching the adapter, even for an agent with no pane", async () => {
   const w = await world();
   try {

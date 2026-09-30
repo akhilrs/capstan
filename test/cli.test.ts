@@ -2342,6 +2342,23 @@ test("the message commands work end to end through the executable: send, inbox, 
   }
 });
 
+test("a broken capstan.toml stops the daemon at start with the loader's message", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-badconfig-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(path.join(cwd, "capstan.toml"), "schema_version = 2\n", {
+      mode: 0o600,
+    });
+    const result = invoke(cwd, "start");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /schema_version/);
+    assert.equal(daemonPid(cwd), undefined, "no daemon is left running");
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cancel with one id is a routed command; the legacy forms keep their usage rules", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cancel-"));
   try {
