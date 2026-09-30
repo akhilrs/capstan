@@ -1595,14 +1595,14 @@ async function runCli(argv: string[]): Promise<number> {
           ...(evidenceDirectory ? { evidenceDirectory } : {}),
         };
       };
-      const containRuntime = async (
+      const containRuntimeOnce = async (
         session: RoleRuntimeSession,
         assignmentId: string,
       ) => {
         const runtime = core
           .listRuntimeSessions()
           .find((entry) => entry.sessionId === session.sessionId);
-        if (runtime?.state === "ready")
+        if (runtime?.state === "ready" || runtime?.state === "starting")
           core.transitionRuntimeSession(
             context(core, credential),
             session.sessionId,
@@ -1610,6 +1610,7 @@ async function runCli(argv: string[]): Promise<number> {
           );
         if (
           runtime?.state === "ready" ||
+          runtime?.state === "starting" ||
           runtime?.state === "working" ||
           runtime?.state === "unknown"
         )
@@ -1635,6 +1636,22 @@ async function runCli(argv: string[]): Promise<number> {
           );
         containedSessions.add(session.sessionId);
         return proof;
+      };
+      const inFlightContainments = new Map<
+        string,
+        ReturnType<typeof containRuntimeOnce>
+      >();
+      const containRuntime = (
+        session: RoleRuntimeSession,
+        assignmentId: string,
+      ) => {
+        const running = inFlightContainments.get(session.sessionId);
+        if (running) return running;
+        const attempt = containRuntimeOnce(session, assignmentId).finally(() =>
+          inFlightContainments.delete(session.sessionId),
+        );
+        inFlightContainments.set(session.sessionId, attempt);
+        return attempt;
       };
       const inspectUncertainCommands = async () => {
         for (const session of allSessions) {
@@ -4627,6 +4644,12 @@ async function runCli(argv: string[]): Promise<number> {
             }
             blocker = await evaluateSupervisor();
             if (blocker) break;
+            try {
+              await waitForDispatchPermission();
+            } catch (error) {
+              blocker = `Verifier rejected candidate ${candidateId}; replacement was not dispatched: ${error instanceof Error ? error.message : String(error)}`;
+              break;
+            }
             step = await scheduler.step({ workItemId, recoveryId });
             if (step.state !== "dispatched") {
               blocker = `Verifier rejected candidate ${candidateId}; replacement was blocked: ${step.state === "waiting" ? step.reasons.join("; ") : step.state === "stopped" ? step.reason : "scheduler did not dispatch"}`;
@@ -4910,18 +4933,24 @@ async function runCli(argv: string[]): Promise<number> {
           if (runState !== "canceled") {
             if (runState !== "canceling")
               core.transitionRun(context(core, credential), "canceling");
-            core.transitionRun(context(core, credential), "canceled");
+            if (!provisionFailureUnproven)
+              core.transitionRun(context(core, credential), "canceled");
           }
         } else if (supervisorMustPause)
           core.transitionRun(context(core, credential), "paused");
         else core.transitionRun(context(core, credential), "failed");
+        const canceled =
+          stopping && core.statusSnapshot().run.state === "canceled";
+        if (stopping && !canceled)
+          blocker =
+            "runtime provisioning failed without a containment proof; run remains canceling";
         const runOutput: CstanRunJsonV1 = {
           schemaVersion: 1,
           state: completed
             ? "complete"
-            : stopping
+            : canceled
               ? "canceled"
-              : step.state === "stopped"
+              : stopping || step.state === "stopped"
                 ? "stopped"
                 : "waiting",
           projectId: core.projectId,
@@ -4936,7 +4965,11 @@ async function runCli(argv: string[]): Promise<number> {
         };
         output(runOutput, true);
         cleanupComplete = true;
-        return completed ? EXIT.ok : EXIT.blocked;
+        return completed
+          ? EXIT.ok
+          : stopping && !canceled
+            ? EXIT.runtime
+            : EXIT.blocked;
       } finally {
         const cleanupErrors: unknown[] = [];
         if (!cleanupComplete) {

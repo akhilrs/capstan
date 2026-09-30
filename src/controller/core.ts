@@ -5586,7 +5586,7 @@ export class ControllerCore {
       .prepare(
         `SELECT recovery_id FROM recovery_attempts
          WHERE project_id = ? AND work_item_id = ? AND assignment_id = ?
-           AND recovery_type = 'worker_replacement'
+           AND recovery_type IN ('worker_replacement', 'implementation_remediation')
            AND containment_state = 'contained' AND outcome = 'pending'
          ORDER BY created_at DESC, recovery_id DESC LIMIT 1`,
       )

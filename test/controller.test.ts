@@ -1196,6 +1196,19 @@ test("contained PM restart can use its bounded bootstrap replacement before a Su
       context(core, info.ownerCredential),
       "bootstrap-pm-restart-work",
     );
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "bootstrap-pm-restart-work",
+          pm.seatId,
+        ),
+      /requires contained prior authority and a pending recovery record/,
+    );
+    assert.equal(
+      core.latestAssignmentForRole("PM")?.authorityState,
+      "contained",
+    );
     const replacement = core.assignWorkItem(
       context(core, info.ownerCredential),
       "bootstrap-pm-restart-work",
@@ -8208,6 +8221,13 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
       reason: "Replace the rejected candidate with a fresh implementation",
     });
     assert.equal(recovery.outcome, "pending");
+    assert.equal(
+      core.pendingReplacementRecovery(
+        "batch-feature",
+        originalDeveloper.assignmentId,
+      ),
+      recovery.recoveryId,
+    );
     core.markReady(context(core, info.ownerCredential), "batch-feature");
     const replacementDeveloper = core.assignWorkItem(
       context(core, info.ownerCredential),

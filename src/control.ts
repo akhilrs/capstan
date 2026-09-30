@@ -70,6 +70,7 @@ export async function listenControl(
       throw error;
   }
   const server = net.createServer((socket) => {
+    socket.on("error", () => socket.destroy());
     let bytes = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
       bytes = Buffer.concat([bytes, chunk]);
@@ -206,7 +207,13 @@ export async function requestControl(
       action === "cancel" ? 120_000 : action === "resume" ? 30_000 : 5_000,
       () => {
         socket.destroy();
-        reject(new Error("control request timed out"));
+        reject(
+          new Error(
+            action === "cancel" || action === "resume"
+              ? `${action} request timed out; the controller may still be completing it, run cstan status to check`
+              : "control request timed out",
+          ),
+        );
       },
     );
   });

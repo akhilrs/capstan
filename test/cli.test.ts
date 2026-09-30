@@ -1348,6 +1348,7 @@ test("cstan inspect requires an identifier and returns the usage exit code", () 
 
 test("cstan pause and cancel need the live controller and an authenticated socket", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-control-"));
+  const resumeGate = Promise.withResolvers<void>();
   let core: ControllerCore | undefined;
   let closeControl: (() => Promise<void>) | undefined;
   try {
@@ -1389,6 +1390,7 @@ test("cstan pause and cancel need the live controller and an authenticated socke
         actions.push(action);
         if (action === "cancel")
           throw new Error("cancellation containment incomplete");
+        if (action === "resume") await resumeGate.promise;
         return { run: { state: "paused" } };
       },
     );
@@ -1396,7 +1398,7 @@ test("cstan pause and cancel need the live controller and an authenticated socke
       requestControl(socketPath, "wrong-credential", "pause"),
       /unauthorized/,
     );
-    assert.deepEqual(actions, []);
+    assert.equal(actions.length, 0);
 
     const pause = await invokeAsync(cwd, "pause");
     assert.equal(pause.status, 0, pause.stderr);
@@ -1406,7 +1408,26 @@ test("cstan pause and cancel need the live controller and an authenticated socke
     assert.equal(cancel.status, 5);
     assert.match(cancel.stderr, /containment incomplete/);
     assert.deepEqual(actions, ["pause", "cancel"]);
+
+    const abandoned = net.createConnection(socketPath);
+    await new Promise<void>((resolve, reject) => {
+      abandoned.once("connect", () => {
+        abandoned.write(
+          `${JSON.stringify({ token: credential, action: "resume" })}\n`,
+        );
+        resolve();
+      });
+      abandoned.once("error", reject);
+    });
+    while (!actions.includes("resume"))
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    abandoned.destroy();
+    resumeGate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await requestControl(socketPath, credential, "pause");
+    assert.deepEqual(actions, ["pause", "cancel", "resume", "pause"]);
   } finally {
+    resumeGate.resolve();
     await closeControl?.();
     core?.close();
     rmSync(cwd, { recursive: true, force: true });

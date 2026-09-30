@@ -1126,8 +1126,6 @@ export class RoleRuntimeManager {
       if (!bridgeIdentity)
         throw new Error("missing observed bridge socket identity");
       this.#removeBridgeSocket(session.bridgeSocketPath, bridgeIdentity);
-      this.#bridgeSockets.delete(sessionId);
-      this.#sessionCgroups.delete(sessionId);
       let networkExists = false;
       try {
         run(this.#docker, ["network", "inspect", session.networkName]);
@@ -1151,6 +1149,8 @@ export class RoleRuntimeManager {
         )
           throw error;
       }
+      this.#bridgeSockets.delete(sessionId);
+      this.#sessionCgroups.delete(sessionId);
       this.#sessions.delete(key);
       return Object.freeze({
         contained: true,
