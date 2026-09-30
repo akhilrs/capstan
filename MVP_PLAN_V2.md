@@ -47,6 +47,8 @@ No Docker, no per-role networking or firewall. One trusted single-user VM. Isola
                 └── agents report facts by running `cstan ...` (receipts) ──┘
 ```
 
+**Daemon and commands (PM-23).** `cstan start` starts the daemon (`cstan daemon` is the foreground entry point for a service manager); `cstan stop` stops it; any operator-mode `cstan` command that needs it and finds it down starts it again. There is one daemon per project: it holds the project lock, so a second start fails with the ownership error, and a foreground `cstan run` controller excludes it the same way (`cstan start` reports that owner instead of spawning). Every start runs the existing restart reconciliation, which revokes or blocks in-flight old-flow assignments and marks their runtime sessions unknown; it never creates an assignment and never touches messages, agents, waits or observations. A fresh project is created with marked placeholder inputs; the PM records the real ones as later revisions. Agents reach the daemon with `CAPSTAN_TOKEN` (that agent's current token) and `CAPSTAN_SOCKET` (the absolute socket path) in their environment; an operator-class command always uses the operator credential of the working directory's `.capstan` and never the token. The commands `inbox`, `ack`, `wait`, `report`, `ask`, `request-review`, `finding`, `assign`, `cancel <id>`, `send`, `resolve` and `pm restart` are routed and authorised now and answer `not_implemented` until Stage 2e.
+
 Two channels:
 
 1. **Conversation** goes through the controller's Herdr adapter: guidance, questions, answers.
@@ -115,6 +117,8 @@ With the installed hook, the idle and blocked states that were explained came fr
 - **Confinement.** `--add-dir` adds directories; it does not limit an agent to one. Confinement to the worktree relies on the working directory plus per-role allow and deny rules for writes, and holds only as far as the host enforces them. This plan claims no more.
 - **Prompts.** A permission prompt makes the agent `blocked`. The controller notifies the operator. The PM never answers permission prompts. Nothing presses Enter on a prompt without reading it: the trust dialog defaults to "No, exit" and the permission prompt defaults to "Yes" (E1, E3).
 - **Trust dialog exception** (DEC-005): the controller may answer the startup trust dialog for a worktree path it has just created, after reading that the dialog names exactly that path and choosing the option by its text. This is a screen-driven keypress, so it is scraping and it is logged. Pre-trusting through the host's configuration is preferred if it works.
+
+- **Agent environment (requirement for the Herdr adapter).** A pane started through Herdr gets the environment of the Herdr server, not of the daemon. The adapter builds an allowlisted environment for every agent and sets `CAPSTAN_TOKEN` and `CAPSTAN_SOCKET` explicitly, per agent and per generation. The daemon removes both variables from the environment of the process it spawns, so a daemon started from an agent pane never carries an agent token.
 
 ## 9. Recovery, roles and persistent agents
 

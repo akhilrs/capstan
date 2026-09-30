@@ -52,6 +52,7 @@ import type {
   Capability,
   ControllerOptions,
   EvidenceInput,
+  Identity,
   InitialProject,
   FindingState,
   InputKind,
@@ -1442,6 +1443,32 @@ export class ControllerCore {
     );
   }
 
+  identify(credential: string): Identity {
+    this.#assertOpen();
+    const actor = authenticateActor(
+      this.#database,
+      this.#projectId,
+      credential,
+    );
+    return {
+      actorId: actor.actorId,
+      role: actor.role,
+      capabilities: [...actor.capabilities].sort(),
+      agent: this.#agentByActorRecord(actor.actorId),
+    };
+  }
+
+  listAgents(): readonly AgentRecord[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT agent_id FROM agents WHERE project_id = ? ORDER BY agent_id",
+        )
+        .all(this.#projectId) as Array<{ agent_id: string }>
+    ).map((row) => this.#agentRecord(row.agent_id)!);
+  }
+
   agentRecord(agentId: string): AgentRecord | undefined {
     this.#assertOpen();
     return this.#agentRecord(agentId);
@@ -2490,6 +2517,11 @@ export class ControllerCore {
         "SELECT * FROM agents WHERE project_id = ? AND actor_id = ? AND state = 'active'",
       )
       .get(this.#projectId, actorId) as AgentRow | undefined;
+  }
+
+  #agentByActorRecord(actorId: string): AgentRecord | null {
+    const row = this.#agentByActor(actorId);
+    return row === undefined ? null : (this.#agentRecord(row.agent_id) ?? null);
   }
 
   #agentRecord(agentId: string): AgentRecord | undefined {

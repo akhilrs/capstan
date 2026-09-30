@@ -1700,3 +1700,981 @@ test("role sync retries one version conflict and exits blocked on a second", asy
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+function daemonPid(cwd: string): number | undefined {
+  try {
+    return Number(
+      readFileSync(path.join(cwd, ".capstan/state/daemon.pid"), "utf8").trim(),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function killDaemon(cwd: string): void {
+  const pid = daemonPid(cwd);
+  if (pid === undefined) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // already gone
+  }
+}
+
+async function waitGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("process did not exit");
+}
+
+function tableCounts(cwd: string): Record<string, number> {
+  const db = new Database(path.join(cwd, ".capstan/state/controller.sqlite"), {
+    readonly: true,
+  });
+  try {
+    const tables = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    return Object.fromEntries(
+      tables.map((name) => [
+        name,
+        (db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get() as { n: number })
+          .n,
+      ]),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function tableRows(cwd: string, table: string): string[] {
+  const db = new Database(path.join(cwd, ".capstan/state/controller.sqlite"), {
+    readonly: true,
+  });
+  try {
+    return (db.prepare(`SELECT * FROM ${table}`).all() as unknown[])
+      .map((row) => JSON.stringify(row))
+      .sort();
+  } finally {
+    db.close();
+  }
+}
+
+test("cstan start runs one daemon, a repeat and a second daemon are handled, stop cleans up", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-life-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const first = invoke(cwd, "start", "--json");
+    assert.equal(first.status, 0, first.stderr);
+    const started = JSON.parse(first.stdout) as {
+      running: boolean;
+      pid: number;
+      started: boolean;
+    };
+    assert.deepEqual([started.running, started.started], [true, true]);
+    assert.equal(daemonPid(cwd), started.pid);
+    assert.equal(
+      statSync(path.join(cwd, ".capstan/state/control.sock")).mode & 0o777,
+      0o600,
+    );
+    assert.equal(
+      statSync(path.join(cwd, ".capstan/state/daemon.pid")).mode & 0o777,
+      0o600,
+    );
+    assert.equal(
+      statSync(path.join(cwd, ".capstan/daemon.log")).mode & 0o777,
+      0o600,
+    );
+
+    const again = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+      started: boolean;
+    };
+    assert.deepEqual([again.pid, again.started], [started.pid, false]);
+
+    const second = invoke(cwd, "daemon");
+    assert.equal(second.status, 4);
+    assert.match(
+      second.stderr,
+      /another cooperating controller owns this project/,
+    );
+    assert.equal(
+      daemonPid(cwd),
+      started.pid,
+      "the second daemon left the first one's pid file alone",
+    );
+
+    const status = invoke(cwd, "status", "--json");
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(
+      (JSON.parse(status.stdout) as { schemaVersion: number }).schemaVersion,
+      1,
+    );
+    const pause = invoke(cwd, "pause");
+    assert.notEqual(pause.status, 0);
+    assert.match(pause.stderr, /require the foreground cstan run controller/);
+
+    const stopped = invoke(cwd, "stop", "--json");
+    assert.equal(stopped.status, 0, stopped.stderr);
+    assert.equal(
+      (JSON.parse(stopped.stdout) as { result: string }).result,
+      "stopped",
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/control.sock")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+    );
+    assert.equal(
+      (JSON.parse(invoke(cwd, "stop", "--json").stdout) as { result: string })
+        .result,
+      "not_running",
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test(
+  "the spawned daemon does not inherit the agent token or socket variables",
+  { skip: process.platform !== "linux" },
+  () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-env-"));
+    try {
+      assert.equal(invoke(cwd, "init").status, 0);
+      const result = invokeWithEnv(
+        cwd,
+        {
+          CAPSTAN_TOKEN: "t".repeat(40),
+          CAPSTAN_SOCKET: "/tmp/elsewhere.sock",
+          M1_PROVIDER_HOST: "",
+        },
+        "start",
+        "--json",
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const pid = daemonPid(cwd)!;
+      const environment = readFileSync(`/proc/${pid}/environ`, "utf8");
+      assert.ok(
+        !environment.includes("CAPSTAN_TOKEN") &&
+          !environment.includes("CAPSTAN_SOCKET"),
+      );
+      assert.ok(environment.includes("PATH="));
+    } finally {
+      killDaemon(cwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  },
+);
+
+test("start, ping and stop report a foreground cstan run controller instead of spawning a daemon", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-legacy-"));
+  let legacy: ReturnType<typeof spawn> | undefined;
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const socketPath = path.join(cwd, ".capstan/state/control.sock");
+    legacy = spawn(
+      process.execPath,
+      [
+        "-e",
+        `require("node:net").createServer(s=>s.once("data",()=>s.end('{"error":"unauthorized"}\\n'))).listen(process.argv[1],()=>console.log("up"))`,
+        socketPath,
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    await new Promise<void>((resolve) =>
+      legacy!.stdout!.once("data", () => resolve()),
+    );
+    for (const command of ["start", "ping", "stop"]) {
+      const result = invoke(cwd, command);
+      assert.equal(result.status, 4, `${command}: ${result.stderr}`);
+      assert.match(
+        result.stderr,
+        /foreground cstan run controller owns this project/,
+      );
+    }
+    assert.equal(daemonPid(cwd), undefined);
+  } finally {
+    legacy?.kill("SIGKILL");
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("after kill -9 the next command restarts the daemon and reconciles without duplicating anything", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-restart-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const first = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+    };
+    killDaemon(cwd);
+    await waitGone(first.pid);
+
+    const core = await openInitializedCore(cwd);
+    const owner = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    const context = (): MutationContext => ({
+      credential: owner,
+      requestId: `req-${randomUUID()}`,
+      idempotencyKey: `idem-${randomUUID()}`,
+      expectedVersion: core.stateVersion,
+      inputRevision: core.inputRevision,
+    });
+    core.syncRoleDefinitions(context(), [
+      { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+      {
+        name: "developer",
+        kind: "Developer",
+        host: "claude",
+        configHash: "b".repeat(64),
+      },
+    ]);
+    const seat = (name: string, role: "PM" | "Developer") => {
+      core.createSeat(context(), { seatId: `${name}-seat`, name, role });
+      return core.createActor(context(), {
+        displayName: name,
+        role,
+        seatId: `${name}-seat`,
+      });
+    };
+    const pmActor = seat("pm", "PM");
+    core.registerAgent(context(), {
+      agentId: "pm-agent",
+      roleName: "pm",
+      seatId: "pm-seat",
+      actorId: pmActor.actorId,
+    });
+    const devActor = seat("developer", "Developer");
+    core.registerAgent(context(), {
+      agentId: "dev-agent",
+      roleName: "developer",
+      seatId: "developer-seat",
+      actorId: devActor.actorId,
+    });
+    const queued = core.enqueueMessage(context(), {
+      recipientAgentId: "dev-agent",
+      body: "one",
+    }).messageId;
+    const sent = core.enqueueMessage(context(), {
+      recipientAgentId: "pm-agent",
+      body: "two",
+    }).messageId;
+    core.pullMessage({ ...context(), credential: pmActor.credential });
+    core.recordAgentObservation(context(), "pm-agent", "working");
+    seat("worker", "Developer");
+    core.createWorkItem(context(), {
+      workItemId: "work-1",
+      title: "Old flow work",
+      description: "in flight",
+      requiredRole: "Developer",
+    });
+    core.markReady(context(), "work-1");
+    core.assignWorkItem(context(), "work-1", "worker-seat");
+    core.close();
+    const seeded = tableCounts(cwd);
+    const messageRows = tableRows(cwd, "messages");
+    const agentRows = [
+      tableRows(cwd, "agents"),
+      tableRows(cwd, "agent_state_history"),
+      tableRows(cwd, "agent_waits"),
+    ];
+    assert.ok(messageRows.length === 2 && queued !== sent);
+
+    const ping = invoke(cwd, "ping", "--json");
+    assert.equal(ping.status, 0, ping.stderr);
+    const second = JSON.parse(ping.stdout) as { pid: number };
+    assert.notEqual(second.pid, first.pid);
+    assert.equal(daemonPid(cwd), second.pid);
+
+    const afterFirst = tableCounts(cwd);
+    for (const table of [
+      "assignments",
+      "messages",
+      "agents",
+      "work_items",
+      "actors",
+      "seats",
+    ])
+      assert.equal(afterFirst[table], seeded[table], table);
+    assert.deepEqual(tableRows(cwd, "messages"), messageRows);
+    assert.deepEqual(
+      [
+        tableRows(cwd, "agents"),
+        tableRows(cwd, "agent_state_history"),
+        tableRows(cwd, "agent_waits"),
+      ],
+      agentRows,
+    );
+    const db = new Database(
+      path.join(cwd, ".capstan/state/controller.sqlite"),
+      { readonly: true },
+    );
+    let versionAfterFirst: number;
+    try {
+      const assignment = db
+        .prepare("SELECT state, authority_state FROM assignments")
+        .get() as { state: string; authority_state: string };
+      assert.deepEqual(assignment, {
+        state: "revoked",
+        authority_state: "unknown",
+      });
+      assert.equal(
+        (db.prepare("SELECT state FROM commands").get() as { state: string })
+          .state,
+        "unknown",
+      );
+      assert.equal(
+        (
+          db
+            .prepare(
+              "SELECT state FROM work_items WHERE work_item_id = 'work-1'",
+            )
+            .get() as { state: string }
+        ).state,
+        "blocked",
+      );
+      assert.deepEqual(
+        db
+          .prepare("SELECT send_attempts FROM messages ORDER BY sequence")
+          .all(),
+        [{ send_attempts: 0 }, { send_attempts: 1 }],
+      );
+      assert.ok(
+        afterFirst.controller_events! > seeded.controller_events!,
+        "the reconcile wrote its own events",
+      );
+      versionAfterFirst = (
+        db.prepare("SELECT state_version FROM projects").get() as {
+          state_version: number;
+        }
+      ).state_version;
+    } finally {
+      db.close();
+    }
+
+    killDaemon(cwd);
+    await waitGone(second.pid);
+    const third = JSON.parse(invoke(cwd, "ping", "--json").stdout) as {
+      pid: number;
+    };
+    assert.notEqual(third.pid, second.pid);
+    assert.deepEqual(tableCounts(cwd), afterFirst);
+    const check = new Database(
+      path.join(cwd, ".capstan/state/controller.sqlite"),
+      { readonly: true },
+    );
+    try {
+      assert.equal(
+        (
+          check.prepare("SELECT state_version FROM projects").get() as {
+            state_version: number;
+          }
+        ).state_version,
+        versionAfterFirst,
+      );
+    } finally {
+      check.close();
+    }
+    assert.deepEqual(tableRows(cwd, "messages"), messageRows);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("agent mode uses the token and the socket from the environment, operator mode never uses the token", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-agent-"));
+  const elsewhere = mkdtempSync(
+    path.join(os.tmpdir(), "cstan-daemon-nowhere-"),
+  );
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const core = await openInitializedCore(cwd);
+    const owner = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    const context = (): MutationContext => ({
+      credential: owner,
+      requestId: `req-${randomUUID()}`,
+      idempotencyKey: `idem-${randomUUID()}`,
+      expectedVersion: core.stateVersion,
+      inputRevision: core.inputRevision,
+    });
+    core.syncRoleDefinitions(context(), [
+      {
+        name: "developer",
+        kind: "Developer",
+        host: "claude",
+        configHash: "b".repeat(64),
+      },
+    ]);
+    core.createSeat(context(), {
+      seatId: "developer-seat",
+      name: "developer",
+      role: "Developer",
+    });
+    const actor = core.createActor(context(), {
+      displayName: "developer",
+      role: "Developer",
+      seatId: "developer-seat",
+    });
+    core.registerAgent(context(), {
+      agentId: "dev-agent",
+      roleName: "developer",
+      seatId: "developer-seat",
+      actorId: actor.actorId,
+    });
+    core.close();
+
+    const socketPath = path.join(cwd, ".capstan/state/control.sock");
+    const agentEnv = {
+      CAPSTAN_TOKEN: actor.credential,
+      CAPSTAN_SOCKET: socketPath,
+      M1_PROVIDER_HOST: "",
+    };
+    const dead = invokeWithEnv(elsewhere, agentEnv, "inbox");
+    assert.equal(dead.status, 4);
+    assert.match(
+      dead.stderr,
+      /the controller is not running; ask the operator to run cstan start/,
+    );
+
+    assert.equal(invoke(cwd, "start").status, 0);
+    const status = invokeWithEnv(elsewhere, agentEnv, "status", "--json");
+    assert.equal(status.status, 0, status.stderr);
+    const snapshot = JSON.parse(status.stdout) as {
+      agents: Array<{ agentId: string }>;
+    };
+    assert.deepEqual(
+      snapshot.agents.map((agent) => agent.agentId),
+      ["dev-agent"],
+    );
+    assert.ok(!status.stdout.includes(actor.credential));
+    const inbox = invokeWithEnv(elsewhere, agentEnv, "inbox");
+    assert.equal(inbox.status, 4);
+    assert.match(inbox.stderr, /not_implemented/);
+    assert.equal(invokeWithEnv(elsewhere, agentEnv, "ping").status, 0);
+
+    const noProject = invokeWithEnv(elsewhere, agentEnv, "send", "hello");
+    assert.equal(noProject.status, 3);
+    assert.match(
+      noProject.stderr,
+      /operator commands need the operator credential/,
+    );
+    const fromProject = invokeWithEnv(cwd, agentEnv, "send", "hello");
+    assert.equal(fromProject.status, 4);
+    assert.match(
+      fromProject.stderr,
+      /not_implemented/,
+      "the operator credential was used, not the token",
+    );
+    assert.ok(!fromProject.stderr.includes("forbidden"));
+
+    const operatorAgentCommand = invoke(cwd, "inbox");
+    assert.equal(operatorAgentCommand.status, 3);
+    assert.match(operatorAgentCommand.stderr, /must be run by an agent/);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("cancel with one id is a routed command; the legacy forms keep their usage rules", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cancel-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    for (const args of [
+      ["cancel", "a", "b"],
+      ["pause", "x"],
+      ["resume", "x"],
+    ]) {
+      const result = invoke(cwd, ...args);
+      assert.equal(result.status, 2, args.join(" "));
+      assert.match(result.stderr, /usage: cstan init \| cstan start/);
+    }
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+      "usage errors never start the daemon",
+    );
+    const routed = invoke(cwd, "cancel", "--json", "work-1");
+    assert.equal(routed.status, 4, routed.stderr);
+    assert.match(
+      routed.stderr,
+      /not_implemented: cancel is not implemented yet/,
+    );
+    assert.ok(daemonPid(cwd) !== undefined);
+    const legacy = invoke(cwd, "cancel");
+    assert.notEqual(legacy.status, 0);
+    assert.match(legacy.stderr, /require the foreground cstan run controller/);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a daemon that dies during startup is reported at once with the log tail", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-fail-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(
+      path.join(cwd, ".capstan/state/control.sock"),
+      "not a socket",
+      { mode: 0o600 },
+    );
+    const began = Date.now();
+    const result = invoke(cwd, "start");
+    assert.equal(result.status, 5, result.stderr);
+    assert.match(
+      result.stderr,
+      /the daemon exited during startup \(exit code \d+\)/,
+    );
+    assert.match(
+      result.stderr,
+      /control socket path exists and is not a socket/,
+    );
+    assert.ok(Date.now() - began < 8000, "did not wait for the full timeout");
+    assert.equal(daemonPid(cwd), undefined);
+    assert.equal(
+      readFileSync(path.join(cwd, ".capstan/state/control.sock"), "utf8"),
+      "not a socket",
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("two cstan start commands at once end with one daemon and both succeed", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-race-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const [left, right] = await Promise.all([
+      invokeAsync(cwd, "start", "--json"),
+      invokeAsync(cwd, "start", "--json"),
+    ]);
+    assert.equal(left.status, 0, left.stderr);
+    assert.equal(right.status, 0, right.stderr);
+    const results = [left, right].map(
+      (run) => JSON.parse(run.stdout) as { pid: number; started: boolean },
+    );
+    assert.equal(results[0]!.pid, results[1]!.pid);
+    assert.equal(results[0]!.pid, daemonPid(cwd));
+    assert.ok(
+      results.some((result) => result.started),
+      "one of them started the daemon",
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("SIGTERM stops the daemon cleanly and the next start needs no recovery", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-term-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const first = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+    };
+    process.kill(first.pid, "SIGTERM");
+    await waitGone(first.pid);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/control.sock")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+    );
+    const second = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+      started: boolean;
+    };
+    assert.equal(second.started, true);
+    assert.notEqual(second.pid, first.pid);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the pm-restart alias is not a command, and daemon without a project explains what is missing", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-alias-"));
+  const empty = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-empty-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const alias = invoke(cwd, "pm-restart");
+    assert.equal(alias.status, 2);
+    assert.equal(daemonPid(cwd), undefined);
+    const noProject = invoke(empty, "daemon");
+    assert.equal(noProject.status, 3);
+    assert.match(
+      noProject.stderr,
+      /operator commands need the operator credential in \.capstan/,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test("every line of daemon.log is JSON, and a partial or invalid agent environment is named", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-logfmt-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    assert.equal(invoke(cwd, "ping").status, 0);
+    const lines = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n");
+    assert.ok(lines.length >= 2);
+    for (const line of lines) {
+      const entry = JSON.parse(line) as { ts: string };
+      assert.match(entry.ts, /^\d{4}-\d{2}-\d{2}T/);
+    }
+    assert.deepEqual(JSON.parse(lines[0]!), {
+      ts: JSON.parse(lines[0]!).ts,
+      event: "ready",
+      pid: daemonPid(cwd),
+    });
+
+    const partial = invokeWithEnv(
+      cwd,
+      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      "status",
+    );
+    assert.equal(partial.status, 3);
+    assert.match(
+      partial.stderr,
+      /CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set/,
+    );
+    const relative = invokeWithEnv(
+      cwd,
+      {
+        CAPSTAN_TOKEN: "t".repeat(40),
+        CAPSTAN_SOCKET: "relative.sock",
+        M1_PROVIDER_HOST: "",
+      },
+      "ping",
+    );
+    assert.equal(relative.status, 3);
+    assert.match(relative.stderr, /absolute path/);
+    const emptyToken = invokeWithEnv(
+      cwd,
+      {
+        CAPSTAN_TOKEN: "",
+        CAPSTAN_SOCKET: "/tmp/x.sock",
+        M1_PROVIDER_HOST: "",
+      },
+      "inbox",
+    );
+    assert.equal(emptyToken.status, 3);
+    assert.match(emptyToken.stderr, /must both be set/);
+    const operatorUnaffected = invokeWithEnv(
+      cwd,
+      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      "send",
+      "x",
+    );
+    assert.equal(operatorUnaffected.status, 4);
+    assert.match(operatorUnaffected.stderr, /not_implemented/);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("two termination signals in a row still leave no socket or pid file", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-twice-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const started = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+    };
+    process.kill(started.pid, "SIGTERM");
+    process.kill(started.pid, "SIGINT");
+    await waitGone(started.pid);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/control.sock")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("routed arguments keep a literal --json after --, empty arguments are refused and a bad token is named", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-args-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    const literal = invoke(cwd, "send", "--", "--json");
+    assert.equal(literal.status, 4);
+    assert.match(
+      literal.stderr,
+      /not_implemented/,
+      "the text was not treated as --json output",
+    );
+    const entries = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            command?: string;
+            argCount?: number;
+            argBytes?: number;
+          },
+      );
+    const sendEntry = entries
+      .filter((entry) => entry.command === "send")
+      .at(-1)!;
+    assert.deepEqual(
+      [sendEntry.argCount, sendEntry.argBytes],
+      [1, "--json".length],
+    );
+    const asOption = invoke(cwd, "send", "hello", "--json");
+    const optionEntry = readFileSync(
+      path.join(cwd, ".capstan/daemon.log"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")
+      .map(
+        (line) => JSON.parse(line) as { command?: string; argCount?: number },
+      )
+      .filter((entry) => entry.command === "send")
+      .at(-1)!;
+    assert.equal(asOption.status, 4);
+    assert.equal(
+      optionEntry.argCount,
+      1,
+      "--json before the separator is an option",
+    );
+
+    for (const args of [
+      ["cancel", ""],
+      ["send", ""],
+    ]) {
+      const result = invoke(cwd, ...args);
+      assert.equal(result.status, 3, args.join(" "));
+      assert.match(result.stderr, /command arguments must not be empty/);
+    }
+    for (const token of [
+      " ",
+      "abc def",
+      `${"t".repeat(40)}\n`,
+      `${"t".repeat(40)}\r`,
+    ]) {
+      const result = invokeWithEnv(
+        cwd,
+        {
+          CAPSTAN_TOKEN: token,
+          CAPSTAN_SOCKET: path.join(cwd, ".capstan/state/control.sock"),
+          M1_PROVIDER_HOST: "",
+        },
+        "inbox",
+      );
+      assert.equal(result.status, 3, JSON.stringify(token));
+      assert.match(
+        result.stderr,
+        /CAPSTAN_TOKEN must not contain whitespace or control characters/,
+      );
+    }
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a failed start shows only this start's log lines, without control characters", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-tail-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(
+      path.join(cwd, ".capstan/daemon.log"),
+      "OLD-RUN-LINE from an earlier start\n\u001b[31mOLD-ANSI\u001b[0m\n",
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(cwd, ".capstan/state/control.sock"),
+      "not a socket",
+      { mode: 0o600 },
+    );
+    const result = invoke(cwd, "start");
+    assert.equal(result.status, 5, result.stderr);
+    assert.match(
+      result.stderr,
+      /control socket path exists and is not a socket/,
+    );
+    assert.ok(
+      !result.stderr.includes("OLD-RUN-LINE") &&
+        !result.stderr.includes("OLD-ANSI"),
+    );
+    assert.ok(
+      !/[\u0000-\u0009\u000b-\u001f]/.test(result.stderr.replace(/\n$/, "")),
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("stop followed at once by start always gets a fresh daemon because the lock is free when stop returns", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cycle-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const pids = new Set<number>();
+    for (let round = 0; round < 5; round += 1) {
+      const started = invoke(cwd, "start", "--json");
+      assert.equal(started.status, 0, `round ${round}: ${started.stderr}`);
+      const result = JSON.parse(started.stdout) as {
+        pid: number;
+        started: boolean;
+      };
+      assert.equal(result.started, true, `round ${round}`);
+      pids.add(result.pid);
+      const stopped = invoke(cwd, "stop", "--json");
+      assert.equal(stopped.status, 0, stopped.stderr);
+      assert.equal(
+        (JSON.parse(stopped.stdout) as { result: string }).result,
+        "stopped",
+      );
+    }
+    assert.equal(pids.size, 5);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a project lock held by something that never answers fails a start within the grace period", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-lockheld-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const holder = await openInitializedCore(cwd);
+    try {
+      const began = Date.now();
+      const result = await invokeAsync(cwd, "start");
+      assert.equal(result.status, 5, result.stderr);
+      assert.match(result.stderr, /holds the project lock but does not answer/);
+      assert.ok(Date.now() - began < 9000, "did not wait for the full timeout");
+    } finally {
+      holder.close();
+    }
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a restrictive umask does not stop a start, and the fresh log is still mode 0600", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-umask-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const result = spawnSync(
+      "sh",
+      ["-c", `umask 0277 && exec "${process.execPath}" "${cli}" start --json`],
+      {
+        cwd,
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      statSync(path.join(cwd, ".capstan/daemon.log")).mode & 0o777,
+      0o600,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a bad CAPSTAN_SOCKET is named and cstan pm restart accepts --json in either position", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-pm-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    for (const socket of ["/tmp/a.sock\n", "/tmp/a b.sock", "/tmp/a.sock\r"]) {
+      const result = invokeWithEnv(
+        cwd,
+        {
+          CAPSTAN_TOKEN: "t".repeat(40),
+          CAPSTAN_SOCKET: socket,
+          M1_PROVIDER_HOST: "",
+        },
+        "inbox",
+      );
+      assert.equal(result.status, 3, JSON.stringify(socket));
+      assert.match(
+        result.stderr,
+        /CAPSTAN_SOCKET must not contain whitespace or control characters/,
+      );
+    }
+    for (const args of [
+      ["pm", "restart", "--json"],
+      ["pm", "--json", "restart"],
+      ["pm", "restart"],
+    ]) {
+      const result = invoke(cwd, ...args);
+      assert.equal(result.status, 4, `${args.join(" ")}: ${result.stderr}`);
+      assert.match(
+        result.stderr,
+        /not_implemented: pm-restart is not implemented yet/,
+      );
+    }
+    assert.equal(invoke(cwd, "pm").status, 2);
+    assert.equal(invoke(cwd, "pm", "--json").status, 2);
+    assert.equal(
+      invoke(cwd, "pm", "--", "restart").status,
+      2,
+      "-- ends option parsing, so this is not the restart subcommand",
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("shutdown releases the project lock before it removes the socket", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-order-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    assert.equal(invoke(cwd, "stop").status, 0);
+    const events = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => (JSON.parse(line) as { event?: string }).event)
+      .filter((event): event is string => event !== undefined);
+    assert.deepEqual(events, ["ready", "lock_released", "socket_removed"]);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
