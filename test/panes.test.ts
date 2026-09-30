@@ -447,3 +447,30 @@ test("a summary always fits its budget, and a body is cut by characters, not UTF
     await close(g);
   }
 });
+
+test("a very large task brief is shown as a marked preview so the summary always fits", async () => {
+  const h = await harness();
+  try {
+    const db = writableDatabase(h);
+    try {
+      db.exec("DROP TRIGGER immutable_project_revisions_update");
+      db.prepare(
+        "UPDATE project_revisions SET content_json = ? WHERE kind = 'task_brief'",
+      ).run(JSON.stringify({ text: "y".repeat(16_000) }));
+    } finally {
+      db.close();
+    }
+    const summary = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    ).summary;
+    const objective = summary.objective as {
+      truncated: boolean;
+      preview: string;
+    };
+    assert.equal(objective.truncated, true);
+    assert.ok(Array.from(objective.preview).length <= 2000);
+  } finally {
+    await close(h);
+  }
+});

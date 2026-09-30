@@ -88,6 +88,18 @@ const MAX_SUMMARY_MESSAGES = 50;
 const MAX_SUMMARY_BODY = 2000;
 const MAX_SUMMARY_WORK = 200;
 const MAX_SUMMARY_BYTES = 32 * 1024;
+const MAX_OBJECTIVE_BYTES = 8 * 1024;
+
+/** The task brief as the summary shows it: whole when small, otherwise a marked preview. */
+function objectiveOf(contentJson: string | undefined): unknown {
+  if (contentJson === undefined) return null;
+  if (Buffer.byteLength(contentJson, "utf8") <= MAX_OBJECTIVE_BYTES)
+    return JSON.parse(contentJson);
+  return {
+    truncated: true,
+    preview: Array.from(contentJson).slice(0, 2000).join(""),
+  };
+}
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
@@ -1747,7 +1759,7 @@ export class ControllerCore {
       summarizedGeneration: number;
       generatedAt: string;
     } = {
-      objective: brief === undefined ? null : JSON.parse(brief.content_json),
+      objective: objectiveOf(brief?.content_json),
       openWork: work.slice(0, MAX_SUMMARY_WORK).map((item) => ({
         workItemId: item.workItemId,
         title: item.title,

@@ -1141,3 +1141,45 @@ test("a hub that cannot be re-adopted for a transient reason is not replaced by 
     w.cleanup();
   }
 });
+
+test("status lists an unfinished cleanup once, forgets it when the agent has ended, and an orphan pane is retried and dropped once it closes", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.startError = new Error("start failed");
+    (w.core as unknown as { endAgent: () => never }).endAgent = () => {
+      throw new Error("the seat still holds authority");
+    };
+    await assert.rejects(w.launcher.spawn("developer"));
+    await assert.rejects(w.launcher.spawn("developer"));
+    assert.equal(
+      w.launcher.status().cleanupFailed.length,
+      1,
+      "one entry per agent, not one per attempt",
+    );
+
+    w.adapter.startError = undefined;
+    w.adapter.closeError = new HerdrError("pane_close_failed", "busy");
+    const r1 = await w.launcher.restartPm();
+    const r2 = await w.launcher.restartPm();
+    assert.equal(
+      w.launcher.status().orphanPanes.length,
+      2,
+      JSON.stringify([
+        r1,
+        r2,
+        w.launcher.status().orphanPanes,
+        w.adapter.calls,
+      ]),
+    );
+    w.adapter.closeError = undefined;
+    await w.launcher.adoptAll();
+    assert.deepEqual(
+      w.launcher.status().orphanPanes,
+      [],
+      "closed orphans are dropped",
+    );
+  } finally {
+    w.cleanup();
+  }
+});

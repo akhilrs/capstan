@@ -152,10 +152,10 @@ export function defaultGit(projectRoot: string): GitRunner {
     deleteBranchIf: (branch, sha) =>
       git(["update-ref", "-d", `refs/heads/${branch}`, sha]).status === 0,
     worktreeByBranch(branch) {
-      const result = git(["worktree", "list", "--porcelain"]);
+      const result = git(["worktree", "list", "--porcelain", "-z"]);
       if (result.status !== 0) return undefined;
       let current: string | undefined;
-      for (const line of result.stdout.split("\n")) {
+      for (const line of result.stdout.split("\0")) {
         if (line.startsWith("worktree "))
           current = line.slice("worktree ".length);
         if (line === `branch refs/heads/${branch}`) return current;
@@ -180,8 +180,8 @@ export class Launcher {
   readonly #log: (event: string, details: Record<string, unknown>) => void;
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
-  readonly #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
-  readonly #orphanPanes: LauncherStatus["orphanPanes"][number][] = [];
+  #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
+  #orphanPanes: LauncherStatus["orphanPanes"][number][] = [];
 
   constructor(options: LauncherOptions) {
     this.#core = options.core;
@@ -211,8 +211,12 @@ export class Launcher {
           ? {}
           : { worktreePath: row.worktreePath }),
       }));
+    // An entry for an agent that has since ended is no longer a problem.
+    const blocked = this.#cleanupFailed.filter(
+      (entry) => this.#core.agentRecord(entry.agentId)?.state === "active",
+    );
     return {
-      cleanupFailed: [...this.#cleanupFailed, ...leftovers],
+      cleanupFailed: [...blocked, ...leftovers],
       orphanPanes: [...this.#orphanPanes],
     };
   }
@@ -588,7 +592,8 @@ export class Launcher {
         try {
           await this.#adapter.closePane(oldPane);
         } catch (error) {
-          this.#orphanPanes.push({ agentId: agent.agentId, paneId: oldPane });
+          if (!this.#orphanPanes.some((o) => o.paneId === oldPane))
+            this.#orphanPanes.push({ agentId: agent.agentId, paneId: oldPane });
           this.#adapter.forgetPane(oldPane);
           this.#log("old_pane_not_closed", {
             paneId: oldPane,
@@ -791,10 +796,11 @@ export class Launcher {
     try {
       this.#core.endAgent(this.#context(), agentId);
     } catch (error) {
-      this.#cleanupFailed.push({
-        agentId,
-        reason: error instanceof Error ? error.message : String(error),
-      });
+      const reason = error instanceof Error ? error.message : String(error);
+      this.#cleanupFailed = this.#cleanupFailed.filter(
+        (entry) => entry.agentId !== agentId,
+      );
+      this.#cleanupFailed.push({ agentId, reason });
       this.#log("cleanup_blocked", { agentId, error: String(error) });
       return;
     }
@@ -864,6 +870,16 @@ export class Launcher {
   }
 
   async #adoptAll(budget: Budget): Promise<void> {
+    for (const orphan of [...this.#orphanPanes]) {
+      try {
+        await this.#adapter.closePane(orphan.paneId);
+        this.#orphanPanes = this.#orphanPanes.filter(
+          (entry) => entry.paneId !== orphan.paneId,
+        );
+      } catch {
+        // Still open; it stays listed.
+      }
+    }
     const rows = this.#core.agentPanes(this.#credential);
     const seen = new Set(rows.map((r) => r.agentId));
     for (const row of rows) {
