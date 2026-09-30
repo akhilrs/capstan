@@ -665,9 +665,12 @@ function agentEnvironment():
   { readonly token: string; readonly socketPath: string } | undefined {
   const token = process.env.CAPSTAN_TOKEN;
   const socketPath = process.env.CAPSTAN_SOCKET;
-  return token && socketPath && path.isAbsolute(socketPath)
-    ? { token, socketPath }
-    : undefined;
+  if (!token && !socketPath) return undefined;
+  if (!token || !socketPath || !path.isAbsolute(socketPath))
+    throw new InvalidInputError(
+      "CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set, and CAPSTAN_SOCKET must be an absolute path",
+    );
+  return { token, socketPath };
 }
 
 function loadOperator(cwd: string): {
@@ -741,7 +744,7 @@ async function runRouted(
   json: boolean,
 ): Promise<number> {
   const route = ROUTES[command]!;
-  const agent = agentEnvironment();
+  const agent = route.access === "operator" ? undefined : agentEnvironment();
   let socketPath: string;
   let credential: string;
   if (route.access === "agent" || (route.access === "read" && agent)) {
@@ -920,7 +923,10 @@ async function runCli(argv: string[]): Promise<number> {
           process.stdout.write(
             `${JSON.stringify({ ts: stamp(), ...entry })}\n`,
           ),
-        announce: (line) => process.stdout.write(`${stamp()} ${line}\n`),
+        announce: (event) =>
+          process.stdout.write(
+            `${JSON.stringify({ ts: stamp(), ...event })}\n`,
+          ),
       });
     } catch (error) {
       if (error instanceof ControllerOwnershipError)

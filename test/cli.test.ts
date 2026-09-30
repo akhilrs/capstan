@@ -2337,3 +2337,93 @@ test("the pm-restart alias is not a command, and daemon without a project explai
     rmSync(empty, { recursive: true, force: true });
   }
 });
+
+test("every line of daemon.log is JSON, and a partial or invalid agent environment is named", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-logfmt-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    assert.equal(invoke(cwd, "ping").status, 0);
+    const lines = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n");
+    assert.ok(lines.length >= 2);
+    for (const line of lines) {
+      const entry = JSON.parse(line) as { ts: string };
+      assert.match(entry.ts, /^\d{4}-\d{2}-\d{2}T/);
+    }
+    assert.deepEqual(JSON.parse(lines[0]!), {
+      ts: JSON.parse(lines[0]!).ts,
+      event: "ready",
+      pid: daemonPid(cwd),
+    });
+
+    const partial = invokeWithEnv(
+      cwd,
+      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      "status",
+    );
+    assert.equal(partial.status, 3);
+    assert.match(
+      partial.stderr,
+      /CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set/,
+    );
+    const relative = invokeWithEnv(
+      cwd,
+      {
+        CAPSTAN_TOKEN: "t".repeat(40),
+        CAPSTAN_SOCKET: "relative.sock",
+        M1_PROVIDER_HOST: "",
+      },
+      "ping",
+    );
+    assert.equal(relative.status, 3);
+    assert.match(relative.stderr, /absolute path/);
+    const emptyToken = invokeWithEnv(
+      cwd,
+      {
+        CAPSTAN_TOKEN: "",
+        CAPSTAN_SOCKET: "/tmp/x.sock",
+        M1_PROVIDER_HOST: "",
+      },
+      "inbox",
+    );
+    assert.equal(emptyToken.status, 3);
+    assert.match(emptyToken.stderr, /must both be set/);
+    const operatorUnaffected = invokeWithEnv(
+      cwd,
+      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      "send",
+      "x",
+    );
+    assert.equal(operatorUnaffected.status, 4);
+    assert.match(operatorUnaffected.stderr, /not_implemented/);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("two termination signals in a row still leave no socket or pid file", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-twice-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const started = JSON.parse(invoke(cwd, "start", "--json").stdout) as {
+      pid: number;
+    };
+    process.kill(started.pid, "SIGTERM");
+    process.kill(started.pid, "SIGINT");
+    await waitGone(started.pid);
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/control.sock")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(cwd, ".capstan/state/daemon.pid")),
+      false,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

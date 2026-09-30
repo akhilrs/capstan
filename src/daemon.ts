@@ -18,6 +18,7 @@ import { ControllerCore } from "./controller/core.js";
 import type { Identity, InitialProject } from "./controller/types.js";
 
 export const MAX_FRAME_BYTES = 65_536;
+export const MAX_RESPONSE_BYTES = 1_048_576;
 const MAX_ARGS = 16;
 const REQUEST_TIMEOUT_MS = 5_000;
 const MAX_CONNECTIONS = 64;
@@ -106,11 +107,16 @@ export interface DaemonServer {
 const LEGACY_FOREGROUND_ONLY =
   "pause, resume and cancel require the foreground cstan run controller";
 
+let responseLimit = MAX_RESPONSE_BYTES;
+
 function respond(
   socket: net.Socket,
   response: CommandResponse | Record<string, unknown>,
 ): void {
-  socket.end(`${JSON.stringify(response)}\n`);
+  let text = JSON.stringify(response);
+  if (Buffer.byteLength(text) + 1 > responseLimit)
+    text = JSON.stringify(failure("error", "response exceeds the size limit"));
+  socket.end(`${text}\n`);
 }
 
 function failure(code: ErrorCode, message: string): CommandResponse {
@@ -147,9 +153,11 @@ export async function startDaemonServer(options: {
   core: ControllerCore;
   log: Logger;
   onShutdown: () => void;
+  maxResponseBytes?: number;
 }): Promise<DaemonServer> {
   const { socketPath, core, log, onShutdown } = options;
   removeStaleSocket(socketPath);
+  responseLimit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
 
   const handle = async (frame: Buffer, socket: net.Socket): Promise<void> => {
     const started = Date.now();
@@ -291,7 +299,8 @@ export async function startDaemonServer(options: {
     } catch (error) {
       if (!(error instanceof AuthenticationError)) throw error;
     }
-    const action = typeof request.action === "string" ? request.action : "?";
+    const action =
+      typeof request.action === "string" ? request.action.slice(0, 32) : "?";
     const done = (body: Record<string, unknown>, code: string): void => {
       respond(socket, body);
       log({
@@ -385,11 +394,19 @@ export async function startDaemonServer(options: {
   } finally {
     process.umask(previousUmask);
   }
-  fs.chmodSync(socketPath, 0o600);
-  const identity = fs.lstatSync(socketPath);
-  if (!identity.isSocket()) {
+  let identity: fs.Stats;
+  try {
+    fs.chmodSync(socketPath, 0o600);
+    identity = fs.lstatSync(socketPath);
+    if (!identity.isSocket()) throw new Error("control socket was not created");
+  } catch (error) {
     server.close();
-    throw new Error("control socket was not created");
+    try {
+      if (fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
+    } catch {
+      // nothing left to clean up
+    }
+    throw error;
   }
 
   let closedResolve!: () => void;
@@ -476,7 +493,7 @@ export interface DaemonOptions {
   readonly project: InitialProject;
   readonly workspaceRoot: string;
   readonly log: Logger;
-  readonly announce?: (line: string) => void;
+  readonly announce?: (event: { event: string; pid: number }) => void;
 }
 
 /** Runs until SIGTERM, SIGINT or the shutdown command. */
@@ -512,15 +529,17 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       onShutdown: stopRequested,
     });
     writePidFile(pidPath);
-    options.announce?.(`daemon ready pid=${process.pid}`);
+    options.announce?.({ event: "ready", pid: process.pid });
     await stop;
   } finally {
-    for (const signal of signals) process.off(signal, handler);
+    // The handlers stay until the very end so a second signal during close
+    // cannot kill the process and leave the socket and pid file behind.
     if (server !== undefined) await server.close();
     if (core !== undefined) {
       removePidFile(pidPath);
       core.close();
     }
+    for (const signal of signals) process.off(signal, handler);
   }
 }
 

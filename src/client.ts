@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
-import { MAX_FRAME_BYTES, type CommandResponse } from "./daemon.js";
+import {
+  MAX_FRAME_BYTES,
+  MAX_RESPONSE_BYTES,
+  type CommandResponse,
+} from "./daemon.js";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const START_TIMEOUT_MS = 10_000;
@@ -51,7 +55,7 @@ export async function callDaemon(
       bytes = Buffer.concat([bytes, chunk]);
       const newline = bytes.indexOf(10);
       if (newline < 0) {
-        if (bytes.length > 1_048_576)
+        if (bytes.length > MAX_RESPONSE_BYTES)
           settle(() => reject(withCode("response too large", "EMSGSIZE")));
         return;
       }

@@ -682,6 +682,47 @@ test("a daemon that cannot be spawned is reported as a startup failure", async (
   }
 });
 
+test("a reply above the size limit becomes an error reply, and a long legacy action is logged capped", async () => {
+  const stateDirectory = mkdtempSync(
+    path.join(tmpdir(), "capstan-daemon-limit-"),
+  );
+  const info = projectInfo();
+  const core = await ControllerCore.open({ stateDirectory, project: info });
+  const log: LogEntry[] = [];
+  const socketPath = path.join(stateDirectory, "control.sock");
+  const server = await startDaemonServer({
+    socketPath,
+    core,
+    log: (entry) => log.push(entry),
+    onShutdown: () => {},
+    maxResponseBytes: 300,
+  });
+  try {
+    const status = await callDaemon(socketPath, info.ownerCredential, "status");
+    assert.deepEqual(status, {
+      kind: "response",
+      response: {
+        ok: false,
+        code: "error",
+        message: "response exceeds the size limit",
+      },
+    });
+    const ping = await callDaemon(socketPath, info.ownerCredential, "ping");
+    assert.equal((ping as { response: CommandResponse }).response.ok, true);
+    const long = JSON.stringify({
+      token: info.ownerCredential,
+      action: "a".repeat(60_000),
+    });
+    await rawExchange(socketPath, Buffer.from(`${long}\n`));
+    const legacy = log.find((entry) => entry.command.startsWith("legacy:"))!;
+    assert.ok(legacy.command.length <= "legacy:".length + 32);
+  } finally {
+    await server.close();
+    core.close();
+    rmSync(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("a client cannot send a request larger than the frame limit", async () => {
   const h = await harness();
   try {
