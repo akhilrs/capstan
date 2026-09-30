@@ -493,6 +493,58 @@ test("the loader accepts a relative or absolute host command path", () => {
     );
 });
 
+test("Bearer in prose is accepted but a bearer token is not", () => {
+  const withPrompt = (text: string): string =>
+    VALID.replace(
+      'kind = "Verifier"',
+      `kind = "Verifier"\nprompt = """\n${text}"""`,
+    );
+  withConfig(
+    withPrompt(
+      "Use Bearer authentication for the API.\nBearer\nauthentication follows.",
+    ),
+    (directory) => {
+      assert.equal(loadCapstanConfig(directory).roles.length, 2);
+    },
+  );
+  assertRejected(
+    withPrompt("Authorization: Bearer abcdefgh12345678"),
+    /prompt looks like a credential/,
+    "abcdefgh12",
+  );
+});
+
+test("role and host names that look like credentials are rejected without echo", () => {
+  assertRejected(
+    `${VALID}\n[roles.sk-live-abcdefghijkl]\nkind = "Developer"\nhost = "claude"\n`,
+    /roles role name looks like a credential/,
+    "abcdefghij",
+  );
+  assertRejected(
+    VALID.replace("[hosts.claude]", "[hosts.sk-live-abcdefghijkl]").replace(
+      'host = "claude"',
+      'host = "x"',
+    ),
+    /hosts host name looks like a credential/,
+    "abcdefghij",
+  );
+});
+
+for (const [name, command] of [
+  ["a bare slash", "/"],
+  ["a trailing slash", "bin/"],
+  ["a parent-directory tail", "/usr/bin/.."],
+  ["a current-directory tail", "bin/."],
+])
+  test(`the loader rejects a host command that is ${name}`, () =>
+    assertRejected(
+      VALID.replace(
+        'kind = "claude"',
+        `kind = "claude"\ncommand = "${command}"`,
+      ),
+      /command must be an executable name or path/,
+    ));
+
 test("a project name that looks like a credential is rejected", () => {
   assertRejected(
     VALID.replace(

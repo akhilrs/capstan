@@ -1134,18 +1134,25 @@ export class ControllerCore {
     const stored = new Map(
       this.roleDefinitions().map((definition) => [definition.name, definition]),
     );
-    const seatNames = new Set(
-      (
-        this.#database
-          .prepare("SELECT name FROM seats WHERE project_id = ?")
-          .all(this.#projectId) as Array<{ name: string }>
-      ).map((seat) => seat.name),
-    );
+    const seatRoles = new Map<string, Set<string>>();
+    for (const seat of this.#database
+      .prepare("SELECT name, role FROM seats WHERE project_id = ?")
+      .all(this.#projectId) as Array<{ name: string; role: string }>)
+      seatRoles.set(
+        seat.name,
+        (seatRoles.get(seat.name) ?? new Set()).add(seat.role),
+      );
     const inserted: string[] = [];
     const updated: string[] = [];
     const reactivated: string[] = [];
     const retired: string[] = [];
     for (const role of desired) {
+      if (
+        [...(seatRoles.get(role.name) ?? [])].some((kind) => kind !== role.kind)
+      )
+        throw new MutationConflictError(
+          "a seat named after the role has a different kind than the role",
+        );
       const current = stored.get(role.name);
       if (!current) {
         inserted.push(role.name);
@@ -1155,10 +1162,6 @@ export class ControllerCore {
         current.kind !== role.kind ||
         current.host !== role.host ||
         current.configHash !== role.configHash;
-      if (current.kind !== role.kind && seatNames.has(role.name))
-        throw new MutationConflictError(
-          "role kind cannot change while a seat is named after the role",
-        );
       if (current.state === "retired") reactivated.push(role.name);
       else if (differs) updated.push(role.name);
     }

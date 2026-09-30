@@ -96,7 +96,7 @@ const CREDENTIAL_SHAPES: readonly RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{8,}/,
   /\bgh[pousr]_[A-Za-z0-9]{8,}/,
   /\bAKIA[A-Z0-9]{8,}/,
-  /Bearer\s+[A-Za-z0-9._~+/=-]{10,}/,
+  /\bBearer[ \t]+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{16,}/,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
 
@@ -244,7 +244,7 @@ function resolveHosts(table: Table): ResolvedHost[] {
     );
     const kind = enumValue(host.kind, `${at}.kind`, HOST_KINDS);
     const command = optionalString(host.command, `${at}.command`, 200) ?? kind;
-    if (!COMMAND_PATTERN.test(command))
+    if (!isExecutablePath(command))
       throw new ConfigError(`${at}.command must be an executable name or path`);
     guardCredentialShape(command, `${at}.command`);
     const shellCommandTimeoutSeconds = optionalInteger(
@@ -417,13 +417,23 @@ function resolvePrompt(
   return { source: "file", path: realFile, hash: sha256(text) };
 }
 
+function isExecutablePath(command: string): boolean {
+  return (
+    COMMAND_PATTERN.test(command) &&
+    !command.endsWith("/") &&
+    ![".", ".."].includes(path.basename(command))
+  );
+}
+
 function validatedNames(table: Table, at: string, noun: string): string[] {
   const names = Object.keys(table);
-  for (const name of names)
+  for (const name of names) {
     if (!NAME_PATTERN.test(name))
       throw new ConfigError(
         `${at} has a ${noun} name that does not match ${NAME_PATTERN.source}`,
       );
+    guardCredentialShape(name, `${at} ${noun} name`);
+  }
   return names;
 }
 

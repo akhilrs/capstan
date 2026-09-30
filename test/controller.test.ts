@@ -8618,6 +8618,38 @@ test("every write to seats and role definitions bumps the project version", asyn
   }
 });
 
+test("a first role insert is refused when a seat of that name has another kind", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const owner = info.ownerCredential;
+    core.createSeat(context(core, owner), {
+      seatId: "old-reviewer",
+      name: "reviewer",
+      role: "Developer",
+    });
+    const before = ledgerCounts(value.stateDirectory, info.projectId);
+    assert.throws(
+      () => core.syncRoleDefinitions(context(core, owner), desiredRoles()),
+      MutationConflictError,
+    );
+    assert.deepEqual(
+      ledgerCounts(value.stateDirectory, info.projectId),
+      before,
+    );
+    assert.deepEqual(core.roleDefinitions(), []);
+    const matching = desiredRoles({
+      reviewer: { kind: "Developer", configHash: "7".repeat(64) },
+    });
+    assert.equal(
+      core.syncRoleDefinitions(context(core, owner), matching).changed,
+      true,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("replaying an applied kind change after a seat took the name returns the stored result", async () => {
   const value = await fixture();
   try {
