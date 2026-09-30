@@ -465,12 +465,14 @@ function requiredString(
     throw new ConfigError(`${at} must be a non-empty string`);
   if (value.length > maxChars)
     throw new ConfigError(`${at} exceeds ${maxChars} characters`);
+  if (!multiline && value !== value.trim())
+    throw new ConfigError(`${at} must not have leading or trailing whitespace`);
   assertSafeText(value, at, multiline);
   return value;
 }
 
 function assertSafeText(value: string, at: string, multiline: boolean): void {
-  const checked = multiline ? value.replace(/[\n\t]/g, "") : value;
+  const checked = multiline ? value.replace(/[\n\t\u200c\u200d]/g, "") : value;
   if (UNSAFE_CHARACTERS.test(checked))
     throw new ConfigError(
       `${at} contains control, format or line-separator characters`,

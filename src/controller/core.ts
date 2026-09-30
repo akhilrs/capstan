@@ -48,6 +48,14 @@ import type {
   WorkItemInput,
 } from "./types.js";
 
+const ROLE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+const ROLE_KINDS: readonly string[] = [
+  "PM",
+  "Developer",
+  "Verifier",
+  "Supervisor",
+];
+
 export class ControllerError extends Error {
   override readonly name: string = "ControllerError";
 }
@@ -1023,9 +1031,30 @@ export class ControllerCore {
     context: MutationContext,
     desired: readonly RoleDefinitionInput[],
   ): RoleSyncResult {
-    const sorted = [...desired].sort((left, right) =>
-      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-    );
+    const sorted = desired
+      .map((role) => {
+        if (
+          typeof role.name !== "string" ||
+          !ROLE_NAME_PATTERN.test(role.name) ||
+          !ROLE_KINDS.includes(role.kind) ||
+          typeof role.host !== "string" ||
+          !ROLE_NAME_PATTERN.test(role.host) ||
+          typeof role.configHash !== "string" ||
+          !/^[0-9a-f]{64}$/.test(role.configHash)
+        )
+          throw new TypeError(
+            "role definition needs a lowercase name and host, a role kind and a SHA-256 hex config hash",
+          );
+        return {
+          name: role.name,
+          kind: role.kind,
+          host: role.host,
+          configHash: role.configHash,
+        };
+      })
+      .sort((left, right) =>
+        left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+      );
     if (new Set(sorted.map((role) => role.name)).size !== sorted.length)
       throw new TypeError("role names must be unique");
     this.#assertOpen();

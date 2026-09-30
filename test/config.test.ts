@@ -420,6 +420,41 @@ for (const [name, line] of unsafeValues)
       /(contains control, format or line-separator characters|must be a non-empty string)/,
     ));
 
+test("a prompt may contain joiners but single-line fields may not, and single-line values must be trimmed", () => {
+  withConfig(
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nprompt = "a\\u200d\\u200cb"',
+    ),
+    (directory) => {
+      assert.equal(
+        loadCapstanConfig(directory).roles.find(
+          (role) => role.name === "reviewer",
+        )!.prompt.source,
+        "inline",
+      );
+    },
+  );
+  assertRejected(
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nmodel = "a\\u200db"',
+    ),
+    /model contains control, format or line-separator characters/,
+  );
+  assertRejected(
+    VALID.replace('kind = "Verifier"', 'kind = "Verifier"\nmodel = " opus"'),
+    /model must not have leading or trailing whitespace/,
+  );
+  assertRejected(
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nallow = ["Bash(ls) "]',
+    ),
+    /allow\[0\] must not have leading or trailing whitespace/,
+  );
+});
+
 test("a prompt may contain newlines and tabs", () => {
   withConfig(
     VALID.replace(

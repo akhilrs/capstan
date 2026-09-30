@@ -8746,6 +8746,50 @@ test("replaying an applied role sync returns the original result and writes noth
   }
 });
 
+test("role sync rejects malformed definitions and records only the four known fields", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const owner = info.ownerCredential;
+    const good = desiredRoles();
+    for (const bad of [
+      { ...good[0]!, name: "Upper" },
+      { ...good[0]!, name: "" },
+      { ...good[0]!, host: "a b" },
+      { ...good[0]!, kind: "operator" as never },
+      { ...good[0]!, configHash: "A".repeat(64) },
+      { ...good[0]!, configHash: "abc" },
+    ])
+      assert.throws(
+        () => core.syncRoleDefinitions(context(core, owner), [bad]),
+        TypeError,
+      );
+    assert.deepEqual(core.roleDefinitions(), []);
+    const withExtra = good.map((role) => ({
+      ...role,
+      secret: "must-not-be-stored",
+    }));
+    core.syncRoleDefinitions(context(core, owner), withExtra);
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      const payload = (
+        db
+          .prepare(
+            "SELECT payload_json FROM controller_events WHERE entity_type = 'role_definition'",
+          )
+          .get() as { payload_json: string }
+      ).payload_json;
+      assert.ok(!payload.includes("must-not-be-stored"));
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("role sync needs the actor:manage capability and unique names", async () => {
   const value = await fixture();
   try {
