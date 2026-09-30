@@ -292,6 +292,27 @@ const rejections: ReadonlyArray<[string, string, RegExp]> = [
     ),
     /allow exceeds 64 entries/,
   ],
+  [
+    "a dash-leading allow entry",
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nallow = ["--dangerously-skip-permissions"]',
+    ),
+    /allow\[0\] must not start with a dash/,
+  ],
+  [
+    "a dash-leading deny entry",
+    VALID.replace('kind = "Verifier"', 'kind = "Verifier"\ndeny = ["-x"]'),
+    /deny\[0\] must not start with a dash/,
+  ],
+  [
+    "a dash-leading model",
+    VALID.replace(
+      'kind = "Verifier"',
+      'kind = "Verifier"\nmodel = "--settings"',
+    ),
+    /model must not start with a dash/,
+  ],
 ];
 for (const [name, content, pattern] of rejections)
   test(`the loader rejects ${name}`, () => assertRejected(content, pattern));

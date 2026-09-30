@@ -1,0 +1,870 @@
+/**
+ * The Herdr adapter: the only module that types into, starts, stops or closes
+ * agents in Herdr. It refuses to type into a pane it did not create, into a PM
+ * pane once its agent runs, and into any pane in the wrong phase. Herdr's agent
+ * state is a hint; nothing here treats it as completion.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import type { ResolvedRole } from "../config/capstan-config.js";
+import type { DeferralReason } from "../controller/messaging.js";
+import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
+import {
+  TRUST_NO,
+  TRUST_YES,
+  extractInputLine,
+  freshPromptReady,
+  parseTrustDialog,
+  stripAnsi,
+} from "./screen.js";
+
+export const TESTED_HERDR_VERSION = "0.9.1";
+
+export type PaneRole = "PM" | "worker";
+export type PanePhase = "fresh" | "prepared" | "started" | "tainted";
+
+export interface PaneEntry {
+  readonly role: PaneRole;
+  readonly phase: PanePhase;
+  readonly kind: string;
+  readonly agent?: string;
+  readonly worktreePath?: string;
+  readonly workspaceId?: string;
+}
+
+export class AdapterError extends Error {
+  override readonly name: string = "AdapterError";
+}
+export class UnknownPaneError extends AdapterError {
+  override readonly name = "UnknownPaneError";
+}
+export class PmPaneError extends AdapterError {
+  override readonly name = "PmPaneError";
+}
+export class PhaseError extends AdapterError {
+  override readonly name = "PhaseError";
+}
+export class AgentPaneMismatch extends AdapterError {
+  override readonly name = "AgentPaneMismatch";
+}
+export class DeferralNotElapsed extends AdapterError {
+  override readonly name = "DeferralNotElapsed";
+}
+export class NotIdle extends AdapterError {
+  override readonly name = "NotIdle";
+}
+export class NotBlocked extends AdapterError {
+  override readonly name = "NotBlocked";
+}
+export class InputUnreadable extends AdapterError {
+  override readonly name = "InputUnreadable";
+}
+export class ClearFailed extends AdapterError {
+  override readonly name = "ClearFailed";
+}
+export class PromptUnrecognized extends AdapterError {
+  override readonly name = "PromptUnrecognized";
+}
+export class ShellNotReady extends AdapterError {
+  override readonly name = "ShellNotReady";
+}
+export class DialogStillOpen extends AdapterError {
+  override readonly name = "DialogStillOpen";
+}
+export class UnsupportedHostError extends AdapterError {
+  override readonly name = "UnsupportedHostError";
+}
+export class SendAfterRecordError extends AdapterError {
+  override readonly name = "SendAfterRecordError";
+}
+export class InvalidArgumentError extends AdapterError {
+  override readonly name = "InvalidArgumentError";
+}
+
+export interface KeyLogEntry {
+  readonly kind: "key";
+  readonly pane: string;
+  readonly key: string;
+  readonly reason: string;
+}
+
+export type KeyLogger = (entry: KeyLogEntry) => void | Promise<void>;
+
+export type SendOutcome =
+  | { readonly sent: true }
+  | {
+      readonly sent: false;
+      readonly reason: DeferralReason;
+      readonly detail?: string;
+    };
+
+export type DialogOutcome =
+  | { readonly handled: true; readonly keys: readonly string[] }
+  | { readonly handled: false; readonly reason: string };
+
+export interface AdapterOptions {
+  readonly run: HerdrRunner;
+  readonly tempRoot?: string;
+  readonly pollMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly now?: () => number;
+}
+
+const MAX_CLEAR_ROUNDS = 5;
+const AGENT_START_MARGIN_MS = 10_000;
+const MAX_TEXT_BYTES = 16 * 1024;
+const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
+const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
+const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
+const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
+const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
+/** The same characters the controller refuses in a message body. */
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
+const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
+/** In Claude Code a first character of / ! # ? or @ (or a tab) acts on the input box instead of adding text. */
+const COMMAND_START = /^(?:\t|\s*[/!#?@])/;
+
+function isSafeText(text: unknown): text is string {
+  return (
+    typeof text === "string" &&
+    text.trim() !== "" &&
+    text.isWellFormed() &&
+    !UNSAFE_TEXT.test(text.replace(ALLOWED_TEXT_CHARACTERS, ""))
+  );
+}
+const ENVIRONMENT_KEY = /^[A-Z_][A-Z0-9_]*$/;
+const ALLOWLISTED_BASE = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TMPDIR",
+] as const;
+const CONTROL_CHARACTERS = /\p{Cc}/u;
+
+function requireMatch(value: unknown, pattern: RegExp, label: string): string {
+  if (typeof value !== "string" || !pattern.test(value))
+    throw new InvalidArgumentError(`${label} is not acceptable`);
+  return value;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Copies only the allowlisted names from `base`, then applies `extras`; CAPSTAN_ variables never come from `base`. */
+export function buildAgentEnvironment(
+  base: NodeJS.ProcessEnv,
+  extras: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const name of ALLOWLISTED_BASE) {
+    const value = base[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  for (const [name, value] of Object.entries(extras)) environment[name] = value;
+  for (const [name, value] of Object.entries(environment)) {
+    if (!ENVIRONMENT_KEY.test(name))
+      throw new InvalidArgumentError(
+        `environment name ${name} is not acceptable`,
+      );
+    if (
+      typeof value !== "string" ||
+      !value.isWellFormed() ||
+      /[\p{Cc}]/u.test(value)
+    )
+      throw new InvalidArgumentError(
+        `environment value for ${name} is not acceptable`,
+      );
+  }
+  return environment;
+}
+
+export type ClaudeRoleSettings = Pick<
+  ResolvedRole,
+  "model" | "permissionMode" | "allow" | "deny" | "hooks"
+>;
+
+/** The arguments Claude Code gets for a role. Herdr quotes each argument safely, so none is quoted here; a newline is refused because Herdr refuses it. */
+export function claudeArguments(
+  role: ClaudeRoleSettings,
+  promptFile?: string,
+): string[] {
+  const args: string[] = [];
+  if (role.model !== null) args.push("--model", role.model);
+  args.push("--permission-mode", role.permissionMode);
+  if (role.allow.length > 0) args.push("--allowedTools", ...role.allow);
+  if (role.deny.length > 0) args.push("--disallowedTools", ...role.deny);
+  if (role.hooks === "off") args.push("--settings", '{"disableAllHooks":true}');
+  if (promptFile !== undefined)
+    args.push("--append-system-prompt-file", promptFile);
+  for (const arg of args)
+    if (
+      typeof arg !== "string" ||
+      arg.length === 0 ||
+      !arg.isWellFormed() ||
+      CONTROL_CHARACTERS.test(arg)
+    )
+      throw new InvalidArgumentError(
+        "an agent argument is empty or has control characters",
+      );
+  const values = [
+    ...(role.model === null ? [] : [role.model]),
+    ...role.allow,
+    ...role.deny,
+  ];
+  if (values.some((value) => value.startsWith("-")))
+    throw new InvalidArgumentError(
+      "a model, allow or deny value must not start with a dash",
+    );
+  return args;
+}
+
+function deferralFor(status: string): DeferralReason | undefined {
+  if (status === "idle" || status === "done") return undefined;
+  return status === "blocked" ? "agent_blocked" : "agent_busy";
+}
+
+export class HerdrAdapter {
+  readonly #run: HerdrRunner;
+  readonly #tempRoot: string;
+  readonly #pollMs: number;
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #now: () => number;
+  readonly #panes = new Map<string, PaneEntry>();
+  #promptDirectory: string | undefined;
+
+  constructor(options: AdapterOptions) {
+    this.#run = options.run;
+    this.#tempRoot = options.tempRoot ?? os.tmpdir();
+    this.#pollMs = options.pollMs ?? 100;
+    this.#sleep =
+      options.sleep ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.#now = options.now ?? Date.now;
+  }
+
+  async version(): Promise<string> {
+    const outcome = await this.#run(["--version"]);
+    if (outcome.code !== 0)
+      throw new HerdrError("version", "herdr --version failed");
+    return outcome.stdout.trim();
+  }
+
+  paneEntry(paneId: string): PaneEntry | undefined {
+    const entry = this.#panes.get(paneId);
+    return entry === undefined ? undefined : { ...entry };
+  }
+
+  /** Removes the adapter's temporary files, prompt files included, so call it only after every agent that reads one has started. */
+  close(): void {
+    if (this.#promptDirectory !== undefined)
+      fs.rmSync(this.#promptDirectory, { recursive: true, force: true });
+    this.#promptDirectory = undefined;
+  }
+
+  async createWorktree(input: {
+    workspaceId: string;
+    branch: string;
+    label: string;
+    base?: string;
+  }): Promise<{
+    workspaceId: string;
+    paneId: string;
+    path: string;
+    branch: string;
+  }> {
+    requireMatch(input.workspaceId, WORKSPACE_PATTERN, "workspace id");
+    requireMatch(input.branch, BRANCH_PATTERN, "branch");
+    requireMatch(input.label, NAME_PATTERN, "label");
+    const args = [
+      "worktree",
+      "create",
+      "--workspace",
+      input.workspaceId,
+      "--branch",
+      input.branch,
+      "--label",
+      input.label,
+    ];
+    if (input.base !== undefined)
+      args.push("--base", requireMatch(input.base, BRANCH_PATTERN, "base"));
+    args.push("--no-focus");
+    const result = await runJson(this.#run, args);
+    const pane = this.#record(result.root_pane, "root_pane");
+    const workspace = this.#record(result.workspace, "workspace");
+    const worktree = this.#record(workspace.worktree, "worktree");
+    const paneId = requireMatch(pane.pane_id, PANE_PATTERN, "pane id");
+    const workspaceId = requireMatch(
+      workspace.workspace_id,
+      WORKSPACE_PATTERN,
+      "workspace id",
+    );
+    const checkout = worktree.checkout_path;
+    if (typeof checkout !== "string" || !path.isAbsolute(checkout))
+      throw new HerdrError(
+        "bad_output",
+        "herdr did not report a checkout path",
+      );
+    this.#panes.set(paneId, {
+      role: "worker",
+      phase: "fresh",
+      kind: "shell",
+      worktreePath: checkout,
+      workspaceId,
+    });
+    return { workspaceId, paneId, path: checkout, branch: input.branch };
+  }
+
+  async createWorkspace(input: {
+    cwd: string;
+    label: string;
+    role: PaneRole;
+  }): Promise<{ workspaceId: string; paneId: string }> {
+    if (!path.isAbsolute(input.cwd))
+      throw new InvalidArgumentError("workspace directory must be absolute");
+    requireMatch(input.label, NAME_PATTERN, "label");
+    const result = await runJson(this.#run, [
+      "workspace",
+      "create",
+      "--cwd",
+      input.cwd,
+      "--label",
+      input.label,
+      "--no-focus",
+    ]);
+    const pane = this.#record(result.root_pane, "root_pane");
+    const workspace = this.#record(result.workspace, "workspace");
+    const paneId = requireMatch(pane.pane_id, PANE_PATTERN, "pane id");
+    const workspaceId = requireMatch(
+      workspace.workspace_id,
+      WORKSPACE_PATTERN,
+      "workspace id",
+    );
+    this.#panes.set(paneId, {
+      role: input.role,
+      phase: "fresh",
+      kind: "shell",
+      workspaceId,
+    });
+    return { workspaceId, paneId };
+  }
+
+  async removeWorktree(
+    workspaceId: string,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
+    requireMatch(workspaceId, WORKSPACE_PATTERN, "workspace id");
+    await runJson(this.#run, [
+      "worktree",
+      "remove",
+      "--workspace",
+      workspaceId,
+      ...(options.force ? ["--force"] : []),
+    ]);
+    for (const [paneId, entry] of this.#panes)
+      if (entry.workspaceId === workspaceId) this.#panes.delete(paneId);
+  }
+
+  async closePane(paneId: string): Promise<void> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    await this.#runChecked(["pane", "close", paneId]);
+    this.#panes.delete(paneId);
+  }
+
+  async paneState(paneId: string): Promise<{ status: string; agent?: string }> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    const result = await runJson(this.#run, ["pane", "get", paneId]);
+    const pane = this.#record(result.pane, "pane");
+    const status =
+      typeof pane.agent_status === "string" ? pane.agent_status : "unknown";
+    return typeof pane.agent === "string"
+      ? { status, agent: pane.agent }
+      : { status };
+  }
+
+  async agentState(name: string): Promise<{ status: string; paneId: string }> {
+    requireMatch(name, NAME_PATTERN, "agent name");
+    const result = await runJson(this.#run, ["agent", "get", name]);
+    const agent = this.#record(result.agent, "agent");
+    return {
+      status:
+        typeof agent.agent_status === "string" ? agent.agent_status : "unknown",
+      paneId: typeof agent.pane_id === "string" ? agent.pane_id : "",
+    };
+  }
+
+  async readScreen(
+    paneId: string,
+    options: { ansi?: boolean; lines?: number } = {},
+  ): Promise<string> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    const outcome = await this.#run([
+      "pane",
+      "read",
+      paneId,
+      "--source",
+      "visible",
+      "--lines",
+      String(options.lines ?? 80),
+      ...(options.ansi ? ["--ansi"] : []),
+    ]);
+    if (outcome.code !== 0) throw failureOf(["pane", "read"], outcome);
+    return outcome.stdout;
+  }
+
+  async readInput(paneId: string): Promise<string | undefined> {
+    const entry = this.#panes.get(paneId);
+    if (entry === undefined)
+      throw new UnknownPaneError("pane is not registered");
+    return extractInputLine(
+      entry.kind,
+      await this.readScreen(paneId, { ansi: true }),
+    );
+  }
+
+  async prepareShell(input: {
+    paneId: string;
+    environment: Readonly<Record<string, string>>;
+    timeoutMs?: number;
+  }): Promise<void> {
+    const entry = this.#assertTypable(input.paneId, "prepare");
+    if (entry.phase !== "fresh")
+      throw new PhaseError("only a fresh pane can be prepared");
+    const environment = input.environment;
+    const home = requireMatch(environment.HOME, NON_EMPTY_SIMPLE_VALUE, "HOME");
+    const pathValue = requireMatch(
+      environment.PATH,
+      NON_EMPTY_SIMPLE_VALUE,
+      "PATH",
+    );
+    const term = requireMatch(environment.TERM, NON_EMPTY_SIMPLE_VALUE, "TERM");
+    for (const [name, value] of Object.entries(environment)) {
+      if (!ENVIRONMENT_KEY.test(name))
+        throw new InvalidArgumentError(
+          `environment name ${name} is not acceptable`,
+        );
+      if (
+        typeof value !== "string" ||
+        !value.isWellFormed() ||
+        CONTROL_CHARACTERS.test(value)
+      )
+        throw new InvalidArgumentError(
+          `environment value for ${name} is not acceptable`,
+        );
+    }
+    await this.#waitForFreshPrompt(input.paneId);
+
+    const directory = fs.mkdtempSync(
+      path.join(this.#tempRoot, "capstan-shell-"),
+    );
+    try {
+      fs.chmodSync(directory, 0o700);
+      const envFile = path.join(directory, "env");
+      const rcFile = path.join(directory, "rc");
+      for (const file of [directory, envFile, rcFile])
+        requireMatch(file, SIMPLE_VALUE, "temporary path");
+      fs.writeFileSync(
+        envFile,
+        `${Object.entries(environment)
+          .map(([name, value]) => `export ${name}=${shellQuote(value)}`)
+          .join("\n")}\n`,
+        { mode: 0o600, flag: "wx" },
+      );
+      fs.writeFileSync(
+        rcFile,
+        `. '${envFile}'\nPS1='❯ '\nrm -rf '${directory}'\n`,
+        { mode: 0o600, flag: "wx" },
+      );
+      this.#panes.set(input.paneId, {
+        ...entry,
+        phase: "prepared",
+        kind: "shell",
+      });
+      try {
+        await this.#runChecked([
+          "pane",
+          "run",
+          input.paneId,
+          `exec env -i HOME='${home}' PATH='${pathValue}' TERM='${term}' bash --noprofile --rcfile '${rcFile}' -i`,
+        ]);
+      } catch (error) {
+        this.#panes.set(input.paneId, { ...entry, phase: "tainted" });
+        throw error;
+      }
+      const deadline = this.#now() + (input.timeoutMs ?? 10_000);
+      while (this.#now() < deadline) {
+        if (!fs.existsSync(directory)) {
+          const input_ = await this.readInput(input.paneId);
+          if (input_ === "") return;
+        }
+        await this.#sleep(this.#pollMs);
+      }
+      this.#panes.set(input.paneId, { ...entry, phase: "tainted" });
+      throw new ShellNotReady(
+        "the prepared shell did not show its prompt in time",
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  writePromptFile(text: string): string {
+    if (!isSafeText(text))
+      throw new InvalidArgumentError("prompt text is not acceptable");
+    this.#promptDirectory ??= fs.mkdtempSync(
+      path.join(this.#tempRoot, "capstan-prompts-"),
+    );
+    fs.chmodSync(this.#promptDirectory, 0o700);
+    const file = path.join(this.#promptDirectory, `${randomUUID()}.md`);
+    fs.writeFileSync(file, text, { mode: 0o600, flag: "wx" });
+    return file;
+  }
+
+  async startAgent(input: {
+    name: string;
+    kind: string;
+    paneId: string;
+    args: readonly string[];
+    timeoutMs?: number;
+    environment?: Readonly<Record<string, string>>;
+  }): Promise<{ status: "started" | "blocked_at_startup" }> {
+    if (input.kind !== "claude")
+      throw new UnsupportedHostError(
+        `agent kind ${input.kind} is not supported yet`,
+      );
+    requireMatch(input.name, NAME_PATTERN, "agent name");
+    for (const other of this.#panes.values())
+      if (other.agent === input.name)
+        throw new InvalidArgumentError(
+          "an agent with this name is already registered",
+        );
+    for (const arg of input.args)
+      if (
+        typeof arg !== "string" ||
+        arg.length === 0 ||
+        !arg.isWellFormed() ||
+        CONTROL_CHARACTERS.test(arg)
+      )
+        throw new InvalidArgumentError(
+          "an agent argument is empty or has control characters",
+        );
+    if (input.timeoutMs !== undefined && !Number.isFinite(input.timeoutMs))
+      throw new InvalidArgumentError(
+        "the start timeout must be a finite number",
+      );
+    const timeoutMs = Math.max(input.timeoutMs ?? 30_000, 5_000);
+    let entry = this.#assertTypable(input.paneId, "start");
+    if (entry.phase === "fresh" && input.environment === undefined)
+      throw new InvalidArgumentError(
+        "a fresh pane needs an environment so its shell starts clean",
+      );
+    if (entry.phase === "fresh" && input.environment !== undefined) {
+      await this.prepareShell({
+        paneId: input.paneId,
+        environment: input.environment,
+      });
+      entry = this.#assertTypable(input.paneId, "start");
+    } else if ((await this.readInput(input.paneId)) !== "") {
+      this.#panes.set(input.paneId, { ...entry, phase: "tainted" });
+      throw new PromptUnrecognized(
+        "the prepared shell does not show an empty prompt",
+      );
+    }
+    try {
+      await runJson(
+        this.#run,
+        [
+          "agent",
+          "start",
+          input.name,
+          "--kind",
+          input.kind,
+          "--pane",
+          input.paneId,
+          "--timeout",
+          String(timeoutMs),
+          "--",
+          ...input.args,
+        ],
+        { timeoutMs: timeoutMs + AGENT_START_MARGIN_MS },
+      );
+    } catch (error) {
+      if (error instanceof HerdrError && error.code === "agent_not_ready") {
+        this.#panes.set(input.paneId, {
+          ...entry,
+          phase: "started",
+          kind: "claude",
+          agent: input.name,
+        });
+        return { status: "blocked_at_startup" };
+      }
+      this.#panes.set(input.paneId, { ...entry, phase: "tainted" });
+      throw error;
+    }
+    this.#panes.set(input.paneId, {
+      ...entry,
+      phase: "started",
+      kind: "claude",
+      agent: input.name,
+    });
+    return { status: "started" };
+  }
+
+  async guardedSend(input: {
+    paneId: string;
+    text: string;
+    beforeSend: () => void | Promise<void>;
+  }): Promise<SendOutcome> {
+    const entry = this.#assertTypable(input.paneId, "send");
+    if (
+      !isSafeText(input.text) ||
+      COMMAND_START.test(input.text) ||
+      Buffer.byteLength(input.text, "utf8") > MAX_TEXT_BYTES
+    )
+      throw new InvalidArgumentError("message text is not acceptable");
+    const agent = entry.agent;
+    if (agent === undefined) throw new PhaseError("the pane has no agent");
+    const first = await this.#stateFor(agent, input.paneId);
+    const busy = deferralFor(first);
+    if (busy !== undefined) return { sent: false, reason: busy };
+    const typed = await this.readInput(input.paneId);
+    if (typed === undefined)
+      return {
+        sent: false,
+        reason: "input_not_empty",
+        detail: "the input line is unreadable",
+      };
+    if (typed !== "") return { sent: false, reason: "input_not_empty" };
+    const second = deferralFor(await this.#stateFor(agent, input.paneId));
+    if (second !== undefined) return { sent: false, reason: second };
+    await input.beforeSend();
+    try {
+      await runJson(this.#run, ["agent", "prompt", agent, input.text]);
+    } catch (error) {
+      throw new SendAfterRecordError(
+        "the message was recorded but Herdr did not accept the prompt",
+        { cause: error },
+      );
+    }
+    return { sent: true };
+  }
+
+  async clearAfterDeferral(input: {
+    paneId: string;
+    deferredForMs: number;
+    maxDeferralMs: number;
+    discard: (text: string) => void | Promise<void>;
+    log: KeyLogger;
+  }): Promise<{ cleared: boolean; text: string }> {
+    if (
+      !Number.isFinite(input.deferredForMs) ||
+      !Number.isFinite(input.maxDeferralMs) ||
+      input.deferredForMs < 0 ||
+      input.maxDeferralMs <= 0
+    )
+      throw new InvalidArgumentError(
+        "the deferral times must be finite, and the maximum must be positive",
+      );
+    if (input.deferredForMs < input.maxDeferralMs)
+      throw new DeferralNotElapsed("the maximum deferral has not elapsed");
+    const entry = this.#assertTypable(input.paneId, "clear");
+    if (entry.agent === undefined)
+      throw new PhaseError("the pane has no agent");
+    const status = await this.#stateFor(entry.agent, input.paneId);
+    if (deferralFor(status) !== undefined)
+      throw new NotIdle("only an idle agent's input line is cleared");
+    const text = await this.readInput(input.paneId);
+    if (text === undefined)
+      throw new InputUnreadable(
+        "the input line cannot be read, so its text cannot be logged",
+      );
+    if (text === "") return { cleared: false, text: "" };
+    await input.discard(text);
+    let known = text;
+    for (let round = 0; round < MAX_CLEAR_ROUNDS; round += 1) {
+      if (round > 0) {
+        const again = await this.#stateFor(entry.agent, input.paneId);
+        if (deferralFor(again) !== undefined)
+          throw new NotIdle("the agent stopped being idle during the clear");
+      }
+      await this.#sendKey(
+        input.paneId,
+        "ctrl+u",
+        "clear the input line after the maximum deferral",
+        input.log,
+      );
+      const remaining = await this.readInput(input.paneId);
+      if (remaining === "") return { cleared: true, text };
+      if (remaining === undefined)
+        throw new InputUnreadable(
+          "the input line cannot be read after a clear key",
+        );
+      if (!known.includes(remaining)) {
+        known += `\n${remaining}`;
+        await input.discard(remaining);
+      }
+    }
+    throw new ClearFailed(
+      `the input line is not empty after ${MAX_CLEAR_ROUNDS} rounds`,
+    );
+  }
+
+  async answerTrustDialog(input: {
+    paneId: string;
+    log: KeyLogger;
+    timeoutMs?: number;
+  }): Promise<DialogOutcome> {
+    const entry = this.#assertTypable(input.paneId, "dialog");
+    if (entry.agent === undefined || entry.worktreePath === undefined)
+      throw new PhaseError(
+        "only a worktree pane the adapter created has a dialog it may answer",
+      );
+    const state = await this.agentState(entry.agent);
+    if (state.paneId !== input.paneId || state.status !== "blocked")
+      throw new NotBlocked("the agent is not blocked at its own pane");
+    const check = async (): Promise<
+      | { ok: true; selected: number; target: number }
+      | { ok: false; reason: string }
+    > => {
+      const dialog = parseTrustDialog(await this.readScreen(input.paneId));
+      if (dialog === undefined) return { ok: false, reason: "no_dialog" };
+      if (dialog.kind === "wrapped_path")
+        return { ok: false, reason: "wrapped_path" };
+      if (!dialog.confirmIsLastLine)
+        return { ok: false, reason: "dialog_not_last" };
+      if (!this.#samePath(dialog.path, entry.worktreePath!))
+        return { ok: false, reason: "path_mismatch" };
+      const texts = dialog.options.map((option) => option.text);
+      if (
+        texts.length !== 2 ||
+        !texts.includes(TRUST_YES) ||
+        !texts.includes(TRUST_NO) ||
+        dialog.selectedIndex === undefined
+      )
+        return { ok: false, reason: "unknown_options" };
+      return {
+        ok: true,
+        selected: dialog.selectedIndex,
+        target: texts.indexOf(TRUST_YES),
+      };
+    };
+    const first = await check();
+    if (!first.ok) return { handled: false, reason: first.reason };
+    const keys: string[] = [];
+    const steps = first.target - first.selected;
+    for (let step = 0; step < Math.abs(steps); step += 1) {
+      const key = steps > 0 ? "down" : "up";
+      await this.#sendKey(
+        input.paneId,
+        key,
+        "move the trust dialog selection to the trusted option",
+        input.log,
+      );
+      keys.push(key);
+    }
+    const second = await check();
+    if (!second.ok) return { handled: false, reason: second.reason };
+    if (second.selected !== second.target)
+      return { handled: false, reason: "selection_not_reached" };
+    await this.#sendKey(
+      input.paneId,
+      "enter",
+      "confirm the trusted option",
+      input.log,
+    );
+    keys.push("enter");
+    const deadline = this.#now() + (input.timeoutMs ?? 10_000);
+    while (this.#now() < deadline) {
+      if (parseTrustDialog(await this.readScreen(input.paneId)) === undefined)
+        return { handled: true, keys };
+      await this.#sleep(this.#pollMs);
+    }
+    throw new DialogStillOpen(
+      "the trust dialog is still open after the answer",
+    );
+  }
+
+  /** For commands that print nothing on success: a non-zero exit or a JSON error is a failure. */
+  async #runChecked(args: readonly string[]): Promise<void> {
+    const outcome = await this.#run(args);
+    if (outcome.code !== 0) throw failureOf(args, outcome);
+  }
+
+  #record(value: unknown, label: string): Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      throw new HerdrError("bad_output", `herdr did not report ${label}`);
+    return value as Record<string, unknown>;
+  }
+
+  #samePath(shown: string, expected: string): boolean {
+    try {
+      const normalize = (value: string): string =>
+        fs.realpathSync(value.length > 1 ? value.replace(/\/+$/, "") : value);
+      return normalize(shown) === normalize(expected);
+    } catch {
+      return false;
+    }
+  }
+
+  async #stateFor(agent: string, paneId: string): Promise<string> {
+    const state = await this.agentState(agent);
+    if (state.paneId !== paneId)
+      throw new AgentPaneMismatch(
+        "the agent name no longer points at the registered pane",
+      );
+    return state.status;
+  }
+
+  async #sendKey(
+    paneId: string,
+    key: string,
+    reason: string,
+    log: KeyLogger,
+  ): Promise<void> {
+    await log({ kind: "key", pane: paneId, key, reason });
+    await this.#runChecked(["pane", "send-keys", paneId, key]);
+  }
+
+  async #waitForFreshPrompt(paneId: string): Promise<void> {
+    const deadline = this.#now() + 3_000;
+    do {
+      if (freshPromptReady(stripAnsi(await this.readScreen(paneId)))) return;
+      await this.#sleep(this.#pollMs);
+    } while (this.#now() < deadline);
+    throw new PromptUnrecognized(
+      "the pane does not end in a bare prompt symbol, so nothing was typed",
+    );
+  }
+
+  #assertTypable(
+    paneId: string,
+    action: "prepare" | "start" | "send" | "clear" | "dialog",
+  ): PaneEntry {
+    const entry = this.#panes.get(paneId);
+    if (entry === undefined)
+      throw new UnknownPaneError("the pane was not created by this adapter");
+    if (entry.phase === "tainted")
+      throw new PhaseError("the pane is tainted and must be closed");
+    const launching = action === "prepare" || action === "start";
+    if (entry.role === "PM" && (entry.phase === "started" || !launching))
+      throw new PmPaneError(
+        "the PM pane accepts only the controller's launch sequence",
+      );
+    if (launching) {
+      if (entry.phase === "started")
+        throw new PhaseError("the agent is already started");
+      if (action === "prepare" && entry.phase !== "fresh")
+        throw new PhaseError("the pane is already prepared");
+    } else if (entry.phase !== "started") {
+      throw new PhaseError("the pane has no started agent");
+    }
+    return entry;
+  }
+}

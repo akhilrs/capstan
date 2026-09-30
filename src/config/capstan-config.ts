@@ -310,7 +310,11 @@ function resolveRoles(
     if (!host)
       throw new ConfigError(`${at}.host does not name a configured host`);
     const model = optionalString(role.model, `${at}.model`, 100);
-    if (model !== null) guardCredentialShape(model, `${at}.model`);
+    if (model !== null) {
+      guardCredentialShape(model, `${at}.model`);
+      if (model.startsWith("-"))
+        throw new ConfigError(`${at}.model must not start with a dash`);
+    }
     const permissionMode =
       role.permission_mode === undefined
         ? "default"
@@ -535,6 +539,8 @@ function stringList(value: unknown, at: string): string[] {
   return value.map((entry, index) => {
     const text = requiredString(entry, `${at}[${index}]`, MAX_ENTRY_CHARS);
     guardCredentialShape(text, `${at}[${index}]`);
+    if (text.startsWith("-"))
+      throw new ConfigError(`${at}[${index}] must not start with a dash`);
     return text;
   });
 }
