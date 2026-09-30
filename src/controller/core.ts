@@ -84,6 +84,8 @@ const ROLE_KINDS: readonly string[] = [
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 function safeId(value: unknown, label: string): string {
@@ -100,9 +102,9 @@ function safeText(
 ): string {
   if (
     typeof value !== "string" ||
-    value.replace(/[\u200c\u200d]/g, "").trim().length === 0
+    !VISIBLE_TEXT.test(value.replace(BLANK_FILLERS, ""))
   )
-    throw new TypeError(`${label} must be a non-empty string`);
+    throw new TypeError(`${label} must contain visible text`);
   if (!value.isWellFormed())
     throw new TypeError(`${label} must be well-formed UTF-16`);
   if (value.length > maxChars)
@@ -211,6 +213,7 @@ interface MessageRow {
   readonly queued_at: string;
   readonly deferred_at: string | null;
   readonly deferred_reason: DeferralReason | null;
+  readonly deferral_count: number;
   readonly sent_at: string | null;
   readonly acked_at: string | null;
   readonly send_attempts: number;
@@ -1651,8 +1654,8 @@ export class ControllerCore {
         this.#database
           .prepare(
             `INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
-              body, body_hash, state, state_version, queued_at, send_attempts, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, ?, ?)`,
+              body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?)`,
           )
           .run(
             this.#projectId,
@@ -1848,7 +1851,11 @@ export class ControllerCore {
             ? this.#updateMessage(
                 row!,
                 "deferred",
-                { deferred_at: now, deferred_reason: reason },
+                {
+                  deferred_at: now,
+                  deferred_reason: reason,
+                  deferral_count: row!.deferral_count + 1,
+                },
                 now,
               )
             : this.#updateMessage(
@@ -1880,10 +1887,11 @@ export class ControllerCore {
     safeId(messageId, "message id");
     if (
       typeof text !== "string" ||
+      !text.isWellFormed() ||
       Buffer.byteLength(text, "utf8") > MAX_INPUT_CLEAR_BYTES
     )
       throw new TypeError(
-        `input text must be at most ${MAX_INPUT_CLEAR_BYTES} bytes`,
+        `input text must be well-formed and at most ${MAX_INPUT_CLEAR_BYTES} bytes`,
       );
     const textHash = sha256(text);
     return this.#messageMutation(
@@ -1907,12 +1915,13 @@ export class ControllerCore {
         const clearId = randomUUID();
         this.#database
           .prepare(
-            "INSERT INTO message_input_clears(project_id, clear_id, message_id, text, text_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO message_input_clears(project_id, clear_id, message_id, deferral_count, text, text_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
           )
           .run(
             this.#projectId,
             clearId,
             messageId,
+            row.deferral_count,
             text,
             textHash,
             this.#now(),
@@ -2349,7 +2358,7 @@ export class ControllerCore {
     const messages: MessageFacts[] = (
       this.#database
         .prepare(
-          `SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id) AS input_clear_recorded
+          `SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id AND c.deferral_count = m.deferral_count) AS input_clear_recorded
            FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
            WHERE m.project_id = ? AND a.state = 'active' AND m.state NOT IN ('acked', 'acked_late', 'cancelled')
            ORDER BY m.sequence`,

@@ -1061,6 +1061,56 @@ test("a worker deferred on a non-empty input line logs the text, clears after th
   }
 });
 
+test("an input clear belongs to one deferral cycle: a retry that defers again is notified again", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const message = send(w, developer, "type ahead");
+    core.recordDeferral(w.ctx(), message, "input_not_empty");
+    w.advance(120);
+    assert.equal(
+      (
+        core.advanceMessaging(w.ctx(), timers).actions[0] as {
+          notifyOperator: boolean;
+        }
+      ).notifyOperator,
+      true,
+    );
+    core.recordInputClear(w.ctx(), message, "first text");
+    assert.equal(
+      (
+        core.advanceMessaging(w.ctx(), timers).actions[0] as {
+          notifyOperator: boolean;
+        }
+      ).notifyOperator,
+      false,
+    );
+    core.resolveMessage(w.ctx(), message, "retry");
+    core.recordDeferral(w.ctx(), message, "input_not_empty");
+    assert.equal(core.message(message)!.stateVersion > 0, true);
+    w.advance(120);
+    const again = core.advanceMessaging(w.ctx(), timers).actions[0] as {
+      notifyOperator: boolean;
+    };
+    assert.equal(again.notifyOperator, true);
+    core.recordInputClear(w.ctx(), message, "second text");
+    assert.equal(
+      (
+        core.advanceMessaging(w.ctx(), timers).actions[0] as {
+          notifyOperator: boolean;
+        }
+      ).notifyOperator,
+      false,
+    );
+    assert.throws(
+      () => core.recordInputClear(w.ctx(), message, "bad \ud800 text"),
+      TypeError,
+    );
+  } finally {
+    close(w);
+  }
+});
+
 test("a changed deferral reason is a note, not a transition", async () => {
   const w = await world();
   try {
@@ -1133,6 +1183,11 @@ test("enqueue validates the body and needs the send capability; audit payloads n
       "a\u0085b",
       "a\u2028b",
       "\u200d\u200c",
+      "\ufe0f",
+      "\u3164",
+      "\u115f\u1160",
+      "\u2800",
+      "\u0301",
       "a\ud800b",
       "a\u{e0041}b",
       "x".repeat(16 * 1024 + 1),
