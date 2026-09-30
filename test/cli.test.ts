@@ -2332,9 +2332,17 @@ test("the message commands work end to end through the executable: send, inbox, 
     );
     assert.equal(workerToWorker.status, 4);
     assert.match(workerToWorker.stderr, /self_send/);
-    const status = invoke(cwd, "status", "--watch", "--interval", "0");
-    assert.equal(status.status, 3);
-    assert.match(status.stderr, /--interval must be an integer from 1 to 60/);
+    for (const bad of ["0", "61", " 5", "1e1", "0x3", "5.0", "-1", "05"]) {
+      const status = invoke(cwd, "status", "--watch", "--interval", bad);
+      assert.equal(status.status, 3, JSON.stringify(bad));
+      assert.match(status.stderr, /--interval must be an integer from 1 to 60/);
+    }
+    const literal = invoke(cwd, "status", "--", "--watch");
+    assert.equal(
+      literal.status,
+      2,
+      "a --watch after -- is not the watch option",
+    );
   } finally {
     killDaemon(cwd);
     rmSync(cwd, { recursive: true, force: true });

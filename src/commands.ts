@@ -26,6 +26,8 @@ import { newContext } from "./context.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
+const VALIDATION_MESSAGE = /\bmust\b|^unknown\b|\binvalid\b/;
+const FRAME_LOOKALIKE = /^(?:\[capstan message |Acknowledge with: cstan ack )/m;
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
@@ -103,10 +105,14 @@ export function mapError(error: unknown): CommandResponse {
     return fail("rejected", `${error.code}: ${error.message}`);
   if (error instanceof MutationConflictError)
     return fail("conflict", error.message);
-  if (error instanceof TypeError)
+  // The core's validators throw TypeErrors whose messages say what the input
+  // must be; any other TypeError is a bug and is not shown to the client.
+  if (error instanceof TypeError && VALIDATION_MESSAGE.test(error.message))
     return fail(
       "invalid_request",
-      error.message.replace(/[\p{Cc}\p{Cf}]/gu, " ").slice(0, 200),
+      Array.from(error.message.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " "))
+        .slice(0, 200)
+        .join(""),
     );
   return fail("error", "the command failed");
 }
@@ -225,6 +231,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         if (call.args.length !== 2)
           return fail("invalid_request", "send needs a recipient and a text");
         const [target, body] = call.args as [string, string];
+        if (FRAME_LOOKALIKE.test(body))
+          return fail(
+            "invalid_request",
+            "a message body must not contain a line that looks like a Capstan message frame",
+          );
         if (target !== "@pm" && !SAFE_AGENT_ID.test(target))
           return fail("invalid_request", "the recipient id is not valid");
         if (Buffer.byteLength(body, "utf8") > MAX_SEND_BODY_BYTES)

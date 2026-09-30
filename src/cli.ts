@@ -753,7 +753,10 @@ function renderMessages(result: unknown): string {
     timedOut?: boolean;
   };
   const messages = value.messages ?? [];
-  if (messages.length === 0) return "no messages";
+  if (messages.length === 0)
+    return value.timedOut === true
+      ? "no messages (the wait timed out)"
+      : "no messages";
   return messages
     .map(
       (m) =>
@@ -5481,7 +5484,10 @@ async function runCli(argv: string[]): Promise<number> {
     output({ schemaVersion: 1, ...objectRecord(result) }, parsed.json);
     return EXIT.ok;
   }
-  if (command === "status" && rest.includes("--watch")) {
+  const beforeSeparator = rest.includes("--")
+    ? rest.slice(0, rest.indexOf("--"))
+    : rest;
+  if (command === "status" && beforeSeparator.includes("--watch")) {
     const flags = [...rest];
     flags.splice(flags.indexOf("--watch"), 1);
     let intervalSeconds = 2;
@@ -5491,8 +5497,7 @@ async function runCli(argv: string[]): Promise<number> {
       intervalSeconds = Number(value);
       if (
         value === undefined ||
-        !Number.isInteger(intervalSeconds) ||
-        intervalSeconds < 1 ||
+        !/^[1-9][0-9]?$/.test(value) ||
         intervalSeconds > 60
       )
         throw new InvalidInputError(
