@@ -82,8 +82,8 @@ const ROLE_KINDS: readonly string[] = [
   "Verifier",
   "Supervisor",
 ];
-const MAX_MESSAGE_BYTES = 16 * 1024;
-const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
+export const MAX_MESSAGE_BYTES = 16 * 1024;
+export const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
@@ -1725,6 +1725,91 @@ export class ControllerCore {
     this.#assertOpen();
     safeId(agentId, "agent id");
     return this.#messageRowsFor(agentId).map(messageRecord);
+  }
+
+  /** Unresolved messages of every agent, oldest first by sequence; the operator's overview. */
+  unresolvedMessages(
+    credential: string,
+    limit: number,
+  ): {
+    readonly messages: readonly MessageRecord[];
+    readonly truncated: boolean;
+  } {
+    this.#authorize(credential, "controller:reconcile");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000)
+      throw new TypeError("limit must be an integer from 1 to 1000");
+    const rows = this.#database
+      .prepare(
+        "SELECT * FROM messages WHERE project_id = ? AND state NOT IN ('acked', 'acked_late', 'cancelled') ORDER BY sequence LIMIT ?",
+      )
+      .all(this.#projectId, limit + 1) as MessageRow[];
+    return {
+      messages: rows.slice(0, limit).map(messageRecord),
+      truncated: rows.length > limit,
+    };
+  }
+
+  /** The newest input clears, without their text. */
+  inputClears(
+    credential: string,
+    limit: number,
+  ): readonly {
+    readonly clearId: string;
+    readonly messageId: string;
+    readonly recordedAt: string;
+  }[] {
+    this.#authorize(credential, "controller:reconcile");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000)
+      throw new TypeError("limit must be an integer from 1 to 1000");
+    return (
+      this.#database
+        .prepare(
+          "SELECT clear_id, message_id, created_at FROM message_input_clears WHERE project_id = ? ORDER BY created_at DESC, clear_id LIMIT ?",
+        )
+        .all(this.#projectId, limit) as Array<{
+        clear_id: string;
+        message_id: string;
+        created_at: string;
+      }>
+    ).map((row) => ({
+      clearId: row.clear_id,
+      messageId: row.message_id,
+      recordedAt: row.created_at,
+    }));
+  }
+
+  /** Wait rows that are still open; only a controller may list them. */
+  openWaits(
+    credential: string,
+  ): readonly { readonly waitId: string; readonly agentId: string }[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT wait_id, agent_id FROM agent_waits WHERE project_id = ? AND ended_at IS NULL ORDER BY started_at, wait_id",
+        )
+        .all(this.#projectId) as Array<{ wait_id: string; agent_id: string }>
+    ).map((row) => ({ waitId: row.wait_id, agentId: row.agent_id }));
+  }
+
+  /** Who an actor is, for showing a message's sender; an actor of an earlier generation has no agent id. */
+  senderOf(actorId: string): {
+    readonly role: string;
+    readonly agentId: string | null;
+  } {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT a.role AS kind, g.agent_id AS agent_id, g.role_name AS role_name
+         FROM actors a LEFT JOIN agents g ON g.project_id = a.project_id AND g.actor_id = a.actor_id
+         WHERE a.project_id = ? AND a.actor_id = ?`,
+      )
+      .get(this.#projectId, actorId) as
+      | { kind: string; agent_id: string | null; role_name: string | null }
+      | undefined;
+    if (row === undefined) return { role: "unknown", agentId: null };
+    if (row.kind === "operator") return { role: "operator", agentId: null };
+    return { role: row.role_name ?? row.kind, agentId: row.agent_id };
   }
 
   messageRejections(): readonly MessageRejectionRecord[] {

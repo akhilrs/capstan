@@ -4,6 +4,9 @@ import { parse as parseToml, TomlError } from "smol-toml";
 import { digestJson, sha256 } from "../controller/canonical.js";
 
 export const CONFIG_FILE_NAME = "capstan.toml";
+export const DEFAULT_WAIT_TIMEOUT_SECONDS = 90;
+export const MAX_WAIT_TIMEOUT_SECONDS = 3600;
+export const DEFAULT_HERDR_SESSION = "default";
 
 export const STARTER_CONFIG = `schema_version = 1
 
@@ -78,9 +81,16 @@ export type ResolvedRole = {
   readonly configHash: string;
 };
 
+export type ResolvedNotifications = {
+  readonly herdr: boolean;
+  readonly fallback: boolean;
+};
+
 export type CapstanConfig = {
   readonly schemaVersion: 1;
   readonly projectName: string | null;
+  readonly herdrSession: string;
+  readonly notifications: ResolvedNotifications;
   readonly timers: ResolvedTimers;
   readonly hosts: readonly ResolvedHost[];
   readonly roles: readonly ResolvedRole[];
@@ -91,6 +101,7 @@ const MAX_PROMPT_CHARS = MAX_FILE_BYTES;
 const MAX_LIST_ENTRIES = 64;
 const MAX_ENTRY_CHARS = 200;
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+const SESSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const COMMAND_PATTERN = /^(?:\.\/)?[A-Za-z0-9_/][A-Za-z0-9._/-]{0,199}$/;
 const UNSAFE_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const CREDENTIAL_SHAPES: readonly RegExp[] = [
@@ -183,7 +194,15 @@ export function parseCapstanConfig(
 
   rejectUnknownKeys(
     root,
-    ["schema_version", "project", "timers", "hosts", "roles"],
+    [
+      "schema_version",
+      "project",
+      "herdr_session",
+      "notifications",
+      "timers",
+      "hosts",
+      "roles",
+    ],
     "top level",
   );
   if (root.schema_version !== 1n)
@@ -193,6 +212,31 @@ export function parseCapstanConfig(
   rejectUnknownKeys(project, ["name"], "project");
   const projectName = optionalString(project.name, "project.name", 256);
   if (projectName !== null) guardCredentialShape(projectName, "project.name");
+
+  const herdrSession =
+    optionalString(root.herdr_session, "herdr_session", 64) ??
+    DEFAULT_HERDR_SESSION;
+  if (!SESSION_PATTERN.test(herdrSession))
+    throw new ConfigError(`herdr_session must match ${SESSION_PATTERN.source}`);
+
+  const notificationTable = optionalTable(root.notifications, "notifications");
+  rejectUnknownKeys(notificationTable, ["herdr", "fallback"], "notifications");
+  const notifications: ResolvedNotifications = {
+    herdr: optionalBoolean(
+      notificationTable.herdr,
+      "notifications.herdr",
+      true,
+    ),
+    fallback: optionalBoolean(
+      notificationTable.fallback,
+      "notifications.fallback",
+      true,
+    ),
+  };
+  if (!notifications.herdr && !notifications.fallback)
+    throw new ConfigError(
+      "notifications.herdr and notifications.fallback must not both be false",
+    );
 
   const timerTable = optionalTable(root.timers, "timers");
   rejectUnknownKeys(timerTable, Object.keys(TIMER_DEFAULTS), "timers");
@@ -225,7 +269,15 @@ export function parseCapstanConfig(
   if (roles.filter((role) => role.kind === "PM").length !== 1)
     throw new ConfigError("exactly one role must have kind PM");
 
-  return { schemaVersion: 1, projectName, timers, hosts, roles };
+  return {
+    schemaVersion: 1,
+    projectName,
+    herdrSession,
+    notifications,
+    timers,
+    hosts,
+    roles,
+  };
 }
 
 function resolveHosts(table: Table): ResolvedHost[] {
@@ -261,8 +313,8 @@ function resolveHosts(table: Table): ResolvedHost[] {
       host.wait_timeout_seconds,
       `${at}.wait_timeout_seconds`,
       1,
-      3600,
-      90,
+      MAX_WAIT_TIMEOUT_SECONDS,
+      DEFAULT_WAIT_TIMEOUT_SECONDS,
     );
     if (waitTimeoutSeconds >= shellCommandTimeoutSeconds)
       throw new ConfigError(
@@ -503,6 +555,17 @@ function optionalString(
   maxChars: number,
 ): string | null {
   return value === undefined ? null : requiredString(value, at, maxChars);
+}
+
+function optionalBoolean(
+  value: unknown,
+  at: string,
+  fallback: boolean,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean")
+    throw new ConfigError(`${at} must be true or false`);
+  return value;
 }
 
 function optionalInteger(

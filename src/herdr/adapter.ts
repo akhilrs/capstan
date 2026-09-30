@@ -9,7 +9,11 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ResolvedRole } from "../config/capstan-config.js";
-import type { DeferralReason } from "../controller/messaging.js";
+import {
+  HERDR_STATES,
+  type DeferralReason,
+  type HerdrState,
+} from "../controller/messaging.js";
 import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
 import {
   TRUST_NO,
@@ -114,8 +118,25 @@ export interface AdapterOptions {
 
 const MAX_CLEAR_ROUNDS = 5;
 const AGENT_START_MARGIN_MS = 10_000;
-const MAX_TEXT_BYTES = 16 * 1024;
+export const MAX_TEXT_BYTES = 16 * 1024;
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const MAX_NOTIFICATION_TITLE_CHARS = 100;
+const MAX_NOTIFICATION_BODY_CHARS = 500;
+
+/** True for a name Herdr and this adapter accept for an agent. */
+export function isAgentName(value: unknown): value is string {
+  return typeof value === "string" && NAME_PATTERN.test(value);
+}
+
+/** The `detail` a deferral carries when the input line could not be read. */
+export const INPUT_UNREADABLE_DETAIL = "the input line is unreadable";
+
+/** Maps a Herdr agent status to a state the ledger accepts; anything unrecognized is `unknown`. */
+export function herdrStateOf(status: string): HerdrState {
+  return (HERDR_STATES as readonly string[]).includes(status)
+    ? (status as HerdrState)
+    : "unknown";
+}
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
@@ -376,6 +397,53 @@ export class HerdrAdapter {
     requireMatch(paneId, PANE_PATTERN, "pane id");
     await this.#runChecked(["pane", "close", paneId]);
     this.#panes.delete(paneId);
+  }
+
+  /** The pane the adapter registered for an agent, if any. */
+  paneForAgent(agentId: string): string | undefined {
+    for (const [paneId, entry] of this.#panes)
+      if (entry.agent === agentId) return paneId;
+    return undefined;
+  }
+
+  /** The mapped Herdr state of an agent on its registered pane; throws when Herdr shows it elsewhere. */
+  async agentObservation(agentId: string): Promise<HerdrState> {
+    const paneId = this.paneForAgent(agentId);
+    if (paneId === undefined)
+      throw new UnknownPaneError("no pane is registered for this agent");
+    return herdrStateOf(await this.#stateFor(agentId, paneId));
+  }
+
+  /** Shows a notification in Herdr; the text is checked like any text that reaches the operator's screen. */
+  async notify(title: string, body: string): Promise<void> {
+    for (const [value, label, max] of [
+      [title, "notification title", MAX_NOTIFICATION_TITLE_CHARS],
+      [body, "notification body", MAX_NOTIFICATION_BODY_CHARS],
+    ] as const)
+      if (
+        typeof value !== "string" ||
+        value.trim() === "" ||
+        value.length > max ||
+        !value.isWellFormed() ||
+        UNSAFE_TEXT.test(value)
+      )
+        throw new InvalidArgumentError(`${label} is not acceptable`);
+    const result = await runJson(this.#run, [
+      "notification",
+      "show",
+      title,
+      "--body",
+      body,
+      "--sound",
+      "request",
+    ]);
+    // Herdr answers exit 0 with shown:false when notifications are off, so an
+    // accepted command alone does not mean the operator saw anything.
+    if (result.shown !== true)
+      throw new HerdrError(
+        "notification_not_shown",
+        `Herdr did not show the notification${typeof result.reason === "string" ? `: ${result.reason.replace(/[^A-Za-z0-9 _-]/g, "").slice(0, 60)}` : ""}`,
+      );
   }
 
   async paneState(paneId: string): Promise<{ status: string; agent?: string }> {
@@ -639,7 +707,7 @@ export class HerdrAdapter {
       return {
         sent: false,
         reason: "input_not_empty",
-        detail: "the input line is unreadable",
+        detail: INPUT_UNREADABLE_DETAIL,
       };
     if (typed !== "") return { sent: false, reason: "input_not_empty" };
     const second = deferralFor(await this.#stateFor(agent, input.paneId));

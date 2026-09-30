@@ -54,9 +54,14 @@ import {
   runDaemon,
 } from "./daemon.js";
 import { ControllerOwnershipError } from "./controller/ownership.js";
+import { HerdrAdapter } from "./herdr/adapter.js";
+import { createHerdrRunner } from "./herdr/runner.js";
+import { createNotifier } from "./notifier.js";
+import { watchStatus } from "./watch.js";
 import {
   CONFIG_FILE_NAME,
   ConfigError,
+  MAX_WAIT_TIMEOUT_SECONDS,
   STARTER_CONFIG,
   loadCapstanConfig,
   type CapstanConfig,
@@ -734,14 +739,42 @@ function controllerUnavailable(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function handleWire(result: WireResult, json: boolean): number {
+const WAIT_CLIENT_TIMEOUT_MS = (MAX_WAIT_TIMEOUT_SECONDS + 30) * 1000;
+
+function renderMessages(result: unknown): string {
+  const value = result as {
+    messages?: Array<{
+      messageId: string;
+      state: string;
+      from: string;
+      fromAgentId: string;
+      body: string;
+    }>;
+    timedOut?: boolean;
+  };
+  const messages = value.messages ?? [];
+  if (messages.length === 0) return "no messages";
+  return messages
+    .map(
+      (m) =>
+        `message ${m.messageId} [${m.state}] from ${m.from}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId})`}\n${m.body}`,
+    )
+    .join("\n\n");
+}
+
+function handleWire(result: WireResult, json: boolean, command = ""): number {
   if (result.kind === "legacy")
     throw new BlockedError(
       "a foreground cstan run controller owns this project; the daemon commands are unavailable",
     );
   const response = result.response;
   if (response.ok) {
-    output(response.result, json);
+    if (!json && (command === "inbox" || command === "wait"))
+      process.stdout.write(`${renderMessages(response.result)}\n`);
+    else output(response.result, json);
+    const warning = (response.result as { warning?: unknown } | null)?.warning;
+    if (typeof warning === "string")
+      process.stderr.write(`warning: ${warning}\n`);
     return EXIT.ok;
   }
   if (response.code === "invalid_request")
@@ -760,9 +793,12 @@ async function runRouted(
   if (args.some((value) => value.length === 0))
     throw new InvalidInputError("command arguments must not be empty");
   const agent = route.access === "operator" ? undefined : agentEnvironment();
+  const useAgent =
+    route.access === "agent" ||
+    ((route.access === "read" || route.access === "any") && agent);
   let socketPath: string;
   let credential: string;
-  if (route.access === "agent" || (route.access === "read" && agent)) {
+  if (useAgent) {
     if (!agent)
       throw new InvalidInputError(
         "this command must be run by an agent (CAPSTAN_TOKEN and CAPSTAN_SOCKET are not set)",
@@ -775,8 +811,15 @@ async function runRouted(
   }
   try {
     return handleWire(
-      await callDaemon(socketPath, credential, command, args),
+      await callDaemon(
+        socketPath,
+        credential,
+        command,
+        args,
+        command === "wait" ? WAIT_CLIENT_TIMEOUT_MS : undefined,
+      ),
       json,
+      command,
     );
   } catch (error) {
     const code =
@@ -793,7 +836,7 @@ async function runRouted(
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan pm restart",
   );
 }
 
@@ -931,6 +974,27 @@ async function runCli(argv: string[]): Promise<number> {
     if (rest.length !== 0) usage();
     const { config, credential } = loadOperator(cwd);
     const stamp = (): string => new Date().toISOString();
+    const capstan = fs.existsSync(path.join(cwd, CONFIG_FILE_NAME))
+      ? loadRoleConfig(cwd)
+      : undefined;
+    const adapter =
+      capstan === undefined
+        ? undefined
+        : new HerdrAdapter({
+            run: createHerdrRunner({ session: capstan.herdrSession }),
+          });
+    const notifier =
+      capstan === undefined || adapter === undefined
+        ? undefined
+        : createNotifier({
+            adapter,
+            channels: capstan.notifications,
+            recordPath: path.join(config.stateDirectory, "notifications.jsonl"),
+            log: (event, detail) =>
+              process.stdout.write(
+                `${JSON.stringify({ ts: stamp(), command: `notifier:${event}`, detail })}\n`,
+              ),
+          });
     try {
       await runDaemon({
         stateDirectory: config.stateDirectory,
@@ -944,11 +1008,16 @@ async function runCli(argv: string[]): Promise<number> {
           process.stdout.write(
             `${JSON.stringify({ ts: stamp(), ...event })}\n`,
           ),
+        ...(capstan === undefined ? {} : { capstan }),
+        ...(adapter === undefined ? {} : { adapter }),
+        ...(notifier === undefined ? {} : { notifier }),
       });
     } catch (error) {
       if (error instanceof ControllerOwnershipError)
         throw new BlockedError(error.message);
       throw error;
+    } finally {
+      adapter?.close();
     }
     return EXIT.ok;
   }
@@ -5410,6 +5479,44 @@ async function runCli(argv: string[]): Promise<number> {
       throw error;
     }
     output({ schemaVersion: 1, ...objectRecord(result) }, parsed.json);
+    return EXIT.ok;
+  }
+  if (command === "status" && rest.includes("--watch")) {
+    const flags = [...rest];
+    flags.splice(flags.indexOf("--watch"), 1);
+    let intervalSeconds = 2;
+    const at = flags.indexOf("--interval");
+    if (at >= 0) {
+      const value = flags[at + 1];
+      intervalSeconds = Number(value);
+      if (
+        value === undefined ||
+        !Number.isInteger(intervalSeconds) ||
+        intervalSeconds < 1 ||
+        intervalSeconds > 60
+      )
+        throw new InvalidInputError(
+          "--interval must be an integer from 1 to 60",
+        );
+      flags.splice(at, 2);
+    }
+    if (flags.length !== 0) usage();
+    const operator = await ensureRunning(cwd);
+    await watchStatus({
+      intervalMs: intervalSeconds * 1000,
+      fetch: async () => {
+        const result = await callDaemon(
+          operator.socketPath,
+          operator.credential,
+          "status",
+        );
+        if (result.kind !== "response" || !result.response.ok)
+          throw new Error("status is unavailable");
+        return result.response.result as Record<string, unknown>;
+      },
+      write: (text) => void process.stdout.write(text),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
     return EXIT.ok;
   }
   if (command === "status" && agentEnvironment()) {

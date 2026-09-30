@@ -2168,17 +2168,17 @@ test("agent mode uses the token and the socket from the environment, operator mo
     );
     assert.ok(!status.stdout.includes(actor.credential));
     const inbox = invokeWithEnv(elsewhere, agentEnv, "inbox");
-    assert.equal(inbox.status, 4);
-    assert.match(inbox.stderr, /not_implemented/);
+    assert.equal(inbox.status, 0, inbox.stderr);
+    assert.equal(inbox.stdout.trim(), "no messages");
     assert.equal(invokeWithEnv(elsewhere, agentEnv, "ping").status, 0);
 
-    const noProject = invokeWithEnv(elsewhere, agentEnv, "send", "hello");
+    const noProject = invokeWithEnv(elsewhere, agentEnv, "assign", "hello");
     assert.equal(noProject.status, 3);
     assert.match(
       noProject.stderr,
       /operator commands need the operator credential/,
     );
-    const fromProject = invokeWithEnv(cwd, agentEnv, "send", "hello");
+    const fromProject = invokeWithEnv(cwd, agentEnv, "assign", "hello");
     assert.equal(fromProject.status, 4);
     assert.match(
       fromProject.stderr,
@@ -2187,9 +2187,154 @@ test("agent mode uses the token and the socket from the environment, operator mo
     );
     assert.ok(!fromProject.stderr.includes("forbidden"));
 
-    const operatorAgentCommand = invoke(cwd, "inbox");
+    const operatorAgentCommand = invoke(cwd, "ack", "message-1");
     assert.equal(operatorAgentCommand.status, 3);
     assert.match(operatorAgentCommand.stderr, /must be run by an agent/);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("the message commands work end to end through the executable: send, inbox, wait, ack, resolve and cancel", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-messages-"));
+  const elsewhere = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-away-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const core = await openInitializedCore(cwd);
+    const owner = readFileSync(
+      path.join(cwd, ".capstan/operator.key"),
+      "utf8",
+    ).trim();
+    const context = (): MutationContext => ({
+      credential: owner,
+      requestId: `req-${randomUUID()}`,
+      idempotencyKey: `idem-${randomUUID()}`,
+      expectedVersion: core.stateVersion,
+      inputRevision: core.inputRevision,
+    });
+    core.syncRoleDefinitions(context(), [
+      { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+      {
+        name: "developer",
+        kind: "Developer",
+        host: "claude",
+        configHash: "b".repeat(64),
+      },
+    ]);
+    const member = (name: string, kind: "PM" | "Developer") => {
+      const seatId = `${name}-seat`;
+      core.createSeat(context(), { seatId, name, role: kind });
+      const actor = core.createActor(context(), {
+        displayName: name,
+        role: kind,
+        seatId,
+      });
+      core.registerAgent(context(), {
+        agentId: `${name}-agent`,
+        roleName: name,
+        seatId,
+        actorId: actor.actorId,
+      });
+      return actor.credential;
+    };
+    const pmToken = member("pm", "PM");
+    const devToken = member("developer", "Developer");
+    core.close();
+
+    const socketPath = path.join(cwd, ".capstan/state/control.sock");
+    const env = (token: string) => ({
+      CAPSTAN_TOKEN: token,
+      CAPSTAN_SOCKET: socketPath,
+      M1_PROVIDER_HOST: "",
+    });
+    assert.equal(invoke(cwd, "start").status, 0);
+
+    const sent = invoke(
+      cwd,
+      "send",
+      "--json",
+      "@pm",
+      "hello from the operator",
+    );
+    assert.equal(sent.status, 0, sent.stderr);
+    const { messageId } = JSON.parse(sent.stdout) as { messageId: string };
+
+    const inbox = invokeWithEnv(elsewhere, env(pmToken), "inbox");
+    assert.equal(inbox.status, 0, inbox.stderr);
+    assert.match(
+      inbox.stdout,
+      new RegExp(`message ${messageId} \\[sent\\] from operator`),
+    );
+    assert.match(inbox.stdout, /hello from the operator/);
+
+    const peek = invoke(cwd, "inbox", "--json", "pm-agent");
+    assert.equal(peek.status, 0, peek.stderr);
+    assert.equal(
+      (JSON.parse(peek.stdout) as { messages: Array<{ state: string }> })
+        .messages[0]!.state,
+      "sent",
+    );
+
+    const acked = invokeWithEnv(
+      elsewhere,
+      env(pmToken),
+      "ack",
+      "--json",
+      messageId,
+    );
+    assert.equal(acked.status, 0, acked.stderr);
+    assert.equal(
+      (JSON.parse(acked.stdout) as { state: string }).state,
+      "acked",
+    );
+    assert.equal(
+      invokeWithEnv(elsewhere, env(pmToken), "inbox").stdout.trim(),
+      "no messages",
+    );
+
+    const fromDeveloper = invokeWithEnv(
+      elsewhere,
+      env(devToken),
+      "send",
+      "--json",
+      "@pm",
+      "done",
+    );
+    assert.equal(fromDeveloper.status, 0, fromDeveloper.stderr);
+    const reply = (JSON.parse(fromDeveloper.stdout) as { messageId: string })
+      .messageId;
+    const waited = invokeWithEnv(elsewhere, env(pmToken), "wait");
+    assert.equal(waited.status, 0, waited.stderr);
+    assert.match(waited.stdout, /from developer \(developer-agent\)/);
+    assert.match(waited.stdout, /done/);
+
+    const retried = invoke(cwd, "resolve", "--json", reply, "retry");
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.match(
+      retried.stderr,
+      /warning: the recipient may already have received/,
+    );
+    const cancelled = invoke(cwd, "cancel", "--json", reply);
+    assert.equal(cancelled.status, 0, cancelled.stderr);
+    assert.equal(
+      (JSON.parse(cancelled.stdout) as { state: string }).state,
+      "cancelled",
+    );
+
+    const workerToWorker = invokeWithEnv(
+      elsewhere,
+      env(devToken),
+      "send",
+      "developer-agent",
+      "x",
+    );
+    assert.equal(workerToWorker.status, 4);
+    assert.match(workerToWorker.stderr, /self_send/);
+    const status = invoke(cwd, "status", "--watch", "--interval", "0");
+    assert.equal(status.status, 3);
+    assert.match(status.stderr, /--interval must be an integer from 1 to 60/);
   } finally {
     killDaemon(cwd);
     rmSync(cwd, { recursive: true, force: true });
@@ -2217,10 +2362,7 @@ test("cancel with one id is a routed command; the legacy forms keep their usage 
     );
     const routed = invoke(cwd, "cancel", "--json", "work-1");
     assert.equal(routed.status, 4, routed.stderr);
-    assert.match(
-      routed.stderr,
-      /not_implemented: cancel is not implemented yet/,
-    );
+    assert.match(routed.stderr, /rejected: unknown_message/);
     assert.ok(daemonPid(cwd) !== undefined);
     const legacy = invoke(cwd, "cancel");
     assert.notEqual(legacy.status, 0);
@@ -2393,7 +2535,7 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
     const operatorUnaffected = invokeWithEnv(
       cwd,
       { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
-      "send",
+      "assign",
       "x",
     );
     assert.equal(operatorUnaffected.status, 4);
@@ -2433,7 +2575,7 @@ test("routed arguments keep a literal --json after --, empty arguments are refus
   try {
     assert.equal(invoke(cwd, "init").status, 0);
     assert.equal(invoke(cwd, "start").status, 0);
-    const literal = invoke(cwd, "send", "--", "--json");
+    const literal = invoke(cwd, "assign", "--", "--json");
     assert.equal(literal.status, 4);
     assert.match(
       literal.stderr,
@@ -2452,13 +2594,13 @@ test("routed arguments keep a literal --json after --, empty arguments are refus
           },
       );
     const sendEntry = entries
-      .filter((entry) => entry.command === "send")
+      .filter((entry) => entry.command === "assign")
       .at(-1)!;
     assert.deepEqual(
       [sendEntry.argCount, sendEntry.argBytes],
       [1, "--json".length],
     );
-    const asOption = invoke(cwd, "send", "hello", "--json");
+    const asOption = invoke(cwd, "assign", "hello", "--json");
     const optionEntry = readFileSync(
       path.join(cwd, ".capstan/daemon.log"),
       "utf8",
@@ -2468,7 +2610,7 @@ test("routed arguments keep a literal --json after --, empty arguments are refus
       .map(
         (line) => JSON.parse(line) as { command?: string; argCount?: number },
       )
-      .filter((entry) => entry.command === "send")
+      .filter((entry) => entry.command === "assign")
       .at(-1)!;
     assert.equal(asOption.status, 4);
     assert.equal(
@@ -2479,7 +2621,7 @@ test("routed arguments keep a literal --json after --, empty arguments are refus
 
     for (const args of [
       ["cancel", ""],
-      ["send", ""],
+      ["assign", ""],
     ]) {
       const result = invoke(cwd, ...args);
       assert.equal(result.status, 3, args.join(" "));

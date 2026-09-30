@@ -18,6 +18,7 @@ import {
   DeferralNotElapsed,
   DialogStillOpen,
   HerdrAdapter,
+  INPUT_UNREADABLE_DETAIL,
   InputUnreadable,
   InvalidArgumentError,
   NotBlocked,
@@ -29,6 +30,8 @@ import {
   ShellNotReady,
   UnknownPaneError,
   UnsupportedHostError,
+  herdrStateOf,
+  isAgentName,
   buildAgentEnvironment,
   claudeArguments,
   type KeyLogEntry,
@@ -84,6 +87,7 @@ class FakeHerdr {
     mkdtempSync(path.join(tmpdir(), "capstan-fake-herdr-")),
   );
   startError: { code: string; message: string } | undefined;
+  notification: Record<string, unknown> = { shown: true };
   onKey: ((pane: FakePane, key: string) => void) | undefined;
   onRun: ((pane: FakePane, command: string) => void) | undefined = (
     pane,
@@ -215,6 +219,8 @@ class FakeHerdr {
       return this.json({ agent: { name } });
     }
     if (command === "pane" && sub === "close") return this.json({});
+    if (command === "notification" && sub === "show")
+      return this.json(this.notification);
     return this.failure("unknown", `unhandled ${args.join(" ")}`);
   };
 }
@@ -2231,6 +2237,135 @@ test("text that starts with a tab, question mark or at sign is refused", async (
       }),
       { sent: true },
     );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("herdrStateOf maps known statuses and everything else to unknown, and isAgentName follows the Herdr name rule", () => {
+  for (const status of ["idle", "working", "blocked", "done", "unknown"])
+    assert.equal(herdrStateOf(status), status);
+  for (const status of ["", "IDLE", "starting", "running", "\u0000"])
+    assert.equal(herdrStateOf(status), "unknown");
+  for (const good of ["dev", "developer-agent", "a.b_c-d", "A1"])
+    assert.equal(isAgentName(good), true, good);
+  for (const bad of [
+    "",
+    "-x",
+    ".x",
+    "a:b",
+    "a b",
+    "a/b",
+    "x".repeat(65),
+    5,
+    undefined,
+  ])
+    assert.equal(isAgentName(bad), false, String(bad));
+});
+
+test("paneForAgent and agentObservation follow the registry and the pane check", async () => {
+  const h = harness();
+  try {
+    assert.equal(h.adapter.paneForAgent("dev"), undefined);
+    await assert.rejects(h.adapter.agentObservation("dev"), UnknownPaneError);
+    const worker = await startedWorker(h);
+    assert.equal(h.adapter.paneForAgent("dev"), worker.paneId);
+    h.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["working"],
+    });
+    assert.equal(await h.adapter.agentObservation("dev"), "working");
+    h.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["strange"],
+    });
+    assert.equal(await h.adapter.agentObservation("dev"), "unknown");
+    h.fake.agentStates.set("dev", { paneId: "w99:p1", statuses: ["idle"] });
+    await assert.rejects(h.adapter.agentObservation("dev"), AgentPaneMismatch);
+    h.fake.agentStates.delete("dev");
+    await assert.rejects(
+      h.adapter.agentObservation("dev"),
+      (error: unknown) => error instanceof HerdrError,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("notify builds the exact Herdr command and refuses text that is blank, long, malformed or has control characters", async () => {
+  const h = harness();
+  try {
+    await h.adapter.notify(
+      "Capstan: PM message waiting",
+      "Message m-1 is waiting",
+    );
+    assert.deepEqual(h.fake.callsTo("notification", "show")[0], [
+      "notification",
+      "show",
+      "Capstan: PM message waiting",
+      "--body",
+      "Message m-1 is waiting",
+      "--sound",
+      "request",
+    ]);
+    const before = h.fake.calls.length;
+    for (const [title, body] of [
+      ["", "x"],
+      ["t", "  "],
+      ["t".repeat(101), "x"],
+      ["t", "x".repeat(501)],
+      ["t\u001b[31m", "x"],
+      ["t", "line\nbreak"],
+      ["t", "lone \ud800"],
+      ["t", "bidi \u202e"],
+    ] as const)
+      await assert.rejects(
+        h.adapter.notify(title, body),
+        InvalidArgumentError,
+        JSON.stringify([title, body]),
+      );
+    assert.equal(h.fake.calls.length, before, "nothing reaches Herdr");
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the unreadable-line detail is the exported constant", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h, "no input box here");
+    const outcome = await h.adapter.guardedSend({
+      paneId: worker.paneId,
+      text: "hi",
+      beforeSend: () => {},
+    });
+    assert.deepEqual(outcome, {
+      sent: false,
+      reason: "input_not_empty",
+      detail: INPUT_UNREADABLE_DETAIL,
+    });
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("notify fails when Herdr accepts the command but shows nothing", async () => {
+  const h = harness();
+  try {
+    h.fake.notification = { shown: false, reason: "disabled" };
+    await assert.rejects(
+      h.adapter.notify("Capstan: PM message waiting", "body"),
+      (error: unknown) =>
+        error instanceof HerdrError &&
+        error.code === "notification_not_shown" &&
+        /disabled/.test(error.message),
+    );
+    h.fake.notification = { shown: true };
+    await h.adapter.notify("Capstan: PM message waiting", "body");
   } finally {
     h.adapter.close();
     h.fake.cleanup();

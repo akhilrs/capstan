@@ -1758,3 +1758,121 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     rmSync(stateDirectory, { recursive: true, force: true });
   }
 });
+
+test("unresolvedMessages lists open messages of every agent oldest first, bounded, for a controller only", async () => {
+  const w = await world();
+  try {
+    const first = send(w, w.developer, "one");
+    const second = send(w, w.pm, "two");
+    const third = send(w, w.developer, "three");
+    w.core.resolveMessage(w.ctx(), second, "cancel");
+    const all = w.core.unresolvedMessages(w.owner, 10);
+    assert.deepEqual(
+      all.messages.map((m) => m.messageId),
+      [first, third],
+      "cancelled messages are left out, the rest in sequence order",
+    );
+    assert.equal(all.truncated, false);
+    const one = w.core.unresolvedMessages(w.owner, 1);
+    assert.deepEqual(
+      one.messages.map((m) => m.messageId),
+      [first],
+    );
+    assert.equal(one.truncated, true);
+    for (const limit of [0, -1, 1.5, 1001, Number.NaN])
+      assert.throws(() => w.core.unresolvedMessages(w.owner, limit), TypeError);
+    assert.throws(
+      () => w.core.unresolvedMessages(w.developer.credential, 10),
+      /capability|authoriz|permit/i,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("inputClears lists the newest clears without their text, for a controller only", async () => {
+  const w = await world();
+  try {
+    const id = send(w, w.developer, "hello");
+    assert.deepEqual(w.core.inputClears(w.owner, 5), []);
+    w.core.recordDeferral(w.ctx(), id, "input_not_empty");
+    const a = w.core.recordInputClear(w.ctx(), id, "SECRET TYPED TEXT").clearId;
+    w.advance(1);
+    const b = w.core.recordInputClear(w.ctx(), id, "more").clearId;
+    const list = w.core.inputClears(w.owner, 5);
+    assert.deepEqual(
+      list.map((c) => c.clearId),
+      [b, a],
+      "newest first",
+    );
+    assert.ok(!JSON.stringify(list).includes("SECRET"));
+    assert.equal(list[0]!.messageId, id);
+    assert.equal(w.core.inputClears(w.owner, 1).length, 1);
+    assert.throws(() => w.core.inputClears(w.owner, 0), TypeError);
+    assert.throws(
+      () => w.core.inputClears(w.developer.credential, 5),
+      /capability|authoriz|permit/i,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("openWaits lists only rows still open, oldest first, for a controller only", async () => {
+  const w = await world();
+  try {
+    assert.deepEqual(w.core.openWaits(w.owner), []);
+    const first = w.core.beginWait(w.ctx(w.pm.credential)).waitId;
+    w.advance(1);
+    const second = w.core.beginWait(w.ctx(w.developer.credential)).waitId;
+    assert.deepEqual(
+      w.core.openWaits(w.owner).map((row) => [row.waitId, row.agentId]),
+      [
+        [first, w.pm.agentId],
+        [second, w.developer.agentId],
+      ],
+    );
+    w.core.endWait(w.ctx(w.pm.credential), first);
+    assert.deepEqual(
+      w.core.openWaits(w.owner).map((row) => row.waitId),
+      [second],
+    );
+    assert.throws(
+      () => w.core.openWaits(w.pm.credential),
+      /capability|authoriz|permit/i,
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("senderOf names the operator, an agent and an earlier generation's actor", async () => {
+  const w = await world();
+  try {
+    const fromOperator = w.core.enqueueMessage(w.ctx(), {
+      recipientAgentId: w.pm.agentId,
+      body: "hi",
+    }).messageId;
+    const fromDeveloper = send(w, w.pm, "back", w.developer.credential);
+    assert.deepEqual(
+      w.core.senderOf(w.core.message(fromOperator)!.senderActorId),
+      { role: "operator", agentId: null },
+    );
+    assert.deepEqual(
+      w.core.senderOf(w.core.message(fromDeveloper)!.senderActorId),
+      { role: "developer", agentId: w.developer.agentId },
+    );
+    const oldActor = w.developer.actorId;
+    w.core.replaceAgentGeneration(w.ctx(), w.developer.agentId);
+    assert.deepEqual(w.core.senderOf(oldActor), {
+      role: "Developer",
+      agentId: null,
+    });
+    assert.deepEqual(w.core.senderOf("no-such-actor"), {
+      role: "unknown",
+      agentId: null,
+    });
+  } finally {
+    close(w);
+  }
+});
