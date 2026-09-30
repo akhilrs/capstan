@@ -71,6 +71,17 @@ function recoverJournal(file, role) {
     } catch {
       throw new Error(`invalid complete journal record at byte ${offset}`);
     }
+    if (entry?.type === "contained" && entry.role === role && entry.sequence === sequence) {
+      if (!currentActive || currentActive.commandId !== entry.commandId
+        || currentActive.assignmentId !== entry.assignmentId || currentActive.attempt !== entry.attempt
+        || currentActive.generation !== entry.generation || rows.get(entry.commandId)?.state === "completed") {
+        throw new Error(`invalid containment journal record at byte ${offset}`);
+      }
+      rows.get(entry.commandId).state = "unknown";
+      currentActive = null;
+      offset = newline + 1;
+      continue;
+    }
     if (!entry || typeof entry !== "object" || Array.isArray(entry) || !Number.isSafeInteger(entry.sequence) || entry.sequence !== sequence + 1 || typeof entry.type !== "string" || entry.role !== role) {
       throw new Error(`invalid journal record at byte ${offset}`);
     }

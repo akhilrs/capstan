@@ -36,8 +36,10 @@ import type {
   InputKind,
   MutationContext,
   ProjectInput,
+  ReplacementInput,
   Role,
   RunState,
+  RuntimeSessionSummary,
   RuntimeState,
   SeatInput,
   WorkItemInput,
@@ -1414,7 +1416,8 @@ export class ControllerCore {
           .prepare(
             `SELECT 1 FROM assignments a JOIN seats s
               ON s.project_id = a.project_id AND s.seat_id = a.seat_id
-             WHERE a.project_id = ? AND s.role = 'PM' LIMIT 1`,
+             WHERE a.project_id = ? AND s.role = 'PM'
+               AND a.authority_state IN ('active', 'unknown') LIMIT 1`,
           )
           .get(this.#projectId);
       const correction = this.#database
@@ -1729,17 +1732,7 @@ export class ControllerCore {
             }
           | undefined;
         if (!item) throw new ControllerError("work item does not exist");
-        const latestAssignment = this.#database
-          .prepare(
-            `
-        SELECT a.assignment_id, a.authority_state FROM assignments a
-        JOIN assignment_attempts at ON at.project_id = a.project_id
-          AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
-        WHERE a.project_id = ? AND a.work_item_id = ? ORDER BY at.generation DESC LIMIT 1
-      `,
-          )
-          .get(this.#projectId, workItemId) as
-          { assignment_id: string; authority_state: string } | undefined;
+        const latestAssignment = this.#latestAssignmentRow(workItemId);
         let recovery:
           | {
               recovery_id: string;
@@ -2751,12 +2744,47 @@ export class ControllerCore {
     this.#assertOpen();
     const receipts = this.#database
       .prepare(
-        "SELECT receipt_json FROM command_receipts WHERE project_id = ? AND role = ? ORDER BY sequence",
+        `SELECT r.receipt_json, r.sequence, r.command_id, r.assignment_id,
+           r.attempt, r.generation, r.receipt_type, a.authority_state,
+           a.containment_proof_ref
+         FROM command_receipts r JOIN assignments a
+           ON a.project_id = r.project_id AND a.assignment_id = r.assignment_id
+         WHERE r.project_id = ? AND r.role = ? ORDER BY r.sequence`,
       )
-      .all(this.#projectId, role) as Array<{ receipt_json: string }>;
-    return receipts.length
-      ? `${receipts.map((receipt) => receipt.receipt_json).join("\n")}\n`
-      : "";
+      .all(this.#projectId, role) as Array<{
+      receipt_json: string;
+      sequence: number;
+      command_id: string;
+      assignment_id: string;
+      attempt: number;
+      generation: number;
+      receipt_type: string;
+      authority_state: string;
+      containment_proof_ref: string | null;
+    }>;
+    const journal: string[] = [];
+    for (let index = 0; index < receipts.length; index++) {
+      const receipt = receipts[index]!;
+      journal.push(receipt.receipt_json);
+      if (
+        receipt.command_id !== receipts[index + 1]?.command_id &&
+        receipt.receipt_type !== "completed" &&
+        receipt.authority_state === "contained" &&
+        receipt.containment_proof_ref !== null
+      )
+        journal.push(
+          canonicalJson({
+            type: "contained",
+            role,
+            sequence: receipt.sequence,
+            commandId: receipt.command_id,
+            assignmentId: receipt.assignment_id,
+            attempt: receipt.attempt,
+            generation: receipt.generation,
+          }),
+        );
+    }
+    return journal.length ? `${journal.join("\n")}\n` : "";
   }
   recordBridgeReceipt(receipt: BridgeReceipt): {
     readonly duplicate: boolean;
@@ -3262,7 +3290,7 @@ export class ControllerCore {
           .prepare(
             `
         SELECT a.work_item_id, a.seat_id, a.worker_actor_id, a.input_revision, a.active_generation, a.state,
-          at.attempt, at.generation, at.state AS attempt_state, w.state AS work_state, w.input_revision AS work_revision
+          a.authority_state, at.attempt, at.generation, at.state AS attempt_state, w.state AS work_state, w.input_revision AS work_revision
         FROM assignments a JOIN assignment_attempts at
           ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
         JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
@@ -3277,6 +3305,7 @@ export class ControllerCore {
               input_revision: number;
               active_generation: number;
               state: string;
+              authority_state: string;
               attempt: number;
               generation: number;
               attempt_state: string;
@@ -3288,6 +3317,8 @@ export class ControllerCore {
           !assignment ||
           actor.actorId !== assignment.worker_actor_id ||
           actor.seatId !== assignment.seat_id ||
+          (assignment.authority_state !== "active" &&
+            assignment.authority_state !== "contained") ||
           assignment.state !== "reported" ||
           assignment.attempt_state !== "reported" ||
           assignment.work_state !== "awaiting_verification" ||
@@ -5048,7 +5079,11 @@ export class ControllerCore {
           SELECT a.state, a.authority_state, a.active_generation,
             at.state AS attempt_state, at.authority_state AS attempt_authority,
             at.state_version AS attempt_version, c.command_id, c.state AS command_state,
-            c.start_requested, w.work_item_id, w.state AS work_state, w.state_version AS work_version
+            c.start_requested,
+            (SELECT COUNT(*) FROM outbox_delivery_attempts delivery
+             WHERE delivery.project_id = c.project_id AND delivery.command_id = c.command_id
+               AND delivery.outcome = 'attempting') AS delivery_attempt_count,
+            w.work_item_id, w.state AS work_state, w.state_version AS work_version
           FROM assignments a JOIN assignment_attempts at
             ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
             AND at.generation = a.active_generation
@@ -5069,6 +5104,7 @@ export class ControllerCore {
               command_id: string;
               command_state: string;
               start_requested: number;
+              delivery_attempt_count: number;
               work_item_id: string;
               work_state: string;
               work_version: number;
@@ -5078,6 +5114,8 @@ export class ControllerCore {
           assignment?.authority_state === "unknown" &&
           assignment.command_state === "unknown" &&
           assignment.start_requested === 0;
+        const neverDeliveredPrestart =
+          prestartUncertain && assignment?.delivery_attempt_count === 0;
         const reconciledPrestart =
           prestartUncertain &&
           bridgeSnapshot?.commandId === assignment.command_id &&
@@ -5089,7 +5127,9 @@ export class ControllerCore {
               typeof bridgeSnapshot.durable === "boolean"));
         if (
           assignment?.command_state === "attempting" ||
-          (prestartUncertain && !reconciledPrestart) ||
+          (prestartUncertain &&
+            !reconciledPrestart &&
+            !neverDeliveredPrestart) ||
           (bridgeSnapshot && !reconciledPrestart)
         )
           throw new MutationConflictError(
@@ -5144,6 +5184,19 @@ export class ControllerCore {
         `,
           )
           .run(this.#projectId, assignmentId, assignment.active_generation);
+        this.#database
+          .prepare(
+            `UPDATE recovery_attempts SET containment_state = 'contained',
+              containment_proof_ref = ?
+             WHERE project_id = ? AND assignment_id = ? AND generation = ?
+               AND outcome IN ('pending', 'blocked') AND containment_state = 'unknown'`,
+          )
+          .run(
+            proofRef,
+            this.#projectId,
+            assignmentId,
+            assignment.active_generation,
+          );
         if (restoresReportedWork) {
           this.#database
             .prepare(
@@ -5188,6 +5241,164 @@ export class ControllerCore {
                   toState: "contained",
                   details: { proofRef, bridgeSnapshot: bridgeSnapshot ?? null },
                 },
+        };
+      },
+    );
+  }
+
+  beginReplacement(
+    context: MutationContext,
+    input: ReplacementInput,
+  ): {
+    readonly recoveryId: string;
+    readonly outcome: "pending" | "blocked";
+    readonly limit: number;
+    readonly assignmentId: string;
+    readonly generation: number;
+    readonly commandId: string;
+  } {
+    return this.#mutateAsController(
+      context,
+      "recovery.replacement.begin",
+      "recovery:write",
+      input,
+      (actor) => {
+        if (actor.role !== "controller" || input.reason.trim().length === 0)
+          throw new TransitionAuthorizationError(
+            "replacement requires a controller and non-empty reason",
+          );
+        const assignment = this.#database
+          .prepare(
+            `SELECT a.work_item_id, a.active_generation, a.authority_state,
+              at.state AS attempt_state, w.state AS work_state,
+              w.state_version AS work_version, c.command_id, c.state AS command_state
+             FROM assignments a JOIN assignment_attempts at
+               ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
+                 AND at.generation = a.active_generation
+             JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+             JOIN commands c ON c.project_id = a.project_id AND c.assignment_id = a.assignment_id
+               AND c.generation = a.active_generation
+             WHERE a.project_id = ? AND a.assignment_id = ?`,
+          )
+          .get(this.#projectId, input.assignmentId) as
+          | {
+              work_item_id: string;
+              active_generation: number;
+              authority_state: string;
+              attempt_state: string;
+              work_state: string;
+              work_version: number;
+              command_id: string;
+              command_state: string;
+            }
+          | undefined;
+        if (
+          !assignment ||
+          assignment.work_item_id !== input.workItemId ||
+          assignment.authority_state !== "active" ||
+          ![
+            "created",
+            "dispatched",
+            "acknowledged",
+            "running",
+            "reported",
+          ].includes(assignment.attempt_state) ||
+          !["running", "awaiting_verification"].includes(assignment.work_state)
+        )
+          throw new MutationConflictError(
+            "replacement must target the active assignment for running work",
+          );
+        const count = (
+          this.#database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM recovery_attempts
+               WHERE project_id = ? AND recovery_type = 'worker_replacement'
+                 AND work_item_id = ? AND outcome IN ('pending', 'replacement_created')`,
+            )
+            .get(this.#projectId, input.workItemId) as { count: number }
+        ).count;
+        const limit = this.#recoveryLimit("worker_replacement");
+        const outcome = count >= limit ? "blocked" : "pending";
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            `INSERT INTO recovery_attempts(project_id, recovery_id, work_item_id, assignment_id,
+              recovery_type, finding_id, generation, reason, containment_state,
+              containment_proof_ref, outcome, created_by, created_at)
+             VALUES (?, ?, ?, ?, 'worker_replacement', NULL, ?, ?, 'unknown', NULL, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            input.recoveryId,
+            input.workItemId,
+            input.assignmentId,
+            assignment.active_generation,
+            input.reason,
+            outcome,
+            actor.actorId,
+            now,
+          );
+        this.#database
+          .prepare(
+            `UPDATE assignments SET state = 'revoked', authority_state = 'unknown',
+              state_version = state_version + 1, ended_at = COALESCE(ended_at, ?)
+             WHERE project_id = ? AND assignment_id = ?`,
+          )
+          .run(now, this.#projectId, input.assignmentId);
+        this.#database
+          .prepare(
+            `UPDATE assignment_attempts SET state = 'revoked', authority_state = 'unknown',
+              state_version = state_version + 1, ended_at = COALESCE(ended_at, ?)
+             WHERE project_id = ? AND assignment_id = ? AND generation = ?`,
+          )
+          .run(
+            now,
+            this.#projectId,
+            input.assignmentId,
+            assignment.active_generation,
+          );
+        if (assignment.command_state === "queued") {
+          this.#database
+            .prepare(
+              `UPDATE commands SET state = 'unknown', state_version = state_version + 1,
+                updated_at = ? WHERE project_id = ? AND command_id = ? AND state = 'queued'`,
+            )
+            .run(now, this.#projectId, assignment.command_id);
+          this.#appendOutboxOutcome(
+            assignment.command_id,
+            "unknown",
+            canonicalJson({ reason: "replacement revoked queued assignment" }),
+            now,
+          );
+        }
+        this.#database
+          .prepare(
+            `UPDATE work_items SET state = 'blocked', state_version = state_version + 1
+             WHERE project_id = ? AND work_item_id = ? AND state IN ('running', 'awaiting_verification')`,
+          )
+          .run(this.#projectId, input.workItemId);
+        return {
+          value: {
+            recoveryId: input.recoveryId,
+            outcome,
+            limit,
+            assignmentId: input.assignmentId,
+            generation: assignment.active_generation,
+            commandId: assignment.command_id,
+          },
+          event: {
+            entityType: "work_item",
+            entityId: input.workItemId,
+            stateVersion: assignment.work_version + 1,
+            fromState: assignment.work_state,
+            toState: "blocked",
+            details: {
+              recoveryId: input.recoveryId,
+              assignmentId: input.assignmentId,
+              generation: assignment.active_generation,
+              reason: input.reason,
+            },
+          },
         };
       },
     );
@@ -5291,8 +5502,11 @@ export class ControllerCore {
           !requiresContainment ||
           (assignment.authority_state === "contained" &&
             assignment.containment_proof_ref !== null);
-        const outcome =
-          count >= limit || !replacementContained ? "blocked" : "pending";
+        if (requiresContainment && !replacementContained)
+          throw new MutationConflictError(
+            "recovery records require confirmed physical containment of the prior assignment",
+          );
+        const outcome = count >= limit ? "blocked" : "pending";
         const returnsToBlocked =
           input.recoveryType === "implementation_remediation" &&
           outcome === "pending" &&
@@ -5363,6 +5577,24 @@ export class ControllerCore {
       },
     );
   }
+  pendingReplacementRecovery(
+    workItemId: string,
+    assignmentId: string,
+  ): string | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT recovery_id FROM recovery_attempts
+         WHERE project_id = ? AND work_item_id = ? AND assignment_id = ?
+           AND recovery_type IN ('worker_replacement', 'implementation_remediation')
+           AND containment_state = 'contained' AND outcome = 'pending'
+         ORDER BY created_at DESC, recovery_id DESC LIMIT 1`,
+      )
+      .get(this.#projectId, workItemId, assignmentId) as
+      { recovery_id: string } | undefined;
+    return row?.recovery_id;
+  }
+
   transitionRun(
     context: MutationContext,
     toState: RunState,
@@ -5704,19 +5936,27 @@ export class ControllerCore {
         if (
           input.provider.trim().length === 0 ||
           input.metric.trim().length === 0 ||
-          (input.value !== undefined && !Number.isFinite(input.value))
+          (input.value !== undefined && !Number.isFinite(input.value)) ||
+          (input.availability === "unavailable" && input.value !== undefined) ||
+          !["observed", "unavailable", "inferred"].includes(input.availability)
         ) {
           throw new ControllerError(
-            "usage provider, metric, and numeric value must be valid",
+            "usage requires a valid provider and metric, with values only for observed or inferred measurements",
           );
         }
         const assignment = input.assignmentId
           ? (this.#database
               .prepare(
-                "SELECT worker_actor_id, seat_id FROM assignments WHERE project_id = ? AND assignment_id = ?",
+                "SELECT worker_actor_id, seat_id, authority_state, active_generation FROM assignments WHERE project_id = ? AND assignment_id = ?",
               )
               .get(this.#projectId, input.assignmentId) as
-              { worker_actor_id: string | null; seat_id: string } | undefined)
+              | {
+                  worker_actor_id: string | null;
+                  seat_id: string;
+                  authority_state: string;
+                  active_generation: number;
+                }
+              | undefined)
           : undefined;
         if (input.assignmentId && !assignment)
           throw new ControllerError(
@@ -5753,10 +5993,12 @@ export class ControllerCore {
         if (
           actor.seatId &&
           assignment &&
-          assignment.worker_actor_id !== actor.actorId
+          (assignment.worker_actor_id !== actor.actorId ||
+            assignment.seat_id !== actor.seatId ||
+            assignment.authority_state !== "active")
         )
           throw new TransitionAuthorizationError(
-            "worker usage must belong to the actor's assignment",
+            "worker usage must belong to the actor's active assignment generation",
           );
         if (
           actor.seatId &&
@@ -6569,6 +6811,25 @@ export class ControllerCore {
       .get(this.#projectId, commandId) as { state: string } | undefined;
     return command?.state;
   }
+  attemptedPrestartCommand(assignmentId: string): string | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT c.command_id FROM commands c
+         WHERE c.project_id = ? AND c.assignment_id = ?
+           AND c.state = 'unknown' AND c.start_requested = 0
+           AND EXISTS (
+             SELECT 1 FROM outbox_delivery_attempts attempt
+             WHERE attempt.project_id = c.project_id
+               AND attempt.command_id = c.command_id
+               AND attempt.outcome = 'attempting'
+           )
+         ORDER BY c.generation DESC LIMIT 1`,
+      )
+      .get(this.#projectId, assignmentId) as { command_id: string } | undefined;
+    return row?.command_id;
+  }
+
   enableSupervision(context: MutationContext): { readonly enabled: true } {
     return this.#mutateAsController(
       context,
@@ -7173,6 +7434,49 @@ export class ControllerCore {
     );
   }
 
+  #latestAssignmentRow(workItemId: string):
+    | {
+        assignment_id: string;
+        active_generation: number;
+        authority_state: string;
+      }
+    | undefined {
+    return this.#database
+      .prepare(
+        `SELECT a.assignment_id, a.active_generation, a.authority_state
+         FROM assignments a
+         JOIN assignment_attempts at ON at.project_id = a.project_id
+           AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+         WHERE a.project_id = ? AND a.work_item_id = ?
+         ORDER BY at.generation DESC LIMIT 1`,
+      )
+      .get(this.#projectId, workItemId) as
+      | {
+          assignment_id: string;
+          active_generation: number;
+          authority_state: string;
+        }
+      | undefined;
+  }
+
+  latestAssignmentForWorkItem(workItemId: string):
+    | {
+        readonly assignmentId: string;
+        readonly generation: number;
+        readonly authorityState: string;
+      }
+    | undefined {
+    this.#assertOpen();
+    const row = this.#latestAssignmentRow(workItemId);
+    return row
+      ? {
+          assignmentId: row.assignment_id,
+          generation: row.active_generation,
+          authorityState: row.authority_state,
+        }
+      : undefined;
+  }
+
   latestAssignmentForRole(
     role: "PM" | "Developer" | "Verifier" | "Supervisor",
     assignmentId?: string,
@@ -7263,6 +7567,72 @@ export class ControllerCore {
           workItemId: row.work_item_id,
         }
       : undefined;
+  }
+
+  assignmentIsContained(assignmentId: string): boolean {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          `SELECT 1 FROM assignments
+           WHERE project_id = ? AND assignment_id = ?
+             AND authority_state = 'contained'
+             AND containment_proof_ref IS NOT NULL LIMIT 1`,
+        )
+        .get(this.#projectId, assignmentId) !== undefined
+    );
+  }
+
+  hasUncontainedAssignmentAuthority(): boolean {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          `SELECT 1 FROM assignments
+           WHERE project_id = ? AND authority_state <> 'contained' LIMIT 1`,
+        )
+        .get(this.#projectId) !== undefined
+    );
+  }
+
+  listRuntimeSessions(): readonly RuntimeSessionSummary[] {
+    this.#assertOpen();
+    return this.#database
+      .prepare(
+        `SELECT rs.session_id, rs.seat_id, rs.assignment_id, rs.state,
+          identity.container_id, identity.endpoint
+         FROM runtime_sessions rs
+         LEFT JOIN runtime_identities identity ON identity.project_id = rs.project_id
+           AND identity.session_id = rs.session_id
+           AND identity.observation_id = (
+             SELECT latest.observation_id FROM runtime_identities latest
+             WHERE latest.project_id = rs.project_id AND latest.session_id = rs.session_id
+             ORDER BY latest.observed_at DESC, latest.observation_id DESC LIMIT 1
+           )
+         WHERE rs.project_id = ?
+         ORDER BY rs.started_at, rs.session_id`,
+      )
+      .all(this.#projectId)
+      .map((row) => {
+        const session = row as {
+          session_id: string;
+          seat_id: string;
+          assignment_id: string | null;
+          state: RuntimeState;
+          container_id: string | null;
+          endpoint: string | null;
+        };
+        return {
+          sessionId: session.session_id,
+          seatId: session.seat_id,
+          assignmentId: session.assignment_id,
+          state: session.state,
+          ...(session.container_id === null
+            ? {}
+            : { containerId: session.container_id }),
+          ...(session.endpoint === null ? {} : { endpoint: session.endpoint }),
+        };
+      });
   }
 
   statusSnapshot(): ControllerStatus {
@@ -7647,6 +8017,150 @@ export class ControllerCore {
     };
   }
 
+  reconcile(): { readonly reconciled: number } {
+    this.#assertOpen();
+    this.#assertWritable();
+    return { reconciled: this.#reconcileUncertainAssignments() };
+  }
+
+  revokeActiveAssignments(
+    context: MutationContext,
+    reason: string,
+  ): { readonly assignmentIds: readonly string[] } {
+    return this.#mutateAsController(
+      context,
+      "assignment.revoke.active",
+      "recovery:write",
+      { reason },
+      (actor) => {
+        if (actor.role !== "controller" || reason.trim().length === 0)
+          throw new TransitionAuthorizationError(
+            "revocation requires a controller and non-empty reason",
+          );
+        const rows = this.#database
+          .prepare(
+            `SELECT a.assignment_id, a.active_generation, a.work_item_id,
+              a.state AS assignment_state, a.authority_state,
+              at.attempt, at.state AS attempt_state,
+              c.command_id, c.state AS command_state,
+              w.state AS work_state, w.state_version AS work_version
+             FROM assignments a JOIN assignment_attempts at
+               ON at.project_id = a.project_id AND at.assignment_id = a.assignment_id
+                 AND at.generation = a.active_generation
+             JOIN commands c ON c.project_id = a.project_id AND c.assignment_id = a.assignment_id
+               AND c.generation = a.active_generation
+             JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+             WHERE a.project_id = ? AND a.authority_state IN ('active', 'unknown')
+             ORDER BY a.assignment_id`,
+          )
+          .all(this.#projectId) as Array<{
+          assignment_id: string;
+          active_generation: number;
+          work_item_id: string;
+          assignment_state: string;
+          authority_state: string;
+          attempt: number;
+          attempt_state: string;
+          command_id: string;
+          command_state: string;
+          work_state: string;
+          work_version: number;
+        }>;
+        const now = new Date().toISOString();
+        const revokedAssignmentIds: string[] = [];
+        for (const row of rows) {
+          const preserveReportedCompletion =
+            row.command_state === "completed" &&
+            row.assignment_state === "reported" &&
+            row.attempt_state === "reported";
+          if (
+            row.work_state === "running" ||
+            row.work_state === "awaiting_verification"
+          )
+            this.#database
+              .prepare(
+                `UPDATE work_items SET state = 'blocked', state_version = state_version + 1
+                 WHERE project_id = ? AND work_item_id = ?`,
+              )
+              .run(this.#projectId, row.work_item_id);
+          if (
+            row.authority_state === "unknown" &&
+            (row.assignment_state === "revoked" || preserveReportedCompletion)
+          )
+            continue;
+          revokedAssignmentIds.push(row.assignment_id);
+          if (preserveReportedCompletion) {
+            this.#database
+              .prepare(
+                `UPDATE assignments SET authority_state = 'unknown',
+                  state_version = state_version + 1
+                 WHERE project_id = ? AND assignment_id = ?`,
+              )
+              .run(this.#projectId, row.assignment_id);
+            this.#database
+              .prepare(
+                `UPDATE assignment_attempts SET authority_state = 'unknown',
+                  state_version = state_version + 1
+                 WHERE project_id = ? AND assignment_id = ? AND generation = ?`,
+              )
+              .run(this.#projectId, row.assignment_id, row.active_generation);
+          } else {
+            this.#database
+              .prepare(
+                `UPDATE assignments SET state = 'revoked', authority_state = 'unknown',
+                  state_version = state_version + 1, ended_at = COALESCE(ended_at, ?)
+                 WHERE project_id = ? AND assignment_id = ?`,
+              )
+              .run(now, this.#projectId, row.assignment_id);
+            this.#database
+              .prepare(
+                `UPDATE assignment_attempts SET state = 'revoked', authority_state = 'unknown',
+                  state_version = state_version + 1, ended_at = COALESCE(ended_at, ?)
+                 WHERE project_id = ? AND assignment_id = ? AND generation = ?`,
+              )
+              .run(
+                now,
+                this.#projectId,
+                row.assignment_id,
+                row.active_generation,
+              );
+          }
+          if (row.command_state === "queued") {
+            this.#database
+              .prepare(
+                `UPDATE commands SET state = 'unknown', state_version = state_version + 1,
+                  updated_at = ? WHERE project_id = ? AND command_id = ?`,
+              )
+              .run(now, this.#projectId, row.command_id);
+            this.#appendOutboxOutcome(
+              row.command_id,
+              "unknown",
+              canonicalJson({ reason }),
+              now,
+            );
+          }
+        }
+        const runControl = this.#database
+          .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+          .get(this.#projectId) as { state: string } | undefined;
+        return {
+          value: { assignmentIds: revokedAssignmentIds },
+          event: {
+            entityType: "run_control",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            fromState: runControl?.state ?? "active",
+            toState: "revoked",
+            details: {
+              reason,
+              assignmentIds: revokedAssignmentIds,
+            },
+          },
+        };
+      },
+    );
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -7657,8 +8171,9 @@ export class ControllerCore {
     }
   }
 
-  #reconcileUncertainAssignments(): void {
+  #reconcileUncertainAssignments(): number {
     this.#database.exec("BEGIN IMMEDIATE");
+    let reconciled = 0;
     try {
       const rows = this.#database
         .prepare(
@@ -7672,9 +8187,9 @@ export class ControllerCore {
         JOIN assignment_attempts at ON at.project_id = c.project_id
           AND at.assignment_id = c.assignment_id AND at.attempt = c.attempt
         JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
-        WHERE c.project_id = ? AND c.state IN ('attempting', 'acknowledged', 'started', 'completed')
+        WHERE c.project_id = ? AND c.state IN ('queued', 'attempting', 'acknowledged', 'started', 'completed')
           AND a.authority_state = 'active'
-          AND at.state IN ('dispatched', 'acknowledged', 'running', 'reported')
+          AND at.state IN ('created', 'dispatched', 'acknowledged', 'running', 'reported')
         ORDER BY c.command_id
       `,
         )
@@ -7692,6 +8207,7 @@ export class ControllerCore {
       }>;
       const controller = this.#internalPrincipal();
       for (const row of rows) {
+        reconciled++;
         const preserveReportedCompletion =
           row.command_state === "completed" &&
           row.assignment_state === "reported" &&
@@ -7841,7 +8357,81 @@ export class ControllerCore {
             this.#projectId,
           );
       }
+      const sessions = this.#database
+        .prepare(
+          `SELECT session_id, state, state_version FROM runtime_sessions
+           WHERE project_id = ? AND state IN ('starting', 'ready', 'working', 'stopping')
+           ORDER BY session_id`,
+        )
+        .all(this.#projectId) as Array<{
+        session_id: string;
+        state: string;
+        state_version: number;
+      }>;
+      for (const session of sessions) {
+        if (
+          !this.#isTransitionAllowed(
+            "runtime_session",
+            session.state,
+            "unknown",
+            controller,
+          )
+        )
+          throw new TransitionAuthorizationError(
+            `transition table rejects restart reconciliation of ${session.state} runtime session`,
+          );
+        const now = new Date().toISOString();
+        this.#database
+          .prepare(
+            `UPDATE runtime_sessions SET state = 'unknown', state_version = state_version + 1
+             WHERE project_id = ? AND session_id = ?`,
+          )
+          .run(this.#projectId, session.session_id);
+        const projectVersion =
+          (
+            this.#database
+              .prepare(
+                "SELECT state_version FROM projects WHERE project_id = ?",
+              )
+              .get(this.#projectId) as { state_version: number }
+          ).state_version + 1;
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        this.#database
+          .prepare("UPDATE projects SET state_version = ? WHERE project_id = ?")
+          .run(projectVersion, this.#projectId);
+        this.#database
+          .prepare(
+            `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id,
+              from_state, to_state, state_version, actor_id, request_id, input_revision, payload_json, created_at)
+             SELECT ?, ?, ?, 'runtime_session', ?, ?, 'unknown', ?, ?, ?, current_input_revision, ?, ?
+             FROM projects WHERE project_id = ?`,
+          )
+          .run(
+            this.#projectId,
+            sequence,
+            randomUUID(),
+            session.session_id,
+            session.state,
+            session.state_version + 1,
+            this.#internalActorId,
+            `restart-reconcile:session:${session.session_id}`,
+            canonicalJson({
+              previousState: session.state,
+              identityPreserved: true,
+            }),
+            now,
+            this.#projectId,
+          );
+        reconciled++;
+      }
       this.#database.exec("COMMIT");
+      return reconciled;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

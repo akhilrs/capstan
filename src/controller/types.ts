@@ -108,6 +108,22 @@ export interface AssignmentResult {
   readonly inputRevision: number;
 }
 
+export interface ReplacementInput {
+  readonly workItemId: string;
+  readonly assignmentId: string;
+  readonly recoveryId: string;
+  readonly reason: string;
+}
+
+export interface RuntimeSessionSummary {
+  readonly sessionId: string;
+  readonly seatId: string;
+  readonly assignmentId: string | null;
+  readonly state: RuntimeState;
+  readonly containerId?: string;
+  readonly endpoint?: string;
+}
+
 export interface CandidateInput {
   readonly candidateId: string;
   readonly assignmentId: string;

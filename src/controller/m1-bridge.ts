@@ -178,6 +178,12 @@ function requestBridge(
   return promise;
 }
 
+export interface BridgeCommandSnapshot {
+  readonly commandId: string;
+  readonly bridgeState: string;
+  readonly durable: boolean;
+}
+
 export type ReceiptPeerPolicy =
   | { readonly authenticate: (socketFd: number) => boolean }
   | { readonly allowUnauthenticatedLocalPeers: true };
@@ -401,11 +407,9 @@ export class M1BridgeAdapter {
       state: this.#core.commandState(commandId) ?? "unknown",
     };
   }
-  async inspectUncertainCommand(commandId: string): Promise<{
-    readonly commandId: string;
-    readonly bridgeState: string;
-    readonly durable: boolean;
-  }> {
+  async inspectUncertainCommand(
+    commandId: string,
+  ): Promise<BridgeCommandSnapshot> {
     const state = this.#core.commandState(commandId);
     if (state !== "unknown" && state !== "attempting")
       throw new ControllerError(
@@ -417,11 +421,7 @@ export class M1BridgeAdapter {
     });
     if (response.commandId !== commandId)
       throw protocolError("bridge returned a different command identity");
-    let snapshot: {
-      readonly commandId: string;
-      readonly bridgeState: string;
-      readonly durable: boolean;
-    };
+    let snapshot: BridgeCommandSnapshot;
     if (response.type === "completed") {
       if (response.durable !== true)
         throw protocolError(

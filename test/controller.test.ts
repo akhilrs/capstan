@@ -930,6 +930,10 @@ test("M1 adapter inspects uncertain command without dispatch or authority restor
       project: info,
     });
     assert.equal(core.commandState(assignment.commandId), "unknown");
+    assert.equal(
+      core.attemptedPrestartCommand(assignment.assignmentId),
+      assignment.commandId,
+    );
     assert.deepEqual(
       core.confirmContainment(
         context(core, info.ownerCredential),
@@ -1144,6 +1148,82 @@ test("restart containment preserves a durable PM report for acceptance", async (
     cleanup(value);
   }
 });
+test("contained PM restart can use its bounded bootstrap replacement before a Supervisor checkpoint", async () => {
+  const value = await fixture();
+  const { stateDirectory, project: info } = value;
+  let core = value.core;
+  try {
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "bootstrap-pm-restart",
+    );
+    core.enableSupervision(context(core, info.ownerCredential));
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "bootstrap-pm-restart-work",
+      title: "Review the persisted plan",
+      description: "Retry only after the old runtime is contained",
+      requiredRole: "PM",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "bootstrap-pm-restart-work",
+    );
+    const original = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "bootstrap-pm-restart-work",
+      pm.seatId,
+    );
+    core.close();
+    core = await ControllerCore.open({ stateDirectory, project: info });
+    assert.equal(core.commandState(original.commandId), "unknown");
+    assert.equal(core.latestAssignmentForRole("PM")?.authorityState, "unknown");
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      original.assignmentId,
+      "runtime-proof:old-bootstrap-pm-absent",
+    );
+    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
+      workItemId: "bootstrap-pm-restart-work",
+      assignmentId: original.assignmentId,
+      recoveryId: "bootstrap-pm-restart-recovery",
+      recoveryType: "worker_replacement",
+      reason: "Crash before first PM report",
+    });
+    assert.equal(recovery.outcome, "pending");
+    core.markReady(
+      context(core, info.ownerCredential),
+      "bootstrap-pm-restart-work",
+    );
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "bootstrap-pm-restart-work",
+          pm.seatId,
+        ),
+      /requires contained prior authority and a pending recovery record/,
+    );
+    assert.equal(
+      core.latestAssignmentForRole("PM")?.authorityState,
+      "contained",
+    );
+    const replacement = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "bootstrap-pm-restart-work",
+      pm.seatId,
+      undefined,
+      recovery.recoveryId,
+    );
+    assert.equal(replacement.generation, original.generation + 1);
+    assert.equal(core.latestAssignmentForRole("PM")?.authorityState, "active");
+  } finally {
+    core.close();
+    cleanup(value);
+  }
+});
+
 test("readiness requires an active actor bound to the required-role seat", async () => {
   const value = await fixture();
   try {
@@ -5286,7 +5366,7 @@ test("runtime identity observations keep distinct durable identifiers", async ()
     const second = core.recordRuntimeIdentity(
       context(core, info.ownerCredential),
       "runtime-identity-session",
-      { processStartId: "process-start-1" },
+      { processStartId: "process-start-1", containerId: "docker-runtime-123" },
     );
     assert.notEqual(first.observationId, second.observationId);
     core.createWorkItem(context(core, info.ownerCredential), {
@@ -5372,13 +5452,53 @@ test("runtime identity observations keep distinct durable identifiers", async ()
           availability: "observed",
           detail: {},
         }),
-      /worker usage must belong to the actor's assignment/,
+      /worker usage must belong to the actor's active assignment generation/,
     );
+    assert.deepEqual(core.listRuntimeSessions(), [
+      {
+        sessionId: "runtime-identity-session",
+        seatId: supervisor.seatId,
+        assignmentId: null,
+        state: "starting",
+        containerId: "docker-runtime-123",
+      },
+    ]);
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, info.ownerCredential), {
+          observationId: "unknown-usage-as-zero",
+          assignmentId: usageAssignment.assignmentId,
+          provider: "herdr",
+          metric: "tokens",
+          value: 0,
+          availability: "unavailable",
+          detail: { reason: "runtime did not report usage" },
+        }),
+      /values only for observed or inferred/,
+    );
+    core.recordUsage(context(core, info.ownerCredential), {
+      observationId: "usage-unavailable",
+      assignmentId: usageAssignment.assignmentId,
+      provider: "herdr",
+      metric: "tokens",
+      availability: "unavailable",
+      detail: { reason: "runtime did not report usage" },
+    });
     const db = new Database(
       path.join(value.stateDirectory, "controller.sqlite"),
       { readonly: true },
     );
     try {
+      const unavailableUsage = db
+        .prepare(
+          "SELECT value, availability FROM usage_observations WHERE project_id = ? AND observation_id = ?",
+        )
+        .get(info.projectId, "usage-unavailable") as
+        { value: number | null; availability: string } | undefined;
+      assert.deepEqual(unavailableUsage, {
+        value: null,
+        availability: "unavailable",
+      });
       const result = db
         .prepare(
           "SELECT COUNT(*) AS count FROM runtime_identities WHERE project_id = ? AND session_id = ?",
@@ -5388,6 +5508,76 @@ test("runtime identity observations keep distinct durable identifiers", async ()
     } finally {
       db.close();
     }
+    core.close();
+    const reopened = await ControllerCore.open({
+      stateDirectory: value.stateDirectory,
+      project: info,
+    });
+    try {
+      assert.deepEqual(reopened.listRuntimeSessions(), [
+        {
+          sessionId: "runtime-identity-session",
+          seatId: supervisor.seatId,
+          assignmentId: null,
+          state: "unknown",
+          containerId: "docker-runtime-123",
+        },
+      ]);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("runtime identity ties select one deterministic observation on restart", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const pm = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "PM",
+      "identity-tie",
+    );
+    core.createRuntimeSession(context(core, info.ownerCredential), {
+      sessionId: "identity-tie-session",
+      seatId: pm.seatId,
+      provider: "herdr",
+      profile: "identity-tie",
+      workspace: value.stateDirectory,
+    });
+    const first = core.recordRuntimeIdentity(
+      context(core, info.ownerCredential),
+      "identity-tie-session",
+      { containerId: "first-container" },
+    );
+    const second = core.recordRuntimeIdentity(
+      context(core, info.ownerCredential),
+      "identity-tie-session",
+      { containerId: "second-container" },
+    );
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+    );
+    try {
+      db.prepare(
+        "UPDATE runtime_identities SET observed_at = ? WHERE project_id = ? AND session_id = ?",
+      ).run("2026-01-01T00:00:00.000Z", info.projectId, "identity-tie-session");
+    } finally {
+      db.close();
+    }
+    const sessions = core
+      .listRuntimeSessions()
+      .filter((session) => session.sessionId === "identity-tie-session");
+    assert.equal(sessions.length, 1);
+    assert.equal(
+      sessions[0]?.containerId,
+      first.observationId > second.observationId
+        ? "first-container"
+        : "second-container",
+    );
   } finally {
     cleanup(value);
   }
@@ -6646,6 +6836,375 @@ test("stale inputs, unauthorized controller actions, and candidate evidence are 
   }
 });
 
+test("reconciliation retains queued assignment responsibility without redispatch", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "queued-reconcile",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "queued-reconcile-work",
+      title: "Queued responsibility",
+      description:
+        "Restart must not silently discard or redispatch this command",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "queued-reconcile-work",
+    );
+    const queued = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "queued-reconcile-work",
+      developer.seatId,
+    );
+    assert.equal(core.commandState(queued.commandId), "queued");
+    assert.deepEqual(core.reconcile(), { reconciled: 1 });
+    assert.equal(core.commandState(queued.commandId), "unknown");
+    const inspected: unknown = core.inspect("queued-reconcile-work");
+    assert.ok(
+      inspected && typeof inspected === "object" && "record" in inspected,
+    );
+    const record: unknown = inspected.record;
+    assert.ok(record && typeof record === "object" && "state" in record);
+    assert.equal(record.state, "blocked");
+    assert.throws(
+      () =>
+        core.beginCommandDelivery(
+          context(core, info.ownerCredential),
+          queued.commandId,
+        ),
+      MutationConflictError,
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      queued.assignmentId,
+      "operator-proof:never-delivered-queued-command",
+    );
+    assert.equal(core.readiness("queued-reconcile-work").ready, true);
+
+    assert.equal(core.reconcile().reconciled, 0);
+  } finally {
+    cleanup(value);
+  }
+});
+test("active revocation preserves an already reported completion until containment", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "preserve-completion",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "preserve-completion-work",
+      title: "Preserve completed report",
+      description: "Cancellation must fence but not erase the worker report",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "preserve-completion-work",
+    );
+    const assignment = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "preserve-completion-work",
+      developer.seatId,
+    );
+    const identity = {
+      commandId: assignment.commandId,
+      assignmentId: assignment.assignmentId,
+      attempt: assignment.attempt,
+      generation: assignment.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      assignment.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "working"));
+    core.recordBridgeReceipt(receipt(identity, 3, "completed"));
+    assert.deepEqual(
+      core.revokeActiveAssignments(
+        context(core, info.ownerCredential),
+        "cancel requested",
+      ),
+      { assignmentIds: [assignment.assignmentId] },
+    );
+    assert.deepEqual(
+      core.revokeActiveAssignments(
+        context(core, info.ownerCredential),
+        "cancel requested again",
+      ),
+      { assignmentIds: [] },
+    );
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+      {
+        readonly: true,
+      },
+    );
+    try {
+      const reportState = db
+        .prepare(
+          `SELECT a.state AS assignment_state, a.authority_state,
+            at.state AS attempt_state, at.authority_state AS attempt_authority,
+            w.state AS work_state
+           FROM assignments a
+           JOIN assignment_attempts at ON at.project_id = a.project_id
+             AND at.assignment_id = a.assignment_id AND at.generation = a.active_generation
+           JOIN work_items w ON w.project_id = a.project_id AND w.work_item_id = a.work_item_id
+           WHERE a.project_id = ? AND a.assignment_id = ?`,
+        )
+        .get(info.projectId, assignment.assignmentId) as
+        | {
+            assignment_state: string;
+            authority_state: string;
+            attempt_state: string;
+            attempt_authority: string;
+            work_state: string;
+          }
+        | undefined;
+      assert.deepEqual(reportState, {
+        assignment_state: "reported",
+        authority_state: "unknown",
+        attempt_state: "reported",
+        attempt_authority: "unknown",
+        work_state: "blocked",
+      });
+    } finally {
+      db.close();
+    }
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      assignment.assignmentId,
+      "operator-proof:reported-worker-contained",
+    );
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((item) => item.workItemId === "preserve-completion-work")
+        ?.state,
+      "awaiting_verification",
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("replacement revokes the old generation before containment and preserves its reason", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "replace-before-stop",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "replace-before-stop-work",
+      title: "Replace active work",
+      description: "Old generation must be fenced before stop",
+      requiredRole: "Developer",
+    });
+    core.markReady(
+      context(core, info.ownerCredential),
+      "replace-before-stop-work",
+    );
+    const original = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "replace-before-stop-work",
+      developer.seatId,
+    );
+    const identity = {
+      commandId: original.commandId,
+      assignmentId: original.assignmentId,
+      attempt: original.attempt,
+      generation: original.generation,
+    };
+    core.beginCommandDelivery(
+      context(core, info.ownerCredential),
+      original.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 1, "accepted"));
+    core.beginCommandStart(
+      context(core, info.ownerCredential),
+      original.commandId,
+    );
+    core.recordBridgeReceipt(receipt(identity, 2, "working"));
+
+    assert.throws(
+      () =>
+        core.recordRecovery(context(core, info.ownerCredential), {
+          recoveryId: "premature-recovery",
+          workItemId: "replace-before-stop-work",
+          assignmentId: original.assignmentId,
+          recoveryType: "worker_replacement",
+          reason: "Must not record recovery before containment",
+        }),
+      /confirmed physical containment/,
+    );
+    const replacement = core.beginReplacement(
+      context(core, info.ownerCredential),
+      {
+        workItemId: "replace-before-stop-work",
+        assignmentId: original.assignmentId,
+        recoveryId: "replace-before-stop-recovery",
+        reason: "Worker stop was requested after revoking its write authority",
+      },
+    );
+    assert.equal(replacement.outcome, "pending");
+    assert.throws(
+      () =>
+        core.recordUsage(context(core, developer.credential), {
+          observationId: "old-generation-usage",
+          assignmentId: original.assignmentId,
+          provider: "herdr",
+          metric: "tokens",
+          value: 10,
+          availability: "observed",
+          detail: {},
+        }),
+      /active assignment generation/,
+    );
+    assert.equal(core.commandState(original.commandId), "started");
+    assert.equal(
+      core
+        .statusSnapshot()
+        .work.find((item) => item.workItemId === "replace-before-stop-work")
+        ?.state,
+      "blocked",
+    );
+    const lateReceipt = core.recordBridgeReceipt(
+      receipt(identity, 3, "working"),
+    );
+    assert.equal(lateReceipt.fenced, true);
+    assert.equal(core.commandState(original.commandId), "started");
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "replace-before-stop-work",
+          developer.seatId,
+          undefined,
+          replacement.recoveryId,
+        ),
+      MutationConflictError,
+    );
+
+    assert.notEqual(
+      JSON.parse(
+        core.bridgeReceiptJournal("Developer").trim().split("\n").at(-1)!,
+      ).type,
+      "contained",
+    );
+    core.confirmContainment(
+      context(core, info.ownerCredential),
+      original.assignmentId,
+      "operator-proof:replacement-stop",
+    );
+    const journal = core
+      .bridgeReceiptJournal("Developer")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            type: string;
+            sequence: number;
+            commandId: string;
+          },
+      );
+    assert.deepEqual(journal.at(-1), {
+      type: "contained",
+      role: "Developer",
+      sequence: 3,
+      commandId: original.commandId,
+      assignmentId: original.assignmentId,
+      attempt: original.attempt,
+      generation: original.generation,
+    });
+    assert.equal(journal.at(-2)?.sequence, journal.at(-1)?.sequence);
+    const db = new Database(
+      path.join(value.stateDirectory, "controller.sqlite"),
+      {
+        readonly: true,
+      },
+    );
+    try {
+      const row = db
+        .prepare(
+          "SELECT reason, containment_state, outcome FROM recovery_attempts WHERE project_id = ? AND recovery_id = ?",
+        )
+        .get(info.projectId, replacement.recoveryId) as
+        | { reason: string; containment_state: string; outcome: string }
+        | undefined;
+      assert.deepEqual(row, {
+        reason: "Worker stop was requested after revoking its write authority",
+        containment_state: "contained",
+        outcome: "pending",
+      });
+    } finally {
+      db.close();
+    }
+    assert.equal(
+      core.pendingReplacementRecovery(
+        "replace-before-stop-work",
+        original.assignmentId,
+      ),
+      replacement.recoveryId,
+    );
+    assert.deepEqual(
+      core.latestAssignmentForWorkItem("replace-before-stop-work"),
+      {
+        assignmentId: original.assignmentId,
+        generation: original.generation,
+        authorityState: "contained",
+      },
+    );
+    core.markReady(
+      context(core, info.ownerCredential),
+      "replace-before-stop-work",
+    );
+    const next = core.assignWorkItem(
+      context(core, info.ownerCredential),
+      "replace-before-stop-work",
+      developer.seatId,
+      undefined,
+      replacement.recoveryId,
+    );
+    assert.equal(next.generation, original.generation + 1);
+    assert.deepEqual(
+      core.latestAssignmentForWorkItem("replace-before-stop-work"),
+      {
+        assignmentId: next.assignmentId,
+        generation: next.generation,
+        authorityState: "active",
+      },
+    );
+    assert.equal(
+      core.pendingReplacementRecovery(
+        "replace-before-stop-work",
+        original.assignmentId,
+      ),
+      undefined,
+    );
+  } finally {
+    cleanup(value);
+  }
+});
+
 test("worker replacement limits count consumed recovery records", async () => {
   const value = await fixture();
   try {
@@ -7669,6 +8228,13 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
       reason: "Replace the rejected candidate with a fresh implementation",
     });
     assert.equal(recovery.outcome, "pending");
+    assert.equal(
+      core.pendingReplacementRecovery(
+        "batch-feature",
+        originalDeveloper.assignmentId,
+      ),
+      recovery.recoveryId,
+    );
     core.markReady(context(core, info.ownerCredential), "batch-feature");
     const replacementDeveloper = core.assignWorkItem(
       context(core, info.ownerCredential),

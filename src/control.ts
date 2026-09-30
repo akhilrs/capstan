@@ -7,7 +7,12 @@ import type { ControllerCore } from "./controller/core.js";
 const MAX_REQUEST_FRAME = 16_384;
 const MAX_RESPONSE_FRAME = 1_048_576;
 
-type Request = { token: string; action: "status" | "inspect"; id?: string };
+type Request = {
+  token: string;
+  action: "status" | "inspect" | "pause" | "resume" | "cancel";
+  id?: string;
+};
+export type ControlAction = "pause" | "resume" | "cancel";
 
 function sameSecret(actual: unknown, expected: string): boolean {
   if (typeof actual !== "string") return false;
@@ -35,6 +40,7 @@ export async function listenControl(
   socketPath: string,
   token: string,
   core: ControllerCore,
+  onAction?: (action: ControlAction) => Promise<unknown>,
 ): Promise<() => Promise<void>> {
   privateSocketDirectory(socketPath);
   try {
@@ -64,6 +70,7 @@ export async function listenControl(
       throw error;
   }
   const server = net.createServer((socket) => {
+    socket.on("error", () => socket.destroy());
     let bytes = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
       bytes = Buffer.concat([bytes, chunk]);
@@ -75,40 +82,50 @@ export async function listenControl(
       if (newline < 0) return;
       const frame = bytes.subarray(0, newline);
       socket.removeAllListeners("data");
-      try {
-        const request = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-            frame,
-          ),
-        ) as Request;
-        if (
-          !request ||
-          typeof request !== "object" ||
-          !sameSecret(request.token, token)
-        )
-          throw new Error("unauthorized");
-        const result =
-          request.action === "status" && request.id === undefined
-            ? core.statusSnapshot()
-            : request.action === "inspect" &&
-                typeof request.id === "string" &&
-                request.id.length > 0
-              ? core.inspect(request.id)
-              : (() => {
-                  throw new Error("invalid control request");
-                })();
-        const response = JSON.stringify({
-          requestId: randomUUID(),
-          result,
-        });
-        if (Buffer.byteLength(response) + 1 > MAX_RESPONSE_FRAME)
-          throw new Error("control response exceeds limit");
-        socket.end(`${response}\n`);
-      } catch (error) {
-        socket.end(
-          `${JSON.stringify({ error: error instanceof Error ? error.message : "invalid request" })}\n`,
-        );
-      }
+      void (async () => {
+        try {
+          const request = JSON.parse(
+            new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+              frame,
+            ),
+          ) as Request;
+          if (
+            !request ||
+            typeof request !== "object" ||
+            !sameSecret(request.token, token)
+          )
+            throw new Error("unauthorized");
+          if (request.action === "cancel") socket.setTimeout(120_000);
+          else if (request.action === "resume") socket.setTimeout(30_000);
+          const result =
+            request.action === "status" && request.id === undefined
+              ? core.statusSnapshot()
+              : request.action === "inspect" &&
+                  typeof request.id === "string" &&
+                  request.id.length > 0
+                ? core.inspect(request.id)
+                : request.id === undefined &&
+                    onAction &&
+                    (request.action === "pause" ||
+                      request.action === "resume" ||
+                      request.action === "cancel")
+                  ? await onAction(request.action)
+                  : (() => {
+                      throw new Error("invalid control request");
+                    })();
+          const response = JSON.stringify({
+            requestId: randomUUID(),
+            result,
+          });
+          if (Buffer.byteLength(response) + 1 > MAX_RESPONSE_FRAME)
+            throw new Error("control response exceeds limit");
+          socket.end(`${response}\n`);
+        } catch (error) {
+          socket.end(
+            `${JSON.stringify({ error: error instanceof Error ? error.message : "invalid request" })}\n`,
+          );
+        }
+      })();
     });
     socket.setTimeout(5_000, () => socket.destroy());
   });
@@ -186,9 +203,18 @@ export async function requestControl(
       }
     });
     socket.once("error", reject);
-    socket.setTimeout(5_000, () => {
-      socket.destroy();
-      reject(new Error("control request timed out"));
-    });
+    socket.setTimeout(
+      action === "cancel" ? 120_000 : action === "resume" ? 30_000 : 5_000,
+      () => {
+        socket.destroy();
+        reject(
+          new Error(
+            action === "cancel" || action === "resume"
+              ? `${action} request timed out; the controller may still be completing it, run cstan status to check`
+              : "control request timed out",
+          ),
+        );
+      },
+    );
   });
 }
