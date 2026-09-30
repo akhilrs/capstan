@@ -10,6 +10,7 @@ import {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const START_TIMEOUT_MS = 10_000;
 const POLL_MS = 100;
+const LOST_RACE_GRACE_MS = 3_000;
 
 export type WireResult =
   | { readonly kind: "response"; readonly response: CommandResponse }
@@ -138,15 +139,26 @@ export function scrubEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function openDaemonLog(logPath: string): number {
-  const fd = fs.openSync(
-    logPath,
-    fs.constants.O_WRONLY |
-      fs.constants.O_APPEND |
-      fs.constants.O_CREAT |
-      fs.constants.O_NOFOLLOW,
-    0o600,
-  );
+  const flags =
+    fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW;
+  let fd: number;
+  let created = false;
   try {
+    fd = fs.openSync(
+      logPath,
+      flags | fs.constants.O_CREAT | fs.constants.O_EXCL,
+      0o600,
+    );
+    created = true;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
+      throw error;
+    fd = fs.openSync(logPath, flags);
+  }
+  try {
+    // A file we just created gets its mode from the umask; an existing file
+    // with a wrong mode is refused because someone else may have made it.
+    if (created) fs.fchmodSync(fd, 0o600);
     const stat = fs.fstatSync(fd);
     if (
       !stat.isFile() ||
@@ -206,6 +218,7 @@ export async function ensureDaemon(
   const logOffset = fs.fstatSync(fd).size;
   let exitCode: number | undefined;
   let spawnError: string | undefined;
+  let lostRaceAt: number | undefined;
   try {
     const child = spawn(
       process.execPath,
@@ -239,7 +252,16 @@ export async function ensureDaemon(
         `the daemon could not be started: ${spawnError}`,
       );
     // Exit code 4 means the child lost the lock race: another controller is
-    // starting, so keep polling. Any other exit is a real startup failure.
+    // starting, so keep polling for a short grace period. If nobody answers
+    // by then, the lock holder is not a starting daemon and waiting is futile.
+    if (exitCode === 4) {
+      lostRaceAt ??= Date.now();
+      if (Date.now() - lostRaceAt > LOST_RACE_GRACE_MS)
+        throw new ControllerUnavailableError(
+          "start_failed",
+          "another controller holds the project lock but does not answer; stop it or check the daemon log",
+        );
+    }
     if (exitCode !== undefined && exitCode !== 4)
       throw new ControllerUnavailableError(
         "start_failed",

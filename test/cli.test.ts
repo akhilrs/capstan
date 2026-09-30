@@ -2544,3 +2544,132 @@ test("a failed start shows only this start's log lines, without control characte
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("stop followed at once by start always gets a fresh daemon because the lock is free when stop returns", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cycle-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const pids = new Set<number>();
+    for (let round = 0; round < 5; round += 1) {
+      const started = invoke(cwd, "start", "--json");
+      assert.equal(started.status, 0, `round ${round}: ${started.stderr}`);
+      const result = JSON.parse(started.stdout) as {
+        pid: number;
+        started: boolean;
+      };
+      assert.equal(result.started, true, `round ${round}`);
+      pids.add(result.pid);
+      const stopped = invoke(cwd, "stop", "--json");
+      assert.equal(stopped.status, 0, stopped.stderr);
+      assert.equal(
+        (JSON.parse(stopped.stdout) as { result: string }).result,
+        "stopped",
+      );
+    }
+    assert.equal(pids.size, 5);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a project lock held by something that never answers fails a start within the grace period", async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-lockheld-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const holder = await openInitializedCore(cwd);
+    try {
+      const began = Date.now();
+      const result = await invokeAsync(cwd, "start");
+      assert.equal(result.status, 5, result.stderr);
+      assert.match(result.stderr, /holds the project lock but does not answer/);
+      assert.ok(Date.now() - began < 9000, "did not wait for the full timeout");
+    } finally {
+      holder.close();
+    }
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a restrictive umask does not stop a start, and the fresh log is still mode 0600", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-umask-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    const result = spawnSync(
+      "sh",
+      ["-c", `umask 0277 && exec "${process.execPath}" "${cli}" start --json`],
+      {
+        cwd,
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      statSync(path.join(cwd, ".capstan/daemon.log")).mode & 0o777,
+      0o600,
+    );
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a bad CAPSTAN_SOCKET is named and cstan pm restart accepts --json in either position", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-pm-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    for (const socket of ["/tmp/a.sock\n", "/tmp/a b.sock", "/tmp/a.sock\r"]) {
+      const result = invokeWithEnv(
+        cwd,
+        {
+          CAPSTAN_TOKEN: "t".repeat(40),
+          CAPSTAN_SOCKET: socket,
+          M1_PROVIDER_HOST: "",
+        },
+        "inbox",
+      );
+      assert.equal(result.status, 3, JSON.stringify(socket));
+      assert.match(
+        result.stderr,
+        /CAPSTAN_SOCKET must not contain whitespace or control characters/,
+      );
+    }
+    for (const args of [
+      ["pm", "restart", "--json"],
+      ["pm", "--json", "restart"],
+      ["pm", "restart"],
+    ]) {
+      const result = invoke(cwd, ...args);
+      assert.equal(result.status, 4, `${args.join(" ")}: ${result.stderr}`);
+      assert.match(
+        result.stderr,
+        /not_implemented: pm-restart is not implemented yet/,
+      );
+    }
+    assert.equal(invoke(cwd, "pm").status, 2);
+    assert.equal(invoke(cwd, "pm", "--json").status, 2);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("shutdown releases the project lock before it removes the socket", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-order-"));
+  try {
+    assert.equal(invoke(cwd, "init").status, 0);
+    assert.equal(invoke(cwd, "start").status, 0);
+    assert.equal(invoke(cwd, "stop").status, 0);
+    const events = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => (JSON.parse(line) as { event?: string }).event)
+      .filter((event): event is string => event !== undefined);
+    assert.deepEqual(events, ["ready", "lock_released", "socket_removed"]);
+  } finally {
+    killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

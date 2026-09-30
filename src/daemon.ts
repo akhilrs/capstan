@@ -101,6 +101,10 @@ export type Logger = (entry: LogEntry) => void;
 
 export interface DaemonServer {
   readonly closed: Promise<void>;
+  /** Stops accepting connections; the socket file stays until cleanup(). */
+  stop(): Promise<void>;
+  /** Removes the socket file if it is still ours. */
+  cleanup(): void;
   close(): Promise<void>;
 }
 
@@ -419,30 +423,38 @@ export async function startDaemonServer(options: {
   const closed = new Promise<void>((resolve) => {
     closedResolve = resolve;
   });
+  const stop = async (): Promise<void> => {
+    if (server.listening)
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+  };
+  const cleanup = (): void => {
+    try {
+      const current = fs.lstatSync(socketPath);
+      if (
+        current.isSocket() &&
+        current.dev === identity.dev &&
+        current.ino === identity.ino
+      )
+        fs.unlinkSync(socketPath);
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ))
+        throw error;
+    }
+    closedResolve();
+  };
   return {
     closed,
+    stop,
+    cleanup,
     close: async () => {
-      if (server.listening)
-        await new Promise<void>((resolve, reject) =>
-          server.close((error) => (error ? reject(error) : resolve())),
-        );
-      try {
-        const current = fs.lstatSync(socketPath);
-        if (
-          current.isSocket() &&
-          current.dev === identity.dev &&
-          current.ino === identity.ino
-        )
-          fs.unlinkSync(socketPath);
-      } catch (error) {
-        if (!(
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ))
-          throw error;
-      }
-      closedResolve();
+      await stop();
+      cleanup();
     },
   };
 }
@@ -539,12 +551,19 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     await stop;
   } finally {
     // The handlers stay until the very end so a second signal during close
-    // cannot kill the process and leave the socket and pid file behind.
-    if (server !== undefined) await server.close();
+    // cannot kill the process and leave the socket and pid file behind. The
+    // socket goes last: once it is gone, the project lock is already free, so
+    // a stop followed by a start never loses the lock to a dying daemon.
+    if (server !== undefined) await server.stop();
     if (core !== undefined) {
-      removePidFile(pidPath);
       core.close();
+      options.announce?.({ event: "lock_released", pid: process.pid });
     }
+    if (server !== undefined) {
+      server.cleanup();
+      options.announce?.({ event: "socket_removed", pid: process.pid });
+    }
+    if (core !== undefined) removePidFile(pidPath);
     for (const signal of signals) process.off(signal, handler);
   }
 }

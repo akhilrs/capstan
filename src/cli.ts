@@ -679,6 +679,10 @@ function agentEnvironment():
     throw new InvalidInputError(
       "CAPSTAN_TOKEN must not contain whitespace or control characters",
     );
+  if (/[\s\p{Cc}]/u.test(socketPath))
+    throw new InvalidInputError(
+      "CAPSTAN_SOCKET must not contain whitespace or control characters",
+    );
   return { token, socketPath };
 }
 
@@ -983,9 +987,10 @@ async function runCli(argv: string[]): Promise<number> {
   if (
     command === "ping" ||
     (command !== undefined && ROUTED_COMMANDS.has(command)) ||
-    (command === "pm" && rest[0] === "restart")
+    (command === "pm" && parseOptions(rest).positional[0] === "restart")
   ) {
-    const parsed = parseOptions(command === "pm" ? rest.slice(1) : rest);
+    const parsed = parseOptions(rest);
+    if (command === "pm") parsed.positional.shift();
     const name = command === "pm" ? "pm-restart" : command;
     if (name === "ping" && parsed.positional.length !== 0) usage();
     return await runRouted(name, parsed.positional, cwd, parsed.json);
