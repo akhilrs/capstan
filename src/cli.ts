@@ -760,7 +760,7 @@ function renderMessages(result: unknown): string {
   return messages
     .map(
       (m) =>
-        `message ${m.messageId} [${m.state}] from ${m.from}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId})`}\n${m.body}`,
+        `message ${m.messageId ?? ""} [${m.state ?? ""}] from ${m.from ?? ""}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId ?? ""})`}\n${m.body ?? ""}`,
     )
     .join("\n\n");
 }

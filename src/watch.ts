@@ -20,6 +20,7 @@ const BELL = "\u0007";
 
 /** Everything from the daemon is shown without control or format characters. */
 function clean(value: unknown): string {
+  if (value === undefined || value === null) return "";
   return String(value).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ");
 }
 
@@ -50,6 +51,12 @@ export function renderWatch(status: Record<string, unknown>): string {
   );
   const messages = list<WatchedMessage>(status.messages);
   if (messages.length === 0) lines.push("messages: none unresolved");
+  if (status.messagesTruncated === true)
+    lines.push(
+      `(only the first ${messages.length} unresolved messages are shown)`,
+    );
+  const clears = list<unknown>(status.inputClears).length;
+  if (clears > 0) lines.push(`input clears recorded: ${clears}`);
   for (const m of messages)
     lines.push(
       `message ${clean(m.messageId)} -> ${clean(m.recipientAgentId)} [${clean(m.state)}] notified: ${clean(m.lastNotifiedAt ?? "no")}`,

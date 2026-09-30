@@ -30,10 +30,19 @@ import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
 const VALIDATION_MESSAGE = /^(?:[a-z][^\n]*\b(?:must|needs)\b|unknown\b)/;
-// A line that, once spaces and zero-width joiners are ignored, reads like the
-// driver's frame or like a message header in `cstan inbox` output.
+// A line that reads like the driver's frame or like a message header in
+// `cstan inbox` output. It is tested on a normalized copy (NFKC, lower case,
+// no combining marks, joiners or blank fillers) and only horizontal space may
+// precede the text, so the scan is linear in the body length.
+const IGNORABLE = /[\p{Mn}\u200c\u200d\u2800\u115f\u1160\u3164\uffa0]/gu;
 const FRAME_LOOKALIKE =
-  /^[\s\u200c\u200d]*(?:\[capstan message |Acknowledge with: cstan ack |message \S+ \[[a-z_]+\] from )/m;
+  /^[ \t]*(?:\[capstan message |acknowledge with: cstan ack |message \S+ \[[a-z_]+\] from )/m;
+
+function imitatesFrame(body: string): boolean {
+  return FRAME_LOOKALIKE.test(
+    body.normalize("NFKC").toLowerCase().replace(IGNORABLE, ""),
+  );
+}
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
@@ -241,18 +250,18 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         if (call.args.length !== 2)
           return fail("invalid_request", "send needs a recipient and a text");
         const [target, body] = call.args as [string, string];
-        if (FRAME_LOOKALIKE.test(body))
+        if (Buffer.byteLength(body, "utf8") > MAX_SEND_BODY_BYTES)
+          return fail(
+            "body_too_large",
+            `a message body may be at most ${MAX_SEND_BODY_BYTES} bytes`,
+          );
+        if (imitatesFrame(body))
           return fail(
             "invalid_request",
             "a message body must not contain a line that looks like a Capstan message frame",
           );
         if (target !== "@pm" && !SAFE_AGENT_ID.test(target))
           return fail("invalid_request", "the recipient id is not valid");
-        if (Buffer.byteLength(body, "utf8") > MAX_SEND_BODY_BYTES)
-          return fail(
-            "body_too_large",
-            `a message body may be at most ${MAX_SEND_BODY_BYTES} bytes`,
-          );
         const caller = agentOf(call.identity);
         let recipient: AgentRecord | undefined;
         if (target === "@pm") {

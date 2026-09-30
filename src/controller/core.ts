@@ -1727,7 +1727,7 @@ export class ControllerCore {
     return this.#messageRowsFor(agentId).map(messageRecord);
   }
 
-  /** Unresolved messages of every agent, oldest first by sequence; the operator's overview. */
+  /** Unresolved messages of every agent: notified ones first (the operator's bell depends on them), then oldest first by sequence. */
   unresolvedMessages(
     credential: string,
     limit: number,
@@ -1740,7 +1740,7 @@ export class ControllerCore {
       throw new TypeError("limit must be an integer from 1 to 1000");
     const rows = this.#database
       .prepare(
-        "SELECT * FROM messages WHERE project_id = ? AND state NOT IN ('acked', 'acked_late', 'cancelled') ORDER BY sequence LIMIT ?",
+        "SELECT * FROM messages WHERE project_id = ? AND state NOT IN ('acked', 'acked_late', 'cancelled') ORDER BY (last_notified_at IS NULL), sequence LIMIT ?",
       )
       .all(this.#projectId, limit + 1) as MessageRow[];
     return {

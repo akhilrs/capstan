@@ -131,3 +131,16 @@ test("everything from the daemon is shown without control or format characters",
   );
   assert.ok(!/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(text.replace(/\n/g, " ")));
 });
+
+test("a truncated message list and recorded clears are shown, and a missing field prints nothing", () => {
+  const text = renderWatch(
+    status({
+      messages: [{ messageId: "m-1", state: "sent" }],
+      messagesTruncated: true,
+      inputClears: [{ clearId: "c-1" }, { clearId: "c-2" }],
+    }),
+  );
+  assert.match(text, /only the first 1 unresolved messages are shown/);
+  assert.match(text, /input clears recorded: 2/);
+  assert.ok(!text.includes("undefined"));
+});

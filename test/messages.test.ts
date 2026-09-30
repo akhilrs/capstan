@@ -1876,3 +1876,25 @@ test("senderOf names the operator, an agent and an earlier generation's actor", 
     close(w);
   }
 });
+
+test("unresolvedMessages puts notified messages first so a bell is never cut by the limit", async () => {
+  const w = await world();
+  try {
+    const older = send(w, w.pm, "older");
+    const notified = send(w, w.developer, "newer but notified");
+    w.core.recordNotification(w.ctx(), notified);
+    const cut = w.core.unresolvedMessages(w.owner, 1);
+    assert.deepEqual(
+      cut.messages.map((m) => m.messageId),
+      [notified],
+    );
+    assert.equal(cut.truncated, true);
+    const all = w.core.unresolvedMessages(w.owner, 5);
+    assert.deepEqual(
+      all.messages.map((m) => m.messageId),
+      [notified, older],
+    );
+  } finally {
+    close(w);
+  }
+});
