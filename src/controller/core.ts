@@ -2331,6 +2331,7 @@ export class ControllerCore {
       throw new TypeError("commit sha must be 40 lowercase hex characters");
     if (
       typeof input.summary !== "string" ||
+      !input.summary.isWellFormed() ||
       input.summary.trim() === "" ||
       UNSAFE_TEXT.test(input.summary) ||
       Buffer.byteLength(input.summary, "utf8") > MAX_REPORT_SUMMARY_BYTES

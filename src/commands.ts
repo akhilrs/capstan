@@ -557,6 +557,14 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       if (deps.inspectCommit === undefined)
         return fail("not_configured", "reports need a git repository");
       try {
+        // Every report command counts, a repeat included: a repeat still costs a read.
+        if (
+          !reportLimiter.allow(`${caller.agentId}:${caller.generation}`, now())
+        )
+          return fail(
+            "rejected",
+            "rate_limited: at most 10 reports a minute; wait and report once",
+          );
         const known = core.acceptedReportFor(
           caller.agentId,
           caller.generation,
@@ -570,21 +578,13 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             duplicate: true,
             announced: known.notifiedMessageId !== null,
           });
-        {
-          const key = `${caller.agentId}:${caller.generation}`;
-          if (!reportLimiter.allow(key, now()))
-            return fail(
-              "rejected",
-              "rate_limited: at most 10 reports a minute; wait and report once",
-            );
-        }
         const row = core
           .agentPanes(deps.controllerCredential)
           .find((candidate) => candidate.agentId === caller.agentId);
         const branch = row?.branch ?? null;
         const baseSha = row?.baseSha?.toLowerCase() ?? null;
         const inspection: CommitInspection =
-          known !== undefined || branch === null || baseSha === null
+          branch === null || baseSha === null
             ? {
                 commitExists: false,
                 branchTip: null,

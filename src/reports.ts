@@ -9,7 +9,10 @@ import { newContext } from "./context.js";
 /** One printable line (control and format characters become spaces), at most `maxBytes` UTF-8 bytes, cut where a user-perceived character ends. */
 export function oneLineSummary(text: string, maxBytes: number): string {
   const clean = text
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}\s]+/gu, " ")
+    .replace(
+      /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}\s]+/gu,
+      " ",
+    )
     .trim();
   let out = "";
   let bytes = 0;
@@ -20,6 +23,16 @@ export function oneLineSummary(text: string, maxBytes: number): string {
     if (bytes + size > maxBytes) break;
     out += segment;
     bytes += size;
+  }
+  out = out.trim();
+  if (out === "" && clean !== "") {
+    // A first character longer than the limit (a letter with a flood of combining marks): keep whole code points up to the limit.
+    for (const point of clean) {
+      const size = Buffer.byteLength(point, "utf8");
+      if (bytes + size > maxBytes) break;
+      out += point;
+      bytes += size;
+    }
   }
   return out.trim();
 }
@@ -84,7 +97,7 @@ export function startReportRelay(options: {
           newContext(options.core, options.credential),
           report.reportId,
         );
-        if (!result.announced) break;
+        if (!result.announced) continue;
         options.log("report_announced", { reportId: report.reportId });
       }
     } catch (error) {

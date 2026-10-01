@@ -569,3 +569,54 @@ test("the rate limiter forgets keys whose attempts are all old", () => {
     "an old key starts fresh",
   );
 });
+
+test("lone surrogates are dropped from a summary, a huge first character still leaves text, and repeats count against the limit", async () => {
+  assert.equal(oneLineSummary("a\ud800b", 100), "a b");
+  const flood = "e" + "\u0301".repeat(2000);
+  const kept = oneLineSummary(flood, 100);
+  assert.ok(kept.length > 0 && Buffer.byteLength(kept, "utf8") <= 100);
+  const h = await harness();
+  try {
+    recordPane(h, BRANCH, BASE);
+    assert.throws(
+      () =>
+        h.core.recordAgentReport(ctx(h.core, h.developer.credential), {
+          commitSha: COMMIT,
+          summary: "bad \ud800 text",
+          evidence: evidence(),
+        }),
+      TypeError,
+    );
+  } finally {
+    await close(h);
+  }
+  const h2 = await harness({
+    commands: {
+      now: () => 5_000_000,
+      inspectCommit: async () => ({
+        commitExists: true,
+        branchTip: COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+    },
+  });
+  try {
+    recordPane(h2, BRANCH, BASE);
+    assert.ok(
+      (await call(h2, h2.developer.credential, "report", [COMMIT, "x"])).ok,
+    );
+    for (let i = 1; i < REPORT_RATE_LIMIT; i += 1)
+      assert.ok(
+        (await call(h2, h2.developer.credential, "report", [COMMIT, "x"])).ok,
+      );
+    const limited = await call(h2, h2.developer.credential, "report", [
+      COMMIT,
+      "x",
+    ]);
+    assert.equal((limited as { code: string }).code, "rejected");
+    assert.match((limited as { message: string }).message, /^rate_limited/);
+  } finally {
+    await close(h2);
+  }
+});
