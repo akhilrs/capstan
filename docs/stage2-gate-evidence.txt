@@ -1,5 +1,5 @@
 # Stage 2 gate evidence (PM-26), taken from the ledger of the gate run on 2026-10-01
-# Times are UTC. The daemon was restarted once at 08:26:39Z (to raise the host wait timeout); the restart ended the dead worker and cancelled its open messages, so the final state of a message can differ from what the run showed live: use the transition table.
+# Times are UTC. The daemon was restarted once at 08:26:39Z (to raise the host wait timeout); the restart ended the dead worker and cancelled its open or failed messages, so the final state of a message can differ from what the run showed live: use the transition table.
 
 ## message transitions (every state change, from controller_events)
 {"sequence":1,"r":"developer-1","created_at":"2026-10-01T08:04:55.027Z","from_state":null,"to_state":"queued","action":"message.enqueue","reason":null,"timer":null}
@@ -272,7 +272,7 @@ operator typed to PM gen2: adversarial instruction to edit README.md itself
 {"created_at":"2026-10-01T08:07:18.408Z","agent":"developer-2","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 {"created_at":"2026-10-01T08:09:11.797Z","agent":"developer-3","from_state":null,"to_state":"active","action":"agent.register","details":null}
 {"created_at":"2026-10-01T08:17:12.529Z","agent":"developer-4","from_state":null,"to_state":"active","action":"agent.register","details":null}
-{"created_at": "2026-10-01T08:25:35.779Z", "agent": "pm-1", "action": "agent.restart", "details": {"cancelledMessageIds": ["568133c6-2312-4e38-8d09-330495cf995d"], "restartId": "3bce9929-20e9-4866-bf08-19e989f909de", "summaryHash": "e9a11f0bd141204214568d411816ed18c1212b3ffbb327431a053940637d0124"}}
+{"created_at":"2026-10-01T08:25:35.779Z","entity_id":"pm-1","from_state":"1","to_state":"2","payload_json":"{\"action\":\"agent.restart\",\"details\":{\"cancelledMessageIds\":[\"568133c6-2312-4e38-8d09-330495cf995d\"],\"restartId\":\"3bce9929-20e9-4866-bf08-19e989f909de\",\"summaryHash\":\"e9a11f0bd141204214568d411816ed18c1212b3ffbb327431a053940637d0124\"},\"entityVersion\":2,\"payload\":{\"agentId\":\"pm-1\"}}"}
 {"created_at":"2026-10-01T08:26:39.586Z","agent":"developer-3","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[\"1e87c360-d639-4290-8bba-9665dde7c3ab\"]}"}
 {"created_at":"2026-10-01T08:39:50.427Z","agent":"developer-4","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 
@@ -445,3 +445,12 @@ herdr processes for capstan-gate: 3
 ## ADDED AFTER CODE REVIEW ROUND 2
 [method for the frame count] counted lines containing the literal text '[capstan message' with a literal substring search (python 'in', not a regex) in each transcript file. Positive control, same method on the developer-3 worker transcript, which does receive frames: {'5d3af96d': 9} lines. PM transcripts: 0 and 0. A worker transcript is expected to hold frames (they are typed into worker panes); a PM transcript is expected to hold none (PM messages are pulled).
 [case b, strength of the draft check] the check was a plain-text search of the pane lines read (recent source, 40 to 60 lines); it did not allow for ANSI escapes, wrapped lines or the draft scrolling out of the window, so it supports but does not prove that the draft was gone. The received frame and body being exact is shown by the frame and body lines themselves.
+
+## ADDED AFTER CODE REVIEW ROUND 3
+[timers check by parsing] capstan.toml parsed with a TOML parser: top-level keys ['herdr_session', 'hosts', 'limits', 'roles', 'schema_version']; 'timers' present: False (so the built-in timer defaults applied)
+[notes on the file] the first token table merges the two PM transcripts into one row; the per-file table further down separates them. The input-clear row appears twice: the first query omitted the hash, the second includes it. The '~/.claude.json' project line is a Python list printed as text. The agent.restart row above is the row as exported from controller_events (the payload column is a JSON string).
+[notifications for message 36, frame id eb3c0249 (case f5)] pm_message at 08:34:37.388Z (309.2 s after it was sent at 08:29:28.173Z, from the 300 s notify-after default plus a tick), and again at 08:44:38.494Z with repeat=true: that repeat fired after my own 'cstan ping' restarted the gate daemon at about 08:44Z (the repeat interval default is 600 s). Both went to the fallback channel (the Herdr channel ok=false). Raw lines:
+{"ts":"2026-10-01T08:34:37.388Z","messageId":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007","channel":"herdr","ok":false,"kind":"pm_message","repeat":false,"recorded":true}
+{"ts":"2026-10-01T08:34:37.388Z","messageId":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007","channel":"fallback","ok":true,"kind":"pm_message","repeat":false,"recorded":true}
+{"ts":"2026-10-01T08:44:38.494Z","messageId":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007","channel":"herdr","ok":false,"kind":"pm_message","repeat":true,"recorded":true}
+{"ts":"2026-10-01T08:44:38.494Z","messageId":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007","channel":"fallback","ok":true,"kind":"pm_message","repeat":true,"recorded":true}
