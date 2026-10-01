@@ -252,8 +252,8 @@ export class Launcher {
   readonly #credential: string;
   readonly #node: string;
   readonly #baseEnvironment: NodeJS.ProcessEnv;
-  /** How many agent environments this launcher has built; an operation that raised it started an agent. */
-  #agentEnvironments = 0;
+  /** How many agents this launcher has started; an operation that raised it started one. */
+  #agentsStarted = 0;
   readonly #git: GitRunner;
   readonly #now: () => number;
   readonly #log: (event: string, details: Record<string, unknown>) => void;
@@ -504,17 +504,24 @@ export class Launcher {
     );
   }
 
-  /** Runs an operation and, if it started an agent while a listed variable was unset, adds the names to its answer and logs them (once per operation). */
-  async #reportingMissingEnvironment<T extends object>(
-    operation: () => Promise<T>,
+  /**
+   * Runs an operation like `#run`. If it started an agent while a listed
+   * variable was unset, the answer carries the names and a warning and the log
+   * gets one entry. The count is read inside the operation, so overlapping
+   * operations cannot see each other's starts.
+   */
+  #runStarting<T extends object>(
+    operation: (budget: Budget) => Promise<T>,
   ): Promise<
     T & { readonly missingEnv?: readonly string[]; readonly warning?: string }
   > {
-    const before = this.#agentEnvironments;
-    const result = await operation();
-    return this.#agentEnvironments > before
-      ? this.#withMissingEnvironment(result)
-      : result;
+    return this.#run(async (budget) => {
+      const before = this.#agentsStarted;
+      const result = await operation(budget);
+      return this.#agentsStarted > before
+        ? this.#withMissingEnvironment(result)
+        : result;
+    });
   }
 
   #withMissingEnvironment<T extends object>(
@@ -550,13 +557,11 @@ export class Launcher {
       extras.CAPSTAN_TOKEN = token;
       extras.CAPSTAN_SOCKET = this.#socketPath;
     }
-    const environment = buildAgentEnvironment(
+    return buildAgentEnvironment(
       this.#baseEnvironment,
       extras,
       token === null ? [] : this.#config.env.pass,
     );
-    if (token !== null) this.#agentEnvironments += 1;
-    return environment;
   }
 
   #arguments(role: ResolvedRole, promptFile: string): string[] {
@@ -601,6 +606,7 @@ export class Launcher {
         environment: this.#environment(agent.credential),
         timeoutMs: START_TIMEOUT_MS,
       });
+      this.#agentsStarted += 1;
       this.#core.recordAgentPane(this.#context(), {
         agentId: agent.agentId,
         workspaceId: workspace.workspaceId,
@@ -676,11 +682,7 @@ export class Launcher {
   // ---------------------------------------------------------- operations
 
   launchPm(): Promise<LaunchResult> {
-    return this.#reportingMissingEnvironment(() => this.#launchPm());
-  }
-
-  #launchPm(): Promise<LaunchResult> {
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#pmRole();
       const active = this.#activeAgents().filter((a) => a.kind === "PM");
@@ -785,11 +787,7 @@ export class Launcher {
   }
 
   restartPm(): Promise<LaunchResult> {
-    return this.#reportingMissingEnvironment(() => this.#restartPm());
-  }
-
-  #restartPm(): Promise<LaunchResult> {
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const active = this.#activeAgents().filter((a) => a.kind === "PM");
       if (active.length === 0)
@@ -883,15 +881,6 @@ export class Launcher {
     roleName: string,
     options: { readonly baseSha?: string } = {},
   ): Promise<SpawnResult> {
-    return this.#reportingMissingEnvironment(() =>
-      this.#spawn(roleName, options),
-    );
-  }
-
-  #spawn(
-    roleName: string,
-    options: { readonly baseSha?: string } = {},
-  ): Promise<SpawnResult> {
     if (
       options.baseSha !== undefined &&
       !/^[0-9a-f]{40}$/.test(options.baseSha)
@@ -902,7 +891,7 @@ export class Launcher {
           "the base commit must be a full lowercase id",
         ),
       );
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#config.roles.find((r) => r.name === roleName);
       if (role === undefined)
@@ -1054,6 +1043,7 @@ export class Launcher {
           environment: this.#environment(agent.credential),
           timeoutMs: START_TIMEOUT_MS,
         });
+        this.#agentsStarted += 1;
         if (started.status === "started")
           return {
             state: "started",

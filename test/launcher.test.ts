@@ -2209,3 +2209,24 @@ test("with nothing listed the answers carry no missingEnv and an unacceptable pa
     bad.cleanup();
   }
 });
+
+test("overlapping operations are told apart: only the one that started an agent reports the missing variable", async () => {
+  const w = await world(true, true, 3, {}, { pass: ["MISSING_ONE"], base: {} });
+  try {
+    const [first, second] = await Promise.all([
+      w.launcher.launchPm(),
+      w.launcher.launchPm(),
+    ]);
+    assert.equal(first.state, "started");
+    assert.deepEqual(first.missingEnv, ["MISSING_ONE"]);
+    assert.equal(second.state, "running");
+    assert.equal(second.missingEnv, undefined);
+    assert.equal(second.warning, undefined);
+    assert.equal(
+      w.events.filter((e) => e.event === "env_pass_missing").length,
+      1,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
