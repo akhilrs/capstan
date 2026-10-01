@@ -404,8 +404,10 @@ test("spawn starts one worker in its own worktree with its token, prompt, worker
     const result = await w.launcher.spawn("developer");
     assert.equal(result.state, "started");
     assert.equal(result.agentId, "developer-1");
-    assert.equal(result.branch, "capstan/developer-1");
-    assert.ok(w.adapter.calls.includes(`worktree:capstan/developer-1:${SHA}`));
+    assert.equal(result.branch, "capstan/developer-1-g1");
+    assert.ok(
+      w.adapter.calls.includes(`worktree:capstan/developer-1-g1:${SHA}`),
+    );
     assert.deepEqual(
       w.adapter.worktreeParents,
       [w.core.fallbackPane(w.owner)!.workspaceId],
@@ -430,7 +432,7 @@ test("spawn starts one worker in its own worktree with its token, prompt, worker
       .find((r) => r.agentId === "developer-1")!;
     assert.deepEqual(
       [row.worktreePath, row.branch, row.baseSha, row.paneId === result.paneId],
-      ["/tmp/work/developer-1", "capstan/developer-1", SHA, true],
+      ["/tmp/work/developer-1", "capstan/developer-1-g1", SHA, true],
     );
   } finally {
     w.cleanup();
@@ -1031,6 +1033,47 @@ test("a gone pane is not searched for when no move was interrupted: a pane recor
   }
 });
 
+test("the branch is named for the generation, git must accept the name before anything is created, and an older row keeps the name it holds", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    assert.equal(first.branch, "capstan/developer-1-g1");
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === "developer-1")!
+        .branch,
+      "capstan/developer-1-g1",
+    );
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: "developer-1",
+      workspaceId: "w3",
+      paneId: first.paneId,
+      worktreePath: first.worktreePath,
+      branch: "capstan/developer-1",
+      baseSha: SHA,
+    });
+    await w.launcher.release("developer-1");
+    assert.equal(
+      w.git.deleted.at(-1)![0],
+      "capstan/developer-1",
+      "cleanup uses the recorded name, whichever it is",
+    );
+    w.git.branchNamesValid = false;
+    const calls = w.adapter.calls.length;
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) => e instanceof LauncherError && e.code === "invalid_branch",
+    );
+    assert.ok(
+      !w.adapter.calls.slice(calls).some((c) => c.startsWith("worktree:")),
+      "no worktree was created for a name git refuses",
+    );
+    assert.equal(w.core.agentRecord("developer-2")!.state, "ended");
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {
@@ -1125,7 +1168,7 @@ test("a failed spawn ends the agent, closes the pane, removes the worktree, dele
       "ended",
     );
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,
@@ -1138,7 +1181,7 @@ test("a failed spawn ends the agent, closes the pane, removes the worktree, dele
     w.adapter.startError = undefined;
     const retry = await w.launcher.spawn("developer");
     assert.equal(retry.agentId, "developer-2");
-    assert.equal(retry.branch, "capstan/developer-2");
+    assert.equal(retry.branch, "capstan/developer-2-g1");
   } finally {
     w.cleanup();
   }
@@ -1567,13 +1610,13 @@ test("a crashed spawn with an intent row removes its worktree found by branch an
       workspaceId: null,
       paneId: null,
       worktreePath: null,
-      branch: "capstan/developer-1",
+      branch: "capstan/developer-1-g1",
       baseSha: SHA,
     });
-    w.git.byBranch.set("capstan/developer-1", "/tmp/found/by/branch");
+    w.git.byBranch.set("capstan/developer-1-g1", "/tmp/found/by/branch");
     await w.launcher.adoptAll();
     assert.deepEqual(w.git.removed, ["/tmp/found/by/branch"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
     assert.equal(
       w.core.listAgents().find((a) => a.agentId === "developer-1")!.state,
       "ended",
@@ -1635,7 +1678,7 @@ test("an ended agent's leftover worktree and branch are released at the next sta
     w.git.deleted = [];
     await w.reopen().adoptAll();
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,
@@ -1670,7 +1713,7 @@ test("a worktree git refuses to remove keeps its row, is listed by status after 
     w.git.removeOk = true;
     await fresh.adoptAll();
     assert.deepEqual(fresh.status().cleanupFailed, []);
-    assert.deepEqual(w.git.deleted.at(-1), ["capstan/developer-1", SHA]);
+    assert.deepEqual(w.git.deleted.at(-1), ["capstan/developer-1-g1", SHA]);
   } finally {
     w.cleanup();
   }
@@ -1985,7 +2028,7 @@ test("when git cannot say whether a worktree exists the branch and the row are k
       workspaceId: null,
       paneId: null,
       worktreePath: null,
-      branch: "capstan/developer-1",
+      branch: "capstan/developer-1-g1",
       baseSha: SHA,
     });
     w.git.byBranchError = new LauncherError(
@@ -2001,10 +2044,10 @@ test("when git cannot say whether a worktree exists the branch and the row are k
     );
     assert.ok(eventNames(w).includes("worktree_unknown"));
     w.git.byBranchError = undefined;
-    w.git.byBranch.set("capstan/developer-1", "/tmp/found");
+    w.git.byBranch.set("capstan/developer-1-g1", "/tmp/found");
     await w.launcher.adoptAll();
     assert.deepEqual(w.git.removed, ["/tmp/found"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,

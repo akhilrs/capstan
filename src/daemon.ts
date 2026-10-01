@@ -16,6 +16,8 @@ import { randomUUID } from "node:crypto";
 import { AuthenticationError } from "./controller/auth.js";
 import { ControllerCore } from "./controller/core.js";
 import { createCommandHandlers, type CommandSet } from "./commands.js";
+import { inspectCommit } from "./git.js";
+import { startReportRelay, type ReportRelay } from "./reports.js";
 import type { CapstanConfig } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
@@ -70,7 +72,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   inbox: { access: "any" },
   ack: { access: "agent" },
   wait: { access: "agent" },
-  report: { access: "agent", stub: STUB_STAGE },
+  report: { access: "agent" },
   ask: { access: "agent", stub: STUB_STAGE },
   "request-review": { access: "agent", stub: STUB_STAGE },
   finding: { access: "agent", stub: STUB_STAGE },
@@ -682,6 +684,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let driver: DeliveryDriver | undefined;
   let launcher: Launcher | undefined;
   let adoption: Promise<void> = Promise.resolve();
+  let reportRelay: ReportRelay | undefined;
   let stopping = false;
   void stop.then(() => {
     stopping = true;
@@ -748,6 +751,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       ...(options.capstan === undefined ? {} : { config: options.capstan }),
       ...(launcher === undefined ? {} : { launcher }),
       controllerCredential: credential,
+      inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
       driverSnapshot: () =>
         driver?.snapshot() ?? { stalledAgentIds: [], stuck: [] },
       log: detailLog,
@@ -770,6 +774,12 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     void adoption.then(() => {
       if (!stopping) driver?.start();
     });
+    reportRelay = startReportRelay({
+      core,
+      credential,
+      intervalMs: options.tickMs ?? 2000,
+      log: detailLog,
+    });
     writePidFile(pidPath);
     options.announce?.({ event: "ready", pid: process.pid });
     await stop;
@@ -781,6 +791,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     // Order: no new connections, no new ticks, then abort and await every
     // running handler, so nothing touches the database after it closes.
     server?.stopAccepting();
+    reportRelay?.stop();
     await adoption;
     await driver?.stop();
     if (server !== undefined) await server.drain();

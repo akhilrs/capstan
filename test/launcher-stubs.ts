@@ -272,6 +272,10 @@ export class StubGit implements GitRunner {
     this.deleted.push([branch, sha]);
     return this.deleteOk;
   }
+  branchNamesValid = true;
+  branchNameValid() {
+    return this.branchNamesValid;
+  }
   byBranchError: Error | undefined;
   worktreeByBranch(branch: string) {
     if (this.byBranchError) throw this.byBranchError;

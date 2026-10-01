@@ -913,7 +913,7 @@ test("status shows the operator the pane rows and the launcher's unfinished clea
       workspaceId: "w2",
       paneId: "w2:p1",
       worktreePath: "/tmp/tree",
-      branch: "capstan/developer-1",
+      branch: "capstan/developer-1-g1",
       baseSha: "c".repeat(40),
     });
     const operator = bodyOf(await call(h, h.owner, "status"));

@@ -8385,7 +8385,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -8396,7 +8396,9 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
             .prepare(`SELECT * FROM ${name}`)
             .all()
             .map((row) => JSON.stringify(row))
-            .filter((row) => !row.includes('"message:'))
+            .filter(
+              (row) => !row.includes('"message:') && !row.includes('"report:'),
+            )
             .sort(),
         ]),
       );
@@ -8405,6 +8407,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "agent_reports",
         "pm_restarts",
         "orphan_panes",
         "agent_panes",
@@ -8421,10 +8424,10 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       ])
         db.exec(`DROP TABLE ${table}`);
       db.exec(
-        "DELETE FROM capability_grants WHERE capability LIKE 'message:%'",
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'report:%'",
       );
       db.exec(
-        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%'",
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'report:%'",
       );
       db.prepare("DELETE FROM schema_migrations WHERE version >= 14").run();
       before = snapshot(db);
@@ -8451,6 +8454,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 14, name: "0014_role_definitions.sql" },
           { version: 15, name: "0015_messages.sql" },
           { version: 16, name: "0016_panes_and_pm_restarts.sql" },
+          { version: 17, name: "0017_agent_reports.sql" },
         ],
       );
       assert.equal(

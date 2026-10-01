@@ -1629,6 +1629,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "agent_reports",
       "pm_restarts",
       "orphan_panes",
       "agent_panes",
@@ -1659,7 +1660,9 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
           name,
           (database.prepare(`SELECT * FROM ${name}`).all() as unknown[])
             .map((row) => JSON.stringify(row))
-            .filter((row) => !row.includes('"message:'))
+            .filter(
+              (row) => !row.includes('"message:') && !row.includes('"report:'),
+            )
             .sort(),
         ]),
       );
@@ -1681,10 +1684,10 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       for (const table of newTables) db.exec(`DROP TABLE ${table}`);
       db.pragma("foreign_keys = ON");
       db.exec(
-        "DELETE FROM capability_grants WHERE capability LIKE 'message:%'",
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'report:%'",
       );
       db.exec(
-        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%'",
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'report:%'",
       );
       db.exec("DELETE FROM schema_migrations WHERE version >= 15");
       before = snapshot(db);
