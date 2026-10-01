@@ -302,6 +302,9 @@ export class DeliveryDriver {
       if (outcome === "ok") {
         this.#missing.delete(id);
         this.#lost.delete(id);
+      } else if (outcome === "other") {
+        // Not knowing is not seeing it gone: the row of not-found observations is broken.
+        this.#missing.delete(id);
       } else if (outcome === "not_found") {
         const count = (this.#missing.get(id) ?? 0) + 1;
         this.#missing.set(id, count);

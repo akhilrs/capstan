@@ -409,3 +409,27 @@ test("a count left from before a pane disappeared does not carry over when it co
     assert.deepEqual(w.driver.snapshot().lostAgentIds, [dev]);
   });
 });
+
+test("an observation that fails for another reason breaks the row of not-found observations", async () => {
+  await withWorld(async (w) => {
+    const dev = w.developer.agentId;
+    w.world.kill(dev);
+    await w.tick(LOSS_LIMIT - 1);
+    w.world.pane(dev).alive = true;
+    w.world.pane(dev).observeError = new HerdrError(
+      "timeout",
+      "no answer in time",
+    );
+    await w.tick();
+    w.world.pane(dev).observeError = undefined;
+    w.world.kill(dev);
+    await w.tick(LOSS_LIMIT - 1);
+    assert.deepEqual(
+      w.driver.snapshot().lostAgentIds,
+      [],
+      "the other error reset the count",
+    );
+    await w.tick();
+    assert.deepEqual(w.driver.snapshot().lostAgentIds, [dev]);
+  });
+});

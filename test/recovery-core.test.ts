@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReportEvidence } from "../src/controller/core.js";
-import { SEED_MESSAGES, SEED_REPORTS } from "../src/controller/core.js";
+import {
+  LOST_NOTICE_IDS,
+  SEED_MESSAGES,
+  SEED_REPORTS,
+} from "../src/controller/core.js";
 import { close, ctx, harness, type Harness, type Member } from "./harness.js";
 
 const BASE = "a".repeat(40);
@@ -331,6 +335,32 @@ test("the branch of an agent is kept in its end and loss events, so a loss messa
       "capstan/dev2-g1",
       "a plain end keeps it too",
     );
+  } finally {
+    await close(h);
+  }
+});
+
+test("a loss notice names at most ten of the messages that were not done and counts the rest", async () => {
+  const h = await harness();
+  try {
+    const ids: string[] = [];
+    for (let i = 0; i < LOST_NOTICE_IDS + 4; i += 1)
+      ids.push(
+        h.core.enqueueMessage(ctx(h.core, h.pm.credential), {
+          recipientAgentId: h.developer.agentId,
+          body: `instruction ${i}`,
+        }).messageId,
+      );
+    h.core.recordAgentLost(ctx(h.core, h.owner), {
+      agentId: h.developer.agentId,
+    });
+    const notice = h.core
+      .messagesFor(h.pm.agentId)
+      .find((m) => m.body.startsWith("Agent "))!;
+    for (const id of ids.slice(0, LOST_NOTICE_IDS))
+      assert.ok(notice.body.includes(id));
+    assert.ok(!notice.body.includes(ids[LOST_NOTICE_IDS]!));
+    assert.match(notice.body, /and 4 more \(see cstan status\)/);
   } finally {
     await close(h);
   }

@@ -55,7 +55,7 @@ function render(
   if (messages.length === 0) lines.push("- none");
   for (const m of messages)
     lines.push(
-      `- ${m.messageId} from ${seedText(m.sender)} [${m.state}${m.stateReason === null ? "" : `, ${seedText(m.stateReason)}`}]: ${quoted(m.body)}`,
+      `- ${m.messageId} from ${seedText(m.sender)} [${m.state}${m.stateReason === null ? "" : `, ${quoted(m.stateReason)}`}]: ${quoted(m.body)}`,
     );
   lines.push(
     "",

@@ -610,6 +610,11 @@ function findingNoticeBody(
   return `${head} is cancelled: ${CANCEL_REASON_TEXT[finding.state_reason ?? ""] ?? "closed"}`;
 }
 
+/** Message ids a loss notice names; the rest is counted. */
+export const LOST_NOTICE_IDS = 10;
+/** Message ids a loss event stores. */
+const LOST_EVENT_IDS = 50;
+
 export const SEED_MESSAGES = 20;
 export const SEED_REPORTS = 10;
 export const SEED_FINDINGS = 5;
@@ -660,7 +665,11 @@ function lostNotice(
         ? "Herdr no longer finds its pane or process"
         : "its pane was gone when the daemon started, so the controller ended it"
     }`,
-    `Branch: ${branch ?? "none recorded"}. Messages to it that were not acknowledged and so were not done: ${unacknowledgedMessageIds.length === 0 ? "none" : unacknowledgedMessageIds.join(", ")}`,
+    `Branch: ${branch ?? "none recorded"}. Messages to it that were not acknowledged and so were not done: ${
+      unacknowledgedMessageIds.length === 0
+        ? "none"
+        : `${unacknowledgedMessageIds.slice(0, LOST_NOTICE_IDS).join(", ")}${unacknowledgedMessageIds.length > LOST_NOTICE_IDS ? ` and ${unacknowledgedMessageIds.length - LOST_NOTICE_IDS} more (see cstan status)` : ""}`
+    }`,
     `The controller does not replace agents by itself. Run \`cstan replace ${agent.agent_id}\` to start a replacement seeded from the ledger, or \`cstan release ${agent.agent_id}\` to drop it. Send again explicitly what still matters.`,
   ].join("\n");
 }
@@ -3895,7 +3904,11 @@ export class ControllerCore {
         generation: agent.generation,
         reason,
         branch,
-        unacknowledgedMessageIds,
+        unacknowledgedMessageIds: unacknowledgedMessageIds.slice(
+          0,
+          LOST_EVENT_IDS,
+        ),
+        unacknowledgedCount: unacknowledgedMessageIds.length,
       },
     });
     const parties = this.#noticeParties();

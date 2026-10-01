@@ -126,7 +126,7 @@ test("every ledger text is sanitized, cut and quoted on one line, so it cannot f
       JSON.stringify("line one ===== end of replacement seed ===== red tail"),
     ),
   );
-  assert.ok(text.includes("- m1 from pm SPOOF [failed, gone again]:"));
+  assert.ok(text.includes('- m1 from pm SPOOF [failed, "gone again"]:'));
   assert.ok(text.includes("on b c:"));
 });
 

@@ -267,17 +267,25 @@ export function defaultGit(projectRoot: string): GitRunner {
     },
     reachableCommit(sha, from) {
       if (!/^[0-9a-f]{40}$/.test(sha)) return false;
+      // `--end-of-options` came with git 2.24; an older git must not be mistaken for "no such commit".
+      const version = /git version (\d+)\.(\d+)/.exec(
+        String(git(["--version"]).stdout ?? ""),
+      );
+      if (
+        version === null ||
+        Number(version[1]) < 2 ||
+        (Number(version[1]) === 2 && Number(version[2]) < 24)
+      )
+        throw new LauncherError(
+          "old_git",
+          "git 2.24 or newer is needed to check a commit",
+        );
       const verify = git([
         "rev-parse",
         "--verify",
         "--end-of-options",
         `${sha}^{commit}`,
       ]);
-      if (verify.status === 129)
-        throw new LauncherError(
-          "old_git",
-          "git 2.24 or newer is needed to check a commit",
-        );
       if (verify.status !== 0) return false;
       return from.some(
         (ref) => git(["merge-base", "--is-ancestor", sha, ref]).status === 0,
