@@ -2607,3 +2607,104 @@ test("a dialog that redraws a moment after the Down key is still answered, with 
     h.fake.cleanup();
   }
 });
+
+test("half-drawn reads during the redraw are waited out, but a different path stops the answer at once", async () => {
+  const h = harness();
+  try {
+    const worker = await blockedWorker(h);
+    let after = -1;
+    const original = h.fake.run;
+    const garbled = [
+      () => "",
+      () =>
+        dialogScreen(worker.checkout, "no").replace(
+          "Yes, I trust this folder",
+          "Yes, I tr",
+        ),
+      () => `${dialogScreen(worker.checkout, "yes")}\nstray line`,
+    ];
+    const adapter = new HerdrAdapter({
+      run: async (args) => {
+        if (args[0] === "pane" && args[1] === "send-keys" && args[3] === "down")
+          after = 0;
+        if (args[0] === "pane" && args[1] === "read" && after >= 0) {
+          const index = after;
+          after += 1;
+          if (index < garbled.length)
+            return { code: 0, stdout: garbled[index]!(), stderr: "" };
+          if (index === garbled.length)
+            worker.pane.screen = dialogScreen(worker.checkout, "yes");
+        }
+        return original(args);
+      },
+      tempRoot: h.fake.root,
+      sleep: async () => {},
+      now: (() => {
+        let clock = 0;
+        return () => (clock += 20);
+      })(),
+    });
+    await adapter.adoptPane({
+      paneId: worker.paneId,
+      role: "worker",
+      agent: "dev",
+      workspaceId: null,
+      worktreePath: h.adapter.paneEntry(worker.paneId)!.worktreePath ?? null,
+    });
+    h.fake.onKey = (pane, key) => {
+      if (key === "enter") {
+        pane.status = "idle";
+        pane.screen = idleScreen();
+      }
+    };
+    const outcome = await adapter.answerTrustDialog({
+      paneId: worker.paneId,
+      log: () => {},
+    });
+    assert.deepEqual(outcome, { handled: true, keys: ["down", "enter"] });
+
+    const g = harness();
+    try {
+      const other = await blockedWorker(g);
+      const second = new HerdrAdapter({
+        run: async (args) => {
+          if (
+            args[0] === "pane" &&
+            args[1] === "read" &&
+            args[2] === other.paneId &&
+            g.fake.events.includes("key:down")
+          )
+            return {
+              code: 0,
+              stdout: dialogScreen(`${other.checkout}-elsewhere`, "yes"),
+              stderr: "",
+            };
+          return g.fake.run(args);
+        },
+        tempRoot: g.fake.root,
+        sleep: async () => {},
+        now: () => 0,
+      });
+      await second.adoptPane({
+        paneId: other.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: g.adapter.paneEntry(other.paneId)!.worktreePath ?? null,
+      });
+      g.fake.onKey = () => {};
+      const stopped = await second.answerTrustDialog({
+        paneId: other.paneId,
+        log: () => {},
+      });
+      assert.deepEqual(stopped, { handled: false, reason: "path_mismatch" });
+      assert.ok(!g.fake.events.includes("key:enter"));
+    } finally {
+      g.adapter.close();
+      g.fake.cleanup();
+    }
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});

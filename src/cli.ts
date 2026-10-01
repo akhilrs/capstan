@@ -5685,11 +5685,14 @@ async function runCli(argv: string[]): Promise<number> {
 // argv[1] is a symlink when run through `npm link` or a global install, so
 // both sides are compared by their real paths.
 function realPathOrSelf(file: string): string {
+  // `node dist/src/cli` runs cli.js without its extension, so a path that is
+  // not a file is retried with .js.
   for (const candidate of [file, `${file}.js`])
     try {
-      return fs.realpathSync(candidate);
+      const real = fs.realpathSync(candidate);
+      if (fs.statSync(real).isFile()) return real;
     } catch {
-      // Try the next spelling: `node dist/src/cli` runs cli.js without its extension.
+      // Try the next spelling.
     }
   return path.resolve(file);
 }

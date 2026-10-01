@@ -937,10 +937,18 @@ export class HerdrAdapter {
     // a short while; the Enter below is still sent only after a read shows it.
     const redrawDeadline = this.#now() + SELECTION_REDRAW_MS;
     let second = await check();
+    // A half-drawn screen can read as no dialog, unknown options or a dialog
+    // that is not last; those are waited out. A different path or a wrapped
+    // path is not a redraw problem and stops the answer at once.
+    const transient = (result: typeof second): boolean =>
+      result.ok
+        ? result.selected !== result.target
+        : ["no_dialog", "unknown_options", "dialog_not_last"].includes(
+            result.reason,
+          );
     while (
-      second.ok &&
-      second.selected !== second.target &&
       keys.length > 0 &&
+      transient(second) &&
       this.#now() < redrawDeadline
     ) {
       await this.#sleep(this.#pollMs);

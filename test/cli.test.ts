@@ -2423,6 +2423,7 @@ test("the CLI behaves the same when it is started through a symlink, as npm link
         env: { ...process.env, CAPSTAN_LAUNCH: "off" },
       },
     );
+    assert.equal(extensionless.status, 0, extensionless.stderr);
     assert.match(
       extensionless.stdout,
       /^pong: true$/m,
