@@ -403,7 +403,7 @@ test("a finding with no check before the deadline is escalated by the controller
     assert.equal(done.checks[0]!.result, "timed_out");
     assert.match(
       done.checks[0]!.evidence,
-      /no check by the supervisor within 1800 seconds/,
+      /the latest correction was not acknowledged and no check was recorded within 1800 seconds/,
     );
     assert.equal(
       messageState(h, messageId),
@@ -411,7 +411,7 @@ test("a finding with no check before the deadline is escalated by the controller
       "the undelivered correction is cancelled with the finding",
     );
     assert.ok(
-      pmBodies(h).at(-1)!.includes("recorded no check before the deadline"),
+      pmBodies(h).at(-1)!.includes("no check was recorded before the deadline"),
     );
     assert.deepEqual(h.core.sweepFindings(newContext, 1800), []);
 
@@ -435,6 +435,29 @@ test("a finding with no check before the deadline is escalated by the controller
     nowMs += 1_000;
     assert.deepEqual(h.core.sweepFindings(newContext, 1800), [again.findingId]);
     assert.throws(() => h.core.sweepFindings(newContext, 0), /positive/);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a deadline after the acknowledgement says the supervisor did not check; one with no acknowledgement says the correction was not acknowledged", async () => {
+  let nowMs = Date.parse("2026-10-01T12:00:00.000Z");
+  const h = await harness({ clock: () => new Date(nowMs) });
+  try {
+    withRoles(h);
+    const s = supervisor(h);
+    const finding = raise(h, s);
+    ack(h, finding.deliveries[0]!.messageId);
+    nowMs += 1800_000;
+    assert.deepEqual(
+      h.core.sweepFindings(() => ctx(h.core, h.owner), 1800),
+      [finding.findingId],
+    );
+    const done = h.core.findings(h.owner)[0]!;
+    assert.match(
+      done.checks[0]!.evidence,
+      /no check by the supervisor within 1800 seconds of the latest change to the delivery \(the correction was acknowledged\)/,
+    );
   } finally {
     await close(h);
   }

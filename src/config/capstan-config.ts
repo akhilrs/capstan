@@ -203,8 +203,18 @@ export const PM_DEFAULT_DENY: readonly string[] = [
   "Task",
 ];
 
-/** A Supervisor only reads and reports: the same file and subagent tools are denied unless its role sets `deny` itself. */
-export const SUPERVISOR_DEFAULT_DENY: readonly string[] = PM_DEFAULT_DENY;
+/**
+ * A Supervisor only reads and reports: file, subagent and the common ways to
+ * push or to type into another agent's pane are denied unless its role sets
+ * `deny` itself. Tool rules, not a sandbox: Bash stays open for `cstan`.
+ */
+export const SUPERVISOR_DEFAULT_DENY: readonly string[] = [
+  ...PM_DEFAULT_DENY,
+  "Bash(git push)",
+  "Bash(git push *)",
+  "Bash(herdr *)",
+  "Bash(tmux *)",
+];
 
 export const SPAWN_LAYOUTS = ["tab", "pane"] as const;
 export const SPLIT_DIRECTIONS = ["auto", "right", "down"] as const;

@@ -1049,3 +1049,45 @@ test("the prompt text is kept on the role for the launcher and is not part of th
     );
   });
 });
+
+test("a Supervisor without a deny list is read-only by default and an explicit deny list replaces that", () => {
+  const roleOf = (extra: string) =>
+    withConfig(
+      `${VALID}\n[roles.watcher]\nkind = "Supervisor"\nhost = "claude"\n${extra}`,
+      (directory) =>
+        loadCapstanConfig(directory).roles.find((r) => r.name === "watcher")!,
+    );
+  assert.deepEqual(roleOf("").deny, [
+    "Write",
+    "Edit",
+    "NotebookEdit",
+    "Agent",
+    "Task",
+    "Bash(git push)",
+    "Bash(git push *)",
+    "Bash(herdr *)",
+    "Bash(tmux *)",
+  ]);
+  assert.deepEqual(roleOf("deny = []\n").deny, []);
+  assert.deepEqual(roleOf('deny = ["Agent"]\n').deny, ["Agent"]);
+  assert.notEqual(roleOf("").configHash, roleOf("deny = []\n").configHash);
+});
+
+test("timers.finding_check_seconds defaults to 1800 and accepts 60 to 86400", () => {
+  const load = (text: string) =>
+    withConfig(
+      text,
+      (directory) => loadCapstanConfig(directory).timers.findingCheckSeconds,
+    );
+  assert.equal(load(VALID), 1800);
+  for (const value of ["60", "86400"])
+    assert.equal(
+      load(`${VALID}\n[timers]\nfinding_check_seconds = ${value}\n`),
+      Number(value),
+    );
+  for (const value of ["59", "86401", "0", "-5", "1.5", '"60"', "true"])
+    assertRejected(
+      `${VALID}\n[timers]\nfinding_check_seconds = ${value}\n`,
+      /timers\.finding_check_seconds/,
+    );
+});

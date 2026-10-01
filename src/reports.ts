@@ -142,10 +142,8 @@ export function startReportRelay(options: {
           newContext(options.core, options.credential),
           notice.noticeId,
         );
-        if (!result.announced) {
-          backoffUntil = Date.now() + RELAY_BACKOFF_MS;
-          return;
-        }
+        // Not announced: raced with another announcer or waiting its turn; the next tick looks again.
+        if (!result.announced) break;
         options.log("finding_notice_announced", {
           findingId: notice.findingId,
           event: notice.event,

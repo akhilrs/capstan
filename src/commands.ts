@@ -862,6 +862,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           "not_configured",
           "observing agents needs capstan.toml and Herdr",
         );
+      try {
+        core.assertCanObserve(call.credential);
+      } catch (error) {
+        return mapError(error);
+      }
       if (!observeLimiter.allow(caller.agentId, now()))
         return fail(
           "rejected",

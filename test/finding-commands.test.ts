@@ -309,6 +309,43 @@ test("observe is for the PM and a Supervisor: lines is validated, the answer car
   });
 });
 
+test("observing needs the agent:observe grant: a revoked grant stops it", async () => {
+  await withHarness(async (h) => {
+    const s = supervisor(h);
+    assert.ok(
+      (
+        (await call(h, s.credential, "observe", [h.developer.agentId])) as {
+          ok: boolean;
+        }
+      ).ok,
+    );
+    const { default: Database } = await import("better-sqlite3");
+    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    try {
+      const changed = db
+        .prepare(
+          "UPDATE capability_grants SET revoked_at = '2026-10-01T00:00:00.000Z' WHERE actor_id = ? AND capability = 'agent:observe'",
+        )
+        .run(s.actorId).changes;
+      assert.equal(changed, 1);
+    } finally {
+      db.close();
+    }
+    assert.match(
+      refused(await call(h, s.credential, "observe", [h.developer.agentId])),
+      /capability|not allowed|does not have|agent:observe/i,
+    );
+    assert.ok(
+      (
+        (await call(h, h.pm.credential, "observe", [h.developer.agentId])) as {
+          ok: boolean;
+        }
+      ).ok,
+      "the PM keeps its grant",
+    );
+  });
+});
+
 test("thirty observations a minute per caller", async () => {
   await withHarness(async (h) => {
     const s = supervisor(h);

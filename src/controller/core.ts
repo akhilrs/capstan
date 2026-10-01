@@ -535,7 +535,8 @@ interface AgentFindingNoticeRow {
 
 const ESCALATION_REASON_TEXT: Readonly<Record<string, string>> = {
   second_unresolved: "the target did not recover after two corrections",
-  timed_out: "the supervisor recorded no check before the deadline",
+  timed_out:
+    "no check was recorded before the deadline (the supervisor did not check, or the correction was not acknowledged)",
 };
 const CANCEL_REASON_TEXT: Readonly<Record<string, string>> = {
   target_ended: "the target agent ended",
@@ -4256,6 +4257,12 @@ export class ControllerCore {
     );
   }
 
+  /** Refuses a caller whose actor lacks the capability to observe agents; a revoked grant stops observation. */
+  assertCanObserve(credential: string): void {
+    this.#assertOpen();
+    this.#authorize(credential, "agent:observe");
+  }
+
   /** Findings, newest first, with their deliveries and checks. */
   findings(credential: string, limit = 20): readonly AgentFindingRecord[] {
     this.#authorize(credential, "controller:reconcile");
@@ -4307,6 +4314,16 @@ export class ControllerCore {
               },
             };
           const now = this.#now();
+          const latest = this.#database
+            .prepare(
+              `SELECT m.state FROM agent_finding_deliveries d
+               JOIN messages m ON m.project_id = d.project_id AND m.message_id = d.message_id
+               WHERE d.project_id = ? AND d.finding_id = ? AND d.attempt = ?`,
+            )
+            .get(this.#projectId, findingId, finding.interventions) as
+            { state: MessageState } | undefined;
+          const acknowledged =
+            latest?.state === "acked" || latest?.state === "acked_late";
           this.#database
             .prepare(
               `INSERT INTO agent_finding_checks(project_id, finding_id, check_id, after_intervention, result, evidence_text, checked_by_actor_id, created_at)
@@ -4317,7 +4334,9 @@ export class ControllerCore {
               findingId,
               randomUUID(),
               finding.interventions,
-              `no check by the supervisor within ${deadlineSeconds} seconds of the latest delivery`,
+              acknowledged
+                ? `no check by the supervisor within ${deadlineSeconds} seconds of the latest change to the delivery (the correction was acknowledged)`
+                : `the latest correction was not acknowledged and no check was recorded within ${deadlineSeconds} seconds of its latest change (message state ${latest?.state ?? "unknown"})`,
               actor.actorId,
               now,
             );
