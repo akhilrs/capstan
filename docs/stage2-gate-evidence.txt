@@ -307,3 +307,22 @@ worktrees-repo-capstan-developer-4 f1cb873e first turn 2026-10-01T08:17:26.138Z 
 [after the run] a PM claude process (pid 18731, parent 18207) was still running after the Herdr server stop and was ended by pid.
 
 ## PM generation 1, turns between 08:04 and 08:10Z (the smoke round and case a, 11 rounds): 23 turns {'input_tokens': 46, 'output_tokens': 4343, 'cache_creation_input_tokens': 143744, 'cache_read_input_tokens': 1988270}
+
+## ADDED AFTER REVIEW ROUND 3
+[case d, output of the kill script, written during the run] closed pane at 2026-10-01T08:14:19.936Z while state was sent   (this is the only record of the close time; the ledger's first trace of the dead pane is the agent_not_found failure at 08:25:18.545Z)
+[mapping] message id 1e87c360-d639-4290-8bba-9665dde7c3ab (named in the agent.end event of developer-3) = ledger sequence 28 (Probe G1); message id f827aac3-35ff-45f5-b87b-ef51cb49f90f = sequence 27 (Probe D1); 568133c6-2312-4e38-8d09-330495cf995d = sequence 35 (F4); eb3c0249-e9e8-4c2f-a93e-7e8edc259007 = sequence 36 (F5)
+{"sequence":27,"message_id":"f827aac3-35ff-45f5-b87b-ef51cb49f90f"}
+{"sequence":28,"message_id":"1e87c360-d639-4290-8bba-9665dde7c3ab"}
+{"sequence":35,"message_id":"568133c6-2312-4e38-8d09-330495cf995d"}
+{"sequence":36,"message_id":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007"}
+
+## state after the run (checked 2026-10-01T08:44:33Z)
+cstan status in the gate repository: pong: true
+herdr capstan-gate session: {"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running at /home/akhil/.config/herdr/sessions/capstan-gate/herdr.s
+git worktrees in the gate repository:
+/tmp/capstan-gate/repo  dad3d93 [main]
+capstan/* branches left: 0
+worktree directories left under ~/.herdr/worktrees/repo: 0
+agent processes still running (claude with the capstan prompt file): 0
+herdr processes for capstan-gate: 3
+[correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own 'nexora' project (cwd /home/akhil/Workspace/github.com/akhilrs/nexora, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
