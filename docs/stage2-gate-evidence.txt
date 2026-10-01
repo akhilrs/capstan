@@ -317,7 +317,7 @@ worktrees-repo-capstan-developer-4 f1cb873e first turn 2026-10-01T08:17:26.138Z 
 {"sequence":36,"message_id":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007"}
 
 ## state after the run (checked 2026-10-01T08:44:33Z)
-cstan status in the gate repository: pong: true
+cstan ping in the gate repository (restarted the daemon, see the correction below): pong: true
 herdr capstan-gate session: {"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/capstan-gate/herdr.sock; run `herdr session attach capstan-gate` to start or attach it"}}
 git worktrees in the gate repository:
 /tmp/capstan-gate/repo  dad3d93 [main]
@@ -457,3 +457,10 @@ herdr processes for capstan-gate: 3
 
 ## ADDED AFTER CODE REVIEW ROUND 4
 [search for case h] the daemon log (.capstan/daemon.log, one JSON object per line) was searched with grep -c for the literal text 'trust_dialog_key', the event name the launcher logs for each key it presses on a trust dialog; the count was 0. A positive control for the same search in the fake-Claude test run (PM-25) is not part of this run.
+
+## ADDED AFTER CODE REVIEW ROUND 5 (daemon log lines, copied as logged)
+[first daemon trace of the dead pane, case d] {"ts":"2026-10-01T08:14:21.406Z","command":"daemon:observe_failed","actorId":null,"role":null,"code":"info","ms":0,"detail":{"agentId":"developer-3","error":"HerdrError"}}
+[delivery failures for message 28 before the failed event] {"ts":"2026-10-01T08:25:14.490Z","command":"daemon:delivery_failure","actorId":null,"role":null,"code":"info","ms":0,"detail":{"messageId":"1e87c360-d639-4290-8bba-9665dde7c3ab","count":1}} | {"ts":"2026-10-01T08:25:16.515Z","command":"daemon:delivery_failure","actorId":null,"role":null,"code":"info","ms":0,"detail":{"messageId":"1e87c360-d639-4290-8bba-9665dde7c3ab","count":2}} | {"ts":"2026-10-01T08:25:18.542Z","command":"daemon:delivery_failure","actorId":null,"role":null,"code":"info","ms":0,"detail":{"messageId":"1e87c360-d639-4290-8bba-9665dde7c3ab","count":3}}
+[daemon stops: each 'cstan stop' is a shutdown command] {"ts":"2026-10-01T08:26:37.126Z","command":"shutdown","actorId":"a70b08ef-f4cc-4ba9-b695-3db00078d22e","role":"operator","code":"ok","ms":1} | {"ts":"2026-10-01T08:39:53.180Z","command":"shutdown","actorId":"a70b08ef-f4cc-4ba9-b695-3db00078d22e","role":"operator","code":"ok","ms":1} | {"ts":"2026-10-01T08:44:41.683Z","command":"shutdown","actorId":"a70b08ef-f4cc-4ba9-b695-3db00078d22e","role":"operator","code":"ok","ms":1}
+[daemon start at the end-of-run check: adoption lines logged when the daemon started] {"ts":"2026-10-01T08:44:34.394Z","command":"daemon:adopt_failed","actorId":null,"role":null,"code":"info","ms":0,"detail":{"agentId":"pm-1","error":"HerdrError: no herdr server is running at /home/akhil/.config/herdr/sessions/capstan-gate/herdr.sock; run `herdr session attach capstan-gate` to start or attach it"}} | {"ts":"2026-10-01T08:44:34.400Z","command":"daemon:fallback_adopt_failed","actorId":null,"role":null,"code":"info","ms":0,"detail":{"error":"HerdrError: no herdr server is running at /home/akhil/.config/herdr/sessions/capstan-gate/herdr.sock; run `herdr session attach capstan-gate` to start or attach it"}}
+[repeat notification cause] the shutdown at 08:39:53.180Z (the planned stop after releasing developer-4), the start logged at 08:44:34Z by the 'cstan ping' of the end-of-run check, the repeat pm_message at 08:44:38.494Z four seconds later, and a second shutdown at 08:44:41.683Z. The 600 s repeat interval explains the due time; the restart explains why it fired then. A daemon that had kept running would have fired it at about 08:44:37Z too, so the log does not separate the two explanations; what is certain is that the restart and the repeat fell within the same few seconds.
