@@ -1,0 +1,38 @@
+# Stage 4 gate evidence, part 1: review (PM-32), from the ledger of the run on 2026-10-01 (UTC)
+# Setup: throwaway repository, isolated Herdr session capstan-s4, fake Claude stand-in for every agent. Tokens were read from /proc/<pid>/environ of each agent's own process and used from a separate shell; they are not printed here.
+
+## reviews (author and reviewer sessions: agent id and actor id)
+{"review_id":"78811071-8ebb-412e-93ac-0641fa706de6","round":1,"subject_report_id":"ec828e56-291f-4b78-a2be-4850116a38a8","commit_sha":"dd7a67070519c92d1254659d0f6a3d0af2769c5d","base_sha":"26ad068b04fd792b786f42b77d633bcef6a52ae0","state":"findings","author_agent_id":"developer-1","author_actor_id":"478a4be7-a8f2-4eac-9a9f-bb175091a95e","reviewer_role":"reviewer","reviewer_agent_id":"reviewer-1","reviewer_actor_id":"a86a601f-4859-4d07-921f-79821f765de3","verdict_text":"feature.txt has no test and the name is vague","notified_message_id":"165fa879-e942-4650-b468-7e25b5b17aac","created_at":"2026-10-01T12:58:23.625Z","completed_at":"2026-10-01T12:58:36.869Z"}
+{"review_id":"7cbd852e-d454-4270-8d79-bb3a95f2ded1","round":1,"subject_report_id":"5ca4d5bb-eccf-4083-abc8-beab077df1d5","commit_sha":"c9eaaac3e84e3ee164ddc7ab3caea93797c0890b","base_sha":"26ad068b04fd792b786f42b77d633bcef6a52ae0","state":"passed","author_agent_id":"developer-1","author_actor_id":"478a4be7-a8f2-4eac-9a9f-bb175091a95e","reviewer_role":"reviewer","reviewer_agent_id":"reviewer-2","reviewer_actor_id":"8be04cf4-4cf9-43c9-b544-bf8ed66177a4","verdict_text":"the test covers the feature; fine","notified_message_id":"5fa19720-0b8c-4d78-8b26-d1dcde5f0960","created_at":"2026-10-01T12:58:57.903Z","completed_at":"2026-10-01T12:59:00.116Z"}
+
+## reports the reviews hang on
+{"report_id":"ec828e56-291f-4b78-a2be-4850116a38a8","agent_id":"developer-1","commit_sha":"dd7a67070519c92d1254659d0f6a3d0af2769c5d","summary":"added feature.txt","state":"accepted"}
+{"report_id":"5ca4d5bb-eccf-4083-abc8-beab077df1d5","agent_id":"developer-1","commit_sha":"c9eaaac3e84e3ee164ddc7ab3caea93797c0890b","summary":"added a test as the review asked","state":"accepted"}
+
+## agents (reviewers are ended; their worktrees and branches are gone)
+{"agent_id":"developer-1","role_name":"developer","kind":"Developer","state":"active","actor_id":"478a4be7-a8f2-4eac-9a9f-bb175091a95e"}
+{"agent_id":"pm-1","role_name":"pm","kind":"PM","state":"active","actor_id":"160c50c0-815b-4fee-91af-32248411b031"}
+{"agent_id":"reviewer-1","role_name":"reviewer","kind":"Verifier","state":"ended","actor_id":"a86a601f-4859-4d07-921f-79821f765de3"}
+{"agent_id":"reviewer-2","role_name":"reviewer","kind":"Verifier","state":"ended","actor_id":"8be04cf4-4cf9-43c9-b544-bf8ed66177a4"}
+
+## controller messages (sender role controller): review tasks to the reviewers and verdict notices to the PM
+{"sequence":2,"recipient_agent_id":"reviewer-1","sender_role":"controller","body":"Review request 78811071-8ebb-412e-93ac-0641fa706de6 (round 1) for report ec828e56-291f-4b78-a2be-4850116a38a8\nCommit to review: dd7a67070519c92d1254659d0f6a3d0af2769c5d\nThe author's base commit: 26ad068b04fd792b786f42b77d633bcef6a52ae0\nSee the change with: git diff 26ad068b04fd792b786f42b77d633bcef6a52ae0 dd7a67070519c92d1254659d0f6a3d0af2769c5d   and   git show dd7a67070519c92d1254659d0f6a3d0af27"}
+{"sequence":3,"recipient_agent_id":"pm-1","sender_role":"controller","body":"Review 78811071-8ebb-412e-93ac-0641fa706de6 of report ec828e56-291f-4b78-a2be-4850116a38a8, round 1: FINDINGS\nReviewer: reviewer-1 (role reviewer); author: developer-1. Different sessions.\nCommit: dd7a67070519c92d1254659d0f6a3d0af2769c5d\nThe reviewer's text, not verified: \"feature.txt has no test and the name is vague\""}
+{"sequence":5,"recipient_agent_id":"reviewer-2","sender_role":"controller","body":"Review request 7cbd852e-d454-4270-8d79-bb3a95f2ded1 (round 1) for report 5ca4d5bb-eccf-4083-abc8-beab077df1d5\nCommit to review: c9eaaac3e84e3ee164ddc7ab3caea93797c0890b\nThe author's base commit: 26ad068b04fd792b786f42b77d633bcef6a52ae0\nSee the change with: git diff 26ad068b04fd792b786f42b77d633bcef6a52ae0 c9eaaac3e84e3ee164ddc7ab3caea93797c0890b   and   git show c9eaaac3e84e3ee164ddc7ab3caea93797c"}
+{"sequence":6,"recipient_agent_id":"pm-1","sender_role":"controller","body":"Review 7cbd852e-d454-4270-8d79-bb3a95f2ded1 of report 5ca4d5bb-eccf-4083-abc8-beab077df1d5, round 1: PASS\nReviewer: reviewer-2 (role reviewer); author: developer-1. Different sessions.\nCommit: c9eaaac3e84e3ee164ddc7ab3caea93797c0890b\nThe reviewer's text, not verified: \"the test covers the feature; fine\""}
+
+## git after the second verdict: worktrees and branches left
+/tmp/capstan-s4/repo                                      26ad068 [main]
+/home/akhil/.herdr/worktrees/repo/capstan-developer-1-g1  c9eaaac [capstan/developer-1-g1]
++ capstan/developer-1-g1
+
+## the author's own token tried cstan review (output captured during the run)
+cstan: forbidden: only a reviewer can answer a review
+
+## events: review begin and complete
+{"created_at":"2026-10-01T12:58:23.626Z","from_state":null,"to_state":"started","action":"review.begin"}
+{"created_at":"2026-10-01T12:58:36.871Z","from_state":"started","to_state":"findings","action":"review.complete"}
+{"created_at":"2026-10-01T12:58:36.881Z","from_state":"active","to_state":"ended","action":"agent.end"}
+{"created_at":"2026-10-01T12:58:57.904Z","from_state":null,"to_state":"started","action":"review.begin"}
+{"created_at":"2026-10-01T12:59:00.117Z","from_state":"started","to_state":"passed","action":"review.complete"}
+{"created_at":"2026-10-01T12:59:00.125Z","from_state":"active","to_state":"ended","action":"agent.end"}
