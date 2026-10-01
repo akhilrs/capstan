@@ -210,15 +210,27 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** Copies only the allowlisted names from `base`, then applies `extras`; CAPSTAN_ variables never come from `base`. */
+/**
+ * Copies only the allowlisted names from `base`, then the names the operator
+ * listed in `pass`, then applies `extras`; CAPSTAN_ variables never come from
+ * `base`. A passed value that is not acceptable fails and names the variable,
+ * never the value.
+ */
 export function buildAgentEnvironment(
   base: NodeJS.ProcessEnv,
   extras: Readonly<Record<string, string>>,
+  pass: readonly string[] = [],
 ): Record<string, string> {
   const environment: Record<string, string> = {};
-  for (const name of ALLOWLISTED_BASE) {
+  for (const name of [...ALLOWLISTED_BASE, ...pass]) {
+    if (name.startsWith("CAPSTAN_") || !ENVIRONMENT_KEY.test(name))
+      throw new InvalidArgumentError(
+        `environment name ${name} is not acceptable`,
+      );
     const value = base[name];
-    if (value !== undefined) environment[name] = value;
+    // An empty value of a listed name counts as unset: the launcher reports it, and nothing is passed.
+    if (value !== undefined && (value !== "" || !pass.includes(name)))
+      environment[name] = value;
   }
   for (const [name, value] of Object.entries(extras)) environment[name] = value;
   for (const [name, value] of Object.entries(environment)) {
@@ -232,7 +244,7 @@ export function buildAgentEnvironment(
       UNSAFE_TEXT.test(value)
     )
       throw new InvalidArgumentError(
-        `environment value for ${name} is not acceptable`,
+        `environment value for ${name} is not acceptable (one line of printable text is allowed; a trailing carriage return from a CRLF file is not)`,
       );
   }
   return environment;

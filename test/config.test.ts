@@ -199,6 +199,61 @@ test("limits.max_workers defaults to 3, accepts 1 to 16 and refuses anything els
   assertRejected(`${VALID}\n[limits]\nmax_worker = 2\n`, /limits/);
 });
 
+test("env.pass lists the variable names to pass to agents and refuses anything that is not a plain name", () => {
+  const load = (text: string) =>
+    withConfig(text, (directory) => loadCapstanConfig(directory).env.pass);
+  assert.deepEqual(load(VALID), []);
+  assert.deepEqual(load(`${VALID}\n[env]\n`), []);
+  assert.deepEqual(
+    load(`${VALID}\n[env]\npass = ["NEXORA_API_KEY", "_X1", "A"]\n`),
+    ["NEXORA_API_KEY", "_X1", "A"],
+  );
+  assert.deepEqual(load(`${VALID}\n[env]\npass = []\n`), []);
+  for (const bad of [
+    'pass = ["lower"]',
+    'pass = ["1ABC"]',
+    'pass = ["A-B"]',
+    'pass = ["A B"]',
+    'pass = [""]',
+    'pass = ["A".repeat(65)]'.replace('"A".repeat(65)', `"${"A".repeat(65)}"`),
+    "pass = [1]",
+    'pass = "NEXORA_API_KEY"',
+  ])
+    assertRejected(`${VALID}\n[env]\n${bad}\n`, /env\.pass/);
+  assertRejected(`${VALID}\n[env]\npass = ["CAPSTAN_TOKEN"]\n`, /CAPSTAN_/);
+  for (const name of [
+    "PATH",
+    "HOME",
+    "TERM",
+    "IFS",
+    "PS1",
+    "PROMPT_COMMAND",
+    "BASH_ENV",
+    "SHELLOPTS",
+    "LD_PRELOAD",
+    "NODE_OPTIONS",
+    "ZDOTDIR",
+    "SHELL",
+    "LD_DEBUG",
+    "DYLD_INSERT_LIBRARIES",
+    "GIT_SSH_COMMAND",
+    "GIT_DIR",
+    "BASH_FUNC_X",
+    "BASH_XTRACEFD",
+    "PS0",
+  ])
+    assertRejected(
+      `${VALID}\n[env]\npass = ["${name}"]\n`,
+      new RegExp(`must not be ${name}`),
+    );
+  assertRejected(`${VALID}\n[env]\npass = ["A", "B", "A"]\n`, /repeats A/);
+  assertRejected(
+    `${VALID}\n[env]\npass = [${Array.from({ length: 33 }, (_, i) => `"V${i}"`).join(", ")}]\n`,
+    /exceeds 32/,
+  );
+  assertRejected(`${VALID}\n[env]\nextra = 1\n`, /env/);
+});
+
 test("the layout table defaults to tabs, accepts the documented values and refuses everything else", () => {
   const load = (text: string) =>
     withConfig(text, (directory) => loadCapstanConfig(directory).layout);

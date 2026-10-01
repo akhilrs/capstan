@@ -90,6 +90,10 @@ export interface LaunchResult {
   readonly step?: string;
   /** The long-lived hub workspace (it runs `cstan status --watch`): workers' worktrees hang under it, so a PM pane can be closed and replaced. */
   readonly hub?: "opened" | "present" | "failed";
+  /** Names listed in `[env] pass` that are not set where the daemon runs, so the agent does not have them. */
+  readonly missingEnv?: readonly string[];
+  /** Printed by the CLI; names the missing variables and where they have to be set. */
+  readonly warning?: string;
 }
 
 export interface SpawnResult {
@@ -103,6 +107,10 @@ export interface SpawnResult {
   /** Why a pane-mode spawn stayed a tab. */
   readonly placementNote?: string;
   readonly hint?: string;
+  /** Names listed in `[env] pass` that are not set where the daemon runs, so the agent does not have them. */
+  readonly missingEnv?: readonly string[];
+  /** Printed by the CLI; names the missing variables and where they have to be set. */
+  readonly warning?: string;
 }
 
 export interface ReleaseOutcome {
@@ -244,6 +252,8 @@ export class Launcher {
   readonly #credential: string;
   readonly #node: string;
   readonly #baseEnvironment: NodeJS.ProcessEnv;
+  /** How many agents this launcher has started; an operation that raised it started one. */
+  #agentsStarted = 0;
   readonly #git: GitRunner;
   readonly #now: () => number;
   readonly #log: (event: string, details: Record<string, unknown>) => void;
@@ -487,6 +497,51 @@ export class Launcher {
     return directory;
   }
 
+  /** Names from `[env] pass` that are not set (or are empty) in the daemon's environment: an agent started now would not have them. */
+  #missingPassEnvironment(): string[] {
+    return this.#config.env.pass.filter(
+      (name) =>
+        this.#baseEnvironment[name] === undefined ||
+        this.#baseEnvironment[name] === "",
+    );
+  }
+
+  /**
+   * Runs an operation like `#run`. If it started an agent while a listed
+   * variable was unset, the answer carries the names and a warning and the log
+   * gets one entry. The count is read inside the operation, so overlapping
+   * operations cannot see each other's starts.
+   */
+  #runStarting<T extends object>(
+    operation: (budget: Budget) => Promise<T>,
+  ): Promise<
+    T & { readonly missingEnv?: readonly string[]; readonly warning?: string }
+  > {
+    return this.#run(async (budget) => {
+      const before = this.#agentsStarted;
+      const result = await operation(budget);
+      return this.#agentsStarted > before
+        ? this.#withMissingEnvironment(result)
+        : result;
+    });
+  }
+
+  #withMissingEnvironment<T extends object>(
+    result: T,
+  ): T & {
+    readonly missingEnv?: readonly string[];
+    readonly warning?: string;
+  } {
+    const missing = this.#missingPassEnvironment();
+    if (missing.length === 0) return result;
+    this.#log("env_pass_missing", { names: missing });
+    return {
+      ...result,
+      missingEnv: missing,
+      warning: `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} listed in [env] pass but not set where the daemon was started, so this agent does not have ${missing.length === 1 ? "it" : "them"}; set ${missing.length === 1 ? "it" : "them"} in the shell that runs cstan start (or its profile file), then restart the daemon`,
+    };
+  }
+
   /** The one environment every agent starts with: the allowlist, its token and socket, and `cstan` first on PATH. */
   #environment(token: string | null): Record<string, string> {
     if (this.#root.includes(":"))
@@ -504,7 +559,11 @@ export class Launcher {
       extras.CAPSTAN_TOKEN = token;
       extras.CAPSTAN_SOCKET = this.#socketPath;
     }
-    return buildAgentEnvironment(this.#baseEnvironment, extras);
+    return buildAgentEnvironment(
+      this.#baseEnvironment,
+      extras,
+      token === null ? [] : this.#config.env.pass,
+    );
   }
 
   #arguments(role: ResolvedRole, promptFile: string): string[] {
@@ -549,6 +608,7 @@ export class Launcher {
         environment: this.#environment(agent.credential),
         timeoutMs: START_TIMEOUT_MS,
       });
+      this.#agentsStarted += 1;
       this.#core.recordAgentPane(this.#context(), {
         agentId: agent.agentId,
         workspaceId: workspace.workspaceId,
@@ -624,7 +684,7 @@ export class Launcher {
   // ---------------------------------------------------------- operations
 
   launchPm(): Promise<LaunchResult> {
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#pmRole();
       const active = this.#activeAgents().filter((a) => a.kind === "PM");
@@ -729,7 +789,7 @@ export class Launcher {
   }
 
   restartPm(): Promise<LaunchResult> {
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const active = this.#activeAgents().filter((a) => a.kind === "PM");
       if (active.length === 0)
@@ -833,7 +893,7 @@ export class Launcher {
           "the base commit must be a full lowercase id",
         ),
       );
-    return this.#run(async (budget) => {
+    return this.#runStarting(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#config.roles.find((r) => r.name === roleName);
       if (role === undefined)
@@ -985,6 +1045,7 @@ export class Launcher {
           environment: this.#environment(agent.credential),
           timeoutMs: START_TIMEOUT_MS,
         });
+        this.#agentsStarted += 1;
         if (started.status === "started")
           return {
             state: "started",

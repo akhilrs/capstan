@@ -36,6 +36,7 @@ function config(
   fallback = true,
   maxWorkers = 3,
   layout: Partial<CapstanConfig["layout"]> = {},
+  pass: readonly string[] = [],
 ): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
     name,
@@ -76,6 +77,7 @@ function config(
       minPaneRows: 12,
       ...layout,
     },
+    env: { pass },
     hosts: [
       {
         name: "claude",
@@ -110,6 +112,10 @@ async function world(
   synced = true,
   maxWorkers = 3,
   layout: Partial<CapstanConfig["layout"]> = {},
+  environment: {
+    readonly pass?: readonly string[];
+    readonly base?: Readonly<Record<string, string>>;
+  } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
   const stateDirectory = path.join(root, ".capstan", "state");
@@ -138,7 +144,7 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: config(fallback, maxWorkers, layout),
+      config: config(fallback, maxWorkers, layout, environment.pass),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -149,6 +155,7 @@ async function world(
         HOME: "/home/x",
         LANG: "C",
         SECRET: "no",
+        ...environment.base,
       },
       git,
       log: (event, details) => events.push({ event, details }),
@@ -2080,6 +2087,145 @@ test("when git cannot say whether a worktree exists the branch and the row are k
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("variables listed in env.pass reach the PM, every worker and every reviewer, and nothing else does", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      pass: ["NEXORA_API_KEY", "EXTRA_SETTING"],
+      base: {
+        NEXORA_API_KEY: "key-value-1",
+        EXTRA_SETTING: "two words",
+        UNLISTED: "no",
+      },
+    },
+  );
+  try {
+    await w.launcher.launchPm();
+    await w.launcher.spawn("developer");
+    await w.launcher.spawn("developer2", { baseSha: "a".repeat(40) });
+    assert.equal(w.adapter.starts.length, 3);
+    for (const start of w.adapter.starts) {
+      assert.equal(start.environment!.NEXORA_API_KEY, "key-value-1");
+      assert.equal(start.environment!.EXTRA_SETTING, "two words");
+      assert.equal(start.environment!.UNLISTED, undefined);
+      assert.equal(start.environment!.SECRET, undefined);
+    }
+    assert.equal(
+      w.adapter.lastShellEnvironment?.NEXORA_API_KEY,
+      undefined,
+      "the watch pane does not get passed variables",
+    );
+    const logged = JSON.stringify(w.events);
+    assert.ok(
+      !logged.includes("key-value-1"),
+      "a passed value is never logged",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a listed variable that is not set is named in the answer and the log, and the others still pass", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      pass: ["NEXORA_API_KEY", "MISSING_ONE", "EMPTY_ONE"],
+      base: { NEXORA_API_KEY: "key-value-2", EMPTY_ONE: "" },
+    },
+  );
+  try {
+    const launched = await w.launcher.launchPm();
+    assert.deepEqual(launched.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
+    assert.match(
+      launched.warning ?? "",
+      /^MISSING_ONE, EMPTY_ONE are listed in \[env\] pass but not set where the daemon was started/,
+    );
+    const spawned = await w.launcher.spawn("developer");
+    assert.deepEqual(spawned.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
+    assert.equal(w.adapter.starts[1]!.environment!.EMPTY_ONE, undefined);
+    const again = await w.launcher.launchPm();
+    assert.equal(again.state, "running");
+    assert.equal(again.missingEnv, undefined, "nothing was started");
+    assert.equal(again.warning, undefined);
+    const restarted = await w.launcher.restartPm();
+    assert.deepEqual(restarted.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
+    assert.equal(w.adapter.starts[1]!.environment!.MISSING_ONE, undefined);
+    assert.equal(
+      w.adapter.starts[1]!.environment!.NEXORA_API_KEY,
+      "key-value-2",
+    );
+    assert.ok(
+      w.events.some(
+        (e) =>
+          e.event === "env_pass_missing" &&
+          JSON.stringify(e.details) === '{"names":["MISSING_ONE","EMPTY_ONE"]}',
+      ),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("with nothing listed the answers carry no missingEnv and an unacceptable passed value fails naming only the variable", async () => {
+  const plain = await world();
+  try {
+    assert.equal((await plain.launcher.launchPm()).missingEnv, undefined);
+  } finally {
+    plain.cleanup();
+  }
+  const bad = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      pass: ["BAD_VALUE", "ALSO_MISSING"],
+      base: { BAD_VALUE: "secret\u0007text" },
+    },
+  );
+  try {
+    const result = await bad.launcher.launchPm();
+    assert.equal(result.state, "failed");
+    assert.match(result.reason ?? "", /BAD_VALUE/);
+    assert.equal(
+      result.missingEnv,
+      undefined,
+      "a failed launch started nothing",
+    );
+    assert.ok(!JSON.stringify(result).includes("secret"));
+    assert.ok(!JSON.stringify(bad.events).includes("secret"));
+  } finally {
+    bad.cleanup();
+  }
+});
+
+test("overlapping operations are told apart: only the one that started an agent reports the missing variable", async () => {
+  const w = await world(true, true, 3, {}, { pass: ["MISSING_ONE"], base: {} });
+  try {
+    const [first, second] = await Promise.all([
+      w.launcher.launchPm(),
+      w.launcher.launchPm(),
+    ]);
+    assert.equal(first.state, "started");
+    assert.deepEqual(first.missingEnv, ["MISSING_ONE"]);
+    assert.equal(second.state, "running");
+    assert.equal(second.missingEnv, undefined);
+    assert.equal(second.warning, undefined);
+    assert.equal(
+      w.events.filter((e) => e.event === "env_pass_missing").length,
+      1,
     );
   } finally {
     w.cleanup();
