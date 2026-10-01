@@ -108,14 +108,14 @@ async function withHarness(
     commitExists: true,
   };
   let n = 0;
-  let h: Harness | undefined;
+  const holder: { h?: Harness } = {};
   const spawned: Member[] = [];
   const spawnReviewer = (): Member => {
-    const member = addReviewer(h!, `reviewer-${(n += 1)}`);
+    const member = addReviewer(holder.h!, `reviewer-${(n += 1)}`);
     spawned.push(member);
     return member;
   };
-  h = await harness({
+  const h = await harness({
     commands: {
       config,
       commitExists: async () => stub.commitExists,
@@ -135,6 +135,7 @@ async function withHarness(
       } as never,
     },
   });
+  holder.h = h;
   try {
     setup(h);
     await run(h, stub, spawned);

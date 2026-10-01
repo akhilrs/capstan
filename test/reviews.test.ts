@@ -8,14 +8,7 @@ import {
 } from "../src/controller/core.js";
 import { startReportRelay } from "../src/reports.js";
 import { chooseReviewerRole, reviewText } from "../src/reviews.js";
-import {
-  call,
-  close,
-  ctx,
-  harness,
-  type Harness,
-  type Member,
-} from "./harness.js";
+import { close, ctx, harness, type Harness, type Member } from "./harness.js";
 
 const BASE = "a".repeat(40);
 const COMMIT = "b".repeat(40);
