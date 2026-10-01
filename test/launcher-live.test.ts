@@ -88,6 +88,21 @@ async function until<T>(
   }
 }
 
+/** Ticks the driver until the message is sent: a worker that is momentarily busy defers it, which is correct behavior. */
+async function deliver(
+  driver: DeliveryDriver,
+  core: ControllerCore,
+  messageId: string,
+): Promise<void> {
+  await until("the driver to deliver the message", async () => {
+    await driver.tick();
+    const state = core.message(messageId)!.state;
+    if (["failed", "expired", "cancelled"].includes(state))
+      throw new Error(`the message reached the final state ${state}`);
+    return state === "sent" ? true : undefined;
+  });
+}
+
 test(
   "the launcher starts a PM and a worker in a real isolated Herdr session, delivers to the worker, re-adopts the panes after a restart and keeps the worker through a PM restart",
   { skip: UNAVAILABLE, timeout: 300_000 },
@@ -201,8 +216,7 @@ test(
         recipientAgentId: "developer-1",
         body: "build the first slice",
       }).messageId;
-      await driver.tick();
-      assert.equal(core.message(one)!.state, "sent");
+      await deliver(driver, core, one);
       const workerPane = first.paneForAgent("developer-1")!;
       await until("the worker to show the message", async () =>
         (await screenOf(first, workerPane)).includes(
@@ -234,8 +248,7 @@ test(
         recipientAgentId: "developer-1",
         body: "second slice after the restart",
       }).messageId;
-      await driver2.tick();
-      assert.equal(core.message(two)!.state, "sent");
+      await deliver(driver2, core, two);
       await until("the worker to show the second message", async () =>
         (await screenOf(second, workerPane)).includes(
           "second slice after the restart",
@@ -262,8 +275,7 @@ test(
         recipientAgentId: "developer-1",
         body: "third slice after the PM restart",
       }).messageId;
-      await driver2.tick();
-      assert.equal(core.message(three)!.state, "sent");
+      await deliver(driver2, core, three);
       await until("the worker to show the third message", async () =>
         (await screenOf(second, workerPane)).includes(
           "third slice after the PM restart",

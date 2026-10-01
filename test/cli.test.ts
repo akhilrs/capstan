@@ -2373,6 +2373,68 @@ test("a broken capstan.toml stops the daemon at start with the loader's message"
   }
 });
 
+test("the CLI behaves the same when it is started through a symlink, as npm link and a global install do", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-symlink-"));
+  try {
+    const link = path.join(cwd, "cstan");
+    symlinkSync(cli, link);
+    const project = path.join(cwd, "project");
+    mkdirSync(project);
+    assert.equal(
+      spawnSync("git", ["init", "-q", "."], { cwd: project }).status,
+      0,
+    );
+    const init = spawnSync(process.execPath, [link, "init"], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, CAPSTAN_LAUNCH: "off" },
+    });
+    assert.equal(init.status, 0, init.stderr);
+    assert.match(init.stdout, /Initialized Capstan project/);
+    assert.ok(existsSync(path.join(project, ".capstan/operator.key")));
+    const ping = spawnSync(process.execPath, [link, "ping"], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, CAPSTAN_LAUNCH: "off" },
+    });
+    assert.equal(ping.status, 0, ping.stderr);
+    assert.match(ping.stdout, /^pong: true$/m);
+    const unknown = spawnSync(process.execPath, [link, "no-such-command"], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, CAPSTAN_LAUNCH: "off" },
+    });
+    assert.notEqual(
+      unknown.status,
+      0,
+      "an invalid command is reported, not ignored",
+    );
+    assert.match(
+      unknown.stderr,
+      /usage: cstan init/,
+      "the CLI ran and printed its usage",
+    );
+    const extensionless = spawnSync(
+      process.execPath,
+      [cli.replace(/\.js$/, ""), "ping"],
+      {
+        cwd: project,
+        encoding: "utf8",
+        env: { ...process.env, CAPSTAN_LAUNCH: "off" },
+      },
+    );
+    assert.equal(extensionless.status, 0, extensionless.stderr);
+    assert.match(
+      extensionless.stdout,
+      /^pong: true$/m,
+      "node dist/src/cli works without the extension",
+    );
+  } finally {
+    killDaemon(path.join(cwd, "project"));
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cancel with one id is a routed command; the legacy forms keep their usage rules", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cancel-"));
   try {
