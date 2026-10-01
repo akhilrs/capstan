@@ -67,6 +67,8 @@ export class ReportRateLimiter {
   }
 }
 
+const RELAY_BACKOFF_MS = 30_000;
+
 export interface ReportRelay {
   stop(): void;
 }
@@ -79,8 +81,9 @@ export function startReportRelay(options: {
   readonly log: (event: string, details: Record<string, unknown>) => void;
 }): ReportRelay {
   let running = false;
+  let backoffUntil = 0;
   const tick = (): void => {
-    if (running) return;
+    if (running || Date.now() < backoffUntil) return;
     running = true;
     try {
       // Nothing to do, and nothing written, until a PM is active.
@@ -99,7 +102,11 @@ export function startReportRelay(options: {
           newContext(options.core, options.credential),
           report.reportId,
         );
-        if (!result.announced) continue;
+        if (!result.announced) {
+          // It could not be announced just now (the PM changed, no controller actor): try again later, not every tick.
+          backoffUntil = Date.now() + RELAY_BACKOFF_MS;
+          break;
+        }
         options.log("report_announced", { reportId: report.reportId });
       }
     } catch (error) {

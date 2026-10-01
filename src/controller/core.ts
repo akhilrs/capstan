@@ -2385,19 +2385,6 @@ export class ControllerCore {
               details: { duplicate: true },
             },
           };
-        const rejected = (
-          this.#database
-            .prepare(
-              "SELECT COUNT(*) AS n FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND state = 'rejected'",
-            )
-            .get(this.#projectId, agent.agent_id, agent.generation) as {
-            n: number;
-          }
-        ).n;
-        if (rejected >= MAX_REJECTED_REPORTS)
-          throw new ControllerError(
-            "report limit reached for this agent generation",
-          );
         const pane = this.#database
           .prepare(
             "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
@@ -2418,6 +2405,22 @@ export class ControllerCore {
         else if (input.commitSha === baseSha || evidence.isAncestorOfBase)
           reason = "not_new_on_branch";
         else if (!evidence.isAncestorOfTip) reason = "not_on_branch";
+        if (reason !== null) {
+          const rejected = (
+            this.#database
+              .prepare(
+                "SELECT COUNT(*) AS n FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND state = 'rejected'",
+              )
+              .get(this.#projectId, agent.agent_id, agent.generation) as {
+              n: number;
+            }
+          ).n;
+          // Only a report that would be rejected is refused at the cap: a correct report always gets through.
+          if (rejected >= MAX_REJECTED_REPORTS)
+            throw new ControllerError(
+              "report limit reached for this agent generation",
+            );
+        }
         const now = this.#now();
         const reportId = randomUUID();
         const sequence = (

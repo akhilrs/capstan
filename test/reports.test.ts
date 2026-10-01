@@ -175,6 +175,11 @@ test("a repeated accepted report writes nothing new, a rejected one does not blo
         .length,
       MAX_REJECTED_REPORTS,
     );
+    assert.equal(
+      report(h, "e".repeat(40)).record.state,
+      "accepted",
+      "a correct report still gets through at the cap",
+    );
   } finally {
     await close(h);
   }

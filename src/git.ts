@@ -98,7 +98,11 @@ export async function inspectCommit(
   if (input.baseSha !== null && !FULL_SHA.test(input.baseSha))
     throw new GitCheckError("the base commit id is not a full id");
   const format = await runGit(repoRoot, ["rev-parse", "--show-object-format"]);
-  if (format.code !== 0 || format.stdout.trim() !== "sha1")
+  if (format.code !== 0)
+    throw new GitCheckError(
+      "git could not report the repository's object format (git 2.29 or newer is needed)",
+    );
+  if (format.stdout.trim() !== "sha1")
     throw new GitCheckError("only sha1 repositories are supported");
   const ref = `refs/heads/${input.branch}`;
   const valid = await runGit(repoRoot, ["check-ref-format", ref]);
