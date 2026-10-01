@@ -419,6 +419,13 @@ test("reviewText folds line breaks, replaces control characters and cuts long te
   assert.ok(Buffer.byteLength(long, "utf8") <= MAX_REVIEW_TEXT_BYTES);
   assert.ok(long.endsWith(" [text cut]"));
   assert.equal(reviewText("short"), "short");
+  const flood = reviewText("e" + "\u0301".repeat(5000));
+  assert.ok(
+    flood.startsWith("e"),
+    "a flood of combining marks still leaves text",
+  );
+  assert.ok(Buffer.byteLength(flood, "utf8") <= MAX_REVIEW_TEXT_BYTES);
+  assert.ok(flood.endsWith(" [text cut]"));
 });
 
 test("the reviewer role is the one asked for, else reviewer, else the only Verifier role", () => {

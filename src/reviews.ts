@@ -85,7 +85,16 @@ export function reviewText(text: string): string {
     out += segment;
     bytes += size;
   }
-  return `${out.trimEnd()}${marker}`;
+  if (out === "") {
+    // A first character longer than the limit (a letter with a flood of combining marks): keep whole code points up to it.
+    for (const point of clean) {
+      const size = Buffer.byteLength(point, "utf8");
+      if (bytes + size > room) break;
+      out += point;
+      bytes += size;
+    }
+  }
+  return `${out.trimEnd()}${marker}`.trimStart();
 }
 
 /** Spawns a fresh reviewer at the reported commit and records the review. A failure after the spawn releases the reviewer. */
