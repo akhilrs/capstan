@@ -322,7 +322,19 @@ export class Launcher {
     return seatId;
   }
 
+  #assertRoleSynced(role: ResolvedRole): void {
+    const definition = this.#core
+      .roleDefinitions()
+      .find((candidate) => candidate.name === role.name);
+    if (definition?.state !== "active")
+      throw new LauncherError(
+        "role_not_synced",
+        `the role ${role.name} is not synced into the controller; run cstan stop, then cstan config sync, then cstan start`,
+      );
+  }
+
   #createAgent(role: ResolvedRole): { agentId: string; credential: string } {
+    this.#assertRoleSynced(role);
     const seatId = this.#seat(role);
     const used = this.#core
       .listAgents()

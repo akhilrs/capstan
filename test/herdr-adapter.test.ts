@@ -1333,8 +1333,6 @@ test("bad environment values are refused before anything is typed", async () => 
     });
     const base = { HOME: "/h", PATH: "/p", TERM: "t" };
     for (const environment of [
-      { ...base, HOME: "/h'; rm -rf ~; '" },
-      { ...base, PATH: "/a b" },
       { ...base, TERM: "x\ny" },
       { ...base, lower: "x" },
       { ...base, GOOD: "line\nbreak" },
@@ -1360,6 +1358,39 @@ test("bad environment values are refused before anything is typed", async () => 
       ),
       { PATH: "/p", HOME: "/h" },
     );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a PATH, HOME or TERM with a tilde, a space or a quote is shell-quoted into the command, not refused", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "s4",
+      label: "s4",
+    });
+    h.fake.onRun = (pane, command) => {
+      const rc = /--rcfile '([^']+)'/.exec(command)!;
+      rmSync(path.dirname(rc[1]!), { recursive: true, force: true });
+      pane.screen = "❯ ";
+    };
+    await h.adapter.prepareShell({
+      paneId,
+      environment: {
+        HOME: "/home/a b",
+        PATH: "/w/git.sr.ht/~who/repo/.capstan/bin:/usr/bin",
+        TERM: "it's",
+      },
+    });
+    const command = h.fake.callsTo("pane", "run")[0]![3]!;
+    assert.ok(command.includes("HOME='/home/a b'"));
+    assert.ok(
+      command.includes("PATH='/w/git.sr.ht/~who/repo/.capstan/bin:/usr/bin'"),
+    );
+    assert.ok(command.includes("TERM='it'\\''s'"));
   } finally {
     h.adapter.close();
     h.fake.cleanup();

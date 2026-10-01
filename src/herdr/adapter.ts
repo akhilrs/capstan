@@ -145,7 +145,7 @@ const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
-const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
+const NON_EMPTY_PRINTABLE_VALUE = /^\P{Cc}+$/u;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
 const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
@@ -602,13 +602,21 @@ export class HerdrAdapter {
     if (entry.phase !== "fresh")
       throw new PhaseError("only a fresh pane can be prepared");
     const environment = input.environment;
-    const home = requireMatch(environment.HOME, NON_EMPTY_SIMPLE_VALUE, "HOME");
+    const home = requireMatch(
+      environment.HOME,
+      NON_EMPTY_PRINTABLE_VALUE,
+      "HOME",
+    );
     const pathValue = requireMatch(
       environment.PATH,
-      NON_EMPTY_SIMPLE_VALUE,
+      NON_EMPTY_PRINTABLE_VALUE,
       "PATH",
     );
-    const term = requireMatch(environment.TERM, NON_EMPTY_SIMPLE_VALUE, "TERM");
+    const term = requireMatch(
+      environment.TERM,
+      NON_EMPTY_PRINTABLE_VALUE,
+      "TERM",
+    );
     for (const [name, value] of Object.entries(environment)) {
       if (!ENVIRONMENT_KEY.test(name))
         throw new InvalidArgumentError(
@@ -656,7 +664,7 @@ export class HerdrAdapter {
           "pane",
           "run",
           input.paneId,
-          `exec env -i HOME='${home}' PATH='${pathValue}' TERM='${term}' bash --noprofile --rcfile '${rcFile}' -i`,
+          `exec env -i HOME=${shellQuote(home)} PATH=${shellQuote(pathValue)} TERM=${shellQuote(term)} bash --noprofile --rcfile '${rcFile}' -i`,
         ]);
       } catch (error) {
         this.#panes.set(input.paneId, { ...entry, phase: "tainted" });

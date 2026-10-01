@@ -981,11 +981,20 @@ async function runCli(argv: string[]): Promise<number> {
       throw new BlockedError(
         "controller record does not exist; create it before syncing roles",
       );
-    const core = await ControllerCore.open({
-      stateDirectory: config.stateDirectory,
-      project: project(config, credential, []),
-      workspaceRoot: cwd,
-    });
+    let core: ControllerCore;
+    try {
+      core = await ControllerCore.open({
+        stateDirectory: config.stateDirectory,
+        project: project(config, credential, []),
+        workspaceRoot: cwd,
+      });
+    } catch (error) {
+      if (error instanceof ControllerOwnershipError)
+        throw new BlockedError(
+          `${error.message}; stop the daemon with cstan stop, then run cstan config sync again`,
+        );
+      throw error;
+    }
     try {
       const result = syncConfiguredRoles(core, roleConfig, () =>
         context(core, credential),

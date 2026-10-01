@@ -88,26 +88,27 @@ interface World {
   cleanup(): void;
 }
 
-async function world(fallback = true): Promise<World> {
+async function world(fallback = true, synced = true): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
   const stateDirectory = path.join(root, ".capstan", "state");
   const info = projectInfo();
   const core = await ControllerCore.open({ stateDirectory, project: info });
   const owner = info.ownerCredential;
-  core.syncRoleDefinitions(
-    ctx(core, owner),
-    ["pm:PM", "pm2:PM", "developer:Developer", "developer2:Developer"].map(
-      (entry, index) => {
-        const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
-        return {
-          name,
-          kind,
-          host: "claude",
-          configHash: String(index).repeat(64),
-        };
-      },
-    ),
-  );
+  if (synced)
+    core.syncRoleDefinitions(
+      ctx(core, owner),
+      ["pm:PM", "pm2:PM", "developer:Developer", "developer2:Developer"].map(
+        (entry, index) => {
+          const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
+          return {
+            name,
+            kind,
+            host: "claude",
+            configHash: String(index).repeat(64),
+          };
+        },
+      ),
+    );
   const adapter = new StubAdapter();
   const git = new StubGit();
   const events: World["events"] = [];
@@ -408,6 +409,26 @@ test("spawn starts one worker in its own worktree with its token, prompt, worker
       [row.worktreePath, row.branch, row.baseSha, row.paneId === result.paneId],
       ["/tmp/work/developer-1", "capstan/developer-1", SHA, true],
     );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("launch on a project whose roles were never synced says so and leaves no seat, actor or agent behind", async () => {
+  const w = await world(true, false);
+  try {
+    const seats = w.core.statusSnapshot().roles.length;
+    await assert.rejects(
+      w.launcher.launchPm(),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "role_not_synced" &&
+        e.message.includes("pm") &&
+        e.message.includes("cstan config sync"),
+    );
+    assert.equal(w.core.listAgents().length, 0);
+    assert.equal(w.core.statusSnapshot().roles.length, seats);
+    assert.equal(w.adapter.calls.length, 0);
   } finally {
     w.cleanup();
   }
