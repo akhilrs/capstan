@@ -53,7 +53,7 @@ test("the seed names the predecessor and the base, lists empty sections as none 
   assert.equal((text.match(/^- none$/gm) ?? []).length, 3);
   assert.match(
     text,
-    /Nothing in state failed, unacked, sent, queued, deferred or expired, nor cancelled for the reason agent_ended or generation_replaced, was done/,
+    /Nothing in state failed, unacked, sent, queued, deferred or expired, nor cancelled with a reason that starts with agent_ended or generation_replaced, was done/,
   );
   const fromReport = buildSeed(
     data({ branch: null }),

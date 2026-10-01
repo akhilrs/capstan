@@ -238,7 +238,11 @@ export class DeliveryDriver {
     agent: AgentRecord,
     outcomes: Map<string, Outcome>,
   ): Promise<void> {
-    if (this.#adapter.paneForAgent(agent.agentId) === undefined) return;
+    if (this.#adapter.paneForAgent(agent.agentId) === undefined) {
+      // No pane to look at: a count left from before does not carry over to a pane that comes back.
+      this.#missing.delete(agent.agentId);
+      return;
+    }
     try {
       const state = await this.#adapter.agentObservation(agent.agentId);
       this.#core.recordAgentObservation(this.#context(), agent.agentId, state);
@@ -282,7 +286,7 @@ export class DeliveryDriver {
       this.#logOnce("loss_suppressed", "loss_suppressed", {
         agents: observed.length,
       });
-      if (this.#suppressedTicks > SUPPRESS_LIMIT) {
+      if (this.#suppressedTicks >= SUPPRESS_LIMIT) {
         this.#missing.clear();
         this.#suppressedTicks = 0;
         this.#suppressionSpent = true;

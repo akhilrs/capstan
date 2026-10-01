@@ -198,7 +198,7 @@ test("when every observed agent is not found in the same tick nothing counts (a 
     const dev = w.developer.agentId;
     w.world.kill(dev);
     w.world.kill(w.pm.agentId);
-    await w.tick(SUPPRESS_LIMIT);
+    await w.tick(SUPPRESS_LIMIT - 1);
     assert.deepEqual(w.driver.snapshot().lostAgentIds, [], "held");
     assert.ok(w.events.some((e) => e.event === "loss_suppressed"));
     w.world.pane(w.pm.agentId).alive = true;
@@ -387,5 +387,25 @@ test("a loss the ledger could not take is not listed and is tried again on the n
     await w.tick();
     assert.deepEqual(w.driver.snapshot().lostAgentIds, [dev]);
     assert.equal(w.lostRows(dev), 1);
+  });
+});
+
+test("a count left from before a pane disappeared does not carry over when it comes back", async () => {
+  await withWorld(async (w) => {
+    const dev = w.developer.agentId;
+    w.world.kill(dev);
+    await w.tick(LOSS_LIMIT - 1);
+    const pane = w.world.paneForAgent(dev)!;
+    w.world.unregister(dev);
+    await w.tick(3);
+    w.world.register(dev, pane);
+    await w.tick(1);
+    assert.deepEqual(
+      w.driver.snapshot().lostAgentIds,
+      [],
+      "one failure after the pane came back is only the first",
+    );
+    await w.tick(LOSS_LIMIT - 1);
+    assert.deepEqual(w.driver.snapshot().lostAgentIds, [dev]);
   });
 });

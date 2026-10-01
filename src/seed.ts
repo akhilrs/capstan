@@ -77,7 +77,7 @@ function render(
     );
   lines.push(
     "",
-    "Do not repeat work the predecessor reported or acknowledged. Nothing in state failed, unacked, sent, queued, deferred or expired, nor cancelled for the reason agent_ended or generation_replaced, was done. Wait for the project manager to send what still matters.",
+    "Do not repeat work the predecessor reported or acknowledged. Nothing in state failed, unacked, sent, queued, deferred or expired, nor cancelled with a reason that starts with agent_ended or generation_replaced, was done. Wait for the project manager to send what still matters.",
     `${FENCE} end of replacement seed ${FENCE}`,
   );
   return lines.join("\n");

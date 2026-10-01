@@ -69,8 +69,17 @@ export class World implements DriverAdapter {
     });
   }
 
+  /** The adapter no longer knows a pane for the agent (it is between adoptions). */
+  unregister(agentId: string): void {
+    this.#agentPane.delete(agentId);
+  }
+
+  register(agentId: string, paneId: string): void {
+    this.#agentPane.set(agentId, paneId);
+  }
+
   pane(agentId: string): PaneRecord {
-    return this.panes.get(this.#agentPane.get(agentId)!)!;
+    return this.panes.get(this.#agentPane.get(agentId) ?? `w1:${agentId}`)!;
   }
 
   /** The pane is closed or its process is gone: Herdr no longer finds the agent. */

@@ -909,7 +909,7 @@ export class Launcher {
           return {
             state: "blocked",
             predecessor: agentId,
-            reason: `${agentId} was released but its pane is still open: close it in Herdr, then run cstan spawn ${agent.roleName}`,
+            reason: `${agentId} was released but its pane is still open: close it in Herdr, then run cstan replace ${agentId} again (it works on an ended agent and starts the replacement with the seed)`,
           };
       }
       let spawned: SpawnResult;

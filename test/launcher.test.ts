@@ -2444,7 +2444,7 @@ test("replace stops when the old pane will not close, so two agents never work o
       assert.match(
         blocked.reason,
         new RegExp(
-          `${first.agentId} was released but its pane is still open: close it in Herdr, then run cstan spawn developer`,
+          `${first.agentId} was released but its pane is still open: close it in Herdr, then run cstan replace ${first.agentId} again`,
         ),
       );
     assert.equal(w.adapter.starts.length, 2, "no replacement was started");

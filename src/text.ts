@@ -28,6 +28,6 @@ export function oneLine(
   if (folded === "") return empty;
   const points = Array.from(folded);
   return points.length > maxPoints
-    ? `${points.slice(0, maxPoints - 1).join("")}\u2026`
+    ? `${points.slice(0, Math.max(0, maxPoints - 1)).join("")}\u2026`
     : folded;
 }

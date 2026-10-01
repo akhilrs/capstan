@@ -44,6 +44,7 @@ import {
   type ResolutionDecision,
 } from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
+import { stripTerminalSequences } from "../observe.js";
 import { normalizeText, oneLine } from "../text.js";
 import type {
   AgentInput,
@@ -539,7 +540,7 @@ const CANCEL_REASON_TEXT: Readonly<Record<string, string>> = {
 
 /** One sanitized line of at most `maxPoints` code points; `(none)` when nothing visible is left. */
 export function oneLineText(text: string, maxPoints: number): string {
-  return oneLine(text, maxPoints, "(none)");
+  return oneLine(stripTerminalSequences(text), maxPoints, "(none)");
 }
 
 const FAILURE_REASON_POINTS = 200;
