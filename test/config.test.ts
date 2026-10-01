@@ -239,6 +239,8 @@ test("env.pass lists the variable names to pass to agents and refuses anything t
     "GIT_SSH_COMMAND",
     "GIT_DIR",
     "BASH_FUNC_X",
+    "BASH_XTRACEFD",
+    "PS0",
   ])
     assertRejected(
       `${VALID}\n[env]\npass = ["${name}"]\n`,

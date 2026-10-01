@@ -150,6 +150,7 @@ export const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
   "TERM",
   "TMPDIR",
   "IFS",
+  "PS0",
   "PS1",
   "PS2",
   "PS4",
@@ -170,12 +171,17 @@ export const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
   "PYTHONSTARTUP",
   "PERL5OPT",
 ]);
-/** Prefixes of names that steer the loader, git or exported shell functions. */
+/**
+ * Prefixes of names that steer the loader, git or the agent's bash. These lists
+ * guard against accidents in a file the operator writes; they are not a
+ * security boundary, and other interpreter variables (PYTHONPATH and the like)
+ * are left to the operator.
+ */
 export const RESERVED_ENV_PREFIXES: readonly string[] = [
   "LD_",
   "DYLD_",
   "GIT_",
-  "BASH_FUNC_",
+  "BASH_",
 ];
 export const MAX_PASSED_ENV_NAMES = 32;
 export const MAX_MAX_WORKERS = 16;

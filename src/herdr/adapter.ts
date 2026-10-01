@@ -228,7 +228,9 @@ export function buildAgentEnvironment(
         `environment name ${name} is not acceptable`,
       );
     const value = base[name];
-    if (value !== undefined) environment[name] = value;
+    // An empty value of a listed name counts as unset: the launcher reports it, and nothing is passed.
+    if (value !== undefined && (value !== "" || !pass.includes(name)))
+      environment[name] = value;
   }
   for (const [name, value] of Object.entries(extras)) environment[name] = value;
   for (const [name, value] of Object.entries(environment)) {
@@ -242,7 +244,7 @@ export function buildAgentEnvironment(
       UNSAFE_TEXT.test(value)
     )
       throw new InvalidArgumentError(
-        `environment value for ${name} is not acceptable`,
+        `environment value for ${name} is not acceptable (one line of printable text is allowed; a trailing carriage return from a CRLF file is not)`,
       );
   }
   return environment;

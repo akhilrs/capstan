@@ -2141,25 +2141,26 @@ test("a listed variable that is not set is named in the answer and the log, and 
     3,
     {},
     {
-      pass: ["NEXORA_API_KEY", "MISSING_ONE"],
-      base: { NEXORA_API_KEY: "key-value-2" },
+      pass: ["NEXORA_API_KEY", "MISSING_ONE", "EMPTY_ONE"],
+      base: { NEXORA_API_KEY: "key-value-2", EMPTY_ONE: "" },
     },
   );
   try {
     const launched = await w.launcher.launchPm();
-    assert.deepEqual(launched.missingEnv, ["MISSING_ONE"]);
+    assert.deepEqual(launched.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
     assert.match(
       launched.warning ?? "",
-      /^MISSING_ONE is listed in \[env\] pass but not set where the daemon was started/,
+      /^MISSING_ONE, EMPTY_ONE are listed in \[env\] pass but not set where the daemon was started/,
     );
     const spawned = await w.launcher.spawn("developer");
-    assert.deepEqual(spawned.missingEnv, ["MISSING_ONE"]);
+    assert.deepEqual(spawned.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
+    assert.equal(w.adapter.starts[1]!.environment!.EMPTY_ONE, undefined);
     const again = await w.launcher.launchPm();
     assert.equal(again.state, "running");
     assert.equal(again.missingEnv, undefined, "nothing was started");
     assert.equal(again.warning, undefined);
     const restarted = await w.launcher.restartPm();
-    assert.deepEqual(restarted.missingEnv, ["MISSING_ONE"]);
+    assert.deepEqual(restarted.missingEnv, ["MISSING_ONE", "EMPTY_ONE"]);
     assert.equal(w.adapter.starts[1]!.environment!.MISSING_ONE, undefined);
     assert.equal(
       w.adapter.starts[1]!.environment!.NEXORA_API_KEY,
@@ -2169,7 +2170,7 @@ test("a listed variable that is not set is named in the answer and the log, and 
       w.events.some(
         (e) =>
           e.event === "env_pass_missing" &&
-          JSON.stringify(e.details) === '{"names":["MISSING_ONE"]}',
+          JSON.stringify(e.details) === '{"names":["MISSING_ONE","EMPTY_ONE"]}',
       ),
     );
   } finally {

@@ -497,10 +497,12 @@ export class Launcher {
     return directory;
   }
 
-  /** Names from `[env] pass` that are not set in the daemon's environment: an agent started now would not have them. */
+  /** Names from `[env] pass` that are not set (or are empty) in the daemon's environment: an agent started now would not have them. */
   #missingPassEnvironment(): string[] {
     return this.#config.env.pass.filter(
-      (name) => this.#baseEnvironment[name] === undefined,
+      (name) =>
+        this.#baseEnvironment[name] === undefined ||
+        this.#baseEnvironment[name] === "",
     );
   }
 
