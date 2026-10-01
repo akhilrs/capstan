@@ -399,8 +399,8 @@ export class HerdrAdapter {
         const rect = this.#record(pane.rect, "layout rect");
         return {
           paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
-          width: Number(rect.width),
-          height: Number(rect.height),
+          width: typeof rect.width === "number" ? rect.width : Number.NaN,
+          height: typeof rect.height === "number" ? rect.height : Number.NaN,
         };
       }),
     };
@@ -491,8 +491,11 @@ export class HerdrAdapter {
       };
     } catch (error) {
       const after = await this.#listPanes().catch(() => undefined);
-      if (after === undefined || after.some((p) => p.paneId === input.paneId))
-        throw error;
+      if (after === undefined)
+        throw new PaneLost(
+          "the pane move failed and the panes could not be listed to check it",
+        );
+      if (after.some((p) => p.paneId === input.paneId)) throw error;
       const wanted = this.#canonical(input.worktreePath);
       const found = after.filter(
         (p) => !before.has(p.paneId) && this.#canonical(p.cwd) === wanted,

@@ -95,6 +95,9 @@ class FakeHerdr {
   moveMode: "ok" | "error-no-move" | "error-moved" | "error-lost" = "ok";
   moveTargetWorkspace = "w9";
   extraPaneAtMovedPath = false;
+  /** The 1-based `pane list` call that fails, if any. */
+  failListCall: number | undefined;
+  private listCalls = 0;
   layoutRects: Array<{
     pane_id: string;
     rect: { width: unknown; height: unknown };
@@ -240,7 +243,10 @@ class FakeHerdr {
           panes: this.layoutRects,
         },
       });
-    if (command === "pane" && sub === "list")
+    if (command === "pane" && sub === "list") {
+      this.listCalls += 1;
+      if (this.listCalls === this.failListCall)
+        return this.failure("timeout", "no answer");
       return this.json({
         panes: [...this.panes.values()].map((pane) => ({
           pane_id: pane.paneId,
@@ -249,6 +255,7 @@ class FakeHerdr {
           cwd: pane.checkout,
         })),
       });
+    }
     if (command === "pane" && sub === "move") {
       const old = this.panes.get(args[2]!);
       if (!old) return this.failure("pane_not_found", "no such pane");
@@ -2871,6 +2878,10 @@ test("paneLayout reads the tab, the zoom flag and every pane's size, and refuses
       false,
       "a float is passed on as such and counts as no fit later",
     );
+    assert.ok(
+      Number.isNaN(view.panes[1]!.height),
+      "a size sent as text is not a number",
+    );
     assert.deepEqual(h.fake.callsTo("pane", "layout")[0], [
       "pane",
       "layout",
@@ -2980,12 +2991,14 @@ test("a move that errors is resolved by looking again: nothing moved, moved, los
     ["error-moved", false, "moved"],
     ["error-lost", false, "lost"],
     ["error-moved", true, "lost"],
+    ["error-moved", false, "list-fails"],
   ] as const) {
     const h = harness();
     try {
       const tree = await worktreePane(h);
       h.fake.moveMode = mode;
       h.fake.extraPaneAtMovedPath = twin;
+      if (expect === "list-fails") h.fake.failListCall = 2;
       const attempt = h.adapter.placePane({
         paneId: tree.paneId,
         tabId: "w9:t1",
@@ -3005,7 +3018,8 @@ test("a move that errors is resolved by looking again: nothing moved, moved, los
         assert.equal(placed.workspaceId, "w9");
         assert.equal(h.adapter.paneEntry(tree.paneId), undefined);
         assert.notEqual(h.adapter.paneEntry(placed.paneId), undefined);
-      } else await assert.rejects(attempt, PaneLost, `${mode} ${twin}`);
+      } else
+        await assert.rejects(attempt, PaneLost, `${mode} ${twin} ${expect}`);
     } finally {
       h.adapter.close();
       h.fake.cleanup();

@@ -902,6 +902,39 @@ test("cleanup leaves panes at the worktree path alone when more than one matches
   }
 });
 
+test("after a crash between the move and the ledger write, adoption closes the moved pane found at the worktree path in pane mode and leaves panes alone in tab mode", async () => {
+  for (const [layout, closed] of [
+    [{ spawn: "pane" as const }, true],
+    [{ spawn: "tab" as const }, false],
+  ] as const) {
+    const w = await world(true, true, 3, layout);
+    try {
+      await launched(w);
+      const first = await w.launcher.spawn("developer");
+      w.core.recordAgentPane(ctx(w.core, w.owner), {
+        agentId: first.agentId,
+        workspaceId: "w7",
+        paneId: "w7:p1",
+        worktreePath: first.worktreePath,
+        branch: first.branch,
+        baseSha: SHA,
+      });
+      w.adapter.adoptErrors.set("w7:p1", new PaneGone("gone"));
+      w.adapter.closeMissingThrows = true;
+      w.adapter.strays.set(first.worktreePath, ["w1:p99"]);
+      await w.launcher.adoptAll();
+      assert.equal(
+        w.adapter.calls.includes("close:w1:p99"),
+        closed,
+        JSON.stringify(layout),
+      );
+      assert.equal(w.core.agentRecord(first.agentId)!.state, "ended");
+    } finally {
+      w.cleanup();
+    }
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {

@@ -825,7 +825,11 @@ export class Launcher {
           : this.#core
               .agentPanes(this.#credential)
               .find((r) => r.agentId === pm.agentId);
-      if (pmPane === undefined || pmPane.workspaceId === null)
+      if (
+        pmPane === undefined ||
+        pmPane.workspaceId === null ||
+        pmPane.paneId === null
+      )
         throw new LauncherError(
           "pm_not_launched",
           "launch the PM first with cstan start",
@@ -888,7 +892,7 @@ export class Launcher {
           const outcome = await this.#placeWorkerPane(
             tree.paneId,
             tree.path,
-            pmPane.paneId!,
+            pmPane.paneId,
           );
           if ("placed" in outcome) {
             paneId = outcome.placed.paneId;
@@ -1088,7 +1092,11 @@ export class Launcher {
         try {
           const existed = await this.#close(info.paneId);
           paneClosed = true;
-          if (!existed && info.worktreePath !== undefined)
+          if (
+            !existed &&
+            info.worktreePath !== undefined &&
+            this.#config.layout.spawn === "pane"
+          )
             await this.#closeMovedPane(agentId, info.worktreePath, info.paneId);
         } catch (error) {
           this.#log("pane_not_closed", {
@@ -1162,9 +1170,10 @@ export class Launcher {
   }
 
   /**
-   * A recorded pane that is gone may have been moved (a split placement that
-   * was interrupted). Close the one unregistered pane whose directory is the
-   * agent's worktree; with none or several, leave everything alone.
+   * In pane mode a recorded pane that is gone may have been moved (a split
+   * placement that was interrupted). Close the one unregistered pane whose
+   * directory is the agent's worktree; with none or several, leave everything
+   * alone. Tab mode never moves panes, so it never looks.
    */
   async #closeMovedPane(
     agentId: string,
@@ -1248,6 +1257,7 @@ export class Launcher {
           this.#core.clearAgentPane(this.#context(), row.agentId);
           if (agent.kind !== "PM")
             await this.#cleanupAgent(row.agentId, {
+              paneId: row.paneId,
               ...(row.worktreePath === null
                 ? {}
                 : { worktreePath: row.worktreePath }),
