@@ -851,11 +851,7 @@ export class Launcher {
           : this.#core
               .agentPanes(this.#credential)
               .find((r) => r.agentId === pm.agentId);
-      if (
-        pmPane === undefined ||
-        pmPane.workspaceId === null ||
-        pmPane.paneId === null
-      )
+      if (pmPane === undefined || pmPane.workspaceId === null)
         throw new LauncherError(
           "pm_not_launched",
           "launch the PM first with cstan start",
@@ -881,6 +877,7 @@ export class Launcher {
         paneId?: string;
         branch: string;
         baseSha?: string;
+        moveMayHaveHappened?: boolean;
       } = { branch };
       try {
         const baseSha = this.#git.headSha();
@@ -915,11 +912,15 @@ export class Launcher {
         let placementNote: string | undefined;
         if (this.#config.layout.spawn === "pane") {
           budget.check("placing the worker pane");
-          const outcome = await this.#placeWorkerPane(
-            tree.paneId,
-            tree.path,
-            pmPane.paneId,
-          );
+          info.moveMayHaveHappened = true;
+          const outcome =
+            pmPane.paneId === null
+              ? { note: "the PM has no recorded pane" }
+              : await this.#placeWorkerPane(
+                  tree.paneId,
+                  tree.path,
+                  pmPane.paneId,
+                );
           if ("placed" in outcome) {
             paneId = outcome.placed.paneId;
             placement = "pane";
@@ -932,7 +933,11 @@ export class Launcher {
               branch,
               baseSha,
             });
-          } else placementNote = outcome.note;
+            info.moveMayHaveHappened = false;
+          } else {
+            placementNote = outcome.note;
+            info.moveMayHaveHappened = false;
+          }
         }
         const where = {
           placement,
@@ -1063,6 +1068,8 @@ export class Launcher {
       paneId?: string;
       branch?: string;
       baseSha?: string;
+      /** True only when a pane move was started and its result never reached the ledger. */
+      moveMayHaveHappened?: boolean;
     },
   ): Promise<
     | { readonly ended: false; readonly reason: string }
@@ -1109,6 +1116,8 @@ export class Launcher {
       paneId?: string;
       branch?: string;
       baseSha?: string;
+      /** True only when a pane move was started and its result never reached the ledger. */
+      moveMayHaveHappened?: boolean;
     },
   ): Promise<ReleaseOutcome> {
     const budget = this.#budget(CLEANUP_BUDGET_MS);
@@ -1122,7 +1131,7 @@ export class Launcher {
           if (
             !existed &&
             info.worktreePath !== undefined &&
-            this.#config.layout.spawn === "pane"
+            info.moveMayHaveHappened === true
           )
             await this.#closeMovedPane(agentId, info.worktreePath, info.paneId);
         } catch (error) {
@@ -1197,11 +1206,24 @@ export class Launcher {
   }
 
   /**
-   * In pane mode a recorded pane that is gone may have been moved (a split
-   * placement that was interrupted). Close the one unregistered pane whose
-   * directory is the agent's worktree; with none or several, leave everything
-   * alone. Tab mode never moves panes, so it never looks.
+   * Called only when a split placement was interrupted. Close the one
+   * unregistered pane in the PM's workspace whose directory is the agent's
+   * worktree; with none or several, leave everything alone. A normal release
+   * never looks. Known limit: if the worker's pane died and the operator opened
+   * a shell in the PM's workspace at exactly that worktree path, an interrupted
+   * move cannot be told apart from it.
    */
+  /** In pane mode a row whose pane is gone and whose workspace is not the PM's may hold the old id of a pane that was moved but never recorded. */
+  #interruptedMove(workspaceId: string | null): boolean {
+    if (this.#config.layout.spawn !== "pane" || workspaceId === null)
+      return false;
+    const pm = this.#activeAgents().find((agent) => agent.kind === "PM");
+    const pmWorkspace = this.#core
+      .agentPanes(this.#credential)
+      .find((row) => row.agentId === pm?.agentId)?.workspaceId;
+    return pmWorkspace !== undefined && pmWorkspace !== workspaceId;
+  }
+
   async #closeMovedPane(
     agentId: string,
     worktreePath: string,
@@ -1293,6 +1315,9 @@ export class Launcher {
           if (agent.kind !== "PM")
             await this.#cleanupAgent(row.agentId, {
               paneId: row.paneId,
+              ...(this.#interruptedMove(row.workspaceId)
+                ? { moveMayHaveHappened: true }
+                : {}),
               ...(row.worktreePath === null
                 ? {}
                 : { worktreePath: row.worktreePath }),

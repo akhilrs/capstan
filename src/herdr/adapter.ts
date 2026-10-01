@@ -393,7 +393,8 @@ export class HerdrAdapter {
         WORKSPACE_PATTERN,
         "workspace id",
       ),
-      zoomed: layout.zoomed === true,
+      // Anything but an explicit false counts as zoomed: no split on a layout we cannot read.
+      zoomed: layout.zoomed !== false,
       panes: layout.panes.map((entry) => {
         const pane = this.#record(entry, "layout pane");
         const rect = this.#record(pane.rect, "layout rect");

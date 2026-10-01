@@ -992,6 +992,45 @@ test("a placement note keeps no escape sequence of any kind and stays short even
   }
 });
 
+test("a gone pane is not searched for when no move was interrupted: a pane recorded in the PM's workspace, or a normal release", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set(first.worktreePath, [
+      { paneId: "w1:p77", workspaceId: w.adapter.pmWorkspace! },
+    ]);
+    // The worker's pane died after it was recorded in the PM's workspace; a release must not look for strays.
+    w.adapter.tabPanes = w.adapter.tabPanes.filter(
+      (p) => p.paneId !== first.paneId,
+    );
+    w.adapter.entries.delete(first.paneId);
+    await w.launcher.release(first.agentId);
+    assert.ok(!w.adapter.calls.some((c) => c.startsWith("panes-at:")));
+    assert.ok(!w.adapter.calls.includes("close:w1:p77"));
+  } finally {
+    w.cleanup();
+  }
+  const x = await world(true, true, 3, PANE);
+  try {
+    await launched(x);
+    const second = await x.launcher.spawn("developer");
+    x.adapter.adoptErrors.set(second.paneId, new PaneGone("gone"));
+    x.adapter.closeMissingThrows = true;
+    x.adapter.strays.set(second.worktreePath, [
+      { paneId: "w1:p77", workspaceId: x.adapter.pmWorkspace! },
+    ]);
+    await x.launcher.adoptAll();
+    assert.ok(
+      !x.adapter.calls.some((c) => c.startsWith("panes-at:")),
+      "the row names the PM's workspace, so the pane died; nothing was mid-move",
+    );
+  } finally {
+    x.cleanup();
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {

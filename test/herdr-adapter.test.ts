@@ -3142,3 +3142,27 @@ test("panes the adapter cannot read are skipped, so they neither break a placeme
     h.fake.cleanup();
   }
 });
+
+test("a layout without an explicit zoomed=false counts as zoomed, and a removed worktree path still matches exactly", async () => {
+  const h = harness();
+  try {
+    h.fake.zoomed = undefined as unknown as boolean;
+    h.fake.layoutRects = [
+      { pane_id: "w9:p1", rect: { width: 120, height: 40 } },
+    ];
+    assert.equal((await h.adapter.paneLayout("w9:p1")).zoomed, true);
+    h.fake.zoomed = false;
+    assert.equal((await h.adapter.paneLayout("w9:p1")).zoomed, false);
+    const tree = await worktreePane(h);
+    h.fake.panes.get(tree.paneId)!.checkout = "/nonexistent/removed/worktree/";
+    assert.deepEqual(
+      (await h.adapter.panesAtPath("/nonexistent/removed/worktree")).map(
+        (p) => p.paneId,
+      ),
+      [tree.paneId],
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
