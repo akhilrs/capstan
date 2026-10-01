@@ -33,6 +33,7 @@ export class ReportRateLimiter {
 
   /** Returns true and counts the attempt when the key is under the limit. */
   allow(key: string, now: number): boolean {
+    if (this.#windows.size > 256) this.#sweep(now);
     const recent = (this.#windows.get(key) ?? []).filter(
       (at) => now - at < REPORT_RATE_WINDOW_MS,
     );
@@ -43,6 +44,13 @@ export class ReportRateLimiter {
     recent.push(now);
     this.#windows.set(key, recent);
     return true;
+  }
+
+  /** Drops keys with no attempt left in the window, so ended agents do not accumulate. */
+  #sweep(now: number): void {
+    for (const [key, attempts] of this.#windows)
+      if (attempts.every((at) => now - at >= REPORT_RATE_WINDOW_MS))
+        this.#windows.delete(key);
   }
 }
 
@@ -62,6 +70,13 @@ export function startReportRelay(options: {
     if (running) return;
     running = true;
     try {
+      // Nothing to do, and nothing written, until a PM is active.
+      if (
+        !options.core
+          .listAgents()
+          .some((agent) => agent.kind === "PM" && agent.state === "active")
+      )
+        return;
       for (const report of options.core.unannouncedReports(
         options.credential,
       )) {

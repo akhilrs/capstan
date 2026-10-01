@@ -495,3 +495,77 @@ test("the relay announces a report that was accepted while no PM was active, onc
     await close(h);
   }
 });
+
+test("a repeated accepted report and an idle relay write nothing to the ledger", async () => {
+  const h = await harness({
+    commands: {
+      inspectCommit: async () => ({
+        commitExists: true,
+        branchTip: COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+    },
+  });
+  const { default: Database } = await import("better-sqlite3");
+  const writes = (): number => {
+    const db = new Database(`${h.stateDirectory}/controller.sqlite`, {
+      readonly: true,
+    });
+    try {
+      return (
+        (
+          db.prepare("SELECT COUNT(*) AS n FROM mutation_requests").get() as {
+            n: number;
+          }
+        ).n +
+        (
+          db.prepare("SELECT COUNT(*) AS n FROM controller_events").get() as {
+            n: number;
+          }
+        ).n
+      );
+    } finally {
+      db.close();
+    }
+  };
+  try {
+    recordPane(h, BRANCH, BASE);
+    assert.ok(
+      (await call(h, h.developer.credential, "report", [COMMIT, "first"])).ok,
+    );
+    const before = writes();
+    for (let i = 0; i < 5; i += 1)
+      assert.ok(
+        (await call(h, h.developer.credential, "report", [COMMIT, "again"])).ok,
+      );
+    assert.equal(writes(), before, "five repeats wrote nothing");
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    report(h, "c".repeat(40));
+    const afterSecond = writes();
+    const relay = startReportRelay({
+      core: h.core,
+      credential: h.owner,
+      intervalMs: 10,
+      log: () => undefined,
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      relay.stop();
+    }
+    assert.equal(writes(), afterSecond, "with no PM the relay wrote nothing");
+  } finally {
+    await close(h);
+  }
+});
+
+test("the rate limiter forgets keys whose attempts are all old", () => {
+  const limiter = new ReportRateLimiter();
+  for (let i = 0; i < 300; i += 1) limiter.allow(`agent-${i}`, 0);
+  assert.ok(limiter.allow("agent-new", REPORT_RATE_WINDOW_MS + 1));
+  assert.ok(
+    limiter.allow("agent-0", REPORT_RATE_WINDOW_MS + 2),
+    "an old key starts fresh",
+  );
+});

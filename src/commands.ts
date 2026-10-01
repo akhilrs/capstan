@@ -562,7 +562,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           caller.generation,
           sha,
         );
-        if (known === undefined) {
+        if (known !== undefined)
+          // A repeat writes nothing: no row, no mutation record, no notice.
+          return ok({
+            reportId: known.reportId,
+            state: "accepted",
+            duplicate: true,
+            announced: known.notifiedMessageId !== null,
+          });
+        {
           const key = `${caller.agentId}:${caller.generation}`;
           if (!reportLimiter.allow(key, now()))
             return fail(

@@ -24,7 +24,7 @@ This is recorded as the known hole of DEC-005, **not as a pass**. The ledger row
 
 ## What the controller checks, and what it does not
 
-Checked by the daemon from the ledger and git, never taken from the agent: the agent is active; its current generation; the branch and base commit recorded for that generation; that the commit exists, is an ancestor of the branch tip and is neither the base commit nor an ancestor of it. Every git call uses an argument array, a clean environment (no inherited `GIT_*` variables, no user or system git configuration) and `--no-replace-objects`; tests cover a `GIT_DIR` pointing at another repository and a replace ref.
+Checked by the daemon from the ledger and git, never taken from the agent: the agent is active; its current generation; the branch and base commit recorded for that generation; that the commit exists, is an ancestor of the branch tip and is neither the base commit nor an ancestor of it. Every git call uses an argument array, a clean environment (no inherited `GIT_*` variables, no user or system git configuration) and `--no-replace-objects`; tests cover a `GIT_DIR` pointing at another repository and a replace ref. These close the daemon's own environment and replace refs only. A worker shares the repository, so it can still alter the repository's own configuration, object alternates and branch refs; that is the same-user hole of DEC-005, not closed.
 
 Not checked: authorship, that the work is good, that the worker made the commit. A report is a verified fact about the repository, not a review; acceptance needs the Stage 4 reviewer receipt.
 

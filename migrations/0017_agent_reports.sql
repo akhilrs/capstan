@@ -22,7 +22,7 @@ CREATE TABLE agent_reports (
 
 CREATE INDEX agent_reports_by_agent ON agent_reports(project_id, agent_id, generation, state);
 
-CREATE TRIGGER immutable_agent_reports_content BEFORE UPDATE OF report_id, sequence, agent_id, generation, actor_id, commit_sha, branch, summary, state, reason, evidence_json, created_at ON agent_reports BEGIN SELECT RAISE(ABORT, 'agent reports are immutable'); END;
+CREATE TRIGGER immutable_agent_reports_content BEFORE UPDATE OF project_id, report_id, sequence, agent_id, generation, actor_id, commit_sha, branch, summary, state, reason, evidence_json, created_at ON agent_reports BEGIN SELECT RAISE(ABORT, 'agent reports are immutable'); END;
 CREATE TRIGGER agent_reports_notified_once BEFORE UPDATE OF notified_message_id ON agent_reports WHEN OLD.notified_message_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'a report is announced once'); END;
 CREATE TRIGGER immutable_agent_reports_delete BEFORE DELETE ON agent_reports BEGIN SELECT RAISE(ABORT, 'agent reports are immutable'); END;
 

@@ -1,8 +1,9 @@
 /**
  * Git facts the controller checks itself. Every call is an argument array
- * (no shell) with a clean environment and replace refs switched off, because
- * a worker can write to the shared repository and must not be able to steer
- * the check.
+ * (no shell) with a clean environment and replace refs switched off, so the
+ * daemon's own environment and replace refs cannot steer the check. A worker
+ * shares the repository and can still change its own configuration, object
+ * alternates and branch refs; that same-user hole is DEC-005's, not closed here.
  */
 import { execFile } from "node:child_process";
 
