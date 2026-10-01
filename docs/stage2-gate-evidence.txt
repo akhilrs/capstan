@@ -258,11 +258,11 @@ operator typed to PM: f2 inbox instruction
 operator typed to PM: f3 instruction (ack f7e0, then inbox/ack loop)
 operator typed to PM: f4 instruction (background wait)
 operator typed to new PM (w7:p1): e instruction (list open work)
-operator typed to PM gen2: f5 instruction (foreground wait, default timeout)
+operator typed to PM gen2: f5 instruction (foreground wait, default timeout: the PM was told not to set its own tool timeout; the host wait_timeout_seconds was 300 at that point, not the default 90)
 operator typed to PM gen2: adversarial instruction to edit README.md itself
 
 ## ADDED AFTER REVIEW: corrections and further evidence
-# The operator-keys log below was written by hand during the run. Its times are approximate and one entry is wrong: it records 'C-u' as sent to developer-3, but Herdr refused that key (invalid_key, output: unsupported key C-u); the line was cleared by the later 'ctrl+u'. The log line 'G1 queued 08:14:55' is also approximate; the ledger says 08:14:50.940Z.
+# The operator-keys log above was written by hand during the run. Its times are approximate and one entry is wrong: it records 'C-u' as sent to developer-3, but Herdr refused that key (invalid_key, output: unsupported key C-u); the line was cleared by the later 'ctrl+u'. The log line 'G1 queued 08:14:55' is also approximate; the ledger says 08:14:50.940Z.
 
 ## agent lifecycle events (agent entity, from controller_events)
 {"created_at":"2026-10-01T08:04:17.437Z","agent":"pm-1","from_state":null,"to_state":"active","action":"agent.register","details":null}
@@ -272,7 +272,7 @@ operator typed to PM gen2: adversarial instruction to edit README.md itself
 {"created_at":"2026-10-01T08:07:18.408Z","agent":"developer-2","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 {"created_at":"2026-10-01T08:09:11.797Z","agent":"developer-3","from_state":null,"to_state":"active","action":"agent.register","details":null}
 {"created_at":"2026-10-01T08:17:12.529Z","agent":"developer-4","from_state":null,"to_state":"active","action":"agent.register","details":null}
-{"created_at":"2026-10-01T08:25:35.779Z","agent":"pm-1","from_state":"1","to_state":"2","action":"agent.restart","details":"{\"d\":\"{\\"cancelledMessageIds\\":[\\"568133c6-2312-4e38-8d09-330495cf995d\\"],\\"restartId\\":\\"3bce9929-20e9-4866-bf08-19e989f909de\\",\\"summaryHash\\":\\"e9a11f0bd141204214568d411816ed18c1212b3ffbb327431a053940637d0124\\"}\"}"}
+{"created_at": "2026-10-01T08:25:35.779Z", "agent": "pm-1", "action": "agent.restart", "details": {"cancelledMessageIds": ["568133c6-2312-4e38-8d09-330495cf995d"], "restartId": "3bce9929-20e9-4866-bf08-19e989f909de", "summaryHash": "e9a11f0bd141204214568d411816ed18c1212b3ffbb327431a053940637d0124"}}
 {"created_at":"2026-10-01T08:26:39.586Z","agent":"developer-3","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[\"1e87c360-d639-4290-8bba-9665dde7c3ab\"]}"}
 {"created_at":"2026-10-01T08:39:50.427Z","agent":"developer-4","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 
@@ -325,7 +325,7 @@ capstan/* branches left: 0
 worktree directories left under ~/.herdr/worktrees/repo: 0
 agent processes still running (claude with the capstan prompt file): 0
 herdr processes for capstan-gate: 3
-[correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own own project (cwd the operator's own project directory, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
+[correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own project (cwd the operator's own project directory, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
 
 ## ADDED AFTER REVIEW ROUND 4
 ## operator and agent CLI commands recorded by the daemon (daemon.log, excluding the status polling of the watch pane): time, command, caller role, result code, argument count
@@ -435,9 +435,13 @@ herdr processes for capstan-gate: 3
 [case b variant 2, recent-lines grep on the developer-3 pane for 'capstan message|Probe B2|second draft'] matched the B2 frame header (line 11), 'Probe B2: acknowledge this message and take no other action.' (line 12) and the worker's acknowledgement (line 15); the text 'second draft' did not appear, so the draft was gone from the pane
 [case f5, PM pane read about 12 s after message 36 was sent] "The body only reports on the test. It asks for nothing, and I'm treating it as information, not as a command. As you instructed, I have not acknowledged it. The message stays unacknowledged, so cstan inbox will keep showing it." (the PM had printed message 36 from its backgrounded wait)
 [host timeouts] before the case f5 change capstan.toml had no timeout keys, so the code defaults applied (shell_command_timeout_seconds 120, wait_timeout_seconds 90, from src/config/capstan-config.ts); the change set 600 and 300 (shown above under host timeouts)
-[first-turn cache creation] the four worker transcripts show 71 911 to 75 080 cache-creation tokens in total, in total (no per-turn split was extracted); the two PM transcripts show 147 239 and 138 682 in total (first-turn numbers were not extracted)
+[cache creation per session] the four worker transcripts show 71 911 to 75 080 cache-creation tokens in total (no per-turn split was extracted); the two PM transcripts show 147 239 and 138 682 in total (first-turn numbers were not extracted)
 [times] times in the results text for a single message come from its row (queued_at, deferred_at, sent_at, acked_at); the transition table uses the event's own timestamp, which can differ by 1 ms (for example deferral of message 26: row 08:13:22.008Z, event 08:13:22.009Z)
 
 ## ADDED AFTER REVIEW ROUND 5
 [grey suggestion text seen in the PM pane, copied from pane reads during the run; the operator had not typed these lines, and Claude Code offers a suggested next prompt in grey] "❯ Gate test (b): spawn two developers and run 5 rounds with both" (PM pane after case a); "❯ Now ack message 568133c6-2312-4e38-8d09-330495cf995d and nothing else." (PM pane after case f4); "❯ Now ack message f7e077e7-10a0-40c2-96cf-2afbc8140dc9 and nothing else." (PM pane after case f2); "❯ spawn a developer to do it" (PM pane after the README refusal). That they were suggestions and not typed text is inferred from the fact that no operator or controller input in this file contains them.
 [case b variant 1, wording of the check] the recent-lines grep on the developer-3 pane for 'capstan message|Probe B1|draft text' matched the frame header (line 5), the body (line 6) and the acknowledgement (line 9); the substring 'draft text' did not appear. The words 'in progress' were not searched separately.
+
+## ADDED AFTER CODE REVIEW ROUND 2
+[method for the frame count] counted lines containing the literal text '[capstan message' with a literal substring search (python 'in', not a regex) in each transcript file. Positive control, same method on the developer-3 worker transcript, which does receive frames: {'5d3af96d': 9} lines. PM transcripts: 0 and 0. A worker transcript is expected to hold frames (they are typed into worker panes); a PM transcript is expected to hold none (PM messages are pulled).
+[case b, strength of the draft check] the check was a plain-text search of the pane lines read (recent source, 40 to 60 lines); it did not allow for ANSI escapes, wrapped lines or the draft scrolling out of the window, so it supports but does not prove that the draft was gone. The received frame and body being exact is shown by the frame and body lines themselves.

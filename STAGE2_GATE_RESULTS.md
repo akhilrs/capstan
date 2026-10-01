@@ -12,7 +12,7 @@ A case is marked PASS only when the stated oracle was met. Where the oracle was 
 
 **(b) text already in the worker's input line: PASS, both variants.**
 
-- Variant 1 (message 23, frame id `2966c849…`): with `draft text in progress` typed in the input line the message went `deferred` (`input_not_empty`). After the operator cleared the line (Herdr refused the first key, `C-u`, as `invalid_key`; `ctrl+u` cleared it) it was sent and `acked`. The pane read shows the frame header and then exactly `Probe B1: acknowledge this message and take no other action.`, and the substring `draft text` does not appear in the pane lines around it (`in progress` was not searched separately).
+- Variant 1 (message 23, frame id `2966c849…`): with `draft text in progress` typed in the input line the message went `deferred` (`input_not_empty`). After the operator cleared the line (Herdr refused the first key, `C-u`, as `invalid_key`; `ctrl+u` cleared it) it was sent and `acked`. The pane read shows the frame header and then exactly `Probe B1: acknowledge this message and take no other action.`, and the substring `draft text` does not appear in the pane lines around it (`in progress` was not searched separately; the check is a plain-text search that does not allow for ANSI escapes, wrapping or scrolling, so it supports the claim but does not prove it).
 - Variant 2 (message 24, frame id `6543b560…`): the draft stayed past the 120 s maximum deferral. The message was sent at 08:12:41.030Z and acked. The ledger table `message_input_clears` holds the cleared text and its hash (added to the evidence file), and `notifications.jsonl` holds an `input_cleared` entry from the fallback channel (the Herdr channel failed, see the notification item below). The received text equals the sent text.
 - By design the controller wipes the operator's draft in variant 2. The text is kept in the ledger, so nothing is lost, but the operator loses a draft they were still typing.
 
@@ -52,7 +52,8 @@ A case is marked PASS only when the stated oracle was met. Where the oracle was 
 4. Claude Code shows grey suggestion text in the input line (for example `Now ack message …`; PM pane excerpts are in the evidence file). It looks like typed input in a plain pane read. No case here put suggestion text in a worker's input line, so this run does not show whether the delivery driver mistakes it for typed text; that needs its own test.
 5. A foreground `wait` is auto-backgrounded by Claude Code after two minutes (shown with `shell_command_timeout_seconds = 600`). What the plan assumed, that the host wait timeout ends a long wait, was not reached: the wait lasted 154.6 s and the configured host limit was 300 s.
 6. A failed delivery to a dead pane (message 28, `agent_not_found`) does not end the agent. A dead recipient is only cleaned up at the next daemon start.
-7. After the Herdr server was stopped, one PM Claude process (pid 18731, parent 18207, not identified further) was still running and had to be ended by its pid. Worker processes were not checked separately, so whether stopping the server leaves agent processes behind in general is untested.
+7. The message state machine let a terminal `failed` message be overwritten as `cancelled` (message 28: `failed` at 08:25:18.545Z, then `cancelled` with `agent_ended` at 08:26:39.586Z), so the final row hides the failure. A terminal failure should keep its final state.
+8. After the Herdr server was stopped, one PM Claude process (pid 18731, parent 18207, not identified further) was still running and had to be ended by its pid. Worker processes were not checked separately, so whether stopping the server leaves agent processes behind in general is untested.
 
 ## Guard and what changed on the operator's side
 
