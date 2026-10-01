@@ -542,3 +542,27 @@ test("a report whose evidence has no usable base commit is refused before a revi
     await close(h).catch(() => undefined);
   }
 });
+
+test("a reviewer whose generation was replaced mid-review can still answer, as the same reviewer", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    const reportId = acceptedReport(h);
+    const reviewer = verifier(h, "reviewer-1");
+    const started = begin(h, reportId, reviewer.agentId);
+    const replaced = h.core.replaceAgentGeneration(
+      ctx(h.core, h.owner),
+      reviewer.agentId,
+    );
+    assert.notEqual(replaced.actorId, reviewer.actorId);
+    const done = h.core.completeReview(ctx(h.core, replaced.credential), {
+      verdict: "pass",
+      text: "fine after the restart",
+    });
+    assert.equal(done.reviewId, started.reviewId);
+    assert.equal(done.state, "passed");
+    assert.equal(done.reviewerAgentId, reviewer.agentId);
+  } finally {
+    await close(h);
+  }
+});

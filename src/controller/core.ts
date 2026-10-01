@@ -2915,11 +2915,17 @@ export class ControllerCore {
       "review:submit",
       { verdict: input.verdict, textHash: sha256(input.text) },
       (actor) => {
-        const row = this.#database
-          .prepare(
-            "SELECT * FROM reviews WHERE project_id = ? AND reviewer_actor_id = ? AND state = 'started'",
-          )
-          .get(this.#projectId, actor.actorId) as ReviewRow | undefined;
+        // By agent, not by actor: a replaced generation gets a new actor but is the same reviewer.
+        const caller = this.#agentByActor(actor.actorId);
+        const row =
+          caller === undefined
+            ? undefined
+            : (this.#database
+                .prepare(
+                  "SELECT * FROM reviews WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started'",
+                )
+                .get(this.#projectId, caller.agent_id) as
+                ReviewRow | undefined);
         if (row === undefined)
           throw new ControllerError("you have no review in progress");
         const now = this.#now();
