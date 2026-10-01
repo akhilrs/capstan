@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
@@ -61,7 +62,7 @@ function isolatedEnvironment(
   return environment;
 }
 
-/** Lists the operator's default session without changing it, with the real HOME. Focus, agent status and pane counts follow the operator's own use of the terminal while a test runs, so only each workspace's id and label are compared: a workspace the code opened or closed in the default session still shows. */
+/** Lists the operator's default session without changing it, with the real HOME. Focus, agent status, pane counts and workspaces the operator closes follow the operator's own use of the terminal while a test runs, so only each workspace's id and label are kept. */
 export function defaultSessionSnapshot(): string {
   const environment: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env))
@@ -215,4 +216,22 @@ export async function startLiveEnvironment(): Promise<LiveEnvironment> {
       await teardown();
     },
   };
+}
+
+/** Fails when a workspace the snapshot did not hold now exists in the operator's default session. The operator may close workspaces while a test runs, so a missing one is not a leak. */
+export function assertNoNewDefaultWorkspaces(before: string): void {
+  const after = defaultSessionSnapshot();
+  if (before === "unavailable" || after === "unavailable") return;
+  const key = (workspace: { workspace_id: string; label: string }): string =>
+    `${workspace.workspace_id}:${workspace.label}`;
+  type Listing = Array<{ workspace_id: string; label: string }>;
+  const known = new Set((JSON.parse(before) as Listing).map(key));
+  const added = (JSON.parse(after) as Listing)
+    .map(key)
+    .filter((entry) => !known.has(entry));
+  assert.deepEqual(
+    added,
+    [],
+    "the code opened no workspace in the operator's default session",
+  );
 }

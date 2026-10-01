@@ -10,6 +10,7 @@ import {
 } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
 import {
+  assertNoNewDefaultWorkspaces,
   defaultSessionSnapshot,
   liveUnavailable,
   startLiveEnvironment,
@@ -252,10 +253,6 @@ test(
     } finally {
       await live.cleanup();
     }
-    assert.equal(
-      defaultSessionSnapshot(),
-      before,
-      "the operator's default session is unchanged",
-    );
+    assertNoNewDefaultWorkspaces(before);
   },
 );

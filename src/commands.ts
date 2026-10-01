@@ -22,6 +22,7 @@ import {
 } from "./controller/messaging.js";
 import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
+  NAME_PATTERN,
   type CapstanConfig,
 } from "./config/capstan-config.js";
 import { MAX_TEXT_BYTES, isAgentName } from "./herdr/adapter.js";
@@ -81,8 +82,6 @@ function imitatesFrame(body: string): boolean {
   );
 }
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-/** The shape `capstan.toml` allows for a role name. */
-const ROLE_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
 /** Room the driver's frame header and footer need inside the adapter's text limit. */
@@ -449,7 +448,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         );
       if (call.args.length !== 1)
         return fail("invalid_request", "spawn needs one role name");
-      if (!ROLE_NAME.test(call.args[0]!))
+      if (!NAME_PATTERN.test(call.args[0]!))
         return fail("invalid_request", "the role name is not valid");
       if (deps.launcher === undefined)
         return fail(

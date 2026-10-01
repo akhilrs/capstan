@@ -106,7 +106,7 @@ export interface ReleaseOutcome {
 export interface ReleaseResult extends ReleaseOutcome {
   readonly state: "released";
   readonly agentId: string;
-  readonly branch: string | null;
+  readonly branch: string;
   readonly cancelledMessageIds: readonly string[];
 }
 
@@ -665,7 +665,7 @@ export class Launcher {
         .find((candidate) => candidate.agentId === agentId);
       const outcome = await this.#cleanupAgent(agentId, {
         ...(row?.paneId == null ? {} : { paneId: row.paneId }),
-        ...(row?.branch == null ? {} : { branch: row.branch }),
+        branch: row?.branch ?? `capstan/${agentId}`,
         ...(row?.baseSha == null ? {} : { baseSha: row.baseSha }),
         ...(row?.worktreePath == null
           ? {}
@@ -679,7 +679,7 @@ export class Launcher {
       return {
         state: "released",
         agentId,
-        branch: row?.branch ?? null,
+        branch: row?.branch ?? `capstan/${agentId}`,
         paneClosed: outcome.paneClosed,
         worktreeRemoved: outcome.worktreeRemoved,
         branchKept: outcome.branchKept,
@@ -999,7 +999,10 @@ export class Launcher {
       if (!paneClosed)
         return {
           paneClosed,
-          worktreeRemoved: false,
+          worktreeRemoved:
+            info.worktreePath === undefined && info.branch === undefined
+              ? null
+              : false,
           branchKept: info.branch !== undefined,
         };
     }

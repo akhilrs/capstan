@@ -11,6 +11,7 @@ import { HerdrAdapter } from "../src/herdr/adapter.js";
 import { Launcher, LauncherError } from "../src/launcher.js";
 import type { Notifier } from "../src/notifier.js";
 import {
+  assertNoNewDefaultWorkspaces,
   defaultSessionSnapshot,
   liveUnavailable,
   startLiveEnvironment,
@@ -294,10 +295,6 @@ test(
       core.close();
       await live.cleanup();
     }
-    assert.equal(
-      defaultSessionSnapshot(),
-      before,
-      "the operator's default session is unchanged",
-    );
+    assertNoNewDefaultWorkspaces(before);
   },
 );
