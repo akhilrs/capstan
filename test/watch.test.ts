@@ -160,3 +160,42 @@ test("a message without a lastNotifiedAt field never rings", async () => {
   );
   assert.equal(signalsOf(status({ messages: [{ messageId: "m-1" }] })).size, 0);
 });
+
+test("open and escalated findings are listed, an escalation rings once, and resolved or cancelled ones are not shown", () => {
+  const finding = (
+    state: string,
+    id: string,
+    reason: string | null = null,
+  ) => ({
+    findingId: id,
+    targetAgentId: "developer-1",
+    severity: "high",
+    state,
+    interventions: state === "open" ? 1 : 2,
+    stateReason: reason,
+  });
+  const status = {
+    agents: [],
+    agentFindings: [
+      finding("open", "f-open"),
+      finding("escalated", "f-esc", "second_unresolved"),
+      finding("resolved", "f-done"),
+      finding("cancelled", "f-gone", "target_ended"),
+    ],
+  };
+  const text = renderWatch(status);
+  assert.match(
+    text,
+    /finding f-open on developer-1 \(high\) \[open, intervention 1 of 2\]/,
+  );
+  assert.match(
+    text,
+    /finding f-esc on developer-1 \(high\) \[escalated, intervention 2 of 2, second_unresolved\] needs the operator/,
+  );
+  assert.doesNotMatch(text, /f-done|f-gone/);
+  assert.deepEqual([...signalsOf(status)], ["finding-escalated:f-esc"]);
+  assert.deepEqual(
+    [...signalsOf({ agentFindings: [finding("open", "f-open")] })],
+    [],
+  );
+});
