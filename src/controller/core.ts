@@ -74,6 +74,7 @@ import type {
   WorkItemInput,
 } from "./types.js";
 
+// Bounds on the stored dispatch command, so one work item cannot put an unbounded row in the outbox.
 const DISPATCH_MAX_FRAME_BYTES = 1_048_576;
 const DISPATCH_MAX_PROMPT_BYTES = 262_144;
 const ROLE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;

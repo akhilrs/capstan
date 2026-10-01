@@ -624,7 +624,6 @@ export class HerdrAdapter {
     agent: string;
     workspaceId: string | null;
     worktreePath: string | null;
-    kind: HostKind;
   }): Promise<void> {
     requireMatch(input.paneId, PANE_PATTERN, "pane id");
     if (!isAgentName(input.agent))
@@ -637,10 +636,14 @@ export class HerdrAdapter {
       throw new AgentPaneMismatch(
         "the agent name points at another pane than the recorded one",
       );
+    if (!(HOST_KINDS as readonly string[]).includes(state.kind))
+      throw new UnsupportedHostError(
+        `the agent is a ${state.kind} agent, which this adapter does not drive`,
+      );
     this.#panes.set(input.paneId, {
       role: input.role,
       phase: "started",
-      kind: input.kind,
+      kind: state.kind as HostKind,
       agent: input.agent,
       ...(input.workspaceId === null ? {} : { workspaceId: input.workspaceId }),
       ...(input.worktreePath === null
@@ -764,7 +767,9 @@ export class HerdrAdapter {
       : { status };
   }
 
-  async agentState(name: string): Promise<{ status: string; paneId: string }> {
+  async agentState(
+    name: string,
+  ): Promise<{ status: string; paneId: string; kind: string }> {
     requireMatch(name, NAME_PATTERN, "agent name");
     const result = await runJson(this.#run, ["agent", "get", name]);
     const agent = this.#record(result.agent, "agent");
@@ -772,6 +777,7 @@ export class HerdrAdapter {
       status:
         typeof agent.agent_status === "string" ? agent.agent_status : "unknown",
       paneId: typeof agent.pane_id === "string" ? agent.pane_id : "",
+      kind: typeof agent.agent === "string" ? agent.agent : "unknown",
     };
   }
 

@@ -1638,19 +1638,8 @@ export class Launcher {
         continue;
       }
       if (this.#adapter.paneEntry(row.paneId) !== undefined) continue;
-      const adoptRole = this.#config.roles.find(
-        (r) => r.name === agent.roleName,
-      );
-      if (adoptRole === undefined) {
-        this.#log("adopt_skipped", {
-          agentId: row.agentId,
-          reason: "role_missing",
-        });
-        continue;
-      }
       try {
         await this.#adapter.adoptPane({
-          kind: this.#hostKind(adoptRole),
           paneId: row.paneId,
           role: agent.kind === "PM" ? "PM" : "worker",
           agent: row.agentId,

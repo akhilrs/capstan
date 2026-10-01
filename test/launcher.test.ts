@@ -2611,22 +2611,3 @@ test("a worker on an OMP host starts with every tool approved and the prompt fil
     w.cleanup();
   }
 });
-
-test("a restart adopts each pane with the kind of its role's host, and skips an agent whose role is gone from the configuration", async () => {
-  const w = await world(true, true, 3, {}, { hostOf: { developer: "omp" } });
-  try {
-    await launched(w);
-    const spawned = await w.launcher.spawn("developer");
-    assert.equal(spawned.state, "started");
-    w.adapter.entries.clear();
-    w.adapter.agentPanes.clear();
-    const next = w.reopen();
-    await next.adoptAll();
-    assert.deepEqual(w.adapter.adopted.map((entry) => entry.kind).sort(), [
-      "claude",
-      "omp",
-    ]);
-  } finally {
-    w.cleanup();
-  }
-});

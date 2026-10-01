@@ -25,7 +25,6 @@ export class StubAdapter implements LauncherAdapter {
   }
 
   readonly calls: string[] = [];
-  readonly adopted: Array<{ paneId: string; kind: string }> = [];
   readonly starts: StartCall[] = [];
   readonly entries = new Map<string, { agent?: string }>();
   readonly agentPanes = new Map<string, string>();
@@ -210,8 +209,7 @@ export class StubAdapter implements LauncherAdapter {
       if (pane === paneId) this.agentPanes.delete(agent);
   }
 
-  async adoptPane(input: { paneId: string; agent: string; kind: string }) {
-    this.adopted.push({ paneId: input.paneId, kind: input.kind });
+  async adoptPane(input: { paneId: string; agent: string }) {
     const error = this.adoptErrors.get(input.paneId);
     if (error) throw error;
     this.calls.push(`adopt:${input.paneId}`);

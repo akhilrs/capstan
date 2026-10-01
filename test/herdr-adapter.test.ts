@@ -84,7 +84,7 @@ class FakeHerdr {
   readonly panes = new Map<string, FakePane>();
   readonly agentStates = new Map<
     string,
-    { paneId: string; statuses: string[] }
+    { paneId: string; statuses: string[]; kind?: string }
   >();
   readonly root = realpathSync(
     mkdtempSync(path.join(tmpdir(), "capstan-fake-herdr-")),
@@ -202,7 +202,12 @@ class FakeHerdr {
           ? state.statuses.shift()!
           : state.statuses[0]!;
       return this.json({
-        agent: { name: args[2], pane_id: state.paneId, agent_status: status },
+        agent: {
+          name: args[2],
+          pane_id: state.paneId,
+          agent_status: status,
+          agent: state.kind ?? "claude",
+        },
       });
     }
     if (command === "pane" && sub === "read") {
@@ -233,7 +238,11 @@ class FakeHerdr {
         return this.failure(this.startError.code, this.startError.message);
       pane.agent = name;
       pane.status = "idle";
-      this.agentStates.set(name, { paneId: pane.paneId, statuses: ["idle"] });
+      this.agentStates.set(name, {
+        paneId: pane.paneId,
+        statuses: ["idle"],
+        kind: flag("--kind") ?? "claude",
+      });
       return this.json({ agent: { name } });
     }
     if (command === "pane" && sub === "layout")
@@ -345,7 +354,7 @@ async function startedWorker(
   });
   const pane = h.fake.panes.get(paneId)!;
   pane.screen = screen;
-  h.fake.agentStates.set("dev", { paneId, statuses });
+  h.fake.agentStates.set("dev", { paneId, statuses, kind });
   h.fake.calls.length = 0;
   h.fake.events.length = 0;
   return { paneId, agent: "dev", pane };
@@ -2557,7 +2566,6 @@ test("a second adapter adopts a pane the first one started, after Herdr confirms
     const next = secondAdapter(h);
     assert.equal(next.paneForAgent("dev"), undefined);
     await next.adoptPane({
-      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2583,7 +2591,6 @@ test("a second adapter adopts a pane the first one started, after Herdr confirms
     );
     await assert.rejects(
       next.adoptPane({
-        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "dev",
@@ -2605,7 +2612,6 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     const next = secondAdapter(h);
     await assert.rejects(
       next.adoptPane({
-        kind: "claude",
         paneId: "w77:p1",
         role: "worker",
         agent: "dev",
@@ -2617,7 +2623,6 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     h.fake.agentStates.set("dev", { paneId: "w78:p1", statuses: ["idle"] });
     await assert.rejects(
       next.adoptPane({
-        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "dev",
@@ -2628,7 +2633,6 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     );
     await assert.rejects(
       next.adoptPane({
-        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "a:b",
@@ -2639,7 +2643,6 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     );
     await assert.rejects(
       next.adoptPane({
-        kind: "claude",
         paneId: "bad",
         role: "worker",
         agent: "dev",
@@ -2753,7 +2756,6 @@ test("a dialog that redraws a moment after the Down key is still answered, with 
       })(),
     });
     await slow.adoptPane({
-      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2819,7 +2821,6 @@ test("half-drawn reads during the redraw are waited out, but a different path st
       })(),
     });
     await adapter.adoptPane({
-      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2861,7 +2862,6 @@ test("half-drawn reads during the redraw are waited out, but a different path st
         now: () => 0,
       });
       await second.adoptPane({
-        kind: "claude",
         paneId: other.paneId,
         role: "worker",
         agent: "dev",
@@ -3319,5 +3319,53 @@ test("an OMP agent has no trust dialog to answer, and a Codex dialog for another
   } finally {
     g.adapter.close();
     g.fake.cleanup();
+  }
+});
+
+test("adoption takes the host kind from what Herdr reports for the agent, and refuses an agent this adapter does not drive", async () => {
+  for (const kind of ["codex", "omp"] as const) {
+    const h = harness();
+    try {
+      const worker = await startedWorker(
+        h,
+        fixture(`${kind}-idle-empty.ansi`),
+        ["idle"],
+        kind,
+      );
+      const entry = h.adapter.paneEntry(worker.paneId)!;
+      const next = secondAdapter(h);
+      await next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: entry.workspaceId ?? null,
+        worktreePath: entry.worktreePath ?? null,
+      });
+      assert.equal(next.paneEntry(worker.paneId)!.kind, kind);
+      assert.equal(await next.readInput(worker.paneId), "", kind);
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    h.fake.agentStates.get("dev")!.kind = "gemini";
+    const next = secondAdapter(h);
+    await assert.rejects(
+      next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      UnsupportedHostError,
+    );
+    assert.equal(next.paneEntry(worker.paneId), undefined);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
   }
 });
