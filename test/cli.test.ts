@@ -2395,7 +2395,7 @@ test("the CLI behaves the same when it is started through a symlink, as npm link
       env: { ...process.env, CAPSTAN_LAUNCH: "off" },
     });
     assert.equal(ping.status, 0, ping.stderr);
-    assert.match(ping.stdout, /pong|true/);
+    assert.match(ping.stdout, /^pong: true$/m);
     const unknown = spawnSync(process.execPath, [link, "no-such-command"], {
       cwd: project,
       encoding: "utf8",
@@ -2405,8 +2405,8 @@ test("the CLI behaves the same when it is started through a symlink, as npm link
       0,
       "an invalid command is reported, not ignored",
     );
-    killDaemon(project);
   } finally {
+    killDaemon(path.join(cwd, "project"));
     rmSync(cwd, { recursive: true, force: true });
   }
 });

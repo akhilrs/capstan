@@ -96,7 +96,10 @@ async function deliver(
 ): Promise<void> {
   await until("the driver to deliver the message", async () => {
     await driver.tick();
-    return core.message(messageId)!.state === "sent" ? true : undefined;
+    const state = core.message(messageId)!.state;
+    if (["failed", "expired", "cancelled"].includes(state))
+      throw new Error(`the message reached the final state ${state}`);
+    return state === "sent" ? true : undefined;
   });
 }
 
