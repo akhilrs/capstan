@@ -192,6 +192,8 @@ Not verified: `ctrl+u` on a multi-line input in real Claude Code (the stand-in m
 
 ### Stage 2 gate
 
+Results of the run on real Claude Code sessions are in `STAGE2_GATE_RESULTS.md` (PM-26).
+
 Run on real Claude Code sessions in an isolated Herdr session. Every case names its oracle.
 
 - (a) 10 consecutive PM to developer rounds with every message answered exactly once (oracle: one answer per message id in the transcript, and `acked` for each in the message log).
@@ -209,17 +211,17 @@ Stated so nobody builds on these as facts. Each is tested in the stage shown or 
 
 | Item                                                                                                                           | Tested in           | Fallback                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------------- | ---------------------------------------------------------------------- |
-| `cstan wait` under Claude Code's shell-command behavior, including the reported two-minute timeout and Esc queuing typed input | Stage 2             | `cstan inbox` at the start of each turn plus the operator notification |
-| `herdr notification`                                                                                                           | Stage 2             | a controller-owned `cstan status --watch` pane plus a bell             |
-| Selective Claude Code hooks for the PM through `--setting-sources`, and whether Herdr's state still works with them            | Stage 2 (optional)  | none needed: the pull path does not use hooks                          |
-| `cstan` allow-listing and the role prompt                                                                                      | Stage 2             | none: Stage 2 depends on it                                            |
-| Pre-trusting worktrees in the host's configuration                                                                             | Stage 2             | the narrow logged trust-dialog exception (section 8)                   |
+| `cstan wait` under Claude Code's shell-command behavior, including the reported two-minute timeout and Esc queuing typed input | Tested in Stage 2 (PM-26): a foreground wait over two minutes is moved to the background by Claude Code, not killed; Esc ends it at once; typed input is not disturbed. See STAGE2_GATE_RESULTS.md | `cstan inbox` at the start of each turn plus the operator notification |
+| `herdr notification`                                                                                                           | Tested in Stage 2 (PM-26): shows nothing without an attached UI client (`no_foreground_client`); the recorded fallback channel works | a controller-owned `cstan status --watch` pane plus a bell             |
+| Selective Claude Code hooks for the PM through `--setting-sources`, and whether Herdr's state still works with them            | Not run in Stage 2 (optional)  | none needed: the pull path does not use hooks                          |
+| `cstan` allow-listing and the role prompt                                                                                      | Tested in Stage 2 (PM-26): `Bash(cstan *)` works for both kinds; the PM followed the delegation prompt (the tool deny list is untested) | none: Stage 2 depends on it                                            |
+| Pre-trusting worktrees in the host's configuration                                                                             | Tested in Stage 2 (PM-26): Claude Code trusts worktrees of a trusted repository, no per-worktree entry | the narrow logged trust-dialog exception (section 8)                   |
 | Codex and OMP behavior                                                                                                         | Stage 7             | none: Claude Code is the only host in the slice                        |
 | The updated Herdr Claude hook and its effect on state accuracy                                                                 | after Stage 2       | none: state is a hint                                                  |
 | Long tasks and context growth; agent death and replacement                                                                     | Stage 6             | none yet                                                               |
 | Several agents interfering with each other                                                                                     | Stage 4 onward      | none yet                                                               |
 | Scrubbing the Herdr server's environment; pinning the detection manifest                                                       | not scheduled       | none; recorded as residual risk in DEC-005                             |
-| Cost                                                                                                                           | before any long run | the operator's cap; none has been set                                  |
+| Cost                                                                                                                           | Measured in Stage 2 (PM-26): about 72 000 cache-creation tokens per session start, about 90 000 cache-read tokens per turn; see STAGE2_GATE_RESULTS.md | the operator's cap; none has been set                                  |
 
 ## 13. Verification approach and cost
 
