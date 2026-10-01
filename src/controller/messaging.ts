@@ -167,6 +167,26 @@ export interface MessagingTimers {
   readonly workerAckTimeoutSeconds: number;
 }
 
+export const MESSAGING_TIMER_NAMES: readonly (keyof MessagingTimers)[] = [
+  "maxDeferralSeconds",
+  "pmAckTimeoutSeconds",
+  "pmNotifyAfterSeconds",
+  "notifyIntervalSeconds",
+  "stallAfterSeconds",
+  "workerAckTimeoutSeconds",
+];
+
+/**
+ * Only the timers the message state machine takes. The configuration holds
+ * more (such as the finding deadline), and the controller refuses a timer it
+ * does not know, so a configured object must be narrowed before it is passed.
+ */
+export function messagingTimersOf(timers: MessagingTimers): MessagingTimers {
+  return Object.fromEntries(
+    MESSAGING_TIMER_NAMES.map((name) => [name, timers[name]]),
+  ) as unknown as MessagingTimers;
+}
+
 export interface AgentFacts {
   readonly agentId: string;
   readonly kind: "PM" | "Developer" | "Verifier" | "Supervisor";

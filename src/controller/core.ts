@@ -29,6 +29,7 @@ import {
   HERDR_STATES,
   RESOLUTION_DECISIONS,
   evaluateMessaging,
+  MESSAGING_TIMER_NAMES,
   isFinalState,
   isLegalTransition,
   queueHead,
@@ -152,14 +153,7 @@ function safeText(
   return value;
 }
 
-const TIMER_NAMES: readonly (keyof MessagingTimers)[] = [
-  "maxDeferralSeconds",
-  "pmAckTimeoutSeconds",
-  "pmNotifyAfterSeconds",
-  "notifyIntervalSeconds",
-  "stallAfterSeconds",
-  "workerAckTimeoutSeconds",
-];
+const TIMER_NAMES = MESSAGING_TIMER_NAMES;
 
 function assertTimers(timers: MessagingTimers): void {
   if (typeof timers !== "object" || timers === null)
