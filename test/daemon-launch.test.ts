@@ -202,3 +202,54 @@ test("a daemon given syncRoles brings the roles into the ledger, so launch works
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a sync that fails at daemon start leaves the daemon up, and launch names the failure", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-daemon-syncfail-"));
+  const stateDirectory = path.join(root, "state");
+  const info = projectInfo();
+  const socket = path.join(stateDirectory, "control.sock");
+  const log: LogEntry[] = [];
+  let ready!: () => void;
+  const up = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const done = runDaemon({
+    stateDirectory,
+    project: info,
+    workspaceRoot: root,
+    log: (entry) => log.push(entry),
+    announce: (event) => {
+      if (event.event === "ready") ready();
+    },
+    capstan: configFor(),
+    adapter: new StubAdapter(),
+    notifier,
+    cliPath: "/opt/capstan/cli.js",
+    tickMs: 500,
+    syncRoles: () => {
+      throw new Error("the ledger refused the change");
+    },
+  });
+  try {
+    await up;
+    assert.ok(log.some((entry) => entry.command === "daemon:role_sync_failed"));
+    const launched = await callDaemon(
+      socket,
+      info.ownerCredential,
+      "launch",
+      [],
+      30_000,
+    );
+    assert.equal(launched.kind, "response");
+    const response = (
+      launched as { response: { ok: boolean; message?: string } }
+    ).response;
+    assert.equal(response.ok, false);
+    assert.match(response.message ?? "", /role_not_synced/);
+    assert.match(response.message ?? "", /the ledger refused the change/);
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
+    await done;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

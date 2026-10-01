@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
@@ -22,6 +23,9 @@ if (UNAVAILABLE !== undefined)
     `SKIPPED LOUDLY: live launcher tests did not run: ${UNAVAILABLE}`,
   );
 
+const hashOf = (name: string): string =>
+  createHash("sha256").update(name).digest("hex");
+
 function configFor(): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer") => ({
     name,
@@ -33,7 +37,7 @@ function configFor(): CapstanConfig {
     deny: [] as string[],
     hooks: "off" as const,
     prompt: { source: "none" as const, path: null, hash: null },
-    configHash: name.padEnd(64, "0").slice(0, 64),
+    configHash: hashOf(name),
   });
   const withText = (value: ReturnType<typeof role>) =>
     Object.defineProperty(value, "promptText", {
@@ -115,12 +119,12 @@ test(
     const owner = info.ownerCredential;
     try {
       core.syncRoleDefinitions(ctx(core, owner), [
-        { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+        { name: "pm", kind: "PM", host: "claude", configHash: hashOf("pm") },
         {
           name: "developer",
           kind: "Developer",
           host: "claude",
-          configHash: "b".repeat(64),
+          configHash: hashOf("developer"),
         },
       ]);
       const cli = path.join(live.root, "watch-cli.js");

@@ -188,7 +188,7 @@ function requireQuotable(value: unknown, label: string): string {
   return value;
 }
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
@@ -211,7 +211,7 @@ export function buildAgentEnvironment(
     if (
       typeof value !== "string" ||
       !value.isWellFormed() ||
-      /[\p{Cc}]/u.test(value)
+      UNSAFE_TEXT.test(value)
     )
       throw new InvalidArgumentError(
         `environment value for ${name} is not acceptable`,
@@ -622,7 +622,7 @@ export class HerdrAdapter {
       if (
         typeof value !== "string" ||
         !value.isWellFormed() ||
-        CONTROL_CHARACTERS.test(value)
+        UNSAFE_TEXT.test(value)
       )
         throw new InvalidArgumentError(
           `environment value for ${name} is not acceptable`,

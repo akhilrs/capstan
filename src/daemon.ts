@@ -738,6 +738,9 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         socketPath,
         credential,
         log: detailLog,
+        ...(options.syncRoles === undefined
+          ? {}
+          : { syncRoles: () => options.syncRoles!(core!) }),
       });
     const commands = createCommandHandlers({
       core,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -27,6 +28,9 @@ import { HerdrError } from "../src/herdr/runner.js";
 import { ctx, projectInfo } from "./harness.js";
 import { SHA, StubAdapter, StubGit } from "./launcher-stubs.js";
 
+const hashOf = (name: string): string =>
+  createHash("sha256").update(name).digest("hex");
+
 function config(fallback = true): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
     name,
@@ -38,7 +42,7 @@ function config(fallback = true): CapstanConfig {
     deny: [] as string[],
     hooks: "off" as const,
     prompt: { source: "none" as const, path: null, hash: null },
-    configHash: name.padEnd(64, "0").slice(0, 64),
+    configHash: hashOf(name),
     ...extra,
   });
   const withText = (value: ReturnType<typeof role>, text: string | null) =>
@@ -84,7 +88,7 @@ interface World {
   launcher: Launcher;
   root: string;
   events: Array<{ event: string; details: Record<string, unknown> }>;
-  reopen(): Launcher;
+  reopen(syncRoles?: () => void): Launcher;
   cleanup(): void;
 }
 
@@ -98,13 +102,13 @@ async function world(fallback = true, synced = true): Promise<World> {
     core.syncRoleDefinitions(
       ctx(core, owner),
       ["pm:PM", "pm2:PM", "developer:Developer", "developer2:Developer"].map(
-        (entry, index) => {
+        (entry) => {
           const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
           return {
             name,
             kind,
             host: "claude",
-            configHash: String(index).repeat(64),
+            configHash: hashOf(name),
           };
         },
       ),
@@ -112,7 +116,7 @@ async function world(fallback = true, synced = true): Promise<World> {
   const adapter = new StubAdapter();
   const git = new StubGit();
   const events: World["events"] = [];
-  const make = (): Launcher =>
+  const make = (syncRoles?: () => void): Launcher =>
     new Launcher({
       core,
       adapter,
@@ -130,6 +134,7 @@ async function world(fallback = true, synced = true): Promise<World> {
       },
       git,
       log: (event, details) => events.push({ event, details }),
+      ...(syncRoles === undefined ? {} : { syncRoles }),
     });
   return {
     core,
@@ -424,7 +429,7 @@ test("launch on a project whose roles were never synced says so and leaves no se
         e instanceof LauncherError &&
         e.code === "role_not_synced" &&
         e.message.includes("pm") &&
-        e.message.includes("cstan config sync"),
+        e.message.includes("cstan start"),
     );
     assert.equal(w.core.listAgents().length, 0);
     assert.equal(w.core.statusSnapshot().roles.length, seats);
@@ -440,13 +445,13 @@ test("spawn of a role that is not synced says so before it touches Herdr", async
     await launched(w);
     w.core.syncRoleDefinitions(
       ctx(w.core, w.owner),
-      ["pm:PM", "pm2:PM", "developer2:Developer"].map((entry, index) => {
+      ["pm:PM", "pm2:PM", "developer2:Developer"].map((entry) => {
         const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
         return {
           name,
           kind,
           host: "claude",
-          configHash: String(index).repeat(64),
+          configHash: hashOf(name),
         };
       }),
     );
@@ -461,6 +466,46 @@ test("spawn of a role that is not synced says so before it touches Herdr", async
     );
     assert.equal(w.adapter.calls.length, calls);
     assert.equal(w.core.listAgents().length, agents);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a role whose definition changed is synced again on demand, and a sync that fails is named in the refusal", async () => {
+  const w = await world();
+  try {
+    const stale = (hash: string) =>
+      w.core.syncRoleDefinitions(
+        ctx(w.core, w.owner),
+        ["pm", "pm2", "developer", "developer2"].map((name) => ({
+          name,
+          kind: name.startsWith("pm")
+            ? ("PM" as const)
+            : ("Developer" as const),
+          host: "claude",
+          configHash: name === "pm" ? hash : hashOf(name),
+        })),
+      );
+    stale("f".repeat(64));
+    await assert.rejects(
+      w.launcher.launchPm(),
+      (e: unknown) =>
+        e instanceof LauncherError && e.code === "role_not_synced",
+    );
+    assert.equal(w.core.listAgents().length, 0);
+    const failing = w.reopen(() => {
+      throw new Error("the ledger refused the change");
+    });
+    await assert.rejects(
+      failing.launchPm(),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "role_not_synced" &&
+        e.message.includes("the ledger refused the change") &&
+        e.message.includes("role_sync_failed"),
+    );
+    const healing = w.reopen(() => stale(hashOf("pm")));
+    assert.equal((await healing.launchPm()).state, "started");
   } finally {
     w.cleanup();
   }
