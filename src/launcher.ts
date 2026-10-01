@@ -63,6 +63,8 @@ export interface GitRunner {
   /** Atomic compare-and-delete: only when the branch still points at `sha`. */
   deleteBranchIf(branch: string, sha: string): boolean;
   worktreeByBranch(branch: string): string | undefined;
+  /** Whether `capstan/...` names a valid branch, checked by git before a worktree is created for it. */
+  branchNameValid(branch: string): boolean;
 }
 
 export class LauncherError extends Error {
@@ -209,6 +211,8 @@ export function defaultGit(projectRoot: string): GitRunner {
     },
     worktreeRemove: (worktreePath) =>
       git(["worktree", "remove", worktreePath]).status === 0,
+    branchNameValid: (branch) =>
+      git(["check-ref-format", `refs/heads/${branch}`]).status === 0,
     deleteBranchIf: (branch, sha) =>
       git(["update-ref", "-d", `refs/heads/${branch}`, sha]).status === 0,
     worktreeByBranch(branch) {
@@ -871,7 +875,8 @@ export class Launcher {
         );
       budget.check("creating the agent");
       const agent = this.#createAgent(role);
-      const branch = `capstan/${agent.agentId}`;
+      const generation = this.#core.agentRecord(agent.agentId)?.generation ?? 1;
+      const branch = `capstan/${agent.agentId}-g${generation}`;
       const info: {
         worktreePath?: string;
         paneId?: string;
@@ -880,6 +885,11 @@ export class Launcher {
         moveMayHaveHappened?: boolean;
       } = { branch };
       try {
+        if (!this.#git.branchNameValid(branch))
+          throw new LauncherError(
+            "invalid_branch",
+            `git does not accept the branch name ${branch}`,
+          );
         const baseSha = this.#git.headSha();
         info.baseSha = baseSha;
         this.#core.recordAgentPane(this.#context(), {

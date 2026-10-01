@@ -186,6 +186,99 @@ export interface AgentPaneRecord extends AgentPaneInput {
   readonly generation: number;
 }
 
+export const MAX_REPORT_SUMMARY_BYTES = 1000;
+/** After this many rejected reports for one agent generation, further reports are refused without a new row. */
+export const MAX_REJECTED_REPORTS = 100;
+
+export type ReportReason =
+  | "agent_changed"
+  | "no_branch"
+  | "no_base"
+  | "commit_missing"
+  | "not_new_on_branch"
+  | "not_on_branch";
+
+/** What the controller checked in git for a report; the agent never supplies it. */
+export interface ReportEvidence {
+  readonly generation: number;
+  readonly branch: string;
+  readonly baseSha: string | null;
+  readonly commitExists: boolean;
+  readonly branchTip: string | null;
+  readonly isAncestorOfTip: boolean;
+  readonly isAncestorOfBase: boolean;
+  readonly checkedAt: string;
+}
+
+export interface AgentReportRecord {
+  readonly reportId: string;
+  readonly sequence: number;
+  readonly agentId: string;
+  readonly generation: number;
+  /** The actor whose token made the claim: the claimed identity. */
+  readonly actorId: string;
+  readonly commitSha: string;
+  readonly branch: string | null;
+  readonly summary: string;
+  readonly state: "accepted" | "rejected";
+  readonly reason: ReportReason | null;
+  readonly evidence: ReportEvidence;
+  readonly notifiedMessageId: string | null;
+  readonly createdAt: string;
+}
+
+export interface ReportResult {
+  readonly record: AgentReportRecord;
+  /** True when this accepted commit was already reported by this agent generation: nothing new was written. */
+  readonly duplicate: boolean;
+}
+
+interface AgentReportRow {
+  readonly report_id: string;
+  readonly sequence: number;
+  readonly agent_id: string;
+  readonly generation: number;
+  readonly actor_id: string;
+  readonly commit_sha: string;
+  readonly branch: string | null;
+  readonly summary: string;
+  readonly state: "accepted" | "rejected";
+  readonly reason: ReportReason | null;
+  readonly evidence_json: string;
+  readonly notified_message_id: string | null;
+  readonly created_at: string;
+}
+
+function reportRecord(row: AgentReportRow): AgentReportRecord {
+  return {
+    reportId: row.report_id,
+    sequence: row.sequence,
+    agentId: row.agent_id,
+    generation: row.generation,
+    actorId: row.actor_id,
+    commitSha: row.commit_sha,
+    branch: row.branch,
+    summary: row.summary,
+    state: row.state,
+    reason: row.reason,
+    evidence: JSON.parse(row.evidence_json) as ReportEvidence,
+    notifiedMessageId: row.notified_message_id,
+    createdAt: row.created_at,
+  };
+}
+
+/** The notice the PM receives for an accepted report. Everything except the summary is the controller's own text. */
+function reportNotice(row: AgentReportRow, roleName: string): string {
+  return [
+    `Verified report ${row.report_id}`,
+    `Worker: ${row.agent_id} (role ${roleName}, generation ${row.generation})`,
+    `Commit: ${row.commit_sha}`,
+    `Branch: ${row.branch}`,
+    "The controller checked that the commit exists and lies on that branch after the worker's recorded base commit. It did not review the work.",
+    `Summary written by the worker, not verified: ${JSON.stringify(row.summary)}`,
+  ].join("\n");
+}
+
 export interface PmRestartSummary {
   readonly objective: unknown;
   readonly openWork: readonly {
@@ -2219,6 +2312,280 @@ export class ControllerCore {
     }));
   }
 
+  /**
+   * Records a worker's report of a commit. The controller supplies the git
+   * evidence; the ledger row (not the agent) says which branch and base the
+   * agent has, and the verdict follows from both. Accepted and rejected
+   * reports are both kept, with the claimed identity. An accepted report also
+   * queues a notice to the active PM in the same transaction.
+   */
+  recordAgentReport(
+    context: MutationContext,
+    input: {
+      readonly commitSha: string;
+      readonly summary: string;
+      readonly evidence: ReportEvidence;
+    },
+  ): ReportResult {
+    if (!/^[0-9a-f]{40}$/.test(input.commitSha))
+      throw new TypeError("commit sha must be 40 lowercase hex characters");
+    if (
+      typeof input.summary !== "string" ||
+      !input.summary.isWellFormed() ||
+      input.summary.trim() === "" ||
+      UNSAFE_TEXT.test(input.summary) ||
+      Buffer.byteLength(input.summary, "utf8") > MAX_REPORT_SUMMARY_BYTES
+    )
+      throw new TypeError(
+        `report summary must be one line of printable text of at most ${MAX_REPORT_SUMMARY_BYTES} bytes`,
+      );
+    const evidence = input.evidence;
+    if (
+      !Number.isInteger(evidence.generation) ||
+      typeof evidence.branch !== "string" ||
+      typeof evidence.commitExists !== "boolean" ||
+      typeof evidence.isAncestorOfTip !== "boolean" ||
+      typeof evidence.isAncestorOfBase !== "boolean" ||
+      typeof evidence.checkedAt !== "string" ||
+      (evidence.baseSha !== null && !/^[0-9a-f]{40}$/.test(evidence.baseSha)) ||
+      (evidence.branchTip !== null &&
+        !/^[0-9a-f]{40}$/.test(evidence.branchTip))
+    )
+      throw new TypeError("report evidence is not well formed");
+    return this.#mutate<ReportResult>(
+      context,
+      "report.record",
+      "report:submit",
+      {
+        commitSha: input.commitSha,
+        summaryHash: sha256(input.summary),
+        evidence,
+      },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (agent === undefined)
+          throw new ControllerError("only an active agent can report");
+        const existing = this.#database
+          .prepare(
+            "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'",
+          )
+          .get(
+            this.#projectId,
+            agent.agent_id,
+            agent.generation,
+            input.commitSha,
+          ) as AgentReportRow | undefined;
+        if (existing !== undefined)
+          return {
+            value: { record: reportRecord(existing), duplicate: true },
+            event: {
+              entityType: "agent_report",
+              entityId: existing.report_id,
+              stateVersion: 0,
+              details: { duplicate: true },
+            },
+          };
+        const pane = this.#database
+          .prepare(
+            "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+          )
+          .get(this.#projectId, agent.agent_id) as
+          { branch: string | null; base_sha: string | null } | undefined;
+        const baseSha = pane?.base_sha?.toLowerCase() ?? null;
+        let reason: ReportReason | null = null;
+        if (pane?.branch == null) reason = "no_branch";
+        else if (baseSha === null) reason = "no_base";
+        else if (
+          evidence.generation !== agent.generation ||
+          evidence.branch !== pane.branch ||
+          evidence.baseSha !== baseSha
+        )
+          reason = "agent_changed";
+        else if (!evidence.commitExists) reason = "commit_missing";
+        else if (input.commitSha === baseSha || evidence.isAncestorOfBase)
+          reason = "not_new_on_branch";
+        else if (!evidence.isAncestorOfTip) reason = "not_on_branch";
+        if (reason !== null) {
+          const rejected = (
+            this.#database
+              .prepare(
+                "SELECT COUNT(*) AS n FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND state = 'rejected'",
+              )
+              .get(this.#projectId, agent.agent_id, agent.generation) as {
+              n: number;
+            }
+          ).n;
+          // Only a report that would be rejected is refused at the cap: a correct report always gets through.
+          if (rejected >= MAX_REJECTED_REPORTS)
+            throw new ControllerError(
+              "report limit reached for this agent generation",
+            );
+        }
+        const now = this.#now();
+        const reportId = randomUUID();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM agent_reports WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        this.#database
+          .prepare(
+            `INSERT INTO agent_reports(project_id, report_id, sequence, agent_id, generation, actor_id, commit_sha, branch, summary, state, reason, evidence_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            reportId,
+            sequence,
+            agent.agent_id,
+            agent.generation,
+            actor.actorId,
+            input.commitSha,
+            pane?.branch ?? null,
+            input.summary,
+            reason === null ? "accepted" : "rejected",
+            reason,
+            JSON.stringify(evidence),
+            now,
+          );
+        this.#touchAgent(agent.agent_id, now);
+        if (reason === null)
+          this.#announceReport(reportId, agent.role_name, now);
+        const row = this.#database
+          .prepare(
+            "SELECT * FROM agent_reports WHERE project_id = ? AND report_id = ?",
+          )
+          .get(this.#projectId, reportId) as AgentReportRow;
+        return {
+          value: { record: reportRecord(row), duplicate: false },
+          event: {
+            entityType: "agent_report",
+            entityId: reportId,
+            stateVersion: 0,
+            toState: reason === null ? "accepted" : "rejected",
+            details: {
+              agentId: agent.agent_id,
+              generation: agent.generation,
+              reason,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** Queues the PM notice for an accepted report that has none yet; false when there is no active PM or no controller actor. The caller owns the transaction. */
+  #announceReport(reportId: string, roleName: string, now: string): boolean {
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM agent_reports WHERE project_id = ? AND report_id = ? AND state = 'accepted' AND notified_message_id IS NULL",
+      )
+      .get(this.#projectId, reportId) as AgentReportRow | undefined;
+    if (row === undefined) return false;
+    const pms = this.#database
+      .prepare(
+        "SELECT * FROM agents WHERE project_id = ? AND kind = 'PM' AND state = 'active'",
+      )
+      .all(this.#projectId) as AgentRow[];
+    const controller = this.#database
+      .prepare(
+        "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
+      )
+      .get(this.#projectId) as { actor_id: string } | undefined;
+    if (pms.length !== 1 || controller === undefined) return false;
+    const body = reportNotice(row, roleName);
+    const messageId = this.#insertQueuedMessage(
+      controller.actor_id,
+      pms[0]!,
+      body,
+      sha256(body),
+      now,
+    );
+    this.#database
+      .prepare(
+        "UPDATE agent_reports SET notified_message_id = ? WHERE project_id = ? AND report_id = ? AND notified_message_id IS NULL",
+      )
+      .run(messageId, this.#projectId, reportId);
+    return true;
+  }
+
+  /** The accepted report of this exact commit by this agent generation, if there is one. */
+  acceptedReportFor(
+    agentId: string,
+    generation: number,
+    commitSha: string,
+  ): AgentReportRecord | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'",
+      )
+      .get(this.#projectId, agentId, generation, commitSha) as
+      AgentReportRow | undefined;
+    return row === undefined ? undefined : reportRecord(row);
+  }
+
+  /** Accepted reports whose PM notice has not been queued yet (no PM was active when they arrived). */
+  unannouncedReports(
+    credential: string,
+    limit = 50,
+  ): readonly AgentReportRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM agent_reports WHERE project_id = ? AND state = 'accepted' AND notified_message_id IS NULL ORDER BY sequence LIMIT ?",
+        )
+        .all(this.#projectId, limit) as AgentReportRow[]
+    ).map(reportRecord);
+  }
+
+  /** Queues the PM notice for one accepted report, once. */
+  announceReport(
+    context: MutationContext,
+    reportId: string,
+  ): { readonly announced: boolean } {
+    safeId(reportId, "report id");
+    return this.#mutate(
+      context,
+      "report.announce",
+      "controller:reconcile",
+      { reportId },
+      () => {
+        const row = this.#database
+          .prepare(
+            "SELECT a.role_name AS role_name FROM agent_reports r JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id WHERE r.project_id = ? AND r.report_id = ?",
+          )
+          .get(this.#projectId, reportId) as { role_name: string } | undefined;
+        const announced =
+          row !== undefined &&
+          this.#announceReport(reportId, row.role_name, this.#now());
+        return {
+          value: { announced },
+          event: {
+            entityType: "agent_report",
+            entityId: reportId,
+            stateVersion: 0,
+            details: { announced },
+          },
+        };
+      },
+    );
+  }
+
+  agentReports(credential: string, limit = 20): readonly AgentReportRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM agent_reports WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as AgentReportRow[]
+    ).map(reportRecord);
+  }
+
   fallbackPane(
     credential: string,
   ): { readonly workspaceId: string; readonly paneId: string } | undefined {
@@ -2308,33 +2675,13 @@ export class ControllerCore {
             message: "message recipient is not an active agent",
           });
         const now = this.#now();
-        const messageId = randomUUID();
-        const sequence = (
-          this.#database
-            .prepare(
-              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM messages WHERE project_id = ?",
-            )
-            .get(this.#projectId) as { next: number }
-        ).next;
-        this.#database
-          .prepare(
-            `INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
-              body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?)`,
-          )
-          .run(
-            this.#projectId,
-            messageId,
-            sequence,
-            agent.agent_id,
-            agent.generation,
-            actor.actorId,
-            input.body,
-            bodyHash,
-            now,
-            now,
-            now,
-          );
+        const messageId = this.#insertQueuedMessage(
+          actor.actorId,
+          agent,
+          input.body,
+          bodyHash,
+          now,
+        );
         const senderAgent = this.#agentByActor(actor.actorId);
         if (senderAgent !== undefined)
           this.#touchAgent(senderAgent.agent_id, now);
@@ -2350,6 +2697,44 @@ export class ControllerCore {
         };
       },
     );
+  }
+
+  /** Queues a message row for an active recipient and returns its id. The caller owns the transaction. */
+  #insertQueuedMessage(
+    senderActorId: string,
+    recipient: AgentRow,
+    body: string,
+    bodyHash: string,
+    now: string,
+  ): string {
+    const messageId = randomUUID();
+    const sequence = (
+      this.#database
+        .prepare(
+          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM messages WHERE project_id = ?",
+        )
+        .get(this.#projectId) as { next: number }
+    ).next;
+    this.#database
+      .prepare(
+        `INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
+          body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?)`,
+      )
+      .run(
+        this.#projectId,
+        messageId,
+        sequence,
+        recipient.agent_id,
+        recipient.generation,
+        senderActorId,
+        body,
+        bodyHash,
+        now,
+        now,
+        now,
+      );
+    return messageId;
   }
 
   message(messageId: string): MessageRecord | undefined {
@@ -10573,6 +10958,7 @@ export class ControllerCore {
       ["candidate", "candidates", "candidate_id"],
       ["finding", "findings", "finding_id"],
       ["recovery", "recovery_attempts", "recovery_id"],
+      ["report", "agent_reports", "report_id"],
     ] as const) {
       const row = this.#database
         .prepare(

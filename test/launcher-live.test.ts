@@ -190,9 +190,9 @@ test(
       // Spawn a worker: a real worktree on its own branch at the recorded base sha, dialog answered by the controller.
       const spawned = await launcher.spawn("developer");
       assert.equal(spawned.state, "started", JSON.stringify(spawned));
-      assert.equal(spawned.branch, "capstan/developer-1");
+      assert.equal(spawned.branch, "capstan/developer-1-g1");
       assert.equal(
-        execFileSync("git", ["rev-parse", "capstan/developer-1"], {
+        execFileSync("git", ["rev-parse", "capstan/developer-1-g1"], {
           cwd: live.repo,
           encoding: "utf8",
         }).trim(),

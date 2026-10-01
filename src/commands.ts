@@ -27,6 +27,15 @@ import {
 } from "./config/capstan-config.js";
 import { MAX_TEXT_BYTES, isAgentName } from "./herdr/adapter.js";
 import { newContext } from "./context.js";
+import {
+  ControllerError,
+  MAX_REPORT_SUMMARY_BYTES,
+  type ReportEvidence,
+  type ReportReason,
+} from "./controller/core.js";
+import type { CommitInspection } from "./git.js";
+import { GitCheckError } from "./git.js";
+import { ReportRateLimiter, oneLineSummary } from "./reports.js";
 import { LauncherError } from "./launcher.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
@@ -120,6 +129,12 @@ export interface CommandDependencies {
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly driverSnapshot?: () => DriverSnapshot;
   readonly launcher?: LauncherApi;
+  /** Looks a reported commit up in git; the daemon passes the real one. */
+  readonly inspectCommit?: (input: {
+    readonly branch: string;
+    readonly baseSha: string | null;
+    readonly sha: string;
+  }) => Promise<CommitInspection>;
   readonly log?: (event: string, details: Record<string, unknown>) => void;
 }
 
@@ -192,7 +207,21 @@ export function mapError(error: unknown): CommandResponse {
   return fail("error", "the command failed");
 }
 
+const MAX_STATUS_REPORTS = 20;
+
+const REPORT_REASON_TEXT: Readonly<Record<ReportReason, string>> = {
+  agent_changed:
+    "your agent or its branch changed while the controller checked; report again",
+  no_branch: "no branch is recorded for you",
+  no_base: "no base commit is recorded for you",
+  commit_missing: "that commit does not exist in the repository",
+  not_new_on_branch:
+    "that commit is your base commit or older; report a commit you made on your branch",
+  not_on_branch: "that commit is not on your branch",
+};
+
 export function createCommandHandlers(deps: CommandDependencies): CommandSet {
+  const reportLimiter = new ReportRateLimiter();
   const { core } = deps;
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? abortableSleep;
@@ -503,6 +532,112 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       }
     },
 
+    async report(call) {
+      const caller = agentOf(call.identity);
+      if (
+        caller === undefined ||
+        caller.state !== "active" ||
+        (caller.kind !== "Developer" && caller.kind !== "Verifier")
+      )
+        return fail("forbidden", "only a worker agent can report");
+      if (call.args.length !== 2)
+        return fail(
+          "invalid_request",
+          "report needs a commit id and a summary",
+        );
+      const sha = call.args[0]!.toLowerCase();
+      if (!/^[0-9a-f]{40}$/.test(sha))
+        return fail(
+          "invalid_request",
+          "the commit must be a full 40-character id (git rev-parse HEAD)",
+        );
+      const summary = oneLineSummary(call.args[1]!, MAX_REPORT_SUMMARY_BYTES);
+      if (summary === "")
+        return fail("invalid_request", "the summary must not be empty");
+      if (deps.inspectCommit === undefined)
+        return fail("not_configured", "reports need a git repository");
+      try {
+        // Every report command counts, a repeat included: a repeat still costs a read.
+        if (
+          !reportLimiter.allow(`${caller.agentId}:${caller.generation}`, now())
+        )
+          return fail(
+            "rejected",
+            "rate_limited: at most 10 reports a minute; wait and report once",
+          );
+        const known = core.acceptedReportFor(
+          caller.agentId,
+          caller.generation,
+          sha,
+        );
+        if (known !== undefined)
+          // A repeat writes nothing: no row, no mutation record, no notice.
+          return ok({
+            reportId: known.reportId,
+            state: "accepted",
+            duplicate: true,
+            announced: known.notifiedMessageId !== null,
+          });
+        const row = core
+          .agentPanes(deps.controllerCredential)
+          .find((candidate) => candidate.agentId === caller.agentId);
+        const branch = row?.branch ?? null;
+        const baseSha = row?.baseSha?.toLowerCase() ?? null;
+        const inspection: CommitInspection =
+          branch === null || baseSha === null
+            ? {
+                commitExists: false,
+                branchTip: null,
+                isAncestorOfTip: false,
+                isAncestorOfBase: false,
+              }
+            : await deps.inspectCommit({ branch, baseSha, sha });
+        const evidence: ReportEvidence = {
+          generation: caller.generation,
+          branch: branch ?? "",
+          baseSha,
+          ...inspection,
+          checkedAt: new Date(now()).toISOString(),
+        };
+        const result = core.recordAgentReport(context(call.credential), {
+          commitSha: sha,
+          summary,
+          evidence,
+        });
+        const record = result.record;
+        if (record.state === "rejected")
+          return fail(
+            "rejected",
+            `report_rejected: ${REPORT_REASON_TEXT[record.reason!]} (report ${record.reportId} is recorded)`,
+          );
+        log("report_accepted", {
+          reportId: record.reportId,
+          agentId: record.agentId,
+          duplicate: result.duplicate,
+        });
+        return ok({
+          reportId: record.reportId,
+          state: "accepted",
+          duplicate: result.duplicate,
+          announced: record.notifiedMessageId !== null,
+        });
+      } catch (error) {
+        if (error instanceof GitCheckError) {
+          log("report_check_failed", { error: error.message });
+          return fail(
+            "error",
+            "the controller could not check the commit just now; report again",
+          );
+        }
+        if (
+          error instanceof ControllerError &&
+          error.message.startsWith("report limit")
+        )
+          return fail("rejected", `report_limit: ${error.message}`);
+        return mapError(error);
+      }
+    },
+
     status(call) {
       try {
         const result: Record<string, unknown> = {
@@ -536,6 +671,18 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             MAX_STATUS_CLEARS,
           );
           result.panes = core.agentPanes(call.credential);
+          result.reports = core
+            .agentReports(call.credential, MAX_STATUS_REPORTS)
+            .map((r) => ({
+              reportId: r.reportId,
+              agentId: r.agentId,
+              generation: r.generation,
+              commitSha: r.commitSha,
+              state: r.state,
+              reason: r.reason,
+              announced: r.notifiedMessageId !== null,
+              createdAt: r.createdAt,
+            }));
           if (deps.launcher !== undefined) {
             const launcherStatus = deps.launcher.status() as Record<
               string,

@@ -1,0 +1,48 @@
+# Stage 3 gate evidence (PM-31), from the ledger of the gate run on 2026-10-01 (UTC times)
+# Setup: throwaway repository, isolated Herdr session capstan-s3, fake Claude as the worker process, branch capstan/developer-1-g1 created at base ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6.
+# The token was read from /proc/<pid>/environ of the worker's own process (pid 17297, cwd the worker's worktree) and used from this separate shell via CAPSTAN_TOKEN and CAPSTAN_SOCKET; it is not printed here.
+
+## the worker agent and its actor (the claimed identity every report below carries)
+{"agent_id":"developer-1","role_name":"developer","generation":1,"actor_id":"d967861e-2db6-4702-b0c4-b57f1969db50"}
+
+## agent_reports (all four reports; evidence_json is what the daemon checked in git)
+{"sequence":1,"report_id":"8e137e7a-7ed4-4248-a652-de0eb3a67180","agent_id":"developer-1","generation":1,"actor_id":"d967861e-2db6-4702-b0c4-b57f1969db50","commit_sha":"415f2699009242513c76fd76b16d99a5a2e7cd9e","branch":"capstan/developer-1-g1","summary":"forged: main commit","state":"rejected","reason":"not_on_branch","evidence_json":"{\"generation\":1,\"branch\":\"capstan/developer-1-g1\",\"baseSha\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"commitExists\":true,\"branchTip\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"isAncestorOfTip\":false,\"isAncestorOfBase\":false,\"checkedAt\":\"2026-10-01T12:17:56.836Z\"}","notified_message_id":null,"created_at":"2026-10-01T12:17:56.838Z"}
+{"sequence":2,"report_id":"16987a80-fa34-4b80-b824-3b70075703a1","agent_id":"developer-1","generation":1,"actor_id":"d967861e-2db6-4702-b0c4-b57f1969db50","commit_sha":"1111111111111111111111111111111111111111","branch":"capstan/developer-1-g1","summary":"forged: no such commit","state":"rejected","reason":"commit_missing","evidence_json":"{\"generation\":1,\"branch\":\"capstan/developer-1-g1\",\"baseSha\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"commitExists\":false,\"branchTip\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"isAncestorOfTip\":false,\"isAncestorOfBase\":false,\"checkedAt\":\"2026-10-01T12:17:57.021Z\"}","notified_message_id":null,"created_at":"2026-10-01T12:17:57.023Z"}
+{"sequence":3,"report_id":"5dff89b4-d761-44e0-ac05-8a09f416649e","agent_id":"developer-1","generation":1,"actor_id":"d967861e-2db6-4702-b0c4-b57f1969db50","commit_sha":"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6","branch":"capstan/developer-1-g1","summary":"forged: the base","state":"rejected","reason":"not_new_on_branch","evidence_json":"{\"generation\":1,\"branch\":\"capstan/developer-1-g1\",\"baseSha\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"commitExists\":true,\"branchTip\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"isAncestorOfTip\":true,\"isAncestorOfBase\":true,\"checkedAt\":\"2026-10-01T12:17:57.193Z\"}","notified_message_id":null,"created_at":"2026-10-01T12:17:57.195Z"}
+{"sequence":4,"report_id":"8d1d3354-2fa6-4d15-b614-9f53f93bc4b0","agent_id":"developer-1","generation":1,"actor_id":"d967861e-2db6-4702-b0c4-b57f1969db50","commit_sha":"2534ac3681b0db6941a0a8b6ec2f664b40496b77","branch":"capstan/developer-1-g1","summary":"forged: work the worker never did","state":"accepted","reason":null,"evidence_json":"{\"generation\":1,\"branch\":\"capstan/developer-1-g1\",\"baseSha\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"commitExists\":true,\"branchTip\":\"2534ac3681b0db6941a0a8b6ec2f664b40496b77\",\"isAncestorOfTip\":true,\"isAncestorOfBase\":false,\"checkedAt\":\"2026-10-01T12:18:04.417Z\"}","notified_message_id":"b1d309de-4d7d-4c5b-8a9c-1f6ea526ed55","created_at":"2026-10-01T12:18:04.419Z"}
+
+## PM notice for the accepted report (sender is the controller's internal actor)
+{"sequence":1,"recipient_agent_id":"pm-1","state":"queued","sender_role":"controller","sender_name":"capstan internal controller","body":"Verified report 8d1d3354-2fa6-4d15-b614-9f53f93bc4b0\nWorker: developer-1 (role developer, generation 1)\nCommit: 2534ac3681b0db6941a0a8b6ec2f664b40496b77\nBranch: capstan/developer-1-g1\nThe controller checked that the commit exists and lies on that branch after the worker's recorded base commit. It did not review the work.\nSummary written by the worker, not verified: \"forged: work the worker never did\""}
+
+## the accepted commit as git sees it (author is not part of the check)
+commit 2534ac3681b0db6941a0a8b6ec2f664b40496b77
+author forger <forger@example.com>
+subject forged work by a process that is not the worker
+
+## the worker branch and what each reported commit is
+base ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6 = the worker branch start; M 415f2699009242513c76fd76b16d99a5a2e7cd9e = commit on main only; V 2534ac3681b0db6941a0a8b6ec2f664b40496b77 = commit on the worker branch made by the forging shell
+branches containing V: + capstan/developer-1-g1
+branches containing M: * main
+
+## cstan inspect <accepted report id> --json (operator, read from the ledger)
+{
+ "schemaVersion": 1,
+ "kind": "report",
+ "id": "8d1d3354-2fa6-4d15-b614-9f53f93bc4b0",
+ "record": {
+  "project_id": "p3b88eed4641d491fb45a07ef863fe557",
+  "report_id": "8d1d3354-2fa6-4d15-b614-9f53f93bc4b0",
+  "sequence": 4,
+  "agent_id": "developer-1",
+  "generation": 1,
+  "actor_id": "d967861e-2db6-4702-b0c4-b57f1969db50",
+  "commit_sha": "2534ac3681b0db6941a0a8b6ec2f664b40496b77",
+  "branch": "capstan/developer-1-g1",
+  "summary": "forged: work the worker never did",
+  "state": "accepted",
+  "reason": null,
+  "evidence_json": "{\"generation\":1,\"branch\":\"capstan/developer-1-g1\",\"baseSha\":\"ebbf59ea31e7c7d35ccf870188572acc1aa8a8e6\",\"commitExists\":true,\"branchTip\":\"2534ac3681b0db6941a0a8b6ec2f664b40496b77\",\"isAncestorOfTip\":true,\"isAncestorOfBase\":false,\"checkedAt\":\"2026-10-01T12:18:04.417Z\"}",
+  "notified_message_id": "b1d309de-4d7d-4c5b-8a9c-1f6ea526ed55",
+  "created_at": "2026-10-01T12:18:04.419Z"
+ }
+}

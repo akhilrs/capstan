@@ -126,6 +126,11 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  17: {
+    version: 17,
+    name: "0017_agent_reports.sql",
+    url: new URL("../../migrations/0017_agent_reports.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

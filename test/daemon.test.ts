@@ -103,7 +103,8 @@ test("an agent token is accepted for agent and read commands and refused for ope
       for (const name of AGENT.filter((n) => n !== "wait"))
         assert.equal(
           code(await call(h, member.credential, name)),
-          bareAnswer(name),
+          // Only workers report; a bare report from a worker fails its argument check first.
+          name === "report" && member === h.pm ? "forbidden" : bareAnswer(name),
           name,
         );
       for (const name of ANY)

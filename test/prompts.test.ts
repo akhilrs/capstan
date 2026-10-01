@@ -182,7 +182,7 @@ test("a PM prompt without worker roles says so instead of listing none", () => {
   );
 });
 
-test("a worker prompt tells the worker to commit on its own branch, never push or merge, and report the branch", () => {
+test("a worker prompt tells the worker to commit on its own branch, never push or merge, and report the commit with cstan report", () => {
   const text = buildRolePrompt({
     ...base,
     roleName: "developer",
@@ -192,8 +192,21 @@ test("a worker prompt tells the worker to commit on its own branch, never push o
   for (const needle of [
     "Commit your work on your own branch",
     "never push and never merge",
-    "the branch name",
-    "anything you could not verify",
+    "cstan report <commit>",
+    "git rev-parse HEAD",
+    "what you could not verify",
+    "rejects a commit",
+  ])
+    assert.ok(text.includes(needle), needle);
+});
+
+test("the PM prompt says which messages are controller-checked facts and which are only a worker's word", () => {
+  const text = buildRolePrompt(base);
+  for (const needle of [
+    "sender is `controller`",
+    "starts with `Verified report`",
+    "It is not a review",
+    "only what the worker says",
   ])
     assert.ok(text.includes(needle), needle);
 });
