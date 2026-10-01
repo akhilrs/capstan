@@ -145,9 +145,14 @@ const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
-const NON_EMPTY_SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
+/** HOME, PATH and TERM are shell-quoted, so only blank or unsafe-to-show text is refused. */
+function isQuotableValue(value: unknown): value is string {
+  return (
+    typeof value === "string" && value.trim() !== "" && !UNSAFE_TEXT.test(value)
+  );
+}
 const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
 /** In Claude Code a first character of / ! # ? or @ (or a tab) acts on the input box instead of adding text. */
 const COMMAND_START = /^(?:\t|\s*[/!#?@])/;
@@ -179,7 +184,13 @@ function requireMatch(value: unknown, pattern: RegExp, label: string): string {
   return value;
 }
 
-function shellQuote(value: string): string {
+function requireQuotable(value: unknown, label: string): string {
+  if (!isQuotableValue(value))
+    throw new InvalidArgumentError(`${label} is not acceptable`);
+  return value;
+}
+
+export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
@@ -202,7 +213,7 @@ export function buildAgentEnvironment(
     if (
       typeof value !== "string" ||
       !value.isWellFormed() ||
-      /[\p{Cc}]/u.test(value)
+      UNSAFE_TEXT.test(value)
     )
       throw new InvalidArgumentError(
         `environment value for ${name} is not acceptable`,
@@ -602,13 +613,11 @@ export class HerdrAdapter {
     if (entry.phase !== "fresh")
       throw new PhaseError("only a fresh pane can be prepared");
     const environment = input.environment;
-    const home = requireMatch(environment.HOME, NON_EMPTY_SIMPLE_VALUE, "HOME");
-    const pathValue = requireMatch(
-      environment.PATH,
-      NON_EMPTY_SIMPLE_VALUE,
-      "PATH",
-    );
-    const term = requireMatch(environment.TERM, NON_EMPTY_SIMPLE_VALUE, "TERM");
+    const home = requireQuotable(environment.HOME, "HOME");
+    if (!home.startsWith("/"))
+      throw new InvalidArgumentError("HOME is not acceptable");
+    const pathValue = requireQuotable(environment.PATH, "PATH");
+    const term = requireQuotable(environment.TERM, "TERM");
     for (const [name, value] of Object.entries(environment)) {
       if (!ENVIRONMENT_KEY.test(name))
         throw new InvalidArgumentError(
@@ -617,7 +626,7 @@ export class HerdrAdapter {
       if (
         typeof value !== "string" ||
         !value.isWellFormed() ||
-        CONTROL_CHARACTERS.test(value)
+        UNSAFE_TEXT.test(value)
       )
         throw new InvalidArgumentError(
           `environment value for ${name} is not acceptable`,
@@ -656,7 +665,7 @@ export class HerdrAdapter {
           "pane",
           "run",
           input.paneId,
-          `exec env -i HOME='${home}' PATH='${pathValue}' TERM='${term}' bash --noprofile --rcfile '${rcFile}' -i`,
+          `exec env -i HOME=${shellQuote(home)} PATH=${shellQuote(pathValue)} TERM=${shellQuote(term)} bash --noprofile --rcfile '${rcFile}' -i`,
         ]);
       } catch (error) {
         this.#panes.set(input.paneId, { ...entry, phase: "tainted" });

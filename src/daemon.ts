@@ -659,6 +659,8 @@ export interface DaemonOptions {
   readonly tickMs?: number;
   /** Absolute path of the CLI entry the launched agents' `cstan` wrapper runs. */
   readonly cliPath?: string;
+  /** Brings the configured roles into the ledger as the daemon starts, so `cstan start` needs no separate `config sync`. */
+  readonly syncRoles?: (core: ControllerCore) => void;
 }
 
 /** Runs until SIGTERM, SIGINT or the shutdown command. */
@@ -701,6 +703,13 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         detail,
       });
     closeStaleWaits(core, credential, detailLog);
+    try {
+      options.syncRoles?.(core);
+    } catch (error) {
+      // A role change the ledger refuses (for example a retired role that still
+      // has an active agent) must not keep the daemon down; launch reports it.
+      detailLog("role_sync_failed", { error: String(error) });
+    }
     if (
       options.capstan !== undefined &&
       options.adapter !== undefined &&
@@ -729,6 +738,9 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         socketPath,
         credential,
         log: detailLog,
+        ...(options.syncRoles === undefined
+          ? {}
+          : { syncRoles: () => options.syncRoles!(core!) }),
       });
     const commands = createCommandHandlers({
       core,

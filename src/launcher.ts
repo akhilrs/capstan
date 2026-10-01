@@ -16,6 +16,7 @@ import {
   AgentPaneMismatch,
   PaneGone,
   buildAgentEnvironment,
+  shellQuote,
   claudeArguments,
   type HerdrAdapter,
 } from "./herdr/adapter.js";
@@ -119,6 +120,8 @@ export interface LauncherOptions {
   readonly git?: GitRunner;
   readonly now?: () => number;
   readonly log?: (event: string, details: Record<string, unknown>) => void;
+  /** Brings the configured roles into the ledger; the launcher calls it once more when a role is missing or out of date. */
+  readonly syncRoles?: () => void;
 }
 
 interface Budget {
@@ -126,9 +129,8 @@ interface Budget {
   check(step: string): void;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
+/** Keeps a sync error to one short line in the refusal. */
+const MAX_SYNC_REASON_CHARS = 200;
 
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
@@ -189,6 +191,7 @@ export class Launcher {
   readonly #git: GitRunner;
   readonly #now: () => number;
   readonly #log: (event: string, details: Record<string, unknown>) => void;
+  readonly #syncRoles: (() => void) | undefined;
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
   #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
@@ -206,6 +209,7 @@ export class Launcher {
     this.#git = options.git ?? defaultGit(options.projectRoot);
     this.#now = options.now ?? Date.now;
     this.#log = options.log ?? (() => undefined);
+    this.#syncRoles = options.syncRoles;
   }
 
   status(): LauncherStatus {
@@ -322,7 +326,38 @@ export class Launcher {
     return seatId;
   }
 
+  #roleIsSynced(role: ResolvedRole): boolean {
+    const definition = this.#core
+      .roleDefinitions()
+      .find((candidate) => candidate.name === role.name);
+    return (
+      definition?.state === "active" &&
+      definition.kind === role.kind &&
+      definition.host === role.host &&
+      definition.configHash === role.configHash
+    );
+  }
+
+  #assertRoleSynced(role: ResolvedRole): void {
+    if (this.#roleIsSynced(role)) return;
+    let reason = "";
+    try {
+      this.#syncRoles?.();
+    } catch (error) {
+      const text = (error instanceof Error ? error.message : String(error))
+        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
+        .trim();
+      reason = ` (${Array.from(text).slice(0, MAX_SYNC_REASON_CHARS).join("")})`;
+    }
+    if (this.#roleIsSynced(role)) return;
+    throw new LauncherError(
+      "role_not_synced",
+      `the role ${role.name} is not synced into the controller${reason}; run cstan stop, then cstan start, and look for role_sync_failed in the daemon log if it persists`,
+    );
+  }
+
   #createAgent(role: ResolvedRole): { agentId: string; credential: string } {
+    this.#assertRoleSynced(role);
     const seatId = this.#seat(role);
     const used = this.#core
       .listAgents()
@@ -677,6 +712,7 @@ export class Launcher {
           "kind_not_spawnable",
           "a PM is launched, not spawned",
         );
+      this.#assertRoleSynced(role);
       const running = this.#activeAgents().find(
         (a) => a.roleName === role.name,
       );

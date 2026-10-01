@@ -6,6 +6,13 @@ export class ControllerOwnershipError extends Error {
   override readonly name = "ControllerOwnershipError";
 }
 
+/** Another process holds the project lock, usually the running daemon. */
+export class ProjectLockHeldError extends ControllerOwnershipError {
+  constructor() {
+    super("another cooperating controller owns this project");
+  }
+}
+
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
@@ -71,9 +78,7 @@ export class ProjectLock {
           isSystemError(error) &&
           ["EAGAIN", "EWOULDBLOCK"].includes(error.code ?? "")
         ) {
-          throw new ControllerOwnershipError(
-            "another cooperating controller owns this project",
-          );
+          throw new ProjectLockHeldError();
         }
         throw error;
       }

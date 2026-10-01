@@ -53,7 +53,10 @@ import {
   SOCKET_NAME,
   runDaemon,
 } from "./daemon.js";
-import { ControllerOwnershipError } from "./controller/ownership.js";
+import {
+  ControllerOwnershipError,
+  ProjectLockHeldError,
+} from "./controller/ownership.js";
 import { HerdrAdapter } from "./herdr/adapter.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
@@ -981,11 +984,20 @@ async function runCli(argv: string[]): Promise<number> {
       throw new BlockedError(
         "controller record does not exist; create it before syncing roles",
       );
-    const core = await ControllerCore.open({
-      stateDirectory: config.stateDirectory,
-      project: project(config, credential, []),
-      workspaceRoot: cwd,
-    });
+    let core: ControllerCore;
+    try {
+      core = await ControllerCore.open({
+        stateDirectory: config.stateDirectory,
+        project: project(config, credential, []),
+        workspaceRoot: cwd,
+      });
+    } catch (error) {
+      if (error instanceof ProjectLockHeldError)
+        throw new BlockedError(
+          `${error.message}; stop the daemon with cstan stop, then run cstan config sync again`,
+        );
+      throw error;
+    }
     try {
       const result = syncConfiguredRoles(core, roleConfig, () =>
         context(core, credential),
@@ -1038,6 +1050,15 @@ async function runCli(argv: string[]): Promise<number> {
         ...(adapter === undefined ? {} : { adapter }),
         ...(notifier === undefined ? {} : { notifier }),
         cliPath: fileURLToPath(import.meta.url),
+        ...(capstan === undefined
+          ? {}
+          : {
+              syncRoles: (core: ControllerCore) => {
+                syncConfiguredRoles(core, capstan, () =>
+                  context(core, credential),
+                );
+              },
+            }),
       });
     } catch (error) {
       if (error instanceof ControllerOwnershipError)
