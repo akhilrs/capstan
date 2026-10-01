@@ -129,6 +129,9 @@ interface Budget {
   check(step: string): void;
 }
 
+/** Keeps a sync error to one short line in the refusal. */
+const MAX_SYNC_REASON_CHARS = 200;
+
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
     spawnSync("git", args, {
@@ -341,7 +344,10 @@ export class Launcher {
     try {
       this.#syncRoles?.();
     } catch (error) {
-      reason = ` (${error instanceof Error ? error.message : String(error)})`;
+      const text = (error instanceof Error ? error.message : String(error))
+        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
+        .trim();
+      reason = ` (${Array.from(text).slice(0, MAX_SYNC_REASON_CHARS).join("")})`;
     }
     if (this.#roleIsSynced(role)) return;
     throw new LauncherError(

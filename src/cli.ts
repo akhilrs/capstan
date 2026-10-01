@@ -55,7 +55,7 @@ import {
 } from "./daemon.js";
 import {
   ControllerOwnershipError,
-  DAEMON_OWNS_PROJECT,
+  ProjectLockHeldError,
 } from "./controller/ownership.js";
 import { HerdrAdapter } from "./herdr/adapter.js";
 import { createHerdrRunner } from "./herdr/runner.js";
@@ -992,10 +992,7 @@ async function runCli(argv: string[]): Promise<number> {
         workspaceRoot: cwd,
       });
     } catch (error) {
-      if (
-        error instanceof ControllerOwnershipError &&
-        error.message === DAEMON_OWNS_PROJECT
-      )
+      if (error instanceof ProjectLockHeldError)
         throw new BlockedError(
           `${error.message}; stop the daemon with cstan stop, then run cstan config sync again`,
         );

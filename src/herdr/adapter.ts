@@ -149,7 +149,9 @@ const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
 /** HOME, PATH and TERM are shell-quoted, so only text that is empty or unsafe to show is refused. */
 function isQuotableValue(value: unknown): value is string {
-  return typeof value === "string" && value !== "" && !UNSAFE_TEXT.test(value);
+  return (
+    typeof value === "string" && value.trim() !== "" && !UNSAFE_TEXT.test(value)
+  );
 }
 const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
 /** In Claude Code a first character of / ! # ? or @ (or a tab) acts on the input box instead of adding text. */
@@ -612,6 +614,8 @@ export class HerdrAdapter {
       throw new PhaseError("only a fresh pane can be prepared");
     const environment = input.environment;
     const home = requireQuotable(environment.HOME, "HOME");
+    if (!home.startsWith("/"))
+      throw new InvalidArgumentError("HOME is not acceptable");
     const pathValue = requireQuotable(environment.PATH, "PATH");
     const term = requireQuotable(environment.TERM, "TERM");
     for (const [name, value] of Object.entries(environment)) {

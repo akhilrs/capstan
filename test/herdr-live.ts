@@ -61,14 +61,14 @@ function isolatedEnvironment(
   return environment;
 }
 
-/** Lists the operator's default session without changing it, with the real HOME. */
+/** Lists the operator's default session without changing it, with the real HOME. Focus and agent status follow the operator's own use of the terminal, so they are left out of the comparison. */
 export function defaultSessionSnapshot(): string {
   const environment: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env))
     if (value !== undefined && !name.startsWith("HERDR_"))
       environment[name] = value;
   try {
-    return execFileSync(
+    const listing = execFileSync(
       "herdr",
       ["--session", "default", "workspace", "list"],
       {
@@ -76,6 +76,18 @@ export function defaultSessionSnapshot(): string {
         encoding: "utf8",
         timeout: 15_000,
       },
+    );
+    const parsed = JSON.parse(listing) as {
+      result?: { workspaces?: Array<Record<string, unknown>> };
+    };
+    return JSON.stringify(
+      (parsed.result?.workspaces ?? []).map((workspace) =>
+        Object.fromEntries(
+          Object.entries(workspace).filter(
+            ([key]) => key !== "focused" && key !== "agent_status",
+          ),
+        ),
+      ),
     );
   } catch {
     return "unavailable";

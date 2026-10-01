@@ -494,15 +494,21 @@ test("a role whose definition changed is synced again on demand, and a sync that
     );
     assert.equal(w.core.listAgents().length, 0);
     const failing = w.reopen(() => {
-      throw new Error("the ledger refused the change");
+      throw new Error(
+        "the ledger refused\nthe \u001b[31mchange\u001b[0m ".concat(
+          "x".repeat(400),
+        ),
+      );
     });
     await assert.rejects(
       failing.launchPm(),
       (e: unknown) =>
         e instanceof LauncherError &&
         e.code === "role_not_synced" &&
-        e.message.includes("the ledger refused the change") &&
-        e.message.includes("role_sync_failed"),
+        e.message.includes("the ledger refused the") &&
+        e.message.includes("role_sync_failed") &&
+        !/[\p{Cc}]/u.test(e.message) &&
+        e.message.length < 450,
     );
     const healing = w.reopen(() => stale(hashOf("pm")));
     assert.equal((await healing.launchPm()).state, "started");
