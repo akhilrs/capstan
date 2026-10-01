@@ -220,7 +220,11 @@ export async function recoverIntegrations(
     if (inFlight.has(row.integrationId)) continue;
     try {
       const tip = await deps.git.branchTip(row.branch);
-      if (tip !== null) await deps.git.deleteBranch(row.branch, tip);
+      if (tip !== null && !(await deps.git.deleteBranch(row.branch, tip)))
+        deps.log("integration_branch_not_removed", {
+          integrationId: row.integrationId,
+          branch: row.branch,
+        });
       deps.core.finishIntegration(deps.context(deps.credential), {
         integrationId: row.integrationId,
         outcome: {

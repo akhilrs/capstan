@@ -504,6 +504,14 @@ test("the ledger refuses to rewrite an integration or its reports and to move a 
         /immutable/,
       );
       assert.equal(record.state, "merged");
+      const conflicted = (omitted: string) =>
+        db.exec(
+          `INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, conflict_report_id, conflict_files_json, conflict_files_omitted, created_at, completed_at)
+           SELECT project_id, 'zz', 99, base_sha, 'capstan/integration/zz', 'operator', 'conflicted', 'r', '["a"]', ${omitted}, created_at, created_at FROM integrations LIMIT 1`,
+        );
+      assert.throws(() => conflicted("NULL"), /CHECK constraint/);
+      assert.throws(() => conflicted("-1"), /CHECK constraint/);
+      conflicted("0");
     } finally {
       db.close();
     }

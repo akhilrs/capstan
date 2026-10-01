@@ -20,7 +20,7 @@ CREATE TABLE integrations (
   CHECK (head_sha IS NULL OR head_sha <> base_sha),
   CHECK (conflict_files_json IS NULL OR (json_valid(conflict_files_json) AND json_array_length(conflict_files_json) > 0)),
   CHECK ((state IN ('merged', 'confirmed', 'discarded') AND head_sha IS NOT NULL) OR (state NOT IN ('merged', 'confirmed', 'discarded') AND head_sha IS NULL)),
-  CHECK ((state = 'conflicted' AND conflict_report_id IS NOT NULL AND conflict_files_json IS NOT NULL AND conflict_files_omitted >= 0) OR (state <> 'conflicted' AND conflict_report_id IS NULL AND conflict_files_json IS NULL AND conflict_files_omitted IS NULL)),
+  CHECK ((state = 'conflicted' AND conflict_report_id IS NOT NULL AND conflict_files_json IS NOT NULL AND conflict_files_omitted IS NOT NULL AND conflict_files_omitted >= 0) OR (state <> 'conflicted' AND conflict_report_id IS NULL AND conflict_files_json IS NULL AND conflict_files_omitted IS NULL)),
   CHECK ((state = 'failed' AND failure_reason IS NOT NULL) OR (state <> 'failed' AND failure_reason IS NULL)),
   CHECK ((state = 'running' AND completed_at IS NULL) OR (state <> 'running' AND completed_at IS NOT NULL))
 ) STRICT, WITHOUT ROWID;
