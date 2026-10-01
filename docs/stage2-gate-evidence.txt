@@ -272,7 +272,7 @@ operator typed to PM gen2: adversarial instruction to edit README.md itself
 {"created_at":"2026-10-01T08:07:18.408Z","agent":"developer-2","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 {"created_at":"2026-10-01T08:09:11.797Z","agent":"developer-3","from_state":null,"to_state":"active","action":"agent.register","details":null}
 {"created_at":"2026-10-01T08:17:12.529Z","agent":"developer-4","from_state":null,"to_state":"active","action":"agent.register","details":null}
-{"created_at":"2026-10-01T08:25:35.779Z","agent":"pm-1","from_state":"1","to_state":"2","action":"agent.restart","details":"{\"cancelledMessageIds\":[\"568133c6-2312-4e38-8d09-330495cf995d\"],\"restartId\":\"3bc"}
+{"created_at":"2026-10-01T08:25:35.779Z","agent":"pm-1","from_state":"1","to_state":"2","action":"agent.restart","details":"{\"d\":\"{\\"cancelledMessageIds\\":[\\"568133c6-2312-4e38-8d09-330495cf995d\\"],\\"restartId\\":\\"3bce9929-20e9-4866-bf08-19e989f909de\\",\\"summaryHash\\":\\"e9a11f0bd141204214568d411816ed18c1212b3ffbb327431a053940637d0124\\"}\"}"}
 {"created_at":"2026-10-01T08:26:39.586Z","agent":"developer-3","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[\"1e87c360-d639-4290-8bba-9665dde7c3ab\"]}"}
 {"created_at":"2026-10-01T08:39:50.427Z","agent":"developer-4","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
 
@@ -284,7 +284,7 @@ operator typed to PM gen2: adversarial instruction to edit README.md itself
 {"message_id":"6543b560-62aa-4ea2-982a-7fd70bdf2503","deferral_count":1,"text":"second draft kept past the limit","text_hash":"4be8a5ff6479c9238c7829d4cbfd3943eb240e2437075ee082c65259d1b0fa11","created_at":"2026-10-01T08:12:40.967Z"}
 
 ## timers in use: capstan.toml has no [timers] table, so the built-in defaults apply (src/config/capstan-config.ts TIMER_DEFAULTS): max_deferral_seconds 120, pm_ack_timeout_seconds 600, pm_notify_after_seconds 300, notify_interval_seconds 600, stall_after_seconds 900, worker_ack_timeout_seconds 600
-0
+(no [timers] table in capstan.toml: count of lines starting with [timers = 0)
 
 ## message 36 (frame id eb3c0249-e9e8-4c2f-a93e-7e8edc259007, case f5) and its notification (pm_message at 08:24:32 is for message 35's id 568133c6 at 300 s; message 36 stayed sent until the timer at 08:39:37.825Z)
 {"sequence":35,"message_id":"568133c6-2312-4e38-8d09-330495cf995d","state":"cancelled"}
@@ -318,14 +318,14 @@ worktrees-repo-capstan-developer-4 f1cb873e first turn 2026-10-01T08:17:26.138Z 
 
 ## state after the run (checked 2026-10-01T08:44:33Z)
 cstan status in the gate repository: pong: true
-herdr capstan-gate session: {"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running at /home/akhil/.config/herdr/sessions/capstan-gate/herdr.s
+herdr capstan-gate session: {"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/capstan-gate/herdr.sock; run `herdr session attach capstan-gate` to start or attach it"}}
 git worktrees in the gate repository:
 /tmp/capstan-gate/repo  dad3d93 [main]
 capstan/* branches left: 0
 worktree directories left under ~/.herdr/worktrees/repo: 0
 agent processes still running (claude with the capstan prompt file): 0
 herdr processes for capstan-gate: 3
-[correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own 'nexora' project (cwd /home/akhil/Workspace/github.com/akhilrs/nexora, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
+[correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own own project (cwd the operator's own project directory, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
 
 ## ADDED AFTER REVIEW ROUND 4
 ## operator and agent CLI commands recorded by the daemon (daemon.log, excluding the status polling of the watch pane): time, command, caller role, result code, argument count
@@ -435,7 +435,7 @@ herdr processes for capstan-gate: 3
 [case b variant 2, recent-lines grep on the developer-3 pane for 'capstan message|Probe B2|second draft'] matched the B2 frame header (line 11), 'Probe B2: acknowledge this message and take no other action.' (line 12) and the worker's acknowledgement (line 15); the text 'second draft' did not appear, so the draft was gone from the pane
 [case f5, PM pane read about 12 s after message 36 was sent] "The body only reports on the test. It asks for nothing, and I'm treating it as information, not as a command. As you instructed, I have not acknowledged it. The message stays unacknowledged, so cstan inbox will keep showing it." (the PM had printed message 36 from its backgrounded wait)
 [host timeouts] before the case f5 change capstan.toml had no timeout keys, so the code defaults applied (shell_command_timeout_seconds 120, wait_timeout_seconds 90, from src/config/capstan-config.ts); the change set 600 and 300 (shown above under host timeouts)
-[first-turn cache creation] the four worker transcripts show 71 911 to 75 080 cache-creation tokens in total, almost all on their first turn; the two PM transcripts show 147 239 and 138 682 in total (first-turn numbers were not extracted)
+[first-turn cache creation] the four worker transcripts show 71 911 to 75 080 cache-creation tokens in total, in total (no per-turn split was extracted); the two PM transcripts show 147 239 and 138 682 in total (first-turn numbers were not extracted)
 [times] times in the results text for a single message come from its row (queued_at, deferred_at, sent_at, acked_at); the transition table uses the event's own timestamp, which can differ by 1 ms (for example deferral of message 26: row 08:13:22.008Z, event 08:13:22.009Z)
 
 ## ADDED AFTER REVIEW ROUND 5
