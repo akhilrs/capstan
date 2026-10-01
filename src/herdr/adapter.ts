@@ -412,30 +412,38 @@ export class HerdrAdapter {
     const result = await runJson(this.#run, ["pane", "list"]);
     if (!Array.isArray(result.panes))
       throw new HerdrError("bad_output", "herdr did not report panes");
+    // A pane this adapter cannot read (an odd id, no tab, no directory) is
+    // skipped: it can neither be ours nor hide ours.
     return result.panes.flatMap((entry) => {
-      const pane = this.#record(entry, "pane");
-      if (typeof pane.cwd !== "string") return [];
-      return [
-        {
-          paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
-          tabId: requireMatch(pane.tab_id, TAB_PATTERN, "tab id"),
-          workspaceId: requireMatch(
-            pane.workspace_id,
-            WORKSPACE_PATTERN,
-            "workspace id",
-          ),
-          cwd: pane.cwd,
-        },
-      ];
+      try {
+        const pane = this.#record(entry, "pane");
+        if (typeof pane.cwd !== "string" || pane.cwd.trim() === "") return [];
+        return [
+          {
+            paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
+            tabId: requireMatch(pane.tab_id, TAB_PATTERN, "tab id"),
+            workspaceId: requireMatch(
+              pane.workspace_id,
+              WORKSPACE_PATTERN,
+              "workspace id",
+            ),
+            cwd: pane.cwd,
+          },
+        ];
+      } catch {
+        return [];
+      }
     });
   }
 
-  /** Ids of the panes whose working directory is exactly `directory` (compared as real paths). */
-  async panesAtPath(directory: string): Promise<string[]> {
+  /** The panes whose working directory is exactly `directory` (compared as real paths), with their workspaces. */
+  async panesAtPath(
+    directory: string,
+  ): Promise<Array<{ paneId: string; workspaceId: string }>> {
     const wanted = this.#canonical(directory);
     return (await this.#listPanes())
       .filter((pane) => this.#canonical(pane.cwd) === wanted)
-      .map((pane) => pane.paneId);
+      .map((pane) => ({ paneId: pane.paneId, workspaceId: pane.workspaceId }));
   }
 
   /**
@@ -1155,10 +1163,11 @@ export class HerdrAdapter {
   }
 
   #canonical(value: string): string {
+    const trim = (text: string): string => text.replace(/\/+$/, "") || "/";
     try {
-      return fs.realpathSync(value).replace(/\/+$/, "");
+      return trim(fs.realpathSync(value));
     } catch {
-      return path.resolve(value).replace(/\/+$/, "");
+      return trim(path.resolve(value));
     }
   }
 

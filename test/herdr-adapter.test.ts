@@ -97,6 +97,8 @@ class FakeHerdr {
   extraPaneAtMovedPath = false;
   /** The 1-based `pane list` call that fails, if any. */
   failListCall: number | undefined;
+  /** Raw entries added to the `pane list` answer, to test how unreadable panes are handled. */
+  extraListEntries: unknown[] = [];
   private listCalls = 0;
   layoutRects: Array<{
     pane_id: string;
@@ -248,12 +250,15 @@ class FakeHerdr {
       if (this.listCalls === this.failListCall)
         return this.failure("timeout", "no answer");
       return this.json({
-        panes: [...this.panes.values()].map((pane) => ({
-          pane_id: pane.paneId,
-          tab_id: `${pane.workspaceId}:t1`,
-          workspace_id: pane.workspaceId,
-          cwd: pane.checkout,
-        })),
+        panes: [
+          ...[...this.panes.values()].map((pane) => ({
+            pane_id: pane.paneId,
+            tab_id: `${pane.workspaceId}:t1`,
+            workspace_id: pane.workspaceId,
+            cwd: pane.checkout,
+          })),
+          ...this.extraListEntries,
+        ],
       });
     }
     if (command === "pane" && sub === "move") {
@@ -3034,7 +3039,9 @@ test("panesAtPath compares real paths, and removeWorktree never touches the PM's
     const link = path.join(h.fake.root, "link");
     symlinkSync(tree.path, link);
     h.fake.panes.get(tree.paneId)!.checkout = link + "/";
-    assert.deepEqual(await h.adapter.panesAtPath(tree.path), [tree.paneId]);
+    assert.deepEqual(await h.adapter.panesAtPath(tree.path), [
+      { paneId: tree.paneId, workspaceId: tree.workspaceId },
+    ]);
     assert.deepEqual(
       await h.adapter.panesAtPath(path.join(h.fake.root, "elsewhere")),
       [],
@@ -3048,6 +3055,47 @@ test("panesAtPath compares real paths, and removeWorktree never touches the PM's
     await h.adapter.removeWorktree(tree.workspaceId);
     assert.equal(h.adapter.paneEntry(tree.paneId), undefined);
     assert.notEqual(h.adapter.paneEntry(pm.paneId), undefined);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("panes the adapter cannot read are skipped, so they neither break a placement check nor match an empty or root path", async () => {
+  const h = harness();
+  try {
+    const tree = await worktreePane(h);
+    h.fake.extraListEntries = [
+      {
+        pane_id: "not an id",
+        tab_id: "w1:t1",
+        workspace_id: "w1",
+        cwd: tree.path,
+      },
+      { pane_id: "w4:p1", workspace_id: "w4", cwd: tree.path },
+      { pane_id: "w4:p2", tab_id: "w4:t1", workspace_id: "w4", cwd: "" },
+      { pane_id: "w4:p3", tab_id: "w4:t1", workspace_id: "w4", cwd: "   " },
+      { pane_id: "w4:p4", tab_id: "w4:t1", workspace_id: "w4", cwd: 7 },
+      "junk",
+      null,
+    ];
+    assert.deepEqual(
+      (await h.adapter.panesAtPath(tree.path)).map((p) => p.paneId),
+      [tree.paneId],
+    );
+    assert.deepEqual(await h.adapter.panesAtPath(""), []);
+    assert.deepEqual(await h.adapter.panesAtPath("/"), []);
+    h.fake.moveMode = "error-no-move";
+    await assert.rejects(
+      h.adapter.placePane({
+        paneId: tree.paneId,
+        tabId: "w9:t1",
+        targetPaneId: "w9:p1",
+        direction: "right",
+        worktreePath: tree.path,
+      }),
+      HerdrError,
+    );
   } finally {
     h.adapter.close();
     h.fake.cleanup();

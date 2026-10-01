@@ -872,7 +872,9 @@ test("a pane lost in the move fails the spawn, and cleanup closes the one unregi
     await launched(w);
     w.adapter.placeError = new PaneLost("gone");
     w.adapter.closeMissingThrows = true;
-    w.adapter.strays.set("/tmp/work/developer-1", ["w9:p42"]);
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w9:p42", workspaceId: w.adapter.pmWorkspace! },
+    ]);
     await assert.rejects(
       w.launcher.spawn("developer"),
       (e: unknown) => e instanceof PaneLost,
@@ -893,7 +895,10 @@ test("cleanup leaves panes at the worktree path alone when more than one matches
     await launched(w);
     w.adapter.placeError = new PaneLost("gone");
     w.adapter.closeMissingThrows = true;
-    w.adapter.strays.set("/tmp/work/developer-1", ["w9:p42", "w9:p43"]);
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w9:p42", workspaceId: w.adapter.pmWorkspace! },
+      { paneId: "w9:p43", workspaceId: w.adapter.pmWorkspace! },
+    ]);
     await assert.rejects(w.launcher.spawn("developer"));
     assert.ok(!w.adapter.calls.includes("close:w9:p42"));
     assert.ok(!w.adapter.calls.includes("close:w9:p43"));
@@ -921,7 +926,9 @@ test("after a crash between the move and the ledger write, adoption closes the m
       });
       w.adapter.adoptErrors.set("w7:p1", new PaneGone("gone"));
       w.adapter.closeMissingThrows = true;
-      w.adapter.strays.set(first.worktreePath, ["w1:p99"]);
+      w.adapter.strays.set(first.worktreePath, [
+        { paneId: "w1:p99", workspaceId: w.adapter.pmWorkspace! },
+      ]);
       await w.launcher.adoptAll();
       assert.equal(
         w.adapter.calls.includes("close:w1:p99"),
@@ -932,6 +939,22 @@ test("after a crash between the move and the ledger write, adoption closes the m
     } finally {
       w.cleanup();
     }
+  }
+});
+
+test("a pane at the worktree path in another workspace is the operator's and is never closed", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    w.adapter.placeError = new PaneLost("gone");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w8:p1", workspaceId: "w8" },
+    ]);
+    await assert.rejects(w.launcher.spawn("developer"));
+    assert.ok(!w.adapter.calls.includes("close:w8:p1"));
+  } finally {
+    w.cleanup();
   }
 });
 

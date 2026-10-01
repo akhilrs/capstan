@@ -154,6 +154,20 @@ interface Budget {
   check(step: string): void;
 }
 
+/** Escape sequences, control and format characters, line separators and runs of blanks become one space; the cut is at a grapheme boundary. */
+function oneLine(text: string, maxGraphemes: number): string {
+  const clean = text
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
+    .trim();
+  return Array.from(
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(clean),
+  )
+    .slice(0, maxGraphemes)
+    .map((part) => part.segment)
+    .join("");
+}
+
 /** Keeps a sync error to one short line in the refusal. */
 const MAX_SYNC_REASON_CHARS = 200;
 const MAX_NOTE_CHARS = 200;
@@ -1017,11 +1031,8 @@ export class Launcher {
     } catch (error) {
       if (error instanceof PaneLost) throw error;
       this.#log("placement_failed", { paneId, error: String(error) });
-      const text = (error instanceof Error ? error.message : String(error))
-        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
-        .trim();
       return {
-        note: `the pane could not be placed (${Array.from(text).slice(0, MAX_NOTE_CHARS).join("")})`,
+        note: `the pane could not be placed (${oneLine(error instanceof Error ? error.message : String(error), MAX_NOTE_CHARS)})`,
       };
     }
   }
@@ -1181,13 +1192,21 @@ export class Launcher {
     recordedPaneId: string,
   ): Promise<void> {
     try {
+      // A moved pane lands in the PM's workspace, so a pane anywhere else is the operator's.
+      const pm = this.#activeAgents().find((agent) => agent.kind === "PM");
+      const pmWorkspace = this.#core
+        .agentPanes(this.#credential)
+        .find((row) => row.agentId === pm?.agentId)?.workspaceId;
+      if (pmWorkspace === undefined || pmWorkspace === null) return;
       const strays = (await this.#adapter.panesAtPath(worktreePath)).filter(
-        (id) =>
-          id !== recordedPaneId && this.#adapter.paneEntry(id) === undefined,
+        (pane) =>
+          pane.paneId !== recordedPaneId &&
+          pane.workspaceId === pmWorkspace &&
+          this.#adapter.paneEntry(pane.paneId) === undefined,
       );
       if (strays.length !== 1) return;
-      await this.#close(strays[0]!);
-      this.#log("moved_pane_closed", { agentId, paneId: strays[0] });
+      await this.#close(strays[0]!.paneId);
+      this.#log("moved_pane_closed", { agentId, paneId: strays[0]!.paneId });
     } catch (error) {
       this.#log("moved_pane_not_closed", { agentId, error: String(error) });
     }

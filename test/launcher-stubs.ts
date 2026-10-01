@@ -50,7 +50,7 @@ export class StubAdapter implements LauncherAdapter {
   placeError: Error | undefined;
   /** Closing a pane that is not there answers pane_not_found, as Herdr does. */
   closeMissingThrows = false;
-  strays = new Map<string, string[]>();
+  strays = new Map<string, Array<{ paneId: string; workspaceId: string }>>();
   private placed = 10;
 
   async paneLayout(paneId: string) {
