@@ -644,6 +644,54 @@ test("release keeps a branch that holds commits and reports a worktree git refus
   }
 });
 
+test("release keeps the pane row, worktree and branch when the pane will not close, and the next operation finishes the job", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.adapter.closeError = new HerdrError("pane_close_failed", "busy");
+    const stuck = await w.launcher.release(first.agentId);
+    assert.deepEqual(
+      [stuck.paneClosed, stuck.worktreeRemoved, stuck.branchKept],
+      [false, false, true],
+    );
+    assert.deepEqual(
+      w.git.removed,
+      [],
+      "nothing was removed under an open pane",
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === first.agentId),
+      true,
+    );
+    w.adapter.closeError = undefined;
+    await w.launcher.spawn("developer");
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === first.agentId),
+      false,
+      "the retry cleared the row",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a freed seat is reused before a new one is created", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    await w.launcher.spawn("developer");
+    await w.launcher.release("developer-1");
+    const third = await w.launcher.spawn("developer");
+    assert.equal(third.agentId, "developer-3");
+    assert.equal(w.core.agentRecord("developer-3")!.seatId, "developer-seat");
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("release refuses an unknown agent, the PM and an agent that was already released, and reports a cleanup that cannot end the agent", async () => {
   const w = await world();
   try {

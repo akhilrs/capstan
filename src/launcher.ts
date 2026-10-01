@@ -95,8 +95,10 @@ export interface SpawnResult {
 }
 
 export interface ReleaseOutcome {
-  readonly paneClosed: boolean;
-  readonly worktreeRemoved: boolean;
+  /** null when no pane was recorded. */
+  readonly paneClosed: boolean | null;
+  /** null when no worktree was recorded or found. */
+  readonly worktreeRemoved: boolean | null;
   /** True whenever the branch still exists: it holds commits, or its removal was not attempted. */
   readonly branchKept: boolean;
 }
@@ -977,7 +979,7 @@ export class Launcher {
     },
   ): Promise<ReleaseOutcome> {
     const budget = this.#budget(CLEANUP_BUDGET_MS);
-    let paneClosed = true;
+    let paneClosed: boolean | null = null;
     if (info.paneId !== undefined) {
       paneClosed = false;
       if (this.#within(budget)) {
@@ -992,6 +994,14 @@ export class Launcher {
           });
         }
       }
+      // A pane that is still open keeps its row, worktree and branch, so the
+      // next start can find and close it instead of leaving it untracked.
+      if (!paneClosed)
+        return {
+          paneClosed,
+          worktreeRemoved: false,
+          branchKept: info.branch !== undefined,
+        };
     }
     let worktreePath = info.worktreePath;
     if (worktreePath === undefined && info.branch !== undefined) {
@@ -1003,9 +1013,13 @@ export class Launcher {
         return { paneClosed, worktreeRemoved: false, branchKept: true };
       }
     }
-    if (worktreePath !== undefined && !this.#git.worktreeRemove(worktreePath)) {
-      this.#log("worktree_kept", { agentId, worktreePath });
-      return { paneClosed, worktreeRemoved: false, branchKept: true };
+    let worktreeRemoved: boolean | null = null;
+    if (worktreePath !== undefined) {
+      worktreeRemoved = this.#git.worktreeRemove(worktreePath);
+      if (!worktreeRemoved) {
+        this.#log("worktree_kept", { agentId, worktreePath });
+        return { paneClosed, worktreeRemoved, branchKept: true };
+      }
     }
     let branchKept = info.branch !== undefined;
     if (info.branch !== undefined && info.baseSha !== undefined) {
@@ -1018,7 +1032,7 @@ export class Launcher {
     } catch (error) {
       this.#log("pane_row_not_cleared", { agentId, error: String(error) });
     }
-    return { paneClosed, worktreeRemoved: true, branchKept };
+    return { paneClosed, worktreeRemoved, branchKept };
   }
 
   /** Closes a pane; a pane Herdr no longer knows counts as closed. */

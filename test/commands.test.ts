@@ -844,6 +844,12 @@ test("the PM may spawn and release workers, a worker may not, and the requester 
         ["release_requested", "operator"],
       ],
     );
+    for (const role of ["Developer", "a b", "x\n", "-x", "a".repeat(33)])
+      assert.equal(
+        codeOf(await call(h, h.owner, "spawn", [role])),
+        "invalid_request",
+        JSON.stringify(role),
+      );
     for (const args of [[], ["a", "b"], ["@pm"], ["bad id"]])
       assert.equal(
         codeOf(await call(h, h.owner, "release", [...args])),
