@@ -407,18 +407,22 @@ export class HerdrAdapter {
   }
 
   async #listPanes(): Promise<
-    Array<{ paneId: string; tabId: string; workspaceId: string; cwd: string }>
+    Array<{
+      paneId: string;
+      tabId: string;
+      workspaceId: string;
+      /** undefined when Herdr gave no absolute directory for the pane. */
+      cwd: string | undefined;
+    }>
   > {
     const result = await runJson(this.#run, ["pane", "list"]);
     if (!Array.isArray(result.panes))
       throw new HerdrError("bad_output", "herdr did not report panes");
-    // A pane this adapter cannot read (an odd id, no tab, no directory) is
-    // skipped: it can neither be ours nor hide ours.
+    // A pane whose id this adapter cannot read is skipped: it cannot be ours.
+    // A pane without a usable directory is kept, so it still counts as existing.
     return result.panes.flatMap((entry) => {
       try {
         const pane = this.#record(entry, "pane");
-        if (typeof pane.cwd !== "string" || !path.isAbsolute(pane.cwd))
-          return [];
         return [
           {
             paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
@@ -428,7 +432,10 @@ export class HerdrAdapter {
               WORKSPACE_PATTERN,
               "workspace id",
             ),
-            cwd: pane.cwd,
+            cwd:
+              typeof pane.cwd === "string" && path.isAbsolute(pane.cwd)
+                ? pane.cwd
+                : undefined,
           },
         ];
       } catch {
@@ -444,7 +451,10 @@ export class HerdrAdapter {
     if (!path.isAbsolute(directory)) return [];
     const wanted = this.#canonical(directory);
     return (await this.#listPanes())
-      .filter((pane) => this.#canonical(pane.cwd) === wanted)
+      .filter(
+        (pane) =>
+          pane.cwd !== undefined && this.#canonical(pane.cwd) === wanted,
+      )
       .map((pane) => ({ paneId: pane.paneId, workspaceId: pane.workspaceId }));
   }
 
@@ -510,7 +520,10 @@ export class HerdrAdapter {
       if (after.some((p) => p.paneId === input.paneId)) throw error;
       const wanted = this.#canonical(input.worktreePath);
       const found = after.filter(
-        (p) => !before.has(p.paneId) && this.#canonical(p.cwd) === wanted,
+        (p) =>
+          !before.has(p.paneId) &&
+          p.cwd !== undefined &&
+          this.#canonical(p.cwd) === wanted,
       );
       if (found.length !== 1)
         throw new PaneLost(

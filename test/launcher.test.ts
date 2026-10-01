@@ -968,6 +968,12 @@ test("a placement note keeps no escape sequence of any kind and stays short even
       "c1 \u009b31mred\u009b0m end",
       "surrogate \ud800 end",
       "marks e" + "\u0301".repeat(5000),
+      "unterminated \u001b]0;evil title",
+      "8bit \u009d0;evil osc\u009c end",
+      "8bit dcs \u0090payload\u009c end",
+      "colon \u001b[38:2:255:0:0m red",
+      "two byte \u001bc reset",
+      "e".repeat(10) + "\u0301".repeat(500),
     ];
     for (const message of hostile) {
       w.adapter.layoutError = new Error(message);

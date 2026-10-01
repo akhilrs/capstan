@@ -3061,6 +3061,29 @@ test("panesAtPath compares real paths, and removeWorktree never touches the PM's
   }
 });
 
+test("an old pane that Herdr lists without a usable directory still counts as existing, so a refused move stays a tab", async () => {
+  const h = harness();
+  try {
+    const tree = await worktreePane(h);
+    h.fake.moveMode = "error-no-move";
+    h.fake.panes.get(tree.paneId)!.checkout = "relative";
+    await assert.rejects(
+      h.adapter.placePane({
+        paneId: tree.paneId,
+        tabId: "w9:t1",
+        targetPaneId: "w9:p1",
+        direction: "right",
+        worktreePath: tree.path,
+      }),
+      HerdrError,
+      "not PaneLost",
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
 test("panes the adapter cannot read are skipped, so they neither break a placement check nor match an empty or root path", async () => {
   const h = harness();
   try {

@@ -154,12 +154,19 @@ interface Budget {
   check(step: string): void;
 }
 
-/** Escape sequences (CSI, OSC, DCS and the other string forms, and the one-byte C1 CSI), control and format characters, lone surrogates, line separators and runs of blanks become one space or nothing. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it. */
+/** Escape sequences (CSI with any parameter bytes, OSC, DCS and the other string forms even when unterminated, the 8-bit C1 forms, and two-byte escapes), control and format characters, lone surrogates, line separators and runs of blanks are removed or become one space. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it; a first grapheme longer than that leaves nothing. */
 function oneLine(text: string, maxLength: number): string {
   const clean = text
-    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
-    .replace(/\u001b[PX^_][\s\S]*?\u001b\\/g, "")
-    .replace(/(?:\u001b\[|\u009b)[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(
+      /(?:\u001b\]|\u009d)[^\u0007\u001b\u009c]*(?:\u0007|\u001b\\|\u009c)?/g,
+      "",
+    )
+    .replace(
+      /(?:\u001b[PX^_]|[\u0090\u0098\u009e\u009f])[^\u001b\u009c]*(?:\u001b\\|\u009c)?/g,
+      "",
+    )
+    .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b[ -/]*[0-~]/g, "")
     .replace(/\p{Cs}/gu, "")
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
     .trim();
@@ -170,7 +177,7 @@ function oneLine(text: string, maxLength: number): string {
     if (result.length + part.segment.length > maxLength) break;
     result += part.segment;
   }
-  return result;
+  return result.trim();
 }
 
 /** Keeps a sync error to one short line in the refusal. */
@@ -1036,8 +1043,12 @@ export class Launcher {
     } catch (error) {
       if (error instanceof PaneLost) throw error;
       this.#log("placement_failed", { paneId, error: String(error) });
+      const reason = oneLine(
+        error instanceof Error ? error.message : String(error),
+        MAX_NOTE_LENGTH,
+      );
       return {
-        note: `the pane could not be placed (${oneLine(error instanceof Error ? error.message : String(error), MAX_NOTE_LENGTH)})`,
+        note: `the pane could not be placed${reason === "" ? "" : ` (${reason})`}`,
       };
     }
   }
