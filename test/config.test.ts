@@ -149,17 +149,31 @@ test("the starter configuration written by init is valid and gives the PM worker
         ["pm", "PM"],
         ["developer", "Developer"],
         ["designer", "Developer"],
+        ["reviewer", "Verifier"],
         ["tester", "Verifier"],
       ],
     );
     assert.equal(config.limits.maxWorkers, 3);
     assert.equal(config.layout.spawn, "pane");
     assert.equal(config.layout.split, "auto");
-    for (const role of config.roles.filter((r) => r.kind !== "PM")) {
+    for (const role of config.roles.filter(
+      (r) => r.kind !== "PM" && r.name !== "reviewer",
+    )) {
       assert.match(role.promptText ?? "", /branch/, role.name);
       assert.equal(role.permissionMode, "acceptEdits");
       assert.deepEqual(role.deny, ["Bash(git push)", "Bash(git push *)"]);
     }
+    const reviewer = config.roles.find((r) => r.name === "reviewer")!;
+    assert.match(reviewer.promptText ?? "", /do not edit any file/);
+    for (const tool of [
+      "Write",
+      "Edit",
+      "NotebookEdit",
+      "Agent",
+      "Task",
+      "Bash(git push)",
+    ])
+      assert.ok(reviewer.deny.includes(tool), tool);
   });
 });
 
@@ -248,10 +262,14 @@ test("a PM without a deny list denies the file-editing and subagent tools, and a
     3,
     "the hash covers the effective deny list",
   );
-  const worker = withConfig(VALID, (directory) =>
+  const verifier = withConfig(VALID, (directory) =>
     loadCapstanConfig(directory).roles.find((r) => r.kind === "Verifier")!,
   );
-  assert.deepEqual(worker.deny, [], "only the PM gets a default deny list");
+  assert.deepEqual(
+    verifier.deny,
+    [],
+    "only the PM gets a default deny list: a tester that writes tests must not lose its tools",
+  );
 });
 
 test("a role hash changes with the role and with its host block", () => {

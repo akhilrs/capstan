@@ -141,3 +141,23 @@ export async function inspectCommit(
         : false,
   };
 }
+
+/** Whether a commit with this id exists in the repository; false for a missing id or an object that is not a commit. */
+export async function commitExists(
+  repoRoot: string,
+  sha: string,
+): Promise<boolean> {
+  if (!FULL_SHA.test(sha))
+    throw new GitCheckError(
+      "the commit id must be 40 lowercase hex characters",
+    );
+  const outcome = await runGit(repoRoot, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${sha}^{commit}`,
+  ]);
+  if (outcome.code === 0) return true;
+  if (outcome.code === 1) return false;
+  throw new GitCheckError("git could not look the commit up");
+}

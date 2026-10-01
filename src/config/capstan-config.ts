@@ -40,6 +40,14 @@ allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
 prompt = "You design and build user interface and visual changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
 
+[roles.reviewer]
+kind = "Verifier"
+host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)"]
+prompt = "You review one commit when the controller asks. Read the change, do not edit any file and never push or merge. Judge correctness, tests and risk, and say plainly what you could not check."
+
 [roles.tester]
 kind = "Verifier"
 host = "claude"
@@ -482,7 +490,7 @@ function resolveRoles(
           );
     const allow = stringList(role.allow, `${at}.allow`);
     const deny =
-      kind === "PM" && role.deny === undefined
+      role.deny === undefined && kind === "PM"
         ? [...PM_DEFAULT_DENY]
         : stringList(role.deny, `${at}.deny`);
     const hooks =

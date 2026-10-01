@@ -104,7 +104,15 @@ test("an agent token is accepted for agent and read commands and refused for ope
         assert.equal(
           code(await call(h, member.credential, name)),
           // Only workers report; a bare report from a worker fails its argument check first.
-          name === "report" && member === h.pm ? "forbidden" : bareAnswer(name),
+          name === "report" && member === h.pm
+            ? "forbidden"
+            : name === "request-review"
+              ? member === h.pm
+                ? "invalid_request"
+                : "forbidden"
+              : name === "review"
+                ? "forbidden"
+                : bareAnswer(name),
           name,
         );
       for (const name of ANY)

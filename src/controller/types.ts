@@ -67,6 +67,8 @@ export type Capability =
   | "message:receive"
   | "message:resolve"
   | "report:submit"
+  | "review:request"
+  | "review:submit"
   | "recovery:write"
   | "controller:reconcile";
 

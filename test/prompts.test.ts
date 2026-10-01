@@ -210,3 +210,38 @@ test("the PM prompt says which messages are controller-checked facts and which a
   ])
     assert.ok(text.includes(needle), needle);
 });
+
+test("a Verifier prompt tells the reviewer to answer once with cstan review, and the PM prompt explains request-review and Review messages", () => {
+  const reviewer = buildRolePrompt({
+    ...base,
+    roleName: "reviewer",
+    kind: "Verifier",
+    agentId: "reviewer-1",
+  });
+  for (const needle of [
+    'starts with "Review request"',
+    "do not edit any file",
+    'cstan review pass "<text>"',
+    'cstan review findings "<text>"',
+    "Do not use `cstan send` for the verdict",
+  ])
+    assert.ok(reviewer.includes(needle), needle);
+  const developer = buildRolePrompt({
+    ...base,
+    roleName: "developer",
+    kind: "Developer",
+    agentId: "developer-1",
+  });
+  assert.ok(
+    !developer.includes("cstan review"),
+    "only a Verifier is told about reviewing",
+  );
+  const pm = buildRolePrompt(base);
+  for (const needle of [
+    "cstan request-review <report-id> [role]",
+    "starts with `Review`",
+    "still the reviewer's opinion, not a fact",
+    "request a new review",
+  ])
+    assert.ok(pm.includes(needle), needle);
+});
