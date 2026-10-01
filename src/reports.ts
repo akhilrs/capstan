@@ -73,7 +73,7 @@ export interface ReportRelay {
   stop(): void;
 }
 
-/** Queues the PM notice for accepted reports that have none, on every tick. Safe to run more than once: the notice is queued once per report. */
+/** Queues the PM notice for accepted reports and finished reviews that have none, on every tick. Safe to run more than once: the notice is queued once per report. */
 export function startReportRelay(options: {
   readonly core: ControllerCore;
   readonly credential: string;
@@ -105,9 +105,22 @@ export function startReportRelay(options: {
         if (!result.announced) {
           // It could not be announced just now (the PM changed, no controller actor): try again later, not every tick.
           backoffUntil = Date.now() + RELAY_BACKOFF_MS;
-          break;
+          return;
         }
         options.log("report_announced", { reportId: report.reportId });
+      }
+      for (const review of options.core.unannouncedReviews(
+        options.credential,
+      )) {
+        const result = options.core.announceReview(
+          newContext(options.core, options.credential),
+          review.reviewId,
+        );
+        if (!result.announced) {
+          backoffUntil = Date.now() + RELAY_BACKOFF_MS;
+          return;
+        }
+        options.log("review_announced", { reviewId: review.reviewId });
       }
     } catch (error) {
       options.log("report_relay_failed", { error: String(error) });

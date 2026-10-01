@@ -818,7 +818,21 @@ export class Launcher {
     });
   }
 
-  spawn(roleName: string): Promise<SpawnResult> {
+  /** `baseSha` makes the worker's worktree and branch start at that commit (a review) instead of the project's HEAD. */
+  spawn(
+    roleName: string,
+    options: { readonly baseSha?: string } = {},
+  ): Promise<SpawnResult> {
+    if (
+      options.baseSha !== undefined &&
+      !/^[0-9a-f]{40}$/.test(options.baseSha)
+    )
+      return Promise.reject(
+        new LauncherError(
+          "invalid_base",
+          "the base commit must be a full lowercase id",
+        ),
+      );
     return this.#run(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#config.roles.find((r) => r.name === roleName);
@@ -890,7 +904,7 @@ export class Launcher {
             "invalid_branch",
             `git does not accept the branch name ${branch}`,
           );
-        const baseSha = this.#git.headSha();
+        const baseSha = options.baseSha ?? this.#git.headSha();
         info.baseSha = baseSha;
         this.#core.recordAgentPane(this.#context(), {
           agentId: agent.agentId,

@@ -16,8 +16,9 @@ import { randomUUID } from "node:crypto";
 import { AuthenticationError } from "./controller/auth.js";
 import { ControllerCore } from "./controller/core.js";
 import { createCommandHandlers, type CommandSet } from "./commands.js";
-import { inspectCommit } from "./git.js";
+import { commitExists, inspectCommit } from "./git.js";
 import { startReportRelay, type ReportRelay } from "./reports.js";
+import { recoverReviews } from "./reviews.js";
 import type { CapstanConfig } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
@@ -74,7 +75,8 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   wait: { access: "agent" },
   report: { access: "agent" },
   ask: { access: "agent", stub: STUB_STAGE },
-  "request-review": { access: "agent", stub: STUB_STAGE },
+  "request-review": { access: "agent" },
+  review: { access: "agent" },
   finding: { access: "agent", stub: STUB_STAGE },
   assign: { access: "operator", stub: STUB_STAGE },
   cancel: { access: "operator" },
@@ -752,6 +754,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       ...(launcher === undefined ? {} : { launcher }),
       controllerCredential: credential,
       inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
+      commitExists: (sha) => commitExists(options.workspaceRoot, sha),
       driverSnapshot: () =>
         driver?.snapshot() ?? { stalledAgentIds: [], stuck: [] },
       log: detailLog,
@@ -774,6 +777,15 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     void adoption.then(() => {
       if (!stopping) driver?.start();
     });
+    if (launcher !== undefined) {
+      const reviewLauncher = launcher;
+      void adoption.then(() =>
+        recoverReviews(
+          { core: core!, launcher: reviewLauncher, log: detailLog },
+          credential,
+        ),
+      );
+    }
     reportRelay = startReportRelay({
       core,
       credential,

@@ -40,6 +40,14 @@ allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
 prompt = "You design and build user interface and visual changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
 
+[roles.reviewer]
+kind = "Verifier"
+host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)"]
+prompt = "You review one commit when the controller asks. Read the change, do not edit any file and never push or merge. Judge correctness, tests and risk, and say plainly what you could not check."
+
 [roles.tester]
 kind = "Verifier"
 host = "claude"
@@ -141,6 +149,15 @@ export type ResolvedLayout = {
   readonly minPaneColumns: number;
   readonly minPaneRows: number;
 };
+
+/** A reviewer reads and reports; unless its role sets `deny`, it may not edit files or start Claude Code subagents. Applies to roles read from capstan.toml only. */
+export const VERIFIER_DEFAULT_DENY: readonly string[] = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Agent",
+  "Task",
+];
 
 export type CapstanConfig = {
   readonly schemaVersion: 1;
@@ -482,9 +499,11 @@ function resolveRoles(
           );
     const allow = stringList(role.allow, `${at}.allow`);
     const deny =
-      kind === "PM" && role.deny === undefined
+      role.deny === undefined && kind === "PM"
         ? [...PM_DEFAULT_DENY]
-        : stringList(role.deny, `${at}.deny`);
+        : role.deny === undefined && kind === "Verifier"
+          ? [...VERIFIER_DEFAULT_DENY]
+          : stringList(role.deny, `${at}.deny`);
     const hooks =
       role.hooks === undefined
         ? "off"

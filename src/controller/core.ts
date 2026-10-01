@@ -279,6 +279,100 @@ function reportNotice(row: AgentReportRow, roleName: string): string {
   ].join("\n");
 }
 
+export const MAX_REVIEW_TEXT_BYTES = 4000;
+/** Rounds that ended in a verdict; failed and cancelled rounds do not use the budget. */
+export const MAX_REVIEW_ROUNDS = 5;
+
+export type ReviewState =
+  "started" | "passed" | "findings" | "failed" | "cancelled";
+
+export interface ReviewRecord {
+  readonly reviewId: string;
+  readonly sequence: number;
+  readonly round: number;
+  readonly reportId: string;
+  readonly commitSha: string;
+  readonly baseSha: string;
+  readonly authorAgentId: string;
+  readonly authorActorId: string;
+  readonly requestedByActorId: string;
+  readonly reviewerRole: string;
+  readonly reviewerAgentId: string;
+  readonly reviewerActorId: string;
+  readonly state: ReviewState;
+  readonly verdictText: string | null;
+  readonly failureReason: string | null;
+  readonly notifiedMessageId: string | null;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+}
+
+interface ReviewRow {
+  readonly review_id: string;
+  readonly sequence: number;
+  readonly round: number;
+  readonly subject_report_id: string;
+  readonly commit_sha: string;
+  readonly base_sha: string;
+  readonly author_agent_id: string;
+  readonly author_actor_id: string;
+  readonly requested_by_actor_id: string;
+  readonly reviewer_role: string;
+  readonly reviewer_agent_id: string;
+  readonly reviewer_actor_id: string;
+  readonly state: ReviewState;
+  readonly verdict_text: string | null;
+  readonly failure_reason: string | null;
+  readonly notified_message_id: string | null;
+  readonly created_at: string;
+  readonly completed_at: string | null;
+}
+
+function reviewRecord(row: ReviewRow): ReviewRecord {
+  return {
+    reviewId: row.review_id,
+    sequence: row.sequence,
+    round: row.round,
+    reportId: row.subject_report_id,
+    commitSha: row.commit_sha,
+    baseSha: row.base_sha,
+    authorAgentId: row.author_agent_id,
+    authorActorId: row.author_actor_id,
+    requestedByActorId: row.requested_by_actor_id,
+    reviewerRole: row.reviewer_role,
+    reviewerAgentId: row.reviewer_agent_id,
+    reviewerActorId: row.reviewer_actor_id,
+    state: row.state,
+    verdictText: row.verdict_text,
+    failureReason: row.failure_reason,
+    notifiedMessageId: row.notified_message_id,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+  };
+}
+
+/** The task the reviewer receives. Everything but the author's summary is the controller's own text. */
+function reviewTask(row: ReviewRow, authorSummary: string): string {
+  return [
+    `Review request ${row.review_id} (round ${row.round}) for report ${row.subject_report_id}`,
+    `Commit to review: ${row.commit_sha}`,
+    `The author's base commit: ${row.base_sha}`,
+    `See the change with: git diff ${row.base_sha} ${row.commit_sha}   and   git show ${row.commit_sha}`,
+    `The author's summary, written by the author and not verified: ${JSON.stringify(authorSummary)}`,
+    'Review only that change. Do not edit any file. Answer exactly once with cstan review pass "<text>" or cstan review findings "<text>". Findings must say what is wrong and where.',
+  ].join("\n");
+}
+
+/** The notice the PM receives for a finished review. */
+function reviewNotice(row: ReviewRow): string {
+  return [
+    `Review ${row.review_id} of report ${row.subject_report_id}, round ${row.round}: ${row.state === "passed" ? "PASS" : "FINDINGS"}`,
+    `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); author: ${row.author_agent_id}. Different sessions.`,
+    `Commit: ${row.commit_sha}`,
+    `The reviewer's text, not verified: ${JSON.stringify(row.verdict_text)}`,
+  ].join("\n");
+}
+
 export interface PmRestartSummary {
   readonly objective: unknown;
   readonly openWork: readonly {
@@ -1720,6 +1814,11 @@ export class ControllerCore {
             "UPDATE agents SET state = 'ended', ended_at = ? WHERE project_id = ? AND agent_id = ?",
           )
           .run(now, this.#projectId, agentId);
+        this.#database
+          .prepare(
+            "UPDATE reviews SET state = 'cancelled', failure_reason = 'agent_ended', completed_at = ? WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started'",
+          )
+          .run(now, this.#projectId, agentId);
         const cancelled = this.#cancelMessagesOf(
           actor,
           context,
@@ -2584,6 +2683,360 @@ export class ControllerCore {
         )
         .all(this.#projectId, limit) as AgentReportRow[]
     ).map(reportRecord);
+  }
+
+  /** What a review of this report would need, or why it cannot start. A read; beginReview checks again inside its transaction. */
+  checkReviewRequest(
+    reportId: string,
+    reviewerRole: string,
+  ): {
+    readonly commitSha: string;
+    readonly baseSha: string;
+    readonly round: number;
+    readonly authorAgentId: string;
+  } {
+    this.#assertOpen();
+    safeId(reportId, "report id");
+    safeId(reviewerRole, "reviewer role");
+    const checked = this.#reviewChecks(reportId, reviewerRole);
+    return {
+      commitSha: checked.report.commit_sha,
+      baseSha: checked.baseSha,
+      round: checked.round,
+      authorAgentId: checked.report.agent_id,
+    };
+  }
+
+  #reviewChecks(
+    reportId: string,
+    reviewerRole: string,
+  ): { report: AgentReportRow; baseSha: string; round: number } {
+    const report = this.#database
+      .prepare(
+        "SELECT * FROM agent_reports WHERE project_id = ? AND report_id = ?",
+      )
+      .get(this.#projectId, reportId) as AgentReportRow | undefined;
+    if (report === undefined)
+      throw new ControllerError("the report does not exist");
+    if (report.state !== "accepted")
+      throw new ControllerError("only an accepted report can be reviewed");
+    const baseSha = (JSON.parse(report.evidence_json) as ReportEvidence)
+      .baseSha;
+    if (baseSha === null)
+      throw new ControllerError("the report has no recorded base commit");
+    const open = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state = 'started'",
+      )
+      .get(this.#projectId, reportId);
+    if (open)
+      throw new ControllerError("a review of this report is already open");
+    const done = (
+      this.#database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')",
+        )
+        .get(this.#projectId, reportId) as { n: number }
+    ).n;
+    if (done >= MAX_REVIEW_ROUNDS)
+      throw new ControllerError("the review limit for this report is reached");
+    const role = this.#database
+      .prepare(
+        "SELECT kind FROM role_definitions WHERE project_id = ? AND role_name = ? AND state = 'active'",
+      )
+      .get(this.#projectId, reviewerRole) as { kind: string } | undefined;
+    if (role?.kind !== "Verifier")
+      throw new ControllerError(
+        "the reviewer role must be an active Verifier role",
+      );
+    const round = (
+      this.#database
+        .prepare(
+          "SELECT COALESCE(MAX(round), 0) + 1 AS next FROM reviews WHERE project_id = ? AND subject_report_id = ?",
+        )
+        .get(this.#projectId, reportId) as { next: number }
+    ).next;
+    return { report, baseSha, round };
+  }
+
+  /** The controller's own actor and the one active PM, or undefined when either is missing. */
+  #noticeParties(): { controllerActorId: string; pm: AgentRow } | undefined {
+    const pms = this.#database
+      .prepare(
+        "SELECT * FROM agents WHERE project_id = ? AND kind = 'PM' AND state = 'active'",
+      )
+      .all(this.#projectId) as AgentRow[];
+    const controller = this.#database
+      .prepare(
+        "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
+      )
+      .get(this.#projectId) as { actor_id: string } | undefined;
+    if (pms.length !== 1 || controller === undefined) return undefined;
+    return { controllerActorId: controller.actor_id, pm: pms[0]! };
+  }
+
+  /**
+   * Starts a review of an accepted report with an already spawned reviewer: the
+   * review row (state started), the independence check and the task message
+   * to the reviewer are one transaction. The reviewer must be a new agent: its
+   * actor and agent id must differ from the author's.
+   */
+  beginReview(
+    context: MutationContext,
+    input: {
+      readonly reportId: string;
+      readonly reviewerRole: string;
+      readonly reviewerAgentId: string;
+    },
+  ): ReviewRecord {
+    safeId(input.reportId, "report id");
+    safeId(input.reviewerRole, "reviewer role");
+    safeId(input.reviewerAgentId, "reviewer agent id");
+    return this.#mutate<ReviewRecord>(
+      context,
+      "review.begin",
+      "review:request",
+      { ...input },
+      (actor) => {
+        const { report, baseSha, round } = this.#reviewChecks(
+          input.reportId,
+          input.reviewerRole,
+        );
+        const reviewer = this.#agentRow(input.reviewerAgentId);
+        if (
+          reviewer?.state !== "active" ||
+          reviewer.kind !== "Verifier" ||
+          reviewer.role_name !== input.reviewerRole
+        )
+          throw new ControllerError(
+            "the reviewer agent is not an active agent of the requested Verifier role",
+          );
+        if (
+          reviewer.actor_id === report.actor_id ||
+          reviewer.agent_id === report.agent_id
+        )
+          throw new ControllerError("a reviewer cannot be the author");
+        const controller = this.#database
+          .prepare(
+            "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
+          )
+          .get(this.#projectId) as { actor_id: string } | undefined;
+        if (controller === undefined)
+          throw new ControllerError("the controller actor is missing");
+        const now = this.#now();
+        const reviewId = randomUUID();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM reviews WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        this.#database
+          .prepare(
+            `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, commit_sha, base_sha, author_agent_id, author_actor_id,
+               requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)`,
+          )
+          .run(
+            this.#projectId,
+            reviewId,
+            sequence,
+            round,
+            report.report_id,
+            report.commit_sha,
+            baseSha,
+            report.agent_id,
+            report.actor_id,
+            actor.actorId,
+            input.reviewerRole,
+            reviewer.agent_id,
+            reviewer.actor_id,
+            now,
+          );
+        const row = this.#database
+          .prepare(
+            "SELECT * FROM reviews WHERE project_id = ? AND review_id = ?",
+          )
+          .get(this.#projectId, reviewId) as ReviewRow;
+        const task = reviewTask(row, report.summary);
+        this.#insertQueuedMessage(
+          controller.actor_id,
+          reviewer,
+          task,
+          sha256(task),
+          now,
+        );
+        return {
+          value: reviewRecord(row),
+          event: {
+            entityType: "review",
+            entityId: reviewId,
+            stateVersion: 0,
+            toState: "started",
+            details: {
+              reportId: report.report_id,
+              round,
+              reviewerAgentId: reviewer.agent_id,
+              authorAgentId: report.agent_id,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** The reviewer's verdict, written once. The PM notice is queued in the same transaction when exactly one PM is active. */
+  completeReview(
+    context: MutationContext,
+    input: { readonly verdict: "pass" | "findings"; readonly text: string },
+  ): ReviewRecord {
+    if (input.verdict !== "pass" && input.verdict !== "findings")
+      throw new TypeError("the verdict must be pass or findings");
+    if (
+      typeof input.text !== "string" ||
+      !input.text.isWellFormed() ||
+      input.text.trim() === "" ||
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u.test(
+        input.text.replaceAll("\n", ""),
+      ) ||
+      Buffer.byteLength(input.text, "utf8") > MAX_REVIEW_TEXT_BYTES
+    )
+      throw new TypeError(
+        `the review text must be printable text of at most ${MAX_REVIEW_TEXT_BYTES} bytes`,
+      );
+    return this.#mutate<ReviewRecord>(
+      context,
+      "review.complete",
+      "review:submit",
+      { verdict: input.verdict, textHash: sha256(input.text) },
+      (actor) => {
+        const row = this.#database
+          .prepare(
+            "SELECT * FROM reviews WHERE project_id = ? AND reviewer_actor_id = ? AND state = 'started'",
+          )
+          .get(this.#projectId, actor.actorId) as ReviewRow | undefined;
+        if (row === undefined)
+          throw new ControllerError("you have no review in progress");
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "UPDATE reviews SET state = ?, verdict_text = ?, completed_at = ? WHERE project_id = ? AND review_id = ?",
+          )
+          .run(
+            input.verdict === "pass" ? "passed" : "findings",
+            input.text,
+            now,
+            this.#projectId,
+            row.review_id,
+          );
+        this.#touchAgent(row.reviewer_agent_id, now);
+        this.#announceReview(row.review_id, now);
+        const done = this.#database
+          .prepare(
+            "SELECT * FROM reviews WHERE project_id = ? AND review_id = ?",
+          )
+          .get(this.#projectId, row.review_id) as ReviewRow;
+        return {
+          value: reviewRecord(done),
+          event: {
+            entityType: "review",
+            entityId: row.review_id,
+            stateVersion: 0,
+            fromState: "started",
+            toState: done.state,
+            details: { reportId: row.subject_report_id, round: row.round },
+          },
+        };
+      },
+    );
+  }
+
+  /** Queues the PM notice for a finished review that has none; false when no PM is the sole active one. The caller owns the transaction. */
+  #announceReview(reviewId: string, now: string): boolean {
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM reviews WHERE project_id = ? AND review_id = ? AND state IN ('passed', 'findings') AND notified_message_id IS NULL",
+      )
+      .get(this.#projectId, reviewId) as ReviewRow | undefined;
+    if (row === undefined) return false;
+    const parties = this.#noticeParties();
+    if (parties === undefined) return false;
+    const body = reviewNotice(row);
+    const messageId = this.#insertQueuedMessage(
+      parties.controllerActorId,
+      parties.pm,
+      body,
+      sha256(body),
+      now,
+    );
+    this.#database
+      .prepare(
+        "UPDATE reviews SET notified_message_id = ? WHERE project_id = ? AND review_id = ? AND notified_message_id IS NULL",
+      )
+      .run(messageId, this.#projectId, reviewId);
+    return true;
+  }
+
+  /** Finished reviews whose PM notice has not been queued. */
+  unannouncedReviews(credential: string, limit = 50): readonly ReviewRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM reviews WHERE project_id = ? AND state IN ('passed', 'findings') AND notified_message_id IS NULL ORDER BY sequence LIMIT ?",
+        )
+        .all(this.#projectId, limit) as ReviewRow[]
+    ).map(reviewRecord);
+  }
+
+  announceReview(
+    context: MutationContext,
+    reviewId: string,
+  ): { readonly announced: boolean } {
+    safeId(reviewId, "review id");
+    return this.#mutate(
+      context,
+      "review.announce",
+      "controller:reconcile",
+      { reviewId },
+      () => {
+        const announced = this.#announceReview(reviewId, this.#now());
+        return {
+          value: { announced },
+          event: {
+            entityType: "review",
+            entityId: reviewId,
+            stateVersion: 0,
+            details: { announced },
+          },
+        };
+      },
+    );
+  }
+
+  reviews(credential: string, limit = 20): readonly ReviewRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM reviews WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as ReviewRow[]
+    ).map(reviewRecord);
+  }
+
+  /** Finished reviews whose reviewer agent is still active: the reviewer was not released (a crash after the verdict). */
+  reviewsToRelease(credential: string): readonly ReviewRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          `SELECT r.* FROM reviews r JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.reviewer_agent_id
+           WHERE r.project_id = ? AND r.state IN ('passed', 'findings') AND a.state = 'active' ORDER BY r.sequence`,
+        )
+        .all(this.#projectId) as ReviewRow[]
+    ).map(reviewRecord);
   }
 
   fallbackPane(
@@ -10959,6 +11412,7 @@ export class ControllerCore {
       ["finding", "findings", "finding_id"],
       ["recovery", "recovery_attempts", "recovery_id"],
       ["report", "agent_reports", "report_id"],
+      ["review", "reviews", "review_id"],
     ] as const) {
       const row = this.#database
         .prepare(

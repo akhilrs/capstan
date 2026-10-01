@@ -36,6 +36,12 @@ import {
 import type { CommitInspection } from "./git.js";
 import { GitCheckError } from "./git.js";
 import { ReportRateLimiter, oneLineSummary } from "./reports.js";
+import {
+  ReviewRequestError,
+  releaseReviewerLater,
+  requestReview,
+  reviewText,
+} from "./reviews.js";
 import { LauncherError } from "./launcher.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
@@ -130,6 +136,8 @@ export interface CommandDependencies {
   readonly driverSnapshot?: () => DriverSnapshot;
   readonly launcher?: LauncherApi;
   /** Looks a reported commit up in git; the daemon passes the real one. */
+  /** Whether a commit exists in the project repository; the daemon passes the real check. */
+  readonly commitExists?: (sha: string) => Promise<boolean>;
   readonly inspectCommit?: (input: {
     readonly branch: string;
     readonly baseSha: string | null;
@@ -142,7 +150,10 @@ export interface CommandDependencies {
 export interface LauncherApi {
   launchPm(): Promise<unknown>;
   restartPm(): Promise<unknown>;
-  spawn(roleName: string): Promise<unknown>;
+  spawn(
+    roleName: string,
+    options?: { baseSha?: string },
+  ): Promise<{ readonly state: string; readonly agentId: string }>;
   release(agentId: string): Promise<unknown>;
   status(): unknown;
 }
@@ -638,6 +649,107 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       }
     },
 
+    async "request-review"(call) {
+      const caller = agentOf(call.identity);
+      if (caller?.kind !== "PM" || caller.state !== "active")
+        return fail("forbidden", "only the PM can request a review");
+      if (call.args.length < 1 || call.args.length > 2)
+        return fail(
+          "invalid_request",
+          "request-review needs a report id and optionally a reviewer role",
+        );
+      const reportId = call.args[0]!;
+      if (!SAFE_AGENT_ID.test(reportId))
+        return fail("invalid_request", "the report id is not valid");
+      const role = call.args[1];
+      if (role !== undefined && !NAME_PATTERN.test(role))
+        return fail("invalid_request", "the reviewer role name is not valid");
+      if (
+        deps.launcher === undefined ||
+        deps.config === undefined ||
+        deps.commitExists === undefined
+      )
+        return fail(
+          "not_configured",
+          "reviews need capstan.toml, Herdr and a git repository",
+        );
+      log("review_requested", { requestedBy: caller.agentId, reportId });
+      try {
+        const { review, spawnState } = await requestReview(
+          {
+            core,
+            launcher: deps.launcher,
+            config: deps.config,
+            commitExists: deps.commitExists,
+            context,
+            log,
+          },
+          { reportId, requestedRole: role, pmCredential: call.credential },
+        );
+        return ok({
+          reviewId: review.reviewId,
+          round: review.round,
+          reviewerAgentId: review.reviewerAgentId,
+          reviewerRole: review.reviewerRole,
+          commit: review.commitSha,
+          state: review.state,
+          reviewerState: spawnState,
+        });
+      } catch (error) {
+        if (error instanceof ReviewRequestError)
+          return fail("rejected", `${error.code}: ${error.message}`);
+        if (error instanceof ControllerError)
+          return fail("rejected", `review_refused: ${error.message}`);
+        if (error instanceof GitCheckError)
+          return fail(
+            "error",
+            "the controller could not check the commit just now",
+          );
+        return mapError(error);
+      }
+    },
+
+    review(call) {
+      const caller = agentOf(call.identity);
+      if (caller?.kind !== "Verifier" || caller.state !== "active")
+        return fail("forbidden", "only a reviewer can answer a review");
+      if (call.args.length !== 2)
+        return fail(
+          "invalid_request",
+          "review needs a verdict (pass or findings) and a text",
+        );
+      const verdict = call.args[0]!;
+      if (verdict !== "pass" && verdict !== "findings")
+        return fail("invalid_request", "the verdict must be pass or findings");
+      const text = reviewText(call.args[1]!);
+      if (text === "")
+        return fail("invalid_request", "the review text must not be empty");
+      if (!reportLimiter.allow(`review:${caller.agentId}`, now()))
+        return fail("rejected", "rate_limited: wait before answering again");
+      try {
+        const review = core.completeReview(context(call.credential), {
+          verdict,
+          text,
+        });
+        log("review_completed", {
+          reviewId: review.reviewId,
+          state: review.state,
+        });
+        if (deps.launcher !== undefined)
+          releaseReviewerLater({ launcher: deps.launcher, log }, review);
+        return ok({
+          reviewId: review.reviewId,
+          round: review.round,
+          state: review.state,
+          announced: review.notifiedMessageId !== null,
+        });
+      } catch (error) {
+        if (error instanceof ControllerError)
+          return fail("rejected", `review_refused: ${error.message}`);
+        return mapError(error);
+      }
+    },
+
     status(call) {
       try {
         const result: Record<string, unknown> = {
@@ -671,6 +783,18 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             MAX_STATUS_CLEARS,
           );
           result.panes = core.agentPanes(call.credential);
+          result.reviews = core
+            .reviews(call.credential, MAX_STATUS_REPORTS)
+            .map((r) => ({
+              reviewId: r.reviewId,
+              reportId: r.reportId,
+              round: r.round,
+              state: r.state,
+              authorAgentId: r.authorAgentId,
+              reviewerAgentId: r.reviewerAgentId,
+              announced: r.notifiedMessageId !== null,
+              createdAt: r.createdAt,
+            }));
           result.reports = core
             .agentReports(call.credential, MAX_STATUS_REPORTS)
             .map((r) => ({
@@ -770,6 +894,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       if (
         command === "launch" ||
         command === "spawn" ||
+        command === "request-review" ||
         command === "release" ||
         command === "pm-restart"
       )

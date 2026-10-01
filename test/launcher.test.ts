@@ -1074,6 +1074,35 @@ test("the branch is named for the generation, git must accept the name before an
   }
 });
 
+test("spawn can start a worker's worktree and branch at a given commit, and refuses a base that is not a full id", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const at = "c".repeat(40);
+    const first = await w.launcher.spawn("developer", { baseSha: at });
+    assert.ok(w.adapter.calls.includes(`worktree:${first.branch}:${at}`));
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === first.agentId)!
+        .baseSha,
+      at,
+    );
+    for (const bad of ["abc", "C".repeat(40), `${at} `, ""])
+      await assert.rejects(
+        w.launcher.spawn("developer", { baseSha: bad }),
+        (e: unknown) => e instanceof LauncherError && e.code === "invalid_base",
+        JSON.stringify(bad),
+      );
+    await w.launcher.release(first.agentId);
+    assert.deepEqual(
+      w.git.deleted.at(-1),
+      [first.branch, at],
+      "the review branch is deleted while it still points at the reviewed commit",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {
