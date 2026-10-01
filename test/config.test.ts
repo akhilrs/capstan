@@ -267,24 +267,8 @@ test("a PM without a deny list denies the file-editing and subagent tools, and a
   );
   assert.deepEqual(
     verifier.deny,
-    ["Write", "Edit", "NotebookEdit", "Agent", "Task"],
-    "a reviewer without a deny list may not edit files either",
-  );
-  const developer = withConfig(
-    `${VALID}\n[roles.developer]\nkind = "Developer"\nhost = "claude"\n`,
-    (directory) =>
-      loadCapstanConfig(directory).roles.find((r) => r.kind === "Developer")!,
-  );
-  assert.deepEqual(developer.deny, [], "a developer has no default deny list");
-  const verifierOverride = withConfig(
-    VALID.replace('kind = "Verifier"', 'kind = "Verifier"\ndeny = []'),
-    (directory) =>
-      loadCapstanConfig(directory).roles.find((r) => r.kind === "Verifier")!,
-  );
-  assert.deepEqual(
-    verifierOverride.deny,
     [],
-    "an explicit deny list replaces the default",
+    "only the PM gets a default deny list: a tester that writes tests must not lose its tools",
   );
 });
 

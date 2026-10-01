@@ -150,15 +150,6 @@ export type ResolvedLayout = {
   readonly minPaneRows: number;
 };
 
-/** A reviewer reads and reports; unless its role sets `deny`, it may not edit files or start Claude Code subagents. Applies to roles read from capstan.toml only. */
-export const VERIFIER_DEFAULT_DENY: readonly string[] = [
-  "Write",
-  "Edit",
-  "NotebookEdit",
-  "Agent",
-  "Task",
-];
-
 export type CapstanConfig = {
   readonly schemaVersion: 1;
   readonly projectName: string | null;
@@ -501,9 +492,7 @@ function resolveRoles(
     const deny =
       role.deny === undefined && kind === "PM"
         ? [...PM_DEFAULT_DENY]
-        : role.deny === undefined && kind === "Verifier"
-          ? [...VERIFIER_DEFAULT_DENY]
-          : stringList(role.deny, `${at}.deny`);
+        : stringList(role.deny, `${at}.deny`);
     const hooks =
       role.hooks === undefined
         ? "off"

@@ -123,12 +123,15 @@ export async function requestReview(
   }
 }
 
-/** Releases the reviewer of a finished review once the reply has gone out. */
+/** How long the reviewer's own `cstan review` call has to finish printing before its pane is closed. */
+export const REVIEWER_RELEASE_DELAY_MS = 750;
+
+/** Releases the reviewer of a finished review shortly after the reply, so the pane is not closed under the call that is still printing. */
 export function releaseReviewerLater(
   deps: Pick<ReviewDeps, "launcher" | "log">,
   review: ReviewRecord,
 ): void {
-  setImmediate(() => {
+  setTimeout(() => {
     deps.launcher
       .release(review.reviewerAgentId)
       .then(() =>
@@ -140,7 +143,7 @@ export function releaseReviewerLater(
           error: String(error),
         }),
       );
-  });
+  }, REVIEWER_RELEASE_DELAY_MS).unref();
 }
 
 /** At daemon start: finished reviews whose reviewer is still active (a crash after the verdict) get their reviewer released. */

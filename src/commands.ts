@@ -135,9 +135,9 @@ export interface CommandDependencies {
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly driverSnapshot?: () => DriverSnapshot;
   readonly launcher?: LauncherApi;
-  /** Looks a reported commit up in git; the daemon passes the real one. */
   /** Whether a commit exists in the project repository; the daemon passes the real check. */
   readonly commitExists?: (sha: string) => Promise<boolean>;
+  /** Looks a reported commit up in git; the daemon passes the real one. */
   readonly inspectCommit?: (input: {
     readonly branch: string;
     readonly baseSha: string | null;
@@ -233,6 +233,8 @@ const REPORT_REASON_TEXT: Readonly<Record<ReportReason, string>> = {
 
 export function createCommandHandlers(deps: CommandDependencies): CommandSet {
   const reportLimiter = new ReportRateLimiter();
+  // Verdicts have their own allowance so changing the report limits never slows a reviewer.
+  const reviewLimiter = new ReportRateLimiter();
   const { core } = deps;
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? abortableSleep;
@@ -724,7 +726,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       const text = reviewText(call.args[1]!);
       if (text === "")
         return fail("invalid_request", "the review text must not be empty");
-      if (!reportLimiter.allow(`review:${caller.agentId}`, now()))
+      if (!reviewLimiter.allow(caller.agentId, now()))
         return fail("rejected", "rate_limited: wait before answering again");
       try {
         const review = core.completeReview(context(call.credential), {
