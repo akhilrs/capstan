@@ -152,7 +152,20 @@ export function extractInputLine(
   return [firstText, ...continuation].join("\n").trimEnd();
 }
 
-const FOREGROUND_COLOUR = /\u001b\[(?:[0-9;:]*;)?38[;:]/;
+/** True when the line sets a foreground colour (SGR 38), not a background or underline colour that takes the same sub-parameters. */
+function setsForeground(line: string): boolean {
+  for (const sequence of line.matchAll(/\u001b\[([0-9;:]*)m/g)) {
+    const params = (sequence[1] ?? "").split(";");
+    for (let cursor = 0; cursor < params.length; cursor += 1) {
+      const code = params[cursor] === "" ? 0 : Number(params[cursor]);
+      if (code === 38) return true;
+      if (code === 48 || code === 58)
+        cursor +=
+          params[cursor + 1] === "5" ? 2 : params[cursor + 1] === "2" ? 4 : 0;
+    }
+  }
+  return false;
+}
 
 /**
  * Codex draws the input as `› text` (a dim placeholder when empty), then any
@@ -164,12 +177,13 @@ function codexInputLine(
 ): string | undefined {
   let marker = -1;
   plain.forEach((line, index) => {
-    if (/^›(?: |$)/u.test(line.trimEnd())) marker = index;
+    if (/^›(?: |$)/u.test(line.trimEnd()) && !/^›\s*\d+\./u.test(line))
+      marker = index;
   });
   if (marker < 0) return undefined;
   let status = -1;
   for (let index = marker + 1; index < raw.length; index += 1)
-    if (FOREGROUND_COLOUR.test(raw[index]!)) {
+    if (setsForeground(raw[index]!)) {
       status = index;
       break;
     }

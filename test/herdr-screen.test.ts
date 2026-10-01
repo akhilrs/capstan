@@ -428,3 +428,17 @@ test("the trust dialog parser and texts follow the host kind", () => {
   });
   assert.equal(trustTexts("omp"), undefined);
 });
+
+test("the Codex trust dialog is not read as typed input, and a background colour 38 does not end the input", () => {
+  assert.equal(
+    extractInputLine("codex", fixture("codex-trust-dialog.ansi")),
+    undefined,
+  );
+  const typed = fixture("codex-idle-typed.ansi").split("\n");
+  const marker = typed.findIndex((line) => line.includes("hello typed"));
+  typed.splice(marker + 1, 0, "\u001b[48;5;38m  second\u001b[0m");
+  assert.equal(
+    extractInputLine("codex", typed.join("\n")),
+    "hello typed\nsecond",
+  );
+});

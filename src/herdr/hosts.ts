@@ -48,11 +48,14 @@ export function codexArguments(
   ];
   if (role.model !== null) args.push("--model", role.model);
   args.push("-c", "check_for_update_on_startup=false");
-  if (worktreePath !== undefined)
-    args.push(
-      "-c",
-      `projects.${tomlString(fs.realpathSync(worktreePath))}.trust_level="trusted"`,
-    );
+  if (worktreePath !== undefined) {
+    const real = fs.realpathSync(worktreePath);
+    if (real.includes("\ufffd"))
+      throw new InvalidArgumentError(
+        "the worktree path is not valid UTF-8, so Codex cannot be told to trust it",
+      );
+    args.push("-c", `projects.${tomlString(real)}.trust_level="trusted"`);
+  }
   const instructions = `developer_instructions=${tomlString(promptText)}`;
   if (Buffer.byteLength(instructions, "utf8") > MAX_ARGUMENT_BYTES)
     throw new InvalidArgumentError(
