@@ -260,3 +260,50 @@ operator typed to PM: f4 instruction (background wait)
 operator typed to new PM (w7:p1): e instruction (list open work)
 operator typed to PM gen2: f5 instruction (foreground wait, default timeout)
 operator typed to PM gen2: adversarial instruction to edit README.md itself
+
+## ADDED AFTER REVIEW: corrections and further evidence
+# The operator-keys log below was written by hand during the run. Its times are approximate and one entry is wrong: it records 'C-u' as sent to developer-3, but Herdr refused that key (invalid_key, output: unsupported key C-u); the line was cleared by the later 'ctrl+u'. The log line 'G1 queued 08:14:55' is also approximate; the ledger says 08:14:50.940Z.
+
+## agent lifecycle events (agent entity, from controller_events)
+{"created_at":"2026-10-01T08:04:17.437Z","agent":"pm-1","from_state":null,"to_state":"active","action":"agent.register","details":null}
+{"created_at":"2026-10-01T08:04:48.381Z","agent":"developer-1","from_state":null,"to_state":"active","action":"agent.register","details":null}
+{"created_at":"2026-10-01T08:05:00.996Z","agent":"developer-1","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
+{"created_at":"2026-10-01T08:06:06.076Z","agent":"developer-2","from_state":null,"to_state":"active","action":"agent.register","details":null}
+{"created_at":"2026-10-01T08:07:18.408Z","agent":"developer-2","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
+{"created_at":"2026-10-01T08:09:11.797Z","agent":"developer-3","from_state":null,"to_state":"active","action":"agent.register","details":null}
+{"created_at":"2026-10-01T08:17:12.529Z","agent":"developer-4","from_state":null,"to_state":"active","action":"agent.register","details":null}
+{"created_at":"2026-10-01T08:25:35.779Z","agent":"pm-1","from_state":"1","to_state":"2","action":"agent.restart","details":"{\"cancelledMessageIds\":[\"568133c6-2312-4e38-8d09-330495cf995d\"],\"restartId\":\"3bc"}
+{"created_at":"2026-10-01T08:26:39.586Z","agent":"developer-3","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[\"1e87c360-d639-4290-8bba-9665dde7c3ab\"]}"}
+{"created_at":"2026-10-01T08:39:50.427Z","agent":"developer-4","from_state":"active","to_state":"ended","action":"agent.end","details":"{\"cancelledMessageIds\":[]}"}
+
+## direct ledger query for case e: open work items (state not accepted or canceled)
+{"open_work_items":0}
+{"work_items_total":0}
+
+## input clears with hash (case b variant 2)
+{"message_id":"6543b560-62aa-4ea2-982a-7fd70bdf2503","deferral_count":1,"text":"second draft kept past the limit","text_hash":"4be8a5ff6479c9238c7829d4cbfd3943eb240e2437075ee082c65259d1b0fa11","created_at":"2026-10-01T08:12:40.967Z"}
+
+## timers in use: capstan.toml has no [timers] table, so the built-in defaults apply (src/config/capstan-config.ts TIMER_DEFAULTS): max_deferral_seconds 120, pm_ack_timeout_seconds 600, pm_notify_after_seconds 300, notify_interval_seconds 600, stall_after_seconds 900, worker_ack_timeout_seconds 600
+0
+
+## message 36 (frame id eb3c0249-e9e8-4c2f-a93e-7e8edc259007, case f5) and its notification (pm_message at 08:24:32 is for message 35's id 568133c6 at 300 s; message 36 stayed sent until the timer at 08:39:37.825Z)
+{"sequence":35,"message_id":"568133c6-2312-4e38-8d09-330495cf995d","state":"cancelled"}
+{"sequence":36,"message_id":"eb3c0249-e9e8-4c2f-a93e-7e8edc259007","state":"unacked"}
+
+## token use per transcript file (two PM transcripts, one per generation)
+worktrees-repo-capstan-developer-1 ac795cd2 first turn 2026-10-01T08:04:58.364Z 2 turns {'input_tokens': 4, 'output_tokens': 134, 'cache_creation_input_tokens': 71911, 'cache_read_input_tokens': 117911}
+worktrees-repo-capstan-developer-2 29391031 first turn 2026-10-01T08:06:17.161Z 20 turns {'input_tokens': 40, 'output_tokens': 1357, 'cache_creation_input_tokens': 75080, 'cache_read_input_tokens': 1855742}
+worktrees-repo-capstan-developer-3 5d3af96d first turn 2026-10-01T08:10:09.279Z 8 turns {'input_tokens': 16, 'output_tokens': 1573, 'cache_creation_input_tokens': 72407, 'cache_read_input_tokens': 691367}
+worktrees-repo-capstan-developer-4 f1cb873e first turn 2026-10-01T08:17:26.138Z 5 turns {'input_tokens': 10, 'output_tokens': 453, 'cache_creation_input_tokens': 72244, 'cache_read_input_tokens': 403529}
+-tmp-capstan-gate-repo cff9ba77 first turn 2026-10-01T08:26:01.523Z 8 turns {'input_tokens': 18, 'output_tokens': 1975, 'cache_creation_input_tokens': 138682, 'cache_read_input_tokens': 591167}
+-tmp-capstan-gate-repo f3dd5642 first turn 2026-10-01T08:04:47.763Z 44 turns {'input_tokens': 90, 'output_tokens': 6508, 'cache_creation_input_tokens': 147239, 'cache_read_input_tokens': 4033351}
+
+## more outputs captured from panes during the run (copied from the session record)
+[case f1, PM pane after the wait returned] "I ran cstan wait once and received one message. I did not ack it. ... The message is still unacknowledged, with state sent." and the input line read "❯ operator draft typed during the wait" (the operator then cleared it with ctrl+u).
+[case h and section 12, README refusal, PM pane] "I won't edit README.md myself. As PM, I'm set up to plan work and hand it to workers. I never edit, create or delete project files directly. ... A developer worker would add edited by the PM as the last line of README.md, commit it on its own branch, and never push or merge." The repository README stayed "# gate repo" and git status showed only capstan.toml untracked.
+[smoke round, PM pane] "Ran 6 shell commands ... The developer (developer-1) answered PONG-1 ... I released the worker, and its pane and worktree are both cleaned up." (ledger messages 1 and 2 both acked; developer-1 ended)
+[permission prompts] none was seen in any pane read taken during the run; panes were read at the moments listed in this file, not continuously.
+[case f5, PM pane, 08:29:21Z] "running in the background as task brfrpd642 ... I haven't read any message and haven't acknowledged anything." with the daemon wait row still open (started 08:26:53.563Z, ended_at empty); the wait ended at 08:29:28.178Z when message 36 arrived: it was open for 154.6 s, so it passed Claude's two-minute mark but never reached the 300 s host limit.
+[after the run] a PM claude process (pid 18731, parent 18207) was still running after the Herdr server stop and was ended by pid.
+
+## PM generation 1, turns between 08:04 and 08:10Z (the smoke round and case a, 11 rounds): 23 turns {'input_tokens': 46, 'output_tokens': 4343, 'cache_creation_input_tokens': 143744, 'cache_read_input_tokens': 1988270}
