@@ -12,7 +12,7 @@ A case is marked PASS only when the stated oracle was met. Where the oracle was 
 
 **(b) text already in the worker's input line: PASS, both variants.**
 
-- Variant 1 (message 23, frame id `2966c849…`): with `draft text in progress` typed in the input line the message went `deferred` (`input_not_empty`). After the operator cleared the line (Herdr refused the first key, `C-u`, as `invalid_key`; `ctrl+u` cleared it) it was sent and `acked`. The pane read shows the frame header and then exactly `Probe B1: acknowledge this message and take no other action.`, with no part of the draft.
+- Variant 1 (message 23, frame id `2966c849…`): with `draft text in progress` typed in the input line the message went `deferred` (`input_not_empty`). After the operator cleared the line (Herdr refused the first key, `C-u`, as `invalid_key`; `ctrl+u` cleared it) it was sent and `acked`. The pane read shows the frame header and then exactly `Probe B1: acknowledge this message and take no other action.`, and the substring `draft text` does not appear in the pane lines around it (`in progress` was not searched separately).
 - Variant 2 (message 24, frame id `6543b560…`): the draft stayed past the 120 s maximum deferral. The message was sent at 08:12:41.030Z and acked. The ledger table `message_input_clears` holds the cleared text and its hash (added to the evidence file), and `notifications.jsonl` holds an `input_cleared` entry from the fallback channel (the Herdr channel failed, see the notification item below). The received text equals the sent text.
 - By design the controller wipes the operator's draft in variant 2. The text is kept in the ledger, so nothing is lost, but the operator loses a draft they were still typing.
 
