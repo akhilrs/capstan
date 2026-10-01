@@ -2554,3 +2554,56 @@ test("runInPane runs one command in a fresh shell pane only, and then retires th
     h.fake.cleanup();
   }
 });
+
+test("a dialog that redraws a moment after the Down key is still answered, with Enter sent only after the selection shows", async () => {
+  const h = harness();
+  try {
+    const worker = await blockedWorker(h);
+    let readsAfterDown = -1;
+    const original = h.fake.run;
+    const slow = new HerdrAdapter({
+      run: async (args) => {
+        if (args[0] === "pane" && args[1] === "send-keys" && args[3] === "down")
+          readsAfterDown = 0;
+        if (args[0] === "pane" && args[1] === "read" && readsAfterDown >= 0) {
+          readsAfterDown += 1;
+          if (readsAfterDown === 4)
+            worker.pane.screen = dialogScreen(worker.checkout, "yes");
+        }
+        return original(args);
+      },
+      tempRoot: h.fake.root,
+      sleep: async () => {},
+      now: (() => {
+        let clock = 0;
+        return () => (clock += 50);
+      })(),
+    });
+    await slow.adoptPane({
+      paneId: worker.paneId,
+      role: "worker",
+      agent: "dev",
+      workspaceId: null,
+      worktreePath: h.adapter.paneEntry(worker.paneId)!.worktreePath ?? null,
+    });
+    h.fake.onKey = (pane, key) => {
+      if (key === "enter") {
+        pane.status = "idle";
+        pane.screen = idleScreen();
+      }
+    };
+    const keys: string[] = [];
+    const outcome = await slow.answerTrustDialog({
+      paneId: worker.paneId,
+      log: (entry) => {
+        keys.push(entry.key);
+      },
+    });
+    assert.deepEqual(outcome, { handled: true, keys: ["down", "enter"] });
+    assert.deepEqual(keys, ["down", "enter"]);
+    assert.ok(readsAfterDown >= 4, "the selection was polled until it showed");
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});

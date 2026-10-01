@@ -120,6 +120,7 @@ export interface AdapterOptions {
 }
 
 const MAX_CLEAR_ROUNDS = 5;
+const SELECTION_REDRAW_MS = 3_000;
 const AGENT_START_MARGIN_MS = 10_000;
 export const MAX_TEXT_BYTES = 16 * 1024;
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -932,7 +933,19 @@ export class HerdrAdapter {
       );
       keys.push(key);
     }
-    const second = await check();
+    // The screen redraws a moment after a key, so the selection is polled for
+    // a short while; the Enter below is still sent only after a read shows it.
+    const redrawDeadline = this.#now() + SELECTION_REDRAW_MS;
+    let second = await check();
+    while (
+      second.ok &&
+      second.selected !== second.target &&
+      keys.length > 0 &&
+      this.#now() < redrawDeadline
+    ) {
+      await this.#sleep(this.#pollMs);
+      second = await check();
+    }
     if (!second.ok) return { handled: false, reason: second.reason };
     if (second.selected !== second.target)
       return { handled: false, reason: "selection_not_reached" };

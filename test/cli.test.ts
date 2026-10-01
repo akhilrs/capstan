@@ -2380,7 +2380,10 @@ test("the CLI behaves the same when it is started through a symlink, as npm link
     symlinkSync(cli, link);
     const project = path.join(cwd, "project");
     mkdirSync(project);
-    spawnSync("git", ["init", "-q", "."], { cwd: project });
+    assert.equal(
+      spawnSync("git", ["init", "-q", "."], { cwd: project }).status,
+      0,
+    );
     const init = spawnSync(process.execPath, [link, "init"], {
       cwd: project,
       encoding: "utf8",
@@ -2399,11 +2402,31 @@ test("the CLI behaves the same when it is started through a symlink, as npm link
     const unknown = spawnSync(process.execPath, [link, "no-such-command"], {
       cwd: project,
       encoding: "utf8",
+      env: { ...process.env, CAPSTAN_LAUNCH: "off" },
     });
     assert.notEqual(
       unknown.status,
       0,
       "an invalid command is reported, not ignored",
+    );
+    assert.match(
+      unknown.stderr,
+      /usage: cstan init/,
+      "the CLI ran and printed its usage",
+    );
+    const extensionless = spawnSync(
+      process.execPath,
+      [cli.replace(/\.js$/, ""), "ping"],
+      {
+        cwd: project,
+        encoding: "utf8",
+        env: { ...process.env, CAPSTAN_LAUNCH: "off" },
+      },
+    );
+    assert.match(
+      extensionless.stdout,
+      /^pong: true$/m,
+      "node dist/src/cli works without the extension",
     );
   } finally {
     killDaemon(path.join(cwd, "project"));
