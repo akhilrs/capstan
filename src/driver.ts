@@ -306,15 +306,23 @@ export class DeliveryDriver {
     }
   }
 
+  /** Listed lost only once the ledger took it, so a failed write is tried again on the next tick. */
   #markLost(agentId: string): void {
-    this.#lost.add(agentId);
     try {
       const { recorded } = this.#core.recordAgentLost(this.#context(), {
         agentId,
       });
+      this.#lost.add(agentId);
       this.#log("agent_lost", { agentId, recorded });
     } catch (error) {
-      this.#log("agent_lost_not_recorded", { agentId, error: String(error) });
+      this.#logOnce(
+        `${agentId}|agent_lost_not_recorded`,
+        "agent_lost_not_recorded",
+        {
+          agentId,
+          error: String(error),
+        },
+      );
     }
   }
 

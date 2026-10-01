@@ -44,7 +44,7 @@ import {
   type ResolutionDecision,
 } from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
-import { normalizeText } from "../text.js";
+import { normalizeText, oneLine } from "../text.js";
 import type {
   AgentInput,
   AgentRecord,
@@ -539,13 +539,7 @@ const CANCEL_REASON_TEXT: Readonly<Record<string, string>> = {
 
 /** One sanitized line of at most `maxPoints` code points; `(none)` when nothing visible is left. */
 export function oneLineText(text: string, maxPoints: number): string {
-  const folded = normalizeText(text).replace(/\s+/g, " ").trim();
-  const points = Array.from(folded);
-  const cut =
-    points.length > maxPoints
-      ? `${points.slice(0, maxPoints - 1).join("")}\u2026`
-      : folded;
-  return cut === "" ? "(none)" : cut;
+  return oneLine(text, maxPoints, "(none)");
 }
 
 const FAILURE_REASON_POINTS = 200;
@@ -643,6 +637,7 @@ export interface AgentSeedData {
   }[];
   readonly reportsOmitted: number;
   readonly lastAcceptedCommit: string | null;
+  readonly findingsOmitted: number;
   readonly findings: readonly {
     readonly findingId: string;
     readonly severity: string;
@@ -3846,54 +3841,6 @@ export class ControllerCore {
     );
   }
 
-  #appendAgentEvent(
-    actor: AuthenticatedActor,
-    context: MutationContext,
-    event: {
-      readonly agentId: string;
-      readonly from: string;
-      readonly to: string;
-      readonly action: string;
-      readonly details: unknown;
-    },
-  ): void {
-    const project = this.#database
-      .prepare("SELECT state_version FROM projects WHERE project_id = ?")
-      .get(this.#projectId) as { state_version: number };
-    const sequence = (
-      this.#database
-        .prepare(
-          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
-        )
-        .get(this.#projectId) as { next: number }
-    ).next;
-    this.#database
-      .prepare(
-        `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
-          state_version, actor_id, request_id, input_revision, payload_json, created_at)
-         VALUES (?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        this.#projectId,
-        sequence,
-        randomUUID(),
-        event.agentId,
-        event.from,
-        event.to,
-        project.state_version + 1,
-        actor.actorId,
-        context.requestId,
-        context.inputRevision,
-        canonicalJson({
-          action: event.action,
-          payload: { batch: true },
-          entityVersion: 0,
-          details: event.details,
-        }),
-        new Date().toISOString(),
-      );
-  }
-
   /**
    * Records that an agent is lost (once per agent and generation, whatever the
    * reason) and tells the PM when exactly one is active. The caller owns the
@@ -3917,11 +3864,13 @@ export class ControllerCore {
           .get(this.#projectId, agent.agent_id) as
           { branch: string | null } | undefined
       )?.branch ?? null;
-    this.#appendAgentEvent(actor, context, {
-      agentId: agent.agent_id,
+    this.#appendEvent(actor, context, {
+      entityType: "agent",
+      entityId: agent.agent_id,
       from: "active",
       to: "lost",
       action: "agent.lost",
+      stateVersion: 0,
       details: {
         generation: agent.generation,
         reason,
@@ -4063,11 +4012,12 @@ export class ControllerCore {
         "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND state = 'accepted' ORDER BY sequence",
       )
       .all(this.#projectId, agentId) as AgentReportRow[];
-    const findings = this.#database
+    const openFindings = this.#database
       .prepare(
-        "SELECT * FROM agent_findings WHERE project_id = ? AND target_agent_id = ? AND state = 'open' ORDER BY sequence LIMIT ?",
+        "SELECT * FROM agent_findings WHERE project_id = ? AND target_agent_id = ? AND state = 'open' ORDER BY sequence",
       )
-      .all(this.#projectId, agentId, SEED_FINDINGS) as AgentFindingRow[];
+      .all(this.#projectId, agentId) as AgentFindingRow[];
+    const findings = openFindings.slice(-SEED_FINDINGS);
     const pane = this.#database
       .prepare(
         "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
@@ -4101,6 +4051,7 @@ export class ControllerCore {
       })),
       reportsOmitted: Math.max(0, reports.length - SEED_REPORTS),
       lastAcceptedCommit: last?.commit_sha ?? null,
+      findingsOmitted: openFindings.length - findings.length,
       findings: findings.map((f) => ({
         findingId: f.finding_id,
         severity: f.severity,
@@ -6020,6 +5971,31 @@ export class ControllerCore {
       readonly details?: unknown;
     },
   ): void {
+    this.#appendEvent(actor, context, {
+      entityType: "message",
+      entityId: event.messageId,
+      from: event.from,
+      to: event.to,
+      action: "message.transition",
+      stateVersion: event.stateVersion,
+      details: event.details ?? null,
+    });
+  }
+
+  /** An event row written inside a mutation that already returns its own event. */
+  #appendEvent(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    event: {
+      readonly entityType: string;
+      readonly entityId: string;
+      readonly from: string;
+      readonly to: string;
+      readonly action: string;
+      readonly stateVersion: number;
+      readonly details: unknown;
+    },
+  ): void {
     const project = this.#database
       .prepare("SELECT state_version FROM projects WHERE project_id = ?")
       .get(this.#projectId) as { state_version: number };
@@ -6034,13 +6010,14 @@ export class ControllerCore {
       .prepare(
         `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
           state_version, actor_id, request_id, input_revision, payload_json, created_at)
-         VALUES (?, ?, ?, 'message', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         this.#projectId,
         sequence,
         randomUUID(),
-        event.messageId,
+        event.entityType,
+        event.entityId,
         event.from,
         event.to,
         project.state_version + 1,
@@ -6048,10 +6025,10 @@ export class ControllerCore {
         context.requestId,
         context.inputRevision,
         canonicalJson({
-          action: "message.transition",
+          action: event.action,
           payload: { batch: true },
           entityVersion: event.stateVersion,
-          details: event.details ?? null,
+          details: event.details,
         }),
         new Date().toISOString(),
       );

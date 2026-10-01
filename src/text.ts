@@ -13,3 +13,21 @@ export function normalizeText(text: string): string {
     )
     .trim();
 }
+
+/**
+ * One line: normalized, whitespace folded, trimmed and cut to at most
+ * `maxPoints` code points with an ellipsis. `empty` stands for text that is
+ * blank afterwards.
+ */
+export function oneLine(
+  text: string,
+  maxPoints: number,
+  empty: string,
+): string {
+  const folded = normalizeText(text).replace(/\s+/g, " ").trim();
+  if (folded === "") return empty;
+  const points = Array.from(folded);
+  return points.length > maxPoints
+    ? `${points.slice(0, maxPoints - 1).join("")}\u2026`
+    : folded;
+}

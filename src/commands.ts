@@ -1182,8 +1182,8 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         command === "pm-restart"
       )
         return LAUNCHER_LIMIT_MS;
-      // A replacement is a release and a spawn, each with its own budget.
-      if (command === "replace") return 2 * LAUNCHER_LIMIT_MS;
+      // A replacement is a release and a spawn, each with its own budget, behind whatever else the launcher runs.
+      if (command === "replace") return 3 * LAUNCHER_LIMIT_MS;
       return undefined;
     },
   };

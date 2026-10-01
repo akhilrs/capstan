@@ -850,7 +850,7 @@ async function runRouted(
         command === "wait"
           ? WAIT_CLIENT_TIMEOUT_MS
           : command === "replace"
-            ? 2 * LAUNCHER_CLIENT_TIMEOUT_MS
+            ? 3 * LAUNCHER_CLIENT_TIMEOUT_MS
             : command === "spawn" ||
                 command === "request-review" ||
                 command === "integrate" ||

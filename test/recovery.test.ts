@@ -362,3 +362,30 @@ test("the launcher's git helpers read a branch tip and accept only a commit that
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a loss the ledger could not take is not listed and is tried again on the next tick", async () => {
+  await withWorld(async (w) => {
+    const dev = w.developer.agentId;
+    const real = w.core.recordAgentLost.bind(w.core);
+    let failures = 1;
+    w.core.recordAgentLost = (context, input) => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("database busy");
+      }
+      return real(context, input);
+    };
+    w.world.kill(dev);
+    await w.tick(LOSS_LIMIT);
+    assert.deepEqual(
+      w.driver.snapshot().lostAgentIds,
+      [],
+      "not listed until recorded",
+    );
+    assert.equal(w.lostRows(dev), 0);
+    assert.ok(w.events.some((e) => e.event === "agent_lost_not_recorded"));
+    await w.tick();
+    assert.deepEqual(w.driver.snapshot().lostAgentIds, [dev]);
+    assert.equal(w.lostRows(dev), 1);
+  });
+});

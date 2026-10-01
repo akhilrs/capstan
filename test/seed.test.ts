@@ -26,6 +26,7 @@ function data(overrides: Partial<AgentSeedData> = {}): AgentSeedData {
     reports: [],
     reportsOmitted: 0,
     lastAcceptedCommit: null,
+    findingsOmitted: 0,
     findings: [],
     ...overrides,
   };
@@ -201,7 +202,7 @@ test("a seed over the limit drops the oldest messages first, then reports, then 
 
 test("omitted counts from the ledger read are shown", () => {
   const text = buildSeed(
-    data({ messagesOmitted: 7, reportsOmitted: 3 }),
+    data({ messagesOmitted: 7, reportsOmitted: 3, findingsOmitted: 2 }),
     { sha: SHA_A, source: "head" },
     null,
   );
