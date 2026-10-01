@@ -865,7 +865,12 @@ for (const target of [
         [message, behind].sort(),
       );
       assert.equal(stateOf(w, message), "cancelled");
-      assert.equal(core.message(message)!.stateReason, "generation_replaced");
+      assert.equal(
+        core.message(message)!.stateReason,
+        target === "failed"
+          ? "generation_replaced (was failed: gone)"
+          : "generation_replaced",
+      );
       assert.equal(stateOf(w, behind), "cancelled");
     } finally {
       close(w);

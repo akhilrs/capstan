@@ -543,6 +543,29 @@ const CANCEL_REASON_TEXT: Readonly<Record<string, string>> = {
   raiser_ended: "the supervisor that raised it ended",
 };
 
+/** One sanitized line of at most `maxPoints` code points; `(none)` when nothing visible is left. */
+export function oneLineText(text: string, maxPoints: number): string {
+  const folded = normalizeText(text).replace(/\s+/g, " ").trim();
+  const points = Array.from(folded);
+  const cut =
+    points.length > maxPoints
+      ? `${points.slice(0, maxPoints - 1).join("")}\u2026`
+      : folded;
+  return cut === "" ? "(none)" : cut;
+}
+
+const FAILURE_REASON_POINTS = 200;
+
+/** The reason a message is cancelled with; a failed message keeps what failed in it. */
+function cancelledReason(
+  reason: string,
+  row: { readonly state: string; readonly state_reason: string | null },
+): string {
+  return row.state === "failed"
+    ? `${oneLineText(reason, FAILURE_REASON_POINTS)} (was failed: ${oneLineText(row.state_reason ?? "", FAILURE_REASON_POINTS)})`
+    : reason;
+}
+
 /** Validates one text field of a finding: normalized, visible, within its byte limit (refused, never cut). */
 function findingText(value: unknown, label: string, maxBytes: number): string {
   if (typeof value !== "string") throw new TypeError(`${label} must be text`);
@@ -596,6 +619,60 @@ function findingNoticeBody(
       "The controller sends no further correction. Decide whether to intervene yourself.",
     ].join("\n");
   return `${head} is cancelled: ${CANCEL_REASON_TEXT[finding.state_reason ?? ""] ?? "closed"}`;
+}
+
+export const SEED_MESSAGES = 20;
+export const SEED_REPORTS = 10;
+export const SEED_FINDINGS = 5;
+
+export interface AgentSeedData {
+  readonly agentId: string;
+  readonly roleName: string;
+  readonly kind: AgentRecord["kind"];
+  readonly state: "active" | "ended";
+  readonly generation: number;
+  readonly branch: string | null;
+  readonly baseSha: string | null;
+  readonly messages: readonly {
+    readonly messageId: string;
+    readonly sender: string;
+    readonly state: MessageState;
+    readonly stateReason: string | null;
+    readonly body: string;
+  }[];
+  readonly messagesOmitted: number;
+  readonly reports: readonly {
+    readonly reportId: string;
+    readonly commitSha: string;
+    readonly branch: string | null;
+    readonly summary: string;
+  }[];
+  readonly reportsOmitted: number;
+  readonly lastAcceptedCommit: string | null;
+  readonly findings: readonly {
+    readonly findingId: string;
+    readonly severity: string;
+    readonly requestedCorrection: string;
+    readonly interventions: number;
+  }[];
+}
+
+/** The controller's loss notice to the PM. */
+function lostNotice(
+  agent: AgentRow,
+  reason: "pane_gone" | "found_dead_at_start",
+  branch: string | null,
+  unacknowledgedMessageIds: readonly string[],
+): string {
+  return [
+    `Agent ${agent.agent_id} (role ${agent.role_name}, ${agent.kind}) is lost: ${
+      reason === "pane_gone"
+        ? "Herdr no longer finds its pane or process"
+        : "its pane was gone when the daemon started, so the controller ended it"
+    }`,
+    `Branch: ${branch ?? "none recorded"}. Messages to it that were not acknowledged and so were not done: ${unacknowledgedMessageIds.length === 0 ? "none" : unacknowledgedMessageIds.join(", ")}`,
+    `The controller does not replace agents by itself. Run \`cstan replace ${agent.agent_id}\` to start a replacement seeded from the ledger, or \`cstan release ${agent.agent_id}\` to drop it. Send again explicitly what still matters.`,
+  ].join("\n");
 }
 
 export interface PmRestartSummary {
@@ -2016,16 +2093,23 @@ export class ControllerCore {
     );
   }
 
+  /**
+   * Ends an active agent: its seat actors are revoked, its waits closed, a
+   * started review cancelled and its messages cancelled, except `failed` ones,
+   * which stay failed. `lost` also records the loss and tells the PM in the
+   * same transaction (an agent found dead at a daemon start).
+   */
   endAgent(
     context: MutationContext,
     agentId: string,
+    options: { readonly lost?: "found_dead_at_start" } = {},
   ): { readonly cancelledMessageIds: readonly string[] } {
     safeId(agentId, "agent id");
     return this.#mutate(
       context,
       "agent.end",
       "actor:manage",
-      { agentId },
+      { agentId, lost: options.lost ?? null },
       (actor) => {
         const agent = this.#agentRow(agentId);
         if (agent?.state !== "active")
@@ -2059,13 +2143,26 @@ export class ControllerCore {
               : "raiser_ended",
             now,
           );
+        const unacknowledged = this.#messageRowsFor(agentId)
+          .filter((row) => !isFinalState(row.state))
+          .map((row) => row.message_id);
         const cancelled = this.#cancelMessagesOf(
           actor,
           context,
           agentId,
           "agent_ended",
           now,
+          true,
         );
+        if (options.lost !== undefined)
+          this.#recordLost(
+            actor,
+            context,
+            agent,
+            options.lost,
+            unacknowledged,
+            now,
+          );
         return {
           value: { cancelledMessageIds: cancelled },
           event: {
@@ -3742,6 +3839,283 @@ export class ControllerCore {
     ).map((r) => this.#integrationRecord(r.integration_id));
   }
 
+  // -------------------------------------------------------------- recovery
+
+  #lostRecorded(agentId: string, generation: number): boolean {
+    return (
+      this.#database
+        .prepare(
+          `SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ?
+             AND to_state = 'lost' AND json_extract(payload_json, '$.details.generation') = ?`,
+        )
+        .get(this.#projectId, agentId, generation) !== undefined
+    );
+  }
+
+  #appendAgentEvent(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    event: {
+      readonly agentId: string;
+      readonly from: string;
+      readonly to: string;
+      readonly action: string;
+      readonly details: unknown;
+    },
+  ): void {
+    const project = this.#database
+      .prepare("SELECT state_version FROM projects WHERE project_id = ?")
+      .get(this.#projectId) as { state_version: number };
+    const sequence = (
+      this.#database
+        .prepare(
+          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
+        )
+        .get(this.#projectId) as { next: number }
+    ).next;
+    this.#database
+      .prepare(
+        `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
+          state_version, actor_id, request_id, input_revision, payload_json, created_at)
+         VALUES (?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        this.#projectId,
+        sequence,
+        randomUUID(),
+        event.agentId,
+        event.from,
+        event.to,
+        project.state_version + 1,
+        actor.actorId,
+        context.requestId,
+        context.inputRevision,
+        canonicalJson({
+          action: event.action,
+          payload: { batch: true },
+          entityVersion: 0,
+          details: event.details,
+        }),
+        new Date().toISOString(),
+      );
+  }
+
+  /**
+   * Records that an agent is lost (once per agent and generation, whatever the
+   * reason) and tells the PM when exactly one is active. The caller owns the
+   * transaction. Returns whether it recorded.
+   */
+  #recordLost(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    agent: AgentRow,
+    reason: "pane_gone" | "found_dead_at_start",
+    unacknowledgedMessageIds: readonly string[],
+    now: string,
+  ): boolean {
+    if (this.#lostRecorded(agent.agent_id, agent.generation)) return false;
+    const branch =
+      (
+        this.#database
+          .prepare(
+            "SELECT branch FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+          )
+          .get(this.#projectId, agent.agent_id) as
+          { branch: string | null } | undefined
+      )?.branch ?? null;
+    this.#appendAgentEvent(actor, context, {
+      agentId: agent.agent_id,
+      from: "active",
+      to: "lost",
+      action: "agent.lost",
+      details: {
+        generation: agent.generation,
+        reason,
+        branch,
+        unacknowledgedMessageIds,
+      },
+    });
+    const parties = this.#noticeParties();
+    if (parties !== undefined && parties.pm.agent_id !== agent.agent_id) {
+      const body = lostNotice(agent, reason, branch, unacknowledgedMessageIds);
+      this.#insertQueuedMessage(
+        parties.controllerActorId,
+        parties.pm,
+        body,
+        sha256(body),
+        now,
+      );
+    }
+    return true;
+  }
+
+  /**
+   * An active agent whose pane is gone (the driver saw Herdr not find it three
+   * times in a row). Written once per agent and generation; the agent stays
+   * active, nothing is cancelled and nothing is replaced.
+   */
+  recordAgentLost(
+    context: MutationContext,
+    input: { readonly agentId: string },
+  ): { readonly recorded: boolean } {
+    safeId(input.agentId, "agent id");
+    return this.#mutate<{ recorded: boolean }>(
+      context,
+      "agent.lost",
+      "controller:reconcile",
+      { agentId: input.agentId },
+      (actor) => {
+        const agent = this.#agentRow(input.agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError("agent is not active");
+        const now = this.#now();
+        const unacknowledged = this.#messageRowsFor(input.agentId)
+          .filter((row) => !isFinalState(row.state))
+          .map((row) => row.message_id);
+        const recorded = this.#recordLost(
+          actor,
+          context,
+          agent,
+          "pane_gone",
+          unacknowledged,
+          now,
+        );
+        return {
+          value: { recorded },
+          event: {
+            entityType: "agent",
+            entityId: input.agentId,
+            stateVersion: agent.generation,
+            details: { recorded },
+          },
+        };
+      },
+    );
+  }
+
+  /** Whether the ledger holds a replacement of this agent. */
+  isAgentReplaced(agentId: string): boolean {
+    this.#assertOpen();
+    safeId(agentId, "agent id");
+    return (
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced'",
+        )
+        .get(this.#projectId, agentId) !== undefined
+    );
+  }
+
+  /**
+   * Records that a started agent replaces an earlier one. One transaction
+   * checks that the predecessor was not replaced already.
+   */
+  recordAgentReplaced(
+    context: MutationContext,
+    input: { readonly predecessorId: string; readonly successorId: string },
+  ): { readonly recorded: true } {
+    safeId(input.predecessorId, "predecessor agent id");
+    safeId(input.successorId, "successor agent id");
+    return this.#mutate<{ recorded: true }>(
+      context,
+      "agent.replaced",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const predecessor = this.#agentRow(input.predecessorId);
+        const successor = this.#agentRow(input.successorId);
+        if (predecessor === undefined || successor === undefined)
+          throw new ControllerError(
+            "the predecessor and the successor must exist",
+          );
+        if (predecessor.kind === "PM")
+          throw new ControllerError("a PM is restarted, not replaced");
+        if (
+          predecessor.agent_id === successor.agent_id ||
+          predecessor.role_name !== successor.role_name ||
+          successor.state !== "active"
+        )
+          throw new ControllerError(
+            "the successor must be another active agent of the same role",
+          );
+        if (this.isAgentReplaced(input.predecessorId))
+          throw new ControllerError("the agent was already replaced");
+        return {
+          value: { recorded: true },
+          event: {
+            entityType: "agent",
+            entityId: input.predecessorId,
+            stateVersion: predecessor.generation,
+            fromState: predecessor.state,
+            toState: "replaced",
+            details: { successorId: input.successorId },
+          },
+        };
+      },
+    );
+  }
+
+  /** What a replacement of this agent is seeded with, newest entries only, in ledger order. A read; works for an ended agent. */
+  agentSeed(agentId: string): AgentSeedData {
+    this.#assertOpen();
+    safeId(agentId, "agent id");
+    const agent = this.#agentRow(agentId);
+    if (agent === undefined)
+      throw new ControllerError("the agent does not exist");
+    const messages = this.#messageRowsFor(agentId);
+    const shown = messages.slice(-SEED_MESSAGES);
+    const reports = this.#database
+      .prepare(
+        "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND state = 'accepted' ORDER BY sequence",
+      )
+      .all(this.#projectId, agentId) as AgentReportRow[];
+    const findings = this.#database
+      .prepare(
+        "SELECT * FROM agent_findings WHERE project_id = ? AND target_agent_id = ? AND state = 'open' ORDER BY sequence LIMIT ?",
+      )
+      .all(this.#projectId, agentId, SEED_FINDINGS) as AgentFindingRow[];
+    const pane = this.#database
+      .prepare(
+        "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+      )
+      .get(this.#projectId, agentId) as
+      { branch: string | null; base_sha: string | null } | undefined;
+    const last = reports.at(-1);
+    return {
+      agentId,
+      roleName: agent.role_name,
+      kind: agent.kind,
+      state: agent.state,
+      generation: agent.generation,
+      branch: pane?.branch ?? last?.branch ?? null,
+      baseSha: pane?.base_sha ?? null,
+      messages: shown.map((row) => ({
+        messageId: row.message_id,
+        sender:
+          this.senderOf(row.sender_actor_id).agentId ??
+          this.senderOf(row.sender_actor_id).role,
+        state: row.state,
+        stateReason: row.state_reason,
+        body: row.body,
+      })),
+      messagesOmitted: messages.length - shown.length,
+      reports: reports.slice(-SEED_REPORTS).map((r) => ({
+        reportId: r.report_id,
+        commitSha: r.commit_sha,
+        branch: r.branch,
+        summary: r.summary,
+      })),
+      reportsOmitted: Math.max(0, reports.length - SEED_REPORTS),
+      lastAcceptedCommit: last?.commit_sha ?? null,
+      findings: findings.map((f) => ({
+        findingId: f.finding_id,
+        severity: f.severity,
+        requestedCorrection: f.requested_correction,
+        interventions: f.interventions,
+      })),
+    };
+  }
+
   // ------------------------------------------------------------ findings
 
   #controllerActorId(): string {
@@ -5134,6 +5508,14 @@ export class ControllerCore {
               "a message addressed to the PM is resolved only by the operator",
             fromState: row.state,
           });
+        if (decision === "retry" && recipient?.state !== "active")
+          return this.#reject(actor, "message.resolve", {
+            messageId,
+            code: "recipient_not_active",
+            message:
+              "the recipient agent has ended, so the message cannot be sent again",
+            fromState: row.state,
+          });
         const to = resolutionTarget(decision, row.state);
         if (to === undefined)
           return this.#reject(actor, "message.resolve", {
@@ -5176,7 +5558,9 @@ export class ControllerCore {
             : this.#updateMessage(
                 row,
                 "cancelled",
-                { state_reason: `resolution_${decision}` },
+                {
+                  state_reason: cancelledReason(`resolution_${decision}`, row),
+                },
                 now,
               );
         return {
@@ -5679,20 +6063,23 @@ export class ControllerCore {
       );
   }
 
+  /** Cancels what is not final. `keepFailed` leaves a failed message failed (an ended agent's failures stay visible). */
   #cancelMessagesOf(
     actor: AuthenticatedActor,
     context: MutationContext,
     agentId: string,
     reason: string,
     now: string,
+    keepFailed = false,
   ): string[] {
     const cancelled: string[] = [];
     for (const row of this.#messageRowsFor(agentId)) {
       if (isFinalState(row.state)) continue;
+      if (keepFailed && row.state === "failed") continue;
       const version = this.#updateMessage(
         row,
         "cancelled",
-        { state_reason: reason },
+        { state_reason: cancelledReason(reason, row) },
         now,
       );
       this.#appendMessageEvent(actor, context, {

@@ -15,6 +15,24 @@ import tty
 HERE = os.environ.get("FAKE_CLAUDE_FIXTURES") or os.path.dirname(os.path.realpath(__file__))
 DIALOG = open(os.path.join(HERE, "claude-trust-dialog.txt"), encoding="utf-8").read().split("\n")
 LOG = os.environ.get("FAKE_CLAUDE_LOG")
+# One line per received instruction, in FAKE_CLAUDE_IDS_FILE or, per working directory, in FAKE_CLAUDE_IDS_DIR: the id of every "[capstan message <id> from ...]" frame, appended with a single O_APPEND write.
+IDS_DIR = os.environ.get("FAKE_CLAUDE_IDS_DIR")
+IDS_FILE = os.environ.get("FAKE_CLAUDE_IDS_FILE") or (
+    os.path.join(IDS_DIR, os.path.basename(os.getcwd()) + ".ids") if IDS_DIR else None
+)
+FRAME_ID = re.compile(r"\[capstan message ([0-9a-f-]{36}) from ")
+
+
+def record_instruction_ids(text):
+    if not IDS_FILE:
+        return
+    for match in FRAME_ID.finditer(text):
+        fd = os.open(IDS_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            os.write(fd, (match.group(1) + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+
 ARGS_LOG = os.environ.get("FAKE_CLAUDE_ARGS")
 NBSP = " "
 RULE = "─" * 60
@@ -95,6 +113,7 @@ def main():
                 elif char == "\r":
                     text = "\n".join(lines)
                     if text.strip():
+                        record_instruction_ids(text)
                         received.append(text.replace("\n", " / "))
                         if LOG:
                             with open(LOG, "a", encoding="utf-8") as handle:

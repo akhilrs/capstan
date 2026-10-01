@@ -2274,3 +2274,270 @@ test("observe reads the recorded pane of an active agent, sanitizes the text and
     w.cleanup();
   }
 });
+
+/** An accepted report by the worker, using the token it was started with. */
+function reportAs(
+  w: World,
+  agentId: string,
+  startIndex: number,
+  commit: string,
+  summary: string,
+): void {
+  const token = w.adapter.starts[startIndex]!.environment!.CAPSTAN_TOKEN!;
+  const row = w.core.agentPanes(w.owner).find((r) => r.agentId === agentId)!;
+  const { record } = w.core.recordAgentReport(ctx(w.core, token), {
+    commitSha: commit,
+    summary,
+    evidence: {
+      generation: 1,
+      branch: row.branch!,
+      baseSha: row.baseSha!,
+      commitExists: true,
+      branchTip: commit,
+      isAncestorOfTip: true,
+      isAncestorOfBase: false,
+      checkedAt: "2026-10-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(record.state, "accepted");
+}
+
+function promptOf(w: World, startIndex: number): string {
+  const args = w.adapter.starts[startIndex]!.args;
+  return readFileSync(
+    args[args.indexOf("--append-system-prompt-file") + 1]!,
+    "utf8",
+  );
+}
+
+test("replace releases a running worker and starts a new agent of the same role from its last accepted report, seeded from the ledger, and sends nothing again", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    const sent = w.core.enqueueMessage(ctx(w.core, w.owner), {
+      recipientAgentId: old.agentId,
+      body: "write the parser",
+    }).messageId;
+    const commit = "c".repeat(40);
+    w.git.reachable.add(commit);
+    w.git.tips.set(old.branch, "d".repeat(40));
+    reportAs(w, old.agentId, 1, commit, "parser written");
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    assert.equal(result.predecessor, old.agentId);
+    assert.equal(result.baseSha, commit);
+    assert.equal(result.baseSource, "predecessor");
+    assert.equal(result.replacementRecorded, true);
+    assert.deepEqual(result.cancelledMessageIds, [sent]);
+    assert.notEqual(result.agentId, old.agentId, "a new id");
+    assert.equal(w.core.agentRecord(old.agentId)!.state, "ended");
+    assert.equal(w.core.agentRecord(result.agentId)!.state, "active");
+    assert.equal(w.core.agentRecord(result.agentId)!.roleName, "developer");
+    assert.equal(w.core.isAgentReplaced(old.agentId), true);
+    assert.deepEqual(
+      w.core.messagesFor(result.agentId),
+      [],
+      "nothing is sent to the replacement",
+    );
+    assert.equal(w.core.message(sent)!.state, "cancelled");
+    const prompt = promptOf(w, 2);
+    assert.match(
+      prompt,
+      /===== replacement seed, generated from the ledger =====/,
+    );
+    assert.ok(
+      prompt.includes(
+        `You replace agent ${old.agentId} (role developer), which has ended`,
+      ),
+    );
+    assert.ok(
+      prompt.includes(
+        `Your branch starts at ${commit}, the predecessor's last accepted report`,
+      ),
+    );
+    assert.ok(prompt.includes(`(tip ${"d".repeat(40)})`), prompt);
+    assert.ok(prompt.includes(JSON.stringify("write the parser")));
+    assert.ok(
+      prompt.includes(
+        `commit ${commit} on ${old.branch}: ${JSON.stringify("parser written")}`,
+      ),
+    );
+    assert.ok(prompt.includes(`${sent} from operator [queued]`));
+    await assert.rejects(
+      w.launcher.replace(old.agentId),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "already_replaced",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace falls back to the project's HEAD when the predecessor has no accepted report, its commit is not reachable or its branch is gone", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const a = await w.launcher.replace(first.agentId);
+    assert.equal(a.state, "started");
+    if (a.state !== "started") return;
+    assert.equal(a.baseSource, "head");
+    assert.equal(a.baseSha, w.git.head);
+    assert.match(
+      promptOf(w, 2),
+      /the project's HEAD \(the predecessor had no accepted report that could be used\)/,
+    );
+    const commit = "e".repeat(40);
+    reportAs(w, a.agentId, 2, commit, "work");
+    w.git.reachable.clear();
+    const b = await w.launcher.replace(a.agentId);
+    assert.equal(b.state, "started");
+    if (b.state !== "started") return;
+    assert.equal(b.baseSource, "head", "an unreachable commit is not used");
+    w.git.reachable.add(commit);
+    const c = await w.launcher.replace(b.agentId);
+    assert.equal(
+      c.state === "started" && c.baseSource,
+      "head",
+      "no report by that agent",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace works on an agent that already ended, releases nothing and answers with no predecessor worktree", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    await w.launcher.release(first.agentId);
+    const removedBefore = [...w.git.removed];
+    const result = await w.launcher.replace(first.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    assert.equal(result.predecessorWorktreeRemoved, null);
+    assert.deepEqual(result.cancelledMessageIds, []);
+    assert.deepEqual(w.git.removed, removedBefore);
+    assert.ok(
+      promptOf(w, 2).includes(
+        `You replace agent ${first.agentId} (role developer), which has ended`,
+      ),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace stops when the old pane will not close, so two agents never work on one task, and a pane that is already gone is fine", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.adapter.closeError = new HerdrError("pane_close_failed", "busy");
+    const blocked = await w.launcher.replace(first.agentId);
+    assert.equal(blocked.state, "blocked");
+    assert.ok("reason" in blocked);
+    if ("reason" in blocked)
+      assert.match(
+        blocked.reason,
+        new RegExp(
+          `${first.agentId} was released but its pane is still open: close it in Herdr, then run cstan spawn developer`,
+        ),
+      );
+    assert.equal(w.adapter.starts.length, 2, "no replacement was started");
+    assert.equal(w.core.isAgentReplaced(first.agentId), false);
+    w.adapter.closeError = undefined;
+    const second = await w.launcher.spawn("developer");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.entries.delete(second.paneId);
+    const result = await w.launcher.replace(second.agentId);
+    assert.equal(
+      result.state,
+      "started",
+      "a pane that is already gone is not an error",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace refuses the PM, an unknown agent, a running integration, a second replacement and a concurrent one, before anything is released", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    await assert.rejects(
+      w.launcher.replace("pm-1"),
+      (e: Error) =>
+        e instanceof LauncherError && e.code === "kind_not_replaceable",
+    );
+    await assert.rejects(
+      w.launcher.replace("nobody"),
+      (e: Error) => e instanceof LauncherError && e.code === "unknown_agent",
+    );
+    assert.ok(first);
+  } finally {
+    w.cleanup();
+  }
+  const v = await world();
+  try {
+    await launched(v);
+    const target = await v.launcher.spawn("developer");
+    const original = v.core.runningIntegrations.bind(v.core);
+    v.core.runningIntegrations = () => [{ integrationId: "x" } as never];
+    await assert.rejects(
+      v.launcher.replace(target.agentId),
+      (e: Error) =>
+        e instanceof LauncherError && e.code === "integration_running",
+    );
+    assert.equal(
+      v.core.agentRecord(target.agentId)!.state,
+      "active",
+      "nothing was released",
+    );
+    v.core.runningIntegrations = original;
+    const gate = v.launcher.replace(target.agentId);
+    await assert.rejects(
+      v.launcher.replace(target.agentId),
+      (e: Error) => e instanceof LauncherError && e.code === "replace_running",
+    );
+    assert.equal((await gate).state, "started");
+  } finally {
+    v.cleanup();
+  }
+});
+
+test("replace names the released agent when the replacement cannot start, and a rerun finds it ended and cancels nothing twice", async () => {
+  const w = await world(true, true, 1);
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const queued = w.core.enqueueMessage(ctx(w.core, w.owner), {
+      recipientAgentId: first.agentId,
+      body: "x",
+    }).messageId;
+    w.git.branchNamesValid = false;
+    await assert.rejects(
+      w.launcher.replace(first.agentId),
+      (e: Error) =>
+        e instanceof LauncherError &&
+        e.code === "replacement_not_started" &&
+        e.message.includes(
+          `${first.agentId} was released but the replacement could not start`,
+        ) &&
+        e.message.includes(`run cstan replace ${first.agentId} again`),
+    );
+    assert.equal(w.core.agentRecord(first.agentId)!.state, "ended");
+    assert.equal(w.core.message(queued)!.state, "cancelled");
+    assert.equal(w.core.isAgentReplaced(first.agentId), false);
+    w.git.branchNamesValid = true;
+    const rerun = await w.launcher.replace(first.agentId);
+    assert.equal(rerun.state, "started");
+    assert.equal(w.core.isAgentReplaced(first.agentId), true);
+  } finally {
+    w.cleanup();
+  }
+});

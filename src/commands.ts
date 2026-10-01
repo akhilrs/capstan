@@ -128,6 +128,8 @@ export type CommandHandler = (
 
 export interface DriverSnapshot {
   readonly stalledAgentIds: readonly string[];
+  /** Agents whose pane Herdr no longer finds, as the driver sees them now. */
+  readonly lostAgentIds?: readonly string[];
   readonly stuck: readonly {
     readonly messageId: string;
     readonly reason: string;
@@ -178,6 +180,7 @@ export interface LauncherApi {
     options?: { baseSha?: string },
   ): Promise<{ readonly state: string; readonly agentId: string }>;
   release(agentId: string): Promise<unknown>;
+  replace(agentId: string): Promise<{ readonly state: string }>;
   observe(
     agentId: string,
     lines: number,
@@ -534,6 +537,31 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       log("spawn_requested", { requestedBy, role: call.args[0] });
       try {
         return ok(await deps.launcher.spawn(call.args[0]!));
+      } catch (error) {
+        return mapError(error);
+      }
+    },
+
+    async replace(call) {
+      const requestedBy = workerManager(call.identity);
+      if (requestedBy === undefined)
+        return fail(
+          "forbidden",
+          "only the PM or the operator may replace workers",
+        );
+      if (call.args.length !== 1)
+        return fail("invalid_request", "replace needs one agent id");
+      const agentId = call.args[0]!;
+      if (!SAFE_AGENT_ID.test(agentId))
+        return fail("invalid_request", "the agent id is not valid");
+      if (deps.launcher === undefined)
+        return fail(
+          "not_configured",
+          "replacing agents needs capstan.toml and Herdr",
+        );
+      log("replace_requested", { requestedBy, agentId });
+      try {
+        return ok(await deps.launcher.replace(agentId));
       } catch (error) {
         return mapError(error);
       }
@@ -1007,6 +1035,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           }));
           result.messagesTruncated = unresolved.truncated;
           result.stalledAgentIds = snapshot.stalledAgentIds;
+          result.lostAgentIds = snapshot.lostAgentIds ?? [];
           result.stuck = snapshot.stuck;
           result.inputClears = core.inputClears(
             call.credential,
@@ -1153,6 +1182,8 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         command === "pm-restart"
       )
         return LAUNCHER_LIMIT_MS;
+      // A replacement is a release and a spawn, each with its own budget.
+      if (command === "replace") return 2 * LAUNCHER_LIMIT_MS;
       return undefined;
     },
   };

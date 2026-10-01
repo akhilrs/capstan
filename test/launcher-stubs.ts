@@ -290,6 +290,17 @@ export class StubGit implements GitRunner {
   branchNameValid() {
     return this.branchNamesValid;
   }
+  /** Tips by branch name for branchTip. */
+  tips = new Map<string, string>();
+  branchTip(branch: string) {
+    return this.tips.get(branch) ?? null;
+  }
+  /** Commits reachableCommit accepts; any 40-hex string when `reachableAll` is true. */
+  reachable = new Set<string>();
+  reachableAll = false;
+  reachableCommit(sha: string) {
+    return this.reachableAll || this.reachable.has(sha);
+  }
   byBranchError: Error | undefined;
   worktreeByBranch(branch: string) {
     if (this.byBranchError) throw this.byBranchError;

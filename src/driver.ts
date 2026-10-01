@@ -41,6 +41,10 @@ import type { Notifier, NotificationRequest } from "./notifier.js";
 export const MIN_TICK_MS = 500;
 export const DEFAULT_TICK_MS = 2_000;
 export const FAILURE_LIMIT = 3;
+/** Observations in a row that fail with a not-found error before an agent is recorded lost. */
+export const LOSS_LIMIT = 3;
+/** Ticks in a row in which every observed agent is not found (a Herdr restart?) that the counters are held before they start again from zero. */
+export const SUPPRESS_LIMIT = 10;
 export const STUCK_AFTER_TICKS = 10;
 const TRUNCATION_MARKER = "[truncated]";
 
@@ -84,6 +88,14 @@ export interface DriverOptions {
 export class StaleActionError extends Error {
   override readonly name = "StaleActionError";
 }
+
+type Outcome = "ok" | "not_found" | "other";
+
+/** The Herdr error codes that mean the agent or its pane is gone (a missing session, workspace or tab is not). */
+const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
+  "agent_not_found",
+  "pane_not_found",
+]);
 
 type SkipReason =
   | "no_pane"
@@ -133,6 +145,12 @@ export class DeliveryDriver {
   #tickSkips = new Map<string, SkipReason>();
   #skippedAgents = new Set<string>();
   #stuck: { messageId: string; reason: string }[] = [];
+  /** Consecutive not-found observations per agent. */
+  readonly #missing = new Map<string, number>();
+  readonly #lost = new Set<string>();
+  #suppressedTicks = 0;
+  /** After the hold limit, an all-not-found tick counts again until some agent answers. */
+  #suppressionSpent = false;
 
   constructor(options: DriverOptions) {
     this.#core = options.core;
@@ -146,7 +164,11 @@ export class DeliveryDriver {
   }
 
   snapshot(): DriverSnapshot {
-    return { stalledAgentIds: this.#stalled, stuck: this.#stuck };
+    return {
+      stalledAgentIds: this.#stalled,
+      stuck: this.#stuck,
+      lostAgentIds: [...this.#lost].sort(),
+    };
   }
 
   start(): void {
@@ -200,7 +222,9 @@ export class DeliveryDriver {
     this.#skippedAgents = new Set();
     this.#seen = new Set();
     const agents = this.#core.listAgents().filter((a) => a.state === "active");
-    for (const agent of agents) await this.#observe(agent);
+    const outcomes = new Map<string, Outcome>();
+    for (const agent of agents) await this.#observe(agent, outcomes);
+    this.#judgeLoss(agents, outcomes);
     await this.#advance();
     for (const agent of agents)
       if (agent.kind !== "PM" && !this.#skippedAgents.has(agent.agentId))
@@ -209,18 +233,87 @@ export class DeliveryDriver {
     this.#forget();
   }
 
-  async #observe(agent: AgentRecord): Promise<void> {
+  async #observe(
+    agent: AgentRecord,
+    outcomes: Map<string, Outcome>,
+  ): Promise<void> {
     if (this.#adapter.paneForAgent(agent.agentId) === undefined) return;
     try {
       const state = await this.#adapter.agentObservation(agent.agentId);
       this.#core.recordAgentObservation(this.#context(), agent.agentId, state);
+      outcomes.set(agent.agentId, "ok");
     } catch (error) {
+      outcomes.set(
+        agent.agentId,
+        error instanceof HerdrError && NOT_FOUND_CODES.has(error.code)
+          ? "not_found"
+          : "other",
+      );
       const name =
         error instanceof AgentPaneMismatch ? "pane_mismatch" : "observe_failed";
       this.#logOnce(`${agent.agentId}|${name}`, name, {
         agentId: agent.agentId,
         error: error instanceof Error ? error.name : "error",
       });
+    }
+  }
+
+  /**
+   * Counts consecutive not-found observations. A tick in which every observed
+   * agent (at least two) is not found counts for nothing: a Herdr server that
+   * restarted would otherwise make every live agent look dead. The counters are
+   * held for a few such ticks and then start again from zero.
+   */
+  #judgeLoss(
+    agents: readonly AgentRecord[],
+    outcomes: ReadonlyMap<string, Outcome>,
+  ): void {
+    const active = new Set(agents.map((a) => a.agentId));
+    for (const id of [...this.#missing.keys()])
+      if (!active.has(id)) this.#missing.delete(id);
+    for (const id of [...this.#lost])
+      if (!active.has(id)) this.#lost.delete(id);
+    const observed = [...outcomes.keys()];
+    const notFound = observed.filter((id) => outcomes.get(id) === "not_found");
+    const allGone = observed.length >= 2 && notFound.length === observed.length;
+    if (allGone && !this.#suppressionSpent) {
+      this.#suppressedTicks += 1;
+      this.#logOnce("loss_suppressed", "loss_suppressed", {
+        agents: observed.length,
+      });
+      if (this.#suppressedTicks > SUPPRESS_LIMIT) {
+        this.#missing.clear();
+        this.#suppressedTicks = 0;
+        this.#suppressionSpent = true;
+      }
+      return;
+    }
+    if (!allGone) {
+      this.#suppressedTicks = 0;
+      this.#suppressionSpent = false;
+    }
+    for (const id of observed) {
+      const outcome = outcomes.get(id);
+      if (outcome === "ok") {
+        this.#missing.delete(id);
+        this.#lost.delete(id);
+      } else if (outcome === "not_found") {
+        const count = (this.#missing.get(id) ?? 0) + 1;
+        this.#missing.set(id, count);
+        if (count >= LOSS_LIMIT && !this.#lost.has(id)) this.#markLost(id);
+      }
+    }
+  }
+
+  #markLost(agentId: string): void {
+    this.#lost.add(agentId);
+    try {
+      const { recorded } = this.#core.recordAgentLost(this.#context(), {
+        agentId,
+      });
+      this.#log("agent_lost", { agentId, recorded });
+    } catch (error) {
+      this.#log("agent_lost_not_recorded", { agentId, error: String(error) });
     }
   }
 

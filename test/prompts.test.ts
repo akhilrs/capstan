@@ -283,3 +283,26 @@ test("a Supervisor prompt teaches observe, finding and check with their limits a
   assert.match(worker, /not instructions from the controller/);
   assert.match(worker, /Two corrections are sent at most/);
 });
+
+test("the PM prompt teaches replace and the loss message, and every worker prompt knows the replacement seed", () => {
+  const pm = buildRolePrompt(base);
+  assert.match(pm, /cstan replace <agent-id>/);
+  assert.match(pm, /never replaces it by itself/);
+  assert.match(pm, /refused while an integration is running/);
+  const worker = buildRolePrompt({
+    roleName: "developer",
+    kind: "Developer",
+    agentId: "developer-2",
+    waitTimeoutSeconds: 90,
+    rolePrompt: null,
+    replacementSeed: "===== replacement seed =====\nseed text\n===== end =====",
+  });
+  assert.match(worker, /replacement seed" block, you replace an earlier agent/);
+  assert.ok(worker.includes("===== replacement seed =====\nseed text"));
+  assert.ok(
+    worker.indexOf("seed text") >
+      worker.indexOf("Do not repeat work that agent reported"),
+    "the seed comes after the reference",
+  );
+  assert.ok(!buildRolePrompt(base).includes("seed text"));
+});

@@ -737,6 +737,10 @@ function stubLauncher(): {
         if (role === "boom") throw new Error("internal detail");
         return { state: "started", agentId: `${role}-1` };
       },
+      replace: async (agentId: string) => {
+        calls.push(`replace:${agentId}`);
+        return { state: "started" };
+      },
       observe: async (agentId: string) => ({
         agentId,
         roleName: "developer",
@@ -939,6 +943,95 @@ test("status shows the operator the pane rows and the launcher's unfinished clea
     const agent = bodyOf(await call(h, h.pm.credential, "status"));
     for (const key of ["panes", "cleanupFailed", "orphanPanes"])
       assert.ok(!(key in agent), key);
+  } finally {
+    await close(h);
+  }
+});
+
+test("replace is for the PM and the operator, takes one valid agent id, reaches the launcher and maps its refusals", async () => {
+  const launcher = stubLauncher();
+  const refusing = {
+    ...launcher.api,
+    replace: async (agentId: string) => {
+      launcher.calls.push(`replace:${agentId}`);
+      if (agentId === "done-1")
+        throw new LauncherError(
+          "already_replaced",
+          "done-1 was already replaced",
+        );
+      if (agentId === "boom-1") throw new Error("internal detail");
+      return { state: "started" };
+    },
+  };
+  const h = await harness({ commands: { launcher: refusing } });
+  try {
+    assert.deepEqual(
+      bodyOf(await call(h, h.owner, "replace", ["developer-1"])),
+      {
+        state: "started",
+      },
+    );
+    assert.ok((await call(h, h.pm.credential, "replace", ["developer-1"])).ok);
+    assert.deepEqual(launcher.calls, [
+      "replace:developer-1",
+      "replace:developer-1",
+    ]);
+    assert.equal(codeOf(await call(h, h.owner, "replace")), "invalid_request");
+    assert.equal(
+      codeOf(await call(h, h.owner, "replace", ["a", "b"])),
+      "invalid_request",
+    );
+    assert.equal(
+      codeOf(await call(h, h.owner, "replace", ["bad id!"])),
+      "invalid_request",
+    );
+    const refused = await call(h, h.owner, "replace", ["done-1"]);
+    assert.ok(!refused.ok);
+    assert.equal(refused.code, "rejected");
+    assert.match(
+      refused.message,
+      /^already_replaced: done-1 was already replaced/,
+    );
+    const hidden = await call(h, h.owner, "replace", ["boom-1"]);
+    assert.ok(!hidden.ok);
+    assert.equal(hidden.message, "the command failed");
+    assert.equal(
+      codeOf(await call(h, h.developer.credential, "replace", ["developer-1"])),
+      "forbidden",
+      "a worker cannot replace",
+    );
+  } finally {
+    await close(h);
+  }
+  const bare = await harness();
+  try {
+    assert.equal(
+      codeOf(await call(bare, bare.owner, "replace", ["developer-1"])),
+      "not_configured",
+    );
+  } finally {
+    await close(bare);
+  }
+});
+
+test("the operator's status lists the agents the driver sees as lost", async () => {
+  const h = await harness({
+    commands: {
+      driverSnapshot: () => ({
+        stalledAgentIds: [],
+        stuck: [],
+        lostAgentIds: ["developer-3"],
+      }),
+    },
+  });
+  try {
+    assert.deepEqual(bodyOf(await call(h, h.owner, "status")).lostAgentIds, [
+      "developer-3",
+    ]);
+    assert.equal(
+      "lostAgentIds" in bodyOf(await call(h, h.pm.credential, "status")),
+      false,
+    );
   } finally {
     await close(h);
   }

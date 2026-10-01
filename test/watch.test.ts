@@ -199,3 +199,13 @@ test("open and escalated findings are listed, an escalation rings once, and reso
     [],
   );
 });
+
+test("lost agents are listed and ring once when they first appear", () => {
+  const status = { agents: [], lostAgentIds: ["developer-2", "developer-5"] };
+  assert.match(renderWatch(status), /^lost: developer-2, developer-5$/m);
+  assert.deepEqual(
+    [...signalsOf(status)],
+    ["lost:developer-2", "lost:developer-5"],
+  );
+  assert.doesNotMatch(renderWatch({ agents: [] }), /lost:/);
+});
