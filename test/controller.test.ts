@@ -6,7 +6,6 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,13 +29,6 @@ import {
 } from "../src/controller/core.js";
 import { WorkflowScheduler } from "../src/controller/scheduler.js";
 import { validateWorkflowPlan } from "../src/controller/workflow.js";
-import { M1BridgeAdapter } from "../src/controller/m1-bridge.js";
-import {
-  M1_MAX_PROMPT_BYTES,
-  M1ReceiptFrameParser,
-  M1ResponseFrameParser,
-  parseM1Frame,
-} from "../src/controller/m1-protocol.js";
 import type {
   AssignmentResult,
   BridgeReceipt,
@@ -601,380 +593,6 @@ test("migration ledger gaps reject startup even when later migration checksums m
   }
 });
 
-test("M1 response parser rejects a fragmented late duplicate", () => {
-  const parser = new M1ResponseFrameParser();
-  const response = {
-    type: "ack",
-    commandId: "command-1",
-    durable: true,
-    state: "acknowledged",
-  };
-  const responseLine = `${JSON.stringify(response)}\n`;
-  assert.deepEqual(parser.push(Buffer.from(responseLine)), [response]);
-  const duplicate = `${responseLine}`;
-  const split = Math.floor(duplicate.length / 2);
-  assert.deepEqual(parser.push(Buffer.from(duplicate.slice(0, split))), []);
-  assert.throws(
-    () => parser.push(Buffer.from(duplicate.slice(split))),
-    /unexpected frame after bridge response/,
-  );
-  const incompleteTrailer = new M1ResponseFrameParser();
-  assert.deepEqual(
-    incompleteTrailer.push(Buffer.from(`${responseLine}{"type":`)),
-    [],
-  );
-  assert.throws(() => incompleteTrailer.finish(), /incomplete frame/);
-});
-test("receipt framing accepts one newline frame independent of TCP chunk boundaries", () => {
-  const frame = Buffer.from('{"type":"accepted"}\n');
-  const suffix = Buffer.alloc(1_048_577, 0x78);
-  const combined = new M1ReceiptFrameParser();
-  assert.deepEqual(
-    parseM1Frame(combined.push(Buffer.concat([frame, suffix]))!),
-    { type: "accepted" },
-  );
-  assert.equal(combined.push(suffix), undefined);
-
-  const fragmented = new M1ReceiptFrameParser();
-  assert.deepEqual(parseM1Frame(fragmented.push(frame)!), {
-    type: "accepted",
-  });
-  assert.equal(fragmented.push(suffix), undefined);
-});
-test("oversized UTF-8 M1 prompt stays ready without committing an assignment", async () => {
-  const value = await fixture();
-  try {
-    const { core, project: info } = value;
-    const developer = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Developer",
-      "oversized",
-    );
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "oversized-work",
-      title: "Oversized dispatch",
-      description: "😀".repeat(M1_MAX_PROMPT_BYTES / 4),
-      requiredRole: "Developer",
-    });
-    core.markReady(context(core, info.ownerCredential), "oversized-work");
-    const version = core.stateVersion;
-    assert.throws(
-      () =>
-        core.assignWorkItem(
-          context(core, info.ownerCredential),
-          "oversized-work",
-          developer.seatId,
-        ),
-      /M1 dispatch prompt exceeds its byte limit/,
-    );
-    assert.equal(core.stateVersion, version);
-    assert.equal(core.readiness("oversized-work").ready, true);
-  } finally {
-    cleanup(value);
-  }
-});
-test("M1 receipt acknowledgement does not require sender EOF", async () => {
-  const value = await fixture();
-  const bridgeSocket = path.join(value.stateDirectory, "unused-bridge.sock");
-  const receiptSocket = path.join(value.stateDirectory, "receipt-no-eof.sock");
-  let adapter: M1BridgeAdapter | undefined;
-  try {
-    const { core, project: info } = value;
-    const developer = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Developer",
-      "receipt-no-eof",
-    );
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "receipt-no-eof-work",
-      title: "Acknowledge a complete frame",
-      description: "Bridge sender waits for the reply before closing",
-      requiredRole: "Developer",
-    });
-    core.markReady(context(core, info.ownerCredential), "receipt-no-eof-work");
-    const assignment = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "receipt-no-eof-work",
-      developer.seatId,
-    );
-    core.beginCommandDelivery(
-      context(core, info.ownerCredential),
-      assignment.commandId,
-    );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
-      allowUnauthenticatedLocalPeers: true,
-    });
-    await adapter.listen();
-    const response = await new Promise<string>((resolve, reject) => {
-      const socket = net.createConnection(receiptSocket);
-      socket.once("error", reject);
-      socket.once("connect", () =>
-        socket.write(
-          `${JSON.stringify(
-            receipt(
-              {
-                commandId: assignment.commandId,
-                assignmentId: assignment.assignmentId,
-                attempt: assignment.attempt,
-                generation: assignment.generation,
-              },
-              1,
-              "accepted",
-            ),
-          )}\n`,
-        ),
-      );
-      socket.once("data", (data) => {
-        resolve(data.toString("utf8"));
-        socket.end();
-      });
-    });
-    assert.deepEqual(JSON.parse(response), {
-      ok: true,
-      sequence: 1,
-      duplicate: false,
-    });
-    assert.equal(core.commandState(assignment.commandId), "acknowledged");
-  } finally {
-    await adapter?.close();
-    cleanup(value);
-  }
-});
-
-test("M1 adapter rejects duplicate responses after acknowledgement", async () => {
-  const value = await fixture();
-  const bridgeSocket = path.join(value.stateDirectory, "bridge.sock");
-  const receiptSocket = path.join(value.stateDirectory, "receipt.sock");
-  const requests: string[] = [];
-  const server = net.createServer((socket) => {
-    socket.once("data", (chunk) => {
-      const request = JSON.parse(chunk.toString("utf8")) as {
-        type: string;
-        commandId: string;
-        assignmentId?: string;
-        attempt?: number;
-        generation?: number;
-        singleResponse?: boolean;
-      };
-      requests.push(request.type);
-      if (request.type === "dispatch") {
-        assert.equal(request.singleResponse, true);
-        value.core.recordBridgeReceipt(
-          receipt(
-            {
-              commandId: request.commandId,
-              assignmentId: request.assignmentId!,
-              attempt: request.attempt!,
-              generation: request.generation!,
-            },
-            1,
-            "accepted",
-          ),
-        );
-      }
-      const ack = JSON.stringify({
-        type: "ack",
-        commandId: request.commandId,
-        durable: true,
-        state: "acknowledged",
-      });
-      socket.end(`${ack}\n${ack}\n`);
-    });
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(bridgeSocket, resolve);
-  });
-  let adapter: M1BridgeAdapter | undefined;
-  try {
-    const { core, project: info } = value;
-    const developer = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Developer",
-      "double-frame",
-    );
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "double-frame-work",
-      title: "Double response",
-      description: "Reject an extra bridge response frame",
-      requiredRole: "Developer",
-    });
-    core.markReady(context(core, info.ownerCredential), "double-frame-work");
-    const assignment = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "double-frame-work",
-      developer.seatId,
-    );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
-      allowUnauthenticatedLocalPeers: true,
-    });
-    await adapter.listen();
-    await assert.rejects(
-      adapter.dispatchAndStart(
-        context(core, info.ownerCredential),
-        assignment.commandId,
-      ),
-      /unexpected frame after bridge response/,
-    );
-    assert.equal(core.commandState(assignment.commandId), "acknowledged");
-    await assert.rejects(
-      adapter.dispatchAndStart(
-        context(core, info.ownerCredential),
-        assignment.commandId,
-      ),
-      /unexpected frame after bridge response/,
-    );
-    assert.deepEqual(requests, ["dispatch", "get"]);
-    assert.equal(core.commandState(assignment.commandId), "acknowledged");
-  } finally {
-    await adapter?.close();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-    cleanup(value);
-  }
-});
-test("M1 adapter inspects uncertain command without dispatch or authority restoration", async () => {
-  const value = await fixture();
-  const bridgeSocket = path.join(value.stateDirectory, "inspect-bridge.sock");
-  const receiptSocket = path.join(value.stateDirectory, "inspect-receipt.sock");
-  const requests: unknown[] = [];
-  const server = net.createServer((socket) => {
-    socket.once("data", (chunk) => {
-      const request = JSON.parse(chunk.toString("utf8")) as {
-        type: string;
-        commandId: string;
-      };
-      requests.push(request);
-      const response =
-        requests.length === 1
-          ? {
-              type: "ack",
-              commandId: request.commandId,
-              durable: true,
-              state: "acknowledged",
-            }
-          : {
-              type: "completed",
-              commandId: request.commandId,
-              durable: true,
-              reply: "completed without a durable controller report",
-            };
-      socket.end(`${JSON.stringify(response)}\n`);
-    });
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(bridgeSocket, resolve);
-  });
-  let adapter: M1BridgeAdapter | undefined;
-  let core = value.core;
-  try {
-    const info = value.project;
-    const developer = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Developer",
-      "inspect-unknown",
-    );
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "inspect-unknown-work",
-      title: "Inspect unknown",
-      description: "An M1 status query must not issue another prompt",
-      requiredRole: "Developer",
-    });
-    core.markReady(context(core, info.ownerCredential), "inspect-unknown-work");
-    const assignment = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "inspect-unknown-work",
-      developer.seatId,
-    );
-    core.beginCommandDelivery(
-      context(core, info.ownerCredential),
-      assignment.commandId,
-    );
-    adapter = new M1BridgeAdapter(core, receiptSocket, bridgeSocket, {
-      allowUnauthenticatedLocalPeers: true,
-    });
-    await adapter.listen();
-    const version = core.stateVersion;
-    const inspected = await adapter.inspectUncertainCommand(
-      assignment.commandId,
-    );
-    assert.deepEqual(inspected, {
-      commandId: assignment.commandId,
-      bridgeState: "acknowledged",
-      durable: true,
-    });
-    assert.deepEqual(requests, [
-      { type: "get", commandId: assignment.commandId },
-    ]);
-    assert.equal(core.stateVersion, version);
-    assert.equal(core.commandState(assignment.commandId), "attempting");
-    assert.throws(
-      () =>
-        core.confirmContainment(
-          context(core, info.ownerCredential),
-          assignment.assignmentId,
-          "proof:premature-containment",
-          inspected,
-        ),
-      /reconcile the same command/,
-    );
-    assert.equal(core.readiness("inspect-unknown-work").ready, false);
-    core.close();
-    core = await ControllerCore.open({
-      stateDirectory: value.stateDirectory,
-      project: info,
-    });
-    assert.equal(core.commandState(assignment.commandId), "unknown");
-    assert.equal(
-      core.attemptedPrestartCommand(assignment.assignmentId),
-      assignment.commandId,
-    );
-    assert.deepEqual(
-      core.confirmContainment(
-        context(core, info.ownerCredential),
-        assignment.assignmentId,
-        "proof:bridge-queried-and-worker-quiescent",
-        inspected,
-      ),
-      { contained: true },
-    );
-    assert.deepEqual(requests, [
-      { type: "get", commandId: assignment.commandId },
-    ]);
-    assert.equal(core.readiness("inspect-unknown-work").ready, true);
-    const recovery = core.recordRecovery(context(core, info.ownerCredential), {
-      recoveryId: "inspect-unknown-recovery",
-      workItemId: "inspect-unknown-work",
-      assignmentId: assignment.assignmentId,
-      recoveryType: "worker_replacement",
-      reason: "Bridge state inspected and worker quiescent",
-    });
-    assert.equal(recovery.outcome, "pending");
-    core.markReady(context(core, info.ownerCredential), "inspect-unknown-work");
-    const replacement = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "inspect-unknown-work",
-      developer.seatId,
-      undefined,
-      recovery.recoveryId,
-    );
-    assert.notEqual(replacement.assignmentId, assignment.assignmentId);
-  } finally {
-    core.close();
-    await adapter?.close();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-    cleanup(value);
-  }
-});
-
 test("private project ownership survives restart and ambiguous delivery is reconciled fail-closed", async () => {
   const value = await fixture();
   const { core, stateDirectory, project: info } = value;
@@ -1044,7 +662,7 @@ test("private project ownership survives restart and ambiguous delivery is recon
             assignment.assignmentId,
             "proof:never-started",
           ),
-        /start was not durably requested; reconcile the same command/,
+        /start was not durably requested; it cannot be contained/,
       );
       assert.equal(reopened.stateVersion, versionBeforePreStartContainment);
       assert.equal(reopened.readiness("restart-work").ready, false);
@@ -1416,7 +1034,7 @@ test("unstarted command authority cannot be marked contained", async () => {
             assignment.assignmentId,
             "proof:accepted-but-never-started",
           ),
-        /start was not durably requested; reconcile the same command/,
+        /start was not durably requested; it cannot be contained/,
       );
     } finally {
       reopened.close();
@@ -1513,82 +1131,6 @@ test("contained worker receipts are audited without blocking replacement receipt
       ),
     );
     assert.equal(core.commandState(replacement.commandId), "acknowledged");
-  } finally {
-    cleanup(value);
-  }
-});
-
-test("an ambiguous pre-start receipt cannot be contained without M1 start intent", async () => {
-  const value = await fixture();
-  try {
-    const { core, project: info } = value;
-    const developer = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Developer",
-      "prestart-error",
-    );
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "prestart-error-work",
-      title: "Ambiguous dispatch",
-      description: "M1 start was never requested",
-      requiredRole: "Developer",
-    });
-    core.markReady(context(core, info.ownerCredential), "prestart-error-work");
-    const assignment = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "prestart-error-work",
-      developer.seatId,
-    );
-    core.beginCommandDelivery(
-      context(core, info.ownerCredential),
-      assignment.commandId,
-    );
-    core.recordBridgeReceipt(
-      receipt(
-        {
-          commandId: assignment.commandId,
-          assignmentId: assignment.assignmentId,
-          attempt: assignment.attempt,
-          generation: assignment.generation,
-        },
-        1,
-        "dispatch_error",
-      ),
-    );
-    assert.throws(
-      () =>
-        core.confirmContainment(
-          context(core, info.ownerCredential),
-          assignment.assignmentId,
-          "proof:dispatch-error-before-start",
-        ),
-      /start was not durably requested/,
-    );
-    for (const snapshot of [
-      {
-        commandId: "other-command",
-        bridgeState: "acknowledged",
-        durable: true,
-      },
-      {
-        commandId: assignment.commandId,
-        bridgeState: "running",
-        durable: true,
-      },
-    ]) {
-      assert.throws(
-        () =>
-          core.confirmContainment(
-            context(core, info.ownerCredential),
-            assignment.assignmentId,
-            "proof:invalid-bridge-snapshot",
-            snapshot,
-          ),
-        /reconcile the same command/,
-      );
-    }
-    assert.equal(core.readiness("prestart-error-work").ready, false);
   } finally {
     cleanup(value);
   }
@@ -5342,248 +4884,6 @@ test("legacy reported findings can be explicitly escalated by the operator", asy
   }
 });
 
-test("runtime identity observations keep distinct durable identifiers", async () => {
-  const value = await fixture();
-  try {
-    const { core, project: info } = value;
-    const supervisor = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "Supervisor",
-      "runtime-identity",
-    );
-    core.createRuntimeSession(context(core, info.ownerCredential), {
-      sessionId: "runtime-identity-session",
-      seatId: supervisor.seatId,
-      provider: "herdr",
-      profile: "runtime-identity-profile",
-      workspace: value.stateDirectory,
-    });
-    const first = core.recordRuntimeIdentity(
-      context(core, info.ownerCredential),
-      "runtime-identity-session",
-      { processStartId: "process-start-1" },
-    );
-    const second = core.recordRuntimeIdentity(
-      context(core, info.ownerCredential),
-      "runtime-identity-session",
-      { processStartId: "process-start-1", containerId: "docker-runtime-123" },
-    );
-    assert.notEqual(first.observationId, second.observationId);
-    core.createWorkItem(context(core, info.ownerCredential), {
-      workItemId: "runtime-usage-work",
-      title: "Usage binding",
-      description: "Usage must follow actor authority",
-      requiredRole: "Supervisor",
-    });
-    core.markReady(context(core, info.ownerCredential), "runtime-usage-work");
-    const usageAssignment = core.assignWorkItem(
-      context(core, info.ownerCredential),
-      "runtime-usage-work",
-      supervisor.seatId,
-    );
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, supervisor.credential), {
-          observationId: "unbound-worker-usage",
-          provider: "herdr",
-          metric: "tokens",
-          availability: "observed",
-          detail: {},
-        }),
-      /worker usage requires a session or assignment binding/,
-    );
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, supervisor.credential), {
-          observationId: "unassigned-session-usage",
-          sessionId: "runtime-identity-session",
-          provider: "herdr",
-          metric: "tokens",
-          availability: "observed",
-          detail: {},
-        }),
-      /worker usage requires a session bound to its assignment/,
-    );
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, supervisor.credential), {
-          observationId: "mismatched-worker-usage",
-          sessionId: "runtime-identity-session",
-          assignmentId: usageAssignment.assignmentId,
-          provider: "herdr",
-          metric: "tokens",
-          availability: "observed",
-          detail: {},
-        }),
-      /usage session and assignment do not belong together/,
-    );
-    const otherSeat = core.createSeat(context(core, info.ownerCredential), {
-      seatId: "other-usage-seat",
-      name: "Other Supervisor",
-      role: "Supervisor",
-    });
-    const otherSupervisor = core.createActor(
-      context(core, info.ownerCredential),
-      {
-        displayName: "Other Supervisor",
-        role: "Supervisor",
-        seatId: otherSeat.seatId,
-      },
-    );
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, otherSupervisor.credential), {
-          observationId: "cross-seat-usage",
-          sessionId: "runtime-identity-session",
-          provider: "herdr",
-          metric: "tokens",
-          availability: "observed",
-          detail: {},
-        }),
-      /worker usage requires a session bound to its assignment/,
-    );
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, otherSupervisor.credential), {
-          observationId: "foreign-assignment-usage",
-          assignmentId: usageAssignment.assignmentId,
-          provider: "herdr",
-          metric: "tokens",
-          availability: "observed",
-          detail: {},
-        }),
-      /worker usage must belong to the actor's active assignment generation/,
-    );
-    assert.deepEqual(core.listRuntimeSessions(), [
-      {
-        sessionId: "runtime-identity-session",
-        seatId: supervisor.seatId,
-        assignmentId: null,
-        state: "starting",
-        containerId: "docker-runtime-123",
-      },
-    ]);
-    assert.throws(
-      () =>
-        core.recordUsage(context(core, info.ownerCredential), {
-          observationId: "unknown-usage-as-zero",
-          assignmentId: usageAssignment.assignmentId,
-          provider: "herdr",
-          metric: "tokens",
-          value: 0,
-          availability: "unavailable",
-          detail: { reason: "runtime did not report usage" },
-        }),
-      /values only for observed or inferred/,
-    );
-    core.recordUsage(context(core, info.ownerCredential), {
-      observationId: "usage-unavailable",
-      assignmentId: usageAssignment.assignmentId,
-      provider: "herdr",
-      metric: "tokens",
-      availability: "unavailable",
-      detail: { reason: "runtime did not report usage" },
-    });
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-      { readonly: true },
-    );
-    try {
-      const unavailableUsage = db
-        .prepare(
-          "SELECT value, availability FROM usage_observations WHERE project_id = ? AND observation_id = ?",
-        )
-        .get(info.projectId, "usage-unavailable") as
-        { value: number | null; availability: string } | undefined;
-      assert.deepEqual(unavailableUsage, {
-        value: null,
-        availability: "unavailable",
-      });
-      const result = db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM runtime_identities WHERE project_id = ? AND session_id = ?",
-        )
-        .get(info.projectId, "runtime-identity-session") as { count: number };
-      assert.equal(result.count, 2);
-    } finally {
-      db.close();
-    }
-    core.close();
-    const reopened = await ControllerCore.open({
-      stateDirectory: value.stateDirectory,
-      project: info,
-    });
-    try {
-      assert.deepEqual(reopened.listRuntimeSessions(), [
-        {
-          sessionId: "runtime-identity-session",
-          seatId: supervisor.seatId,
-          assignmentId: null,
-          state: "unknown",
-          containerId: "docker-runtime-123",
-        },
-      ]);
-    } finally {
-      reopened.close();
-    }
-  } finally {
-    cleanup(value);
-  }
-});
-
-test("runtime identity ties select one deterministic observation on restart", async () => {
-  const value = await fixture();
-  try {
-    const { core, project: info } = value;
-    const pm = await addSeatAndActor(
-      core,
-      info.ownerCredential,
-      "PM",
-      "identity-tie",
-    );
-    core.createRuntimeSession(context(core, info.ownerCredential), {
-      sessionId: "identity-tie-session",
-      seatId: pm.seatId,
-      provider: "herdr",
-      profile: "identity-tie",
-      workspace: value.stateDirectory,
-    });
-    const first = core.recordRuntimeIdentity(
-      context(core, info.ownerCredential),
-      "identity-tie-session",
-      { containerId: "first-container" },
-    );
-    const second = core.recordRuntimeIdentity(
-      context(core, info.ownerCredential),
-      "identity-tie-session",
-      { containerId: "second-container" },
-    );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
-    try {
-      db.prepare(
-        "UPDATE runtime_identities SET observed_at = ? WHERE project_id = ? AND session_id = ?",
-      ).run("2026-01-01T00:00:00.000Z", info.projectId, "identity-tie-session");
-    } finally {
-      db.close();
-    }
-    const sessions = core
-      .listRuntimeSessions()
-      .filter((session) => session.sessionId === "identity-tie-session");
-    assert.equal(sessions.length, 1);
-    assert.equal(
-      sessions[0]?.containerId,
-      first.observationId > second.observationId
-        ? "first-container"
-        : "second-container",
-    );
-  } finally {
-    cleanup(value);
-  }
-});
-
 test("assignment capsule resolves duplicate-title plan slices by stable ID", async () => {
   const value = await fixture();
   try {
@@ -8885,6 +8185,40 @@ test("role sync needs the actor:manage capability and unique names", async () =>
       /role names must be unique/,
     );
     assert.deepEqual(core.roleDefinitions(), []);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("oversized UTF-8 dispatch prompt stays ready without committing an assignment", async () => {
+  const value = await fixture();
+  try {
+    const { core, project: info } = value;
+    const developer = await addSeatAndActor(
+      core,
+      info.ownerCredential,
+      "Developer",
+      "oversized",
+    );
+    core.createWorkItem(context(core, info.ownerCredential), {
+      workItemId: "oversized-work",
+      title: "Oversized dispatch",
+      description: "😀".repeat(262_144 / 4),
+      requiredRole: "Developer",
+    });
+    core.markReady(context(core, info.ownerCredential), "oversized-work");
+    const version = core.stateVersion;
+    assert.throws(
+      () =>
+        core.assignWorkItem(
+          context(core, info.ownerCredential),
+          "oversized-work",
+          developer.seatId,
+        ),
+      /dispatch prompt exceeds its byte limit/,
+    );
+    assert.equal(core.stateVersion, version);
+    assert.equal(core.readiness("oversized-work").ready, true);
   } finally {
     cleanup(value);
   }

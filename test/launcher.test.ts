@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -37,11 +38,12 @@ function config(
   maxWorkers = 3,
   layout: Partial<CapstanConfig["layout"]> = {},
   pass: readonly string[] = [],
+  hostOf: Readonly<Record<string, "codex" | "omp">> = {},
 ): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
     name,
     kind,
-    host: "claude",
+    host: hostOf[name] ?? "claude",
     model: null,
     permissionMode: "default" as const,
     allow: [] as string[],
@@ -87,6 +89,20 @@ function config(
         shellCommandTimeoutSeconds: 120,
         waitTimeoutSeconds: 45,
       },
+      {
+        name: "codex",
+        kind: "codex",
+        command: "codex",
+        shellCommandTimeoutSeconds: 120,
+        waitTimeoutSeconds: 45,
+      },
+      {
+        name: "omp",
+        kind: "omp",
+        command: "omp",
+        shellCommandTimeoutSeconds: 120,
+        waitTimeoutSeconds: 45,
+      },
     ],
     roles: [
       withText(role("pm", "PM"), "Keep the plan small."),
@@ -116,6 +132,7 @@ async function world(
   environment: {
     readonly pass?: readonly string[];
     readonly base?: Readonly<Record<string, string>>;
+    readonly hostOf?: Readonly<Record<string, "codex" | "omp">>;
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -132,7 +149,7 @@ async function world(
           return {
             name,
             kind,
-            host: "claude",
+            host: environment.hostOf?.[name] ?? "claude",
             configHash: hashOf(name),
           };
         },
@@ -145,7 +162,13 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: config(fallback, maxWorkers, layout, environment.pass),
+      config: config(
+        fallback,
+        maxWorkers,
+        layout,
+        environment.pass,
+        environment.hostOf,
+      ),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -2537,6 +2560,72 @@ test("replace names the released agent when the replacement cannot start, and a 
     const rerun = await w.launcher.replace(first.agentId);
     assert.equal(rerun.state, "started");
     assert.equal(w.core.isAgentReplaced(first.agentId), true);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worker on a Codex host starts with full access, its worktree trusted and the prompt as instructions", async () => {
+  const w = await world(true, true, 3, {}, { hostOf: { developer: "codex" } });
+  mkdirSync("/tmp/work/developer-1", { recursive: true });
+  try {
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    assert.equal(result.state, "started");
+    const start = w.adapter.starts.find((s) => s.name === "developer-1")!;
+    assert.equal(start.kind, "codex");
+    assert.deepEqual(start.args.slice(0, 4), [
+      "--sandbox",
+      "danger-full-access",
+      "--ask-for-approval",
+      "never",
+    ]);
+    assert.ok(!start.args.includes(CSTAN_ALLOW_RULE));
+    assert.ok(!start.args.includes("--append-system-prompt-file"));
+    const real = realpathSync("/tmp/work/developer-1");
+    assert.ok(start.args.includes(`projects."${real}".trust_level="trusted"`));
+    const instructions = start.args.find((a) =>
+      a.startsWith("developer_instructions="),
+    )!;
+    assert.match(instructions, /cstan ack <message-id>/);
+    assert.ok(!instructions.includes("\n"));
+    assert.equal(w.adapter.starts[0]!.kind, "claude", "the PM stays on Claude");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worker on an OMP host starts with every tool approved and the prompt file appended", async () => {
+  const w = await world(true, true, 3, {}, { hostOf: { developer: "omp" } });
+  try {
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    assert.equal(result.state, "started");
+    const start = w.adapter.starts.find((s) => s.name === "developer-1")!;
+    assert.equal(start.kind, "omp");
+    assert.deepEqual(start.args.slice(0, 2), ["--approval-mode", "yolo"]);
+    const file = start.args[start.args.indexOf("--append-system-prompt") + 1]!;
+    assert.match(readFileSync(file, "utf8"), /cstan ack <message-id>/);
+    assert.ok(!start.args.includes(CSTAN_ALLOW_RULE));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a restart adopts each pane with the kind of its role's host, and skips an agent whose role is gone from the configuration", async () => {
+  const w = await world(true, true, 3, {}, { hostOf: { developer: "omp" } });
+  try {
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer");
+    assert.equal(spawned.state, "started");
+    w.adapter.entries.clear();
+    w.adapter.agentPanes.clear();
+    const next = w.reopen();
+    await next.adoptAll();
+    assert.deepEqual(w.adapter.adopted.map((entry) => entry.kind).sort(), [
+      "claude",
+      "omp",
+    ]);
   } finally {
     w.cleanup();
   }

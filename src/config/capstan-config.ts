@@ -534,6 +534,33 @@ function resolveHosts(table: Table): ResolvedHost[] {
   });
 }
 
+/**
+ * Codex and OMP run unattended with full access (Codex's sandbox blocks the
+ * daemon socket, and any approval prompt would leave the agent blocked), so a
+ * rule this controller cannot enforce there is refused, not ignored.
+ */
+function rejectUnenforceable(
+  at: string,
+  host: ResolvedHost,
+  kind: RoleKind,
+  permissionMode: PermissionMode,
+  allow: readonly string[],
+  deny: readonly string[],
+): void {
+  if (kind === "PM" || kind === "Supervisor")
+    throw new ConfigError(
+      `${at}: a ${kind} role is read-only by design and only a claude host can enforce that; host ${host.name} is ${host.kind}`,
+    );
+  if (allow.length > 0 || deny.length > 0)
+    throw new ConfigError(
+      `${at}: allow and deny are Claude Code tool rules and host ${host.name} (${host.kind}) cannot enforce them`,
+    );
+  if (permissionMode !== "acceptEdits" && permissionMode !== "auto")
+    throw new ConfigError(
+      `${at}.permission_mode must be acceptEdits or auto on host ${host.name} (${host.kind}), which runs unattended with full access`,
+    );
+}
+
 function resolveRoles(
   table: Table,
   hosts: ReadonlyMap<string, ResolvedHost>,
@@ -591,6 +618,8 @@ function resolveRoles(
         ? "off"
         : enumValue(role.hooks, `${at}.hooks`, ["off", "inherit"] as const);
     const { prompt, text: promptText } = resolvePrompt(role, at, projectRoot);
+    if (host.kind !== "claude")
+      rejectUnenforceable(at, host, kind, permissionMode, allow, deny);
     const resolved = {
       name,
       kind,

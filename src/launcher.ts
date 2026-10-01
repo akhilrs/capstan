@@ -8,7 +8,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { CapstanConfig, ResolvedRole } from "./config/capstan-config.js";
+import type {
+  CapstanConfig,
+  HostKind,
+  ResolvedRole,
+} from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import type { ControllerCore, PmRestartSummary } from "./controller/core.js";
 import type { AgentRecord } from "./controller/types.js";
@@ -21,6 +25,7 @@ import {
   claudeArguments,
   type HerdrAdapter,
 } from "./herdr/adapter.js";
+import { codexArguments, ompArguments } from "./herdr/hosts.js";
 import { HerdrError } from "./herdr/runner.js";
 import { sanitizeScreen } from "./observe.js";
 import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
@@ -679,11 +684,29 @@ export class Launcher {
     );
   }
 
-  #arguments(role: ResolvedRole, promptFile: string): string[] {
+  #hostKind(role: ResolvedRole): HostKind {
+    const host = this.#config.hosts.find((h) => h.name === role.host);
+    if (host === undefined)
+      throw new LauncherError(
+        "unknown_host",
+        `the configuration has no host ${role.host}`,
+      );
+    return host.kind;
+  }
+
+  #arguments(
+    role: ResolvedRole,
+    prompt: { readonly text: string; readonly file: string },
+    worktreePath?: string,
+  ): string[] {
+    const kind = this.#hostKind(role);
+    if (kind === "codex")
+      return codexArguments(role, prompt.text, worktreePath);
+    if (kind === "omp") return ompArguments(role, prompt.file);
     const allow = role.allow.includes(CSTAN_ALLOW_RULE)
       ? role.allow
       : [...role.allow, CSTAN_ALLOW_RULE];
-    return claudeArguments({ ...role, allow }, promptFile);
+    return claudeArguments({ ...role, allow }, prompt.file);
   }
 
   // ---------------------------------------------------------------- start
@@ -695,17 +718,16 @@ export class Launcher {
     summary?: PmRestartSummary,
   ): Promise<LaunchResult> {
     budget.check("the PM prompt");
-    const promptFile = this.#adapter.writePromptFile(
-      buildRolePrompt({
-        roleName: role.name,
-        kind: "PM",
-        agentId: agent.agentId,
-        waitTimeoutSeconds: this.#waitSeconds(role),
-        rolePrompt: role.promptText,
-        workerRoles: this.#workerRoles(),
-        ...(summary === undefined ? {} : { restartSummary: summary }),
-      }),
-    );
+    const promptText = buildRolePrompt({
+      roleName: role.name,
+      kind: "PM",
+      agentId: agent.agentId,
+      waitTimeoutSeconds: this.#waitSeconds(role),
+      rolePrompt: role.promptText,
+      workerRoles: this.#workerRoles(),
+      ...(summary === undefined ? {} : { restartSummary: summary }),
+    });
+    const promptFile = this.#adapter.writePromptFile(promptText);
     const workspace = await this.#adapter.createWorkspace({
       cwd: this.#root,
       label: `capstan-${role.name}`,
@@ -715,9 +737,9 @@ export class Launcher {
       budget.check("starting the PM");
       const started = await this.#adapter.startAgent({
         name: agent.agentId,
-        kind: "claude",
+        kind: this.#hostKind(role),
         paneId: workspace.paneId,
-        args: this.#arguments(role, promptFile),
+        args: this.#arguments(role, { text: promptText, file: promptFile }),
         environment: this.#environment(agent.credential),
         timeoutMs: START_TIMEOUT_MS,
       });
@@ -1248,23 +1270,26 @@ export class Launcher {
           ...(placementNote === undefined ? {} : { placementNote }),
         };
         budget.check("starting the worker");
-        const promptFile = this.#adapter.writePromptFile(
-          buildRolePrompt({
-            roleName: role.name,
-            kind: role.kind,
-            agentId: agent.agentId,
-            waitTimeoutSeconds: this.#waitSeconds(role),
-            rolePrompt: role.promptText,
-            ...(options.seed === undefined
-              ? {}
-              : { replacementSeed: options.seed }),
-          }),
-        );
+        const promptText = buildRolePrompt({
+          roleName: role.name,
+          kind: role.kind,
+          agentId: agent.agentId,
+          waitTimeoutSeconds: this.#waitSeconds(role),
+          rolePrompt: role.promptText,
+          ...(options.seed === undefined
+            ? {}
+            : { replacementSeed: options.seed }),
+        });
+        const promptFile = this.#adapter.writePromptFile(promptText);
         const started = await this.#adapter.startAgent({
           name: agent.agentId,
-          kind: "claude",
+          kind: this.#hostKind(role),
           paneId,
-          args: this.#arguments(role, promptFile),
+          args: this.#arguments(
+            role,
+            { text: promptText, file: promptFile },
+            tree.path,
+          ),
           environment: this.#environment(agent.credential),
           timeoutMs: START_TIMEOUT_MS,
         });
@@ -1613,8 +1638,19 @@ export class Launcher {
         continue;
       }
       if (this.#adapter.paneEntry(row.paneId) !== undefined) continue;
+      const adoptRole = this.#config.roles.find(
+        (r) => r.name === agent.roleName,
+      );
+      if (adoptRole === undefined) {
+        this.#log("adopt_skipped", {
+          agentId: row.agentId,
+          reason: "role_missing",
+        });
+        continue;
+      }
       try {
         await this.#adapter.adoptPane({
+          kind: this.#hostKind(adoptRole),
           paneId: row.paneId,
           role: agent.kind === "PM" ? "PM" : "worker",
           agent: row.agentId,

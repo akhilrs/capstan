@@ -8,7 +8,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ResolvedRole } from "../config/capstan-config.js";
+import {
+  HOST_KINDS,
+  type HostKind,
+  type ResolvedRole,
+} from "../config/capstan-config.js";
 import {
   HERDR_STATES,
   type DeferralReason,
@@ -16,11 +20,10 @@ import {
 } from "../controller/messaging.js";
 import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
 import {
-  TRUST_NO,
-  TRUST_YES,
   extractInputLine,
   freshPromptReady,
-  parseTrustDialog,
+  parseTrustDialogOf,
+  trustTexts,
   stripAnsi,
 } from "./screen.js";
 
@@ -621,6 +624,7 @@ export class HerdrAdapter {
     agent: string;
     workspaceId: string | null;
     worktreePath: string | null;
+    kind: HostKind;
   }): Promise<void> {
     requireMatch(input.paneId, PANE_PATTERN, "pane id");
     if (!isAgentName(input.agent))
@@ -636,7 +640,7 @@ export class HerdrAdapter {
     this.#panes.set(input.paneId, {
       role: input.role,
       phase: "started",
-      kind: "claude",
+      kind: input.kind,
       agent: input.agent,
       ...(input.workspaceId === null ? {} : { workspaceId: input.workspaceId }),
       ...(input.worktreePath === null
@@ -904,7 +908,7 @@ export class HerdrAdapter {
     timeoutMs?: number;
     environment?: Readonly<Record<string, string>>;
   }): Promise<{ status: "started" | "blocked_at_startup" }> {
-    if (input.kind !== "claude")
+    if (!(HOST_KINDS as readonly string[]).includes(input.kind))
       throw new UnsupportedHostError(
         `agent kind ${input.kind} is not supported yet`,
       );
@@ -969,7 +973,7 @@ export class HerdrAdapter {
         this.#panes.set(input.paneId, {
           ...entry,
           phase: "started",
-          kind: "claude",
+          kind: input.kind,
           agent: input.name,
         });
         return { status: "blocked_at_startup" };
@@ -980,7 +984,7 @@ export class HerdrAdapter {
     this.#panes.set(input.paneId, {
       ...entry,
       phase: "started",
-      kind: "claude",
+      kind: input.kind,
       agent: input.name,
     });
     return { status: "started" };
@@ -1095,6 +1099,9 @@ export class HerdrAdapter {
       throw new PhaseError(
         "only a worktree pane the adapter created has a dialog it may answer",
       );
+    const texts = trustTexts(entry.kind);
+    if (texts === undefined)
+      return { handled: false, reason: "host_has_no_trust_dialog" };
     const state = await this.agentState(entry.agent);
     if (state.paneId !== input.paneId || state.status !== "blocked")
       throw new NotBlocked("the agent is not blocked at its own pane");
@@ -1102,7 +1109,10 @@ export class HerdrAdapter {
       | { ok: true; selected: number; target: number }
       | { ok: false; reason: string }
     > => {
-      const dialog = parseTrustDialog(await this.readScreen(input.paneId));
+      const dialog = parseTrustDialogOf(
+        entry.kind,
+        await this.readScreen(input.paneId),
+      );
       if (dialog === undefined) return { ok: false, reason: "no_dialog" };
       if (dialog.kind === "wrapped_path")
         return { ok: false, reason: "wrapped_path" };
@@ -1110,18 +1120,18 @@ export class HerdrAdapter {
         return { ok: false, reason: "dialog_not_last" };
       if (!this.#samePath(dialog.path, entry.worktreePath!))
         return { ok: false, reason: "path_mismatch" };
-      const texts = dialog.options.map((option) => option.text);
+      const shown = dialog.options.map((option) => option.text);
       if (
-        texts.length !== 2 ||
-        !texts.includes(TRUST_YES) ||
-        !texts.includes(TRUST_NO) ||
+        shown.length !== 2 ||
+        !shown.includes(texts.yes) ||
+        !shown.includes(texts.no) ||
         dialog.selectedIndex === undefined
       )
         return { ok: false, reason: "unknown_options" };
       return {
         ok: true,
         selected: dialog.selectedIndex,
-        target: texts.indexOf(TRUST_YES),
+        target: shown.indexOf(texts.yes),
       };
     };
     const first = await check();
@@ -1171,7 +1181,10 @@ export class HerdrAdapter {
     keys.push("enter");
     const deadline = this.#now() + (input.timeoutMs ?? 10_000);
     while (this.#now() < deadline) {
-      if (parseTrustDialog(await this.readScreen(input.paneId)) === undefined)
+      if (
+        parseTrustDialogOf(entry.kind, await this.readScreen(input.paneId)) ===
+        undefined
+      )
         return { handled: true, keys };
       await this.#sleep(this.#pollMs);
     }

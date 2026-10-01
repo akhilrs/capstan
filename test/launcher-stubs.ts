@@ -9,6 +9,7 @@ export const SHA = "b".repeat(40);
 
 export interface StartCall {
   name: string;
+  kind: string;
   paneId: string;
   args: readonly string[];
   environment: Record<string, string> | undefined;
@@ -24,6 +25,7 @@ export class StubAdapter implements LauncherAdapter {
   }
 
   readonly calls: string[] = [];
+  readonly adopted: Array<{ paneId: string; kind: string }> = [];
   readonly starts: StartCall[] = [];
   readonly entries = new Map<string, { agent?: string }>();
   readonly agentPanes = new Map<string, string>();
@@ -160,6 +162,7 @@ export class StubAdapter implements LauncherAdapter {
     if (this.startError) throw this.startError;
     this.starts.push({
       name: input.name,
+      kind: input.kind,
       paneId: input.paneId,
       args: input.args,
       environment:
@@ -207,7 +210,8 @@ export class StubAdapter implements LauncherAdapter {
       if (pane === paneId) this.agentPanes.delete(agent);
   }
 
-  async adoptPane(input: { paneId: string; agent: string }) {
+  async adoptPane(input: { paneId: string; agent: string; kind: string }) {
+    this.adopted.push({ paneId: input.paneId, kind: input.kind });
     const error = this.adoptErrors.get(input.paneId);
     if (error) throw error;
     this.calls.push(`adopt:${input.paneId}`);

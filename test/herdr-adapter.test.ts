@@ -40,7 +40,7 @@ import {
   type KeyLogEntry,
 } from "../src/herdr/adapter.js";
 import { HerdrError, type HerdrResult } from "../src/herdr/runner.js";
-import { TRUST_NO, TRUST_YES } from "../src/herdr/screen.js";
+import { TRUST_NO, TRUST_YES, stripAnsi } from "../src/herdr/screen.js";
 
 const RULE = "─".repeat(40);
 const NBSP = " ";
@@ -329,6 +329,7 @@ async function startedWorker(
   h: Harness,
   screen = idleScreen(),
   statuses = ["idle"],
+  kind: "claude" | "codex" | "omp" = "claude",
 ): Promise<{ paneId: string; agent: string; pane: FakePane }> {
   const { paneId } = await h.adapter.createWorktree({
     workspaceId: "w9",
@@ -337,7 +338,7 @@ async function startedWorker(
   });
   await h.adapter.startAgent({
     name: "dev",
-    kind: "claude",
+    kind,
     paneId,
     args: [],
     environment: CLEAN_ENV,
@@ -1690,7 +1691,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
     await assert.rejects(
       h.adapter.startAgent({
         name: "x",
-        kind: "codex",
+        kind: "gemini",
         paneId: second.paneId,
         args: [],
         environment: CLEAN_ENV,
@@ -2556,6 +2557,7 @@ test("a second adapter adopts a pane the first one started, after Herdr confirms
     const next = secondAdapter(h);
     assert.equal(next.paneForAgent("dev"), undefined);
     await next.adoptPane({
+      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2581,6 +2583,7 @@ test("a second adapter adopts a pane the first one started, after Herdr confirms
     );
     await assert.rejects(
       next.adoptPane({
+        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "dev",
@@ -2602,6 +2605,7 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     const next = secondAdapter(h);
     await assert.rejects(
       next.adoptPane({
+        kind: "claude",
         paneId: "w77:p1",
         role: "worker",
         agent: "dev",
@@ -2613,6 +2617,7 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     h.fake.agentStates.set("dev", { paneId: "w78:p1", statuses: ["idle"] });
     await assert.rejects(
       next.adoptPane({
+        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "dev",
@@ -2623,6 +2628,7 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     );
     await assert.rejects(
       next.adoptPane({
+        kind: "claude",
         paneId: worker.paneId,
         role: "worker",
         agent: "a:b",
@@ -2633,6 +2639,7 @@ test("adoption registers nothing when the pane is gone, the name points elsewher
     );
     await assert.rejects(
       next.adoptPane({
+        kind: "claude",
         paneId: "bad",
         role: "worker",
         agent: "dev",
@@ -2746,6 +2753,7 @@ test("a dialog that redraws a moment after the Down key is still answered, with 
       })(),
     });
     await slow.adoptPane({
+      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2811,6 +2819,7 @@ test("half-drawn reads during the redraw are waited out, but a different path st
       })(),
     });
     await adapter.adoptPane({
+      kind: "claude",
       paneId: worker.paneId,
       role: "worker",
       agent: "dev",
@@ -2852,6 +2861,7 @@ test("half-drawn reads during the redraw are waited out, but a different path st
         now: () => 0,
       });
       await second.adoptPane({
+        kind: "claude",
         paneId: other.paneId,
         role: "worker",
         agent: "dev",
@@ -3186,5 +3196,128 @@ test("a layout without an explicit zoomed=false counts as zoomed, and a removed 
   } finally {
     h.adapter.close();
     h.fake.cleanup();
+  }
+});
+
+test("the input line of a Codex or OMP agent is read with that host's parser", async () => {
+  for (const [kind, empty, typed] of [
+    ["codex", "codex-idle-empty.ansi", "codex-idle-typed.ansi"],
+    ["omp", "omp-idle-empty.ansi", "omp-idle-typed.ansi"],
+  ] as const) {
+    const h = harness();
+    try {
+      const worker = await startedWorker(h, fixture(empty), ["idle"], kind);
+      assert.equal(h.adapter.paneEntry(worker.paneId)!.kind, kind);
+      assert.equal(await h.adapter.readInput(worker.paneId), "", kind);
+      worker.pane.screen = fixture(typed);
+      assert.equal(
+        await h.adapter.readInput(worker.paneId),
+        "hello typed",
+        kind,
+      );
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+});
+
+test("a Codex start that is blocked at startup keeps its kind and its trust dialog is answered with Enter only", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "cap/task/cx-g1",
+      label: "cx",
+    });
+    h.fake.startError = {
+      code: "agent_not_ready",
+      message: "blocked during startup",
+    };
+    assert.deepEqual(
+      await h.adapter.startAgent({
+        name: "cx",
+        kind: "codex",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
+      { status: "blocked_at_startup" },
+    );
+    h.fake.startError = undefined;
+    assert.equal(h.adapter.paneEntry(paneId)!.kind, "codex");
+    const checkout = h.adapter.paneEntry(paneId)!.worktreePath!;
+    const pane = h.fake.panes.get(paneId)!;
+    pane.screen = stripAnsi(fixture("codex-trust-dialog.ansi")).replace(
+      "/tmp/s7q",
+      checkout,
+    );
+    pane.status = "blocked";
+    h.fake.agentStates.set("cx", { paneId, statuses: ["blocked"] });
+    h.fake.onKey = (target, key) => {
+      if (target === pane && key === "enter") {
+        pane.status = "idle";
+        pane.screen = fixture("codex-idle-empty.ansi");
+      }
+    };
+    const keys: string[] = [];
+    const outcome = await h.adapter.answerTrustDialog({
+      paneId,
+      log: (entry) => {
+        keys.push(entry.key);
+      },
+    });
+    assert.deepEqual(outcome, { handled: true, keys: ["enter"] });
+    assert.deepEqual(keys, ["enter"]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("an OMP agent has no trust dialog to answer, and a Codex dialog for another path is left alone", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(
+      h,
+      fixture("omp-idle-empty.ansi"),
+      ["idle"],
+      "omp",
+    );
+    assert.deepEqual(
+      await h.adapter.answerTrustDialog({
+        paneId: worker.paneId,
+        log: () => {},
+      }),
+      { handled: false, reason: "host_has_no_trust_dialog" },
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+  const g = harness();
+  try {
+    const worker = await startedWorker(
+      g,
+      fixture("codex-idle-empty.ansi"),
+      ["idle"],
+      "codex",
+    );
+    worker.pane.screen = stripAnsi(fixture("codex-trust-dialog.ansi"));
+    worker.pane.status = "blocked";
+    g.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["blocked"],
+    });
+    assert.deepEqual(
+      await g.adapter.answerTrustDialog({
+        paneId: worker.paneId,
+        log: () => {},
+      }),
+      { handled: false, reason: "path_mismatch" },
+    );
+  } finally {
+    g.adapter.close();
+    g.fake.cleanup();
   }
 });

@@ -1091,3 +1091,95 @@ test("timers.finding_check_seconds defaults to 1800 and accepts 60 to 86400", ()
       /timers\.finding_check_seconds/,
     );
 });
+
+const OTHER_HOSTS = `schema_version = 1
+
+[hosts.claude]
+kind = "claude"
+
+[hosts.cx]
+kind = "codex"
+
+[hosts.om]
+kind = "omp"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[roles.dev]
+kind = "Developer"
+host = "cx"
+permission_mode = "acceptEdits"
+
+[roles.dev2]
+kind = "Developer"
+host = "om"
+permission_mode = "auto"
+`;
+
+test("a Developer role may use a Codex or an OMP host with an unattended permission mode", () => {
+  withConfig(OTHER_HOSTS, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.deepEqual(
+      config.roles.map((role) => [role.name, role.host]),
+      [
+        ["pm", "claude"],
+        ["dev", "cx"],
+        ["dev2", "om"],
+      ],
+    );
+  });
+});
+
+for (const [name, content, pattern] of [
+  [
+    "a PM on Codex",
+    OTHER_HOSTS.replace(
+      'kind = "PM"\nhost = "claude"',
+      'kind = "PM"\nhost = "cx"',
+    ),
+    /roles\.pm: a PM role is read-only by design and only a claude host can enforce that/,
+  ],
+  [
+    "a Supervisor on OMP",
+    `${OTHER_HOSTS}\n[roles.watch]\nkind = "Supervisor"\nhost = "om"\npermission_mode = "auto"\n`,
+    /roles\.watch: a Supervisor role is read-only/,
+  ],
+  [
+    "allow rules on Codex",
+    OTHER_HOSTS.replace(
+      'permission_mode = "acceptEdits"',
+      'permission_mode = "acceptEdits"\nallow = ["Bash(git status)"]',
+    ),
+    /roles\.dev: allow and deny are Claude Code tool rules/,
+  ],
+  [
+    "deny rules on OMP",
+    OTHER_HOSTS.replace(
+      'permission_mode = "auto"',
+      'permission_mode = "auto"\ndeny = ["Edit"]',
+    ),
+    /roles\.dev2: allow and deny are Claude Code tool rules/,
+  ],
+  [
+    "the default permission mode on Codex",
+    OTHER_HOSTS.replace('permission_mode = "acceptEdits"\n', ""),
+    /roles\.dev\.permission_mode must be acceptEdits or auto on host cx \(codex\)/,
+  ],
+  [
+    "plan mode on OMP",
+    OTHER_HOSTS.replace('permission_mode = "auto"', 'permission_mode = "plan"'),
+    /roles\.dev2\.permission_mode must be acceptEdits or auto on host om \(omp\)/,
+  ],
+] as const)
+  test(`configuration refuses ${name}`, () => {
+    assertRejected(content, pattern);
+  });
+
+test("a legacy runtime or Docker key is refused as an unknown key", () => {
+  assertRejected(
+    `${VALID}\n[runtime]\nimage = "x"\n`,
+    /unknown|not (a )?recognized|runtime/i,
+  );
+});
