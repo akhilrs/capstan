@@ -23,6 +23,7 @@ import {
 } from "./herdr/adapter.js";
 import { HerdrError } from "./herdr/runner.js";
 import { sanitizeScreen } from "./observe.js";
+import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
 import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
 import { choosePlacement, type LayoutPane } from "./layout.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
@@ -67,6 +68,10 @@ export interface GitRunner {
   worktreeByBranch(branch: string): string | undefined;
   /** Whether `capstan/...` names a valid branch, checked by git before a worktree is created for it. */
   branchNameValid(branch: string): boolean;
+  /** The commit a branch points at, or null when there is no such branch. */
+  branchTip(branch: string): string | null;
+  /** Whether `sha` (40 lowercase hex characters) resolves as a commit and is an ancestor of one of the refs. */
+  reachableCommit(sha: string, from: readonly string[]): boolean;
 }
 
 export class LauncherError extends Error {
@@ -141,6 +146,24 @@ export interface ReleaseResult extends ReleaseOutcome {
   readonly branch: string | null;
   readonly cancelledMessageIds: readonly string[];
 }
+
+/** What `cstan replace` answers: the new agent (as a spawn answers) and what happened to the old one, or why nothing was started. */
+export type ReplaceResult =
+  | (SpawnResult & {
+      readonly predecessor: string;
+      readonly baseSha: string;
+      readonly baseSource: "predecessor" | "head";
+      /** null when the predecessor was already ended. */
+      readonly predecessorWorktreeRemoved: boolean | null;
+      readonly cancelledMessageIds: readonly string[];
+      /** False when the ledger could not record the replacement; the new agent runs all the same. */
+      readonly replacementRecorded: boolean;
+    })
+  | {
+      readonly state: "blocked";
+      readonly predecessor: string;
+      readonly reason: string;
+    };
 
 export interface LauncherStatus {
   readonly cleanupFailed: readonly {
@@ -232,6 +255,42 @@ export function defaultGit(projectRoot: string): GitRunner {
     },
     worktreeRemove: (worktreePath) =>
       git(["worktree", "remove", worktreePath]).status === 0,
+    branchTip(branch) {
+      const result = git([
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `refs/heads/${branch}^{commit}`,
+      ]);
+      const sha = typeof result.stdout === "string" ? result.stdout.trim() : "";
+      return result.status === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+    },
+    reachableCommit(sha, from) {
+      if (!/^[0-9a-f]{40}$/.test(sha)) return false;
+      // `--end-of-options` came with git 2.24; an older git must not be mistaken for "no such commit".
+      const version = /git version (\d+)\.(\d+)/.exec(
+        String(git(["--version"]).stdout ?? ""),
+      );
+      if (
+        version === null ||
+        Number(version[1]) < 2 ||
+        (Number(version[1]) === 2 && Number(version[2]) < 24)
+      )
+        throw new LauncherError(
+          "old_git",
+          "git 2.24 or newer is needed to check a commit",
+        );
+      const verify = git([
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        `${sha}^{commit}`,
+      ]);
+      if (verify.status !== 0) return false;
+      return from.some(
+        (ref) => git(["merge-base", "--is-ancestor", sha, ref]).status === 0,
+      );
+    },
     branchNameValid: (branch) =>
       git(["check-ref-format", `refs/heads/${branch}`]).status === 0,
     deleteBranchIf: (branch, sha) =>
@@ -265,6 +324,8 @@ export class Launcher {
   readonly #credential: string;
   readonly #node: string;
   readonly #baseEnvironment: NodeJS.ProcessEnv;
+  /** Predecessors whose replacement is running now. */
+  readonly #replacing = new Set<string>();
   /** How many agents this launcher has started; an operation that raised it started one. */
   #agentsStarted = 0;
   readonly #git: GitRunner;
@@ -792,6 +853,113 @@ export class Launcher {
     });
   }
 
+  /**
+   * Replaces a worker: releases it (when it is still active) and starts a new
+   * agent of the same role whose prompt carries a seed built from the ledger.
+   * Nothing the predecessor was asked to do is sent again.
+   */
+  async replace(agentId: string): Promise<ReplaceResult> {
+    const agent = this.#core.agentRecord(agentId);
+    if (agent === undefined)
+      throw new LauncherError("unknown_agent", `there is no agent ${agentId}`);
+    if (agent.kind === "PM")
+      throw new LauncherError(
+        "kind_not_replaceable",
+        "the PM is restarted with cstan pm restart, not replaced",
+      );
+    if (this.#replacing.has(agentId))
+      throw new LauncherError(
+        "replace_running",
+        `a replacement of ${agentId} is already running`,
+      );
+    if (this.#core.isAgentReplaced(agentId))
+      throw new LauncherError(
+        "already_replaced",
+        `${agentId} was already replaced`,
+      );
+    if (this.#core.runningIntegrations(this.#credential).length > 0)
+      throw new LauncherError(
+        "integration_running",
+        "an integration is running; replace after it finished",
+      );
+    const role = this.#config.roles.find((r) => r.name === agent.roleName);
+    if (role === undefined)
+      throw new LauncherError(
+        "unknown_role",
+        `the configuration has no role ${agent.roleName}`,
+      );
+    this.#assertRoleSynced(role);
+    const data = this.#core.agentSeed(agentId);
+    const tip = data.branch === null ? null : this.#git.branchTip(data.branch);
+    const reachableFrom = [
+      ...(tip === null ? [] : [`refs/heads/${data.branch}`]),
+      "HEAD",
+    ];
+    const base: SeedBase =
+      data.lastAcceptedCommit !== null &&
+      this.#git.reachableCommit(data.lastAcceptedCommit, reachableFrom)
+        ? { sha: data.lastAcceptedCommit, source: "predecessor" }
+        : { sha: this.#git.headSha(), source: "head" };
+    let seed: string;
+    try {
+      seed = buildSeed(data, base, tip);
+    } catch (error) {
+      if (error instanceof SeedTooLargeError)
+        throw new LauncherError("seed_too_large", error.message);
+      throw error;
+    }
+    this.#replacing.add(agentId);
+    try {
+      let released: ReleaseResult | undefined;
+      if (agent.state === "active") {
+        released = await this.release(agentId);
+        if (released.paneClosed === false)
+          return {
+            state: "blocked",
+            predecessor: agentId,
+            reason: `${agentId} was released but its pane is still open: close it in Herdr, then run cstan replace ${agentId} again (it works on an ended agent and starts the replacement with the seed)`,
+          };
+      }
+      let spawned: SpawnResult;
+      try {
+        spawned = await this.spawn(agent.roleName, {
+          baseSha: base.sha,
+          seed,
+        });
+      } catch (error) {
+        throw new LauncherError(
+          "replacement_not_started",
+          `${agentId} was ${released === undefined ? "already ended" : "released"} but the replacement could not start (${error instanceof Error ? error.message : String(error)}); run cstan replace ${agentId} again`,
+        );
+      }
+      let replacementRecorded = true;
+      try {
+        this.#core.recordAgentReplaced(this.#context(), {
+          predecessorId: agentId,
+          successorId: spawned.agentId,
+        });
+      } catch (error) {
+        replacementRecorded = false;
+        this.#log("replacement_not_recorded", {
+          predecessor: agentId,
+          successor: spawned.agentId,
+          error: String(error),
+        });
+      }
+      return {
+        ...spawned,
+        predecessor: agentId,
+        baseSha: base.sha,
+        baseSource: base.source,
+        predecessorWorktreeRemoved: released?.worktreeRemoved ?? null,
+        cancelledMessageIds: released?.cancelledMessageIds ?? [],
+        replacementRecorded,
+      };
+    } finally {
+      this.#replacing.delete(agentId);
+    }
+  }
+
   /** Ends a worker and frees its pane, worktree and, when it holds no commits, its branch. A branch with commits is kept for the user to merge. */
   release(agentId: string): Promise<ReleaseResult> {
     return this.#run(async () => {
@@ -933,7 +1101,7 @@ export class Launcher {
   /** `baseSha` makes the worker's worktree and branch start at that commit (a review) instead of the project's HEAD. */
   spawn(
     roleName: string,
-    options: { readonly baseSha?: string } = {},
+    options: { readonly baseSha?: string; readonly seed?: string } = {},
   ): Promise<SpawnResult> {
     if (
       options.baseSha !== undefined &&
@@ -1087,6 +1255,9 @@ export class Launcher {
             agentId: agent.agentId,
             waitTimeoutSeconds: this.#waitSeconds(role),
             rolePrompt: role.promptText,
+            ...(options.seed === undefined
+              ? {}
+              : { replacementSeed: options.seed }),
           }),
         );
         const started = await this.#adapter.startAgent({
@@ -1208,6 +1379,10 @@ export class Launcher {
       /** True only when a pane move was started and its result never reached the ledger. */
       moveMayHaveHappened?: boolean;
     },
+    options: {
+      readonly lost?: "found_dead_at_start";
+      readonly branch?: string | null;
+    } = {},
   ): Promise<
     | { readonly ended: false; readonly reason: string }
     | ({
@@ -1220,6 +1395,7 @@ export class Launcher {
       cancelledMessageIds = this.#core.endAgent(
         this.#context(),
         agentId,
+        options,
       ).cancelledMessageIds;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -1450,17 +1626,21 @@ export class Launcher {
           this.#log("pane_lost", { agentId: row.agentId });
           this.#core.clearAgentPane(this.#context(), row.agentId);
           if (agent.kind !== "PM")
-            await this.#cleanupAgent(row.agentId, {
-              paneId: row.paneId,
-              ...(this.#interruptedMove(row.workspaceId)
-                ? { moveMayHaveHappened: true }
-                : {}),
-              ...(row.worktreePath === null
-                ? {}
-                : { worktreePath: row.worktreePath }),
-              ...(row.branch === null ? {} : { branch: row.branch }),
-              ...(row.baseSha === null ? {} : { baseSha: row.baseSha }),
-            });
+            await this.#cleanupAgent(
+              row.agentId,
+              {
+                paneId: row.paneId,
+                ...(this.#interruptedMove(row.workspaceId)
+                  ? { moveMayHaveHappened: true }
+                  : {}),
+                ...(row.worktreePath === null
+                  ? {}
+                  : { worktreePath: row.worktreePath }),
+                ...(row.branch === null ? {} : { branch: row.branch }),
+                ...(row.baseSha === null ? {} : { baseSha: row.baseSha }),
+              },
+              { lost: "found_dead_at_start", branch: row.branch },
+            );
         } else
           this.#log("adopt_failed", {
             agentId: row.agentId,

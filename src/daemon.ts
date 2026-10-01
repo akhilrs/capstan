@@ -97,6 +97,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   launch: { access: "operator" },
   spawn: { access: "any" },
   release: { access: "any" },
+  replace: { access: "any" },
   resolve: { access: "operator" },
   shutdown: { access: "operator" },
 };
