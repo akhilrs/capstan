@@ -255,7 +255,7 @@ test("a conflict is recorded with the report and files, reported to the PM when 
     git.mergeResult = {
       kind: "conflicted",
       reportId: ids[1]!,
-      files: ["src/a.ts", "src/b.ts"],
+      files: ["src/a.ts", "evil\\x0aname"],
     };
     const before = h.core.messagesFor(h.pm.agentId).length;
     const record = await integrate(deps(h, git), {
@@ -264,13 +264,13 @@ test("a conflict is recorded with the report and files, reported to the PM when 
     });
     assert.equal(record.state, "conflicted");
     assert.equal(record.conflictReportId, ids[1]);
-    assert.deepEqual(record.conflictFiles, ["src/a.ts", "src/b.ts"]);
+    assert.deepEqual(record.conflictFiles, ["src/a.ts", "evil\\x0aname"]);
     assert.equal(record.headSha, null);
     const messages = h.core.messagesFor(h.pm.agentId);
     assert.equal(messages.length, before + 1);
     const notice = messages.at(-1)!;
     assert.ok(notice.body.includes("blocked by a merge conflict"));
-    assert.ok(notice.body.includes("src/a.ts, src/b.ts"));
+    assert.ok(notice.body.includes("src/a.ts, evil\\x0aname"));
     assert.equal(h.core.senderOf(notice.senderActorId).role, "controller");
     assert.ok(!git.calls.some((c) => c.startsWith("delete")));
     await assert.rejects(
@@ -479,6 +479,20 @@ test("the ledger refuses to rewrite an integration or its reports and to move a 
         /only moves forward/,
       );
       assert.throws(() => db.exec("DELETE FROM integrations"), /immutable/);
+      assert.throws(
+        () =>
+          db.exec(
+            `INSERT INTO integration_reports SELECT project_id, integration_id, 9, report_id FROM integration_reports LIMIT 1`,
+          ),
+        /running integration/,
+      );
+      assert.throws(
+        () =>
+          db.exec(
+            `UPDATE integrations SET branch = 'capstan/integration/other'`,
+          ),
+        /immutable/,
+      );
       assert.throws(
         () => db.exec("DELETE FROM integration_reports"),
         /immutable/,

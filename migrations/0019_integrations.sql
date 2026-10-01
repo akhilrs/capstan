@@ -15,6 +15,9 @@ CREATE TABLE integrations (
   PRIMARY KEY (project_id, integration_id),
   UNIQUE (project_id, sequence),
   UNIQUE (project_id, branch),
+  CHECK (branch = 'capstan/integration/' || integration_id),
+  CHECK (head_sha IS NULL OR head_sha <> base_sha),
+  CHECK (conflict_files_json IS NULL OR (json_valid(conflict_files_json) AND json_array_length(conflict_files_json) > 0)),
   CHECK ((state IN ('merged', 'confirmed', 'discarded') AND head_sha IS NOT NULL) OR (state NOT IN ('merged', 'confirmed', 'discarded') AND head_sha IS NULL)),
   CHECK ((state = 'conflicted' AND conflict_report_id IS NOT NULL AND conflict_files_json IS NOT NULL) OR (state <> 'conflicted' AND conflict_report_id IS NULL AND conflict_files_json IS NULL)),
   CHECK ((state = 'failed' AND failure_reason IS NOT NULL) OR (state <> 'failed' AND failure_reason IS NULL)),
@@ -34,6 +37,13 @@ CREATE TABLE integration_reports (
   FOREIGN KEY (project_id, report_id) REFERENCES agent_reports(project_id, report_id)
 ) STRICT, WITHOUT ROWID;
 
+CREATE TRIGGER integration_reports_only_while_running BEFORE INSERT ON integration_reports
+  WHEN (SELECT state FROM integrations WHERE project_id = NEW.project_id AND integration_id = NEW.integration_id) IS NOT 'running'
+  BEGIN SELECT RAISE(ABORT, 'reports can only be added to a running integration'); END;
+CREATE TRIGGER integrations_conflict_report_is_a_member BEFORE UPDATE OF conflict_report_id ON integrations
+  WHEN NEW.conflict_report_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM integration_reports WHERE project_id = NEW.project_id AND integration_id = NEW.integration_id AND report_id = NEW.conflict_report_id)
+  BEGIN SELECT RAISE(ABORT, 'the conflicting report is not part of the integration'); END;
 CREATE TRIGGER immutable_integration_reports_update BEFORE UPDATE ON integration_reports BEGIN SELECT RAISE(ABORT, 'integration reports are immutable'); END;
 CREATE TRIGGER immutable_integration_reports_delete BEFORE DELETE ON integration_reports BEGIN SELECT RAISE(ABORT, 'integration reports are immutable'); END;
 CREATE TRIGGER immutable_integrations_identity BEFORE UPDATE OF project_id, integration_id, sequence, base_sha, branch, requested_by, created_at ON integrations BEGIN SELECT RAISE(ABORT, 'integration identity is immutable'); END;

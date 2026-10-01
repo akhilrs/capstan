@@ -10,6 +10,7 @@ import {
   headCommit,
   isInHead,
   mergeIntoBranch,
+  printablePath,
 } from "../src/git.js";
 
 const IDENTITY = {
@@ -145,6 +146,49 @@ test("a conflict aborts, names the report and the files, and leaves no worktree,
     assert.equal(await headCommit(repo.root), repo.base);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("conflict paths are escaped, kept distinct and capped", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-igit-"));
+  try {
+    git(root, "init", "-q", "-b", "main");
+    const names = [
+      "0-a\nb.txt",
+      "0-caf\u00e9.txt",
+      '0-q"uote.txt',
+      "0-back\\slash.txt",
+    ];
+    for (let i = 0; i < 52; i += 1) names.push(`n${i}.txt`);
+    const write = (text: string): string => {
+      for (const name of names) writeFileSync(path.join(root, name), text);
+      git(root, "add", "-A");
+      git(root, "commit", "-q", "-m", text);
+      return git(root, "rev-parse", "HEAD");
+    };
+    const base = write("base\n");
+    git(root, "checkout", "-q", "-b", "x");
+    const x = write("x\n");
+    git(root, "checkout", "-q", "-b", "y", base);
+    const y = write("y\n");
+    git(root, "checkout", "-q", "main");
+    const result = await mergeIntoBranch(root, {
+      baseSha: x,
+      branch: "capstan/integration/paths",
+      merges: [{ reportId: "r", sha: y, message: "m" }],
+    });
+    assert.equal(result.kind, "conflicted");
+    if (result.kind !== "conflicted") return;
+    assert.equal(result.files.length, 51);
+    assert.equal(result.files.at(-1), "(and 6 more)");
+    assert.ok(result.files.every((f) => /^[\x20-\x7e]+$/.test(f)));
+    assert.ok(result.files.includes("0-a\\x0ab.txt"));
+    assert.ok(result.files.includes("0-caf\\xc3\\xa9.txt"));
+    assert.ok(result.files.includes("0-q\\x22uote.txt"));
+    assert.ok(result.files.includes("0-back\\x5cslash.txt"));
+    assert.equal(printablePath("x".repeat(300)).length, 203);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

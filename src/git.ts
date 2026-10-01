@@ -6,6 +6,10 @@
  * alternates and branch refs; that same-user hole is DEC-005's, not closed here.
  */
 import { execFile } from "node:child_process";
+import {
+  MAX_CONFLICT_FILES,
+  MAX_CONFLICT_PATH_CHARS,
+} from "./controller/core.js";
 
 const GIT_TIMEOUT_MS = 10_000;
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -38,6 +42,7 @@ interface GitOutcome {
 }
 
 interface RunOptions {
+  readonly encoding?: "utf8" | "latin1";
   readonly timeoutMs?: number;
   readonly maxBuffer?: number;
   readonly env?: NodeJS.ProcessEnv;
@@ -57,7 +62,7 @@ function runGit(
         timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
         killSignal: "SIGKILL",
         maxBuffer: options.maxBuffer ?? 64 * 1024,
-        encoding: "utf8",
+        encoding: options.encoding ?? "utf8",
       },
       (error, stdout) => {
         if (error === null) return resolve({ code: 0, stdout });
@@ -184,6 +189,22 @@ const WRITE_OPTIONS: RunOptions = {
 };
 const NO_COMMIT = "0".repeat(40);
 
+/**
+ * A path as text that is safe to show and to store: git's bytes were read one
+ * character per byte, so every byte outside printable ASCII (a quote, a
+ * backslash, a newline, any part of a UTF-8 name) becomes \xNN. Two different
+ * paths stay different.
+ */
+export function printablePath(raw: string): string {
+  const text = raw.replace(
+    /[^\x20-\x7e]|["\\]/g,
+    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+  return text.length > MAX_CONFLICT_PATH_CHARS
+    ? `${text.slice(0, MAX_CONFLICT_PATH_CHARS)}...`
+    : text;
+}
+
 /** The commit HEAD points at in the repository, as a full sha1. */
 export async function headCommit(repoRoot: string): Promise<string> {
   const format = await runGit(repoRoot, ["rev-parse", "--show-object-format"]);
@@ -252,13 +273,17 @@ export async function mergeIntoBranch(
     const merged = await runGit(
       repoRoot,
       ["merge-tree", "--write-tree", "--name-only", "-z", head, merge.sha],
-      WRITE_OPTIONS,
+      { ...WRITE_OPTIONS, encoding: "latin1" },
     );
     const fields = merged.stdout.split("\0");
     if (merged.code === 1) {
-      const files = [
-        ...new Set(fields.slice(1, fields.indexOf("", 1)).filter(Boolean)),
-      ];
+      const end = fields.indexOf("", 1);
+      const names = [
+        ...new Set(fields.slice(1, end < 0 ? undefined : end)),
+      ].filter((name) => name !== "");
+      const files = names.slice(0, MAX_CONFLICT_FILES).map(printablePath);
+      if (names.length > MAX_CONFLICT_FILES)
+        files.push(`(and ${names.length - MAX_CONFLICT_FILES} more)`);
       if (files.length > 0)
         return { kind: "conflicted", reportId: merge.reportId, files };
     }
@@ -299,7 +324,11 @@ export async function mergeIntoBranch(
       kind: "failed",
       reason: "every report is already contained in the base commit",
     };
-  const created = await runGit(repoRoot, ["update-ref", ref, head, NO_COMMIT]);
+  const created = await runGit(
+    repoRoot,
+    ["update-ref", ref, head, NO_COMMIT],
+    WRITE_OPTIONS,
+  );
   if (created.code !== 0)
     return {
       kind: "failed",

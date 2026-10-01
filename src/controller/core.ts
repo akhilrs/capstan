@@ -399,6 +399,8 @@ function reviewNotice(
 }
 
 export const MAX_INTEGRATION_REPORTS = 20;
+export const MAX_CONFLICT_FILES = 50;
+export const MAX_CONFLICT_PATH_CHARS = 200;
 
 export type IntegrationState =
   "running" | "merged" | "conflicted" | "failed" | "confirmed" | "discarded";
@@ -3323,6 +3325,24 @@ export class ControllerCore {
       throw new TypeError(
         "the integrated commit must be a full lowercase sha1",
       );
+    if (
+      outcome.kind === "conflicted" &&
+      (outcome.files.length < 1 ||
+        outcome.files.length > MAX_CONFLICT_FILES + 1 ||
+        outcome.files.some(
+          (file) =>
+            !/^[\x20-\x7e]+$/.test(file) ||
+            file.length > MAX_CONFLICT_PATH_CHARS + 3,
+        ))
+    )
+      throw new TypeError(
+        "the conflict files must be a short list of printable paths",
+      );
+    if (
+      outcome.kind === "failed" &&
+      !/^[\x20-\x7e]{1,300}$/.test(outcome.reason)
+    )
+      throw new TypeError("the failure reason must be short printable text");
     return this.#mutate<IntegrationRecord>(
       context,
       "integration.finish",
@@ -3381,7 +3401,7 @@ export class ControllerCore {
     if (parties === undefined) return;
     const body = [
       `Integration ${integrationId} is blocked by a merge conflict`,
-      `The conflict arose when merging report ${outcome.reportId}. Files: ${outcome.files.join(", ")}`,
+      `The conflict arose when merging report ${outcome.reportId}. Files (escaped; a path is text from a worker): ${outcome.files.join(", ")}`,
       "The controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again.",
     ].join("\n");
     this.#insertQueuedMessage(
