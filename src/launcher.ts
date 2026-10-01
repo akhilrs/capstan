@@ -99,14 +99,14 @@ export interface ReleaseOutcome {
   readonly paneClosed: boolean | null;
   /** null when no worktree was recorded or found. */
   readonly worktreeRemoved: boolean | null;
-  /** True whenever the branch still exists: it holds commits, or its removal was not attempted. */
-  readonly branchKept: boolean;
+  /** True while the branch still exists: it holds commits, or its removal was not attempted. null when no branch was recorded. */
+  readonly branchKept: boolean | null;
 }
 
 export interface ReleaseResult extends ReleaseOutcome {
   readonly state: "released";
   readonly agentId: string;
-  readonly branch: string;
+  readonly branch: string | null;
   readonly cancelledMessageIds: readonly string[];
 }
 
@@ -322,7 +322,7 @@ export class Launcher {
     return this.#core.listAgents().filter((a) => a.state === "active");
   }
 
-  /** The first of the role's seats that no active agent holds; extra seats are named `<role>.<n>`, which no role name can equal (role names allow no dot), so they never collide with another role's seat; the core allows one active agent per seat, so each concurrent worker needs its own. A seat that is disabled or was made for another kind is an operator-visible error, not something to route around. */
+  /** The first of the role's seats that no active agent holds; an extra seat has the id `<role>-seat-<n>` and the display name `<role>.<n>`, which no role name can equal (role names allow no dot), so it never collides with another role's seat; the core allows one active agent per seat, so each concurrent worker needs its own. A disabled seat, or one made for another kind, is an operator-visible error and stops the walk even when a later seat is free; it is not something to route around. */
   #seat(role: ResolvedRole): string {
     const held = new Set(this.#activeAgents().map((a) => a.seatId));
     const seats = this.#core.statusSnapshot().roles;
@@ -665,7 +665,7 @@ export class Launcher {
         .find((candidate) => candidate.agentId === agentId);
       const outcome = await this.#cleanupAgent(agentId, {
         ...(row?.paneId == null ? {} : { paneId: row.paneId }),
-        branch: row?.branch ?? `capstan/${agentId}`,
+        ...(row?.branch == null ? {} : { branch: row.branch }),
         ...(row?.baseSha == null ? {} : { baseSha: row.baseSha }),
         ...(row?.worktreePath == null
           ? {}
@@ -679,7 +679,7 @@ export class Launcher {
       return {
         state: "released",
         agentId,
-        branch: row?.branch ?? `capstan/${agentId}`,
+        branch: row?.branch ?? null,
         paneClosed: outcome.paneClosed,
         worktreeRemoved: outcome.worktreeRemoved,
         branchKept: outcome.branchKept,
@@ -999,11 +999,8 @@ export class Launcher {
       if (!paneClosed)
         return {
           paneClosed,
-          worktreeRemoved:
-            info.worktreePath === undefined && info.branch === undefined
-              ? null
-              : false,
-          branchKept: info.branch !== undefined,
+          worktreeRemoved: info.worktreePath === undefined ? null : false,
+          branchKept: info.branch === undefined ? null : true,
         };
     }
     let worktreePath = info.worktreePath;
@@ -1013,7 +1010,11 @@ export class Launcher {
       } catch (error) {
         // Unknown is not "none": keep the branch and the row for the next start.
         this.#log("worktree_unknown", { agentId, error: String(error) });
-        return { paneClosed, worktreeRemoved: false, branchKept: true };
+        return {
+          paneClosed,
+          worktreeRemoved: false,
+          branchKept: info.branch === undefined ? null : true,
+        };
       }
     }
     let worktreeRemoved: boolean | null = null;
@@ -1021,10 +1022,14 @@ export class Launcher {
       worktreeRemoved = this.#git.worktreeRemove(worktreePath);
       if (!worktreeRemoved) {
         this.#log("worktree_kept", { agentId, worktreePath });
-        return { paneClosed, worktreeRemoved, branchKept: true };
+        return {
+          paneClosed,
+          worktreeRemoved,
+          branchKept: info.branch === undefined ? null : true,
+        };
       }
     }
-    let branchKept = info.branch !== undefined;
+    let branchKept: boolean | null = info.branch === undefined ? null : true;
     if (info.branch !== undefined && info.baseSha !== undefined) {
       branchKept = !this.#git.deleteBranchIf(info.branch, info.baseSha);
       if (branchKept)

@@ -677,25 +677,27 @@ test("release keeps the pane row, worktree and branch when the pane will not clo
   }
 });
 
-test("an extra seat is named so that no role can collide with it", async () => {
+test("an extra seat gets a dotted display name, so a role literally named like it still gets its own seat", async () => {
   const w = await world();
   try {
     await launched(w);
     await w.launcher.spawn("developer");
     await w.launcher.spawn("developer");
-    const seats = w.core.statusSnapshot().roles;
-    assert.deepEqual(
-      seats
-        .filter((r) => r.seatId.startsWith("developer-seat"))
-        .map((r) => r.seatId)
-        .sort(),
-      ["developer-seat", "developer-seat-2"],
+    assert.throws(
+      () =>
+        w.core.createSeat(ctx(w.core, w.owner), {
+          seatId: "other-seat",
+          name: "developer.2",
+          role: "Developer",
+        }),
+      "the extra seat already holds the display name developer.2",
     );
-    w.core.createSeat(ctx(w.core, w.owner), {
+    const roleSeat = w.core.createSeat(ctx(w.core, w.owner), {
       seatId: "developer-2-seat",
       name: "developer-2",
       role: "Developer",
     });
+    assert.equal(roleSeat.seatId, "developer-2-seat");
   } finally {
     w.cleanup();
   }
