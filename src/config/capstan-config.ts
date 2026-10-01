@@ -19,7 +19,8 @@ split = "auto"
 
 # Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
 # from the environment where \`cstan start\` runs, never from your interactive shell file alone.
-# Name them here; a name that is not set where the daemon starts is reported when agents launch.
+# Name them here (one-line values only); a name that is not set where the daemon starts is reported
+# when agents launch.
 # [env]
 # pass = ["NEXORA_API_KEY"]
 
@@ -164,7 +165,18 @@ export const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
   "LD_LIBRARY_PATH",
   "LD_AUDIT",
   "NODE_OPTIONS",
+  "ZDOTDIR",
+  "SHELL",
+  "PYTHONSTARTUP",
+  "PERL5OPT",
 ]);
+/** Prefixes of names that steer the loader, git or exported shell functions. */
+export const RESERVED_ENV_PREFIXES: readonly string[] = [
+  "LD_",
+  "DYLD_",
+  "GIT_",
+  "BASH_FUNC_",
+];
 export const MAX_PASSED_ENV_NAMES = 32;
 export const MAX_MAX_WORKERS = 16;
 
@@ -789,9 +801,12 @@ function passedEnvironmentNames(value: unknown): string[] {
       throw new ConfigError(
         `${at} must not start with CAPSTAN_: those variables belong to Capstan`,
       );
-    if (RESERVED_ENV_NAMES.has(entry))
+    if (
+      RESERVED_ENV_NAMES.has(entry) ||
+      RESERVED_ENV_PREFIXES.some((prefix) => entry.startsWith(prefix))
+    )
       throw new ConfigError(
-        `${at} must not be ${entry}: Capstan already sets it or it changes how an agent's shell or loader behaves`,
+        `${at} must not be ${entry}: Capstan already sets it or it changes how an agent's shell, loader or git behaves`,
       );
     if (seen.has(entry)) throw new ConfigError(`${at} repeats ${entry}`);
     seen.add(entry);
