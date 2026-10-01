@@ -65,6 +65,7 @@ function configFor(spawn: "tab" | "pane" = "tab"): CapstanConfig {
       minPaneColumns: 60,
       minPaneRows: 12,
     },
+    env: { pass: [] },
     hosts: [
       {
         name: "claude",

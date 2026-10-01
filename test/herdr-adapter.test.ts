@@ -1426,6 +1426,28 @@ test("bad environment values are refused before anything is typed", async () => 
       () => buildAgentEnvironment({}, { "bad-name": "x" }),
       InvalidArgumentError,
     );
+    const passed = buildAgentEnvironment(
+      { PATH: "/usr/bin", NEXORA_API_KEY: "k", OTHER: "o" },
+      { CAPSTAN_TOKEN: "t" },
+      ["NEXORA_API_KEY", "ABSENT"],
+    );
+    assert.equal(passed.NEXORA_API_KEY, "k");
+    assert.equal(passed.OTHER, undefined);
+    assert.equal(passed.ABSENT, undefined);
+    for (const name of ["CAPSTAN_TOKEN", "bad-name", "lower", ""])
+      assert.throws(
+        () => buildAgentEnvironment({ [name]: "x" }, {}, [name]),
+        InvalidArgumentError,
+        name,
+      );
+    assert.throws(
+      () =>
+        buildAgentEnvironment({ SECRET_ONE: "a\u0007b" }, {}, ["SECRET_ONE"]),
+      (error: Error) =>
+        error instanceof InvalidArgumentError &&
+        error.message.includes("SECRET_ONE") &&
+        !error.message.includes("a\u0007b"),
+    );
     assert.throws(
       () => buildAgentEnvironment({}, { GOOD: "a\u0007b" }),
       InvalidArgumentError,

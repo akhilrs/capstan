@@ -17,6 +17,12 @@ max_workers = 3
 spawn = "pane"
 split = "auto"
 
+# Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
+# from the environment where \`cstan start\` runs, never from your interactive shell file alone.
+# Name them here; a name that is not set where the daemon starts is reported when agents launch.
+# [env]
+# pass = ["NEXORA_API_KEY"]
+
 [hosts.claude]
 kind = "claude"
 
@@ -125,6 +131,14 @@ export type ResolvedLimits = {
 };
 
 export const DEFAULT_MAX_WORKERS = 3;
+
+/** Names of environment variables copied from the daemon's environment into every agent it starts. */
+export type ResolvedEnvironment = {
+  readonly pass: readonly string[];
+};
+
+export const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,63}$/;
+export const MAX_PASSED_ENV_NAMES = 32;
 export const MAX_MAX_WORKERS = 16;
 
 /** The tools a PM may not use unless its role sets `deny` itself: it delegates and never edits files or starts Claude Code's own subagents (the subagent tool was called Task in older versions). */
@@ -158,6 +172,7 @@ export type CapstanConfig = {
   readonly timers: ResolvedTimers;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
+  readonly env: ResolvedEnvironment;
   readonly hosts: readonly ResolvedHost[];
   readonly roles: readonly ResolvedRole[];
 };
@@ -268,6 +283,7 @@ export function parseCapstanConfig(
       "timers",
       "limits",
       "layout",
+      "env",
       "hosts",
       "roles",
     ],
@@ -370,6 +386,12 @@ export function parseCapstanConfig(
     ),
   };
 
+  const envTable = optionalTable(root.env, "env");
+  rejectUnknownKeys(envTable, ["pass"], "env");
+  const env: ResolvedEnvironment = {
+    pass: passedEnvironmentNames(envTable.pass),
+  };
+
   const hosts = resolveHosts(requiredTable(root.hosts, "hosts"));
   const hostsByName = new Map(hosts.map((host) => [host.name, host]));
   const roles = resolveRoles(
@@ -388,6 +410,7 @@ export function parseCapstanConfig(
     timers,
     limits,
     layout,
+    env,
     hosts,
     roles,
   };
@@ -719,6 +742,32 @@ function enumValue<const T extends readonly string[]>(
   if (typeof value !== "string" || !allowed.includes(value))
     throw new ConfigError(`${at} must be one of ${allowed.join(", ")}`);
   return value;
+}
+
+/** The names are written by the operator; values never appear in the file. */
+function passedEnvironmentNames(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value))
+    throw new ConfigError("env.pass must be an array of variable names");
+  if (value.length > MAX_PASSED_ENV_NAMES)
+    throw new ConfigError(`env.pass exceeds ${MAX_PASSED_ENV_NAMES} names`);
+  const seen = new Set<string>();
+  return value.map((entry, index) => {
+    const at = `env.pass[${index}]`;
+    if (typeof entry !== "string" || !ENV_NAME_PATTERN.test(entry))
+      throw new ConfigError(
+        `${at} must be an upper-case variable name (letters, digits and underscore, at most 64 characters)`,
+      );
+    if (entry.startsWith("CAPSTAN_"))
+      throw new ConfigError(
+        `${at} must not start with CAPSTAN_: those variables belong to Capstan`,
+      );
+    if (entry === "PATH")
+      throw new ConfigError(`${at} must not be PATH: Capstan builds it`);
+    if (seen.has(entry)) throw new ConfigError(`${at} repeats ${entry}`);
+    seen.add(entry);
+    return entry;
+  });
 }
 
 function stringList(value: unknown, at: string): string[] {

@@ -32,6 +32,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       minPaneColumns: 60,
       minPaneRows: 12,
     },
+    env: { pass: [] },
     hosts: [
       {
         name: "claude",

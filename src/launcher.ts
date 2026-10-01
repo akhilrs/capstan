@@ -90,6 +90,10 @@ export interface LaunchResult {
   readonly step?: string;
   /** The long-lived hub workspace (it runs `cstan status --watch`): workers' worktrees hang under it, so a PM pane can be closed and replaced. */
   readonly hub?: "opened" | "present" | "failed";
+  /** Names listed in `[env] pass` that are not set where the daemon runs, so the agent does not have them. */
+  readonly missingEnv?: readonly string[];
+  /** Printed by the CLI; names the missing variables and where they have to be set. */
+  readonly warning?: string;
 }
 
 export interface SpawnResult {
@@ -103,6 +107,10 @@ export interface SpawnResult {
   /** Why a pane-mode spawn stayed a tab. */
   readonly placementNote?: string;
   readonly hint?: string;
+  /** Names listed in `[env] pass` that are not set where the daemon runs, so the agent does not have them. */
+  readonly missingEnv?: readonly string[];
+  /** Printed by the CLI; names the missing variables and where they have to be set. */
+  readonly warning?: string;
 }
 
 export interface ReleaseOutcome {
@@ -487,6 +495,27 @@ export class Launcher {
     return directory;
   }
 
+  /** Names from `[env] pass` that are not set in the daemon's environment: an agent started now would not have them. */
+  #missingPassEnvironment(): string[] {
+    return this.#config.env.pass.filter(
+      (name) => this.#baseEnvironment[name] === undefined,
+    );
+  }
+
+  /** Adds the missing names to the answer of an operation that started an agent, and logs them once. */
+  #withMissingEnvironment<T extends object>(
+    result: T,
+  ): T & { readonly missingEnv?: readonly string[] } {
+    const missing = this.#missingPassEnvironment();
+    if (missing.length === 0) return result;
+    this.#log("env_pass_missing", { names: missing });
+    return {
+      ...result,
+      missingEnv: missing,
+      warning: `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} listed in [env] pass but not set where the daemon was started, so this agent does not have ${missing.length === 1 ? "it" : "them"}; set ${missing.length === 1 ? "it" : "them"} in the shell that runs cstan start (or its profile file), then restart the daemon`,
+    };
+  }
+
   /** The one environment every agent starts with: the allowlist, its token and socket, and `cstan` first on PATH. */
   #environment(token: string | null): Record<string, string> {
     if (this.#root.includes(":"))
@@ -504,7 +533,11 @@ export class Launcher {
       extras.CAPSTAN_TOKEN = token;
       extras.CAPSTAN_SOCKET = this.#socketPath;
     }
-    return buildAgentEnvironment(this.#baseEnvironment, extras);
+    return buildAgentEnvironment(
+      this.#baseEnvironment,
+      extras,
+      token === null ? [] : this.#config.env.pass,
+    );
   }
 
   #arguments(role: ResolvedRole, promptFile: string): string[] {
@@ -624,6 +657,14 @@ export class Launcher {
   // ---------------------------------------------------------- operations
 
   launchPm(): Promise<LaunchResult> {
+    return this.#launchPm().then((result) =>
+      result.state === "started" || result.state === "blocked"
+        ? this.#withMissingEnvironment(result)
+        : result,
+    );
+  }
+
+  #launchPm(): Promise<LaunchResult> {
     return this.#run(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const role = this.#pmRole();
@@ -820,6 +861,15 @@ export class Launcher {
 
   /** `baseSha` makes the worker's worktree and branch start at that commit (a review) instead of the project's HEAD. */
   spawn(
+    roleName: string,
+    options: { readonly baseSha?: string } = {},
+  ): Promise<SpawnResult> {
+    return this.#spawn(roleName, options).then((result) =>
+      this.#withMissingEnvironment(result),
+    );
+  }
+
+  #spawn(
     roleName: string,
     options: { readonly baseSha?: string } = {},
   ): Promise<SpawnResult> {
