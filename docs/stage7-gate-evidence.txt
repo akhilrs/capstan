@@ -1,0 +1,26 @@
+# Stage 7 gate evidence (PM-35); tokens are not included
+
+## Codex worker command line (prompt body cut)
+codex --sandbox danger-full-access --ask-for-approval never -c check_for_update_on_startup=false -c projects."<worktree>".trust_level="trusted" -c developer_instructions="You are cdev (Developer) on a Capstan delivery team. Your agent id is cdev-1.\u000aMessages from the project manager arrive in your ter...
+(The Codex worker started with no trust dialog: agent start returned `started`, and the pane showed the idle input line.)
+
+## OMP worker command line
+omp --approval-mode yolo --append-system-prompt <prompt file> 
+
+## Messages (id, recipient, state)
+{"id":"23f08e0a","recipient_agent_id":"cdev-1","state":"acked","body":"Gate check. Do exactly this and nothing else: run 'cstan ack"}
+{"id":"2d81337a","recipient_agent_id":"pm-2","state":"queued","body":"cdev-1 ready, my id is cdev-1"}
+{"id":"a59a7c0a","recipient_agent_id":"cdev-1","state":"acked","body":"Gate check two. Run cstan ack for this message as the frame "}
+{"id":"8f0a1952","recipient_agent_id":"pm-2","state":"queued","body":"second ok"}
+{"id":"b4b67732","recipient_agent_id":"odev-1","state":"acked","body":"Gate check. Run cstan ack for this message as the frame says"}
+{"id":"717e0a3f","recipient_agent_id":"pm-2","state":"queued","body":"omp ready, my id is odev-1"}
+{"id":"7d1493f4","recipient_agent_id":"odev-1","state":"acked","body":"Gate check two. Run cstan ack for this message as the frame "}
+{"id":"5e6cdb62","recipient_agent_id":"pm-2","state":"queued","body":"omp second ok"}
+
+## Input clears (OMP, after the maximum deferral)
+{"id":"7d1493f4","deferral_count":1,"text":"left over draft"}
+
+## Observations made by hand during the run
+- With `operator draft` typed in the Codex pane, message a59a7c0a read `deferred` and the pane still showed `› operator draft`; after the operator cleared the line (Ctrl+U) it was typed, acknowledged by the agent through cstan, and answered.
+- The Codex agent answered `cdev-1 ready, my id is cdev-1` and the OMP agent `omp ready, my id is odev-1`; each id appears only in that agent's role prompt, so the prompt was in force (Codex through developer_instructions, OMP through the appended file).
+- `~/.codex/config.toml` gained no entry for the Codex worker's worktree (the run-time trust override writes nothing).

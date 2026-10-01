@@ -1075,6 +1075,35 @@ test("cstan config check exits 3 for a missing or invalid file and does not echo
   }
 });
 
+test("cstan config check warns about every role that runs unattended on a host other than Claude", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-warn-"));
+  try {
+    writeFileSync(
+      path.join(cwd, "capstan.toml"),
+      [
+        "schema_version = 1",
+        '[hosts.claude]\nkind = "claude"',
+        '[hosts.cx]\nkind = "codex"',
+        '[roles.pm]\nkind = "PM"\nhost = "claude"',
+        '[roles.dev]\nkind = "Developer"\nhost = "cx"\npermission_mode = "auto"',
+        '[roles.dev2]\nkind = "Developer"\nhost = "claude"',
+        "",
+      ].join("\n\n"),
+      { mode: 0o600 },
+    );
+    const result = invoke(cwd, "config", "check");
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stderr,
+      /warning: role dev runs on codex with full access and no approval prompts/,
+    );
+    assert.doesNotMatch(result.stderr, /role (pm|dev2) runs/);
+    assert.doesNotThrow(() => JSON.parse(result.stdout));
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cstan config sync writes once and a second run writes nothing", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-sync-"));
   try {

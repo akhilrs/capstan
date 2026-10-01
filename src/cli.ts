@@ -914,6 +914,13 @@ async function runCli(argv: string[]): Promise<number> {
     const roleConfig = loadRoleConfig(cwd);
     if (subcommand === "check") {
       process.stdout.write(`${JSON.stringify(roleConfig, null, 2)}\n`);
+      for (const role of roleConfig.roles) {
+        const host = roleConfig.hosts.find((h) => h.name === role.host);
+        if (host !== undefined && host.kind !== "claude")
+          process.stderr.write(
+            `warning: role ${role.name} runs on ${host.kind} with full access and no approval prompts; nothing blocks it from editing outside its worktree or from pushing\n`,
+          );
+      }
       return EXIT.ok;
     }
     const { config, credential } = loadConfig(cwd);
