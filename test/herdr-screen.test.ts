@@ -5,9 +5,14 @@ import { test } from "node:test";
 import {
   TRUST_NO,
   TRUST_YES,
+  CODEX_TRUST_NO,
+  CODEX_TRUST_YES,
   extractInputLine,
   freshPromptReady,
+  parseCodexTrustDialog,
   parseTrustDialog,
+  parseTrustDialogOf,
+  trustTexts,
   stripAnsi,
 } from "../src/herdr/screen.js";
 
@@ -352,4 +357,95 @@ test("dim continuation text is not typed input and leftover control characters m
   assert.equal(extractInputLine("shell", `out\n❯ abc\u0007`), undefined);
   assert.equal(freshPromptReady("x\n❯\u0007"), false);
   assert.equal(stripAnsi("a\u009b31mb"), "ab");
+});
+
+test("the real Codex idle screens read as empty and the real typed screen as its text", () => {
+  assert.equal(extractInputLine("codex", fixture("codex-idle-empty.ansi")), "");
+  assert.equal(
+    extractInputLine("codex", fixture("codex-idle-typed.ansi")),
+    "hello typed",
+  );
+});
+
+test("Codex typed text on more than one line is read whole, and a screen without a status line is unreadable", () => {
+  const typed = fixture("codex-idle-typed.ansi").trimEnd().split("\n");
+  const marker = typed.findIndex((line) => line.includes("hello typed"));
+  typed.splice(marker + 1, 0, "  second line");
+  assert.equal(
+    extractInputLine("codex", typed.join("\n")),
+    "hello typed\nsecond line",
+  );
+  assert.equal(
+    extractInputLine("codex", typed.slice(0, marker + 2).join("\n")),
+    undefined,
+  );
+  assert.equal(
+    extractInputLine("codex", fixture("claude-idle-empty.ansi")),
+    undefined,
+  );
+});
+
+test("the real OMP idle screens read as empty and the real typed screen as its text", () => {
+  assert.equal(extractInputLine("omp", fixture("omp-idle-empty.ansi")), "");
+  assert.equal(
+    extractInputLine("omp", fixture("omp-idle-typed.ansi")),
+    "hello typed",
+  );
+  assert.equal(
+    extractInputLine("omp", fixture("claude-idle-empty.ansi")),
+    undefined,
+  );
+  assert.equal(extractInputLine("omp", "\u001b[2Jstuff\u0007"), undefined);
+});
+
+test("the real Codex trust dialog is parsed with its path, options, selection and last line", () => {
+  const dialog = parseCodexTrustDialog(
+    stripAnsi(fixture("codex-trust-dialog.ansi")),
+  );
+  assert.ok(dialog && dialog.kind === "dialog");
+  assert.equal(dialog.path, "/tmp/s7q");
+  assert.deepEqual(
+    dialog.options.map((option) => option.text),
+    [CODEX_TRUST_YES, CODEX_TRUST_NO],
+  );
+  assert.equal(dialog.selectedIndex, 0);
+  assert.equal(dialog.confirmIsLastLine, true);
+  assert.equal(
+    parseCodexTrustDialog(stripAnsi(fixture("codex-idle-empty.ansi"))),
+    undefined,
+  );
+});
+
+test("the trust dialog parser and texts follow the host kind", () => {
+  const plain = stripAnsi(fixture("codex-trust-dialog.ansi"));
+  assert.ok(parseTrustDialogOf("codex", plain));
+  assert.equal(parseTrustDialogOf("claude", plain), undefined);
+  assert.equal(parseTrustDialogOf("omp", plain), undefined);
+  assert.deepEqual(trustTexts("claude"), { yes: TRUST_YES, no: TRUST_NO });
+  assert.deepEqual(trustTexts("codex"), {
+    yes: CODEX_TRUST_YES,
+    no: CODEX_TRUST_NO,
+  });
+  assert.equal(trustTexts("omp"), undefined);
+});
+
+test("the Codex trust dialog is not read as typed input, and a background colour 38 does not end the input", () => {
+  assert.equal(
+    extractInputLine("codex", fixture("codex-trust-dialog.ansi")),
+    undefined,
+  );
+  assert.equal(
+    extractInputLine(
+      "codex",
+      fixture("codex-idle-typed.ansi").replace("hello typed", "1. fix it"),
+    ),
+    "1. fix it",
+  );
+  const typed = fixture("codex-idle-typed.ansi").split("\n");
+  const marker = typed.findIndex((line) => line.includes("hello typed"));
+  typed.splice(marker + 1, 0, "\u001b[48;5;38m  second\u001b[0m");
+  assert.equal(
+    extractInputLine("codex", typed.join("\n")),
+    "hello typed\nsecond",
+  );
 });

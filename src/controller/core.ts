@@ -22,8 +22,6 @@ import {
   openDatabaseReadOnly,
   resolveDatabasePath,
 } from "./database.js";
-import { M1BridgeAdapter } from "./m1-bridge.js";
-import { M1_MAX_FRAME_BYTES, M1_MAX_PROMPT_BYTES } from "./m1-protocol.js";
 import {
   DEFERRAL_REASONS,
   HERDR_STATES,
@@ -69,8 +67,6 @@ import type {
   ReplacementInput,
   Role,
   RunState,
-  RuntimeSessionSummary,
-  RuntimeState,
   RoleDefinition,
   RoleDefinitionInput,
   RoleSyncResult,
@@ -78,6 +74,9 @@ import type {
   WorkItemInput,
 } from "./types.js";
 
+// Bounds on the stored dispatch command, so one work item cannot put an unbounded row in the outbox.
+const DISPATCH_MAX_FRAME_BYTES = 1_048_576;
+const DISPATCH_MAX_PROMPT_BYTES = 262_144;
 const ROLE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 const ROLE_KINDS: readonly string[] = [
   "PM",
@@ -949,23 +948,6 @@ export interface RecoveryInput {
   readonly reason: string;
   readonly findingId?: string;
 }
-export interface RuntimeSessionInput {
-  readonly sessionId: string;
-  readonly seatId: string;
-  readonly assignmentId?: string;
-  readonly provider: string;
-  readonly profile: string;
-  readonly workspace: string;
-}
-
-export interface RuntimeIdentityInput {
-  readonly observedPid?: number;
-  readonly processStartId?: string;
-  readonly containerId?: string;
-  readonly cgroupPath?: string;
-  readonly endpoint?: string;
-}
-
 export interface UsageInput {
   readonly observationId: string;
   readonly sessionId?: string;
@@ -7592,14 +7574,10 @@ export class ControllerCore {
           prompt: canonicalJson(capsule),
         };
         const wireJson = canonicalJson(wirePayload);
-        if (Buffer.byteLength(wirePayload.prompt) > M1_MAX_PROMPT_BYTES)
-          throw new ControllerError(
-            "M1 dispatch prompt exceeds its byte limit",
-          );
-        if (Buffer.byteLength(wireJson) + 1 > M1_MAX_FRAME_BYTES)
-          throw new ControllerError(
-            "M1 dispatch request exceeds the frame limit",
-          );
+        if (Buffer.byteLength(wirePayload.prompt) > DISPATCH_MAX_PROMPT_BYTES)
+          throw new ControllerError("dispatch prompt exceeds its byte limit");
+        if (Buffer.byteLength(wireJson) + 1 > DISPATCH_MAX_FRAME_BYTES)
+          throw new ControllerError("dispatch request exceeds the frame limit");
         const now = new Date().toISOString();
         this.#database
           .prepare(
@@ -10305,17 +10283,12 @@ export class ControllerCore {
     context: MutationContext,
     assignmentId: string,
     proofRef: string,
-    bridgeSnapshot?: {
-      readonly commandId: string;
-      readonly bridgeState: string;
-      readonly durable: boolean;
-    },
   ): { readonly contained: true } {
     return this.#mutateAsController(
       context,
       "assignment.containment.confirmed",
       "recovery:write",
-      { assignmentId, proofRef, bridgeSnapshot: bridgeSnapshot ?? null },
+      { assignmentId, proofRef },
       (actor) => {
         if (
           actor.role !== "controller" ||
@@ -10370,24 +10343,12 @@ export class ControllerCore {
           assignment.start_requested === 0;
         const neverDeliveredPrestart =
           prestartUncertain && assignment?.delivery_attempt_count === 0;
-        const reconciledPrestart =
-          prestartUncertain &&
-          bridgeSnapshot?.commandId === assignment.command_id &&
-          M1BridgeAdapter.isVerifiedSnapshot(bridgeSnapshot) &&
-          (((bridgeSnapshot.bridgeState === "acknowledged" ||
-            bridgeSnapshot.bridgeState === "completed") &&
-            bridgeSnapshot.durable === true) ||
-            (bridgeSnapshot.bridgeState === "unknown" &&
-              typeof bridgeSnapshot.durable === "boolean"));
         if (
           assignment?.command_state === "attempting" ||
-          (prestartUncertain &&
-            !reconciledPrestart &&
-            !neverDeliveredPrestart) ||
-          (bridgeSnapshot && !reconciledPrestart)
+          (prestartUncertain && !neverDeliveredPrestart)
         )
           throw new MutationConflictError(
-            "M1 start was not durably requested; reconcile the same command through the bridge before containment",
+            "the start was not durably requested; it cannot be contained without a delivery record",
           );
         const restoresReportedWork =
           assignment?.authority_state === "unknown" &&
@@ -10484,7 +10445,6 @@ export class ControllerCore {
                     assignmentId,
                     proofRef,
                     authorityState: "contained",
-                    bridgeSnapshot: bridgeSnapshot ?? null,
                   },
                 }
               : {
@@ -10493,7 +10453,7 @@ export class ControllerCore {
                   stateVersion: assignment.attempt_version + 1,
                   fromState: assignment.authority_state,
                   toState: "contained",
-                  details: { proofRef, bridgeSnapshot: bridgeSnapshot ?? null },
+                  details: { proofRef },
                 },
         };
       },
@@ -10958,222 +10918,6 @@ export class ControllerCore {
       "run:control",
       { toState },
       (actor) => apply(actor, actor),
-    );
-  }
-
-  createRuntimeSession(
-    context: MutationContext,
-    input: RuntimeSessionInput,
-  ): { readonly sessionId: string } {
-    return this.#mutateAsController(
-      context,
-      "runtime.session.create",
-      "controller:reconcile",
-      input,
-      (actor) => {
-        if (
-          actor.role !== "controller" ||
-          [
-            input.sessionId,
-            input.seatId,
-            input.provider,
-            input.profile,
-            input.workspace,
-          ].some(
-            (value) => typeof value !== "string" || value.trim().length === 0,
-          )
-        ) {
-          throw new TransitionAuthorizationError(
-            "runtime session requires a controller and complete identity fields",
-          );
-        }
-        const seat = this.#database
-          .prepare(
-            "SELECT state FROM seats WHERE project_id = ? AND seat_id = ?",
-          )
-          .get(this.#projectId, input.seatId) as { state: string } | undefined;
-        if (!seat || seat.state !== "active")
-          throw new ControllerError("runtime session requires an active seat");
-        if (input.assignmentId) {
-          const assignment = this.#database
-            .prepare(
-              "SELECT seat_id, authority_state FROM assignments WHERE project_id = ? AND assignment_id = ?",
-            )
-            .get(this.#projectId, input.assignmentId) as
-            { seat_id: string; authority_state: string } | undefined;
-          if (
-            !assignment ||
-            assignment.seat_id !== input.seatId ||
-            assignment.authority_state !== "active"
-          ) {
-            throw new ControllerError(
-              "runtime session assignment must be active and bound to the same seat",
-            );
-          }
-        }
-        const now = new Date().toISOString();
-        this.#database
-          .prepare(
-            `
-        INSERT INTO runtime_sessions(project_id, session_id, seat_id, assignment_id, state, state_version,
-          provider, profile, workspace, started_at, ended_at)
-        VALUES (?, ?, ?, ?, 'starting', 0, ?, ?, ?, ?, NULL)
-      `,
-          )
-          .run(
-            this.#projectId,
-            input.sessionId,
-            input.seatId,
-            input.assignmentId ?? null,
-            input.provider,
-            input.profile,
-            input.workspace,
-            now,
-          );
-        return {
-          value: { sessionId: input.sessionId },
-          event: {
-            entityType: "runtime_session",
-            entityId: input.sessionId,
-            stateVersion: 0,
-            toState: "starting",
-          },
-        };
-      },
-    );
-  }
-
-  recordRuntimeIdentity(
-    context: MutationContext,
-    sessionId: string,
-    identity: RuntimeIdentityInput,
-  ): { readonly observationId: string; readonly observedAt: string } {
-    return this.#mutateAsController(
-      context,
-      "runtime.identity.observe",
-      "controller:reconcile",
-      { sessionId, identity },
-      (actor) => {
-        if (actor.role !== "controller")
-          throw new TransitionAuthorizationError(
-            "only the controller records runtime identities",
-          );
-        const fields = [
-          identity.processStartId,
-          identity.containerId,
-          identity.cgroupPath,
-          identity.endpoint,
-        ];
-        if (
-          fields.some(
-            (field) =>
-              field !== undefined &&
-              (typeof field !== "string" || field.trim().length === 0),
-          ) ||
-          (!Number.isSafeInteger(identity.observedPid) &&
-            fields.every((field) => field === undefined)) ||
-          (identity.observedPid !== undefined &&
-            (!Number.isSafeInteger(identity.observedPid) ||
-              identity.observedPid <= 0))
-        ) {
-          throw new ControllerError(
-            "runtime identity requires a positive PID or non-empty process identity",
-          );
-        }
-        const session = this.#database
-          .prepare(
-            "SELECT state_version FROM runtime_sessions WHERE project_id = ? AND session_id = ?",
-          )
-          .get(this.#projectId, sessionId) as
-          { state_version: number } | undefined;
-        if (!session)
-          throw new ControllerError("runtime session does not exist");
-        const observationId = randomUUID();
-        const observedAt = new Date().toISOString();
-        this.#database
-          .prepare(
-            `
-        INSERT INTO runtime_identities(project_id, observation_id, session_id, observed_pid, process_start_id,
-          container_id, cgroup_path, endpoint, observed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-          )
-          .run(
-            this.#projectId,
-            observationId,
-            sessionId,
-            identity.observedPid ?? null,
-            identity.processStartId ?? null,
-            identity.containerId ?? null,
-            identity.cgroupPath ?? null,
-            identity.endpoint ?? null,
-            observedAt,
-          );
-        return {
-          value: { observationId, observedAt },
-          event: {
-            entityType: "runtime_session",
-            entityId: sessionId,
-            stateVersion: session.state_version,
-            details: { observationId, observedAt },
-          },
-        };
-      },
-    );
-  }
-
-  transitionRuntimeSession(
-    context: MutationContext,
-    sessionId: string,
-    toState: RuntimeState,
-  ): { readonly state: RuntimeState } {
-    return this.#mutateAsController(
-      context,
-      "runtime.session.transition",
-      "controller:reconcile",
-      { sessionId, toState },
-      (actor) => {
-        if (actor.role !== "controller")
-          throw new TransitionAuthorizationError(
-            "only the controller transitions runtime sessions",
-          );
-        const session = this.#database
-          .prepare(
-            "SELECT state, state_version FROM runtime_sessions WHERE project_id = ? AND session_id = ?",
-          )
-          .get(this.#projectId, sessionId) as
-          { state: string; state_version: number } | undefined;
-        if (!session)
-          throw new ControllerError("runtime session does not exist");
-        if (
-          !this.#isTransitionAllowed(
-            "runtime_session",
-            session.state,
-            toState,
-            actor,
-          )
-        ) {
-          throw new TransitionAuthorizationError(
-            `transition table rejects runtime state ${session.state} -> ${toState}`,
-          );
-        }
-        const endedAt = toState === "exited" ? new Date().toISOString() : null;
-        this.#database
-          .prepare(
-            "UPDATE runtime_sessions SET state = ?, state_version = state_version + 1, ended_at = COALESCE(?, ended_at) WHERE project_id = ? AND session_id = ?",
-          )
-          .run(toState, endedAt, this.#projectId, sessionId);
-        return {
-          value: { state: toState },
-          event: {
-            entityType: "runtime_session",
-            entityId: sessionId,
-            stateVersion: session.state_version + 1,
-            fromState: session.state,
-            toState,
-          },
-        };
-      },
     );
   }
 
@@ -12847,46 +12591,6 @@ export class ControllerCore {
         )
         .get(this.#projectId) !== undefined
     );
-  }
-
-  listRuntimeSessions(): readonly RuntimeSessionSummary[] {
-    this.#assertOpen();
-    return this.#database
-      .prepare(
-        `SELECT rs.session_id, rs.seat_id, rs.assignment_id, rs.state,
-          identity.container_id, identity.endpoint
-         FROM runtime_sessions rs
-         LEFT JOIN runtime_identities identity ON identity.project_id = rs.project_id
-           AND identity.session_id = rs.session_id
-           AND identity.observation_id = (
-             SELECT latest.observation_id FROM runtime_identities latest
-             WHERE latest.project_id = rs.project_id AND latest.session_id = rs.session_id
-             ORDER BY latest.observed_at DESC, latest.observation_id DESC LIMIT 1
-           )
-         WHERE rs.project_id = ?
-         ORDER BY rs.started_at, rs.session_id`,
-      )
-      .all(this.#projectId)
-      .map((row) => {
-        const session = row as {
-          session_id: string;
-          seat_id: string;
-          assignment_id: string | null;
-          state: RuntimeState;
-          container_id: string | null;
-          endpoint: string | null;
-        };
-        return {
-          sessionId: session.session_id,
-          seatId: session.seat_id,
-          assignmentId: session.assignment_id,
-          state: session.state,
-          ...(session.container_id === null
-            ? {}
-            : { containerId: session.container_id }),
-          ...(session.endpoint === null ? {} : { endpoint: session.endpoint }),
-        };
-      });
   }
 
   statusSnapshot(): ControllerStatus {

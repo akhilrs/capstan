@@ -40,7 +40,7 @@ import {
   type KeyLogEntry,
 } from "../src/herdr/adapter.js";
 import { HerdrError, type HerdrResult } from "../src/herdr/runner.js";
-import { TRUST_NO, TRUST_YES } from "../src/herdr/screen.js";
+import { TRUST_NO, TRUST_YES, stripAnsi } from "../src/herdr/screen.js";
 
 const RULE = "─".repeat(40);
 const NBSP = " ";
@@ -84,7 +84,7 @@ class FakeHerdr {
   readonly panes = new Map<string, FakePane>();
   readonly agentStates = new Map<
     string,
-    { paneId: string; statuses: string[] }
+    { paneId: string; statuses: string[]; kind?: string }
   >();
   readonly root = realpathSync(
     mkdtempSync(path.join(tmpdir(), "capstan-fake-herdr-")),
@@ -202,7 +202,12 @@ class FakeHerdr {
           ? state.statuses.shift()!
           : state.statuses[0]!;
       return this.json({
-        agent: { name: args[2], pane_id: state.paneId, agent_status: status },
+        agent: {
+          name: args[2],
+          pane_id: state.paneId,
+          agent_status: status,
+          agent: state.kind ?? "claude",
+        },
       });
     }
     if (command === "pane" && sub === "read") {
@@ -233,7 +238,11 @@ class FakeHerdr {
         return this.failure(this.startError.code, this.startError.message);
       pane.agent = name;
       pane.status = "idle";
-      this.agentStates.set(name, { paneId: pane.paneId, statuses: ["idle"] });
+      this.agentStates.set(name, {
+        paneId: pane.paneId,
+        statuses: ["idle"],
+        kind: flag("--kind") ?? "claude",
+      });
       return this.json({ agent: { name } });
     }
     if (command === "pane" && sub === "layout")
@@ -329,6 +338,7 @@ async function startedWorker(
   h: Harness,
   screen = idleScreen(),
   statuses = ["idle"],
+  kind: "claude" | "codex" | "omp" = "claude",
 ): Promise<{ paneId: string; agent: string; pane: FakePane }> {
   const { paneId } = await h.adapter.createWorktree({
     workspaceId: "w9",
@@ -337,14 +347,14 @@ async function startedWorker(
   });
   await h.adapter.startAgent({
     name: "dev",
-    kind: "claude",
+    kind,
     paneId,
     args: [],
     environment: CLEAN_ENV,
   });
   const pane = h.fake.panes.get(paneId)!;
   pane.screen = screen;
-  h.fake.agentStates.set("dev", { paneId, statuses });
+  h.fake.agentStates.set("dev", { paneId, statuses, kind });
   h.fake.calls.length = 0;
   h.fake.events.length = 0;
   return { paneId, agent: "dev", pane };
@@ -1690,7 +1700,7 @@ test("starting an agent registers it, reports a startup dialog, and taints the p
     await assert.rejects(
       h.adapter.startAgent({
         name: "x",
-        kind: "codex",
+        kind: "gemini",
         paneId: second.paneId,
         args: [],
         environment: CLEAN_ENV,
@@ -3183,6 +3193,177 @@ test("a layout without an explicit zoomed=false counts as zoomed, and a removed 
       ),
       [tree.paneId],
     );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the input line of a Codex or OMP agent is read with that host's parser", async () => {
+  for (const [kind, empty, typed] of [
+    ["codex", "codex-idle-empty.ansi", "codex-idle-typed.ansi"],
+    ["omp", "omp-idle-empty.ansi", "omp-idle-typed.ansi"],
+  ] as const) {
+    const h = harness();
+    try {
+      const worker = await startedWorker(h, fixture(empty), ["idle"], kind);
+      assert.equal(h.adapter.paneEntry(worker.paneId)!.kind, kind);
+      assert.equal(await h.adapter.readInput(worker.paneId), "", kind);
+      worker.pane.screen = fixture(typed);
+      assert.equal(
+        await h.adapter.readInput(worker.paneId),
+        "hello typed",
+        kind,
+      );
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+});
+
+test("a Codex start that is blocked at startup keeps its kind and its trust dialog is answered with Enter only", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "cap/task/cx-g1",
+      label: "cx",
+    });
+    h.fake.startError = {
+      code: "agent_not_ready",
+      message: "blocked during startup",
+    };
+    assert.deepEqual(
+      await h.adapter.startAgent({
+        name: "cx",
+        kind: "codex",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
+      { status: "blocked_at_startup" },
+    );
+    h.fake.startError = undefined;
+    assert.equal(h.adapter.paneEntry(paneId)!.kind, "codex");
+    const checkout = h.adapter.paneEntry(paneId)!.worktreePath!;
+    const pane = h.fake.panes.get(paneId)!;
+    pane.screen = stripAnsi(fixture("codex-trust-dialog.ansi")).replace(
+      "/tmp/s7q",
+      checkout,
+    );
+    pane.status = "blocked";
+    h.fake.agentStates.set("cx", { paneId, statuses: ["blocked"] });
+    h.fake.onKey = (target, key) => {
+      if (target === pane && key === "enter") {
+        pane.status = "idle";
+        pane.screen = fixture("codex-idle-empty.ansi");
+      }
+    };
+    const keys: string[] = [];
+    const outcome = await h.adapter.answerTrustDialog({
+      paneId,
+      log: (entry) => {
+        keys.push(entry.key);
+      },
+    });
+    assert.deepEqual(outcome, { handled: true, keys: ["enter"] });
+    assert.deepEqual(keys, ["enter"]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("an OMP agent has no trust dialog to answer, and a Codex dialog for another path is left alone", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(
+      h,
+      fixture("omp-idle-empty.ansi"),
+      ["idle"],
+      "omp",
+    );
+    assert.deepEqual(
+      await h.adapter.answerTrustDialog({
+        paneId: worker.paneId,
+        log: () => {},
+      }),
+      { handled: false, reason: "host_has_no_trust_dialog" },
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+  const g = harness();
+  try {
+    const worker = await startedWorker(
+      g,
+      fixture("codex-idle-empty.ansi"),
+      ["idle"],
+      "codex",
+    );
+    worker.pane.screen = stripAnsi(fixture("codex-trust-dialog.ansi"));
+    worker.pane.status = "blocked";
+    g.fake.agentStates.set("dev", {
+      paneId: worker.paneId,
+      statuses: ["blocked"],
+    });
+    assert.deepEqual(
+      await g.adapter.answerTrustDialog({
+        paneId: worker.paneId,
+        log: () => {},
+      }),
+      { handled: false, reason: "path_mismatch" },
+    );
+  } finally {
+    g.adapter.close();
+    g.fake.cleanup();
+  }
+});
+
+test("adoption takes the host kind from what Herdr reports for the agent, and refuses an agent this adapter does not drive", async () => {
+  for (const kind of ["codex", "omp"] as const) {
+    const h = harness();
+    try {
+      const worker = await startedWorker(
+        h,
+        fixture(`${kind}-idle-empty.ansi`),
+        ["idle"],
+        kind,
+      );
+      const entry = h.adapter.paneEntry(worker.paneId)!;
+      const next = secondAdapter(h);
+      await next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: entry.workspaceId ?? null,
+        worktreePath: entry.worktreePath ?? null,
+      });
+      assert.equal(next.paneEntry(worker.paneId)!.kind, kind);
+      assert.equal(await next.readInput(worker.paneId), "", kind);
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    h.fake.agentStates.get("dev")!.kind = "gemini";
+    const next = secondAdapter(h);
+    await assert.rejects(
+      next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      UnsupportedHostError,
+    );
+    assert.equal(next.paneEntry(worker.paneId), undefined);
   } finally {
     h.adapter.close();
     h.fake.cleanup();

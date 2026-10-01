@@ -148,15 +148,6 @@ export interface ReplacementInput {
   readonly reason: string;
 }
 
-export interface RuntimeSessionSummary {
-  readonly sessionId: string;
-  readonly seatId: string;
-  readonly assignmentId: string | null;
-  readonly state: RuntimeState;
-  readonly containerId?: string;
-  readonly endpoint?: string;
-}
-
 export interface CandidateInput {
   readonly candidateId: string;
   readonly assignmentId: string;

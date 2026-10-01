@@ -9,6 +9,7 @@ export const SHA = "b".repeat(40);
 
 export interface StartCall {
   name: string;
+  kind: string;
   paneId: string;
   args: readonly string[];
   environment: Record<string, string> | undefined;
@@ -160,6 +161,7 @@ export class StubAdapter implements LauncherAdapter {
     if (this.startError) throw this.startError;
     this.starts.push({
       name: input.name,
+      kind: input.kind,
       paneId: input.paneId,
       args: input.args,
       environment:

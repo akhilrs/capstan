@@ -29,7 +29,7 @@ import {
   reserveDispatchSlot,
   syncConfiguredRoles,
 } from "../src/cli.js";
-import { listenControl, requestControl } from "../src/control.js";
+import { listenControl } from "../src/control.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
 import type { MutationContext } from "../src/controller/types.js";
@@ -44,17 +44,7 @@ function invokeWithEnv(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
 }
 
 function invoke(cwd: string, ...args: string[]) {
-  return invokeWithEnv(
-    cwd,
-    {
-      M1_PROVIDER_HOST: "",
-      M1_HERDR_BINARY: "",
-      M1_OMP_BINARY: "",
-      M1_OMP_NATIVE_ADDON: "",
-      M1_NODE_BINARY: "",
-    },
-    ...args,
-  );
+  return invokeWithEnv(cwd, {}, ...args);
 }
 
 function invokeAsync(
@@ -64,14 +54,7 @@ function invokeAsync(
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd,
-      env: {
-        ...process.env,
-        M1_PROVIDER_HOST: "",
-        M1_HERDR_BINARY: "",
-        M1_OMP_BINARY: "",
-        M1_OMP_NATIVE_ADDON: "",
-        M1_NODE_BINARY: "",
-      },
+      env: process.env,
     });
     let stdout = "";
     let stderr = "";
@@ -83,6 +66,38 @@ function invokeAsync(
     });
     child.once("error", reject);
     child.once("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+const configInputKinds = [
+  "project_config",
+  "task_brief",
+  "acceptance_criteria",
+  "policy",
+  "plan",
+] as const;
+
+async function openInitializedCore(cwd: string): Promise<ControllerCore> {
+  const config = JSON.parse(
+    readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
+  ) as { projectId: string; name: string; stateDirectory: string };
+  return ControllerCore.open({
+    stateDirectory: config.stateDirectory,
+    project: {
+      projectId: config.projectId,
+      name: config.name,
+      ownerCredential: readFileSync(
+        path.join(cwd, ".capstan/operator.key"),
+        "utf8",
+      ).trim(),
+      initialInputs: configInputKinds.map((kind) => ({
+        kind,
+        content:
+          kind === "acceptance_criteria"
+            ? ["criterion"]
+            : { kind, revision: 1 },
+      })),
+    },
   });
 }
 
@@ -479,7 +494,7 @@ test("cstan init creates private project-local config and status exposes four se
       snapshot.roles.map((role) => role.role),
       ["PM", "Developer", "Verifier", "Supervisor"],
     );
-    assert.deepEqual(snapshot.nextLegalActions, ["cstan run --brief <file>"]);
+    assert.deepEqual(snapshot.nextLegalActions, []);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -972,374 +987,6 @@ test("cstan inspect JSON has the versioned work-item record schema", async () =>
   }
 });
 
-test("cstan rejects malformed briefs with its invalid-input exit code before creating controller state", () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-invalid-"));
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const brief = path.join(cwd, "brief.json");
-    writeFileSync(brief, JSON.stringify({ schemaVersion: 1, taskId: "x" }));
-    const run = invoke(cwd, "run", "--brief", brief);
-    assert.equal(run.status, 3, run.stderr);
-    assert.match(
-      run.stderr,
-      /acceptanceCriteria|limits|slices|objective|unknown or missing fields/,
-    );
-    writeFileSync(
-      brief,
-      Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]),
-    );
-    const malformedUtf8 = invoke(cwd, "run", "--brief", brief);
-    assert.equal(malformedUtf8.status, 3, malformedUtf8.stderr);
-    const missing = invoke(
-      cwd,
-      "run",
-      "--brief",
-      path.join(cwd, "missing.json"),
-    );
-    assert.equal(missing.status, 3, missing.stderr);
-    const deeplyNested = path.join(cwd, "deeply-nested.json");
-    writeFileSync(
-      deeplyNested,
-      `{"value":${"[".repeat(300)}0${"]".repeat(300)}}`,
-    );
-    const overNested = invoke(cwd, "run", "--brief", deeplyNested);
-    assert.equal(overNested.status, 3, overNested.stderr);
-    assert.match(overNested.stderr, /JSON nesting depth/);
-    const overLimit = path.join(cwd, "over-limit.json");
-    writeFileSync(
-      overLimit,
-      `\uFEFF${JSON.stringify({
-        schemaVersion: 1,
-        taskId: "over-limit",
-        objective: "Reject limits beyond project configuration",
-        acceptanceCriteria: ["first criterion", "second criterion"],
-        limits: { maxSlices: 2, maxRunMs: 3_600_001, maxDispatches: 16 },
-        slices: [
-          {
-            id: "first",
-            title: "First",
-            description: "First bounded slice",
-            role: "Developer",
-            dependsOn: [],
-            writeScope: ["src"],
-            acceptanceCriteria: ["first criterion"],
-          },
-          {
-            id: "second",
-            title: "Second",
-            description: "Second bounded slice",
-            role: "Developer",
-            dependsOn: ["first"],
-            writeScope: ["src"],
-            acceptanceCriteria: ["second criterion"],
-          },
-        ],
-      })}`,
-    );
-    const bounded = invoke(cwd, "run", "--brief", overLimit);
-    assert.equal(bounded.status, 3, bounded.stderr);
-    assert.match(bounded.stderr, /project-local configuration/);
-    const validBomBrief = path.join(cwd, "valid-bom.json");
-    writeFileSync(
-      validBomBrief,
-      `\uFEFF${JSON.stringify({
-        schemaVersion: 1,
-        taskId: "bom-brief",
-        objective: "Parse a UTF-8 BOM before runtime preflight",
-        acceptanceCriteria: ["The plan is parsed"],
-        limits: { maxSlices: 2, maxRunMs: 60_000, maxDispatches: 16 },
-        slices: [
-          {
-            id: "first",
-            title: "First",
-            description: "First bounded slice",
-            role: "Developer",
-            dependsOn: [],
-            writeScope: ["src"],
-            acceptanceCriteria: ["The plan is parsed"],
-          },
-          {
-            id: "second",
-            title: "Second",
-            description: "Second bounded slice",
-            role: "Developer",
-            dependsOn: ["first"],
-            writeScope: ["src"],
-            acceptanceCriteria: ["The plan is parsed"],
-          },
-        ],
-      })}`,
-    );
-    const parsedBom = invoke(cwd, "run", "--brief", validBomBrief);
-    writeFileSync(
-      validBomBrief,
-      `\uFEFF${readFileSync(validBomBrief, "utf8")}`,
-    );
-    const doubleBom = invoke(cwd, "run", "--brief", validBomBrief);
-    assert.equal(doubleBom.status, 3, doubleBom.stderr);
-    writeFileSync(validBomBrief, readFileSync(validBomBrief, "utf8").slice(1));
-    assert.equal(parsedBom.status, 5, parsedBom.stderr);
-    assert.match(
-      parsedBom.stderr,
-      /cannot resolve deterministic project Git base/,
-    );
-    assert.equal(invoke(cwd, "status", "--json").status, 0);
-    writeFileSync(path.join(cwd, ".capstan/project.json"), "{}\n");
-    const invalidConfig = invoke(cwd, "status", "--json");
-    assert.equal(invalidConfig.status, 3, invalidConfig.stderr);
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("cstan runtime preflight fails closed before creating controller database", async () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-runtime-preflight-"));
-  let core: ControllerCore | undefined;
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    writeFileSync(path.join(cwd, "README.txt"), "preflight fixture\n");
-    for (const args of [
-      ["init", "--quiet"],
-      ["-C", cwd, "config", "user.name", "Capstan Test"],
-      ["-C", cwd, "config", "user.email", "capstan-test@example.invalid"],
-      ["-C", cwd, "add", "README.txt"],
-      ["-C", cwd, "commit", "--quiet", "-m", "baseline"],
-    ]) {
-      const git = spawnSync("git", args, { cwd, encoding: "utf8" });
-      assert.equal(git.status, 0, git.stderr);
-    }
-    const brief = path.join(cwd, "valid-brief.json");
-    writeFileSync(
-      brief,
-      JSON.stringify({
-        schemaVersion: 1,
-        taskId: "preflight",
-        objective: "Require configured runtime before durable run state",
-        acceptanceCriteria: ["first criterion", "second criterion"],
-        limits: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 16 },
-        slices: [
-          {
-            id: "first",
-            title: "First",
-            description: "First slice",
-            role: "Developer",
-            dependsOn: [],
-            writeScope: ["src"],
-            acceptanceCriteria: ["first criterion"],
-          },
-          {
-            id: "second",
-            title: "Second",
-            description: "Second slice",
-            role: "Developer",
-            dependsOn: ["first"],
-            writeScope: ["src"],
-            acceptanceCriteria: ["second criterion"],
-          },
-        ],
-      }),
-    );
-    const run = invokeWithEnv(
-      cwd,
-      {
-        M1_PROVIDER_HOST: "provider.example",
-        M1_HERDR_BINARY: "",
-        M1_OMP_BINARY: "",
-        M1_OMP_NATIVE_ADDON: "",
-        M1_NODE_BINARY: "",
-      },
-      "run",
-      "--brief",
-      brief,
-    );
-    assert.equal(run.status, 5, run.stderr);
-    assert.match(run.stderr, /M1_HERDR_BINARY/);
-    assert.equal(
-      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
-      false,
-    );
-    const config = JSON.parse(
-      readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
-    ) as { projectId: string; name: string; stateDirectory: string };
-    const credential = readFileSync(
-      path.join(cwd, ".capstan/operator.key"),
-      "utf8",
-    ).trim();
-    const base = spawnSync(
-      "git",
-      ["-C", cwd, "rev-parse", "--verify", "HEAD^{commit}"],
-      { encoding: "utf8" },
-    );
-    assert.equal(base.status, 0, base.stderr);
-    core = await ControllerCore.open({
-      stateDirectory: config.stateDirectory,
-      project: {
-        projectId: config.projectId,
-        name: config.name,
-        ownerCredential: credential,
-        initialInputs: [
-          {
-            kind: "project_config",
-            content: {
-              schemaVersion: 1,
-              projectId: config.projectId,
-              name: config.name,
-              baseSha: base.stdout.trim(),
-            },
-          },
-          {
-            kind: "task_brief",
-            content: {
-              taskId: "preflight",
-              objective: "Require configured runtime before durable run state",
-            },
-          },
-          {
-            kind: "acceptance_criteria",
-            content: ["first criterion", "second criterion"],
-          },
-          {
-            kind: "policy",
-            content: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 16 },
-          },
-          { kind: "plan", content: JSON.parse(readFileSync(brief, "utf8")) },
-        ],
-      },
-    });
-    core.close();
-    core = undefined;
-    rmSync(path.join(cwd, ".capstan/state"), { recursive: true, force: true });
-    mkdirSync(path.join(cwd, ".capstan/state"), { mode: 0o700 });
-    for (const args of [
-      ["-C", cwd, "add", "-f", ".capstan/operator.key"],
-      ["-C", cwd, "commit", "--quiet", "-m", "Accidentally track operator key"],
-      ["-C", cwd, "rm", "--cached", "--quiet", ".capstan/operator.key"],
-    ]) {
-      const git = spawnSync("git", args, { cwd, encoding: "utf8" });
-      assert.equal(git.status, 0, git.stderr);
-    }
-    const leaked = invoke(cwd, "run", "--brief", brief);
-    assert.equal(leaked.status, 3, leaked.stderr);
-    assert.match(leaked.stderr, /contains \.capstan state/);
-    assert.equal(
-      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
-      false,
-    );
-    const removedKey = spawnSync(
-      "git",
-      ["-C", cwd, "commit", "--quiet", "-m", "Remove tracked operator key"],
-      { encoding: "utf8" },
-    );
-    assert.equal(removedKey.status, 0, removedKey.stderr);
-    const historicalSecret = invoke(cwd, "run", "--brief", brief);
-    assert.equal(historicalSecret.status, 3, historicalSecret.stderr);
-    assert.match(historicalSecret.stderr, /contains \.capstan state/);
-  } finally {
-    core?.close();
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("cstan rejects nested controller state and non-root project clones", () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-nested-state-"));
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const baseline = path.join(cwd, "README.txt");
-    writeFileSync(baseline, "baseline\n");
-    for (const args of [
-      ["init", "--quiet"],
-      ["config", "user.name", "Capstan Test"],
-      ["config", "user.email", "capstan-test@example.invalid"],
-      ["add", "README.txt"],
-      ["commit", "--quiet", "-m", "baseline"],
-    ]) {
-      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-      assert.equal(result.status, 0, result.stderr);
-    }
-    const brief = path.join(cwd, "brief.json");
-    writeFileSync(
-      brief,
-      JSON.stringify({
-        schemaVersion: 1,
-        taskId: "isolation",
-        objective: "Keep operator credentials out of role workspaces",
-        acceptanceCriteria: ["first", "second"],
-        limits: { maxSlices: 2, maxRunMs: 1000, maxDispatches: 16 },
-        slices: [
-          {
-            id: "first",
-            title: "First",
-            description: "First",
-            role: "Developer",
-            dependsOn: [],
-            writeScope: ["src"],
-            acceptanceCriteria: ["first"],
-          },
-          {
-            id: "second",
-            title: "Second",
-            description: "Second",
-            role: "Developer",
-            dependsOn: ["first"],
-            writeScope: ["src"],
-            acceptanceCriteria: ["second"],
-          },
-        ],
-      }),
-    );
-    const nested = path.join(cwd, "nested");
-    mkdirSync(nested);
-    assert.equal(invoke(nested, "init").status, 0);
-    const subdirectoryRun = invoke(nested, "run", "--brief", brief);
-    assert.equal(subdirectoryRun.status, 3, subdirectoryRun.stderr);
-    assert.match(subdirectoryRun.stderr, /Git repository root/);
-    assert.equal(
-      existsSync(path.join(nested, ".capstan/state/controller.sqlite")),
-      false,
-    );
-    writeFileSync(path.join(nested, "secret.txt"), "private\n");
-    for (const args of [
-      ["add", "-f", "nested/.capstan/operator.key"],
-      ["commit", "--quiet", "-m", "nested credential in history"],
-      ["rm", "--cached", "--quiet", "nested/.capstan/operator.key"],
-      ["commit", "--quiet", "-m", "remove nested credential"],
-    ]) {
-      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-      assert.equal(result.status, 0, result.stderr);
-    }
-    const nestedHistory = invoke(cwd, "run", "--brief", brief);
-    assert.equal(nestedHistory.status, 3, nestedHistory.stderr);
-    assert.match(nestedHistory.stderr, /contains \.capstan state/);
-    assert.equal(
-      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
-      false,
-    );
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("cstan rejects duplicate JSON members before validating a brief", () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-duplicate-json-"));
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const brief = path.join(cwd, "brief.json");
-    writeFileSync(
-      brief,
-      '{"schemaVersion":1,"limits":{"maxSlices":2,"maxSlices":99}}\n',
-    );
-    const result = invoke(cwd, "run", "--brief", brief);
-    assert.equal(result.status, 3, result.stderr);
-    assert.match(result.stderr, /duplicate JSON member: maxSlices/);
-    assert.equal(
-      existsSync(path.join(cwd, ".capstan/state/controller.sqlite")),
-      false,
-    );
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
 test("cstan inspect requires an identifier and returns the usage exit code", () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-usage-"));
   try {
@@ -1351,129 +998,6 @@ test("cstan inspect requires an identifier and returns the usage exit code", () 
     rmSync(cwd, { recursive: true, force: true });
   }
 });
-
-test("cstan pause and cancel need the live controller and an authenticated socket", async () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-control-"));
-  const resumeGate = Promise.withResolvers<void>();
-  let core: ControllerCore | undefined;
-  let closeControl: (() => Promise<void>) | undefined;
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const offline = invoke(cwd, "pause");
-    assert.equal(offline.status, 4);
-    assert.match(offline.stderr, /requires the foreground controller/);
-
-    const config = JSON.parse(
-      readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
-    ) as { projectId: string; name: string; stateDirectory: string };
-    const credential = readFileSync(
-      path.join(cwd, ".capstan/operator.key"),
-      "utf8",
-    ).trim();
-    core = await ControllerCore.open({
-      stateDirectory: config.stateDirectory,
-      project: {
-        projectId: config.projectId,
-        name: config.name,
-        ownerCredential: credential,
-        initialInputs: [
-          { kind: "project_config", content: { name: config.name } },
-          { kind: "task_brief", content: { objective: "control" } },
-          { kind: "acceptance_criteria", content: ["control"] },
-          { kind: "policy", content: { maxRunMs: 60_000 } },
-          { kind: "plan", content: { slices: [] } },
-        ],
-      },
-      workspaceRoot: cwd,
-    });
-    const actions: string[] = [];
-    const socketPath = path.join(config.stateDirectory, "control.sock");
-    closeControl = await listenControl(
-      socketPath,
-      credential,
-      core,
-      async (action) => {
-        actions.push(action);
-        if (action === "cancel")
-          throw new Error(
-            "cancellation containment incomplete: Cannot connect to the Docker daemon",
-          );
-        if (action === "resume") await resumeGate.promise;
-        return { run: { state: "paused" } };
-      },
-    );
-    await assert.rejects(
-      requestControl(socketPath, "wrong-credential", "pause"),
-      /unauthorized/,
-    );
-    assert.equal(actions.length, 0);
-
-    const pause = await invokeAsync(cwd, "pause");
-    assert.equal(pause.status, 0, pause.stderr);
-    assert.deepEqual(actions, ["pause"]);
-
-    const cancel = await invokeAsync(cwd, "cancel");
-    assert.equal(cancel.status, 5);
-    assert.match(cancel.stderr, /containment incomplete.*Docker daemon/);
-    assert.doesNotMatch(cancel.stderr, /requires the foreground controller/);
-    assert.deepEqual(actions, ["pause", "cancel"]);
-
-    const abandoned = net.createConnection(socketPath);
-    await new Promise<void>((resolve, reject) => {
-      abandoned.once("connect", () => {
-        abandoned.write(
-          `${JSON.stringify({ token: credential, action: "resume" })}\n`,
-        );
-        resolve();
-      });
-      abandoned.once("error", reject);
-    });
-    while (!actions.includes("resume"))
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    abandoned.destroy();
-    resumeGate.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await requestControl(socketPath, credential, "pause");
-    assert.deepEqual(actions, ["pause", "cancel", "resume", "pause"]);
-  } finally {
-    resumeGate.resolve();
-    await closeControl?.();
-    core?.close();
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-const configInputKinds = [
-  "project_config",
-  "task_brief",
-  "acceptance_criteria",
-  "policy",
-  "plan",
-] as const;
-
-async function openInitializedCore(cwd: string): Promise<ControllerCore> {
-  const config = JSON.parse(
-    readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
-  ) as { projectId: string; name: string; stateDirectory: string };
-  return ControllerCore.open({
-    stateDirectory: config.stateDirectory,
-    project: {
-      projectId: config.projectId,
-      name: config.name,
-      ownerCredential: readFileSync(
-        path.join(cwd, ".capstan/operator.key"),
-        "utf8",
-      ).trim(),
-      initialInputs: configInputKinds.map((kind) => ({
-        kind,
-        content:
-          kind === "acceptance_criteria"
-            ? ["criterion"]
-            : { kind, revision: 1 },
-      })),
-    },
-  });
-}
 
 test("cstan init writes a starter capstan.toml and never replaces an existing one", () => {
   const fresh = mkdtempSync(path.join(os.tmpdir(), "cstan-config-init-"));
@@ -1546,6 +1070,35 @@ test("cstan config check exits 3 for a missing or invalid file and does not echo
     assert.equal(invoke(cwd, "config").status, 2);
     assert.equal(invoke(cwd, "config", "check", "extra").status, 2);
     assert.equal(invoke(cwd, "config", "other").status, 2);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("cstan config check warns about every role that runs unattended on a host other than Claude", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-warn-"));
+  try {
+    writeFileSync(
+      path.join(cwd, "capstan.toml"),
+      [
+        "schema_version = 1",
+        '[hosts.claude]\nkind = "claude"',
+        '[hosts.cx]\nkind = "codex"',
+        '[roles.pm]\nkind = "PM"\nhost = "claude"',
+        '[roles.dev]\nkind = "Developer"\nhost = "cx"\npermission_mode = "auto"',
+        '[roles.dev2]\nkind = "Developer"\nhost = "claude"',
+        "",
+      ].join("\n\n"),
+      { mode: 0o600 },
+    );
+    const result = invoke(cwd, "config", "check");
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stderr,
+      /warning: role dev runs on codex with full access and no approval prompts/,
+    );
+    assert.doesNotMatch(result.stderr, /role (pm|dev2) runs/);
+    assert.doesNotThrow(() => JSON.parse(result.stdout));
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -1830,10 +1383,6 @@ test("cstan start runs one daemon, a repeat and a second daemon are handled, sto
       (JSON.parse(status.stdout) as { schemaVersion: number }).schemaVersion,
       1,
     );
-    const pause = invoke(cwd, "pause");
-    assert.notEqual(pause.status, 0);
-    assert.match(pause.stderr, /require the foreground cstan run controller/);
-
     const stopped = invoke(cwd, "stop", "--json");
     assert.equal(stopped.status, 0, stopped.stderr);
     assert.equal(
@@ -1871,7 +1420,6 @@ test(
         {
           CAPSTAN_TOKEN: "t".repeat(40),
           CAPSTAN_SOCKET: "/tmp/elsewhere.sock",
-          M1_PROVIDER_HOST: "",
         },
         "start",
         "--json",
@@ -2157,7 +1705,6 @@ test("agent mode uses the token and the socket from the environment, operator mo
     const agentEnv = {
       CAPSTAN_TOKEN: actor.credential,
       CAPSTAN_SOCKET: socketPath,
-      M1_PROVIDER_HOST: "",
     };
     const dead = invokeWithEnv(elsewhere, agentEnv, "inbox");
     assert.equal(dead.status, 4);
@@ -2257,7 +1804,6 @@ test("the message commands work end to end through the executable: send, inbox, 
     const env = (token: string) => ({
       CAPSTAN_TOKEN: token,
       CAPSTAN_SOCKET: socketPath,
-      M1_PROVIDER_HOST: "",
     });
     assert.equal(invoke(cwd, "start").status, 0);
 
@@ -2464,9 +2010,8 @@ test("cancel with one id is a routed command; the legacy forms keep their usage 
     assert.equal(routed.status, 4, routed.stderr);
     assert.match(routed.stderr, /rejected: unknown_message/);
     assert.ok(daemonPid(cwd) !== undefined);
-    const legacy = invoke(cwd, "cancel");
-    assert.notEqual(legacy.status, 0);
-    assert.match(legacy.stderr, /require the foreground cstan run controller/);
+    const bare = invoke(cwd, "cancel");
+    assert.equal(bare.status, 2);
   } finally {
     killDaemon(cwd);
     rmSync(cwd, { recursive: true, force: true });
@@ -2602,7 +2147,7 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
 
     const partial = invokeWithEnv(
       cwd,
-      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      { CAPSTAN_TOKEN: "t".repeat(40) },
       "status",
     );
     assert.equal(partial.status, 3);
@@ -2615,7 +2160,6 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
       {
         CAPSTAN_TOKEN: "t".repeat(40),
         CAPSTAN_SOCKET: "relative.sock",
-        M1_PROVIDER_HOST: "",
       },
       "ping",
     );
@@ -2626,7 +2170,6 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
       {
         CAPSTAN_TOKEN: "",
         CAPSTAN_SOCKET: "/tmp/x.sock",
-        M1_PROVIDER_HOST: "",
       },
       "inbox",
     );
@@ -2634,7 +2177,7 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
     assert.match(emptyToken.stderr, /must both be set/);
     const operatorUnaffected = invokeWithEnv(
       cwd,
-      { CAPSTAN_TOKEN: "t".repeat(40), M1_PROVIDER_HOST: "" },
+      { CAPSTAN_TOKEN: "t".repeat(40) },
       "assign",
       "x",
     );
@@ -2738,7 +2281,6 @@ test("routed arguments keep a literal --json after --, empty arguments are refus
         {
           CAPSTAN_TOKEN: token,
           CAPSTAN_SOCKET: path.join(cwd, ".capstan/state/control.sock"),
-          M1_PROVIDER_HOST: "",
         },
         "inbox",
       );
@@ -2868,7 +2410,6 @@ test("a bad CAPSTAN_SOCKET is named and cstan pm restart accepts --json in eithe
         {
           CAPSTAN_TOKEN: "t".repeat(40),
           CAPSTAN_SOCKET: socket,
-          M1_PROVIDER_HOST: "",
         },
         "inbox",
       );
