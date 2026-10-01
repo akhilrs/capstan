@@ -84,10 +84,12 @@ export function startReportRelay(options: {
     running = true;
     try {
       // Nothing to do, and nothing written, until a PM is active.
+      // The core announces only when exactly one PM is active; use the same condition.
       if (
-        !options.core
+        options.core
           .listAgents()
-          .some((agent) => agent.kind === "PM" && agent.state === "active")
+          .filter((agent) => agent.kind === "PM" && agent.state === "active")
+          .length !== 1
       )
         return;
       for (const report of options.core.unannouncedReports(

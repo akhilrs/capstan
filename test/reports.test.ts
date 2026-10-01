@@ -294,6 +294,11 @@ test("reports are immutable, announced once, listed newest first and found by in
 test("a summary is cut to one line within its byte limit at a character boundary", () => {
   assert.equal(oneLineSummary("  a\r\nb\tc  \u0007d ", 100), "a b c d");
   assert.equal(oneLineSummary("\u0000\u001b", 100), "");
+  assert.equal(
+    oneLineSummary("\ufeff\u00a0 ", 100),
+    "",
+    "a byte-order mark and blanks alone leave nothing",
+  );
   const accented = "e\u0301";
   const cut = oneLineSummary(accented.repeat(20), 10);
   assert.ok(Buffer.byteLength(cut, "utf8") <= 10);
@@ -618,5 +623,46 @@ test("lone surrogates are dropped from a summary, a huge first character still l
     assert.match((limited as { message: string }).message, /^rate_limited/);
   } finally {
     await close(h2);
+  }
+});
+
+test("with two active PMs the core cannot choose one, so the relay stays idle instead of writing a refusal every tick", async () => {
+  const h = await harness();
+  try {
+    recordPane(h, BRANCH, BASE);
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    report(h);
+    h.core.syncRoleDefinitions(
+      ctx(h.core, h.owner),
+      [
+        ["pm", "PM"],
+        ["developer", "Developer"],
+        ["developer2", "Developer"],
+        ["pm2", "PM"],
+        ["pm3", "PM"],
+      ].map(([name, kind], index) => ({
+        name: name!,
+        kind: kind as "PM" | "Developer",
+        host: "claude",
+        configHash: String.fromCharCode(97 + index).repeat(64),
+      })),
+    );
+    h.addMember("pm2", "PM");
+    h.addMember("pm3", "PM");
+    const events: string[] = [];
+    const relay = startReportRelay({
+      core: h.core,
+      credential: h.owner,
+      intervalMs: 10,
+      log: (e) => events.push(e),
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } finally {
+      relay.stop();
+    }
+    assert.deepEqual(events, []);
+  } finally {
+    await close(h);
   }
 });
