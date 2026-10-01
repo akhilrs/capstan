@@ -25,13 +25,18 @@ import {
   buildAgentEnvironment,
 } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
+import { PaneLost } from "../src/herdr/adapter.js";
 import { ctx, projectInfo } from "./harness.js";
 import { SHA, StubAdapter, StubGit } from "./launcher-stubs.js";
 
 const hashOf = (name: string): string =>
   createHash("sha256").update(name).digest("hex");
 
-function config(fallback = true, maxWorkers = 3): CapstanConfig {
+function config(
+  fallback = true,
+  maxWorkers = 3,
+  layout: Partial<CapstanConfig["layout"]> = {},
+): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
     name,
     kind,
@@ -64,6 +69,13 @@ function config(fallback = true, maxWorkers = 3): CapstanConfig {
       workerAckTimeoutSeconds: 600,
     },
     limits: { maxWorkers },
+    layout: {
+      spawn: "tab",
+      split: "auto",
+      minPaneColumns: 60,
+      minPaneRows: 12,
+      ...layout,
+    },
     hosts: [
       {
         name: "claude",
@@ -97,6 +109,7 @@ async function world(
   fallback = true,
   synced = true,
   maxWorkers = 3,
+  layout: Partial<CapstanConfig["layout"]> = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
   const stateDirectory = path.join(root, ".capstan", "state");
@@ -125,7 +138,7 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: config(fallback, maxWorkers),
+      config: config(fallback, maxWorkers, layout),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -700,6 +713,321 @@ test("an extra seat gets a dotted display name, so a role literally named like i
     assert.equal(roleSeat.seatId, "developer-2-seat");
   } finally {
     w.cleanup();
+  }
+});
+
+const PANE = { spawn: "pane" as const };
+
+test("pane mode splits the worker into the PM's tab, records the new pane id and workspace, and stacks the next worker", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const pmPane = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!;
+    const first = await w.launcher.spawn("developer");
+    assert.equal(first.placement, "pane");
+    assert.equal(first.placementNote, undefined);
+    assert.ok(
+      w.adapter.calls.some((c) => c.endsWith(`:${pmPane.paneId}:right`)),
+      "a wide PM pane is split to the right",
+    );
+    assert.notEqual(first.paneId, "w3:p1");
+    const row = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "developer-1")!;
+    assert.equal(row.paneId, first.paneId, "the ledger holds the new pane id");
+    assert.equal(row.workspaceId, w.adapter.pmWorkspace);
+    assert.equal(w.adapter.starts.at(-1)!.paneId, first.paneId);
+    const second = await w.launcher.spawn("developer");
+    assert.equal(second.placement, "pane");
+    assert.ok(
+      w.adapter.calls.some((c) => c.endsWith(`:${pmPane.paneId}:down`)),
+      "the PM pane is now too narrow for another right split, so the next worker stacks below it",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a fixed split direction is used as configured", async () => {
+  const w = await world(true, true, 3, { spawn: "pane", split: "down" });
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    assert.ok(
+      w.adapter.calls.some(
+        (c) => c.startsWith("place:") && c.endsWith(":down"),
+      ),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worker stays a tab, with the reason, when nothing fits, the layout fails, the tab is zoomed or the move fails", async () => {
+  const w = await world(true, true, 3, {
+    spawn: "pane",
+    minPaneColumns: 150,
+    minPaneRows: 30,
+  });
+  try {
+    await launched(w);
+    const tooSmall = await w.launcher.spawn("developer");
+    assert.equal(tooSmall.placement, "tab");
+    assert.match(
+      tooSmall.placementNote!,
+      /no pane has room.*150 columns by 30 rows/,
+    );
+    assert.ok(!w.adapter.calls.some((c) => c.startsWith("place:")));
+    const row = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "developer-1")!;
+    assert.equal(row.paneId, tooSmall.paneId);
+  } finally {
+    w.cleanup();
+  }
+  const x = await world(true, true, 3, PANE);
+  try {
+    await launched(x);
+    x.adapter.layoutError = new Error(
+      "layout\nfailed \u001b[31mhard\u001b[0m " + "x".repeat(400),
+    );
+    const a = await x.launcher.spawn("developer");
+    assert.equal(a.placement, "tab");
+    assert.ok(
+      a.placementNote!.startsWith(
+        "the pane could not be placed (layout failed",
+      ),
+    );
+    assert.ok(!/[\p{Cc}]/u.test(a.placementNote!));
+    assert.ok(a.placementNote!.length < 260);
+    x.adapter.layoutError = undefined;
+    x.adapter.zoomed = true;
+    const b = await x.launcher.spawn("developer");
+    assert.equal(b.placement, "tab");
+    assert.match(b.placementNote!, /zoomed/);
+    x.adapter.zoomed = false;
+    x.adapter.placeError = new Error("move refused");
+    const c = await x.launcher.spawn("developer");
+    assert.equal(c.placement, "tab");
+    assert.match(c.placementNote!, /move refused/);
+    const rowC = x.core
+      .agentPanes(x.owner)
+      .find((r) => r.agentId === c.agentId)!;
+    assert.equal(rowC.paneId, c.paneId);
+    assert.deepEqual(
+      [a, b, c].map((r) => x.core.agentRecord(r.agentId)!.state),
+      ["active", "active", "active"],
+      "layout never fails a spawn",
+    );
+  } finally {
+    x.cleanup();
+  }
+});
+
+test("tab mode never asks for a layout", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    assert.equal(result.placement, "tab");
+    assert.ok(
+      !w.adapter.calls.some(
+        (c) => c.startsWith("layout:") || c.startsWith("place:"),
+      ),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("release closes a placed worker's new pane and removes its worktree, and a failed start after the move closes the new pane", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const released = await w.launcher.release(first.agentId);
+    assert.equal(released.paneClosed, true);
+    assert.ok(w.adapter.calls.includes(`close:${first.paneId}`));
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+    w.adapter.startError = new Error("start failed");
+    await assert.rejects(w.launcher.spawn("developer"));
+    const placed = w.adapter.calls
+      .filter((c) => c.startsWith("place:"))
+      .at(-1)!;
+    assert.ok(placed.startsWith("place:"));
+    assert.ok(
+      w.adapter.calls.some((c) => /^close:w\d+:p1\d$/.test(c)),
+      "cleanup closed the pane at its new id",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a pane lost in the move fails the spawn, and cleanup closes the one unregistered pane at the worktree path", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    w.adapter.placeError = new PaneLost("gone");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w9:p42", workspaceId: w.adapter.pmWorkspace! },
+    ]);
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) => e instanceof PaneLost,
+    );
+    assert.ok(
+      w.adapter.calls.includes("close:w9:p42"),
+      "the moved pane was found by its path and closed",
+    );
+    assert.equal(w.core.agentRecord("developer-1")!.state, "ended");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("cleanup leaves panes at the worktree path alone when more than one matches or the recorded pane still exists", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    w.adapter.placeError = new PaneLost("gone");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w9:p42", workspaceId: w.adapter.pmWorkspace! },
+      { paneId: "w9:p43", workspaceId: w.adapter.pmWorkspace! },
+    ]);
+    await assert.rejects(w.launcher.spawn("developer"));
+    assert.ok(!w.adapter.calls.includes("close:w9:p42"));
+    assert.ok(!w.adapter.calls.includes("close:w9:p43"));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("after a crash between the move and the ledger write, adoption closes the moved pane found at the worktree path in pane mode and leaves panes alone in tab mode", async () => {
+  for (const [layout, closed] of [
+    [{ spawn: "pane" as const }, true],
+    [{ spawn: "tab" as const }, false],
+  ] as const) {
+    const w = await world(true, true, 3, layout);
+    try {
+      await launched(w);
+      const first = await w.launcher.spawn("developer");
+      w.core.recordAgentPane(ctx(w.core, w.owner), {
+        agentId: first.agentId,
+        workspaceId: "w7",
+        paneId: "w7:p1",
+        worktreePath: first.worktreePath,
+        branch: first.branch,
+        baseSha: SHA,
+      });
+      w.adapter.adoptErrors.set("w7:p1", new PaneGone("gone"));
+      w.adapter.closeMissingThrows = true;
+      w.adapter.strays.set(first.worktreePath, [
+        { paneId: "w1:p99", workspaceId: w.adapter.pmWorkspace! },
+      ]);
+      await w.launcher.adoptAll();
+      assert.equal(
+        w.adapter.calls.includes("close:w1:p99"),
+        closed,
+        JSON.stringify(layout),
+      );
+      assert.equal(w.core.agentRecord(first.agentId)!.state, "ended");
+    } finally {
+      w.cleanup();
+    }
+  }
+});
+
+test("a pane at the worktree path in another workspace is the operator's and is never closed", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    w.adapter.placeError = new PaneLost("gone");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set("/tmp/work/developer-1", [
+      { paneId: "w8:p1", workspaceId: "w8" },
+    ]);
+    await assert.rejects(w.launcher.spawn("developer"));
+    assert.ok(!w.adapter.calls.includes("close:w8:p1"));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a placement note keeps no escape sequence of any kind and stays short even for combining marks", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const hostile = [
+      "osc \u001b]0;evil title\u0007 end",
+      "dcs \u001bPpayload\u001b\\ end",
+      "c1 \u009b31mred\u009b0m end",
+      "surrogate \ud800 end",
+      "marks e" + "\u0301".repeat(5000),
+      "unterminated \u001b]0;evil title",
+      "8bit \u009d0;evil osc\u009c end",
+      "8bit dcs \u0090payload\u009c end",
+      "colon \u001b[38:2:255:0:0m red",
+      "two byte \u001bc reset",
+      "e".repeat(10) + "\u0301".repeat(500),
+    ];
+    for (const message of hostile) {
+      w.adapter.layoutError = new Error(message);
+      const result = await w.launcher.spawn("developer");
+      assert.equal(result.placement, "tab");
+      const note = result.placementNote!;
+      assert.ok(
+        !/evil title|payload|31m|0m|\u001b|\u009b|\ud800/.test(note),
+        note,
+      );
+      assert.ok(note.length < 300, `${note.length}`);
+      await w.launcher.release(result.agentId);
+    }
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a gone pane is not searched for when no move was interrupted: a pane recorded in the PM's workspace, or a normal release", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.adapter.closeMissingThrows = true;
+    w.adapter.strays.set(first.worktreePath, [
+      { paneId: "w1:p77", workspaceId: w.adapter.pmWorkspace! },
+    ]);
+    // The worker's pane died after it was recorded in the PM's workspace; a release must not look for strays.
+    w.adapter.tabPanes = w.adapter.tabPanes.filter(
+      (p) => p.paneId !== first.paneId,
+    );
+    w.adapter.entries.delete(first.paneId);
+    await w.launcher.release(first.agentId);
+    assert.ok(!w.adapter.calls.some((c) => c.startsWith("panes-at:")));
+    assert.ok(!w.adapter.calls.includes("close:w1:p77"));
+  } finally {
+    w.cleanup();
+  }
+  const x = await world(true, true, 3, PANE);
+  try {
+    await launched(x);
+    const second = await x.launcher.spawn("developer");
+    x.adapter.adoptErrors.set(second.paneId, new PaneGone("gone"));
+    x.adapter.closeMissingThrows = true;
+    x.adapter.strays.set(second.worktreePath, [
+      { paneId: "w1:p77", workspaceId: x.adapter.pmWorkspace! },
+    ]);
+    await x.launcher.adoptAll();
+    assert.ok(
+      !x.adapter.calls.some((c) => c.startsWith("panes-at:")),
+      "the row names the PM's workspace, so the pane died; nothing was mid-move",
+    );
+  } finally {
+    x.cleanup();
   }
 });
 

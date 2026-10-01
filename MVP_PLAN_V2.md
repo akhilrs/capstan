@@ -122,6 +122,21 @@ The controller runs with no PM alive. If the daemon dies, `cstan start` (or any 
 - **Starter roles.** `cstan init` writes pm, developer, designer, tester. A worker runs in `acceptEdits` mode, may use `git`, and may not run `git push`.
 - **Known limits.** The deny rules and the prompt reduce what the PM does; they are not a sandbox. The PM can still reach files through Bash. `Bash(git push *)` does not match every spelling (`git -C . push`, extra spaces, `env git push`), and `Bash(git *)` also allows merge, checkout and branch deletion, so "never push or merge" rests on the worker prompt. A real sandbox is later work. Claude Code's rule syntax is verified in PM-26.
 
+**Stage 2e, fourth part: where spawned workers appear (PM-30).** `capstan.toml` chooses it:
+
+```toml
+[layout]
+spawn = "pane"          # "tab" (default): a Herdr workspace per worker; "pane": a split in the PM's tab
+split = "auto"          # "auto", "right" (side by side) or "down" (stacked)
+min_pane_columns = 60   # a split must leave both panes at least this wide...
+min_pane_rows = 12      # ...and this tall
+```
+
+- **Mechanism.** The worktree is still made with `herdr worktree create` under the hub workspace. In pane mode `herdr pane move` then moves its pane into the PM's tab as a split; the emptied worktree workspace closes by itself. The moved pane gets a new pane id, and the ledger, the adapter registry and later adoption use that id. `release` closes the pane and removes the worktree as before. Verified by hand and by a live test on Herdr 0.9.1.
+- **Which pane is split.** Among the PM pane and the active workers' panes in that tab (never the operator's own panes), the largest; ties go to the lower pane id by its numbers. With `auto`, a pane at least twice as many columns as rows is split `right`, else `down` (cells are about twice as tall as wide); the other direction is tried if the first would leave a pane under the minimum; a size that is not a positive integer, or a zoomed tab, counts as no fit. `right` and `down` are Herdr's own names.
+- **A spawn never fails because of layout.** With no PM pane, a layout or move error, a zoomed tab or no room, the worker stays a tab and the answer says why (`placement: "tab"` and `placementNote`). A move that errors is checked again: the old pane still there means nothing moved; exactly one new pane at the worktree path means it moved; anything else fails the spawn, and cleanup then closes the one unregistered pane in the PM's workspace whose directory is the worktree (also after a crash in that window, when a recorded pane is gone and its row names a workspace other than the PM's). Limit: an operator shell in the PM's workspace at exactly that worktree path cannot be told apart from such a pane.
+- **Limits.** After `cstan pm restart` the new PM opens its own workspace and workers already placed stay in the old PM's tab. Sizes are read once, when the worker is spawned. The starter file written by `cstan init` sets `spawn = "pane"`; a project without a `[layout]` table keeps tabs.
+
 Each message carries an id and asks for `cstan ack <id>`. The ack shows receipt, not understanding, and is forgeable (E5). A nonce adds nothing against a same-user forger and is left out of the slice.
 
 ## 6. Facts are verified, not trusted

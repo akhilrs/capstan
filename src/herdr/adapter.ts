@@ -38,8 +38,23 @@ export interface PaneEntry {
   readonly workspaceId?: string;
 }
 
+export interface PaneLayoutView {
+  readonly tabId: string;
+  readonly workspaceId: string;
+  readonly zoomed: boolean;
+  readonly panes: readonly {
+    readonly paneId: string;
+    readonly width: number;
+    readonly height: number;
+  }[];
+}
+
 export class AdapterError extends Error {
   override readonly name: string = "AdapterError";
+}
+/** A pane move failed and the pane cannot be found at its old id or at a new one. */
+export class PaneLost extends AdapterError {
+  override readonly name = "PaneLost";
 }
 export class UnknownPaneError extends AdapterError {
   override readonly name = "UnknownPaneError";
@@ -144,6 +159,7 @@ export function herdrStateOf(status: string): HerdrState {
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
+const TAB_PATTERN = /^w[0-9A-Za-z]+:t[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
@@ -358,6 +374,169 @@ export class HerdrAdapter {
     return { workspaceId, paneId, path: checkout, branch: input.branch };
   }
 
+  /** The panes of the tab that holds `paneId`, with their sizes in terminal cells. */
+  async paneLayout(paneId: string): Promise<PaneLayoutView> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    const result = await runJson(this.#run, [
+      "pane",
+      "layout",
+      "--pane",
+      paneId,
+    ]);
+    const layout = this.#record(result.layout, "layout");
+    if (!Array.isArray(layout.panes))
+      throw new HerdrError("bad_output", "herdr did not report layout panes");
+    return {
+      tabId: requireMatch(layout.tab_id, TAB_PATTERN, "tab id"),
+      workspaceId: requireMatch(
+        layout.workspace_id,
+        WORKSPACE_PATTERN,
+        "workspace id",
+      ),
+      // Anything but an explicit false counts as zoomed: no split on a layout we cannot read.
+      zoomed: layout.zoomed !== false,
+      panes: layout.panes.map((entry) => {
+        const pane = this.#record(entry, "layout pane");
+        const rect = this.#record(pane.rect, "layout rect");
+        return {
+          paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
+          width: typeof rect.width === "number" ? rect.width : Number.NaN,
+          height: typeof rect.height === "number" ? rect.height : Number.NaN,
+        };
+      }),
+    };
+  }
+
+  async #listPanes(): Promise<
+    Array<{
+      paneId: string;
+      tabId: string;
+      workspaceId: string;
+      /** undefined when Herdr gave no absolute directory for the pane. */
+      cwd: string | undefined;
+    }>
+  > {
+    const result = await runJson(this.#run, ["pane", "list"]);
+    if (!Array.isArray(result.panes))
+      throw new HerdrError("bad_output", "herdr did not report panes");
+    // A pane whose id this adapter cannot read is skipped: it cannot be ours.
+    // A pane without a usable directory is kept, so it still counts as existing.
+    return result.panes.flatMap((entry) => {
+      try {
+        const pane = this.#record(entry, "pane");
+        return [
+          {
+            paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
+            tabId: requireMatch(pane.tab_id, TAB_PATTERN, "tab id"),
+            workspaceId: requireMatch(
+              pane.workspace_id,
+              WORKSPACE_PATTERN,
+              "workspace id",
+            ),
+            cwd:
+              typeof pane.cwd === "string" && path.isAbsolute(pane.cwd)
+                ? pane.cwd
+                : undefined,
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  /** The panes whose working directory is exactly `directory` (compared as real paths), with their workspaces. */
+  async panesAtPath(
+    directory: string,
+  ): Promise<Array<{ paneId: string; workspaceId: string }>> {
+    if (!path.isAbsolute(directory)) return [];
+    const wanted = this.#canonical(directory);
+    return (await this.#listPanes())
+      .filter(
+        (pane) =>
+          pane.cwd !== undefined && this.#canonical(pane.cwd) === wanted,
+      )
+      .map((pane) => ({ paneId: pane.paneId, workspaceId: pane.workspaceId }));
+  }
+
+  /**
+   * Moves a registered worker pane into another tab as a split. Herdr gives
+   * the moved pane a new id; the registry follows it. A move that errors is
+   * ambiguous (Herdr may have done it), so the panes are listed again: the old
+   * pane still there means nothing moved; exactly one new pane at the worktree
+   * path means it moved; anything else is an error.
+   */
+  async placePane(input: {
+    paneId: string;
+    tabId: string;
+    targetPaneId: string;
+    direction: "right" | "down";
+    worktreePath: string;
+  }): Promise<{ paneId: string; workspaceId: string }> {
+    requireMatch(input.paneId, PANE_PATTERN, "pane id");
+    requireMatch(input.tabId, TAB_PATTERN, "tab id");
+    requireMatch(input.targetPaneId, PANE_PATTERN, "target pane id");
+    if (!path.isAbsolute(input.worktreePath))
+      throw new InvalidArgumentError("worktree path must be absolute");
+    if (input.direction !== "right" && input.direction !== "down")
+      throw new InvalidArgumentError("split direction is not acceptable");
+    const entry = this.#panes.get(input.paneId);
+    if (entry === undefined)
+      throw new UnknownPaneError("pane is not registered");
+    if (entry.role !== "worker")
+      throw new PhaseError("only a worker pane can be placed");
+    const before = new Set((await this.#listPanes()).map((p) => p.paneId));
+    let moved: { paneId: string; workspaceId: string };
+    try {
+      const result = await runJson(this.#run, [
+        "pane",
+        "move",
+        input.paneId,
+        "--tab",
+        input.tabId,
+        "--split",
+        input.direction,
+        "--target-pane",
+        input.targetPaneId,
+        "--no-focus",
+      ]);
+      const pane = this.#record(
+        this.#record(result.move_result, "move_result").pane,
+        "pane",
+      );
+      moved = {
+        paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
+        workspaceId: requireMatch(
+          pane.workspace_id,
+          WORKSPACE_PATTERN,
+          "workspace id",
+        ),
+      };
+    } catch (error) {
+      const after = await this.#listPanes().catch(() => undefined);
+      if (after === undefined)
+        throw new PaneLost(
+          "the pane move failed and the panes could not be listed to check it",
+        );
+      if (after.some((p) => p.paneId === input.paneId)) throw error;
+      const wanted = this.#canonical(input.worktreePath);
+      const found = after.filter(
+        (p) =>
+          !before.has(p.paneId) &&
+          p.cwd !== undefined &&
+          this.#canonical(p.cwd) === wanted,
+      );
+      if (found.length !== 1)
+        throw new PaneLost(
+          "the pane move failed and the pane cannot be found again",
+        );
+      moved = { paneId: found[0]!.paneId, workspaceId: found[0]!.workspaceId };
+    }
+    this.#panes.delete(input.paneId);
+    this.#panes.set(moved.paneId, { ...entry, workspaceId: moved.workspaceId });
+    return moved;
+  }
+
   async createWorkspace(input: {
     cwd: string;
     label: string;
@@ -397,6 +576,10 @@ export class HerdrAdapter {
     options: { force?: boolean } = {},
   ): Promise<void> {
     requireMatch(workspaceId, WORKSPACE_PATTERN, "workspace id");
+    // A worker placed as a pane shares the PM's workspace id; removing "its" worktree workspace would reach the PM.
+    for (const entry of this.#panes.values())
+      if (entry.workspaceId === workspaceId && entry.role === "PM")
+        throw new PhaseError("that workspace holds the PM");
     await runJson(this.#run, [
       "worktree",
       "remove",
@@ -405,7 +588,8 @@ export class HerdrAdapter {
       ...(options.force ? ["--force"] : []),
     ]);
     for (const [paneId, entry] of this.#panes)
-      if (entry.workspaceId === workspaceId) this.#panes.delete(paneId);
+      if (entry.workspaceId === workspaceId && entry.role === "worker")
+        this.#panes.delete(paneId);
   }
 
   async closePane(paneId: string): Promise<void> {
@@ -994,6 +1178,15 @@ export class HerdrAdapter {
     if (typeof value !== "object" || value === null || Array.isArray(value))
       throw new HerdrError("bad_output", `herdr did not report ${label}`);
     return value as Record<string, unknown>;
+  }
+
+  #canonical(value: string): string {
+    const trim = (text: string): string => text.replace(/\/+$/, "") || "/";
+    try {
+      return trim(fs.realpathSync(value));
+    } catch {
+      return trim(path.resolve(value));
+    }
   }
 
   #samePath(shown: string, expected: string): boolean {

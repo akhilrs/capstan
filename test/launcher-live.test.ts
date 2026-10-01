@@ -27,7 +27,7 @@ if (UNAVAILABLE !== undefined)
 const hashOf = (name: string): string =>
   createHash("sha256").update(name).digest("hex");
 
-function configFor(): CapstanConfig {
+function configFor(spawn: "tab" | "pane" = "tab"): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer") => ({
     name,
     kind,
@@ -59,6 +59,12 @@ function configFor(): CapstanConfig {
       workerAckTimeoutSeconds: 600,
     },
     limits: { maxWorkers: 1 },
+    layout: {
+      spawn,
+      split: "auto",
+      minPaneColumns: 60,
+      minPaneRows: 12,
+    },
     hosts: [
       {
         name: "claude",
@@ -292,6 +298,87 @@ test(
       const panes = await live.runner(["pane", "get", pmPane]);
       assert.notEqual(panes.code, 0, "the old PM pane is gone");
     } finally {
+      core.close();
+      await live.cleanup();
+    }
+    assertNoNewDefaultWorkspaces(before);
+  },
+);
+
+test(
+  "pane mode splits a worker into the PM's tab in a real Herdr session and release closes that pane and removes the worktree",
+  { skip: UNAVAILABLE, timeout: 300_000 },
+  async () => {
+    const before = defaultSessionSnapshot();
+    const live = await startLiveEnvironment();
+    const info = projectInfo();
+    const stateDirectory = path.join(live.repo, ".capstan", "state");
+    const core = await ControllerCore.open({ stateDirectory, project: info });
+    const owner = info.ownerCredential;
+    const adapter = new HerdrAdapter({ run: live.runner, tempRoot: live.root });
+    try {
+      core.syncRoleDefinitions(ctx(core, owner), [
+        { name: "pm", kind: "PM", host: "claude", configHash: hashOf("pm") },
+        {
+          name: "developer",
+          kind: "Developer",
+          host: "claude",
+          configHash: hashOf("developer"),
+        },
+      ]);
+      const cli = path.join(live.root, "watch-cli.js");
+      writeFileSync(
+        cli,
+        "console.log('WATCH-PANE-RUNNING'); setInterval(() => {}, 1000);\n",
+      );
+      chmodSync(cli, 0o644);
+      const launcher = new Launcher({
+        core,
+        adapter,
+        config: configFor("pane"),
+        projectRoot: live.repo,
+        cliPath: cli,
+        socketPath: path.join(stateDirectory, "control.sock"),
+        credential: owner,
+        baseEnvironment: live.serverEnvironment,
+      });
+      const launched = await launcher.launchPm();
+      const pmPane = launched.paneId!;
+      await live.runner(["pane", "send-keys", pmPane, "down"]);
+      await live.runner(["pane", "send-keys", pmPane, "enter"]);
+      await until("the PM to reach its idle screen", async () =>
+        (await adapter.agentObservation("pm-1")) === "idle" ? true : undefined,
+      );
+      const spawned = await launcher.spawn("developer");
+      assert.equal(spawned.state, "started", JSON.stringify(spawned));
+      assert.equal(spawned.placement, "pane", JSON.stringify(spawned));
+      const layout = await adapter.paneLayout(pmPane);
+      assert.deepEqual(
+        layout.panes.map((p) => p.paneId).sort(),
+        [pmPane, spawned.paneId].sort(),
+        "the PM and the worker share one tab",
+      );
+      const row = core
+        .agentPanes(owner)
+        .find((r) => r.agentId === "developer-1")!;
+      assert.equal(row.paneId, spawned.paneId);
+      assert.equal(row.workspaceId, layout.workspaceId);
+      const released = await launcher.release("developer-1");
+      assert.equal(released.paneClosed, true);
+      assert.equal(released.worktreeRemoved, true);
+      assert.deepEqual(
+        (await adapter.paneLayout(pmPane)).panes.map((p) => p.paneId),
+        [pmPane],
+        "the worker pane is gone",
+      );
+      assert.ok(
+        !execFileSync("git", ["worktree", "list"], {
+          cwd: live.repo,
+          encoding: "utf8",
+        }).includes("developer-1"),
+      );
+    } finally {
+      adapter.close();
       core.close();
       await live.cleanup();
     }

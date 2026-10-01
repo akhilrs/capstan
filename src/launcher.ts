@@ -15,6 +15,7 @@ import type { AgentRecord } from "./controller/types.js";
 import {
   AgentPaneMismatch,
   PaneGone,
+  PaneLost,
   buildAgentEnvironment,
   shellQuote,
   claudeArguments,
@@ -22,6 +23,7 @@ import {
 } from "./herdr/adapter.js";
 import { HerdrError } from "./herdr/runner.js";
 import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
+import { choosePlacement, type LayoutPane } from "./layout.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
 
 export const STEP_BUDGET_MS = 60_000;
@@ -37,6 +39,9 @@ export type LauncherAdapter = Pick<
   HerdrAdapter,
   | "createWorkspace"
   | "createWorktree"
+  | "paneLayout"
+  | "placePane"
+  | "panesAtPath"
   | "prepareShell"
   | "startAgent"
   | "answerTrustDialog"
@@ -91,6 +96,10 @@ export interface SpawnResult {
   readonly paneId: string;
   readonly worktreePath: string;
   readonly branch: string;
+  /** "pane": the worker is a split in the PM's tab; "tab": it has its own Herdr workspace. */
+  readonly placement: "pane" | "tab";
+  /** Why a pane-mode spawn stayed a tab. */
+  readonly placementNote?: string;
   readonly hint?: string;
 }
 
@@ -145,8 +154,35 @@ interface Budget {
   check(step: string): void;
 }
 
+/** Escape sequences (CSI with any parameter bytes, OSC, DCS and the other string forms even when unterminated, the 8-bit C1 forms, and two-byte escapes), control and format characters, lone surrogates, line separators and runs of blanks are removed or become one space. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it; a first grapheme longer than that leaves nothing. */
+function oneLine(text: string, maxLength: number): string {
+  const clean = text
+    .replace(
+      /(?:\u001b\]|\u009d)[^\u0007\u001b\u009c]*(?:\u0007|\u001b\\|\u009c)?/g,
+      "",
+    )
+    .replace(
+      /(?:\u001b[PX^_]|[\u0090\u0098\u009e\u009f])[^\u001b\u009c]*(?:\u001b\\|\u009c)?/g,
+      "",
+    )
+    .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b[ -/]*[0-~]/g, "")
+    .replace(/\p{Cs}/gu, "")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
+    .trim();
+  let result = "";
+  for (const part of new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  }).segment(clean)) {
+    if (result.length + part.segment.length > maxLength) break;
+    result += part.segment;
+  }
+  return result.trim();
+}
+
 /** Keeps a sync error to one short line in the refusal. */
 const MAX_SYNC_REASON_CHARS = 200;
+const MAX_NOTE_LENGTH = 200;
 
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
@@ -841,6 +877,7 @@ export class Launcher {
         paneId?: string;
         branch: string;
         baseSha?: string;
+        moveMayHaveHappened?: boolean;
       } = { branch };
       try {
         const baseSha = this.#git.headSha();
@@ -870,6 +907,42 @@ export class Launcher {
           branch,
           baseSha,
         });
+        let paneId = tree.paneId;
+        let placement: SpawnResult["placement"] = "tab";
+        let placementNote: string | undefined;
+        if (this.#config.layout.spawn === "pane") {
+          budget.check("placing the worker pane");
+          info.moveMayHaveHappened = true;
+          const outcome =
+            pmPane.paneId === null
+              ? { note: "the PM has no recorded pane" }
+              : await this.#placeWorkerPane(
+                  tree.paneId,
+                  tree.path,
+                  pmPane.paneId,
+                );
+          if ("placed" in outcome) {
+            paneId = outcome.placed.paneId;
+            placement = "pane";
+            info.paneId = paneId;
+            this.#core.recordAgentPane(this.#context(), {
+              agentId: agent.agentId,
+              workspaceId: outcome.placed.workspaceId,
+              paneId,
+              worktreePath: tree.path,
+              branch,
+              baseSha,
+            });
+            info.moveMayHaveHappened = false;
+          } else {
+            placementNote = outcome.note;
+            info.moveMayHaveHappened = false;
+          }
+        }
+        const where = {
+          placement,
+          ...(placementNote === undefined ? {} : { placementNote }),
+        };
         budget.check("starting the worker");
         const promptFile = this.#adapter.writePromptFile(
           buildRolePrompt({
@@ -883,7 +956,7 @@ export class Launcher {
         const started = await this.#adapter.startAgent({
           name: agent.agentId,
           kind: "claude",
-          paneId: tree.paneId,
+          paneId,
           args: this.#arguments(role, promptFile),
           environment: this.#environment(agent.credential),
           timeoutMs: START_TIMEOUT_MS,
@@ -892,21 +965,23 @@ export class Launcher {
           return {
             state: "started",
             agentId: agent.agentId,
-            paneId: tree.paneId,
+            paneId,
             worktreePath: tree.path,
             branch,
+            ...where,
           };
         const answered = await this.#adapter.answerTrustDialog({
-          paneId: tree.paneId,
+          paneId,
           timeoutMs: DIALOG_TIMEOUT_MS,
           log: (entry) => this.#log("trust_dialog_key", { ...entry }),
         });
         return {
           state: answered.handled ? "started" : "blocked",
           agentId: agent.agentId,
-          paneId: tree.paneId,
+          paneId,
           worktreePath: tree.path,
           branch,
+          ...where,
           ...(answered.handled
             ? {}
             : {
@@ -920,6 +995,69 @@ export class Launcher {
     });
   }
 
+  // ----------------------------------------------------------- placement
+
+  /** Splits a new worker pane into the PM's tab, or says why it stays a tab. A pane that was lost in the move is an error, not a fallback. */
+  async #placeWorkerPane(
+    paneId: string,
+    worktreePath: string,
+    pmPaneId: string,
+  ): Promise<
+    | { readonly placed: { paneId: string; workspaceId: string } }
+    | { readonly note: string }
+  > {
+    const layoutConfig = this.#config.layout;
+    try {
+      const layout = await this.#adapter.paneLayout(pmPaneId);
+      if (layout.zoomed) return { note: "the PM's tab has a zoomed pane" };
+      const live = new Set(
+        this.#core
+          .agentPanes(this.#credential)
+          .filter((row) => {
+            const agent = this.#core.agentRecord(row.agentId);
+            return (
+              row.paneId !== null &&
+              agent?.state === "active" &&
+              (agent.kind === "PM" ||
+                !this.#cleanupFailed.some((c) => c.agentId === row.agentId)) &&
+              this.#adapter.paneEntry(row.paneId) !== undefined
+            );
+          })
+          .map((row) => row.paneId!),
+      );
+      const candidates: LayoutPane[] = layout.panes.filter((pane) =>
+        live.has(pane.paneId),
+      );
+      const choice = choosePlacement(candidates, {
+        split: layoutConfig.split,
+        minColumns: layoutConfig.minPaneColumns,
+        minRows: layoutConfig.minPaneRows,
+      });
+      if (choice === undefined)
+        return {
+          note: `no pane has room for a split of at least ${layoutConfig.minPaneColumns} columns by ${layoutConfig.minPaneRows} rows`,
+        };
+      const placed = await this.#adapter.placePane({
+        paneId,
+        tabId: layout.tabId,
+        targetPaneId: choice.targetPaneId,
+        direction: choice.direction,
+        worktreePath,
+      });
+      return { placed };
+    } catch (error) {
+      if (error instanceof PaneLost) throw error;
+      this.#log("placement_failed", { paneId, error: String(error) });
+      const reason = oneLine(
+        error instanceof Error ? error.message : String(error),
+        MAX_NOTE_LENGTH,
+      );
+      return {
+        note: `the pane could not be placed${reason === "" ? "" : ` (${reason})`}`,
+      };
+    }
+  }
+
   // ------------------------------------------------------------- cleanup
 
   /** endAgent, pane, worktree (never forced), branch (compare-and-delete), row; in that order. */
@@ -930,6 +1068,8 @@ export class Launcher {
       paneId?: string;
       branch?: string;
       baseSha?: string;
+      /** True only when a pane move was started and its result never reached the ledger. */
+      moveMayHaveHappened?: boolean;
     },
   ): Promise<
     | { readonly ended: false; readonly reason: string }
@@ -976,6 +1116,8 @@ export class Launcher {
       paneId?: string;
       branch?: string;
       baseSha?: string;
+      /** True only when a pane move was started and its result never reached the ledger. */
+      moveMayHaveHappened?: boolean;
     },
   ): Promise<ReleaseOutcome> {
     const budget = this.#budget(CLEANUP_BUDGET_MS);
@@ -984,8 +1126,14 @@ export class Launcher {
       paneClosed = false;
       if (this.#within(budget)) {
         try {
-          await this.#close(info.paneId);
+          const existed = await this.#close(info.paneId);
           paneClosed = true;
+          if (
+            !existed &&
+            info.worktreePath !== undefined &&
+            info.moveMayHaveHappened === true
+          )
+            await this.#closeMovedPane(agentId, info.worktreePath, info.paneId);
         } catch (error) {
           this.#log("pane_not_closed", {
             agentId,
@@ -1043,16 +1191,62 @@ export class Launcher {
     return { paneClosed, worktreeRemoved, branchKept };
   }
 
-  /** Closes a pane; a pane Herdr no longer knows counts as closed. */
-  async #close(paneId: string): Promise<void> {
+  /** Closes a pane; a pane Herdr no longer knows counts as closed. Returns false when the pane was already gone. */
+  async #close(paneId: string): Promise<boolean> {
     try {
       await this.#adapter.closePane(paneId);
+      return true;
     } catch (error) {
       if (error instanceof HerdrError && /not_found|no_such/.test(error.code)) {
         this.#adapter.forgetPane(paneId);
-        return;
+        return false;
       }
       throw error;
+    }
+  }
+
+  /**
+   * Called only when a split placement was interrupted. Close the one
+   * unregistered pane in the PM's workspace whose directory is the agent's
+   * worktree; with none or several, leave everything alone. A normal release
+   * never looks. Known limit: if the worker's pane died and the operator opened
+   * a shell in the PM's workspace at exactly that worktree path, an interrupted
+   * move cannot be told apart from it.
+   */
+  /** In pane mode a row whose pane is gone and whose workspace is not the PM's may hold the old id of a pane that was moved but never recorded. */
+  #interruptedMove(workspaceId: string | null): boolean {
+    if (this.#config.layout.spawn !== "pane" || workspaceId === null)
+      return false;
+    const pm = this.#activeAgents().find((agent) => agent.kind === "PM");
+    const pmWorkspace = this.#core
+      .agentPanes(this.#credential)
+      .find((row) => row.agentId === pm?.agentId)?.workspaceId;
+    return pmWorkspace !== undefined && pmWorkspace !== workspaceId;
+  }
+
+  async #closeMovedPane(
+    agentId: string,
+    worktreePath: string,
+    recordedPaneId: string,
+  ): Promise<void> {
+    try {
+      // A moved pane lands in the PM's workspace, so a pane anywhere else is the operator's.
+      const pm = this.#activeAgents().find((agent) => agent.kind === "PM");
+      const pmWorkspace = this.#core
+        .agentPanes(this.#credential)
+        .find((row) => row.agentId === pm?.agentId)?.workspaceId;
+      if (pmWorkspace === undefined || pmWorkspace === null) return;
+      const strays = (await this.#adapter.panesAtPath(worktreePath)).filter(
+        (pane) =>
+          pane.paneId !== recordedPaneId &&
+          pane.workspaceId === pmWorkspace &&
+          this.#adapter.paneEntry(pane.paneId) === undefined,
+      );
+      if (strays.length !== 1) return;
+      await this.#close(strays[0]!.paneId);
+      this.#log("moved_pane_closed", { agentId, paneId: strays[0]!.paneId });
+    } catch (error) {
+      this.#log("moved_pane_not_closed", { agentId, error: String(error) });
     }
   }
 
@@ -1120,6 +1314,10 @@ export class Launcher {
           this.#core.clearAgentPane(this.#context(), row.agentId);
           if (agent.kind !== "PM")
             await this.#cleanupAgent(row.agentId, {
+              paneId: row.paneId,
+              ...(this.#interruptedMove(row.workspaceId)
+                ? { moveMayHaveHappened: true }
+                : {}),
               ...(row.worktreePath === null
                 ? {}
                 : { worktreePath: row.worktreePath }),

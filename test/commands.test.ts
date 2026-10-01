@@ -26,6 +26,12 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       workerAckTimeoutSeconds: 600,
     },
     limits: { maxWorkers: 3 },
+    layout: {
+      spawn: "tab",
+      split: "auto",
+      minPaneColumns: 60,
+      minPaneRows: 12,
+    },
     hosts: [
       {
         name: "claude",
