@@ -138,6 +138,33 @@ export type ResolvedEnvironment = {
 };
 
 export const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,63}$/;
+/** Passed by default already, or able to change how the agent's shell or loader behaves. */
+export const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TMPDIR",
+  "IFS",
+  "PS1",
+  "PS2",
+  "PS4",
+  "PROMPT_COMMAND",
+  "BASH_ENV",
+  "ENV",
+  "SHELLOPTS",
+  "BASHOPTS",
+  "GLOBIGNORE",
+  "HISTFILE",
+  "CDPATH",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "LD_AUDIT",
+  "NODE_OPTIONS",
+]);
 export const MAX_PASSED_ENV_NAMES = 32;
 export const MAX_MAX_WORKERS = 16;
 
@@ -762,8 +789,10 @@ function passedEnvironmentNames(value: unknown): string[] {
       throw new ConfigError(
         `${at} must not start with CAPSTAN_: those variables belong to Capstan`,
       );
-    if (entry === "PATH")
-      throw new ConfigError(`${at} must not be PATH: Capstan builds it`);
+    if (RESERVED_ENV_NAMES.has(entry))
+      throw new ConfigError(
+        `${at} must not be ${entry}: Capstan already sets it or it changes how an agent's shell or loader behaves`,
+      );
     if (seen.has(entry)) throw new ConfigError(`${at} repeats ${entry}`);
     seen.add(entry);
     return entry;

@@ -2154,6 +2154,12 @@ test("a listed variable that is not set is named in the answer and the log, and 
     );
     const spawned = await w.launcher.spawn("developer");
     assert.deepEqual(spawned.missingEnv, ["MISSING_ONE"]);
+    const again = await w.launcher.launchPm();
+    assert.equal(again.state, "running");
+    assert.equal(again.missingEnv, undefined, "nothing was started");
+    assert.equal(again.warning, undefined);
+    const restarted = await w.launcher.restartPm();
+    assert.deepEqual(restarted.missingEnv, ["MISSING_ONE"]);
     assert.equal(w.adapter.starts[1]!.environment!.MISSING_ONE, undefined);
     assert.equal(
       w.adapter.starts[1]!.environment!.NEXORA_API_KEY,
@@ -2184,7 +2190,7 @@ test("with nothing listed the answers carry no missingEnv and an unacceptable pa
     3,
     {},
     {
-      pass: ["BAD_VALUE"],
+      pass: ["BAD_VALUE", "ALSO_MISSING"],
       base: { BAD_VALUE: "secret\u0007text" },
     },
   );
@@ -2192,6 +2198,11 @@ test("with nothing listed the answers carry no missingEnv and an unacceptable pa
     const result = await bad.launcher.launchPm();
     assert.equal(result.state, "failed");
     assert.match(result.reason ?? "", /BAD_VALUE/);
+    assert.equal(
+      result.missingEnv,
+      undefined,
+      "a failed launch started nothing",
+    );
     assert.ok(!JSON.stringify(result).includes("secret"));
     assert.ok(!JSON.stringify(bad.events).includes("secret"));
   } finally {

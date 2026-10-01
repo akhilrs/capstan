@@ -252,6 +252,8 @@ export class Launcher {
   readonly #credential: string;
   readonly #node: string;
   readonly #baseEnvironment: NodeJS.ProcessEnv;
+  /** How many agent environments this launcher has built; an operation that raised it started an agent. */
+  #agentEnvironments = 0;
   readonly #git: GitRunner;
   readonly #now: () => number;
   readonly #log: (event: string, details: Record<string, unknown>) => void;
@@ -502,10 +504,25 @@ export class Launcher {
     );
   }
 
-  /** Adds the missing names to the answer of an operation that started an agent, and logs them once. */
+  /** Runs an operation and, if it started an agent while a listed variable was unset, adds the names to its answer and logs them (once per operation). */
+  async #reportingMissingEnvironment<T extends object>(
+    operation: () => Promise<T>,
+  ): Promise<
+    T & { readonly missingEnv?: readonly string[]; readonly warning?: string }
+  > {
+    const before = this.#agentEnvironments;
+    const result = await operation();
+    return this.#agentEnvironments > before
+      ? this.#withMissingEnvironment(result)
+      : result;
+  }
+
   #withMissingEnvironment<T extends object>(
     result: T,
-  ): T & { readonly missingEnv?: readonly string[] } {
+  ): T & {
+    readonly missingEnv?: readonly string[];
+    readonly warning?: string;
+  } {
     const missing = this.#missingPassEnvironment();
     if (missing.length === 0) return result;
     this.#log("env_pass_missing", { names: missing });
@@ -533,11 +550,13 @@ export class Launcher {
       extras.CAPSTAN_TOKEN = token;
       extras.CAPSTAN_SOCKET = this.#socketPath;
     }
-    return buildAgentEnvironment(
+    const environment = buildAgentEnvironment(
       this.#baseEnvironment,
       extras,
       token === null ? [] : this.#config.env.pass,
     );
+    if (token !== null) this.#agentEnvironments += 1;
+    return environment;
   }
 
   #arguments(role: ResolvedRole, promptFile: string): string[] {
@@ -657,11 +676,7 @@ export class Launcher {
   // ---------------------------------------------------------- operations
 
   launchPm(): Promise<LaunchResult> {
-    return this.#launchPm().then((result) =>
-      result.state === "started" || result.state === "blocked"
-        ? this.#withMissingEnvironment(result)
-        : result,
-    );
+    return this.#reportingMissingEnvironment(() => this.#launchPm());
   }
 
   #launchPm(): Promise<LaunchResult> {
@@ -770,6 +785,10 @@ export class Launcher {
   }
 
   restartPm(): Promise<LaunchResult> {
+    return this.#reportingMissingEnvironment(() => this.#restartPm());
+  }
+
+  #restartPm(): Promise<LaunchResult> {
     return this.#run(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
       const active = this.#activeAgents().filter((a) => a.kind === "PM");
@@ -864,8 +883,8 @@ export class Launcher {
     roleName: string,
     options: { readonly baseSha?: string } = {},
   ): Promise<SpawnResult> {
-    return this.#spawn(roleName, options).then((result) =>
-      this.#withMissingEnvironment(result),
+    return this.#reportingMissingEnvironment(() =>
+      this.#spawn(roleName, options),
     );
   }
 

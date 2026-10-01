@@ -221,7 +221,22 @@ test("env.pass lists the variable names to pass to agents and refuses anything t
   ])
     assertRejected(`${VALID}\n[env]\n${bad}\n`, /env\.pass/);
   assertRejected(`${VALID}\n[env]\npass = ["CAPSTAN_TOKEN"]\n`, /CAPSTAN_/);
-  assertRejected(`${VALID}\n[env]\npass = ["PATH"]\n`, /PATH/);
+  for (const name of [
+    "PATH",
+    "HOME",
+    "TERM",
+    "IFS",
+    "PS1",
+    "PROMPT_COMMAND",
+    "BASH_ENV",
+    "SHELLOPTS",
+    "LD_PRELOAD",
+    "NODE_OPTIONS",
+  ])
+    assertRejected(
+      `${VALID}\n[env]\npass = ["${name}"]\n`,
+      new RegExp(`must not be ${name}`),
+    );
   assertRejected(`${VALID}\n[env]\npass = ["A", "B", "A"]\n`, /repeats A/);
   assertRejected(
     `${VALID}\n[env]\npass = [${Array.from({ length: 33 }, (_, i) => `"V${i}"`).join(", ")}]\n`,
