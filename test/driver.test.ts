@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import Database from "better-sqlite3";
@@ -8,6 +10,7 @@ import {
   STUCK_AFTER_TICKS,
   type DriverAdapter,
 } from "../src/driver.js";
+import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { MAX_INPUT_CLEAR_BYTES } from "../src/controller/core.js";
 import type { HerdrState } from "../src/controller/messaging.js";
 import type { MessagingTimers } from "../src/controller/messaging.js";
@@ -969,5 +972,47 @@ test("a configured timers object with more than the message timers (the finding 
     assert.ok(!events.includes("advance_failed"), events.join(","));
   } finally {
     await close(h);
+  }
+});
+
+test("the timers of a resolved capstan.toml, whatever else it holds, are accepted by the driver", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-driver-config-"));
+  try {
+    writeFileSync(
+      path.join(directory, "capstan.toml"),
+      'schema_version = 1\n\n[hosts.claude]\nkind = "claude"\n\n[roles.pm]\nkind = "PM"\nhost = "claude"\n\n[timers]\nfinding_check_seconds = 60\nworker_ack_timeout_seconds = 30\n',
+      { mode: 0o600 },
+    );
+    const config = loadCapstanConfig(directory);
+    assert.ok("findingCheckSeconds" in config.timers);
+    const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
+    const h = await harness({ clock: () => new Date(clock.now) });
+    try {
+      const adapter = new StubAdapter();
+      adapter.register(h.developer.agentId);
+      const events: string[] = [];
+      const driver = new DeliveryDriver({
+        core: h.core,
+        adapter,
+        timers: config.timers,
+        notifier: new StubNotifier(),
+        credential: h.owner,
+        now: () => clock.now,
+        log: (event) => events.push(event),
+      });
+      const id = h.core.enqueueMessage(ctx(h.core, h.pm.credential), {
+        recipientAgentId: h.developer.agentId,
+        body: "do it",
+      }).messageId;
+      await driver.tick();
+      clock.now += 31_000;
+      await driver.tick();
+      assert.equal(h.core.message(id)!.state, "unacked");
+      assert.ok(!events.includes("advance_failed"));
+    } finally {
+      await close(h);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
