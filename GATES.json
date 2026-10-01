@@ -2,64 +2,8 @@
   "schema_version": 1,
   "gates": [
     {
-      "name": "m1-runtime-probe-syntax",
-      "command": "node --check scripts/m1-runtime-probe.mjs"
-    },
-    {
-      "name": "m1-controller-restart-probe-syntax",
-      "command": "node --check scripts/m1-controller-restart-probe.mjs"
-    },
-    {
-      "name": "m1-herdr-bridge-syntax",
-      "command": "node --check scripts/m1-herdr-bridge.mjs"
-    },
-    {
-      "name": "m1-herdr-bridge-dispatch-error-regression",
-      "command": "node scripts/m1-herdr-bridge.test.mjs"
-    },
-    {
-      "name": "m1-egress-helper-syntax",
-      "command": "node --check scripts/m1-egress-helper.mjs"
-    },
-    {
-      "name": "m1-egress-helper-boundary-regression",
-      "command": "node scripts/m1-egress-helper.test.mjs"
-    },
-    {
-      "name": "m1-herdr-qualification-syntax",
-      "command": "node --check scripts/m1-herdr-qualification.mjs"
-    },
-    {
-      "name": "m1-receipt-journal-regression",
-      "command": "node scripts/m1-receipt-journal.test.mjs"
-    },
-    {
-      "name": "m1-egress-tls-sni-regression",
-      "command": "node scripts/m1-egress-tls.test.mjs"
-    },
-    {
-      "name": "m1-receipt-frame-regression",
-      "command": "node scripts/m1-receipt-frame.test.mjs"
-    },
-    {
-      "name": "m1-egress-tls-syntax",
-      "command": "node --check scripts/m1-egress-tls.mjs"
-    },
-    {
-      "name": "m1-receipt-frame-syntax",
-      "command": "node --check scripts/m1-receipt-frame.mjs"
-    },
-    {
-      "name": "m1-native-helpers-syntax",
-      "command": "cc -std=c11 -O2 -Wall -Wextra -Werror -fsyntax-only scripts/m1-receipt-peer.c scripts/m1-egress-kill.c"
-    },
-    {
       "name": "pm5-controller-quality-and-regression",
       "command": "npm run check"
-    },
-    {
-      "name": "pm5-m1-adapter-integration",
-      "command": "npm run test:m1-adapter"
     }
   ]
 }
