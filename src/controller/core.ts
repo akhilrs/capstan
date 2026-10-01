@@ -401,8 +401,8 @@ function reviewNotice(
 export const MAX_INTEGRATION_REPORTS = 20;
 export const MAX_CONFLICT_FILES = 50;
 export const MAX_CONFLICT_PATH_CHARS = 200;
-/** Room for the cut marker: `...#` and eight hex digits. */
-export const PATH_CUT_MARK_CHARS = 12;
+/** Room for the cut marker: `...#` and twelve hex digits. */
+export const PATH_CUT_MARK_CHARS = 16;
 
 export type IntegrationState =
   "running" | "merged" | "conflicted" | "failed" | "confirmed" | "discarded";

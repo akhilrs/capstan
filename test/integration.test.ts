@@ -666,6 +666,14 @@ test("a branch that could not be deleted at settle is swept by the next integrat
       git.calls.includes(`delete ${record.branch} ${HEAD} true`),
       git.calls.join("\n"),
     );
+    const deletes = () =>
+      git.calls.filter((c) => c.startsWith(`delete ${record.branch} `)).length;
+    const before = deletes();
+    await integrate(deps(h, git), {
+      reportIds: [ids[0]!],
+      requestedBy: "operator",
+    });
+    assert.equal(deletes(), before, "a swept branch is not tried again");
   } finally {
     await close(h);
   }

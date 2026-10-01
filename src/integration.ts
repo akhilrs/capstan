@@ -183,15 +183,24 @@ async function sweepSettledBranches(
   deps: IntegrationDeps,
   scope: "pending" | "all",
 ): Promise<void> {
-  for (const row of deps.core.settledIntegrations(deps.credential)) {
+  const rows =
+    scope === "all"
+      ? deps.core.settledIntegrations(deps.credential)
+      : [...pendingSweep].map((id) => deps.core.integration(id));
+  for (const row of rows) {
     if (row.headSha === null) continue;
-    if (scope === "pending" && !pendingSweep.has(row.integrationId)) continue;
     try {
-      if ((await deps.git.branchTip(row.branch)) !== row.headSha) continue;
-      if (await deps.git.deleteBranch(row.branch, row.headSha))
+      const tip = await deps.git.branchTip(row.branch);
+      if (tip !== row.headSha) {
+        pendingSweep.delete(row.integrationId);
+        continue;
+      }
+      if (await deps.git.deleteBranch(row.branch, row.headSha)) {
+        pendingSweep.delete(row.integrationId);
         deps.log("integration_branch_swept", {
           integrationId: row.integrationId,
         });
+      }
     } catch (error) {
       deps.log("integration_branch_sweep_failed", {
         integrationId: row.integrationId,

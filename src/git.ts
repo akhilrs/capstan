@@ -176,7 +176,7 @@ export async function commitExists(
 }
 
 const INTEGRATION_TIMEOUT_MS = 60_000;
-const INTEGRATION_BUFFER = 1024 * 1024;
+const INTEGRATION_BUFFER = 8 * 1024 * 1024;
 const CONTROLLER_IDENTITY: NodeJS.ProcessEnv = {
   GIT_AUTHOR_NAME: "capstan",
   GIT_AUTHOR_EMAIL: "capstan@localhost",
@@ -198,7 +198,7 @@ const NO_COMMIT = "0".repeat(40);
  */
 export function printablePath(raw: string): string {
   const text = raw.replace(
-    /[^\x20-\x7e]|[",\\]/g,
+    /[^\x20-\x7e]|[",#\\]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
   );
   if (text.length <= MAX_CONFLICT_PATH_CHARS) return text;
@@ -207,7 +207,7 @@ export function printablePath(raw: string): string {
     .slice(0, MAX_CONFLICT_PATH_CHARS)
     .replace(/\\(?:x[0-9a-f]?)?$/, "");
   const digest = createHash("sha256").update(raw, "latin1").digest("hex");
-  return `${cut}...#${digest.slice(0, 8)}`;
+  return `${cut}...#${digest.slice(0, 12)}`;
 }
 
 /** The commit HEAD points at in the repository, as a full sha1. */
@@ -278,7 +278,15 @@ export async function mergeIntoBranch(
     if (await isAncestor(repoRoot, merge.sha, head)) continue;
     const merged = await runGit(
       repoRoot,
-      ["merge-tree", "--write-tree", "--name-only", "-z", head, merge.sha],
+      [
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        "--no-messages",
+        "-z",
+        head,
+        merge.sha,
+      ],
       { ...WRITE_OPTIONS, encoding: "latin1" },
     );
     const fields = merged.stdout.split("\0");
