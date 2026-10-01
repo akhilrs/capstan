@@ -66,7 +66,7 @@ prompt = "You test and verify behavior. Run the real checks, report exactly what
 [roles.supervisor]
 kind = "Supervisor"
 host = "claude"
-deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
 prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
 `;
 export const ROLE_KINDS = [

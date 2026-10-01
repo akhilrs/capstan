@@ -4284,6 +4284,9 @@ export class ControllerCore {
   sweepFindings(
     newContext: () => MutationContext,
     deadlineSeconds: number,
+    onError: (findingId: string, error: unknown) => void = (_id, error) => {
+      throw error;
+    },
   ): readonly string[] {
     if (!Number.isInteger(deadlineSeconds) || deadlineSeconds < 1)
       throw new TypeError("the deadline must be a positive number of seconds");
@@ -4293,6 +4296,24 @@ export class ControllerCore {
     const escalated: string[] = [];
     for (const [index, findingId] of due.entries()) {
       const context = index === 0 ? first : newContext();
+      let done: boolean;
+      try {
+        done = this.#sweepOne(context, findingId, deadlineSeconds);
+      } catch (error) {
+        onError(findingId, error);
+        continue;
+      }
+      if (done) escalated.push(findingId);
+    }
+    return escalated;
+  }
+
+  #sweepOne(
+    context: MutationContext,
+    findingId: string,
+    deadlineSeconds: number,
+  ): boolean {
+    {
       const done = this.#mutate<boolean>(
         context,
         "finding.deadline",
@@ -4361,9 +4382,8 @@ export class ControllerCore {
           };
         },
       );
-      if (done) escalated.push(findingId);
+      return done;
     }
-    return escalated;
   }
 
   #dueFindingIds(deadlineSeconds: number): readonly string[] {

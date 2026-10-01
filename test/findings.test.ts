@@ -751,3 +751,41 @@ test("a deadline sweep that keeps failing does not stop the announcements", asyn
     await close(h);
   }
 });
+
+test("one finding that cannot be escalated does not stop the others and is reported", async () => {
+  let nowMs = Date.parse("2026-10-01T12:00:00.000Z");
+  const h = await harness({ clock: () => new Date(nowMs) });
+  try {
+    withRoles(h);
+    const s = supervisor(h);
+    const second = h.addMember("developer2", "Developer");
+    const a = raise(h, s);
+    const b = raise(h, s, second.agentId);
+    nowMs += 61_000;
+    const failures: string[] = [];
+    let calls = 0;
+    const context = () => {
+      calls += 1;
+      return calls === 2
+        ? { ...ctx(h.core, h.owner), credential: "not-a-credential" }
+        : ctx(h.core, h.owner);
+    };
+    const done = h.core.sweepFindings(context, 60, (id) => failures.push(id));
+    assert.equal(failures.length, 1);
+    assert.equal(done.length, 1);
+    assert.deepEqual(
+      new Set([...failures, ...done]),
+      new Set([a.findingId, b.findingId]),
+    );
+    assert.throws(
+      () =>
+        h.core.sweepFindings(
+          () => ({ ...ctx(h.core, h.owner), credential: "nope" }),
+          60,
+        ),
+      /credential|authenticat|not accepted/i,
+    );
+  } finally {
+    await close(h);
+  }
+});

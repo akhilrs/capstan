@@ -99,6 +99,11 @@ export function startReportRelay(options: {
           for (const findingId of options.core.sweepFindings(
             () => newContext(options.core, options.credential),
             options.findingCheckSeconds,
+            (findingId, error) =>
+              options.log("finding_deadline_failed", {
+                findingId,
+                error: String(error),
+              }),
           ))
             options.log("finding_escalated_by_deadline", { findingId });
         } catch (error) {
