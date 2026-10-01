@@ -32,7 +32,7 @@ test("lines is ASCII digits without a leading zero, 1 to 120, or the default", (
     assert.equal(parseObserveLines(bad), null, JSON.stringify(bad));
 });
 
-test("terminal sequences are removed: CSI, OSC with BEL or ST, DCS, PM, APC, the 8-bit forms and unfinished ones", () => {
+test("terminal sequences are removed: CSI, OSC with BEL or ST, DCS, PM, APC, the 8-bit forms and unfinished ones (an introducer with no terminator is removed alone)", () => {
   const esc = "\u001b";
   const cases: Array<[string, string]> = [
     [`${esc}[31mred${esc}[0m`, "red"],
@@ -46,11 +46,21 @@ test("terminal sequences are removed: CSI, OSC with BEL or ST, DCS, PM, APC, the
     [`\u009d0;title\u009ctext`, "text"],
     [`\u0090q data\u009cafter`, "after"],
     [`text${esc}[3`, "text"],
-    [`text${esc}]0;never ended`, "text"],
-    [`text${esc}Pq never ended`, "text"],
+    [`text${esc}]0;never ended`, "text0;never ended"],
+    [`text${esc}Pq never ended`, "textq never ended"],
     [`${esc}=${esc}>x${esc}7${esc}8`, "x"],
     [`${esc}(Bplain`, "plain"],
     [`lone${esc}`, "lone"],
+    // An introducer with no terminator is removed alone: the text after it stays.
+    [`before${esc}Phidden${esc}[31m rest`, "beforehidden rest"],
+    [`a${esc}_x b${esc}^y c`, "ax by c"],
+    [
+      `${esc}]0;title never ended and then more text`,
+      "0;title never ended and then more text",
+    ],
+    [`x\u009dy\u0090z\u0098w\u009ev\u009fu`, "xyzwvu"],
+    // An OSC broken off by another escape keeps its payload as visible text.
+    [`${esc}]8;;http://x${esc}[0mshown`, "8;;http://xshown"],
   ];
   for (const [input, expected] of cases)
     assert.equal(

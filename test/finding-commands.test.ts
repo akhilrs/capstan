@@ -199,6 +199,19 @@ test("finding is for an active Supervisor: raise answers with the delivery, chec
     );
     assert.match(
       refused(
+        await call(h, s.credential, "finding", [
+          "check",
+          "high",
+          "e",
+          "c",
+          "d",
+        ]),
+      ),
+      /not active/,
+      "five arguments are a raise even when the first is the word check",
+    );
+    assert.match(
+      refused(
         await call(h, s.credential, "finding", ["bad", "high", "e", "c", "d"]),
       ),
       /not active/,

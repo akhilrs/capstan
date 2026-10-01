@@ -719,3 +719,35 @@ test("the ledger refuses to rewrite, delete or move back a finding, its deliveri
     await close(h);
   }
 });
+
+test("a deadline sweep that keeps failing does not stop the announcements", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    const s = supervisor(h);
+    raise(h, s);
+    const pm = h.addMember("pm2", "PM");
+    const logged: string[] = [];
+    h.core.sweepFindings = () => {
+      throw new Error("sweep broke");
+    };
+    const relay = startReportRelay({
+      core: h.core,
+      credential: h.owner,
+      intervalMs: 20,
+      findingCheckSeconds: 60,
+      log: (event) => logged.push(event),
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      relay.stop();
+    }
+    assert.ok(logged.includes("finding_sweep_failed"));
+    assert.equal(h.core.unannouncedFindingNotices(h.owner).length, 0);
+    assert.equal(h.core.messagesFor(pm.agentId).length, 1);
+  } finally {
+    await close(h);
+  }
+});

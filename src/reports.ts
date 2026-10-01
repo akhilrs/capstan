@@ -93,12 +93,18 @@ export function startReportRelay(options: {
     if (running || Date.now() < backoffUntil) return;
     running = true;
     try {
-      if (options.findingCheckSeconds !== undefined)
-        for (const findingId of options.core.sweepFindings(
-          () => newContext(options.core, options.credential),
-          options.findingCheckSeconds,
-        ))
-          options.log("finding_escalated_by_deadline", { findingId });
+      if (options.findingCheckSeconds !== undefined) {
+        // Its own try: a sweep that keeps failing must not stop the announcements below.
+        try {
+          for (const findingId of options.core.sweepFindings(
+            () => newContext(options.core, options.credential),
+            options.findingCheckSeconds,
+          ))
+            options.log("finding_escalated_by_deadline", { findingId });
+        } catch (error) {
+          options.log("finding_sweep_failed", { error: String(error) });
+        }
+      }
       // Nothing to do, and nothing written, until a PM is active.
       // The core announces only when exactly one PM is active; use the same condition.
       if (

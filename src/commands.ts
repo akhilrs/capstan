@@ -895,7 +895,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           ? fail("rejected", `finding_refused: ${error.message}`)
           : mapError(error);
       try {
-        if (call.args[0] === "check") {
+        if (call.args[0] === "check" && call.args.length !== 5) {
           if (call.args.length !== 4)
             return fail(
               "invalid_request",

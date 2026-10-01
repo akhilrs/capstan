@@ -21,21 +21,23 @@ export function parseObserveLines(text: string | undefined): number | null {
 }
 
 const ESC = "\u001b";
+// A string-type sequence (OSC, DCS, SOS, PM, APC) counts only when it is closed
+// by BEL or ST: an introducer with no terminator must not swallow the rest of
+// the screen, so it is removed alone and the text after it stays visible.
 const SEQUENCES: readonly RegExp[] = [
-  // OSC, ended by BEL or ST (ESC \ or the 8-bit ST), or cut off at the end.
   new RegExp(
-    `(?:${ESC}\\]|\\u009d)[^\\u0007${ESC}\\u009c]*(?:\\u0007|${ESC}\\\\|\\u009c|$)`,
+    `(?:${ESC}\\]|\\u009d)[^\\u0007${ESC}\\u009c]*(?:\\u0007|${ESC}\\\\|\\u009c)`,
     "g",
   ),
-  // DCS, SOS, PM and APC, ended by ST or cut off at the end.
   new RegExp(
-    `(?:${ESC}[PX^_]|[\\u0090\\u0098\\u009e\\u009f])[\\s\\S]*?(?:${ESC}\\\\|\\u009c|$)`,
+    `(?:${ESC}[PX^_]|[\\u0090\\u0098\\u009e\\u009f])[^${ESC}\\u009c]*(?:${ESC}\\\\|\\u009c)`,
     "g",
   ),
-  // CSI, 7-bit and 8-bit, complete or cut off at the end.
+  // CSI, 7-bit and 8-bit, complete or cut off at the end (its parameters are a small fixed set of characters).
   new RegExp(`(?:${ESC}\\[|\\u009b)[0-?]*[ -/]*(?:[@-~]|$)`, "g"),
-  // Two-character escapes and escapes with intermediates.
+  // Two-character escapes, escapes with intermediates, and any string introducer that found no terminator.
   new RegExp(`${ESC}[ -/]*[0-~]?`, "g"),
+  /[\u0090\u0098\u009d\u009e\u009f]/g,
 ];
 
 export function stripTerminalSequences(raw: string): string {
