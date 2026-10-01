@@ -57,6 +57,7 @@ function configFor(): CapstanConfig {
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
     },
+    limits: { maxWorkers: 1 },
     hosts: [
       {
         name: "claude",
@@ -205,7 +206,7 @@ test(
       await assert.rejects(
         launcher.spawn("developer"),
         (error: unknown) =>
-          error instanceof LauncherError && error.code === "role_active",
+          error instanceof LauncherError && error.code === "worker_limit",
       );
 
       // Deliver through the driver.

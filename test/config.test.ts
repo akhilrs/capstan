@@ -140,14 +140,77 @@ test("herdr_session and the notification channels are read, and validated", () =
   );
 });
 
-test("the starter configuration written by init is valid", () => {
+test("the starter configuration written by init is valid and gives the PM workers to delegate to", () => {
   withConfig(STARTER_CONFIG, (directory) => {
     const config = loadCapstanConfig(directory);
     assert.deepEqual(
-      config.roles.map((role) => role.name),
-      ["pm", "developer", "reviewer"],
+      config.roles.map((role) => [role.name, role.kind]),
+      [
+        ["pm", "PM"],
+        ["developer", "Developer"],
+        ["designer", "Developer"],
+        ["tester", "Verifier"],
+      ],
     );
+    assert.equal(config.limits.maxWorkers, 3);
+    for (const role of config.roles.filter((r) => r.kind !== "PM")) {
+      assert.match(role.promptText ?? "", /branch/, role.name);
+      assert.equal(role.permissionMode, "acceptEdits");
+      assert.deepEqual(role.deny, ["Bash(git push)", "Bash(git push *)"]);
+    }
   });
+});
+
+test("limits.max_workers defaults to 3, accepts 1 to 16 and refuses anything else", () => {
+  withConfig(VALID, (directory) =>
+    assert.equal(loadCapstanConfig(directory).limits.maxWorkers, 3),
+  );
+  withConfig(`${VALID}\n[limits]\n`, (directory) =>
+    assert.equal(loadCapstanConfig(directory).limits.maxWorkers, 3),
+  );
+  for (const value of ["1", "16"])
+    withConfig(`${VALID}\n[limits]\nmax_workers = ${value}\n`, (directory) =>
+      assert.equal(
+        loadCapstanConfig(directory).limits.maxWorkers,
+        Number(value),
+      ),
+    );
+  for (const value of ["0", "17", "-1", "3.5", "3.0", "true", '"3"'])
+    assertRejected(
+      `${VALID}\n[limits]\nmax_workers = ${value}\n`,
+      /limits\.max_workers/,
+    );
+  assertRejected(`${VALID}\n[limits]\nmax_worker = 2\n`, /limits/);
+});
+
+test("a PM without a deny list denies the file-editing and subagent tools, and an explicit deny list replaces that", () => {
+  const pmDeny = (text: string) =>
+    withConfig(text, (directory) =>
+      loadCapstanConfig(directory).roles.find((r) => r.kind === "PM")!,
+    );
+  const byDefault = pmDeny(VALID);
+  assert.deepEqual(byDefault.deny, [
+    "Write",
+    "Edit",
+    "NotebookEdit",
+    "Agent",
+    "Task",
+  ]);
+  const empty = pmDeny(VALID.replace('kind = "PM"', 'kind = "PM"\ndeny = []'));
+  assert.deepEqual(empty.deny, []);
+  const custom = pmDeny(
+    VALID.replace('kind = "PM"', 'kind = "PM"\ndeny = ["Agent"]'),
+  );
+  assert.deepEqual(custom.deny, ["Agent"]);
+  assert.equal(
+    new Set([byDefault.configHash, empty.configHash, custom.configHash]).size,
+    3,
+    "the hash covers the effective deny list",
+  );
+  const worker = withConfig(VALID, (directory) =>
+    loadCapstanConfig(directory).roles.find((r) => r.kind === "Verifier")!,
+  );
+  assert.deepEqual(worker.deny, [], "only the PM gets a default deny list");
 });
 
 test("a role hash changes with the role and with its host block", () => {

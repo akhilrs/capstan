@@ -843,7 +843,9 @@ async function runRouted(
         args,
         command === "wait"
           ? WAIT_CLIENT_TIMEOUT_MS
-          : command === "spawn" || command === "pm-restart"
+          : command === "spawn" ||
+              command === "release" ||
+              command === "pm-restart"
             ? LAUNCHER_CLIENT_TIMEOUT_MS
             : undefined,
       ),
@@ -865,7 +867,7 @@ async function runRouted(
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan run --brief <file> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan pause [--json] | cstan resume [--json] | cstan cancel [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan request-review | cstan finding | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan pm restart",
   );
 }
 

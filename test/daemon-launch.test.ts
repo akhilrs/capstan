@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,22 +13,27 @@ import { ctx, projectInfo } from "./harness.js";
 import { StubAdapter } from "./launcher-stubs.js";
 
 function configFor(): CapstanConfig {
-  const role = Object.defineProperty(
-    {
-      name: "pm",
-      kind: "PM",
-      host: "claude",
-      model: null,
-      permissionMode: "default",
-      allow: [],
-      deny: [],
-      hooks: "off",
-      prompt: { source: "none", path: null, hash: null },
-      configHash: "a".repeat(64),
-    },
-    "promptText",
-    { value: null, enumerable: false },
-  );
+  const roleOf = (name: string, kind: string, hash: string) =>
+    Object.defineProperty(
+      {
+        name,
+        kind,
+        host: "claude",
+        model: null,
+        permissionMode: "default",
+        allow: [],
+        deny: [],
+        hooks: "off",
+        prompt: { source: "none", path: null, hash: null },
+        configHash: hash.repeat(64),
+      },
+      "promptText",
+      { value: null, enumerable: false },
+    );
+  const roles = [
+    roleOf("pm", "PM", "a"),
+    roleOf("developer", "Developer", "b"),
+  ];
   return {
     schemaVersion: 1,
     projectName: null,
@@ -41,6 +47,7 @@ function configFor(): CapstanConfig {
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
     },
+    limits: { maxWorkers: 3 },
     hosts: [
       {
         name: "claude",
@@ -50,7 +57,7 @@ function configFor(): CapstanConfig {
         waitTimeoutSeconds: 45,
       },
     ],
-    roles: [role],
+    roles,
   } as unknown as CapstanConfig;
 }
 
@@ -199,6 +206,10 @@ test("a daemon given syncRoles brings the roles into the ledger, so launch works
     await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
     await done;
   } finally {
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 5_000).catch(
+      () => undefined,
+    );
+    await done.catch(() => undefined);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -250,6 +261,99 @@ test("a sync that fails at daemon start leaves the daemon up, and launch names t
     await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
     await done;
   } finally {
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 5_000).catch(
+      () => undefined,
+    );
+    await done.catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the PM's own token spawns and releases a worker through the socket, and a worker's token is refused both", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-daemon-delegate-"));
+  for (const args of [
+    ["init", "-q"],
+    ["config", "user.email", "t@example.com"],
+    ["config", "user.name", "t"],
+    ["commit", "-q", "--allow-empty", "-m", "base"],
+  ])
+    execFileSync("git", ["-C", root, ...args]);
+  const stateDirectory = path.join(root, "state");
+  const info = projectInfo();
+  const socket = path.join(stateDirectory, "control.sock");
+  const adapter = new StubAdapter();
+  let ready!: () => void;
+  const up = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const done = runDaemon({
+    stateDirectory,
+    project: info,
+    workspaceRoot: root,
+    log: () => undefined,
+    announce: (event) => {
+      if (event.event === "ready") ready();
+    },
+    capstan: configFor(),
+    adapter,
+    notifier,
+    cliPath: "/opt/capstan/cli.js",
+    tickMs: 500,
+    syncRoles: (core) => {
+      core.syncRoleDefinitions(
+        ctx(core, info.ownerCredential),
+        configFor().roles.map((role) => ({
+          name: role.name,
+          kind: role.kind,
+          host: role.host,
+          configHash: role.configHash,
+        })),
+      );
+    },
+  });
+  const ask = async (credential: string, name: string, args: string[] = []) => {
+    const result = await callDaemon(socket, credential, name, args, 60_000);
+    assert.equal(result.kind, "response");
+    return (
+      result as {
+        response: {
+          ok: boolean;
+          code?: string;
+          message?: string;
+          result?: Record<string, unknown>;
+        };
+      }
+    ).response;
+  };
+  try {
+    await up;
+    assert.ok((await ask(info.ownerCredential, "launch")).ok);
+    const pmToken = adapter.starts[0]!.environment!.CAPSTAN_TOKEN!;
+    const spawned = await ask(pmToken, "spawn", ["developer"]);
+    assert.ok(spawned.ok, JSON.stringify(spawned));
+    assert.equal(spawned.result!.agentId, "developer-1");
+    const workerToken = adapter.starts[1]!.environment!.CAPSTAN_TOKEN!;
+    for (const [command, args] of [
+      ["spawn", ["developer"]],
+      ["release", ["developer-1"]],
+    ] as const) {
+      const refused = await ask(workerToken, command, [...args]);
+      assert.equal(refused.ok, false);
+      assert.equal(refused.code, "forbidden", command);
+    }
+    const released = await ask(pmToken, "release", ["developer-1"]);
+    assert.ok(released.ok, JSON.stringify(released));
+    assert.equal(released.result!.state, "released");
+    const again = await ask(pmToken, "release", ["developer-1"]);
+    assert.equal(again.ok, false);
+    assert.match(again.message ?? "", /agent_not_active/);
+    await ask(info.ownerCredential, "shutdown");
+    await done;
+  } finally {
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 5_000).catch(
+      () => undefined,
+    );
+    await done.catch(() => undefined);
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -65,8 +65,8 @@ const ANY = Object.keys(ROUTES).filter(
 
 /** What a call with no arguments answers: a stub says so, a real command wants arguments. */
 function bareAnswer(name: string): string {
-  // Without a launcher the launch, spawn and restart commands say so first.
-  if (["launch", "spawn", "pm-restart"].includes(name)) return "not_configured";
+  // Without a launcher the launch and restart commands say so first; spawn and release check their arguments first.
+  if (["launch", "pm-restart"].includes(name)) return "not_configured";
   return ROUTES[name]!.stub !== undefined
     ? "not_implemented"
     : "invalid_request";
@@ -109,7 +109,11 @@ test("an agent token is accepted for agent and read commands and refused for ope
       for (const name of ANY)
         assert.equal(
           code(await call(h, member.credential, name)),
-          name === "inbox" ? "ok" : bareAnswer(name),
+          name === "inbox"
+            ? "ok"
+            : ["spawn", "release"].includes(name) && member === h.developer
+              ? "forbidden"
+              : bareAnswer(name),
           name,
         );
       for (const name of [...OPERATOR, "shutdown"])

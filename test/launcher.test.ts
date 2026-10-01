@@ -31,7 +31,7 @@ import { SHA, StubAdapter, StubGit } from "./launcher-stubs.js";
 const hashOf = (name: string): string =>
   createHash("sha256").update(name).digest("hex");
 
-function config(fallback = true): CapstanConfig {
+function config(fallback = true, maxWorkers = 3): CapstanConfig {
   const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
     name,
     kind,
@@ -63,6 +63,7 @@ function config(fallback = true): CapstanConfig {
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
     },
+    limits: { maxWorkers },
     hosts: [
       {
         name: "claude",
@@ -92,7 +93,11 @@ interface World {
   cleanup(): void;
 }
 
-async function world(fallback = true, synced = true): Promise<World> {
+async function world(
+  fallback = true,
+  synced = true,
+  maxWorkers = 3,
+): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
   const stateDirectory = path.join(root, ".capstan", "state");
   const info = projectInfo();
@@ -120,7 +125,7 @@ async function world(fallback = true, synced = true): Promise<World> {
     new Launcher({
       core,
       adapter,
-      config: config(fallback),
+      config: config(fallback, maxWorkers),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -517,7 +522,7 @@ test("a role whose definition changed is synced again on demand, and a sync that
   }
 });
 
-test("spawn refuses a second worker for an active role, an unknown role, a PM role and a missing PM, without side effects", async () => {
+test("spawn refuses an unknown role, a PM role and a missing PM, without side effects", async () => {
   const w = await world();
   try {
     await assert.rejects(
@@ -529,10 +534,6 @@ test("spawn refuses a second worker for an active role, an unknown role, a PM ro
     await w.launcher.spawn("developer");
     const calls = w.adapter.calls.length;
     const agents = w.core.listAgents().length;
-    await assert.rejects(
-      w.launcher.spawn("developer"),
-      (e: unknown) => e instanceof LauncherError && e.code === "role_active",
-    );
     await assert.rejects(
       w.launcher.spawn("nobody"),
       (e: unknown) => e instanceof LauncherError && e.code === "unknown_role",
@@ -546,6 +547,140 @@ test("spawn refuses a second worker for an active role, an unknown role, a PM ro
     assert.equal(w.core.listAgents().length, agents);
     const other = await w.launcher.spawn("developer2");
     assert.equal(other.agentId, "developer2-1", "another role is independent");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("several workers of one role get their own seats, ids, branches and worktrees up to the limit, and the next spawn names who is active", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const one = await w.launcher.spawn("developer");
+    const two = await w.launcher.spawn("developer");
+    const three = await w.launcher.spawn("developer2");
+    assert.deepEqual(
+      [one.agentId, two.agentId, three.agentId],
+      ["developer-1", "developer-2", "developer2-1"],
+    );
+    assert.notEqual(one.branch, two.branch);
+    assert.notEqual(one.worktreePath, two.worktreePath);
+    const seats = w.core
+      .listAgents()
+      .filter((a) => a.roleName === "developer")
+      .map((a) => a.seatId);
+    assert.deepEqual(seats, ["developer-seat", "developer-seat-2"]);
+    const calls = w.adapter.calls.length;
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worker_limit" &&
+        e.message.includes("3 of 3") &&
+        e.message.includes("developer-1") &&
+        e.message.includes("developer2-1"),
+    );
+    assert.equal(w.adapter.calls.length, calls, "nothing was started");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("release ends a worker, closes its pane, removes its worktree and an unchanged branch, and frees its slot without reusing the id", async () => {
+  const w = await world(true, true, 1);
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const released = await w.launcher.release(first.agentId);
+    assert.equal(released.state, "released");
+    assert.equal(released.agentId, "developer-1");
+    assert.equal(released.branch, first.branch);
+    assert.deepEqual(
+      [released.paneClosed, released.worktreeRemoved, released.branchKept],
+      [true, true, false],
+    );
+    assert.equal(w.core.agentRecord("developer-1")!.state, "ended");
+    assert.ok(w.adapter.calls.includes(`close:${first.paneId}`));
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+    assert.equal(w.git.deleted[0]![0], first.branch);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      false,
+      "the pane row is gone",
+    );
+    const again = await w.launcher.spawn("developer");
+    assert.equal(again.agentId, "developer-2", "an ended id is not reused");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("release keeps a branch that holds commits and reports a worktree git refused to remove", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.git.deleteOk = false;
+    const kept = await w.launcher.release(first.agentId);
+    assert.deepEqual(
+      [kept.worktreeRemoved, kept.branchKept],
+      [true, true],
+      "the user merges a branch with commits",
+    );
+    const second = await w.launcher.spawn("developer");
+    w.git.removeOk = false;
+    const dirty = await w.launcher.release(second.agentId);
+    assert.deepEqual(
+      [dirty.paneClosed, dirty.worktreeRemoved, dirty.branchKept],
+      [true, false, true],
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === second.agentId),
+      true,
+      "the row stays so the next start retries the removal",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("release refuses an unknown agent, the PM and an agent that was already released, and reports a cleanup that cannot end the agent", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const code = (error: unknown) =>
+      error instanceof LauncherError ? error.code : String(error);
+    await assert.rejects(
+      w.launcher.release("nobody-9"),
+      (e: unknown) => code(e) === "unknown_agent",
+    );
+    await assert.rejects(
+      w.launcher.release("pm-1"),
+      (e: unknown) => code(e) === "kind_not_releasable",
+    );
+    const endAgent = w.core.endAgent.bind(w.core);
+    (w.core as unknown as { endAgent: () => never }).endAgent = () => {
+      throw new Error("the seat still holds authority");
+    };
+    await assert.rejects(
+      w.launcher.release(first.agentId),
+      (e: unknown) =>
+        code(e) === "release_blocked" &&
+        /still holds authority/.test((e as Error).message),
+    );
+    assert.equal(w.core.agentRecord(first.agentId)!.state, "active");
+    (w.core as unknown as { endAgent: typeof endAgent }).endAgent = endAgent;
+    await w.launcher.release(first.agentId);
+    assert.deepEqual(
+      w.launcher.status().cleanupFailed,
+      [],
+      "a later successful release clears the failure",
+    );
+    await assert.rejects(
+      w.launcher.release(first.agentId),
+      (e: unknown) => code(e) === "agent_not_active",
+    );
   } finally {
     w.cleanup();
   }
@@ -636,8 +771,8 @@ test("cleanup never forces: a worktree git refuses to remove keeps its branch an
   }
 });
 
-test("a cleanup that cannot end the agent leaves it active, touches nothing else, and role_active names the reason", async () => {
-  const w = await world();
+test("a cleanup that cannot end the agent leaves it active, touches nothing else, and worker_limit names the reason", async () => {
+  const w = await world(true, true, 1);
   try {
     await launched(w);
     w.adapter.startError = new Error("start failed");
@@ -655,7 +790,7 @@ test("a cleanup that cannot end the agent leaves it active, touches nothing else
       w.launcher.spawn("developer"),
       (e: unknown) =>
         e instanceof LauncherError &&
-        e.code === "role_active" &&
+        e.code === "worker_limit" &&
         /still holds authority/.test(e.message),
     );
   } finally {
@@ -744,8 +879,8 @@ test("operations run one at a time and a second waiting operation is answered bu
   }
 });
 
-test("two concurrent spawns of one role end with one agent and one refusal", async () => {
-  const w = await world();
+test("two concurrent spawns at a limit of one end with one agent and one refusal", async () => {
+  const w = await world(true, true, 1);
   try {
     await launched(w);
     const results = await Promise.allSettled([
@@ -756,7 +891,7 @@ test("two concurrent spawns of one role end with one agent and one refusal", asy
     const rejected = results.find(
       (r) => r.status === "rejected",
     ) as PromiseRejectedResult;
-    assert.equal((rejected.reason as LauncherError).code, "role_active");
+    assert.equal((rejected.reason as LauncherError).code, "worker_limit");
     assert.equal(
       w.core.listAgents().filter((a) => a.roleName === "developer").length,
       1,
@@ -1247,7 +1382,7 @@ test("a hub that cannot be re-adopted for a transient reason is not replaced by 
 });
 
 test("status lists an unfinished cleanup once, forgets it when the agent has ended, and an orphan pane is retried and dropped once it closes", async () => {
-  const w = await world();
+  const w = await world(true, true, 1);
   try {
     await launched(w);
     w.adapter.startError = new Error("start failed");

@@ -61,7 +61,7 @@ function isolatedEnvironment(
   return environment;
 }
 
-/** Lists the operator's default session without changing it, with the real HOME. Focus and agent status follow the operator's own use of the terminal, so they are left out of the comparison. */
+/** Lists the operator's default session without changing it, with the real HOME. Focus, agent status and pane counts follow the operator's own use of the terminal while a test runs, so only each workspace's id and label are compared: a workspace the code opened or closed in the default session still shows. */
 export function defaultSessionSnapshot(): string {
   const environment: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env))
@@ -84,7 +84,7 @@ export function defaultSessionSnapshot(): string {
       (parsed.result?.workspaces ?? []).map((workspace) =>
         Object.fromEntries(
           Object.entries(workspace).filter(
-            ([key]) => key !== "focused" && key !== "agent_status",
+            ([key]) => key === "workspace_id" || key === "label",
           ),
         ),
       ),
