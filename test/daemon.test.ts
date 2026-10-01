@@ -120,7 +120,8 @@ test("an agent token is accepted for agent and read commands and refused for ope
           code(await call(h, member.credential, name)),
           name === "inbox"
             ? "ok"
-            : ["spawn", "release"].includes(name) && member === h.developer
+            : ["spawn", "release", "integrate"].includes(name) &&
+                member === h.developer
               ? "forbidden"
               : bareAnswer(name),
           name,

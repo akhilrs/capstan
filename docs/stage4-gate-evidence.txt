@@ -37,3 +37,44 @@ cstan: forbidden: only a reviewer can answer a review
 {"created_at":"2026-10-01T12:58:57.904Z","from_state":null,"to_state":"started","action":"review.begin"}
 {"created_at":"2026-10-01T12:59:00.117Z","from_state":"started","to_state":"passed","action":"review.complete"}
 {"created_at":"2026-10-01T12:59:00.125Z","from_state":"active","to_state":"ended","action":"agent.end"}
+
+# ===== Part 2: integration (PM-36), run on 2026-10-01 (UTC) =====
+# Setup: throwaway repository, isolated Herdr session capstan-s4b, fake Claude stand-in for every agent. Tokens were read from /proc/<pid>/environ of each agent's own process and used from a separate shell; they are not printed here.
+
+## integrations (the clean one was confirmed; the conflicts left no branch: the branch name column is the reserved name, never created)
+{"integration_id":"42c4fd74-14eb-410d-90ff-570b0c199230","state":"confirmed","base":"f6ead93","head":"1fa5e77","branch":"capstan/integration/42c4fd74-14eb-410d-90ff-570b0c199230","requested_by":"pm-1","conflict_report_id":null,"conflict_files_json":null,"failure_reason":null}
+{"integration_id":"60a43532-0101-4153-948d-a7678f646e6b","state":"conflicted","base":"1fa5e77","head":null,"branch":"capstan/integration/60a43532-0101-4153-948d-a7678f646e6b","requested_by":"pm-1","conflict_report_id":"2b288026-ad4e-4384-8054-ec35a09a1d74","conflict_files_json":"[\"shared.txt\"]","failure_reason":null}
+{"integration_id":"7a4c3bb3-6ad4-4867-8aba-5572c652b26f","state":"conflicted","base":"1fa5e77","head":null,"branch":"capstan/integration/7a4c3bb3-6ad4-4867-8aba-5572c652b26f","requested_by":"operator","conflict_report_id":"2b288026-ad4e-4384-8054-ec35a09a1d74","conflict_files_json":"[\"shared.txt\"]","failure_reason":null}
+
+## merge order and authors of the clean integration
+{"position":1,"report_id":"d78e6eb1-215c-416e-8b6e-219bc0867b1f","agent_id":"developer-1"}
+{"position":2,"report_id":"e99fd0bf-c34a-4b5f-803e-9367d9adfb4d","agent_id":"developer-2"}
+
+## reviews: reviewer agent and actor, subject kind, author (null for an integration: the authors are the merged reports' agents)
+{"round":1,"state":"passed","reviewer_agent_id":"reviewer-1","reviewer_actor_id":"72032e40-ac1c-45ba-83a0-9fb72e071736","integration":0,"author_agent_id":"developer-1"}
+{"round":1,"state":"passed","reviewer_agent_id":"reviewer-2","reviewer_actor_id":"269a1271-4aee-4f2d-a0f7-a31f44c68131","integration":0,"author_agent_id":"developer-2"}
+{"round":1,"state":"passed","reviewer_agent_id":"reviewer-3","reviewer_actor_id":"d8329cbb-7425-4284-b27b-5c00f25a490f","integration":1,"author_agent_id":null}
+{"round":1,"state":"passed","reviewer_agent_id":"reviewer-4","reviewer_actor_id":"f06388c4-a856-4f46-8d1f-bbc06e444bae","integration":0,"author_agent_id":"developer-1"}
+{"round":1,"state":"passed","reviewer_agent_id":"reviewer-5","reviewer_actor_id":"959c7412-286c-4e17-9096-dd391e8157e9","integration":0,"author_agent_id":"developer-2"}
+
+## controller messages about integrations (sender role controller)
+{"sequence":7,"recipient_agent_id":"reviewer-3","sender_role":"controller","body":"Review request f4b9c094-a428-44bc-bd45-eb505943d07c (round 1) for integration 42c4fd74-14eb-410d-90ff-570b0c199230\nCommit to review: 1fa5e770f8412e409c53579b537278bb939583ac\nThe integration's base commit: f6ead93effa7db2507909feb4f9e241b79fcd908. The commit to review merges the reports below, in this order, each as its own merge.\nSee the change with: git diff f6ead93effa7db2507909feb4f9e241b79fcd9"}
+{"sequence":8,"recipient_agent_id":"pm-1","sender_role":"controller","body":"Review f4b9c094-a428-44bc-bd45-eb505943d07c of integration 42c4fd74-14eb-410d-90ff-570b0c199230, round 1: PASS\nReviewer: reviewer-3 (role reviewer); authors: developer-1, developer-2. Different sessions.\nCommit: 1fa5e770f8412e409c53579b537278bb939583ac\nThe reviewer's text, not verified: \"the two merges are right; a.txt and b.txt are both present\""}
+{"sequence":15,"recipient_agent_id":"pm-1","sender_role":"controller","body":"Integration 7a4c3bb3-6ad4-4867-8aba-5572c652b26f is blocked by a merge conflict\nThe conflict arose when merging report 2b288026-ad4e-4384-8054-ec35a09a1d74. Files (escaped; a path is text from a worker): shared.txt\nThe controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again."}
+
+## the clean integration's first-parent history, made by the controller (no worktree was created for it)
+1fa5e77 Merge report e99fd0bf-c34a-4b5f-803e-9367d9adfb4d (developer-2) (author capstan)
+decc3a8 Merge report d78e6eb1-215c-416e-8b6e-219bc0867b1f (developer-1) (author capstan)
+
+## git while the conflicting integration ran its course: worktrees and branches after the conflict (only the two authors' worktrees; no integration branch, no reviewer branch)
+/tmp/capstan-s4b/repo                                     1fa5e77 [main]
+/home/akhil/.herdr/worktrees/repo/capstan-developer-1-g1  d88120f [capstan/developer-1-g1]
+/home/akhil/.herdr/worktrees/repo/capstan-developer-2-g1  9e01b0e [capstan/developer-2-g1]
++ capstan/developer-1-g1
++ capstan/developer-2-g1
+
+## the author's own token tried cstan review on the integration review (output captured during the run)
+cstan: forbidden: only a reviewer can answer a review
+
+## confirm before the branch was merged into HEAD (output captured)
+cstan: rejected: not_in_head: merge branch capstan/integration/<id> into the project's HEAD first, then confirm

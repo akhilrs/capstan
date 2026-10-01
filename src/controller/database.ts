@@ -136,6 +136,11 @@ const migrations: Readonly<
     name: "0018_reviews.sql",
     url: new URL("../../migrations/0018_reviews.sql", import.meta.url),
   },
+  19: {
+    version: 19,
+    name: "0019_integrations.sql",
+    url: new URL("../../migrations/0019_integrations.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

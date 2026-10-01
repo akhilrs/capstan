@@ -8385,7 +8385,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'reviews', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -8411,6 +8411,8 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     try {
       for (const table of [
         "reviews",
+        "integration_reports",
+        "integrations",
         "agent_reports",
         "pm_restarts",
         "orphan_panes",
@@ -8460,6 +8462,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 16, name: "0016_panes_and_pm_restarts.sql" },
           { version: 17, name: "0017_agent_reports.sql" },
           { version: 18, name: "0018_reviews.sql" },
+          { version: 19, name: "0019_integrations.sql" },
         ],
       );
       assert.equal(

@@ -290,11 +290,12 @@ export interface ReviewRecord {
   readonly reviewId: string;
   readonly sequence: number;
   readonly round: number;
-  readonly reportId: string;
+  readonly reportId: string | null;
+  readonly integrationId: string | null;
   readonly commitSha: string;
   readonly baseSha: string;
-  readonly authorAgentId: string;
-  readonly authorActorId: string;
+  readonly authorAgentId: string | null;
+  readonly authorActorId: string | null;
   readonly requestedByActorId: string;
   readonly reviewerRole: string;
   readonly reviewerAgentId: string;
@@ -311,11 +312,12 @@ interface ReviewRow {
   readonly review_id: string;
   readonly sequence: number;
   readonly round: number;
-  readonly subject_report_id: string;
+  readonly subject_report_id: string | null;
+  readonly subject_integration_id: string | null;
   readonly commit_sha: string;
   readonly base_sha: string;
-  readonly author_agent_id: string;
-  readonly author_actor_id: string;
+  readonly author_agent_id: string | null;
+  readonly author_actor_id: string | null;
   readonly requested_by_actor_id: string;
   readonly reviewer_role: string;
   readonly reviewer_agent_id: string;
@@ -334,6 +336,7 @@ function reviewRecord(row: ReviewRow): ReviewRecord {
     sequence: row.sequence,
     round: row.round,
     reportId: row.subject_report_id,
+    integrationId: row.subject_integration_id,
     commitSha: row.commit_sha,
     baseSha: row.base_sha,
     authorAgentId: row.author_agent_id,
@@ -351,27 +354,105 @@ function reviewRecord(row: ReviewRow): ReviewRecord {
   };
 }
 
-/** The task the reviewer receives. Everything but the author's summary is the controller's own text. */
-function reviewTask(row: ReviewRow, authorSummary: string): string {
-  return [
-    `Review request ${row.review_id} (round ${row.round}) for report ${row.subject_report_id}`,
+/** The task the reviewer receives. Everything but the authors' summaries is the controller's own text. */
+function reviewTask(
+  row: ReviewRow,
+  authors: readonly { report: AgentReportRow }[],
+): string {
+  const subject =
+    row.subject_integration_id === null
+      ? `report ${row.subject_report_id}`
+      : `integration ${row.subject_integration_id}`;
+  const lines = [
+    `Review request ${row.review_id} (round ${row.round}) for ${subject}`,
     `Commit to review: ${row.commit_sha}`,
-    `The author's base commit: ${row.base_sha}`,
-    `See the change with: git diff ${row.base_sha} ${row.commit_sha}   and   git show ${row.commit_sha}`,
-    `The author's summary, written by the author and not verified: ${JSON.stringify(authorSummary)}`,
+    row.subject_integration_id === null
+      ? `The author's base commit: ${row.base_sha}`
+      : `The integration's base commit: ${row.base_sha}. The commit to review merges the reports below, in this order, each as its own merge.`,
+    `See the change with: git diff ${row.base_sha} ${row.commit_sha}   and   git log --first-parent ${row.base_sha}..${row.commit_sha}`,
+  ];
+  for (const { report } of authors)
+    lines.push(
+      `${row.subject_integration_id === null ? "The author's" : `Report ${report.report_id} by ${report.agent_id}:`} summary, written by the author and not verified: ${JSON.stringify(report.summary)}`,
+    );
+  lines.push(
     'Review only that change. Do not edit any file. Answer exactly once with cstan review pass "<text>" or cstan review findings "<text>". Findings must say what is wrong and where.',
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 /** The notice the PM receives for a finished review. */
-function reviewNotice(row: ReviewRow): string {
+function reviewNotice(
+  row: ReviewRow,
+  authorAgentIds: readonly string[],
+): string {
+  const subject =
+    row.subject_integration_id === null
+      ? `report ${row.subject_report_id}`
+      : `integration ${row.subject_integration_id}`;
   return [
-    `Review ${row.review_id} of report ${row.subject_report_id}, round ${row.round}: ${row.state === "passed" ? "PASS" : "FINDINGS"}`,
-    `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); author: ${row.author_agent_id}. Different sessions.`,
+    `Review ${row.review_id} of ${subject}, round ${row.round}: ${row.state === "passed" ? "PASS" : "FINDINGS"}`,
+    `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); ${new Set(authorAgentIds).size === 1 ? "author" : "authors"}: ${[...new Set(authorAgentIds)].join(", ")}. Different sessions.`,
     `Commit: ${row.commit_sha}`,
     `The reviewer's text, not verified: ${JSON.stringify(row.verdict_text)}`,
   ].join("\n");
 }
+
+export const MAX_INTEGRATION_REPORTS = 20;
+export const MAX_CONFLICT_FILES = 50;
+export const MAX_CONFLICT_PATH_CHARS = 200;
+/** Room for the cut marker: `...#` and twelve hex digits. */
+export const PATH_CUT_MARK_CHARS = 16;
+
+export type IntegrationState =
+  "running" | "merged" | "conflicted" | "failed" | "confirmed" | "discarded";
+
+export interface IntegrationRecord {
+  readonly integrationId: string;
+  readonly sequence: number;
+  readonly baseSha: string;
+  readonly branch: string;
+  readonly requestedBy: string;
+  readonly state: IntegrationState;
+  readonly headSha: string | null;
+  readonly conflictReportId: string | null;
+  readonly conflictFiles: readonly string[] | null;
+  readonly conflictFilesOmitted: number | null;
+  readonly failureReason: string | null;
+  readonly reports: readonly {
+    readonly reportId: string;
+    readonly agentId: string;
+    readonly commitSha: string;
+  }[];
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+}
+
+interface IntegrationRow {
+  readonly integration_id: string;
+  readonly sequence: number;
+  readonly base_sha: string;
+  readonly branch: string;
+  readonly requested_by: string;
+  readonly state: IntegrationState;
+  readonly head_sha: string | null;
+  readonly conflict_report_id: string | null;
+  readonly conflict_files_json: string | null;
+  readonly conflict_files_omitted: number | null;
+  readonly failure_reason: string | null;
+  readonly created_at: string;
+  readonly completed_at: string | null;
+}
+
+export type IntegrationOutcome =
+  | { readonly kind: "merged"; readonly headSha: string }
+  | {
+      readonly kind: "conflicted";
+      readonly reportId: string;
+      readonly files: readonly string[];
+      readonly omitted: number;
+    }
+  | { readonly kind: "failed"; readonly reason: string };
 
 export interface PmRestartSummary {
   readonly objective: unknown;
@@ -2685,65 +2766,95 @@ export class ControllerCore {
     ).map(reportRecord);
   }
 
-  /** What a review of this report would need, or why it cannot start. A read; beginReview checks again inside its transaction. */
+  /** What a review of this report or integration would need, or why it cannot start. A read; beginReview checks again inside its transaction. */
   checkReviewRequest(
-    reportId: string,
+    subjectId: string,
     reviewerRole: string,
   ): {
     readonly commitSha: string;
     readonly baseSha: string;
     readonly round: number;
-    readonly authorAgentId: string;
+    readonly authorAgentIds: readonly string[];
   } {
     this.#assertOpen();
-    safeId(reportId, "report id");
+    safeId(subjectId, "report or integration id");
     safeId(reviewerRole, "reviewer role");
-    const checked = this.#reviewChecks(reportId, reviewerRole);
+    const checked = this.#reviewChecks(subjectId, reviewerRole);
     return {
-      commitSha: checked.report.commit_sha,
+      commitSha: checked.commitSha,
       baseSha: checked.baseSha,
       round: checked.round,
-      authorAgentId: checked.report.agent_id,
+      authorAgentIds: checked.authors.map((a) => a.agent_id),
     };
   }
 
   #reviewChecks(
-    reportId: string,
+    subjectId: string,
     reviewerRole: string,
-  ): { report: AgentReportRow; baseSha: string; round: number } {
+  ): {
+    readonly subject: "report" | "integration";
+    readonly commitSha: string;
+    readonly baseSha: string;
+    readonly round: number;
+    readonly authors: readonly AgentReportRow[];
+  } {
     const report = this.#database
       .prepare(
         "SELECT * FROM agent_reports WHERE project_id = ? AND report_id = ?",
       )
-      .get(this.#projectId, reportId) as AgentReportRow | undefined;
-    if (report === undefined)
-      throw new ControllerError("the report does not exist");
-    if (report.state !== "accepted")
-      throw new ControllerError("only an accepted report can be reviewed");
+      .get(this.#projectId, subjectId) as AgentReportRow | undefined;
+    const integration =
+      report === undefined
+        ? (this.#database
+            .prepare(
+              "SELECT * FROM integrations WHERE project_id = ? AND integration_id = ?",
+            )
+            .get(this.#projectId, subjectId) as IntegrationRow | undefined)
+        : undefined;
+    if (report === undefined && integration === undefined)
+      throw new ControllerError("the report or integration does not exist");
+    const column =
+      report === undefined ? "subject_integration_id" : "subject_report_id";
     let baseSha: unknown;
-    try {
-      baseSha = (JSON.parse(report.evidence_json) as ReportEvidence).baseSha;
-    } catch {
-      baseSha = undefined;
+    let commitSha: string;
+    let authors: readonly AgentReportRow[];
+    if (report !== undefined) {
+      if (report.state !== "accepted")
+        throw new ControllerError("only an accepted report can be reviewed");
+      try {
+        baseSha = (JSON.parse(report.evidence_json) as ReportEvidence).baseSha;
+      } catch {
+        baseSha = undefined;
+      }
+      commitSha = report.commit_sha;
+      authors = [report];
+    } else {
+      if (integration!.state !== "merged")
+        throw new ControllerError(
+          "only a merged, unconfirmed integration can be reviewed",
+        );
+      baseSha = integration!.base_sha;
+      commitSha = integration!.head_sha!;
+      authors = this.#integrationAuthors(integration!.integration_id);
     }
     if (typeof baseSha !== "string" || !/^[0-9a-f]{40}$/.test(baseSha))
-      throw new ControllerError("the report has no usable base commit");
+      throw new ControllerError("the subject has no usable base commit");
     const open = this.#database
       .prepare(
-        "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state = 'started'",
+        `SELECT 1 AS present FROM reviews WHERE project_id = ? AND ${column} = ? AND state = 'started'`,
       )
-      .get(this.#projectId, reportId);
+      .get(this.#projectId, subjectId);
     if (open)
-      throw new ControllerError("a review of this report is already open");
+      throw new ControllerError("a review of this subject is already open");
     const done = (
       this.#database
         .prepare(
-          "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')",
+          `SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND ${column} = ? AND state IN ('passed', 'findings')`,
         )
-        .get(this.#projectId, reportId) as { n: number }
+        .get(this.#projectId, subjectId) as { n: number }
     ).n;
     if (done >= MAX_REVIEW_ROUNDS)
-      throw new ControllerError("the review limit for this report is reached");
+      throw new ControllerError("the review limit for this subject is reached");
     const role = this.#database
       .prepare(
         "SELECT kind FROM role_definitions WHERE project_id = ? AND role_name = ? AND state = 'active'",
@@ -2756,11 +2867,28 @@ export class ControllerCore {
     const round = (
       this.#database
         .prepare(
-          "SELECT COALESCE(MAX(round), 0) + 1 AS next FROM reviews WHERE project_id = ? AND subject_report_id = ?",
+          `SELECT COALESCE(MAX(round), 0) + 1 AS next FROM reviews WHERE project_id = ? AND ${column} = ?`,
         )
-        .get(this.#projectId, reportId) as { next: number }
+        .get(this.#projectId, subjectId) as { next: number }
     ).next;
-    return { report, baseSha, round };
+    return {
+      subject: report === undefined ? "integration" : "report",
+      commitSha,
+      baseSha,
+      round,
+      authors,
+    };
+  }
+
+  /** The reports an integration merged, in merge order. */
+  #integrationAuthors(integrationId: string): AgentReportRow[] {
+    return this.#database
+      .prepare(
+        `SELECT r.* FROM integration_reports ir
+         JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+         WHERE ir.project_id = ? AND ir.integration_id = ? ORDER BY ir.position`,
+      )
+      .all(this.#projectId, integrationId) as AgentReportRow[];
   }
 
   /** The controller's own actor and the one active PM, or undefined when either is missing. */
@@ -2788,12 +2916,12 @@ export class ControllerCore {
   beginReview(
     context: MutationContext,
     input: {
-      readonly reportId: string;
+      readonly subjectId: string;
       readonly reviewerRole: string;
       readonly reviewerAgentId: string;
     },
   ): ReviewRecord {
-    safeId(input.reportId, "report id");
+    safeId(input.subjectId, "report or integration id");
     safeId(input.reviewerRole, "reviewer role");
     safeId(input.reviewerAgentId, "reviewer agent id");
     return this.#mutate<ReviewRecord>(
@@ -2802,10 +2930,7 @@ export class ControllerCore {
       "review:request",
       { ...input },
       (actor) => {
-        const { report, baseSha, round } = this.#reviewChecks(
-          input.reportId,
-          input.reviewerRole,
-        );
+        const checked = this.#reviewChecks(input.subjectId, input.reviewerRole);
         const reviewer = this.#agentRow(input.reviewerAgentId);
         if (
           reviewer?.state !== "active" ||
@@ -2816,10 +2941,15 @@ export class ControllerCore {
             "the reviewer agent is not an active agent of the requested Verifier role",
           );
         if (
-          reviewer.actor_id === report.actor_id ||
-          reviewer.agent_id === report.agent_id
+          checked.authors.some(
+            (author) =>
+              reviewer.actor_id === author.actor_id ||
+              reviewer.agent_id === author.agent_id,
+          )
         )
-          throw new ControllerError("a reviewer cannot be the author");
+          throw new ControllerError("a reviewer cannot be an author");
+        const single =
+          checked.subject === "report" ? checked.authors[0]! : null;
         const controller = this.#database
           .prepare(
             "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
@@ -2838,20 +2968,21 @@ export class ControllerCore {
         ).next;
         this.#database
           .prepare(
-            `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, commit_sha, base_sha, author_agent_id, author_actor_id,
-               requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)`,
+            `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, subject_integration_id, commit_sha, base_sha, author_agent_id,
+               author_actor_id, requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)`,
           )
           .run(
             this.#projectId,
             reviewId,
             sequence,
-            round,
-            report.report_id,
-            report.commit_sha,
-            baseSha,
-            report.agent_id,
-            report.actor_id,
+            checked.round,
+            single === null ? null : input.subjectId,
+            single === null ? input.subjectId : null,
+            checked.commitSha,
+            checked.baseSha,
+            single?.agent_id ?? null,
+            single?.actor_id ?? null,
             actor.actorId,
             input.reviewerRole,
             reviewer.agent_id,
@@ -2863,7 +2994,10 @@ export class ControllerCore {
             "SELECT * FROM reviews WHERE project_id = ? AND review_id = ?",
           )
           .get(this.#projectId, reviewId) as ReviewRow;
-        const task = reviewTask(row, report.summary);
+        const task = reviewTask(
+          row,
+          checked.authors.map((report) => ({ report })),
+        );
         this.#insertQueuedMessage(
           controller.actor_id,
           reviewer,
@@ -2879,10 +3013,10 @@ export class ControllerCore {
             stateVersion: 0,
             toState: "started",
             details: {
-              reportId: report.report_id,
-              round,
+              subjectId: input.subjectId,
+              round: checked.round,
               reviewerAgentId: reviewer.agent_id,
-              authorAgentId: report.agent_id,
+              authorAgentIds: checked.authors.map((a) => a.agent_id),
             },
           },
         };
@@ -2955,11 +3089,22 @@ export class ControllerCore {
             stateVersion: 0,
             fromState: "started",
             toState: done.state,
-            details: { reportId: row.subject_report_id, round: row.round },
+            details: {
+              subjectId: row.subject_report_id ?? row.subject_integration_id,
+              round: row.round,
+            },
           },
         };
       },
     );
+  }
+
+  #reviewAuthorIds(row: ReviewRow): string[] {
+    return row.subject_integration_id === null
+      ? [row.author_agent_id!]
+      : this.#integrationAuthors(row.subject_integration_id).map(
+          (r) => r.agent_id,
+        );
   }
 
   /** Queues the PM notice for a finished review that has none; false when no PM is the sole active one. The caller owns the transaction. */
@@ -2972,7 +3117,7 @@ export class ControllerCore {
     if (row === undefined) return false;
     const parties = this.#noticeParties();
     if (parties === undefined) return false;
-    const body = reviewNotice(row);
+    const body = reviewNotice(row, this.#reviewAuthorIds(row));
     const messageId = this.#insertQueuedMessage(
       parties.controllerActorId,
       parties.pm,
@@ -3047,6 +3192,395 @@ export class ControllerCore {
         )
         .all(this.#projectId) as ReviewRow[]
     ).map(reviewRecord);
+  }
+
+  /**
+   * Starts an integration: records the base, the merge order and the branch the controller will
+   * create. Every report must be accepted and its
+   * latest finished review must be a pass; only one integration runs at a time.
+   */
+  beginIntegration(
+    context: MutationContext,
+    input: {
+      readonly integrationId: string;
+      readonly reportIds: readonly string[];
+      readonly baseSha: string;
+      readonly branch: string;
+      readonly requestedBy: string;
+    },
+  ): IntegrationRecord {
+    safeId(input.integrationId, "integration id");
+    safeId(input.requestedBy, "requester");
+    if (!/^[0-9a-f]{40}$/.test(input.baseSha))
+      throw new TypeError("the base commit must be a full lowercase sha1");
+    if (
+      !Array.isArray(input.reportIds) ||
+      input.reportIds.length < 1 ||
+      input.reportIds.length > MAX_INTEGRATION_REPORTS
+    )
+      throw new TypeError(
+        `an integration takes 1 to ${MAX_INTEGRATION_REPORTS} reports`,
+      );
+    for (const id of input.reportIds) safeId(id, "report id");
+    return this.#mutate<IntegrationRecord>(
+      context,
+      "integration.begin",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        if (new Set(input.reportIds).size !== input.reportIds.length)
+          throw new ControllerError("a report is named twice");
+        const running = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM integrations WHERE project_id = ? AND state = 'running'",
+          )
+          .get(this.#projectId);
+        if (running)
+          throw new ControllerError("an integration is already running");
+        for (const id of input.reportIds) {
+          const report = this.#database
+            .prepare(
+              "SELECT state FROM agent_reports WHERE project_id = ? AND report_id = ?",
+            )
+            .get(this.#projectId, id) as { state: string } | undefined;
+          if (report === undefined)
+            throw new ControllerError(`report ${id} does not exist`);
+          if (report.state !== "accepted")
+            throw new ControllerError(`report ${id} was not accepted`);
+          const latest = this.#database
+            .prepare(
+              `SELECT state FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')
+               ORDER BY sequence DESC LIMIT 1`,
+            )
+            .get(this.#projectId, id) as { state: string } | undefined;
+          if (latest?.state !== "passed")
+            throw new ControllerError(
+              `report ${id} has no passed review as its latest verdict`,
+            );
+          const openReview = this.#database
+            .prepare(
+              "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state = 'started'",
+            )
+            .get(this.#projectId, id);
+          if (openReview)
+            throw new ControllerError(`report ${id} has a review still open`);
+          const elsewhere = this.#database
+            .prepare(
+              `SELECT i.integration_id, i.state FROM integration_reports ir
+               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+               WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('confirmed', 'merged')
+               ORDER BY i.sequence DESC LIMIT 1`,
+            )
+            .get(this.#projectId, id) as
+            { integration_id: string; state: string } | undefined;
+          if (elsewhere?.state === "confirmed")
+            throw new ControllerError(
+              `report ${id} was already integrated and confirmed in ${elsewhere.integration_id}`,
+            );
+          if (elsewhere !== undefined)
+            throw new ControllerError(
+              `report ${id} is already in the unsettled integration ${elsewhere.integration_id}; confirm or discard that one first`,
+            );
+        }
+        const now = this.#now();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM integrations WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        this.#database
+          .prepare(
+            `INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'running', ?)`,
+          )
+          .run(
+            this.#projectId,
+            input.integrationId,
+            sequence,
+            input.baseSha,
+            input.branch,
+            input.requestedBy,
+            now,
+          );
+        input.reportIds.forEach((reportId, index) =>
+          this.#database
+            .prepare(
+              "INSERT INTO integration_reports(project_id, integration_id, position, report_id) VALUES (?, ?, ?, ?)",
+            )
+            .run(this.#projectId, input.integrationId, index + 1, reportId),
+        );
+        return {
+          value: this.#integrationRecord(input.integrationId),
+          event: {
+            entityType: "integration",
+            entityId: input.integrationId,
+            stateVersion: 0,
+            toState: "running",
+            details: {
+              baseSha: input.baseSha,
+              reportIds: [...input.reportIds],
+              requestedBy: input.requestedBy,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** Records how a running integration ended. A conflict is also queued to the PM when the operator asked for the integration. */
+  finishIntegration(
+    context: MutationContext,
+    input: {
+      readonly integrationId: string;
+      readonly outcome: IntegrationOutcome;
+    },
+  ): IntegrationRecord {
+    safeId(input.integrationId, "integration id");
+    const outcome = input.outcome;
+    if (outcome.kind === "merged" && !/^[0-9a-f]{40}$/.test(outcome.headSha))
+      throw new TypeError(
+        "the integrated commit must be a full lowercase sha1",
+      );
+    if (
+      outcome.kind === "conflicted" &&
+      (outcome.files.length < 1 ||
+        outcome.files.length > MAX_CONFLICT_FILES ||
+        !Number.isInteger(outcome.omitted) ||
+        outcome.omitted < 0 ||
+        outcome.files.some(
+          (file) =>
+            !/^[\x20-\x7e]+$/.test(file) ||
+            file.length > MAX_CONFLICT_PATH_CHARS + PATH_CUT_MARK_CHARS,
+        ))
+    )
+      throw new TypeError(
+        "the conflict files must be a short list of printable paths",
+      );
+    if (
+      outcome.kind === "failed" &&
+      !/^[\x20-\x7e]{1,300}$/.test(outcome.reason)
+    )
+      throw new TypeError("the failure reason must be short printable text");
+    return this.#mutate<IntegrationRecord>(
+      context,
+      "integration.finish",
+      "controller:reconcile",
+      { integrationId: input.integrationId, outcome },
+      () => {
+        const row = this.#integrationRow(input.integrationId);
+        if (row.state !== "running")
+          throw new ControllerError("the integration is not running");
+        const now = this.#now();
+        this.#database
+          .prepare(
+            `UPDATE integrations SET state = ?, head_sha = ?, conflict_report_id = ?, conflict_files_json = ?, conflict_files_omitted = ?, failure_reason = ?, completed_at = ?
+             WHERE project_id = ? AND integration_id = ?`,
+          )
+          .run(
+            outcome.kind,
+            outcome.kind === "merged" ? outcome.headSha : null,
+            outcome.kind === "conflicted" ? outcome.reportId : null,
+            outcome.kind === "conflicted"
+              ? JSON.stringify(outcome.files)
+              : null,
+            outcome.kind === "conflicted" ? outcome.omitted : null,
+            outcome.kind === "failed" ? outcome.reason : null,
+            now,
+            this.#projectId,
+            input.integrationId,
+          );
+        if (outcome.kind === "conflicted" && row.requested_by === "operator")
+          this.#noticeConflict(input.integrationId, outcome, now);
+        return {
+          value: this.#integrationRecord(input.integrationId),
+          event: {
+            entityType: "integration",
+            entityId: input.integrationId,
+            stateVersion: 0,
+            fromState: "running",
+            toState: outcome.kind,
+            details:
+              outcome.kind === "conflicted"
+                ? {
+                    reportId: outcome.reportId,
+                    files: [...outcome.files],
+                    omitted: outcome.omitted,
+                  }
+                : outcome.kind === "failed"
+                  ? { reason: outcome.reason }
+                  : { headSha: outcome.headSha },
+          },
+        };
+      },
+    );
+  }
+
+  #noticeConflict(
+    integrationId: string,
+    outcome: Extract<IntegrationOutcome, { kind: "conflicted" }>,
+    now: string,
+  ): void {
+    const parties = this.#noticeParties();
+    if (parties === undefined) return;
+    const body = [
+      `Integration ${integrationId} is blocked by a merge conflict`,
+      `The conflict arose when merging report ${outcome.reportId}. Files (escaped; a path is text from a worker): ${outcome.files.join(", ")}${outcome.omitted > 0 ? `, and ${outcome.omitted} more not listed` : ""}`,
+      "The controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again.",
+    ].join("\n");
+    this.#insertQueuedMessage(
+      parties.controllerActorId,
+      parties.pm,
+      body,
+      sha256(body),
+      now,
+    );
+  }
+
+  /**
+   * Ends a merged integration: confirmed (accepted; needs a passed review and no
+   * open one) or discarded. The caller removes the branch afterwards.
+   */
+  settleIntegration(
+    context: MutationContext,
+    input: {
+      readonly integrationId: string;
+      readonly outcome: "confirmed" | "discarded";
+    },
+  ): IntegrationRecord {
+    safeId(input.integrationId, "integration id");
+    if (input.outcome !== "confirmed" && input.outcome !== "discarded")
+      throw new TypeError("the outcome must be confirmed or discarded");
+    return this.#mutate<IntegrationRecord>(
+      context,
+      "integration.settle",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const row = this.#integrationRow(input.integrationId);
+        if (row.state !== "merged")
+          throw new ControllerError("only a merged integration can be settled");
+        const open = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
+          )
+          .get(this.#projectId, input.integrationId);
+        if (open)
+          throw new ControllerError("a review of this integration is open");
+        if (input.outcome === "confirmed") {
+          const latest = this.#database
+            .prepare(
+              `SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
+               ORDER BY sequence DESC LIMIT 1`,
+            )
+            .get(this.#projectId, input.integrationId) as
+            { state: string } | undefined;
+          if (latest?.state !== "passed")
+            throw new ControllerError(
+              "an integration is confirmed only after its latest review passed",
+            );
+        }
+        this.#database
+          .prepare(
+            "UPDATE integrations SET state = ? WHERE project_id = ? AND integration_id = ?",
+          )
+          .run(input.outcome, this.#projectId, input.integrationId);
+        return {
+          value: this.#integrationRecord(input.integrationId),
+          event: {
+            entityType: "integration",
+            entityId: input.integrationId,
+            stateVersion: 0,
+            fromState: "merged",
+            toState: input.outcome,
+            details: {},
+          },
+        };
+      },
+    );
+  }
+
+  #integrationRow(integrationId: string): IntegrationRow {
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM integrations WHERE project_id = ? AND integration_id = ?",
+      )
+      .get(this.#projectId, integrationId) as IntegrationRow | undefined;
+    if (row === undefined)
+      throw new ControllerError("the integration does not exist");
+    return row;
+  }
+
+  #integrationRecord(integrationId: string): IntegrationRecord {
+    const row = this.#integrationRow(integrationId);
+    return {
+      integrationId: row.integration_id,
+      sequence: row.sequence,
+      baseSha: row.base_sha,
+      branch: row.branch,
+      requestedBy: row.requested_by,
+      state: row.state,
+      headSha: row.head_sha,
+      conflictReportId: row.conflict_report_id,
+      conflictFilesOmitted: row.conflict_files_omitted,
+      conflictFiles:
+        row.conflict_files_json === null
+          ? null
+          : (JSON.parse(row.conflict_files_json) as string[]),
+      failureReason: row.failure_reason,
+      reports: this.#integrationAuthors(integrationId).map((r) => ({
+        reportId: r.report_id,
+        agentId: r.agent_id,
+        commitSha: r.commit_sha,
+      })),
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  integration(integrationId: string): IntegrationRecord {
+    this.#assertOpen();
+    safeId(integrationId, "integration id");
+    return this.#integrationRecord(integrationId);
+  }
+
+  integrations(credential: string, limit = 20): readonly IntegrationRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT integration_id FROM integrations WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as { integration_id: string }[]
+    ).map((r) => this.#integrationRecord(r.integration_id));
+  }
+
+  /** Confirmed or discarded integrations, newest first: their branch should be gone. */
+  settledIntegrations(
+    credential: string,
+    limit = 200,
+  ): readonly IntegrationRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT integration_id FROM integrations WHERE project_id = ? AND state IN ('confirmed', 'discarded') ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as { integration_id: string }[]
+    ).map((r) => this.#integrationRecord(r.integration_id));
+  }
+
+  /** Integrations still marked running: the daemon stopped while one was merging. */
+  runningIntegrations(credential: string): readonly IntegrationRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT integration_id FROM integrations WHERE project_id = ? AND state = 'running' ORDER BY sequence",
+        )
+        .all(this.#projectId) as { integration_id: string }[]
+    ).map((r) => this.#integrationRecord(r.integration_id));
   }
 
   fallbackPane(
@@ -11423,6 +11957,7 @@ export class ControllerCore {
       ["recovery", "recovery_attempts", "recovery_id"],
       ["report", "agent_reports", "report_id"],
       ["review", "reviews", "review_id"],
+      ["integration", "integrations", "integration_id"],
     ] as const) {
       const row = this.#database
         .prepare(
