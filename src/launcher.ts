@@ -322,7 +322,7 @@ export class Launcher {
     return this.#core.listAgents().filter((a) => a.state === "active");
   }
 
-  /** The first of the role's seats that no active agent holds; the core allows one active agent per seat, so each concurrent worker needs its own. A seat that is disabled or was made for another kind is an operator-visible error, not something to route around. */
+  /** The first of the role's seats that no active agent holds; extra seats are named `<role>.<n>`, which no role name can equal (role names allow no dot), so they never collide with another role's seat; the core allows one active agent per seat, so each concurrent worker needs its own. A seat that is disabled or was made for another kind is an operator-visible error, not something to route around. */
   #seat(role: ResolvedRole): string {
     const held = new Set(this.#activeAgents().map((a) => a.seatId));
     const seats = this.#core.statusSnapshot().roles;
@@ -334,7 +334,7 @@ export class Launcher {
       if (existing === undefined) {
         this.#core.createSeat(this.#context(), {
           seatId,
-          name: number === 1 ? role.name : `${role.name}-${number}`,
+          name: number === 1 ? role.name : `${role.name}.${number}`,
           role: role.kind,
         });
         return seatId;
@@ -658,7 +658,7 @@ export class Launcher {
       if (agent.state !== "active")
         throw new LauncherError(
           "agent_not_active",
-          `${agentId} is not active; it was already released`,
+          `${agentId} is not active (it was released, ended or never started); nothing more to release`,
         );
       const row = this.#core
         .agentPanes(this.#credential)

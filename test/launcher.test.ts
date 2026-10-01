@@ -677,6 +677,30 @@ test("release keeps the pane row, worktree and branch when the pane will not clo
   }
 });
 
+test("an extra seat is named so that no role can collide with it", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    await w.launcher.spawn("developer");
+    const seats = w.core.statusSnapshot().roles;
+    assert.deepEqual(
+      seats
+        .filter((r) => r.seatId.startsWith("developer-seat"))
+        .map((r) => r.seatId)
+        .sort(),
+      ["developer-seat", "developer-seat-2"],
+    );
+    w.core.createSeat(ctx(w.core, w.owner), {
+      seatId: "developer-2-seat",
+      name: "developer-2",
+      role: "Developer",
+    });
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {

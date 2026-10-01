@@ -166,6 +166,8 @@ test("the PM prompt tells the PM to delegate with spawn, send and release, never
     "never pushes or merges",
     "Bash timeout of at least 10 minutes",
     "agent_not_active",
+    "paneClosed",
+    "worktreeRemoved",
     "quoted heredoc",
     "worker_limit",
   ])
