@@ -69,6 +69,9 @@ export type Capability =
   | "report:submit"
   | "review:request"
   | "review:submit"
+  | "finding:raise"
+  | "finding:check"
+  | "agent:observe"
   | "recovery:write"
   | "controller:reconcile";
 

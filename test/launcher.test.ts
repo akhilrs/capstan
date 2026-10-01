@@ -68,6 +68,7 @@ function config(
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      findingCheckSeconds: 1800,
     },
     limits: { maxWorkers },
     layout: {
@@ -2226,6 +2227,48 @@ test("overlapping operations are told apart: only the one that started an agent 
     assert.equal(
       w.events.filter((e) => e.event === "env_pass_missing").length,
       1,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("observe reads the recorded pane of an active agent, sanitizes the text and reports Herdr's state; an ended or paneless agent is refused", async () => {
+  const w = await world();
+  try {
+    await w.launcher.launchPm();
+    const spawned = await w.launcher.spawn("developer");
+    const paneId = w.core
+      .agentPanes(w.owner)
+      .find((row) => row.agentId === spawned.agentId)!.paneId!;
+    w.adapter.screens.set(
+      paneId,
+      "\u001b[31mnpm test\u001b[0m\r\nFAIL expected 3 got 4\u0007",
+    );
+    w.adapter.observation = "working";
+    const seen = await w.launcher.observe(spawned.agentId, 25);
+    assert.equal(seen.text, "npm test\nFAIL expected 3 got 4");
+    assert.equal(seen.agentStatus, "working");
+    assert.equal(seen.kind, "Developer");
+    assert.equal(seen.roleName, "developer");
+    assert.deepEqual(w.adapter.screenReads.at(-1), { paneId, lines: 25 });
+    w.adapter.unreadablePanes.add(paneId);
+    await assert.rejects(
+      w.launcher.observe(spawned.agentId, 25),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "pane_unreadable",
+    );
+    w.adapter.unreadablePanes.delete(paneId);
+    await assert.rejects(
+      w.launcher.observe("nobody", 40),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "agent_not_active",
+    );
+    await w.launcher.release(spawned.agentId);
+    await assert.rejects(
+      w.launcher.observe(spawned.agentId, 40),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "agent_not_active",
     );
   } finally {
     w.cleanup();

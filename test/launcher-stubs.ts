@@ -249,6 +249,20 @@ export class StubAdapter implements LauncherAdapter {
     return this.entries.get(paneId) as ReturnType<LauncherAdapter["paneEntry"]>;
   }
 
+  /** What readScreen answers, per pane; a pane in `unreadablePanes` throws. */
+  readonly screens = new Map<string, string>();
+  readonly unreadablePanes = new Set<string>();
+  readonly screenReads: Array<{ paneId: string; lines: number | undefined }> =
+    [];
+  async readScreen(
+    paneId: string,
+    options: { ansi?: boolean; lines?: number } = {},
+  ): Promise<string> {
+    this.screenReads.push({ paneId, lines: options.lines });
+    if (this.unreadablePanes.has(paneId)) throw new Error("pane read failed");
+    return this.screens.get(paneId) ?? "";
+  }
+
   async agentObservation() {
     return this.observation;
   }

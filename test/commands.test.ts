@@ -24,6 +24,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 3 },
     layout: {
@@ -736,6 +737,14 @@ function stubLauncher(): {
         if (role === "boom") throw new Error("internal detail");
         return { state: "started", agentId: `${role}-1` };
       },
+      observe: async (agentId: string) => ({
+        agentId,
+        roleName: "developer",
+        kind: "Developer",
+        state: "active",
+        agentStatus: "idle",
+        text: "",
+      }),
       release: async (agentId: string) => {
         calls.push(`release:${agentId}`);
         if (agentId === "pm-1")

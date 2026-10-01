@@ -141,6 +141,11 @@ const migrations: Readonly<
     name: "0019_integrations.sql",
     url: new URL("../../migrations/0019_integrations.sql", import.meta.url),
   },
+  20: {
+    version: 20,
+    name: "0020_agent_findings.sql",
+    url: new URL("../../migrations/0020_agent_findings.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

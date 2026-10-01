@@ -90,6 +90,7 @@ test("a valid configuration resolves every default", () => {
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      findingCheckSeconds: 1800,
     });
     assert.deepEqual(config.hosts, [
       {
@@ -151,18 +152,32 @@ test("the starter configuration written by init is valid and gives the PM worker
         ["designer", "Developer"],
         ["reviewer", "Verifier"],
         ["tester", "Verifier"],
+        ["supervisor", "Supervisor"],
       ],
     );
     assert.equal(config.limits.maxWorkers, 3);
     assert.equal(config.layout.spawn, "pane");
     assert.equal(config.layout.split, "auto");
     for (const role of config.roles.filter(
-      (r) => r.kind !== "PM" && r.name !== "reviewer",
+      (r) =>
+        r.kind !== "PM" && r.name !== "reviewer" && r.name !== "supervisor",
     )) {
       assert.match(role.promptText ?? "", /branch/, role.name);
       assert.equal(role.permissionMode, "acceptEdits");
       assert.deepEqual(role.deny, ["Bash(git push)", "Bash(git push *)"]);
     }
+    const supervisor = config.roles.find((r) => r.name === "supervisor")!;
+    for (const tool of [
+      "Write",
+      "Edit",
+      "NotebookEdit",
+      "Agent",
+      "Task",
+      "Bash(git push)",
+      "Bash(herdr *)",
+    ])
+      assert.ok(supervisor.deny.includes(tool), tool);
+    assert.equal(supervisor.hooks, "off");
     const reviewer = config.roles.find((r) => r.name === "reviewer")!;
     assert.match(reviewer.promptText ?? "", /do not edit any file/);
     for (const tool of [

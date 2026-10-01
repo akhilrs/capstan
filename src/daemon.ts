@@ -88,7 +88,8 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   "request-review": { access: "agent" },
   integrate: { access: "any" },
   review: { access: "agent" },
-  finding: { access: "agent", stub: STUB_STAGE },
+  finding: { access: "agent" },
+  observe: { access: "agent" },
   assign: { access: "operator", stub: STUB_STAGE },
   cancel: { access: "operator" },
   send: { access: "any" },
@@ -818,6 +819,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       credential,
       intervalMs: options.tickMs ?? 2000,
       log: detailLog,
+      ...(options.capstan === undefined
+        ? {}
+        : {
+            findingCheckSeconds: options.capstan.timers.findingCheckSeconds,
+          }),
     });
     writePidFile(pidPath);
     options.announce?.({ event: "ready", pid: process.pid });

@@ -22,6 +22,7 @@ import {
   type HerdrAdapter,
 } from "./herdr/adapter.js";
 import { HerdrError } from "./herdr/runner.js";
+import { sanitizeScreen } from "./observe.js";
 import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
 import { choosePlacement, type LayoutPane } from "./layout.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
@@ -54,6 +55,7 @@ export type LauncherAdapter = Pick<
   | "paneForAgent"
   | "paneEntry"
   | "agentObservation"
+  | "readScreen"
 >;
 
 export interface GitRunner {
@@ -111,6 +113,17 @@ export interface SpawnResult {
   readonly missingEnv?: readonly string[];
   /** Printed by the CLI; names the missing variables and where they have to be set. */
   readonly warning?: string;
+}
+
+export interface ObserveResult {
+  readonly agentId: string;
+  readonly roleName: string;
+  readonly kind: string;
+  readonly state: string;
+  /** Herdr's own state for the pane (idle, working, blocked, done, unknown), or null when it could not be read. */
+  readonly agentStatus: string | null;
+  /** The agent's visible screen as plain text: its own output, not verified. */
+  readonly text: string;
 }
 
 export interface ReleaseOutcome {
@@ -495,6 +508,45 @@ export class Launcher {
     );
     fs.renameSync(temporary, path.join(directory, "cstan"));
     return directory;
+  }
+
+  /** The recent screen of an active agent. A read: it does not wait for other launcher operations. */
+  async observe(agentId: string, lines: number): Promise<ObserveResult> {
+    const agent = this.#core.agentRecord(agentId);
+    if (agent === undefined || agent.state !== "active")
+      throw new LauncherError("agent_not_active", "the agent is not active");
+    const paneId =
+      this.#adapter.paneForAgent(agentId) ??
+      this.#core
+        .agentPanes(this.#credential)
+        .find((row) => row.agentId === agentId)?.paneId ??
+      undefined;
+    if (paneId === undefined || paneId === null)
+      throw new LauncherError("no_pane", "the agent has no pane recorded");
+    let screen: string;
+    try {
+      screen = await this.#adapter.readScreen(paneId, { lines });
+    } catch (error) {
+      this.#log("observe_failed", { agentId, error: String(error) });
+      throw new LauncherError(
+        "pane_unreadable",
+        "the agent's pane could not be read",
+      );
+    }
+    let agentStatus: string | null = null;
+    try {
+      agentStatus = await this.#adapter.agentObservation(agentId);
+    } catch {
+      agentStatus = null;
+    }
+    return {
+      agentId,
+      roleName: agent.roleName,
+      kind: agent.kind,
+      state: agent.state,
+      agentStatus,
+      text: sanitizeScreen(screen),
+    };
   }
 
   /** Names from `[env] pass` that are not set (or are empty) in the daemon's environment: an agent started now would not have them. */
