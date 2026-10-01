@@ -779,12 +779,18 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     });
     if (launcher !== undefined) {
       const reviewLauncher = launcher;
-      void adoption.then(() =>
-        recoverReviews(
-          { core: core!, launcher: reviewLauncher, log: detailLog },
-          credential,
-        ),
-      );
+      void adoption
+        .then(() =>
+          stopping
+            ? undefined
+            : recoverReviews(
+                { core: core!, launcher: reviewLauncher, log: detailLog },
+                credential,
+              ),
+        )
+        .catch((error) =>
+          detailLog("review_recovery_failed", { error: String(error) }),
+        );
     }
     reportRelay = startReportRelay({
       core,

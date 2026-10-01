@@ -264,6 +264,7 @@ test("a verdict is written once by the reviewer, bounded, and announced to the P
       { verdict: "approve", text: "x" },
       { verdict: "pass", text: "" },
       { verdict: "pass", text: "bell\u0007" },
+      { verdict: "pass", text: "two\r\nlines" },
       { verdict: "pass", text: "x".repeat(MAX_REVIEW_TEXT_BYTES + 1) },
       { verdict: "pass", text: "bad \ud800" },
     ])

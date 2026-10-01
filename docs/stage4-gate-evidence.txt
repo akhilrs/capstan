@@ -1,4 +1,5 @@
 # Stage 4 gate evidence, part 1: review (PM-32), from the ledger of the run on 2026-10-01 (UTC)
+# Note: message bodies in this export are cut at 400 characters; the quoted-summary line of the task message is covered by test/reviews.test.ts.
 # Setup: throwaway repository, isolated Herdr session capstan-s4, fake Claude stand-in for every agent. Tokens were read from /proc/<pid>/environ of each agent's own process and used from a separate shell; they are not printed here.
 
 ## reviews (author and reviewer sessions: agent id and actor id)
