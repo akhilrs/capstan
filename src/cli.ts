@@ -53,7 +53,10 @@ import {
   SOCKET_NAME,
   runDaemon,
 } from "./daemon.js";
-import { ControllerOwnershipError } from "./controller/ownership.js";
+import {
+  ControllerOwnershipError,
+  DAEMON_OWNS_PROJECT,
+} from "./controller/ownership.js";
 import { HerdrAdapter } from "./herdr/adapter.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
@@ -989,7 +992,10 @@ async function runCli(argv: string[]): Promise<number> {
         workspaceRoot: cwd,
       });
     } catch (error) {
-      if (error instanceof ControllerOwnershipError)
+      if (
+        error instanceof ControllerOwnershipError &&
+        error.message === DAEMON_OWNS_PROJECT
+      )
         throw new BlockedError(
           `${error.message}; stop the daemon with cstan stop, then run cstan config sync again`,
         );

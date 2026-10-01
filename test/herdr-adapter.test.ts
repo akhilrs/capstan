@@ -1397,6 +1397,40 @@ test("a PATH, HOME or TERM with a tilde, a space or a quote is shell-quoted into
   }
 });
 
+test("a HOME that tries to end its quote stays one inert word, and bidi or line separator characters are refused", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "s5",
+      label: "s5",
+    });
+    h.fake.onRun = (pane, command) => {
+      const rc = /--rcfile '([^']+)'/.exec(command)!;
+      rmSync(path.dirname(rc[1]!), { recursive: true, force: true });
+      pane.screen = "❯ ";
+    };
+    for (const environment of [
+      { HOME: "/h‮", PATH: "/p", TERM: "t" },
+      { HOME: "/h", PATH: "/p x", TERM: "t" },
+    ])
+      await assert.rejects(
+        h.adapter.prepareShell({ paneId, environment }),
+        InvalidArgumentError,
+      );
+    assert.equal(h.fake.callsTo("pane", "run").length, 0);
+    await h.adapter.prepareShell({
+      paneId,
+      environment: { HOME: "/h'; rm -rf ~; '", PATH: "/p", TERM: "t" },
+    });
+    const command = h.fake.callsTo("pane", "run")[0]![3]!;
+    assert.ok(command.includes(String.raw`HOME='/h'\''; rm -rf ~; '\'''`));
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
 test("a shell that never shows its prompt taints the pane, the temporary files are removed and the pane is unusable", async () => {
   const h = harness();
   try {

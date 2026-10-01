@@ -434,6 +434,38 @@ test("launch on a project whose roles were never synced says so and leaves no se
   }
 });
 
+test("spawn of a role that is not synced says so before it touches Herdr", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.core.syncRoleDefinitions(
+      ctx(w.core, w.owner),
+      ["pm:PM", "pm2:PM", "developer2:Developer"].map((entry, index) => {
+        const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
+        return {
+          name,
+          kind,
+          host: "claude",
+          configHash: String(index).repeat(64),
+        };
+      }),
+    );
+    const calls = w.adapter.calls.length;
+    const agents = w.core.listAgents().length;
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "role_not_synced" &&
+        e.message.includes("developer"),
+    );
+    assert.equal(w.adapter.calls.length, calls);
+    assert.equal(w.core.listAgents().length, agents);
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("spawn refuses a second worker for an active role, an unknown role, a PM role and a missing PM, without side effects", async () => {
   const w = await world();
   try {

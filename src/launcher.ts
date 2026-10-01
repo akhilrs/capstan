@@ -689,6 +689,7 @@ export class Launcher {
           "kind_not_spawnable",
           "a PM is launched, not spawned",
         );
+      this.#assertRoleSynced(role);
       const running = this.#activeAgents().find(
         (a) => a.roleName === role.name,
       );

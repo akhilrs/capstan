@@ -145,9 +145,12 @@ const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
 const WORKSPACE_PATTERN = /^w[0-9A-Za-z]+$/;
 const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
-const NON_EMPTY_PRINTABLE_VALUE = /^\P{Cc}+$/u;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
+/** HOME, PATH and TERM are shell-quoted, so only text that is empty or unsafe to show is refused. */
+function isQuotableValue(value: unknown): value is string {
+  return typeof value === "string" && value !== "" && !UNSAFE_TEXT.test(value);
+}
 const ALLOWED_TEXT_CHARACTERS = /[\n\t\u200c\u200d]/g;
 /** In Claude Code a first character of / ! # ? or @ (or a tab) acts on the input box instead of adding text. */
 const COMMAND_START = /^(?:\t|\s*[/!#?@])/;
@@ -175,6 +178,12 @@ const CONTROL_CHARACTERS = /\p{Cc}/u;
 
 function requireMatch(value: unknown, pattern: RegExp, label: string): string {
   if (typeof value !== "string" || !pattern.test(value))
+    throw new InvalidArgumentError(`${label} is not acceptable`);
+  return value;
+}
+
+function requireQuotable(value: unknown, label: string): string {
+  if (!isQuotableValue(value))
     throw new InvalidArgumentError(`${label} is not acceptable`);
   return value;
 }
@@ -602,21 +611,9 @@ export class HerdrAdapter {
     if (entry.phase !== "fresh")
       throw new PhaseError("only a fresh pane can be prepared");
     const environment = input.environment;
-    const home = requireMatch(
-      environment.HOME,
-      NON_EMPTY_PRINTABLE_VALUE,
-      "HOME",
-    );
-    const pathValue = requireMatch(
-      environment.PATH,
-      NON_EMPTY_PRINTABLE_VALUE,
-      "PATH",
-    );
-    const term = requireMatch(
-      environment.TERM,
-      NON_EMPTY_PRINTABLE_VALUE,
-      "TERM",
-    );
+    const home = requireQuotable(environment.HOME, "HOME");
+    const pathValue = requireQuotable(environment.PATH, "PATH");
+    const term = requireQuotable(environment.TERM, "TERM");
     for (const [name, value] of Object.entries(environment)) {
       if (!ENVIRONMENT_KEY.test(name))
         throw new InvalidArgumentError(

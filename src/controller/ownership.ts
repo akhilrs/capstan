@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { flockSync } from "fs-ext";
 
+export const DAEMON_OWNS_PROJECT =
+  "another cooperating controller owns this project";
+
 export class ControllerOwnershipError extends Error {
   override readonly name = "ControllerOwnershipError";
 }
@@ -71,9 +74,7 @@ export class ProjectLock {
           isSystemError(error) &&
           ["EAGAIN", "EWOULDBLOCK"].includes(error.code ?? "")
         ) {
-          throw new ControllerOwnershipError(
-            "another cooperating controller owns this project",
-          );
+          throw new ControllerOwnershipError(DAEMON_OWNS_PROJECT);
         }
         throw error;
       }
