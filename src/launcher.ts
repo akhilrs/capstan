@@ -94,6 +94,22 @@ export interface SpawnResult {
   readonly hint?: string;
 }
 
+export interface ReleaseOutcome {
+  /** null when no pane was recorded. */
+  readonly paneClosed: boolean | null;
+  /** null when no worktree was recorded or found. */
+  readonly worktreeRemoved: boolean | null;
+  /** True while the branch still exists: it holds commits, or its removal was not attempted. null when no branch was recorded. */
+  readonly branchKept: boolean | null;
+}
+
+export interface ReleaseResult extends ReleaseOutcome {
+  readonly state: "released";
+  readonly agentId: string;
+  readonly branch: string | null;
+  readonly cancelledMessageIds: readonly string[];
+}
+
 export interface LauncherStatus {
   readonly cleanupFailed: readonly {
     readonly agentId: string;
@@ -296,34 +312,49 @@ export class Launcher {
     );
   }
 
+  #workerRoles(): { name: string; kind: string }[] {
+    return this.#config.roles
+      .filter((role) => role.kind !== "PM")
+      .map((role) => ({ name: role.name, kind: role.kind }));
+  }
+
   #activeAgents(): AgentRecord[] {
     return this.#core.listAgents().filter((a) => a.state === "active");
   }
 
+  /** The first of the role's seats that no active agent holds; an extra seat has the id `<role>-seat-<n>` and the display name `<role>.<n>`, which no role name can equal (role names allow no dot), so it never collides with another role's seat; the core allows one active agent per seat, so each concurrent worker needs its own. A disabled seat, or one made for another kind, is an operator-visible error and stops the walk even when a later seat is free; it is not something to route around. */
   #seat(role: ResolvedRole): string {
-    const seatId = `${role.name}-seat`;
-    const existing = this.#core
-      .statusSnapshot()
-      .roles.find((entry) => entry.seatId === seatId);
-    if (existing === undefined) {
-      this.#core.createSeat(this.#context(), {
-        seatId,
-        name: role.name,
-        role: role.kind,
-      });
-      return seatId;
+    const held = new Set(this.#activeAgents().map((a) => a.seatId));
+    const seats = this.#core.statusSnapshot().roles;
+    const attempts = role.kind === "PM" ? 1 : this.#config.limits.maxWorkers;
+    for (let number = 1; number <= attempts; number += 1) {
+      const seatId =
+        number === 1 ? `${role.name}-seat` : `${role.name}-seat-${number}`;
+      const existing = seats.find((entry) => entry.seatId === seatId);
+      if (existing === undefined) {
+        this.#core.createSeat(this.#context(), {
+          seatId,
+          name: number === 1 ? role.name : `${role.name}.${number}`,
+          role: role.kind,
+        });
+        return seatId;
+      }
+      if (existing.role !== role.kind)
+        throw new LauncherError(
+          "seat_kind_mismatch",
+          `the seat ${seatId} was created for kind ${existing.role} but the configuration says ${role.kind}`,
+        );
+      if (existing.seatState === "disabled")
+        throw new LauncherError(
+          "seat_disabled",
+          `the seat ${seatId} is disabled`,
+        );
+      if (!held.has(seatId)) return seatId;
     }
-    if (existing.role !== role.kind)
-      throw new LauncherError(
-        "seat_kind_mismatch",
-        `the seat ${seatId} was created for kind ${existing.role} but the configuration says ${role.kind}`,
-      );
-    if (existing.seatState === "disabled")
-      throw new LauncherError(
-        "seat_disabled",
-        `the seat ${seatId} is disabled`,
-      );
-    return seatId;
+    throw new LauncherError(
+      "role_active",
+      `every seat of the role ${role.name} is held by an active agent`,
+    );
   }
 
   #roleIsSynced(role: ResolvedRole): boolean {
@@ -459,6 +490,7 @@ export class Launcher {
         agentId: agent.agentId,
         waitTimeoutSeconds: this.#waitSeconds(role),
         rolePrompt: role.promptText,
+        workerRoles: this.#workerRoles(),
         ...(summary === undefined ? {} : { restartSummary: summary }),
       }),
     );
@@ -608,6 +640,54 @@ export class Launcher {
     });
   }
 
+  /** Ends a worker and frees its pane, worktree and, when it holds no commits, its branch. A branch with commits is kept for the user to merge. */
+  release(agentId: string): Promise<ReleaseResult> {
+    return this.#run(async () => {
+      await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
+      const agent = this.#core.agentRecord(agentId);
+      if (agent === undefined)
+        throw new LauncherError(
+          "unknown_agent",
+          `there is no agent ${agentId}`,
+        );
+      if (agent.kind === "PM")
+        throw new LauncherError(
+          "kind_not_releasable",
+          "the PM is restarted with cstan pm restart, not released",
+        );
+      if (agent.state !== "active")
+        throw new LauncherError(
+          "agent_not_active",
+          `${agentId} is not active (it was released, ended or never started); nothing more to release`,
+        );
+      const row = this.#core
+        .agentPanes(this.#credential)
+        .find((candidate) => candidate.agentId === agentId);
+      const outcome = await this.#cleanupAgent(agentId, {
+        ...(row?.paneId == null ? {} : { paneId: row.paneId }),
+        ...(row?.branch == null ? {} : { branch: row.branch }),
+        ...(row?.baseSha == null ? {} : { baseSha: row.baseSha }),
+        ...(row?.worktreePath == null
+          ? {}
+          : { worktreePath: row.worktreePath }),
+      });
+      if (!outcome.ended)
+        throw new LauncherError(
+          "release_blocked",
+          `${agentId} could not be released: ${outcome.reason}`,
+        );
+      return {
+        state: "released",
+        agentId,
+        branch: row?.branch ?? null,
+        paneClosed: outcome.paneClosed,
+        worktreeRemoved: outcome.worktreeRemoved,
+        branchKept: outcome.branchKept,
+        cancelledMessageIds: outcome.cancelledMessageIds,
+      };
+    });
+  }
+
   restartPm(): Promise<LaunchResult> {
     return this.#run(async (budget) => {
       await this.#adoptAll(this.#budget(ADOPT_BUDGET_MS));
@@ -713,16 +793,19 @@ export class Launcher {
           "a PM is launched, not spawned",
         );
       this.#assertRoleSynced(role);
-      const running = this.#activeAgents().find(
-        (a) => a.roleName === role.name,
-      );
-      if (running !== undefined) {
-        const failed = this.#cleanupFailed.find(
-          (c) => c.agentId === running.agentId,
-        );
+      const workers = this.#activeAgents().filter((a) => a.kind !== "PM");
+      const limit = this.#config.limits.maxWorkers;
+      if (workers.length >= limit) {
+        const stuck = workers
+          .map((a) => ({
+            id: a.agentId,
+            failure: this.#cleanupFailed.find((c) => c.agentId === a.agentId),
+          }))
+          .filter((entry) => entry.failure !== undefined)
+          .map((entry) => `${entry.id}: ${entry.failure!.reason}`);
         throw new LauncherError(
-          "role_active",
-          `${running.agentId} is already active for role ${role.name}${failed === undefined ? "" : ` (an earlier cleanup failed: ${failed.reason})`}`,
+          "worker_limit",
+          `${workers.length} of ${limit} workers are active (${workers.map((a) => a.agentId).join(", ")}); release one with cstan release <agent-id>${stuck.length === 0 ? "" : `; a cleanup failed for ${stuck.join("; ")}`}`,
         );
       }
       const pm = this.#activeAgents().find((a) => a.kind === "PM");
@@ -848,9 +931,19 @@ export class Launcher {
       branch?: string;
       baseSha?: string;
     },
-  ): Promise<void> {
+  ): Promise<
+    | { readonly ended: false; readonly reason: string }
+    | ({
+        readonly ended: true;
+        readonly cancelledMessageIds: readonly string[];
+      } & ReleaseOutcome)
+  > {
+    let cancelledMessageIds: readonly string[];
     try {
-      this.#core.endAgent(this.#context(), agentId);
+      cancelledMessageIds = this.#core.endAgent(
+        this.#context(),
+        agentId,
+      ).cancelledMessageIds;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.#cleanupFailed = this.#cleanupFailed.filter(
@@ -858,9 +951,16 @@ export class Launcher {
       );
       this.#cleanupFailed.push({ agentId, reason });
       this.#log("cleanup_blocked", { agentId, error: String(error) });
-      return;
+      return { ended: false, reason };
     }
-    await this.#releaseResources(agentId, info);
+    this.#cleanupFailed = this.#cleanupFailed.filter(
+      (entry) => entry.agentId !== agentId,
+    );
+    return {
+      ended: true,
+      cancelledMessageIds,
+      ...(await this.#releaseResources(agentId, info)),
+    };
   }
 
   /**
@@ -877,20 +977,32 @@ export class Launcher {
       branch?: string;
       baseSha?: string;
     },
-  ): Promise<void> {
+  ): Promise<ReleaseOutcome> {
     const budget = this.#budget(CLEANUP_BUDGET_MS);
-    if (info.paneId !== undefined && this.#within(budget)) {
-      try {
-        await this.#close(info.paneId);
-      } catch (error) {
-        this.#log("pane_not_closed", {
-          agentId,
-          paneId: info.paneId,
-          error: String(error),
-        });
+    let paneClosed: boolean | null = null;
+    if (info.paneId !== undefined) {
+      paneClosed = false;
+      if (this.#within(budget)) {
+        try {
+          await this.#close(info.paneId);
+          paneClosed = true;
+        } catch (error) {
+          this.#log("pane_not_closed", {
+            agentId,
+            paneId: info.paneId,
+            error: String(error),
+          });
+        }
       }
+      // A pane that is still open keeps its row, worktree and branch, so the
+      // next start can find and close it instead of leaving it untracked.
+      if (!paneClosed)
+        return {
+          paneClosed,
+          worktreeRemoved: info.worktreePath === undefined ? null : false,
+          branchKept: info.branch === undefined ? null : true,
+        };
     }
-    let removed = true;
     let worktreePath = info.worktreePath;
     if (worktreePath === undefined && info.branch !== undefined) {
       try {
@@ -898,18 +1010,29 @@ export class Launcher {
       } catch (error) {
         // Unknown is not "none": keep the branch and the row for the next start.
         this.#log("worktree_unknown", { agentId, error: String(error) });
-        return;
+        return {
+          paneClosed,
+          worktreeRemoved: false,
+          branchKept: info.branch === undefined ? null : true,
+        };
       }
     }
+    let worktreeRemoved: boolean | null = null;
     if (worktreePath !== undefined) {
-      removed = this.#git.worktreeRemove(worktreePath);
-      if (!removed) {
+      worktreeRemoved = this.#git.worktreeRemove(worktreePath);
+      if (!worktreeRemoved) {
         this.#log("worktree_kept", { agentId, worktreePath });
-        return;
+        return {
+          paneClosed,
+          worktreeRemoved,
+          branchKept: info.branch === undefined ? null : true,
+        };
       }
     }
+    let branchKept: boolean | null = info.branch === undefined ? null : true;
     if (info.branch !== undefined && info.baseSha !== undefined) {
-      if (!this.#git.deleteBranchIf(info.branch, info.baseSha))
+      branchKept = !this.#git.deleteBranchIf(info.branch, info.baseSha);
+      if (branchKept)
         this.#log("branch_kept", { agentId, branch: info.branch });
     }
     try {
@@ -917,6 +1040,7 @@ export class Launcher {
     } catch (error) {
       this.#log("pane_row_not_cleared", { agentId, error: String(error) });
     }
+    return { paneClosed, worktreeRemoved, branchKept };
   }
 
   /** Closes a pane; a pane Herdr no longer knows counts as closed. */

@@ -25,6 +25,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
     },
+    limits: { maxWorkers: 3 },
     hosts: [
       {
         name: "claude",
@@ -724,12 +725,18 @@ function stubLauncher(): {
       spawn: async (role: string) => {
         calls.push(`spawn:${role}`);
         if (role === "busy")
-          throw new LauncherError(
-            "role_active",
-            "developer-1 is already active",
-          );
+          throw new LauncherError("worker_limit", "3 of 3 workers are active");
         if (role === "boom") throw new Error("internal detail");
         return { state: "started", agentId: `${role}-1` };
+      },
+      release: async (agentId: string) => {
+        calls.push(`release:${agentId}`);
+        if (agentId === "pm-1")
+          throw new LauncherError(
+            "kind_not_releasable",
+            "the PM is restarted with cstan pm restart, not released",
+          );
+        return { state: "released", agentId };
       },
       status: () => ({
         cleanupFailed: [
@@ -774,10 +781,7 @@ test("launch, spawn and pm-restart are operator commands that reach the launcher
     const refused = await call(h, h.owner, "spawn", ["busy"]);
     assert.ok(!refused.ok);
     assert.equal(refused.code, "rejected");
-    assert.match(
-      refused.message,
-      /^role_active: developer-1 is already active/,
-    );
+    assert.match(refused.message, /^worker_limit: 3 of 3 workers are active/);
     const hidden = await call(h, h.owner, "spawn", ["boom"]);
     assert.ok(!hidden.ok);
     assert.equal(
@@ -785,31 +789,104 @@ test("launch, spawn and pm-restart are operator commands that reach the launcher
       "the command failed",
       "internal errors are not shown",
     );
-    for (const command of ["launch", "spawn", "pm-restart"])
+    for (const command of ["launch", "pm-restart"])
       assert.equal(
-        codeOf(
-          await call(
-            h,
-            h.pm.credential,
-            command,
-            command === "spawn" ? ["developer"] : [],
-          ),
-        ),
+        codeOf(await call(h, h.pm.credential, command)),
         "forbidden",
         command,
+      );
+    for (const [command, args] of [
+      ["spawn", ["developer"]],
+      ["release", ["developer-1"]],
+    ] as const)
+      assert.equal(
+        codeOf(await call(h, h.developer.credential, command, [...args])),
+        "forbidden",
+        `${command} by a worker`,
       );
   } finally {
     await close(h);
   }
 });
 
-test("without a launcher the three commands answer not_configured", async () => {
+test("the PM may spawn and release workers, a worker may not, and the requester is logged", async () => {
+  const launcher = stubLauncher();
+  const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+  const h = await harness({
+    commands: {
+      launcher: launcher.api,
+      log: (event, details) => events.push({ event, details }),
+    },
+  });
+  try {
+    assert.deepEqual(
+      bodyOf(await call(h, h.pm.credential, "spawn", ["developer"])),
+      { state: "started", agentId: "developer-1" },
+    );
+    assert.deepEqual(
+      bodyOf(await call(h, h.pm.credential, "release", ["developer-1"])),
+      { state: "released", agentId: "developer-1" },
+    );
+    assert.deepEqual(
+      bodyOf(await call(h, h.owner, "release", ["developer-1"])),
+      { state: "released", agentId: "developer-1" },
+    );
+    assert.deepEqual(launcher.calls, [
+      "spawn:developer",
+      "release:developer-1",
+      "release:developer-1",
+    ]);
+    assert.deepEqual(
+      events.map((e) => [e.event, e.details.requestedBy]),
+      [
+        ["spawn_requested", h.pm.agentId],
+        ["release_requested", h.pm.agentId],
+        ["release_requested", "operator"],
+      ],
+    );
+    for (const role of ["Developer", "a b", "x\n", "-x", "a".repeat(33)])
+      assert.equal(
+        codeOf(await call(h, h.owner, "spawn", [role])),
+        "invalid_request",
+        JSON.stringify(role),
+      );
+    for (const args of [[], ["a", "b"], ["@pm"], ["bad id"]])
+      assert.equal(
+        codeOf(await call(h, h.owner, "release", [...args])),
+        "invalid_request",
+        JSON.stringify(args),
+      );
+    const refused = await call(h, h.owner, "release", ["pm-1"]);
+    assert.ok(!refused.ok);
+    assert.match(refused.message, /^kind_not_releasable:/);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a PM token from a replaced generation can no longer spawn", async () => {
+  const launcher = stubLauncher();
+  const h = await harness({ commands: { launcher: launcher.api } });
+  try {
+    const oldToken = h.pm.credential;
+    h.core.replaceAgentGeneration(ctx(h.core, h.owner), h.pm.agentId);
+    const refused = await call(h, oldToken, "spawn", ["developer"]);
+    assert.ok(!refused.ok);
+    assert.ok(["unauthorized", "forbidden"].includes(refused.code));
+    assert.deepEqual(launcher.calls, []);
+  } finally {
+    await close(h);
+  }
+});
+
+test("without a launcher the four commands answer not_configured", async () => {
   const h = await harness();
   try {
     for (const [command, args] of [
       ["launch", []],
       ["pm-restart", []],
       ["spawn", ["developer"]],
+      ["release", ["developer-1"]],
     ] as const)
       assert.equal(
         codeOf(await call(h, h.owner, command, [...args])),

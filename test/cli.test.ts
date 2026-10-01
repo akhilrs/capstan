@@ -1493,7 +1493,7 @@ test("cstan init writes a starter capstan.toml and never replaces an existing on
     };
     assert.deepEqual(
       resolved.roles.map((role) => role.name),
-      ["pm", "developer", "reviewer"],
+      ["pm", "developer", "designer", "tester"],
     );
 
     const custom =
@@ -1565,7 +1565,7 @@ test("cstan config sync writes once and a second run writes nothing", async () =
     assert.deepEqual(JSON.parse(first.stdout), {
       schemaVersion: 1,
       changed: true,
-      inserted: ["developer", "pm", "reviewer"],
+      inserted: ["designer", "developer", "pm", "tester"],
       updated: [],
       reactivated: [],
       retired: [],
@@ -1600,7 +1600,7 @@ test("cstan config sync writes once and a second run writes nothing", async () =
     assert.equal(third.status, 0, third.stderr);
     assert.deepEqual(
       (JSON.parse(third.stdout) as { updated: string[] }).updated,
-      ["reviewer"],
+      ["tester"],
     );
 
     writeFileSync(
@@ -1680,7 +1680,7 @@ test("role sync retries one version conflict and exits blocked on a second", asy
       syncConfiguredRoles(core, roleConfig, contextThenInterleave).changed,
       true,
     );
-    assert.equal(core.roleDefinitions().length, 3);
+    assert.equal(core.roleDefinitions().length, 4);
     const changed = {
       ...roleConfig,
       roles: roleConfig.roles.map((role) => ({

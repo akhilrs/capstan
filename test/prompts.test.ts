@@ -148,3 +148,52 @@ test("format characters and line separators inside data are written as escapes, 
     "only the real closing fence is a line of its own",
   );
 });
+
+test("the PM prompt tells the PM to delegate with spawn, send and release, never to edit files, and lists the roles it may spawn", () => {
+  const text = buildRolePrompt({
+    ...base,
+    workerRoles: [
+      { name: "developer", kind: "Developer" },
+      { name: "tester", kind: "Verifier" },
+    ],
+  });
+  for (const needle of [
+    "cstan spawn <role>",
+    "cstan release <agent-id>",
+    "developer (Developer), tester (Verifier)",
+    "Never edit, create or delete project files",
+    "Agent or subagent tools",
+    "never pushes or merges",
+    "Bash timeout of at least 10 minutes",
+    "agent_not_active",
+    "paneClosed",
+    "worktreeRemoved",
+    "quoted heredoc",
+    "worker_limit",
+  ])
+    assert.ok(text.includes(needle), needle);
+});
+
+test("a PM prompt without worker roles says so instead of listing none", () => {
+  assert.ok(
+    buildRolePrompt(base).includes(
+      "No worker roles are configured; tell the user so.",
+    ),
+  );
+});
+
+test("a worker prompt tells the worker to commit on its own branch, never push or merge, and report the branch", () => {
+  const text = buildRolePrompt({
+    ...base,
+    roleName: "developer",
+    kind: "Developer",
+    agentId: "developer-1",
+  });
+  for (const needle of [
+    "Commit your work on your own branch",
+    "never push and never merge",
+    "the branch name",
+    "anything you could not verify",
+  ])
+    assert.ok(text.includes(needle), needle);
+});

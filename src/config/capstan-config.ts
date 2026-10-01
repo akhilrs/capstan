@@ -10,6 +10,9 @@ export const DEFAULT_HERDR_SESSION = "default";
 
 export const STARTER_CONFIG = `schema_version = 1
 
+[limits]
+max_workers = 3
+
 [hosts.claude]
 kind = "claude"
 
@@ -20,10 +23,26 @@ host = "claude"
 [roles.developer]
 kind = "Developer"
 host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Bash(git push)", "Bash(git push *)"]
+prompt = "You implement code changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
 
-[roles.reviewer]
+[roles.designer]
+kind = "Developer"
+host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Bash(git push)", "Bash(git push *)"]
+prompt = "You design and build user interface and visual changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
+
+[roles.tester]
 kind = "Verifier"
 host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Bash(git push)", "Bash(git push *)"]
+prompt = "You test and verify behavior. Run the real checks, report exactly what passed and what failed, and add tests only when asked. Work only in your own worktree and commit any test changes on your own branch. Never push and never merge. When you finish, tell the project manager the branch name and the result."
 `;
 export const ROLE_KINDS = [
   "PM",
@@ -88,12 +107,30 @@ export type ResolvedNotifications = {
   readonly fallback: boolean;
 };
 
+export type ResolvedLimits = {
+  /** The most worker agents (every agent except the PM) that may be active at once. */
+  readonly maxWorkers: number;
+};
+
+export const DEFAULT_MAX_WORKERS = 3;
+export const MAX_MAX_WORKERS = 16;
+
+/** The tools a PM may not use unless its role sets `deny` itself: it delegates and never edits files or starts Claude Code's own subagents (the subagent tool was called Task in older versions). */
+export const PM_DEFAULT_DENY: readonly string[] = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Agent",
+  "Task",
+];
+
 export type CapstanConfig = {
   readonly schemaVersion: 1;
   readonly projectName: string | null;
   readonly herdrSession: string;
   readonly notifications: ResolvedNotifications;
   readonly timers: ResolvedTimers;
+  readonly limits: ResolvedLimits;
   readonly hosts: readonly ResolvedHost[];
   readonly roles: readonly ResolvedRole[];
 };
@@ -102,7 +139,7 @@ const MAX_FILE_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = MAX_FILE_BYTES;
 const MAX_LIST_ENTRIES = 64;
 const MAX_ENTRY_CHARS = 200;
-const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+export const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 const SESSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const COMMAND_PATTERN = /^(?:\.\/)?[A-Za-z0-9_/][A-Za-z0-9._/-]{0,199}$/;
 const UNSAFE_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
@@ -202,6 +239,7 @@ export function parseCapstanConfig(
       "herdr_session",
       "notifications",
       "timers",
+      "limits",
       "hosts",
       "roles",
     ],
@@ -261,6 +299,18 @@ export function parseCapstanConfig(
     workerAckTimeoutSeconds: timerValue("worker_ack_timeout_seconds"),
   };
 
+  const limitTable = optionalTable(root.limits, "limits");
+  rejectUnknownKeys(limitTable, ["max_workers"], "limits");
+  const limits: ResolvedLimits = {
+    maxWorkers: optionalInteger(
+      limitTable.max_workers,
+      "limits.max_workers",
+      1,
+      MAX_MAX_WORKERS,
+      DEFAULT_MAX_WORKERS,
+    ),
+  };
+
   const hosts = resolveHosts(requiredTable(root.hosts, "hosts"));
   const hostsByName = new Map(hosts.map((host) => [host.name, host]));
   const roles = resolveRoles(
@@ -277,6 +327,7 @@ export function parseCapstanConfig(
     herdrSession,
     notifications,
     timers,
+    limits,
     hosts,
     roles,
   };
@@ -378,7 +429,10 @@ function resolveRoles(
             PERMISSION_MODES,
           );
     const allow = stringList(role.allow, `${at}.allow`);
-    const deny = stringList(role.deny, `${at}.deny`);
+    const deny =
+      kind === "PM" && role.deny === undefined
+        ? [...PM_DEFAULT_DENY]
+        : stringList(role.deny, `${at}.deny`);
     const hooks =
       role.hooks === undefined
         ? "off"

@@ -22,6 +22,7 @@ import {
 } from "./controller/messaging.js";
 import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
+  NAME_PATTERN,
   type CapstanConfig,
 } from "./config/capstan-config.js";
 import { MAX_TEXT_BYTES, isAgentName } from "./herdr/adapter.js";
@@ -127,6 +128,7 @@ export interface LauncherApi {
   launchPm(): Promise<unknown>;
   restartPm(): Promise<unknown>;
   spawn(roleName: string): Promise<unknown>;
+  release(agentId: string): Promise<unknown>;
   status(): unknown;
 }
 
@@ -224,6 +226,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
 
   const agentOf = (identity: Identity): AgentRecord | undefined =>
     identity.agent ?? undefined;
+
+  /** Who is asking to start or end workers: the operator, or a PM agent that is still active. */
+  const workerManager = (identity: Identity): string | undefined => {
+    if (identity.role === "operator") return "operator";
+    const agent = agentOf(identity);
+    return agent?.kind === "PM" && agent.state === "active"
+      ? agent.agentId
+      : undefined;
+  };
 
   const waits = new Map<
     string,
@@ -429,15 +440,49 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
     },
 
     async spawn(call) {
+      const requestedBy = workerManager(call.identity);
+      if (requestedBy === undefined)
+        return fail(
+          "forbidden",
+          "only the PM or the operator may spawn workers",
+        );
+      if (call.args.length !== 1)
+        return fail("invalid_request", "spawn needs one role name");
+      if (!NAME_PATTERN.test(call.args[0]!))
+        return fail("invalid_request", "the role name is not valid");
       if (deps.launcher === undefined)
         return fail(
           "not_configured",
           "spawning agents needs capstan.toml and Herdr",
         );
-      if (call.args.length !== 1)
-        return fail("invalid_request", "spawn needs one role name");
+      log("spawn_requested", { requestedBy, role: call.args[0] });
       try {
         return ok(await deps.launcher.spawn(call.args[0]!));
+      } catch (error) {
+        return mapError(error);
+      }
+    },
+
+    async release(call) {
+      const requestedBy = workerManager(call.identity);
+      if (requestedBy === undefined)
+        return fail(
+          "forbidden",
+          "only the PM or the operator may release workers",
+        );
+      if (call.args.length !== 1)
+        return fail("invalid_request", "release needs one agent id");
+      const agentId = call.args[0]!;
+      if (!SAFE_AGENT_ID.test(agentId))
+        return fail("invalid_request", "the agent id is not valid");
+      if (deps.launcher === undefined)
+        return fail(
+          "not_configured",
+          "releasing agents needs capstan.toml and Herdr",
+        );
+      log("release_requested", { requestedBy, agentId });
+      try {
+        return ok(await deps.launcher.release(agentId));
       } catch (error) {
         return mapError(error);
       }
@@ -578,6 +623,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       if (
         command === "launch" ||
         command === "spawn" ||
+        command === "release" ||
         command === "pm-restart"
       )
         return LAUNCHER_LIMIT_MS;

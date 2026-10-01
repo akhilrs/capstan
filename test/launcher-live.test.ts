@@ -11,6 +11,7 @@ import { HerdrAdapter } from "../src/herdr/adapter.js";
 import { Launcher, LauncherError } from "../src/launcher.js";
 import type { Notifier } from "../src/notifier.js";
 import {
+  assertNoNewDefaultWorkspaces,
   defaultSessionSnapshot,
   liveUnavailable,
   startLiveEnvironment,
@@ -57,6 +58,7 @@ function configFor(): CapstanConfig {
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
     },
+    limits: { maxWorkers: 1 },
     hosts: [
       {
         name: "claude",
@@ -205,7 +207,7 @@ test(
       await assert.rejects(
         launcher.spawn("developer"),
         (error: unknown) =>
-          error instanceof LauncherError && error.code === "role_active",
+          error instanceof LauncherError && error.code === "worker_limit",
       );
 
       // Deliver through the driver.
@@ -293,10 +295,6 @@ test(
       core.close();
       await live.cleanup();
     }
-    assert.equal(
-      defaultSessionSnapshot(),
-      before,
-      "the operator's default session is unchanged",
-    );
+    assertNoNewDefaultWorkspaces(before);
   },
 );
