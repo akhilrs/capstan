@@ -154,23 +154,28 @@ interface Budget {
   check(step: string): void;
 }
 
-/** Escape sequences, control and format characters, line separators and runs of blanks become one space; the cut is at a grapheme boundary. */
-function oneLine(text: string, maxGraphemes: number): string {
+/** Escape sequences (CSI, OSC, DCS and the other string forms, and the one-byte C1 CSI), control and format characters, lone surrogates, line separators and runs of blanks become one space or nothing. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it. */
+function oneLine(text: string, maxLength: number): string {
   const clean = text
-    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+    .replace(/\u001b[PX^_][\s\S]*?\u001b\\/g, "")
+    .replace(/(?:\u001b\[|\u009b)[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\p{Cs}/gu, "")
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
     .trim();
-  return Array.from(
-    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(clean),
-  )
-    .slice(0, maxGraphemes)
-    .map((part) => part.segment)
-    .join("");
+  let result = "";
+  for (const part of new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  }).segment(clean)) {
+    if (result.length + part.segment.length > maxLength) break;
+    result += part.segment;
+  }
+  return result;
 }
 
 /** Keeps a sync error to one short line in the refusal. */
 const MAX_SYNC_REASON_CHARS = 200;
-const MAX_NOTE_CHARS = 200;
+const MAX_NOTE_LENGTH = 200;
 
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
@@ -1032,7 +1037,7 @@ export class Launcher {
       if (error instanceof PaneLost) throw error;
       this.#log("placement_failed", { paneId, error: String(error) });
       return {
-        note: `the pane could not be placed (${oneLine(error instanceof Error ? error.message : String(error), MAX_NOTE_CHARS)})`,
+        note: `the pane could not be placed (${oneLine(error instanceof Error ? error.message : String(error), MAX_NOTE_LENGTH)})`,
       };
     }
   }

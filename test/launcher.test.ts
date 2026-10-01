@@ -958,6 +958,34 @@ test("a pane at the worktree path in another workspace is the operator's and is 
   }
 });
 
+test("a placement note keeps no escape sequence of any kind and stays short even for combining marks", async () => {
+  const w = await world(true, true, 3, PANE);
+  try {
+    await launched(w);
+    const hostile = [
+      "osc \u001b]0;evil title\u0007 end",
+      "dcs \u001bPpayload\u001b\\ end",
+      "c1 \u009b31mred\u009b0m end",
+      "surrogate \ud800 end",
+      "marks e" + "\u0301".repeat(5000),
+    ];
+    for (const message of hostile) {
+      w.adapter.layoutError = new Error(message);
+      const result = await w.launcher.spawn("developer");
+      assert.equal(result.placement, "tab");
+      const note = result.placementNote!;
+      assert.ok(
+        !/evil title|payload|31m|0m|\u001b|\u009b|\ud800/.test(note),
+        note,
+      );
+      assert.ok(note.length < 300, `${note.length}`);
+      await w.launcher.release(result.agentId);
+    }
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("a freed seat is reused before a new one is created", async () => {
   const w = await world();
   try {

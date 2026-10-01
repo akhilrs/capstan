@@ -75,3 +75,15 @@ test("a size that is not a positive safe integer counts as no fit", () => {
       String(bad),
     );
 });
+
+test("pane ids with leading zeros or very long numbers still sort in a fixed order", () => {
+  assert.notEqual(comparePaneIds("w1:p01", "w1:p1"), 0);
+  assert.equal(
+    comparePaneIds("w1:p01", "w1:p1"),
+    -comparePaneIds("w1:p1", "w1:p01"),
+  );
+  assert.ok(
+    comparePaneIds("w1:p" + "9".repeat(30), "w1:p1" + "0".repeat(30)) < 0,
+  );
+  assert.ok(comparePaneIds("w1:p2", "w1:p10") < 0);
+});

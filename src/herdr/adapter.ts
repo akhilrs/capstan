@@ -417,7 +417,8 @@ export class HerdrAdapter {
     return result.panes.flatMap((entry) => {
       try {
         const pane = this.#record(entry, "pane");
-        if (typeof pane.cwd !== "string" || pane.cwd.trim() === "") return [];
+        if (typeof pane.cwd !== "string" || !path.isAbsolute(pane.cwd))
+          return [];
         return [
           {
             paneId: requireMatch(pane.pane_id, PANE_PATTERN, "pane id"),
@@ -440,6 +441,7 @@ export class HerdrAdapter {
   async panesAtPath(
     directory: string,
   ): Promise<Array<{ paneId: string; workspaceId: string }>> {
+    if (!path.isAbsolute(directory)) return [];
     const wanted = this.#canonical(directory);
     return (await this.#listPanes())
       .filter((pane) => this.#canonical(pane.cwd) === wanted)
@@ -463,6 +465,8 @@ export class HerdrAdapter {
     requireMatch(input.paneId, PANE_PATTERN, "pane id");
     requireMatch(input.tabId, TAB_PATTERN, "tab id");
     requireMatch(input.targetPaneId, PANE_PATTERN, "target pane id");
+    if (!path.isAbsolute(input.worktreePath))
+      throw new InvalidArgumentError("worktree path must be absolute");
     if (input.direction !== "right" && input.direction !== "down")
       throw new InvalidArgumentError("split direction is not acceptable");
     const entry = this.#panes.get(input.paneId);

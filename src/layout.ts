@@ -26,20 +26,20 @@ export interface PlacementLimits {
 /** Terminal cells are about twice as tall as wide, so a pane is wide when it has twice as many columns as rows. */
 const CELL_ASPECT = 2;
 
-/** Compares ids such as w2:p10 and w2:p2 by their numeric parts, so p10 sorts after p2. */
+/** Compares ids such as w2:p10 and w2:p2 by their numeric parts (any length, leading zeros allowed), so p10 sorts after p2; equal numbers fall back to the plain text, so the order is always fixed. */
 export function comparePaneIds(a: string, b: string): number {
-  const parts = (id: string): Array<string | number> =>
-    id.split(/(\d+)/).map((part) => (/^\d+$/.test(part) ? Number(part) : part));
+  const parts = (id: string): Array<string | bigint> =>
+    id.split(/(\d+)/).map((part) => (/^\d+$/.test(part) ? BigInt(part) : part));
   const left = parts(a);
   const right = parts(b);
   for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
     const x = left[index]!;
     const y = right[index]!;
     if (x === y) continue;
-    if (typeof x === "number" && typeof y === "number") return x - y;
+    if (typeof x === "bigint" && typeof y === "bigint") return x < y ? -1 : 1;
     return String(x) < String(y) ? -1 : 1;
   }
-  return left.length - right.length;
+  return left.length - right.length || (a < b ? -1 : a > b ? 1 : 0);
 }
 
 function fits(

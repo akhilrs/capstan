@@ -3083,7 +3083,25 @@ test("panes the adapter cannot read are skipped, so they neither break a placeme
       (await h.adapter.panesAtPath(tree.path)).map((p) => p.paneId),
       [tree.paneId],
     );
+    h.fake.extraListEntries.push({
+      pane_id: "w5:p1",
+      tab_id: "w5:t1",
+      workspace_id: "w5",
+      cwd: ".",
+    });
     assert.deepEqual(await h.adapter.panesAtPath(""), []);
+    assert.deepEqual(await h.adapter.panesAtPath("."), []);
+    assert.deepEqual(await h.adapter.panesAtPath("relative/dir"), []);
+    await assert.rejects(
+      h.adapter.placePane({
+        paneId: tree.paneId,
+        tabId: "w9:t1",
+        targetPaneId: "w9:p1",
+        direction: "right",
+        worktreePath: "relative",
+      }),
+      InvalidArgumentError,
+    );
     assert.deepEqual(await h.adapter.panesAtPath("/"), []);
     h.fake.moveMode = "error-no-move";
     await assert.rejects(
