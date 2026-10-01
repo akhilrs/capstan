@@ -22,6 +22,7 @@ import {
   InputUnreadable,
   InvalidArgumentError,
   NotBlocked,
+  PaneGone,
   NotIdle,
   PhaseError,
   PmPaneError,
@@ -2366,6 +2367,188 @@ test("notify fails when Herdr accepts the command but shows nothing", async () =
     );
     h.fake.notification = { shown: true };
     await h.adapter.notify("Capstan: PM message waiting", "body");
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+function secondAdapter(h: Harness): HerdrAdapter {
+  return new HerdrAdapter({
+    run: h.fake.run,
+    tempRoot: h.fake.root,
+    sleep: async () => {},
+    now: () => 0,
+  });
+}
+
+test("a second adapter adopts a pane the first one started, after Herdr confirms it, and can then deliver to it", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    const entry = h.adapter.paneEntry(worker.paneId)!;
+    const next = secondAdapter(h);
+    assert.equal(next.paneForAgent("dev"), undefined);
+    await next.adoptPane({
+      paneId: worker.paneId,
+      role: "worker",
+      agent: "dev",
+      workspaceId: entry.workspaceId ?? null,
+      worktreePath: entry.worktreePath ?? null,
+    });
+    assert.equal(next.paneForAgent("dev"), worker.paneId);
+    assert.deepEqual(next.paneEntry(worker.paneId), {
+      role: "worker",
+      phase: "started",
+      kind: "claude",
+      agent: "dev",
+      workspaceId: entry.workspaceId,
+      worktreePath: entry.worktreePath,
+    });
+    assert.deepEqual(
+      await next.guardedSend({
+        paneId: worker.paneId,
+        text: "after the restart",
+        beforeSend: () => {},
+      }),
+      { sent: true },
+    );
+    await assert.rejects(
+      next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      PhaseError,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("adoption registers nothing when the pane is gone, the name points elsewhere, or the name is unusable", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    const next = secondAdapter(h);
+    await assert.rejects(
+      next.adoptPane({
+        paneId: "w77:p1",
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      PaneGone,
+    );
+    h.fake.agentStates.set("dev", { paneId: "w78:p1", statuses: ["idle"] });
+    await assert.rejects(
+      next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      AgentPaneMismatch,
+    );
+    await assert.rejects(
+      next.adoptPane({
+        paneId: worker.paneId,
+        role: "worker",
+        agent: "a:b",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      InvalidArgumentError,
+    );
+    await assert.rejects(
+      next.adoptPane({
+        paneId: "bad",
+        role: "worker",
+        agent: "dev",
+        workspaceId: null,
+        worktreePath: null,
+      }),
+      InvalidArgumentError,
+    );
+    assert.equal(next.paneEntry(worker.paneId), undefined);
+    assert.equal(next.paneForAgent("dev"), undefined);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a fallback shell pane is adopted for display only and accepts no agent input", async () => {
+  const h = harness();
+  try {
+    const watch = h.fake.add("watch", SHELL_READY);
+    const next = secondAdapter(h);
+    await next.adoptShellPane(watch.paneId, watch.workspaceId);
+    assert.equal(next.paneEntry(watch.paneId)!.kind, "shell");
+    await assert.rejects(
+      next.guardedSend({
+        paneId: watch.paneId,
+        text: "x",
+        beforeSend: () => {},
+      }),
+      PhaseError,
+    );
+    await assert.rejects(next.adoptShellPane("w88:p1", null), PaneGone);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("runInPane runs one command in a fresh shell pane only, and then retires the pane from input", async () => {
+  const h = harness();
+  try {
+    const watch = await h.adapter.createWorkspace({
+      cwd: h.fake.root,
+      label: "watch",
+      role: "worker",
+    });
+    await h.adapter.runInPane(
+      watch.paneId,
+      "'/usr/bin/node' '/x/cli.js' status --watch",
+    );
+    assert.deepEqual(h.fake.callsTo("pane", "run").at(-1), [
+      "pane",
+      "run",
+      watch.paneId,
+      "'/usr/bin/node' '/x/cli.js' status --watch",
+    ]);
+    assert.equal(h.adapter.paneEntry(watch.paneId)!.phase, "started");
+    await assert.rejects(
+      h.adapter.runInPane(watch.paneId, "echo again"),
+      PhaseError,
+    );
+    const pm = await h.adapter.createWorkspace({
+      cwd: h.fake.root,
+      label: "pm",
+      role: "PM",
+    });
+    await assert.rejects(h.adapter.runInPane(pm.paneId, "echo pm"), PhaseError);
+    const fresh = await h.adapter.createWorkspace({
+      cwd: h.fake.root,
+      label: "w2",
+      role: "worker",
+    });
+    for (const command of ["", "   ", "a\nb", "x".repeat(2001), "lone \ud800"])
+      await assert.rejects(
+        h.adapter.runInPane(fresh.paneId, command),
+        InvalidArgumentError,
+        JSON.stringify(command),
+      );
+    await assert.rejects(
+      h.adapter.runInPane("w99:p1", "echo x"),
+      UnknownPaneError,
+    );
   } finally {
     h.adapter.close();
     h.fake.cleanup();

@@ -19,6 +19,7 @@ import { createCommandHandlers, type CommandSet } from "./commands.js";
 import type { CapstanConfig } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
+import { Launcher, type LauncherAdapter } from "./launcher.js";
 import type { Notifier } from "./notifier.js";
 import type { Identity, InitialProject } from "./controller/types.js";
 
@@ -49,6 +50,7 @@ export type ErrorCode =
   | "recipient_not_deliverable"
   | "self_send"
   | "body_too_large"
+  | "not_configured"
   | "error";
 
 export type CommandResponse =
@@ -75,7 +77,9 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   assign: { access: "operator", stub: STUB_STAGE },
   cancel: { access: "operator" },
   send: { access: "any" },
-  "pm-restart": { access: "operator", stub: STUB_STAGE },
+  "pm-restart": { access: "operator" },
+  launch: { access: "operator" },
+  spawn: { access: "operator" },
   resolve: { access: "operator" },
   shutdown: { access: "operator" },
 };
@@ -650,9 +654,11 @@ export interface DaemonOptions {
   readonly announce?: (event: { event: string; pid: number }) => void;
   /** With an adapter and a notifier, the delivery driver runs; without them only the commands do. */
   readonly capstan?: CapstanConfig;
-  readonly adapter?: DriverAdapter;
+  readonly adapter?: DriverAdapter & LauncherAdapter;
   readonly notifier?: Notifier;
   readonly tickMs?: number;
+  /** Absolute path of the CLI entry the launched agents' `cstan` wrapper runs. */
+  readonly cliPath?: string;
 }
 
 /** Runs until SIGTERM, SIGINT or the shutdown command. */
@@ -671,6 +677,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let core: ControllerCore | undefined;
   let server: DaemonServer | undefined;
   let driver: DeliveryDriver | undefined;
+  let launcher: Launcher | undefined;
+  let adoption: Promise<void> = Promise.resolve();
   let stopping = false;
   void stop.then(() => {
     stopping = true;
@@ -707,9 +715,25 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         log: detailLog,
         ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
       });
+    if (
+      options.capstan !== undefined &&
+      options.adapter !== undefined &&
+      options.cliPath !== undefined
+    )
+      launcher = new Launcher({
+        core,
+        adapter: options.adapter,
+        config: options.capstan,
+        projectRoot: options.workspaceRoot,
+        cliPath: options.cliPath,
+        socketPath,
+        credential,
+        log: detailLog,
+      });
     const commands = createCommandHandlers({
       core,
       ...(options.capstan === undefined ? {} : { config: options.capstan }),
+      ...(launcher === undefined ? {} : { launcher }),
       controllerCredential: credential,
       driverSnapshot: () =>
         driver?.snapshot() ?? { stalledAgentIds: [], stuck: [] },
@@ -722,7 +746,17 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       onShutdown: stopRequested,
       commands,
     });
-    driver?.start();
+    // Panes recorded before a restart are re-registered first, in the
+    // background, so the socket binds at once; the driver starts only after.
+    adoption =
+      launcher === undefined
+        ? Promise.resolve()
+        : launcher.adoptAll().catch((error: unknown) => {
+            detailLog("adopt_failed", { error: String(error) });
+          });
+    void adoption.then(() => {
+      if (!stopping) driver?.start();
+    });
     writePidFile(pidPath);
     options.announce?.({ event: "ready", pid: process.pid });
     await stop;
@@ -734,6 +768,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     // Order: no new connections, no new ticks, then abort and await every
     // running handler, so nothing touches the database after it closes.
     server?.stopAccepting();
+    await adoption;
     await driver?.stop();
     if (server !== undefined) await server.drain();
     if (core !== undefined) {

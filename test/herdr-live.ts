@@ -1,6 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,6 +20,8 @@ export interface LiveEnvironment {
   readonly session: string;
   readonly home: string;
   readonly repo: string;
+  readonly root: string;
+  readonly binDirectory: string;
   readonly argsLog: string;
   readonly messageLog: string;
   readonly adapter: HerdrAdapter;
@@ -100,6 +103,12 @@ export async function startLiveEnvironment(): Promise<LiveEnvironment> {
   const wrapper = path.join(binDirectory, "claude");
   writeFileSync(wrapper, `#!${python}\n${fake.replace(/^#!.*\n/, "")}`);
   chmodSync(wrapper, 0o755);
+  // An agent started through the launcher gets a scrubbed environment, so the
+  // stand-in finds its screens beside itself instead of through a variable.
+  copyFileSync(
+    path.resolve("test/fixtures/claude-trust-dialog.txt"),
+    path.join(binDirectory, "claude-trust-dialog.txt"),
+  );
 
   const session = `capstan-test-${randomBytes(4).toString("hex")}`;
   const serverEnvironment = isolatedEnvironment(home, binDirectory);
@@ -182,6 +191,8 @@ export async function startLiveEnvironment(): Promise<LiveEnvironment> {
     session,
     home,
     repo,
+    root,
+    binDirectory,
     argsLog,
     messageLog,
     adapter,

@@ -1629,6 +1629,10 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "pm_restarts",
+      "orphan_panes",
+      "agent_panes",
+      "fallback_panes",
       "message_input_clears",
       "message_rejections",
       "message_resolutions",
@@ -1682,7 +1686,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       db.exec(
         "DELETE FROM role_capabilities WHERE capability LIKE 'message:%'",
       );
-      db.exec("DELETE FROM schema_migrations WHERE version = 15");
+      db.exec("DELETE FROM schema_migrations WHERE version >= 15");
       before = snapshot(db);
     } finally {
       db.close();

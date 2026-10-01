@@ -8,6 +8,7 @@ import {
   mapError,
   type CommandDependencies,
 } from "../src/commands.js";
+import { LauncherError } from "../src/launcher.js";
 import { call, close, ctx, harness, type Harness } from "./harness.js";
 
 function waitConfig(waitSeconds: number): CapstanConfig {
@@ -44,6 +45,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
         deny: [],
         hooks: "off",
         prompt: { source: "none", path: null, hash: null },
+        promptText: null,
         configHash: "a".repeat(64),
       },
     ],
@@ -698,6 +700,152 @@ test("the frame check is linear: a body of blank lines is checked in a moment an
       ),
       "body_too_large",
     );
+  } finally {
+    await close(h);
+  }
+});
+
+function stubLauncher(): {
+  calls: string[];
+  api: NonNullable<CommandDependencies["launcher"]>;
+} {
+  const calls: string[] = [];
+  return {
+    calls,
+    api: {
+      launchPm: async () => {
+        calls.push("launch");
+        return { state: "started", agentId: "pm-1" };
+      },
+      restartPm: async () => {
+        calls.push("restart");
+        return { state: "started", generation: 2 };
+      },
+      spawn: async (role: string) => {
+        calls.push(`spawn:${role}`);
+        if (role === "busy")
+          throw new LauncherError(
+            "role_active",
+            "developer-1 is already active",
+          );
+        if (role === "boom") throw new Error("internal detail");
+        return { state: "started", agentId: `${role}-1` };
+      },
+      status: () => ({
+        cleanupFailed: [
+          { agentId: "developer-1", reason: "seat holds authority" },
+        ],
+        orphanPanes: [{ agentId: "pm-1", paneId: "w1:p1" }],
+      }),
+    },
+  };
+}
+
+test("launch, spawn and pm-restart are operator commands that reach the launcher, refuse arguments they do not take, and map refusals", async () => {
+  const launcher = stubLauncher();
+  const h = await harness({ commands: { launcher: launcher.api } });
+  try {
+    assert.deepEqual(bodyOf(await call(h, h.owner, "launch")), {
+      state: "started",
+      agentId: "pm-1",
+    });
+    assert.deepEqual(bodyOf(await call(h, h.owner, "pm-restart")), {
+      state: "started",
+      generation: 2,
+    });
+    assert.deepEqual(bodyOf(await call(h, h.owner, "spawn", ["developer"])), {
+      state: "started",
+      agentId: "developer-1",
+    });
+    assert.deepEqual(launcher.calls, ["launch", "restart", "spawn:developer"]);
+    assert.equal(
+      codeOf(await call(h, h.owner, "launch", ["x"])),
+      "invalid_request",
+    );
+    assert.equal(
+      codeOf(await call(h, h.owner, "pm-restart", ["x"])),
+      "invalid_request",
+    );
+    assert.equal(codeOf(await call(h, h.owner, "spawn")), "invalid_request");
+    assert.equal(
+      codeOf(await call(h, h.owner, "spawn", ["a", "b"])),
+      "invalid_request",
+    );
+    const refused = await call(h, h.owner, "spawn", ["busy"]);
+    assert.ok(!refused.ok);
+    assert.equal(refused.code, "rejected");
+    assert.match(
+      refused.message,
+      /^role_active: developer-1 is already active/,
+    );
+    const hidden = await call(h, h.owner, "spawn", ["boom"]);
+    assert.ok(!hidden.ok);
+    assert.equal(
+      hidden.message,
+      "the command failed",
+      "internal errors are not shown",
+    );
+    for (const command of ["launch", "spawn", "pm-restart"])
+      assert.equal(
+        codeOf(
+          await call(
+            h,
+            h.pm.credential,
+            command,
+            command === "spawn" ? ["developer"] : [],
+          ),
+        ),
+        "forbidden",
+        command,
+      );
+  } finally {
+    await close(h);
+  }
+});
+
+test("without a launcher the three commands answer not_configured", async () => {
+  const h = await harness();
+  try {
+    for (const [command, args] of [
+      ["launch", []],
+      ["pm-restart", []],
+      ["spawn", ["developer"]],
+    ] as const)
+      assert.equal(
+        codeOf(await call(h, h.owner, command, [...args])),
+        "not_configured",
+        command,
+      );
+  } finally {
+    await close(h);
+  }
+});
+
+test("status shows the operator the pane rows and the launcher's unfinished cleanups, never a token", async () => {
+  const launcher = stubLauncher();
+  const h = await harness({ commands: { launcher: launcher.api } });
+  try {
+    h.core.recordAgentPane(ctx(h.core, h.owner), {
+      agentId: h.developer.agentId,
+      workspaceId: "w2",
+      paneId: "w2:p1",
+      worktreePath: "/tmp/tree",
+      branch: "capstan/developer-1",
+      baseSha: "c".repeat(40),
+    });
+    const operator = bodyOf(await call(h, h.owner, "status"));
+    assert.equal((operator.panes as unknown[]).length, 1);
+    assert.deepEqual(operator.cleanupFailed, [
+      { agentId: "developer-1", reason: "seat holds authority" },
+    ]);
+    assert.deepEqual(operator.orphanPanes, [
+      { agentId: "pm-1", paneId: "w1:p1" },
+    ]);
+    const text = JSON.stringify(operator);
+    assert.ok(!text.includes(h.developer.credential));
+    const agent = bodyOf(await call(h, h.pm.credential, "status"));
+    for (const key of ["panes", "cleanupFailed", "orphanPanes"])
+      assert.ok(!(key in agent), key);
   } finally {
     await close(h);
   }

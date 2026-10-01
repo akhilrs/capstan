@@ -84,6 +84,39 @@ const ROLE_KINDS: readonly string[] = [
 ];
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 export const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
+const MAX_SUMMARY_MESSAGES = 50;
+const MAX_SUMMARY_BODY = 2000;
+const MAX_SUMMARY_WORK = 200;
+const MAX_SUMMARY_BYTES = 32 * 1024;
+const MAX_OBJECTIVE_BYTES = 8 * 1024;
+const TRUNCATION_MARKER = "[truncated]";
+
+/** At most `limit` code points of a text, cut where a user-perceived character ends so a joined or combined character is never split. */
+function cutAtCharacters(text: string, limit: number): string {
+  let out = "";
+  let count = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  }).segment(text)) {
+    const size = Array.from(segment).length;
+    if (count + size > limit) break;
+    out += segment;
+    count += size;
+  }
+  return out;
+}
+
+/** The task brief as the summary shows it: whole when small, otherwise a marked preview. */
+function objectiveOf(contentJson: string | undefined): unknown {
+  if (contentJson === undefined) return null;
+  if (Buffer.byteLength(contentJson, "utf8") <= MAX_OBJECTIVE_BYTES)
+    return JSON.parse(contentJson);
+  return {
+    truncated: true,
+    // The start of the brief's JSON text, cut on a character boundary; it may end mid-value.
+    rawJsonPreview: cutAtCharacters(contentJson, 2000),
+  };
+}
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const VISIBLE_TEXT = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const BLANK_FILLERS = /[\u2800\u115f\u1160\u3164\uffa0]/g;
@@ -138,6 +171,40 @@ function assertTimers(timers: MessagingTimers): void {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
       throw new TypeError(`timer ${name} must be a positive finite number`);
   }
+}
+
+export interface AgentPaneInput {
+  readonly agentId: string;
+  readonly workspaceId: string | null;
+  readonly paneId: string | null;
+  readonly worktreePath: string | null;
+  readonly branch: string | null;
+  readonly baseSha: string | null;
+}
+
+export interface AgentPaneRecord extends AgentPaneInput {
+  readonly generation: number;
+}
+
+export interface PmRestartSummary {
+  readonly objective: unknown;
+  readonly openWork: readonly {
+    readonly workItemId: string;
+    readonly title: string;
+    readonly role: string;
+    readonly state: string;
+    readonly owner: string | null;
+    readonly blockers: readonly string[];
+  }[];
+  readonly messages: readonly {
+    readonly messageId: string;
+    readonly from: string;
+    readonly body: string;
+    readonly state: string;
+  }[];
+  readonly truncated: boolean;
+  readonly summarizedGeneration: number;
+  readonly generatedAt: string;
 }
 
 export class ControllerError extends Error {
@@ -257,7 +324,11 @@ function advance(
 }
 
 function returnsCredential(action: string): boolean {
-  return action === "actor.create" || action === "agent.replace";
+  return (
+    action === "actor.create" ||
+    action === "agent.replace" ||
+    action === "agent.restart"
+  );
 }
 
 export class ReadinessError extends ControllerError {
@@ -1588,61 +1659,628 @@ export class ControllerCore {
       "agent.replace",
       "actor:manage",
       { agentId },
+      (actor) => this.#replaceGeneration(actor, context, agentId),
+    );
+  }
+
+  #replaceGeneration(
+    actor: AuthenticatedActor,
+    context: MutationContext,
+    agentId: string,
+  ): MutationOutput<ReplacedAgent> {
+    const agent = this.#agentRow(agentId);
+    if (agent?.state !== "active")
+      throw new ControllerError("agent is not active");
+    this.#assertSeatFreeOfAuthority(agent.seat_id);
+    const now = this.#now();
+    this.#revokeSeatActors(agent.seat_id, now);
+    const actorId = randomUUID();
+    const credential = issueCredential();
+    this.#insertActor(actor.actorId, {
+      actorId,
+      displayName: `${agent.role_name} generation ${agent.generation + 1}`,
+      role: agent.kind,
+      seatId: agent.seat_id,
+      credentialHash: credentialHash(credential),
+      now,
+    });
+    const generation = agent.generation + 1;
+    this.#database
+      .prepare(
+        "UPDATE agents SET actor_id = ?, generation = ?, last_activity_at = ? WHERE project_id = ? AND agent_id = ?",
+      )
+      .run(actorId, generation, now, this.#projectId, agentId);
+    this.#closeWaits(agentId, now);
+    this.#database
+      .prepare(
+        "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
+      )
+      .run(this.#projectId, agentId, now, this.#projectId, agentId);
+    const cancelled = this.#cancelMessagesOf(
+      actor,
+      context,
+      agentId,
+      "generation_replaced",
+      now,
+    );
+    return {
+      value: {
+        agentId,
+        generation,
+        actorId,
+        credential,
+        cancelledMessageIds: cancelled,
+      },
+      event: {
+        entityType: "agent",
+        entityId: agentId,
+        stateVersion: generation,
+        fromState: String(agent.generation),
+        toState: String(generation),
+        details: { cancelledMessageIds: cancelled },
+      },
+    };
+  }
+
+  /** The newest summary a restart may carry: bounded so neither the table nor a stored result grows without limit. */
+  #restartSummary(
+    agentId: string,
+    generation: number,
+    carried: readonly PmRestartSummary[],
+  ): PmRestartSummary {
+    const finalStates = new Set(["acked", "acked_late", "cancelled"]);
+    const brief = this.#database
+      .prepare(
+        `SELECT content_json FROM project_revisions
+         WHERE project_id = ? AND kind = 'task_brief'
+         ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(this.#projectId) as { content_json: string } | undefined;
+    const work = this.statusSnapshot().work.filter(
+      (item) => !["accepted", "canceled", "failed"].includes(item.state),
+    );
+    const seen = new Set<string>();
+    const messages: PmRestartSummary["messages"][number][] = [];
+    let truncated = work.length > MAX_SUMMARY_WORK;
+    const carriedIds = new Set<string>();
+    const add = (message: PmRestartSummary["messages"][number]): void => {
+      if (seen.has(message.messageId)) return;
+      seen.add(message.messageId);
+      messages.push(message);
+    };
+    for (const row of this.#messageRowsFor(agentId)) {
+      if (finalStates.has(row.state)) continue;
+      const sender = this.senderOf(row.sender_actor_id);
+      add({
+        messageId: row.message_id,
+        from: sender.agentId ?? sender.role,
+        body: row.body,
+        state: row.state,
+      });
+    }
+    for (const summary of carried) {
+      if (summary.truncated) truncated = true;
+      for (const message of summary.messages) {
+        carriedIds.add(message.messageId);
+        add(message);
+      }
+    }
+    if (messages.length > MAX_SUMMARY_MESSAGES) truncated = true;
+    const bounded = messages.slice(0, MAX_SUMMARY_MESSAGES).map((message) => {
+      // A body carried from an earlier summary was cut once already.
+      if (
+        carriedIds.has(message.messageId) &&
+        message.body.endsWith(TRUNCATION_MARKER)
+      )
+        return message;
+      if (Array.from(message.body).length <= MAX_SUMMARY_BODY) return message;
+      truncated = true;
+      return {
+        ...message,
+        body: `${cutAtCharacters(message.body, MAX_SUMMARY_BODY)}${TRUNCATION_MARKER}`,
+      };
+    });
+    const summary: {
+      objective: unknown;
+      openWork: PmRestartSummary["openWork"][number][];
+      messages: PmRestartSummary["messages"][number][];
+      truncated: boolean;
+      summarizedGeneration: number;
+      generatedAt: string;
+    } = {
+      objective: objectiveOf(brief?.content_json),
+      openWork: work.slice(0, MAX_SUMMARY_WORK).map((item) => ({
+        workItemId: item.workItemId,
+        title: item.title,
+        role: item.role,
+        state: item.state,
+        owner: item.owner,
+        blockers: item.blockers,
+      })),
+      messages: bounded,
+      truncated,
+      summarizedGeneration: generation,
+      generatedAt: this.#now(),
+    };
+    // A summary must fit the prompt it is rendered into: shed messages, then
+    // work items, from the end until its JSON is small enough.
+    while (
+      Buffer.byteLength(JSON.stringify(summary), "utf8") > MAX_SUMMARY_BYTES &&
+      (summary.messages.length > 0 || summary.openWork.length > 0)
+    ) {
+      if (summary.messages.length > 0) summary.messages.pop();
+      else summary.openWork.pop();
+      summary.truncated = true;
+    }
+    return summary;
+  }
+
+  /**
+   * A PM restart in one transaction: the summary is built from the ledger
+   * first (the replace cancels the PM's open messages), recorded, and then the
+   * generation is replaced. The stored result carries the new credential, so
+   * it is encrypted like every other credential-returning result.
+   */
+  restartAgentGeneration(
+    context: MutationContext,
+    agentId: string,
+  ): ReplacedAgent & {
+    readonly restartId: string;
+    readonly summary: PmRestartSummary;
+  } {
+    safeId(agentId, "agent id");
+    return this.#mutate(
+      context,
+      "agent.restart",
+      "actor:manage",
+      { agentId },
       (actor) => {
         const agent = this.#agentRow(agentId);
         if (agent?.state !== "active")
           throw new ControllerError("agent is not active");
-        this.#assertSeatFreeOfAuthority(agent.seat_id);
-        const now = this.#now();
-        this.#revokeSeatActors(agent.seat_id, now);
-        const actorId = randomUUID();
-        const credential = issueCredential();
-        this.#insertActor(actor.actorId, {
-          actorId,
-          displayName: `${agent.role_name} generation ${agent.generation + 1}`,
-          role: agent.kind,
-          seatId: agent.seat_id,
-          credentialHash: credentialHash(credential),
-          now,
-        });
-        const generation = agent.generation + 1;
-        this.#database
-          .prepare(
-            "UPDATE agents SET actor_id = ?, generation = ?, last_activity_at = ? WHERE project_id = ? AND agent_id = ?",
-          )
-          .run(actorId, generation, now, this.#projectId, agentId);
-        this.#closeWaits(agentId, now);
-        this.#database
-          .prepare(
-            "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
-          )
-          .run(this.#projectId, agentId, now, this.#projectId, agentId);
-        const cancelled = this.#cancelMessagesOf(
-          actor,
-          context,
+        if (agent.kind !== "PM")
+          throw new ControllerError("only a PM is restarted with a summary");
+        const carried = (
+          this.#database
+            .prepare(
+              "SELECT summary_json FROM pm_restarts WHERE project_id = ? AND agent_id = ? AND consumed = 0 ORDER BY sequence",
+            )
+            .all(this.#projectId, agentId) as Array<{ summary_json: string }>
+        ).map((row) => JSON.parse(row.summary_json) as PmRestartSummary);
+        const summary = this.#restartSummary(
           agentId,
-          "generation_replaced",
-          now,
+          agent.generation,
+          carried,
         );
-        return {
-          value: {
+        const summaryJson = JSON.stringify(summary);
+        const summaryHash = sha256(summaryJson);
+        const restartId = randomUUID();
+        const sequence =
+          (
+            this.#database
+              .prepare(
+                "SELECT COALESCE(MAX(sequence), 0) AS latest FROM pm_restarts WHERE project_id = ? AND agent_id = ?",
+              )
+              .get(this.#projectId, agentId) as { latest: number }
+          ).latest + 1;
+        // The replace can refuse (the seat still holds authority); it runs
+        // before the row is written so a refusal leaves no attempt behind.
+        const replaced = this.#replaceGeneration(actor, context, agentId);
+        this.#database
+          .prepare(
+            `INSERT INTO pm_restarts(project_id, restart_id, agent_id, sequence, summarized_generation, summary_json, summary_hash, consumed, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          )
+          .run(
+            this.#projectId,
+            restartId,
             agentId,
-            generation,
-            actorId,
-            credential,
-            cancelledMessageIds: cancelled,
-          },
+            sequence,
+            agent.generation,
+            summaryJson,
+            summaryHash,
+            this.#now(),
+          );
+        return {
+          value: { ...replaced.value, restartId, summary },
           event: {
-            entityType: "agent",
-            entityId: agentId,
-            stateVersion: generation,
-            fromState: String(agent.generation),
-            toState: String(generation),
-            details: { cancelledMessageIds: cancelled },
+            ...replaced.event,
+            details: {
+              ...(replaced.event.details as Record<string, unknown>),
+              restartId,
+              summaryHash,
+            },
           },
         };
       },
     );
+  }
+
+  /** Marks every restart summary of an agent up to a sequence as used by a started PM. */
+  markPmRestartsConsumed(
+    context: MutationContext,
+    agentId: string,
+    upToSequence: number,
+  ): { readonly marked: number } {
+    safeId(agentId, "agent id");
+    if (!Number.isSafeInteger(upToSequence) || upToSequence < 1)
+      throw new TypeError("sequence must be a positive integer");
+    return this.#mutate(
+      context,
+      "pm_restart.consume",
+      "controller:reconcile",
+      { agentId, upToSequence },
+      () => {
+        const result = this.#database
+          .prepare(
+            "UPDATE pm_restarts SET consumed = 1 WHERE project_id = ? AND agent_id = ? AND consumed = 0 AND sequence <= ?",
+          )
+          .run(this.#projectId, agentId, upToSequence);
+        return {
+          value: { marked: result.changes },
+          event: {
+            entityType: "pm_restart",
+            entityId: agentId,
+            stateVersion: upToSequence,
+            details: { marked: result.changes },
+          },
+        };
+      },
+    );
+  }
+
+  recordAgentPane(
+    context: MutationContext,
+    input: AgentPaneInput,
+  ): { readonly recorded: true } {
+    safeId(input.agentId, "agent id");
+    for (const [value, label] of [
+      [input.workspaceId, "workspace id"],
+      [input.paneId, "pane id"],
+    ] as const)
+      if (value !== null) safeId(value, label);
+    if (
+      input.worktreePath !== null &&
+      (!path.isAbsolute(input.worktreePath) ||
+        input.worktreePath.length > 1000 ||
+        /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(input.worktreePath))
+    )
+      throw new TypeError("worktree path must be absolute and printable");
+    if (
+      input.branch !== null &&
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/.test(input.branch)
+    )
+      throw new TypeError("branch name is not acceptable");
+    if (input.baseSha !== null && !/^[0-9a-f]{40}$/.test(input.baseSha))
+      throw new TypeError("base sha must be 40 lowercase hex characters");
+    return this.#mutate(
+      context,
+      "agent_pane.record",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const agent = this.#agentRow(input.agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError(
+            "a pane is recorded only for an active agent",
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            `INSERT INTO agent_panes(project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(project_id, agent_id) DO UPDATE SET
+               workspace_id = excluded.workspace_id, pane_id = excluded.pane_id,
+               worktree_path = excluded.worktree_path, branch = excluded.branch,
+               base_sha = excluded.base_sha, generation = excluded.generation,
+               updated_at = excluded.updated_at`,
+          )
+          .run(
+            this.#projectId,
+            input.agentId,
+            input.workspaceId,
+            input.paneId,
+            input.worktreePath,
+            input.branch,
+            input.baseSha,
+            agent.generation,
+            now,
+            now,
+          );
+        return {
+          value: { recorded: true as const },
+          event: {
+            entityType: "agent_pane",
+            entityId: input.agentId,
+            stateVersion: agent.generation,
+            details: { paneId: input.paneId, branch: input.branch },
+          },
+        };
+      },
+    );
+  }
+
+  clearAgentPane(
+    context: MutationContext,
+    agentId: string,
+  ): { readonly cleared: boolean } {
+    safeId(agentId, "agent id");
+    this.#assertOpen();
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+        )
+        .get(this.#projectId, agentId) === undefined
+    ) {
+      this.#authorize(context.credential, "controller:reconcile");
+      return { cleared: false };
+    }
+    return this.#mutate(
+      context,
+      "agent_pane.clear",
+      "controller:reconcile",
+      { agentId },
+      () => {
+        this.#database
+          .prepare(
+            "DELETE FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+          )
+          .run(this.#projectId, agentId);
+        return {
+          value: { cleared: true },
+          event: {
+            entityType: "agent_pane",
+            entityId: agentId,
+            stateVersion: 0,
+            details: { cleared: true },
+          },
+        };
+      },
+    );
+  }
+
+  recordFallbackPane(
+    context: MutationContext,
+    input: { readonly workspaceId: string; readonly paneId: string },
+  ): { readonly recorded: true } {
+    safeId(input.workspaceId, "workspace id");
+    safeId(input.paneId, "pane id");
+    return this.#mutate(
+      context,
+      "fallback_pane.record",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        this.#database
+          .prepare(
+            `INSERT INTO fallback_panes(project_id, workspace_id, pane_id, created_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(project_id) DO UPDATE SET workspace_id = excluded.workspace_id, pane_id = excluded.pane_id`,
+          )
+          .run(this.#projectId, input.workspaceId, input.paneId, this.#now());
+        return {
+          value: { recorded: true as const },
+          event: {
+            entityType: "fallback_pane",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { paneId: input.paneId },
+          },
+        };
+      },
+    );
+  }
+
+  clearFallbackPane(context: MutationContext): { readonly cleared: boolean } {
+    this.#assertOpen();
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#database
+        .prepare("SELECT 1 AS present FROM fallback_panes WHERE project_id = ?")
+        .get(this.#projectId) === undefined
+    ) {
+      this.#authorize(context.credential, "controller:reconcile");
+      return { cleared: false };
+    }
+    return this.#mutate(
+      context,
+      "fallback_pane.clear",
+      "controller:reconcile",
+      {},
+      () => {
+        this.#database
+          .prepare("DELETE FROM fallback_panes WHERE project_id = ?")
+          .run(this.#projectId);
+        return {
+          value: { cleared: true },
+          event: {
+            entityType: "fallback_pane",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { cleared: true },
+          },
+        };
+      },
+    );
+  }
+
+  /** A live pane of a replaced PM that could not be closed; kept in the ledger so a daemon restart still knows it. */
+  recordOrphanPane(
+    context: MutationContext,
+    input: { readonly paneId: string; readonly agentId: string },
+  ): { readonly recorded: true } {
+    safeId(input.paneId, "pane id");
+    safeId(input.agentId, "agent id");
+    return this.#mutate(
+      context,
+      "orphan_pane.record",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        if (this.#agentRow(input.agentId) === undefined)
+          throw new ControllerError("an orphan pane belongs to a known agent");
+        this.#database
+          .prepare(
+            "INSERT OR IGNORE INTO orphan_panes(project_id, pane_id, agent_id, created_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(this.#projectId, input.paneId, input.agentId, this.#now());
+        return {
+          value: { recorded: true as const },
+          event: {
+            entityType: "orphan_pane",
+            entityId: input.paneId,
+            stateVersion: 0,
+            details: { agentId: input.agentId },
+          },
+        };
+      },
+    );
+  }
+
+  clearOrphanPane(
+    context: MutationContext,
+    paneId: string,
+  ): { readonly cleared: boolean } {
+    safeId(paneId, "pane id");
+    this.#assertOpen();
+    if (
+      !this.#hasStoredRequest(context) &&
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM orphan_panes WHERE project_id = ? AND pane_id = ?",
+        )
+        .get(this.#projectId, paneId) === undefined
+    ) {
+      this.#authorize(context.credential, "controller:reconcile");
+      return { cleared: false };
+    }
+    return this.#mutate(
+      context,
+      "orphan_pane.clear",
+      "controller:reconcile",
+      { paneId },
+      () => {
+        this.#database
+          .prepare(
+            "DELETE FROM orphan_panes WHERE project_id = ? AND pane_id = ?",
+          )
+          .run(this.#projectId, paneId);
+        return {
+          value: { cleared: true },
+          event: {
+            entityType: "orphan_pane",
+            entityId: paneId,
+            stateVersion: 0,
+            details: { cleared: true },
+          },
+        };
+      },
+    );
+  }
+
+  orphanPanes(
+    credential: string,
+  ): readonly { readonly paneId: string; readonly agentId: string }[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT pane_id, agent_id FROM orphan_panes WHERE project_id = ? ORDER BY created_at, pane_id",
+        )
+        .all(this.#projectId) as Array<{ pane_id: string; agent_id: string }>
+    ).map((row) => ({ paneId: row.pane_id, agentId: row.agent_id }));
+  }
+
+  agentPanes(credential: string): readonly AgentPaneRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation FROM agent_panes WHERE project_id = ? ORDER BY agent_id",
+        )
+        .all(this.#projectId) as Array<{
+        agent_id: string;
+        workspace_id: string | null;
+        pane_id: string | null;
+        worktree_path: string | null;
+        branch: string | null;
+        base_sha: string | null;
+        generation: number;
+      }>
+    ).map((row) => ({
+      agentId: row.agent_id,
+      workspaceId: row.workspace_id,
+      paneId: row.pane_id,
+      worktreePath: row.worktree_path,
+      branch: row.branch,
+      baseSha: row.base_sha,
+      generation: row.generation,
+    }));
+  }
+
+  fallbackPane(
+    credential: string,
+  ): { readonly workspaceId: string; readonly paneId: string } | undefined {
+    this.#authorize(credential, "controller:reconcile");
+    const row = this.#database
+      .prepare(
+        "SELECT workspace_id, pane_id FROM fallback_panes WHERE project_id = ?",
+      )
+      .get(this.#projectId) as
+      { workspace_id: string; pane_id: string } | undefined;
+    return row === undefined
+      ? undefined
+      : { workspaceId: row.workspace_id, paneId: row.pane_id };
+  }
+
+  pmRestarts(
+    credential: string,
+    agentId: string,
+  ): readonly {
+    readonly restartId: string;
+    readonly sequence: number;
+    readonly summarizedGeneration: number;
+    readonly consumed: boolean;
+    readonly summaryHash: string;
+    readonly summary: PmRestartSummary;
+  }[] {
+    this.#authorize(credential, "controller:reconcile");
+    safeId(agentId, "agent id");
+    return (
+      this.#database
+        .prepare(
+          "SELECT restart_id, sequence, summarized_generation, consumed, summary_hash, summary_json FROM pm_restarts WHERE project_id = ? AND agent_id = ? ORDER BY sequence",
+        )
+        .all(this.#projectId, agentId) as Array<{
+        restart_id: string;
+        sequence: number;
+        summarized_generation: number;
+        consumed: number;
+        summary_hash: string;
+        summary_json: string;
+      }>
+    ).map((row) => ({
+      restartId: row.restart_id,
+      sequence: row.sequence,
+      summarizedGeneration: row.summarized_generation,
+      consumed: row.consumed === 1,
+      summaryHash: row.summary_hash,
+      summary: JSON.parse(row.summary_json) as PmRestartSummary,
+    }));
+  }
+
+  /** The active actors of a seat, so a crash between creating an actor and registering its agent can be undone. */
+  seatActorIds(credential: string, seatId: string): readonly string[] {
+    this.#authorize(credential, "controller:reconcile");
+    safeId(seatId, "seat id");
+    return (
+      this.#database
+        .prepare(
+          "SELECT actor_id FROM actors WHERE project_id = ? AND seat_id = ? AND active = 1 AND revoked_at IS NULL ORDER BY actor_id",
+        )
+        .all(this.#projectId, seatId) as Array<{ actor_id: string }>
+    ).map((row) => row.actor_id);
   }
 
   enqueueMessage(

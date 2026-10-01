@@ -26,6 +26,7 @@ import {
 } from "./config/capstan-config.js";
 import { MAX_TEXT_BYTES, isAgentName } from "./herdr/adapter.js";
 import { newContext } from "./context.js";
+import { LauncherError } from "./launcher.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
@@ -117,8 +118,20 @@ export interface CommandDependencies {
   readonly now?: () => number;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly driverSnapshot?: () => DriverSnapshot;
+  readonly launcher?: LauncherApi;
   readonly log?: (event: string, details: Record<string, unknown>) => void;
 }
+
+/** What the commands need from the launcher. */
+export interface LauncherApi {
+  launchPm(): Promise<unknown>;
+  restartPm(): Promise<unknown>;
+  spawn(roleName: string): Promise<unknown>;
+  status(): unknown;
+}
+
+/** The time a launcher operation may run; it covers the operation budgets and one queued operation. */
+export const LAUNCHER_LIMIT_MS = 600_000;
 
 export interface CommandSet {
   readonly handlers: Readonly<Record<string, CommandHandler>>;
@@ -148,6 +161,11 @@ function fail(code: ErrorCode, message: string): CommandResponse {
 }
 
 export function mapError(error: unknown): CommandResponse {
+  if (error instanceof LauncherError)
+    return fail(
+      error.code === "not_configured" ? "not_configured" : "rejected",
+      `${error.code}: ${error.message}`,
+    );
   if (error instanceof AuthenticationError)
     return fail("unauthorized", "credential not accepted");
   if (error instanceof AuthorizationError)
@@ -395,6 +413,51 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       }
     },
 
+    async launch(call) {
+      if (deps.launcher === undefined)
+        return fail(
+          "not_configured",
+          "launching agents needs capstan.toml and Herdr",
+        );
+      if (call.args.length !== 0)
+        return fail("invalid_request", "launch takes no arguments");
+      try {
+        return ok(await deps.launcher.launchPm());
+      } catch (error) {
+        return mapError(error);
+      }
+    },
+
+    async spawn(call) {
+      if (deps.launcher === undefined)
+        return fail(
+          "not_configured",
+          "spawning agents needs capstan.toml and Herdr",
+        );
+      if (call.args.length !== 1)
+        return fail("invalid_request", "spawn needs one role name");
+      try {
+        return ok(await deps.launcher.spawn(call.args[0]!));
+      } catch (error) {
+        return mapError(error);
+      }
+    },
+
+    async "pm-restart"(call) {
+      if (deps.launcher === undefined)
+        return fail(
+          "not_configured",
+          "restarting the PM needs capstan.toml and Herdr",
+        );
+      if (call.args.length !== 0)
+        return fail("invalid_request", "pm restart takes no arguments");
+      try {
+        return ok(await deps.launcher.restartPm());
+      } catch (error) {
+        return mapError(error);
+      }
+    },
+
     status(call) {
       try {
         const result: Record<string, unknown> = {
@@ -427,6 +490,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             call.credential,
             MAX_STATUS_CLEARS,
           );
+          result.panes = core.agentPanes(call.credential);
+          if (deps.launcher !== undefined) {
+            const launcherStatus = deps.launcher.status() as Record<
+              string,
+              unknown
+            >;
+            result.cleanupFailed = launcherStatus.cleanupFailed;
+            result.orphanPanes = launcherStatus.orphanPanes;
+          }
         }
         return ok(result);
       } catch (error) {
@@ -502,9 +574,14 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
   return {
     handlers,
     limitMs(command, identity) {
-      return command === "wait"
-        ? hostWaitSeconds(agentOf(identity)) * 1000
-        : undefined;
+      if (command === "wait") return hostWaitSeconds(agentOf(identity)) * 1000;
+      if (
+        command === "launch" ||
+        command === "spawn" ||
+        command === "pm-restart"
+      )
+        return LAUNCHER_LIMIT_MS;
+      return undefined;
     },
   };
 }

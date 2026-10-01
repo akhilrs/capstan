@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+
+// No test may reach a real Herdr session: the daemon and `cstan start` stay out of it.
+process.env.CAPSTAN_LAUNCH = "off";
 import { spawn } from "node:child_process";
 import {
   chmodSync,
@@ -62,6 +65,8 @@ const ANY = Object.keys(ROUTES).filter(
 
 /** What a call with no arguments answers: a stub says so, a real command wants arguments. */
 function bareAnswer(name: string): string {
+  // Without a launcher the launch, spawn and restart commands say so first.
+  if (["launch", "spawn", "pm-restart"].includes(name)) return "not_configured";
   return ROUTES[name]!.stub !== undefined
     ? "not_implemented"
     : "invalid_request";
