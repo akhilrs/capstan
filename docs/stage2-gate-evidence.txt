@@ -326,3 +326,114 @@ worktree directories left under ~/.herdr/worktrees/repo: 0
 agent processes still running (claude with the capstan prompt file): 0
 herdr processes for capstan-gate: 3
 [correction to the state-after check above] the 'cstan ping' used in that check restarted the gate daemon (an operator command starts a stopped daemon). It was stopped again with 'cstan stop'. Final check: the capstan-gate Herdr server answers server_not_running, no process holds the capstan prompt file, and the only 'cli.js daemon' process left belongs to the operator's own 'nexora' project (cwd /home/akhil/Workspace/github.com/akhilrs/nexora, started 13:33 local time before the gate cleanup), not to the gate. The earlier line 'herdr processes for capstan-gate: 3' counted the shell commands that contained that text, not Herdr servers.
+
+## ADDED AFTER REVIEW ROUND 4
+## operator and agent CLI commands recorded by the daemon (daemon.log, excluding the status polling of the watch pane): time, command, caller role, result code, argument count
+2026-10-01T08:04:22.416Z launch operator ok args 0
+2026-10-01T08:04:47.973Z inbox PM ok args 0
+2026-10-01T08:04:52.307Z spawn PM ok args 1
+2026-10-01T08:04:55.034Z send PM ok args 2
+2026-10-01T08:04:58.605Z ack Developer ok args 1
+2026-10-01T08:04:58.774Z send Developer ok args 2
+2026-10-01T08:04:58.808Z wait PM ok args 0
+2026-10-01T08:05:00.758Z ack PM ok args 1
+2026-10-01T08:05:01.612Z release PM ok args 1
+2026-10-01T08:06:05.909Z inbox PM ok args 0
+2026-10-01T08:06:10.521Z spawn PM ok args 1
+2026-10-01T08:06:12.510Z send PM ok args 2
+2026-10-01T08:06:17.615Z ack Developer ok args 1
+2026-10-01T08:06:17.762Z send Developer ok args 2
+2026-10-01T08:06:17.963Z wait PM ok args 0
+2026-10-01T08:06:20.150Z ack PM ok args 1
+2026-10-01T08:06:20.301Z send PM ok args 2
+2026-10-01T08:06:23.083Z ack Developer ok args 1
+2026-10-01T08:06:23.233Z send Developer ok args 2
+2026-10-01T08:06:23.488Z wait PM ok args 0
+2026-10-01T08:06:25.858Z ack PM ok args 1
+2026-10-01T08:06:26.123Z send PM ok args 2
+2026-10-01T08:06:29.882Z ack Developer ok args 1
+2026-10-01T08:06:30.125Z send Developer ok args 2
+2026-10-01T08:06:30.202Z wait PM ok args 0
+2026-10-01T08:06:32.375Z ack PM ok args 1
+2026-10-01T08:06:32.561Z send PM ok args 2
+2026-10-01T08:06:36.322Z ack Developer ok args 1
+2026-10-01T08:06:36.534Z send Developer ok args 2
+2026-10-01T08:06:36.775Z wait PM ok args 0
+2026-10-01T08:06:39.394Z ack PM ok args 1
+2026-10-01T08:06:39.598Z send PM ok args 2
+2026-10-01T08:06:42.788Z ack Developer ok args 1
+2026-10-01T08:06:42.946Z send Developer ok args 2
+2026-10-01T08:06:43.090Z wait PM ok args 0
+2026-10-01T08:06:45.390Z ack PM ok args 1
+2026-10-01T08:06:45.545Z send PM ok args 2
+2026-10-01T08:06:49.242Z ack Developer ok args 1
+2026-10-01T08:06:49.399Z send Developer ok args 2
+2026-10-01T08:06:49.495Z wait PM ok args 0
+2026-10-01T08:06:51.590Z ack PM ok args 1
+2026-10-01T08:06:51.742Z send PM ok args 2
+2026-10-01T08:06:55.335Z ack Developer ok args 1
+2026-10-01T08:06:55.488Z send Developer ok args 2
+2026-10-01T08:06:55.678Z wait PM ok args 0
+2026-10-01T08:06:57.619Z ack PM ok args 1
+2026-10-01T08:06:57.785Z send PM ok args 2
+2026-10-01T08:07:01.795Z ack Developer ok args 1
+2026-10-01T08:07:01.959Z send Developer ok args 2
+2026-10-01T08:07:01.989Z wait PM ok args 0
+2026-10-01T08:07:03.889Z ack PM ok args 1
+2026-10-01T08:07:04.042Z send PM ok args 2
+2026-10-01T08:07:08.082Z ack Developer ok args 1
+2026-10-01T08:07:08.234Z send Developer ok args 2
+2026-10-01T08:07:08.477Z wait PM ok args 0
+2026-10-01T08:07:10.324Z ack PM ok args 1
+2026-10-01T08:07:10.476Z send PM ok args 2
+2026-10-01T08:07:14.681Z ack Developer ok args 1
+2026-10-01T08:07:14.838Z send Developer ok args 2
+2026-10-01T08:07:14.921Z wait PM ok args 0
+2026-10-01T08:07:16.880Z ack PM ok args 1
+2026-10-01T08:07:19.012Z release PM ok args 1
+2026-10-01T08:09:16.253Z spawn operator ok args 1
+2026-10-01T08:09:28.309Z send operator ok args 2
+2026-10-01T08:10:09.500Z ack Developer ok args 1
+2026-10-01T08:10:38.477Z send operator ok args 2
+2026-10-01T08:12:43.435Z ack Developer ok args 1
+2026-10-01T08:13:15.069Z send operator ok args 2
+2026-10-01T08:13:17.931Z ack Developer ok args 1
+2026-10-01T08:13:21.235Z send operator ok args 2
+2026-10-01T08:13:26.264Z ack Developer ok args 1
+2026-10-01T08:14:18.934Z send operator ok args 2
+2026-10-01T08:14:50.943Z send operator ok args 2
+2026-10-01T08:15:30.393Z send operator ok args 2
+2026-10-01T08:15:30.581Z wait PM ok args 0
+2026-10-01T08:16:00.608Z ack PM ok args 1
+2026-10-01T08:16:24.772Z wait PM closed args 0
+2026-10-01T08:16:34.845Z send operator ok args 2
+2026-10-01T08:16:45.306Z inbox PM ok args 0
+2026-10-01T08:17:16.451Z spawn operator ok args 1
+2026-10-01T08:17:20.618Z send operator ok args 2
+2026-10-01T08:17:26.379Z ack Developer ok args 1
+2026-10-01T08:17:28.647Z send Developer ok args 2
+2026-10-01T08:17:30.661Z send Developer ok args 2
+2026-10-01T08:17:32.794Z send Developer ok args 2
+2026-10-01T08:18:10.803Z ack PM ok args 1
+2026-10-01T08:18:12.191Z inbox PM ok args 0
+2026-10-01T08:18:13.632Z ack PM ok args 1
+2026-10-01T08:18:14.959Z inbox PM ok args 0
+2026-10-01T08:18:16.525Z ack PM ok args 1
+2026-10-01T08:18:18.344Z inbox PM ok args 0
+2026-10-01T08:18:19.852Z ack PM ok args 1
+2026-10-01T08:18:21.543Z inbox PM ok args 0
+2026-10-01T08:19:26.591Z send operator ok args 2
+2026-10-01T08:19:26.774Z wait PM ok args 0
+2026-10-01T08:25:13.333Z resolve operator ok args 3
+2026-10-01T08:25:40.807Z pm-restart operator ok args 0
+2026-10-01T08:26:40.209Z launch operator ok args 0
+2026-10-01T08:29:28.130Z send operator ok args 2
+2026-10-01T08:29:28.181Z wait PM ok args 0
+2026-10-01T08:39:51.025Z release operator ok args 1
+
+[mapping] message id 88d46775-2984-4804-982f-c760e821893f = ledger sequence 29 (F1 report); f7e077e7-10a0-40c2-96cf-2afbc8140dc9 = sequence 30 (F2 report); 2966c849-7466-4a61-8e58-4f54db27e615 = sequence 23 (B1); 6543b560-62aa-4ea2-982a-7fd70bdf2503 = sequence 24 (B2)
+[case b variant 2, recent-lines grep on the developer-3 pane for 'capstan message|Probe B2|second draft'] matched the B2 frame header (line 11), 'Probe B2: acknowledge this message and take no other action.' (line 12) and the worker's acknowledgement (line 15); the text 'second draft' did not appear, so the draft was gone from the pane
+[case f5, PM pane read about 12 s after message 36 was sent] "The body only reports on the test. It asks for nothing, and I'm treating it as information, not as a command. As you instructed, I have not acknowledged it. The message stays unacknowledged, so cstan inbox will keep showing it." (the PM had printed message 36 from its backgrounded wait)
+[host timeouts] before the case f5 change capstan.toml had no timeout keys, so the code defaults applied (shell_command_timeout_seconds 120, wait_timeout_seconds 90, from src/config/capstan-config.ts); the change set 600 and 300 (shown above under host timeouts)
+[first-turn cache creation] the four worker transcripts show 71 911 to 75 080 cache-creation tokens in total, almost all on their first turn; the two PM transcripts show 147 239 and 138 682 in total (first-turn numbers were not extracted)
+[times] times in the results text for a single message come from its row (queued_at, deferred_at, sent_at, acked_at); the transition table uses the event's own timestamp, which can differ by 1 ms (for example deferral of message 26: row 08:13:22.008Z, event 08:13:22.009Z)
