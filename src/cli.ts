@@ -1053,6 +1053,15 @@ async function runCli(argv: string[]): Promise<number> {
         ...(adapter === undefined ? {} : { adapter }),
         ...(notifier === undefined ? {} : { notifier }),
         cliPath: fileURLToPath(import.meta.url),
+        ...(capstan === undefined
+          ? {}
+          : {
+              syncRoles: (core: ControllerCore) => {
+                syncConfiguredRoles(core, capstan, () =>
+                  context(core, credential),
+                );
+              },
+            }),
       });
     } catch (error) {
       if (error instanceof ControllerOwnershipError)

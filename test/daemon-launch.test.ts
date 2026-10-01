@@ -152,3 +152,53 @@ test("the daemon launches the PM through its socket and, after a restart, re-reg
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a daemon given syncRoles brings the roles into the ledger, so launch works on a fresh project without a separate config sync", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-daemon-sync-"));
+  const stateDirectory = path.join(root, "state");
+  const info = projectInfo();
+  const socket = path.join(stateDirectory, "control.sock");
+  let ready!: () => void;
+  const up = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const done = runDaemon({
+    stateDirectory,
+    project: info,
+    workspaceRoot: root,
+    log: () => undefined,
+    announce: (event) => {
+      if (event.event === "ready") ready();
+    },
+    capstan: configFor(),
+    adapter: new StubAdapter(),
+    notifier,
+    cliPath: "/opt/capstan/cli.js",
+    tickMs: 500,
+    syncRoles: (core) => {
+      core.syncRoleDefinitions(ctx(core, info.ownerCredential), [
+        { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+      ]);
+    },
+  });
+  try {
+    await up;
+    const launched = await callDaemon(
+      socket,
+      info.ownerCredential,
+      "launch",
+      [],
+      30_000,
+    );
+    assert.equal(launched.kind, "response");
+    const response = (
+      launched as { response: { ok: boolean; result?: { state: string } } }
+    ).response;
+    assert.ok(response.ok, JSON.stringify(response));
+    assert.equal(response.result!.state, "started");
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
+    await done;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
