@@ -118,7 +118,13 @@ export type CstanStatusJsonV1 = ControllerStatus & {
 };
 export type CstanInspectJsonV1 = {
   schemaVersion: 1;
-  kind: "work_item" | "assignment" | "candidate" | "finding" | "recovery";
+  kind:
+    | "work_item"
+    | "assignment"
+    | "candidate"
+    | "finding"
+    | "recovery"
+    | "report";
   id: string;
   record: Record<string, unknown>;
 };
@@ -5681,6 +5687,7 @@ async function runCli(argv: string[]): Promise<number> {
         "candidate",
         "finding",
         "recovery",
+        "report",
       ] as const;
       if (
         !value ||
