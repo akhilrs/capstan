@@ -26,7 +26,7 @@ Run on 2026-10-01 in a throwaway repository with an isolated Herdr session (`cap
 ### Limits and what this run does not show
 
 - The reviewer was the stand-in: it did not read the diff or judge anything. The run shows the controller's mechanics (spawn at the commit, the task message, the verdict, the notice, independence, cleanup), not review quality, and not that real Claude follows the reviewer prompt.
-- The reviewer's read-only profile is tool rules plus prompt: the starter `reviewer` role denies Write, Edit, NotebookEdit, Agent, Task and git push (a Verifier role without its own `deny` list has none), but a reviewer can still run git in its own worktree. It is not a sandbox.
+- The reviewer's read-only profile is tool rules plus prompt: the starter `reviewer` role denies Write, Edit, NotebookEdit, Agent, Task and git push (a Verifier role without its own `deny` list has none), but `Bash(git *)` still lets a reviewer run git against any worktree, the author's included. It is not a sandbox.
 - Independence means a different agent and actor (a new session with a new token). The author could still, with another agent's token, answer as that agent; this is the same-user hole of DEC-005.
 - A reviewer that never answers keeps its review `started` and its slot until the PM releases it (which cancels the review); liveness detection is Stage 6. A reviewer spawned but not recorded because the daemon died in that window stays visible in the agent list until released.
 - The re-review in this run was a review of the fixing report (round 1 of that report). Rounds above 1 for the same report occur when an earlier round was cancelled or failed; they are covered by tests.

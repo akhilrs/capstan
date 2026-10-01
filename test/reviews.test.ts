@@ -413,8 +413,9 @@ test("a verdict given while no PM is active is announced later, and a finished r
 });
 
 test("reviewText folds line breaks, replaces control characters and cuts long text with a marker within the limit", () => {
-  assert.equal(reviewText("a\r\nb\rc\u0007d​e"), "a\nb\nc d e");
+  assert.equal(reviewText("a\r\nb\rc\u0007d\u200be"), "a\nb\nc d e");
   assert.equal(reviewText("  x  "), "x");
+  assert.equal(reviewText("a\u0085b\u2028c\u2029d"), "a\nb\nc\nd");
   const long = reviewText("é".repeat(5000));
   assert.ok(Buffer.byteLength(long, "utf8") <= MAX_REVIEW_TEXT_BYTES);
   assert.ok(long.endsWith(" [text cut]"));
@@ -491,4 +492,53 @@ test("the reviewer role is the one asked for, else reviewer, else the only Verif
       ),
     /not a Verifier role/,
   );
+});
+
+test("a report whose evidence has no usable base commit is refused before a reviewer is spawned", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    const reportId = acceptedReport(h);
+    const { default: Database } = await import("better-sqlite3");
+    const path = `${h.stateDirectory}/controller.sqlite`;
+    h.core.close();
+    const db = new Database(path);
+    try {
+      db.exec("DROP TRIGGER immutable_agent_reports_content");
+      db.prepare(
+        "UPDATE agent_reports SET evidence_json = ? WHERE report_id = ?",
+      ).run('{"baseSha":"not-hex"}', reportId);
+    } finally {
+      db.close();
+    }
+    const { ControllerCore } = await import("../src/controller/core.js");
+    const reopened = await ControllerCore.open({
+      stateDirectory: h.stateDirectory,
+      project: h.info,
+    });
+    try {
+      assert.throws(
+        () => reopened.checkReviewRequest(reportId, "reviewer"),
+        /no usable base commit/,
+      );
+      const db2 = new Database(path);
+      try {
+        db2
+          .prepare(
+            "UPDATE agent_reports SET evidence_json = 'not json' WHERE report_id = ?",
+          )
+          .run(reportId);
+      } finally {
+        db2.close();
+      }
+      assert.throws(
+        () => reopened.checkReviewRequest(reportId, "reviewer"),
+        /no usable base commit/,
+      );
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await close(h).catch(() => undefined);
+  }
 });

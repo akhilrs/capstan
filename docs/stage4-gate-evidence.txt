@@ -24,7 +24,7 @@
 
 ## git after the second verdict: worktrees and branches left
 /tmp/capstan-s4/repo                                      26ad068 [main]
-/home/akhil/.herdr/worktrees/repo/capstan-developer-1-g1  c9eaaac [capstan/developer-1-g1]
+~/.herdr/worktrees/repo/capstan-developer-1-g1  c9eaaac [capstan/developer-1-g1]
 + capstan/developer-1-g1
 
 ## the author's own token tried cstan review (output captured during the run)

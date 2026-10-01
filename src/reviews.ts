@@ -60,13 +60,13 @@ export function chooseReviewerRole(
 }
 
 /**
- * Normalizes what a reviewer wrote: line breaks become LF, control and format
+ * Normalizes what a reviewer wrote: CR, CRLF, NEL and the Unicode line and paragraph separators become LF, control and format
  * characters other than LF become spaces, and the text is cut at a character
  * boundary within the limit, with a marker when something was cut.
  */
 export function reviewText(text: string): string {
   const clean = text
-    .replace(/\r\n?/g, "\n")
+    .replace(/\r\n?|\u0085|\u2028|\u2029/g, "\n")
     .replace(
       /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/gu,
       (c) => (c === "\n" ? c : " "),

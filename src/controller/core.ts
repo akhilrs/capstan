@@ -2720,10 +2720,14 @@ export class ControllerCore {
       throw new ControllerError("the report does not exist");
     if (report.state !== "accepted")
       throw new ControllerError("only an accepted report can be reviewed");
-    const baseSha = (JSON.parse(report.evidence_json) as ReportEvidence)
-      .baseSha;
-    if (baseSha === null)
-      throw new ControllerError("the report has no recorded base commit");
+    let baseSha: unknown;
+    try {
+      baseSha = (JSON.parse(report.evidence_json) as ReportEvidence).baseSha;
+    } catch {
+      baseSha = undefined;
+    }
+    if (typeof baseSha !== "string" || !/^[0-9a-f]{40}$/.test(baseSha))
+      throw new ControllerError("the report has no usable base commit");
     const open = this.#database
       .prepare(
         "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state = 'started'",
