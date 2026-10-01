@@ -57,6 +57,7 @@ function configFor(spawn: "tab" | "pane" = "tab"): CapstanConfig {
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 1 },
     layout: {

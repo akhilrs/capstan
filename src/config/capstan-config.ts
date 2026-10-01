@@ -62,6 +62,12 @@ permission_mode = "acceptEdits"
 allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
 prompt = "You test and verify behavior. Run the real checks, report exactly what passed and what failed, and add tests only when asked. Work only in your own worktree and commit any test changes on your own branch. Never push and never merge. When you finish, tell the project manager the branch name and the result."
+
+[roles.supervisor]
+kind = "Supervisor"
+host = "claude"
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
+prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
 `;
 export const ROLE_KINDS = [
   "PM",
@@ -92,6 +98,8 @@ export type ResolvedTimers = {
   readonly notifyIntervalSeconds: number;
   readonly stallAfterSeconds: number;
   readonly workerAckTimeoutSeconds: number;
+  /** How long a finding may wait for its Supervisor's check before the controller escalates it. */
+  readonly findingCheckSeconds: number;
 };
 
 export type ResolvedHost = {
@@ -195,6 +203,19 @@ export const PM_DEFAULT_DENY: readonly string[] = [
   "Task",
 ];
 
+/**
+ * A Supervisor only reads and reports: file, subagent and the common ways to
+ * push or to type into another agent's pane are denied unless its role sets
+ * `deny` itself. Tool rules, not a sandbox: Bash stays open for `cstan`.
+ */
+export const SUPERVISOR_DEFAULT_DENY: readonly string[] = [
+  ...PM_DEFAULT_DENY,
+  "Bash(git push)",
+  "Bash(git push *)",
+  "Bash(herdr *)",
+  "Bash(tmux *)",
+];
+
 export const SPAWN_LAYOUTS = ["tab", "pane"] as const;
 export const SPLIT_DIRECTIONS = ["auto", "right", "down"] as const;
 export const DEFAULT_MIN_PANE_COLUMNS = 60;
@@ -245,6 +266,7 @@ const TIMER_DEFAULTS = {
   notify_interval_seconds: [600, 1, 86_400],
   stall_after_seconds: [900, 1, 86_400],
   worker_ack_timeout_seconds: [600, 1, 86_400],
+  finding_check_seconds: [1800, 60, 86_400],
 } as const;
 
 type Table = Record<string, unknown>;
@@ -386,6 +408,7 @@ export function parseCapstanConfig(
     notifyIntervalSeconds: timerValue("notify_interval_seconds"),
     stallAfterSeconds: timerValue("stall_after_seconds"),
     workerAckTimeoutSeconds: timerValue("worker_ack_timeout_seconds"),
+    findingCheckSeconds: timerValue("finding_check_seconds"),
   };
 
   const limitTable = optionalTable(root.limits, "limits");
@@ -560,7 +583,9 @@ function resolveRoles(
     const deny =
       role.deny === undefined && kind === "PM"
         ? [...PM_DEFAULT_DENY]
-        : stringList(role.deny, `${at}.deny`);
+        : role.deny === undefined && kind === "Supervisor"
+          ? [...SUPERVISOR_DEFAULT_DENY]
+          : stringList(role.deny, `${at}.deny`);
     const hooks =
       role.hooks === undefined
         ? "off"

@@ -40,9 +40,14 @@ export function oneLineSummary(text: string, maxBytes: number): string {
 export const REPORT_RATE_LIMIT = 10;
 export const REPORT_RATE_WINDOW_MS = 60_000;
 
-/** At most `REPORT_RATE_LIMIT` report commands per key in a sliding window. */
+/** At most `limit` attempts per key in a sliding window (reports by default). */
 export class ReportRateLimiter {
   readonly #windows = new Map<string, number[]>();
+  readonly #limit: number;
+
+  constructor(limit: number = REPORT_RATE_LIMIT) {
+    this.#limit = limit;
+  }
 
   /** Returns true and counts the attempt when the key is under the limit. */
   allow(key: string, now: number): boolean {
@@ -50,7 +55,7 @@ export class ReportRateLimiter {
     const recent = (this.#windows.get(key) ?? []).filter(
       (at) => now - at < REPORT_RATE_WINDOW_MS,
     );
-    if (recent.length >= REPORT_RATE_LIMIT) {
+    if (recent.length >= this.#limit) {
       this.#windows.set(key, recent);
       return false;
     }
@@ -78,6 +83,8 @@ export function startReportRelay(options: {
   readonly core: ControllerCore;
   readonly credential: string;
   readonly intervalMs: number;
+  /** When set, open findings with no check by their Supervisor this long after the latest delivery are escalated on each tick. */
+  readonly findingCheckSeconds?: number;
   readonly log: (event: string, details: Record<string, unknown>) => void;
 }): ReportRelay {
   let running = false;
@@ -86,6 +93,23 @@ export function startReportRelay(options: {
     if (running || Date.now() < backoffUntil) return;
     running = true;
     try {
+      if (options.findingCheckSeconds !== undefined) {
+        // Its own try: a sweep that keeps failing must not stop the announcements below.
+        try {
+          for (const findingId of options.core.sweepFindings(
+            () => newContext(options.core, options.credential),
+            options.findingCheckSeconds,
+            (findingId, error) =>
+              options.log("finding_deadline_failed", {
+                findingId,
+                error: String(error),
+              }),
+          ))
+            options.log("finding_escalated_by_deadline", { findingId });
+        } catch (error) {
+          options.log("finding_sweep_failed", { error: String(error) });
+        }
+      }
       // Nothing to do, and nothing written, until a PM is active.
       // The core announces only when exactly one PM is active; use the same condition.
       if (
@@ -121,6 +145,20 @@ export function startReportRelay(options: {
           return;
         }
         options.log("review_announced", { reviewId: review.reviewId });
+      }
+      for (const notice of options.core.unannouncedFindingNotices(
+        options.credential,
+      )) {
+        const result = options.core.announceFindingNotice(
+          newContext(options.core, options.credential),
+          notice.noticeId,
+        );
+        // Not announced: raced with another announcer or waiting its turn; the next tick looks again.
+        if (!result.announced) break;
+        options.log("finding_notice_announced", {
+          findingId: notice.findingId,
+          event: notice.event,
+        });
       }
     } catch (error) {
       options.log("report_relay_failed", { error: String(error) });

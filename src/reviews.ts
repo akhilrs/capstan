@@ -7,6 +7,7 @@ import type { CapstanConfig } from "./config/capstan-config.js";
 import type { ControllerCore, ReviewRecord } from "./controller/core.js";
 import { MAX_REVIEW_TEXT_BYTES } from "./controller/core.js";
 import type { MutationContext } from "./controller/types.js";
+import { normalizeText } from "./text.js";
 
 export class ReviewRequestError extends Error {
   override readonly name = "ReviewRequestError";
@@ -65,13 +66,7 @@ export function chooseReviewerRole(
  * boundary within the limit, with a marker when something was cut.
  */
 export function reviewText(text: string): string {
-  const clean = text
-    .replace(/\r\n?|\u0085|\u2028|\u2029/g, "\n")
-    .replace(
-      /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/gu,
-      (c) => (c === "\n" ? c : " "),
-    )
-    .trim();
+  const clean = normalizeText(text);
   if (Buffer.byteLength(clean, "utf8") <= MAX_REVIEW_TEXT_BYTES) return clean;
   const marker = " [text cut]";
   const room = MAX_REVIEW_TEXT_BYTES - Buffer.byteLength(marker, "utf8");

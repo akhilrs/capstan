@@ -16,6 +16,15 @@ interface WatchedMessage {
   readonly lastNotifiedAt: string | null;
 }
 
+interface WatchedFinding {
+  readonly findingId: string;
+  readonly targetAgentId: string;
+  readonly severity: string;
+  readonly state: string;
+  readonly interventions: number;
+  readonly stateReason: string | null;
+}
+
 const BELL = "\u0007";
 
 /** Everything from the daemon is shown without control or format characters. */
@@ -38,6 +47,9 @@ export function signalsOf(status: Record<string, unknown>): Set<string> {
     signals.add(`clear:${clear.clearId}`);
   for (const stuck of list<{ messageId: string; reason: string }>(status.stuck))
     signals.add(`stuck:${stuck.messageId}:${stuck.reason}`);
+  for (const finding of list<WatchedFinding>(status.agentFindings))
+    if (finding.state === "escalated")
+      signals.add(`finding-escalated:${finding.findingId}`);
   return signals;
 }
 
@@ -63,6 +75,11 @@ export function renderWatch(status: Record<string, unknown>): string {
     );
   for (const s of list<{ messageId: string; reason: string }>(status.stuck))
     lines.push(`stuck ${clean(s.messageId)}: ${clean(s.reason)}`);
+  for (const f of list<WatchedFinding>(status.agentFindings))
+    if (f.state === "open" || f.state === "escalated")
+      lines.push(
+        `finding ${clean(f.findingId)} on ${clean(f.targetAgentId)} (${clean(f.severity)}) [${clean(f.state)}, intervention ${clean(f.interventions)} of 2${f.stateReason == null ? "" : `, ${clean(f.stateReason)}`}]${f.state === "escalated" ? " needs the operator" : ""}`,
+      );
   const stalled = list<string>(status.stalledAgentIds);
   if (stalled.length > 0)
     lines.push(`stalled: ${stalled.map(clean).join(", ")}`);
