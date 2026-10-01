@@ -401,6 +401,8 @@ function reviewNotice(
 export const MAX_INTEGRATION_REPORTS = 20;
 export const MAX_CONFLICT_FILES = 50;
 export const MAX_CONFLICT_PATH_CHARS = 200;
+/** Room for the cut marker: `...#` and eight hex digits. */
+export const PATH_CUT_MARK_CHARS = 12;
 
 export type IntegrationState =
   "running" | "merged" | "conflicted" | "failed" | "confirmed" | "discarded";
@@ -3190,8 +3192,8 @@ export class ControllerCore {
   }
 
   /**
-   * Starts an integration: records the base, the merge order and the branch and
-   * worktree the controller will use. Every report must be accepted and its
+   * Starts an integration: records the base, the merge order and the branch the controller will
+   * create. Every report must be accepted and its
    * latest finished review must be a pass; only one integration runs at a time.
    */
   beginIntegration(
@@ -3252,16 +3254,29 @@ export class ControllerCore {
             throw new ControllerError(
               `report ${id} has no passed review as its latest verdict`,
             );
-          const settled = this.#database
+          const openReview = this.#database
             .prepare(
-              `SELECT i.integration_id FROM integration_reports ir
-               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
-               WHERE ir.project_id = ? AND ir.report_id = ? AND i.state = 'confirmed'`,
+              "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state = 'started'",
             )
-            .get(this.#projectId, id) as { integration_id: string } | undefined;
-          if (settled !== undefined)
+            .get(this.#projectId, id);
+          if (openReview)
+            throw new ControllerError(`report ${id} has a review still open`);
+          const elsewhere = this.#database
+            .prepare(
+              `SELECT i.integration_id, i.state FROM integration_reports ir
+               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+               WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('confirmed', 'merged')
+               ORDER BY i.sequence DESC LIMIT 1`,
+            )
+            .get(this.#projectId, id) as
+            { integration_id: string; state: string } | undefined;
+          if (elsewhere?.state === "confirmed")
             throw new ControllerError(
-              `report ${id} was already integrated and confirmed in ${settled.integration_id}`,
+              `report ${id} was already integrated and confirmed in ${elsewhere.integration_id}`,
+            );
+          if (elsewhere !== undefined)
+            throw new ControllerError(
+              `report ${id} is already in the unsettled integration ${elsewhere.integration_id}; confirm or discard that one first`,
             );
         }
         const now = this.#now();
@@ -3332,7 +3347,7 @@ export class ControllerCore {
         outcome.files.some(
           (file) =>
             !/^[\x20-\x7e]+$/.test(file) ||
-            file.length > MAX_CONFLICT_PATH_CHARS + 3,
+            file.length > MAX_CONFLICT_PATH_CHARS + PATH_CUT_MARK_CHARS,
         ))
     )
       throw new TypeError(
@@ -3525,6 +3540,21 @@ export class ControllerCore {
       this.#database
         .prepare(
           "SELECT integration_id FROM integrations WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as { integration_id: string }[]
+    ).map((r) => this.#integrationRecord(r.integration_id));
+  }
+
+  /** Confirmed or discarded integrations, newest first: their branch should be gone. */
+  settledIntegrations(
+    credential: string,
+    limit = 200,
+  ): readonly IntegrationRecord[] {
+    this.#authorize(credential, "controller:reconcile");
+    return (
+      this.#database
+        .prepare(
+          "SELECT integration_id FROM integrations WHERE project_id = ? AND state IN ('confirmed', 'discarded') ORDER BY sequence DESC LIMIT ?",
         )
         .all(this.#projectId, limit) as { integration_id: string }[]
     ).map((r) => this.#integrationRecord(r.integration_id));

@@ -590,3 +590,78 @@ test("an outcome that cannot be recorded does not leave the integration running 
     await close(h);
   }
 });
+
+test("a report with an open review, or already in an unsettled merged integration, is refused", async () => {
+  const h = await harness();
+  try {
+    const { ids } = reviewedPair(h);
+    const reviewer = member(h, "open-reviewer", "Verifier", "reviewer");
+    h.core.beginReview(ctx(h.core, h.pm.credential), {
+      subjectId: ids[0]!,
+      reviewerRole: "reviewer",
+      reviewerAgentId: reviewer.agentId,
+    });
+    const git = fakeGit();
+    await assert.rejects(
+      integrate(deps(h, git), { reportIds: ids, requestedBy: "operator" }),
+      /review still open/,
+    );
+    h.core.completeReview(ctx(h.core, reviewer.credential), {
+      verdict: "pass",
+      text: "ok",
+    });
+    const first = await integrate(deps(h, git), {
+      reportIds: ids,
+      requestedBy: "operator",
+    });
+    await assert.rejects(
+      integrate(deps(h, git), {
+        reportIds: [ids[0]!],
+        requestedBy: "operator",
+      }),
+      /unsettled integration/,
+    );
+    await settleIntegration(deps(h, git), {
+      integrationId: first.integrationId,
+      outcome: "discarded",
+    });
+    const again = await integrate(deps(h, git), {
+      reportIds: [ids[0]!],
+      requestedBy: "operator",
+    });
+    assert.equal(again.state, "merged");
+  } finally {
+    await close(h);
+  }
+});
+
+test("a branch that could not be deleted at settle is swept by the next integration", async () => {
+  const h = await harness();
+  try {
+    const { ids } = reviewedPair(h);
+    const git = fakeGit();
+    const record = await integrate(deps(h, git), {
+      reportIds: [ids[0]!],
+      requestedBy: "operator",
+    });
+    let deletable = false;
+    git.deleteBranch = async (branch, sha) => {
+      git.calls.push(`delete ${branch} ${sha} ${deletable}`);
+      return deletable;
+    };
+    git.branchTip = async () => HEAD;
+    const settled = await settleIntegration(deps(h, git), {
+      integrationId: record.integrationId,
+      outcome: "discarded",
+    });
+    assert.equal(settled.branchRemoved, false);
+    deletable = true;
+    await recoverIntegrations(deps(h, git));
+    assert.ok(
+      git.calls.includes(`delete ${record.branch} ${HEAD} true`),
+      git.calls.join("\n"),
+    );
+  } finally {
+    await close(h);
+  }
+});

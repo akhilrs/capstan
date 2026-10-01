@@ -10,6 +10,7 @@ import {
   MAX_CONFLICT_FILES,
   MAX_CONFLICT_PATH_CHARS,
 } from "./controller/core.js";
+import { createHash } from "node:crypto";
 
 const GIT_TIMEOUT_MS = 10_000;
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -200,9 +201,13 @@ export function printablePath(raw: string): string {
     /[^\x20-\x7e]|["\\]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
   );
-  return text.length > MAX_CONFLICT_PATH_CHARS
-    ? `${text.slice(0, MAX_CONFLICT_PATH_CHARS)}...`
-    : text;
+  if (text.length <= MAX_CONFLICT_PATH_CHARS) return text;
+  // Cut between escapes, and add a digest of the whole name so two long paths with one beginning stay different.
+  const cut = text
+    .slice(0, MAX_CONFLICT_PATH_CHARS)
+    .replace(/\\x[0-9a-f]?$/, "");
+  const digest = createHash("sha256").update(raw, "latin1").digest("hex");
+  return `${cut}...#${digest.slice(0, 8)}`;
 }
 
 /** The commit HEAD points at in the repository, as a full sha1. */

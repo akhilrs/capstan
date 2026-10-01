@@ -186,7 +186,13 @@ test("conflict paths are escaped, kept distinct and capped", async () => {
     assert.ok(result.files.includes("0-caf\\xc3\\xa9.txt"));
     assert.ok(result.files.includes("0-q\\x22uote.txt"));
     assert.ok(result.files.includes("0-back\\x5cslash.txt"));
-    assert.equal(printablePath("x".repeat(300)).length, 203);
+    const long = printablePath("x".repeat(300));
+    assert.equal(long.length, 212);
+    assert.match(long, /^x{200}\.\.\.#[0-9a-f]{8}$/);
+    assert.notEqual(long, printablePath(`${"x".repeat(299)}y`));
+    const split = printablePath("\u00e9".repeat(100));
+    assert.ok(!/\\x[0-9a-f]?\.\.\./.test(split), split);
+    assert.match(split, /^(\\x[0-9a-f]{2})+\.\.\.#[0-9a-f]{8}$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

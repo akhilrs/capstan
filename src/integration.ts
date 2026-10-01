@@ -173,10 +173,30 @@ export async function settleIntegration(
   return { record, branchRemoved };
 }
 
-/** A `running` integration that this process is not merging was cut off: its branch is removed and it is marked failed. */
+/** Removes the branch of a settled integration whose deletion failed earlier, while it still points at the recorded commit. */
+async function sweepSettledBranches(deps: IntegrationDeps): Promise<void> {
+  for (const row of deps.core.settledIntegrations(deps.credential)) {
+    if (row.headSha === null) continue;
+    try {
+      if ((await deps.git.branchTip(row.branch)) !== row.headSha) continue;
+      if (await deps.git.deleteBranch(row.branch, row.headSha))
+        deps.log("integration_branch_swept", {
+          integrationId: row.integrationId,
+        });
+    } catch (error) {
+      deps.log("integration_branch_sweep_failed", {
+        integrationId: row.integrationId,
+        error: String(error),
+      });
+    }
+  }
+}
+
+/** A `running` integration that this process is not merging was cut off: its branch is removed and it is marked failed. Branches of settled integrations that could not be deleted earlier are swept first. */
 export async function recoverIntegrations(
   deps: IntegrationDeps,
 ): Promise<void> {
+  await sweepSettledBranches(deps);
   for (const row of deps.core.runningIntegrations(deps.credential)) {
     if (inFlight.has(row.integrationId)) continue;
     try {
