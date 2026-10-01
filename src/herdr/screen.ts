@@ -193,6 +193,7 @@ function codexInputLine(
     return undefined;
   const characters = styledCharacters(raw[marker]!);
   const at = characters.findIndex((entry) => entry.character === "›");
+  if (at < 0) return undefined;
   const remainder = characters.slice(at + 2);
   const typed = remainder.filter((entry) => !isBlank(entry.character));
   const placeholder = typed.length > 0 && typed.every((entry) => entry.dim);
