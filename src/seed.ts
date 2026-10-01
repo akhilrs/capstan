@@ -48,7 +48,7 @@ function render(
       : `Your branch starts at ${base.sha}, the project's HEAD (the predecessor had no accepted report that could be used).`,
     data.branch === null
       ? "The predecessor has no branch recorded."
-      : `The predecessor's branch ${seedText(data.branch)}${branchTip === null ? "" : ` (tip ${branchTip})`} is kept for reference. It may hold commits that were never reported; they are not accepted.`,
+      : `The predecessor's branch ${seedText(data.branch)}${branchTip === null ? "" : ` (tip ${branchTip})`} is kept for reference if it held commits (it is removed when it held none). It may hold commits that were never reported; they are not accepted.`,
     "",
     `Messages sent to the predecessor, oldest first${omitted.messages > 0 ? ` (${omitted.messages} older ones are not shown)` : ""}:`,
   ];

@@ -1371,7 +1371,10 @@ export class Launcher {
       /** True only when a pane move was started and its result never reached the ledger. */
       moveMayHaveHappened?: boolean;
     },
-    options: { readonly lost?: "found_dead_at_start" } = {},
+    options: {
+      readonly lost?: "found_dead_at_start";
+      readonly branch?: string | null;
+    } = {},
   ): Promise<
     | { readonly ended: false; readonly reason: string }
     | ({
@@ -1628,7 +1631,7 @@ export class Launcher {
                 ...(row.branch === null ? {} : { branch: row.branch }),
                 ...(row.baseSha === null ? {} : { baseSha: row.baseSha }),
               },
-              { lost: "found_dead_at_start" },
+              { lost: "found_dead_at_start", branch: row.branch },
             );
         } else
           this.#log("adopt_failed", {

@@ -2092,14 +2092,18 @@ export class ControllerCore {
   endAgent(
     context: MutationContext,
     agentId: string,
-    options: { readonly lost?: "found_dead_at_start" } = {},
+    options: {
+      readonly lost?: "found_dead_at_start";
+      /** The agent's branch, when its pane row was cleared before the end. */
+      readonly branch?: string | null;
+    } = {},
   ): { readonly cancelledMessageIds: readonly string[] } {
     safeId(agentId, "agent id");
     return this.#mutate(
       context,
       "agent.end",
       "actor:manage",
-      { agentId, lost: options.lost ?? null },
+      { agentId, lost: options.lost ?? null, branch: options.branch ?? null },
       (actor) => {
         const agent = this.#agentRow(agentId);
         if (agent?.state !== "active")
@@ -2144,6 +2148,17 @@ export class ControllerCore {
           now,
           true,
         );
+        const branch =
+          options.branch ??
+          (
+            this.#database
+              .prepare(
+                "SELECT branch FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+              )
+              .get(this.#projectId, agentId) as
+              { branch: string | null } | undefined
+          )?.branch ??
+          null;
         if (options.lost !== undefined)
           this.#recordLost(
             actor,
@@ -2152,6 +2167,7 @@ export class ControllerCore {
             options.lost,
             unacknowledged,
             now,
+            branch,
           );
         return {
           value: { cancelledMessageIds: cancelled },
@@ -2161,7 +2177,7 @@ export class ControllerCore {
             stateVersion: agent.generation,
             fromState: "active",
             toState: "ended",
-            details: { cancelledMessageIds: cancelled },
+            details: { cancelledMessageIds: cancelled, branch },
           },
         };
       },
@@ -3854,17 +3870,20 @@ export class ControllerCore {
     reason: "pane_gone" | "found_dead_at_start",
     unacknowledgedMessageIds: readonly string[],
     now: string,
+    knownBranch?: string | null,
   ): boolean {
     if (this.#lostRecorded(agent.agent_id, agent.generation)) return false;
     const branch =
-      (
-        this.#database
-          .prepare(
-            "SELECT branch FROM agent_panes WHERE project_id = ? AND agent_id = ?",
-          )
-          .get(this.#projectId, agent.agent_id) as
-          { branch: string | null } | undefined
-      )?.branch ?? null;
+      knownBranch !== undefined
+        ? knownBranch
+        : ((
+            this.#database
+              .prepare(
+                "SELECT branch FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+              )
+              .get(this.#projectId, agent.agent_id) as
+              { branch: string | null } | undefined
+          )?.branch ?? null);
     this.#appendEvent(actor, context, {
       entityType: "agent",
       entityId: agent.agent_id,
@@ -3999,6 +4018,17 @@ export class ControllerCore {
     );
   }
 
+  /** The branch an agent had when it ended, from the end event. */
+  #branchAtEnd(agentId: string): string | null {
+    const row = this.#database
+      .prepare(
+        `SELECT json_extract(payload_json, '$.details.branch') AS branch FROM controller_events
+         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'ended' ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId, agentId) as { branch: string | null } | undefined;
+    return typeof row?.branch === "string" ? row.branch : null;
+  }
+
   /** What a replacement of this agent is seeded with, newest entries only, in ledger order. A read; works for an ended agent. */
   agentSeed(agentId: string): AgentSeedData {
     this.#assertOpen();
@@ -4032,7 +4062,7 @@ export class ControllerCore {
       kind: agent.kind,
       state: agent.state,
       generation: agent.generation,
-      branch: pane?.branch ?? last?.branch ?? null,
+      branch: pane?.branch ?? last?.branch ?? this.#branchAtEnd(agentId),
       baseSha: pane?.base_sha ?? null,
       messages: shown.map((row) => ({
         messageId: row.message_id,

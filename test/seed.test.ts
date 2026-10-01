@@ -48,7 +48,7 @@ test("the seed names the predecessor and the base, lists empty sections as none 
   );
   assert.match(
     text,
-    /The predecessor's branch capstan\/developer-1-g1 is kept for reference/,
+    /The predecessor's branch capstan\/developer-1-g1 is kept for reference if it held commits \(it is removed when it held none\)/,
   );
   assert.equal((text.match(/^- none$/gm) ?? []).length, 3);
   assert.match(

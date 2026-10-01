@@ -287,3 +287,51 @@ test("ending an agent keeps its failed messages failed and cancels the rest; a P
     await close(h);
   }
 });
+
+test("the branch of an agent is kept in its end and loss events, so a loss message and the seed still name it after the pane row is gone", async () => {
+  const h = await harness();
+  try {
+    const dev = h.developer;
+    h.core.recordAgentPane(ctx(h.core, h.owner), {
+      agentId: dev.agentId,
+      workspaceId: null,
+      paneId: null,
+      worktreePath: null,
+      branch: "capstan/dev-g1",
+      baseSha: BASE,
+    });
+    // The adoption path clears the pane row first and passes the branch it had.
+    h.core.clearAgentPane(ctx(h.core, h.owner), dev.agentId);
+    h.core.endAgent(ctx(h.core, h.owner), dev.agentId, {
+      lost: "found_dead_at_start",
+      branch: "capstan/dev-g1",
+    });
+    const notice = h.core
+      .messagesFor(h.pm.agentId)
+      .find((m) => m.body.startsWith(`Agent ${dev.agentId} `))!;
+    assert.match(notice.body, /Branch: capstan\/dev-g1\./);
+    assert.equal(
+      h.core.agentSeed(dev.agentId).branch,
+      "capstan/dev-g1",
+      "from the end event",
+    );
+    const second = worker(h, "developer2");
+    h.core.recordAgentPane(ctx(h.core, h.owner), {
+      agentId: second.agentId,
+      workspaceId: null,
+      paneId: null,
+      worktreePath: null,
+      branch: "capstan/dev2-g1",
+      baseSha: BASE,
+    });
+    h.core.endAgent(ctx(h.core, h.owner), second.agentId);
+    h.core.clearAgentPane(ctx(h.core, h.owner), second.agentId);
+    assert.equal(
+      h.core.agentSeed(second.agentId).branch,
+      "capstan/dev2-g1",
+      "a plain end keeps it too",
+    );
+  } finally {
+    await close(h);
+  }
+});
