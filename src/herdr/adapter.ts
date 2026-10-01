@@ -147,7 +147,7 @@ const PANE_PATTERN = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const SIMPLE_VALUE = /^[A-Za-z0-9_@%+=:,./-]*$/;
 /** The same characters the controller refuses in a message body. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Noncharacter_Code_Point}]/u;
-/** HOME, PATH and TERM are shell-quoted, so only text that is empty or unsafe to show is refused. */
+/** HOME, PATH and TERM are shell-quoted, so only blank or unsafe-to-show text is refused. */
 function isQuotableValue(value: unknown): value is string {
   return (
     typeof value === "string" && value.trim() !== "" && !UNSAFE_TEXT.test(value)
