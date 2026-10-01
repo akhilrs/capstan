@@ -11,6 +11,7 @@ import {
   MessageTransitionError,
 } from "./controller/core.js";
 import {
+  messagingTimersOf,
   queueHead,
   type DeferralReason,
   type HerdrState,
@@ -137,7 +138,7 @@ export class DeliveryDriver {
   constructor(options: DriverOptions) {
     this.#core = options.core;
     this.#adapter = options.adapter;
-    this.#timers = options.timers;
+    this.#timers = messagingTimersOf(options.timers);
     this.#notifier = options.notifier;
     this.#credential = options.credential;
     this.#now = options.now ?? Date.now;

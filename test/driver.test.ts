@@ -940,3 +940,34 @@ test("stopping the driver waits for a running tick and prevents later ones", asy
     await close(w.h);
   }
 });
+
+test("a configured timers object with more than the message timers (the finding deadline) still advances the message timers", async () => {
+  const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
+  const h = await harness({ clock: () => new Date(clock.now) });
+  try {
+    const adapter = new StubAdapter();
+    adapter.register(h.developer.agentId);
+    const events: string[] = [];
+    const driver = new DeliveryDriver({
+      core: h.core,
+      adapter,
+      timers: { ...TIMERS, findingCheckSeconds: 1800 } as MessagingTimers,
+      notifier: new StubNotifier(),
+      credential: h.owner,
+      now: () => clock.now,
+      log: (event) => events.push(event),
+    });
+    const id = h.core.enqueueMessage(ctx(h.core, h.pm.credential), {
+      recipientAgentId: h.developer.agentId,
+      body: "do it",
+    }).messageId;
+    await driver.tick();
+    assert.equal(h.core.message(id)!.state, "sent");
+    clock.now += (TIMERS.workerAckTimeoutSeconds + 1) * 1000;
+    await driver.tick();
+    assert.equal(h.core.message(id)!.state, "unacked", "the timer advanced");
+    assert.ok(!events.includes("advance_failed"), events.join(","));
+  } finally {
+    await close(h);
+  }
+});
