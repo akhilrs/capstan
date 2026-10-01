@@ -175,10 +175,11 @@ function codexInputLine(
   raw: readonly string[],
   plain: readonly string[],
 ): string | undefined {
+  if (plain.some((line) => line.trim().startsWith("enter continue")))
+    return undefined;
   let marker = -1;
   plain.forEach((line, index) => {
-    if (/^›(?: |$)/u.test(line.trimEnd()) && !/^›\s*\d+\./u.test(line))
-      marker = index;
+    if (/^›(?: |$)/u.test(line.trimEnd())) marker = index;
   });
   if (marker < 0) return undefined;
   let status = -1;

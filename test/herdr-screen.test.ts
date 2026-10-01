@@ -434,6 +434,13 @@ test("the Codex trust dialog is not read as typed input, and a background colour
     extractInputLine("codex", fixture("codex-trust-dialog.ansi")),
     undefined,
   );
+  assert.equal(
+    extractInputLine(
+      "codex",
+      fixture("codex-idle-typed.ansi").replace("hello typed", "1. fix it"),
+    ),
+    "1. fix it",
+  );
   const typed = fixture("codex-idle-typed.ansi").split("\n");
   const marker = typed.findIndex((line) => line.includes("hello typed"));
   typed.splice(marker + 1, 0, "\u001b[48;5;38m  second\u001b[0m");
