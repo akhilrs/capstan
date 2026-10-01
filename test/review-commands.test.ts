@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CapstanConfig } from "../src/config/capstan-config.js";
 import type { ReportEvidence } from "../src/controller/core.js";
+import type { MergeResult } from "../src/git.js";
 import {
   call,
   close,
@@ -28,6 +29,9 @@ interface Stub {
   releases: string[];
   failSpawn: Error | undefined;
   commitExists: boolean;
+  merge: MergeResult;
+  inHead: boolean;
+  deleted: string[];
 }
 
 function setup(h: Harness): void {
@@ -106,6 +110,9 @@ async function withHarness(
     releases: [],
     failSpawn: undefined,
     commitExists: true,
+    merge: { kind: "merged", headSha: "d".repeat(40) },
+    inHead: false,
+    deleted: [],
   };
   let n = 0;
   const holder: { h?: Harness } = {};
@@ -119,6 +126,17 @@ async function withHarness(
     commands: {
       config,
       commitExists: async () => stub.commitExists,
+      integrationGit: {
+        headCommit: async () => BASE,
+        commitExists: async () => true,
+        merge: async () => stub.merge,
+        branchTip: async () => null,
+        isInHead: async () => stub.inHead,
+        deleteBranch: async (branch: string) => {
+          stub.deleted.push(branch);
+          return true;
+        },
+      },
       launcher: {
         launchPm: async () => ({ state: "started", agentId: "pm-1" }),
         restartPm: async () => ({ state: "started", agentId: "pm-1" }),
@@ -217,7 +235,7 @@ test("request-review is for the PM only, validates its arguments and refuses a m
     ]);
     assert.match(
       (noReport as { message: string }).message,
-      /^review_refused: the report does not exist/,
+      /^review_refused: the report or integration does not exist/,
     );
     assert.deepEqual(
       stub.spawns,
@@ -350,5 +368,85 @@ test("a re-review after a fix is a new round with a different reviewer session",
       assert.equal(r.authorAgentId, h.developer.agentId);
     }
     assert.equal(stub.spawns.length, 2);
+  });
+});
+
+test("integrate is for the PM and the operator, merges reviewed reports and the merged commit is reviewed like a report", async () => {
+  await withHarness(async (h, stub, spawned) => {
+    const reportId = report(h);
+    const refused = await call(h, h.developer.credential, "integrate", [
+      reportId,
+    ]);
+    assert.equal(refused.ok, false);
+    assert.match(
+      (refused as { message: string }).message,
+      /only the PM or the operator/,
+    );
+    const empty = await call(h, h.pm.credential, "integrate", []);
+    assert.equal(empty.ok, false);
+    const unreviewed = await call(h, h.pm.credential, "integrate", [reportId]);
+    assert.equal(unreviewed.ok, false);
+    assert.match(
+      (unreviewed as { message: string }).message,
+      /^integration_refused: .*no passed review/,
+    );
+
+    await call(h, h.pm.credential, "request-review", [reportId]);
+    await call(h, spawned[0]!.credential, "review", ["pass", "fine"]);
+    const merged = await call(h, h.pm.credential, "integrate", [reportId]);
+    assert.ok(merged.ok, JSON.stringify(merged));
+    const result = (merged as { result: Record<string, unknown> }).result;
+    assert.equal(result.state, "merged");
+    assert.equal(result.head, "d".repeat(40));
+    assert.deepEqual(result.reports, [reportId]);
+    const integrationId = result.integrationId as string;
+
+    const requested = await call(h, h.pm.credential, "request-review", [
+      integrationId,
+    ]);
+    assert.ok(requested.ok, JSON.stringify(requested));
+    assert.deepEqual(stub.spawns.at(-1), {
+      role: "reviewer",
+      baseSha: "d".repeat(40),
+    });
+    await call(h, spawned[1]!.credential, "review", [
+      "pass",
+      "the merge is right",
+    ]);
+
+    const early = await call(h, h.pm.credential, "integrate", [
+      "confirm",
+      integrationId,
+    ]);
+    assert.equal(early.ok, false);
+    assert.match((early as { message: string }).message, /^not_in_head: /);
+    stub.inHead = true;
+    const confirmed = await call(h, h.owner, "integrate", [
+      "confirm",
+      integrationId,
+    ]);
+    assert.ok(confirmed.ok, JSON.stringify(confirmed));
+    assert.equal(
+      (confirmed as { result: { branchRemoved: boolean } }).result
+        .branchRemoved,
+      true,
+    );
+    assert.equal(stub.deleted.length, 1);
+  });
+});
+
+test("an integration conflict is answered with the report and files and nothing is kept", async () => {
+  await withHarness(async (h, stub, spawned) => {
+    const reportId = report(h);
+    await call(h, h.pm.credential, "request-review", [reportId]);
+    await call(h, spawned[0]!.credential, "review", ["pass", "fine"]);
+    stub.merge = { kind: "conflicted", reportId, files: ["a.txt"] };
+    const answer = await call(h, h.pm.credential, "integrate", [reportId]);
+    assert.ok(answer.ok, JSON.stringify(answer));
+    const result = (answer as { result: Record<string, unknown> }).result;
+    assert.equal(result.state, "conflicted");
+    assert.equal(result.branch, null);
+    assert.deepEqual(result.conflict, { reportId, files: ["a.txt"] });
+    assert.deepEqual(stub.deleted, []);
   });
 });

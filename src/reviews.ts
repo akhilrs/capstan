@@ -101,22 +101,22 @@ export function reviewText(text: string): string {
 export async function requestReview(
   deps: ReviewDeps,
   input: {
-    readonly reportId: string;
+    readonly subjectId: string;
     readonly requestedRole: string | undefined;
     readonly pmCredential: string;
   },
 ): Promise<{ readonly review: ReviewRecord; readonly spawnState: string }> {
   const role = chooseReviewerRole(deps.config, input.requestedRole);
-  const check = deps.core.checkReviewRequest(input.reportId, role);
+  const check = deps.core.checkReviewRequest(input.subjectId, role);
   if (!(await deps.commitExists(check.commitSha)))
     throw new ReviewRequestError(
       "commit_missing",
-      "the reported commit no longer exists in the repository",
+      "the commit to review no longer exists in the repository",
     );
   const spawned = await deps.launcher.spawn(role, { baseSha: check.commitSha });
   try {
     const review = deps.core.beginReview(deps.context(input.pmCredential), {
-      reportId: input.reportId,
+      subjectId: input.subjectId,
       reviewerRole: role,
       reviewerAgentId: spawned.agentId,
     });

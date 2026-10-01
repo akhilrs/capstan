@@ -36,6 +36,12 @@ import {
 import type { CommitInspection } from "./git.js";
 import { GitCheckError } from "./git.js";
 import { ReportRateLimiter, oneLineSummary } from "./reports.js";
+import type { IntegrationDeps } from "./integration.js";
+import {
+  IntegrationError,
+  integrate,
+  settleIntegration,
+} from "./integration.js";
 import {
   ReviewRequestError,
   releaseReviewerLater,
@@ -143,6 +149,8 @@ export interface CommandDependencies {
     readonly baseSha: string | null;
     readonly sha: string;
   }) => Promise<CommitInspection>;
+  /** The git operations integration needs; the daemon passes the real ones. */
+  readonly integrationGit?: IntegrationDeps["git"];
   readonly log?: (event: string, details: Record<string, unknown>) => void;
 }
 
@@ -656,11 +664,14 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       if (call.args.length < 1 || call.args.length > 2)
         return fail(
           "invalid_request",
-          "request-review needs a report id and optionally a reviewer role",
+          "request-review needs a report or integration id and optionally a reviewer role",
         );
       const reportId = call.args[0]!;
       if (!SAFE_AGENT_ID.test(reportId))
-        return fail("invalid_request", "the report id is not valid");
+        return fail(
+          "invalid_request",
+          "the report or integration id is not valid",
+        );
       const role = call.args[1];
       if (role !== undefined && !NAME_PATTERN.test(role))
         return fail("invalid_request", "the reviewer role name is not valid");
@@ -684,7 +695,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             context,
             log,
           },
-          { reportId, requestedRole: role, pmCredential: call.credential },
+          {
+            subjectId: reportId,
+            requestedRole: role,
+            pmCredential: call.credential,
+          },
         );
         return ok({
           reviewId: review.reviewId,
@@ -705,6 +720,85 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             "error",
             "the controller could not check the commit just now",
           );
+        return mapError(error);
+      }
+    },
+
+    async integrate(call) {
+      const requestedBy = workerManager(call.identity);
+      if (requestedBy === undefined)
+        return fail(
+          "forbidden",
+          "only the PM or the operator may integrate reports",
+        );
+      if (call.args.length < 1)
+        return fail(
+          "invalid_request",
+          "integrate needs report ids, or confirm|discard and an integration id",
+        );
+      if (deps.integrationGit === undefined)
+        return fail("not_configured", "integration needs a git repository");
+      const integrationDeps: IntegrationDeps = {
+        core,
+        git: deps.integrationGit,
+        context,
+        credential: deps.controllerCredential,
+        log,
+      };
+      const [first, second] = call.args;
+      try {
+        if (first === "confirm" || first === "discard") {
+          if (call.args.length !== 2 || !SAFE_AGENT_ID.test(second!))
+            return fail(
+              "invalid_request",
+              `integrate ${first} needs one integration id`,
+            );
+          log("integration_settle_requested", {
+            requestedBy,
+            integrationId: second,
+            outcome: first,
+          });
+          const settled = await settleIntegration(integrationDeps, {
+            integrationId: second!,
+            outcome: first === "confirm" ? "confirmed" : "discarded",
+          });
+          return ok({
+            integrationId: settled.record.integrationId,
+            state: settled.record.state,
+            branch: settled.record.branch,
+            branchRemoved: settled.branchRemoved,
+          });
+        }
+        if (call.args.some((id) => !SAFE_AGENT_ID.test(id)))
+          return fail("invalid_request", "a report id is not valid");
+        log("integration_requested", { requestedBy, reportIds: call.args });
+        const record = await integrate(integrationDeps, {
+          reportIds: call.args,
+          requestedBy,
+        });
+        return ok({
+          integrationId: record.integrationId,
+          state: record.state,
+          base: record.baseSha,
+          branch: record.state === "merged" ? record.branch : null,
+          head: record.headSha,
+          reports: record.reports.map((r) => r.reportId),
+          conflict:
+            record.state === "conflicted"
+              ? {
+                  reportId: record.conflictReportId,
+                  files: record.conflictFiles,
+                }
+              : null,
+          failure: record.failureReason,
+        });
+      } catch (error) {
+        if (error instanceof IntegrationError)
+          return fail("rejected", `${error.code}: ${error.message}`);
+        if (error instanceof ControllerError)
+          return fail("rejected", `integration_refused: ${error.message}`);
+        if (error instanceof GitCheckError)
+          return fail("error", "the controller could not run git just now");
         return mapError(error);
       }
     },
@@ -786,12 +880,23 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             .map((r) => ({
               reviewId: r.reviewId,
               reportId: r.reportId,
+              integrationId: r.integrationId,
               round: r.round,
               state: r.state,
               authorAgentId: r.authorAgentId,
               reviewerAgentId: r.reviewerAgentId,
               announced: r.notifiedMessageId !== null,
               createdAt: r.createdAt,
+            }));
+          result.integrations = core
+            .integrations(call.credential, MAX_STATUS_REPORTS)
+            .map((i) => ({
+              integrationId: i.integrationId,
+              state: i.state,
+              branch: i.state === "merged" ? i.branch : null,
+              reports: i.reports.map((r) => r.reportId),
+              conflictReportId: i.conflictReportId,
+              createdAt: i.createdAt,
             }));
           result.reports = core
             .agentReports(call.credential, MAX_STATUS_REPORTS)
@@ -893,6 +998,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         command === "launch" ||
         command === "spawn" ||
         command === "request-review" ||
+        command === "integrate" ||
         command === "release" ||
         command === "pm-restart"
       )

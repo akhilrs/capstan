@@ -16,7 +16,17 @@ import { randomUUID } from "node:crypto";
 import { AuthenticationError } from "./controller/auth.js";
 import { ControllerCore } from "./controller/core.js";
 import { createCommandHandlers, type CommandSet } from "./commands.js";
-import { commitExists, inspectCommit } from "./git.js";
+import {
+  branchTip,
+  commitExists,
+  deleteBranchAt,
+  headCommit,
+  inspectCommit,
+  isInHead,
+  mergeIntoBranch,
+} from "./git.js";
+import { recoverIntegrations } from "./integration.js";
+import type { IntegrationGit } from "./integration.js";
 import { startReportRelay, type ReportRelay } from "./reports.js";
 import { recoverReviews } from "./reviews.js";
 import type { CapstanConfig } from "./config/capstan-config.js";
@@ -76,6 +86,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   report: { access: "agent" },
   ask: { access: "agent", stub: STUB_STAGE },
   "request-review": { access: "agent" },
+  integrate: { access: "any" },
   review: { access: "agent" },
   finding: { access: "agent", stub: STUB_STAGE },
   assign: { access: "operator", stub: STUB_STAGE },
@@ -755,6 +766,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       controllerCredential: credential,
       inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
       commitExists: (sha) => commitExists(options.workspaceRoot, sha),
+      integrationGit: integrationGit(options.workspaceRoot),
       driverSnapshot: () =>
         driver?.snapshot() ?? { stalledAgentIds: [], stuck: [] },
       log: detailLog,
@@ -792,6 +804,15 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           detailLog("review_recovery_failed", { error: String(error) }),
         );
     }
+    void recoverIntegrations({
+      core,
+      git: integrationGit(options.workspaceRoot),
+      context: (token) => newContext(core!, token),
+      credential,
+      log: detailLog,
+    }).catch((error) =>
+      detailLog("integration_recovery_failed", { error: String(error) }),
+    );
     reportRelay = startReportRelay({
       core,
       credential,
@@ -824,6 +845,17 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     if (core !== undefined) removePidFile(pidPath);
     for (const signal of signals) process.off(signal, handler);
   }
+}
+
+function integrationGit(root: string): IntegrationGit {
+  return {
+    headCommit: () => headCommit(root),
+    commitExists: (sha) => commitExists(root, sha),
+    merge: (input) => mergeIntoBranch(root, input),
+    branchTip: (branch) => branchTip(root, branch),
+    isInHead: (sha) => isInHead(root, sha),
+    deleteBranch: (branch, sha) => deleteBranchAt(root, branch, sha),
+  };
 }
 
 /** A wait cannot outlive its connection, so any row still open at start belongs to a dead process. */

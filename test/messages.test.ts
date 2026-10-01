@@ -1630,6 +1630,8 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const db = new Database(databasePath);
     const newTables = [
       "reviews",
+      "integration_reports",
+      "integrations",
       "agent_reports",
       "pm_restarts",
       "orphan_panes",

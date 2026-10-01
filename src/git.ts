@@ -37,19 +37,26 @@ interface GitOutcome {
   readonly stdout: string;
 }
 
+interface RunOptions {
+  readonly timeoutMs?: number;
+  readonly maxBuffer?: number;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
 function runGit(
   repoRoot: string,
   args: readonly string[],
+  options: RunOptions = {},
 ): Promise<GitOutcome> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       ["--no-replace-objects", "-C", repoRoot, ...args],
       {
-        env: cleanGitEnvironment(),
-        timeout: GIT_TIMEOUT_MS,
+        env: { ...cleanGitEnvironment(), ...options.env },
+        timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
         killSignal: "SIGKILL",
-        maxBuffer: 64 * 1024,
+        maxBuffer: options.maxBuffer ?? 64 * 1024,
         encoding: "utf8",
       },
       (error, stdout) => {
@@ -160,4 +167,211 @@ export async function commitExists(
   if (outcome.code === 0) return true;
   if (outcome.code === 1) return false;
   throw new GitCheckError("git could not look the commit up");
+}
+
+const INTEGRATION_TIMEOUT_MS = 60_000;
+const INTEGRATION_BUFFER = 1024 * 1024;
+const CONTROLLER_IDENTITY: NodeJS.ProcessEnv = {
+  GIT_AUTHOR_NAME: "capstan",
+  GIT_AUTHOR_EMAIL: "capstan@localhost",
+  GIT_COMMITTER_NAME: "capstan",
+  GIT_COMMITTER_EMAIL: "capstan@localhost",
+};
+const WRITE_OPTIONS: RunOptions = {
+  timeoutMs: INTEGRATION_TIMEOUT_MS,
+  maxBuffer: INTEGRATION_BUFFER,
+  env: CONTROLLER_IDENTITY,
+};
+const NO_COMMIT = "0".repeat(40);
+
+/** The commit HEAD points at in the repository, as a full sha1. */
+export async function headCommit(repoRoot: string): Promise<string> {
+  const format = await runGit(repoRoot, ["rev-parse", "--show-object-format"]);
+  if (format.code !== 0 || format.stdout.trim() !== "sha1")
+    throw new GitCheckError("only sha1 repositories are supported");
+  const outcome = await runGit(repoRoot, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    "HEAD^{commit}",
+  ]);
+  const sha = outcome.stdout.trim();
+  if (outcome.code !== 0 || !FULL_SHA.test(sha))
+    throw new GitCheckError("the project has no commit to integrate onto");
+  return sha;
+}
+
+export type MergeResult =
+  | { readonly kind: "merged"; readonly headSha: string }
+  | {
+      readonly kind: "conflicted";
+      readonly reportId: string;
+      readonly files: readonly string[];
+    }
+  | { readonly kind: "failed"; readonly reason: string };
+
+export interface IntegrationMergeInput {
+  readonly baseSha: string;
+  readonly branch: string;
+  readonly merges: readonly {
+    readonly reportId: string;
+    readonly sha: string;
+    readonly message: string;
+  }[];
+}
+
+/**
+ * Merges the commits in order onto the base, each as its own merge commit, and
+ * creates the branch at the result. It builds the trees with `git merge-tree`
+ * and the commits with `git commit-tree`, so nothing is checked out: no
+ * worktree exists, and no hook, filter, fsmonitor or rerere setting of the
+ * repository can run. (A merge driver named in the committed attributes still
+ * can; that is part of DEC-005's same-user hole.) A commit already contained in
+ * the result so far is skipped, as `git merge` does. A conflict stops the run
+ * and leaves nothing but unreferenced objects.
+ */
+export async function mergeIntoBranch(
+  repoRoot: string,
+  input: IntegrationMergeInput,
+): Promise<MergeResult> {
+  const ref = `refs/heads/${input.branch}`;
+  for (const sha of [input.baseSha, ...input.merges.map((m) => m.sha)])
+    if (!FULL_SHA.test(sha))
+      return { kind: "failed", reason: "a commit id is not a full sha1" };
+  if ((await runGit(repoRoot, ["check-ref-format", ref])).code !== 0)
+    return { kind: "failed", reason: "the branch name is not a valid ref" };
+  for (const merge of input.merges)
+    if (!(await commitExists(repoRoot, merge.sha)))
+      return {
+        kind: "failed",
+        reason: `the commit of report ${merge.reportId} does not exist`,
+      };
+  let head = input.baseSha;
+  for (const merge of input.merges) {
+    if (await isAncestor(repoRoot, merge.sha, head)) continue;
+    const merged = await runGit(
+      repoRoot,
+      ["merge-tree", "--write-tree", "--name-only", "-z", head, merge.sha],
+      WRITE_OPTIONS,
+    );
+    const fields = merged.stdout.split("\0");
+    if (merged.code === 1) {
+      const files = [
+        ...new Set(fields.slice(1, fields.indexOf("", 1)).filter(Boolean)),
+      ];
+      if (files.length > 0)
+        return { kind: "conflicted", reportId: merge.reportId, files };
+    }
+    if (merged.code !== 0 || !FULL_SHA.test(fields[0] ?? ""))
+      return {
+        kind: "failed",
+        reason:
+          merged.code === 129
+            ? "git 2.38 or newer is needed to merge"
+            : `git could not merge report ${merge.reportId} (exit ${merged.code})`,
+      };
+    const commit = await runGit(
+      repoRoot,
+      [
+        "-c",
+        "commit.gpgSign=false",
+        "commit-tree",
+        fields[0]!,
+        "-p",
+        head,
+        "-p",
+        merge.sha,
+        "-m",
+        merge.message,
+      ],
+      WRITE_OPTIONS,
+    );
+    const next = commit.stdout.trim();
+    if (commit.code !== 0 || !FULL_SHA.test(next))
+      return {
+        kind: "failed",
+        reason: `git could not commit the merge of report ${merge.reportId}`,
+      };
+    head = next;
+  }
+  if (head === input.baseSha)
+    return {
+      kind: "failed",
+      reason: "every report is already contained in the base commit",
+    };
+  const created = await runGit(repoRoot, ["update-ref", ref, head, NO_COMMIT]);
+  if (created.code !== 0)
+    return {
+      kind: "failed",
+      reason: "git could not create the integration branch",
+    };
+  return { kind: "merged", headSha: head };
+}
+
+/** Whether any worktree of the repository has this branch checked out. */
+async function branchCheckedOut(
+  repoRoot: string,
+  branch: string,
+): Promise<boolean> {
+  const outcome = await runGit(repoRoot, [
+    "worktree",
+    "list",
+    "--porcelain",
+    "-z",
+  ]);
+  if (outcome.code !== 0)
+    throw new GitCheckError("git could not list the worktrees");
+  return outcome.stdout.split("\0").includes(`branch refs/heads/${branch}`);
+}
+
+/** Deletes a branch only while it still points at `sha` and no worktree has it checked out. */
+export async function deleteBranchAt(
+  repoRoot: string,
+  branch: string,
+  sha: string,
+): Promise<boolean> {
+  const ref = `refs/heads/${branch}`;
+  if ((await runGit(repoRoot, ["check-ref-format", ref])).code !== 0)
+    return false;
+  if (!FULL_SHA.test(sha)) return false;
+  if (await branchCheckedOut(repoRoot, branch)) return false;
+  const outcome = await runGit(
+    repoRoot,
+    ["update-ref", "-d", ref, sha],
+    WRITE_OPTIONS,
+  );
+  return outcome.code === 0;
+}
+
+/** The commit a branch points at, or null when the branch does not exist. */
+export async function branchTip(
+  repoRoot: string,
+  branch: string,
+): Promise<string | null> {
+  const ref = `refs/heads/${branch}`;
+  if ((await runGit(repoRoot, ["check-ref-format", ref])).code !== 0)
+    return null;
+  const outcome = await runGit(repoRoot, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${ref}^{commit}`,
+  ]);
+  if (outcome.code === 1) return null;
+  const tip = outcome.stdout.trim();
+  if (outcome.code !== 0 || !FULL_SHA.test(tip))
+    throw new GitCheckError("git could not read the branch");
+  return tip;
+}
+
+/** Whether the commit is already part of the project's HEAD. */
+export async function isInHead(
+  repoRoot: string,
+  sha: string,
+): Promise<boolean> {
+  if (!FULL_SHA.test(sha))
+    throw new GitCheckError(
+      "the commit id must be 40 lowercase hex characters",
+    );
+  return isAncestor(repoRoot, sha, "HEAD");
 }
