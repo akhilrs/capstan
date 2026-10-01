@@ -138,6 +138,7 @@ test("a conflict aborts, names the report and the files, and leaves no worktree,
       kind: "conflicted",
       reportId: "r-b",
       files: ["shared.txt"],
+      omitted: 0,
     });
     assert.equal(worktrees(repo).length, 1);
     assert.equal(await branchTip(repo.root, "capstan/integration/clash"), null);
@@ -154,12 +155,13 @@ test("conflict paths are escaped, kept distinct and capped", async () => {
   try {
     git(root, "init", "-q", "-b", "main");
     const names = [
+      "0-a,b.txt",
       "0-a\nb.txt",
       "0-caf\u00e9.txt",
       '0-q"uote.txt',
       "0-back\\slash.txt",
     ];
-    for (let i = 0; i < 52; i += 1) names.push(`n${i}.txt`);
+    for (let i = 0; i < 53; i += 1) names.push(`n${i}.txt`);
     const write = (text: string): string => {
       for (const name of names) writeFileSync(path.join(root, name), text);
       git(root, "add", "-A");
@@ -179,10 +181,11 @@ test("conflict paths are escaped, kept distinct and capped", async () => {
     });
     assert.equal(result.kind, "conflicted");
     if (result.kind !== "conflicted") return;
-    assert.equal(result.files.length, 51);
-    assert.equal(result.files.at(-1), "(and 6 more)");
+    assert.equal(result.files.length, 50);
+    assert.equal(result.omitted, 8);
     assert.ok(result.files.every((f) => /^[\x20-\x7e]+$/.test(f)));
     assert.ok(result.files.includes("0-a\\x0ab.txt"));
+    assert.ok(result.files.includes("0-a\\x2cb.txt"));
     assert.ok(result.files.includes("0-caf\\xc3\\xa9.txt"));
     assert.ok(result.files.includes("0-q\\x22uote.txt"));
     assert.ok(result.files.includes("0-back\\x5cslash.txt"));

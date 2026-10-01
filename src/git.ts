@@ -198,14 +198,14 @@ const NO_COMMIT = "0".repeat(40);
  */
 export function printablePath(raw: string): string {
   const text = raw.replace(
-    /[^\x20-\x7e]|["\\]/g,
+    /[^\x20-\x7e]|[",\\]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
   );
   if (text.length <= MAX_CONFLICT_PATH_CHARS) return text;
   // Cut between escapes, and add a digest of the whole name so two long paths with one beginning stay different.
   const cut = text
     .slice(0, MAX_CONFLICT_PATH_CHARS)
-    .replace(/\\x[0-9a-f]?$/, "");
+    .replace(/\\(?:x[0-9a-f]?)?$/, "");
   const digest = createHash("sha256").update(raw, "latin1").digest("hex");
   return `${cut}...#${digest.slice(0, 8)}`;
 }
@@ -233,6 +233,7 @@ export type MergeResult =
       readonly kind: "conflicted";
       readonly reportId: string;
       readonly files: readonly string[];
+      readonly omitted: number;
     }
   | { readonly kind: "failed"; readonly reason: string };
 
@@ -287,10 +288,13 @@ export async function mergeIntoBranch(
         ...new Set(fields.slice(1, end < 0 ? undefined : end)),
       ].filter((name) => name !== "");
       const files = names.slice(0, MAX_CONFLICT_FILES).map(printablePath);
-      if (names.length > MAX_CONFLICT_FILES)
-        files.push(`(and ${names.length - MAX_CONFLICT_FILES} more)`);
       if (files.length > 0)
-        return { kind: "conflicted", reportId: merge.reportId, files };
+        return {
+          kind: "conflicted",
+          reportId: merge.reportId,
+          files,
+          omitted: Math.max(0, names.length - MAX_CONFLICT_FILES),
+        };
     }
     if (merged.code !== 0 || !FULL_SHA.test(fields[0] ?? ""))
       return {

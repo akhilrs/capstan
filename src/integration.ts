@@ -56,7 +56,7 @@ export async function integrate(
     readonly requestedBy: string;
   },
 ): Promise<IntegrationRecord> {
-  await recoverIntegrations(deps);
+  await recoverIntegrations(deps, "pending");
   const baseSha = await deps.git.headCommit();
   const integrationId = randomUUID();
   const branch = branchFor(integrationId);
@@ -165,18 +165,27 @@ export async function settleIntegration(
   const branchRemoved = await deps.git
     .deleteBranch(before.branch, before.headSha)
     .catch(() => false);
-  if (!branchRemoved)
+  if (!branchRemoved) {
+    pendingSweep.add(input.integrationId);
     deps.log("integration_branch_not_removed", {
       integrationId: input.integrationId,
       branch: before.branch,
     });
+  }
   return { record, branchRemoved };
 }
 
+/** Settled integrations whose branch could not be deleted in this process; the next integration retries them, and the daemon start looks at all settled rows. */
+const pendingSweep = new Set<string>();
+
 /** Removes the branch of a settled integration whose deletion failed earlier, while it still points at the recorded commit. */
-async function sweepSettledBranches(deps: IntegrationDeps): Promise<void> {
+async function sweepSettledBranches(
+  deps: IntegrationDeps,
+  scope: "pending" | "all",
+): Promise<void> {
   for (const row of deps.core.settledIntegrations(deps.credential)) {
     if (row.headSha === null) continue;
+    if (scope === "pending" && !pendingSweep.has(row.integrationId)) continue;
     try {
       if ((await deps.git.branchTip(row.branch)) !== row.headSha) continue;
       if (await deps.git.deleteBranch(row.branch, row.headSha))
@@ -195,8 +204,9 @@ async function sweepSettledBranches(deps: IntegrationDeps): Promise<void> {
 /** A `running` integration that this process is not merging was cut off: its branch is removed and it is marked failed. Branches of settled integrations that could not be deleted earlier are swept first. */
 export async function recoverIntegrations(
   deps: IntegrationDeps,
+  scope: "pending" | "all" = "all",
 ): Promise<void> {
-  await sweepSettledBranches(deps);
+  await sweepSettledBranches(deps, scope);
   for (const row of deps.core.runningIntegrations(deps.credential)) {
     if (inFlight.has(row.integrationId)) continue;
     try {

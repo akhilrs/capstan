@@ -256,6 +256,7 @@ test("a conflict is recorded with the report and files, reported to the PM when 
       kind: "conflicted",
       reportId: ids[1]!,
       files: ["src/a.ts", "evil\\x0aname"],
+      omitted: 0,
     };
     const before = h.core.messagesFor(h.pm.agentId).length;
     const record = await integrate(deps(h, git), {
@@ -265,6 +266,7 @@ test("a conflict is recorded with the report and files, reported to the PM when 
     assert.equal(record.state, "conflicted");
     assert.equal(record.conflictReportId, ids[1]);
     assert.deepEqual(record.conflictFiles, ["src/a.ts", "evil\\x0aname"]);
+    assert.equal(record.conflictFilesOmitted, 0);
     assert.equal(record.headSha, null);
     const messages = h.core.messagesFor(h.pm.agentId);
     assert.equal(messages.length, before + 1);
@@ -656,7 +658,10 @@ test("a branch that could not be deleted at settle is swept by the next integrat
     });
     assert.equal(settled.branchRemoved, false);
     deletable = true;
-    await recoverIntegrations(deps(h, git));
+    await integrate(deps(h, git), {
+      reportIds: [ids[1]!],
+      requestedBy: "operator",
+    });
     assert.ok(
       git.calls.includes(`delete ${record.branch} ${HEAD} true`),
       git.calls.join("\n"),

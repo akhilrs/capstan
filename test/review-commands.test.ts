@@ -440,7 +440,7 @@ test("an integration conflict is answered with the report and files and nothing 
     const reportId = report(h);
     await call(h, h.pm.credential, "request-review", [reportId]);
     await call(h, spawned[0]!.credential, "review", ["pass", "fine"]);
-    stub.merge = { kind: "conflicted", reportId, files: ["a.txt"] };
+    stub.merge = { kind: "conflicted", reportId, files: ["a.txt"], omitted: 0 };
     const answer = await call(h, h.pm.credential, "integrate", [reportId]);
     assert.ok(answer.ok, JSON.stringify(answer));
     const result = (answer as { result: Record<string, unknown> }).result;

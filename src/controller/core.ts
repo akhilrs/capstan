@@ -392,7 +392,7 @@ function reviewNotice(
       : `integration ${row.subject_integration_id}`;
   return [
     `Review ${row.review_id} of ${subject}, round ${row.round}: ${row.state === "passed" ? "PASS" : "FINDINGS"}`,
-    `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); ${authorAgentIds.length === 1 ? "author" : "authors"}: ${authorAgentIds.join(", ")}. Different sessions.`,
+    `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); ${new Set(authorAgentIds).size === 1 ? "author" : "authors"}: ${[...new Set(authorAgentIds)].join(", ")}. Different sessions.`,
     `Commit: ${row.commit_sha}`,
     `The reviewer's text, not verified: ${JSON.stringify(row.verdict_text)}`,
   ].join("\n");
@@ -417,6 +417,7 @@ export interface IntegrationRecord {
   readonly headSha: string | null;
   readonly conflictReportId: string | null;
   readonly conflictFiles: readonly string[] | null;
+  readonly conflictFilesOmitted: number | null;
   readonly failureReason: string | null;
   readonly reports: readonly {
     readonly reportId: string;
@@ -437,6 +438,7 @@ interface IntegrationRow {
   readonly head_sha: string | null;
   readonly conflict_report_id: string | null;
   readonly conflict_files_json: string | null;
+  readonly conflict_files_omitted: number | null;
   readonly failure_reason: string | null;
   readonly created_at: string;
   readonly completed_at: string | null;
@@ -448,6 +450,7 @@ export type IntegrationOutcome =
       readonly kind: "conflicted";
       readonly reportId: string;
       readonly files: readonly string[];
+      readonly omitted: number;
     }
   | { readonly kind: "failed"; readonly reason: string };
 
@@ -3343,7 +3346,9 @@ export class ControllerCore {
     if (
       outcome.kind === "conflicted" &&
       (outcome.files.length < 1 ||
-        outcome.files.length > MAX_CONFLICT_FILES + 1 ||
+        outcome.files.length > MAX_CONFLICT_FILES ||
+        !Number.isInteger(outcome.omitted) ||
+        outcome.omitted < 0 ||
         outcome.files.some(
           (file) =>
             !/^[\x20-\x7e]+$/.test(file) ||
@@ -3370,7 +3375,7 @@ export class ControllerCore {
         const now = this.#now();
         this.#database
           .prepare(
-            `UPDATE integrations SET state = ?, head_sha = ?, conflict_report_id = ?, conflict_files_json = ?, failure_reason = ?, completed_at = ?
+            `UPDATE integrations SET state = ?, head_sha = ?, conflict_report_id = ?, conflict_files_json = ?, conflict_files_omitted = ?, failure_reason = ?, completed_at = ?
              WHERE project_id = ? AND integration_id = ?`,
           )
           .run(
@@ -3380,6 +3385,7 @@ export class ControllerCore {
             outcome.kind === "conflicted"
               ? JSON.stringify(outcome.files)
               : null,
+            outcome.kind === "conflicted" ? outcome.omitted : null,
             outcome.kind === "failed" ? outcome.reason : null,
             now,
             this.#projectId,
@@ -3397,7 +3403,11 @@ export class ControllerCore {
             toState: outcome.kind,
             details:
               outcome.kind === "conflicted"
-                ? { reportId: outcome.reportId, files: [...outcome.files] }
+                ? {
+                    reportId: outcome.reportId,
+                    files: [...outcome.files],
+                    omitted: outcome.omitted,
+                  }
                 : outcome.kind === "failed"
                   ? { reason: outcome.reason }
                   : { headSha: outcome.headSha },
@@ -3416,7 +3426,7 @@ export class ControllerCore {
     if (parties === undefined) return;
     const body = [
       `Integration ${integrationId} is blocked by a merge conflict`,
-      `The conflict arose when merging report ${outcome.reportId}. Files (escaped; a path is text from a worker): ${outcome.files.join(", ")}`,
+      `The conflict arose when merging report ${outcome.reportId}. Files (escaped; a path is text from a worker): ${outcome.files.join(", ")}${outcome.omitted > 0 ? `, and ${outcome.omitted} more not listed` : ""}`,
       "The controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again.",
     ].join("\n");
     this.#insertQueuedMessage(
@@ -3513,6 +3523,7 @@ export class ControllerCore {
       state: row.state,
       headSha: row.head_sha,
       conflictReportId: row.conflict_report_id,
+      conflictFilesOmitted: row.conflict_files_omitted,
       conflictFiles:
         row.conflict_files_json === null
           ? null
