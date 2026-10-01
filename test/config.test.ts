@@ -153,6 +153,8 @@ test("the starter configuration written by init is valid and gives the PM worker
       ],
     );
     assert.equal(config.limits.maxWorkers, 3);
+    assert.equal(config.layout.spawn, "pane");
+    assert.equal(config.layout.split, "auto");
     for (const role of config.roles.filter((r) => r.kind !== "PM")) {
       assert.match(role.promptText ?? "", /branch/, role.name);
       assert.equal(role.permissionMode, "acceptEdits");
@@ -181,6 +183,45 @@ test("limits.max_workers defaults to 3, accepts 1 to 16 and refuses anything els
       /limits\.max_workers/,
     );
   assertRejected(`${VALID}\n[limits]\nmax_worker = 2\n`, /limits/);
+});
+
+test("the layout table defaults to tabs, accepts the documented values and refuses everything else", () => {
+  const load = (text: string) =>
+    withConfig(text, (directory) => loadCapstanConfig(directory).layout);
+  const defaults = {
+    spawn: "tab",
+    split: "auto",
+    minPaneColumns: 60,
+    minPaneRows: 12,
+  };
+  assert.deepEqual(load(VALID), defaults);
+  assert.deepEqual(load(`${VALID}\n[layout]\n`), defaults);
+  assert.deepEqual(
+    load(
+      `${VALID}\n[layout]\nspawn = "pane"\nsplit = "down"\nmin_pane_columns = 80\nmin_pane_rows = 20\n`,
+    ),
+    { spawn: "pane", split: "down", minPaneColumns: 80, minPaneRows: 20 },
+  );
+  for (const bad of [
+    'spawn = "Pane"',
+    'spawn = " pane"',
+    'spawn = ""',
+    "spawn = 1",
+    'spawn = "window"',
+    'split = "vertical"',
+    'split = "Right"',
+    "split = true",
+    "min_pane_columns = 0",
+    "min_pane_columns = 501",
+    "min_pane_columns = 60.0",
+    'min_pane_columns = "60"',
+    "min_pane_rows = 0",
+    "min_pane_rows = 201",
+    "min_pane_rows = -1",
+    "min_pane_rows = true",
+    "size = 3",
+  ])
+    assertRejected(`${VALID}\n[layout]\n${bad}\n`, /layout/, undefined);
 });
 
 test("a PM without a deny list denies the file-editing and subagent tools, and an explicit deny list replaces that", () => {

@@ -1,6 +1,8 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PaneLost } from "../src/herdr/adapter.js";
+import { HerdrError } from "../src/herdr/runner.js";
 import type { GitRunner, LauncherAdapter } from "../src/launcher.js";
 
 export const SHA = "b".repeat(40);
@@ -39,6 +41,68 @@ export class StubAdapter implements LauncherAdapter {
   runError: Error | undefined;
   dir = mkdtempSync(path.join(tmpdir(), "capstan-launcher-prompts-"));
 
+  // The PM's tab as the layout sees it: sizes in terminal cells.
+  pmWorkspace: string | undefined;
+  tabPanes: Array<{ paneId: string; width: number; height: number }> = [];
+  layoutSize = { width: 200, height: 50 };
+  zoomed = false;
+  layoutError: Error | undefined;
+  placeError: Error | undefined;
+  /** Closing a pane that is not there answers pane_not_found, as Herdr does. */
+  closeMissingThrows = false;
+  strays = new Map<string, string[]>();
+  private placed = 10;
+
+  async paneLayout(paneId: string) {
+    this.calls.push(`layout:${paneId}`);
+    if (this.layoutError) throw this.layoutError;
+    const workspace = this.pmWorkspace ?? "w1";
+    return {
+      tabId: `${workspace}:t1`,
+      workspaceId: workspace,
+      zoomed: this.zoomed,
+      panes: this.tabPanes.map((pane) => ({ ...pane })),
+    };
+  }
+
+  async placePane(input: {
+    paneId: string;
+    tabId: string;
+    targetPaneId: string;
+    direction: "right" | "down";
+    worktreePath: string;
+  }) {
+    this.calls.push(
+      `place:${input.paneId}:${input.targetPaneId}:${input.direction}`,
+    );
+    if (this.placeError) {
+      // A lost move: the old pane is gone and no registered pane replaced it.
+      if (this.placeError instanceof PaneLost)
+        this.entries.delete(input.paneId);
+      throw this.placeError;
+    }
+    const target = this.tabPanes.find((p) => p.paneId === input.targetPaneId)!;
+    const workspace = this.pmWorkspace!;
+    this.placed += 1;
+    const paneId = `${workspace}:p${this.placed}`;
+    const half = (n: number) => Math.floor(n / 2);
+    const next =
+      input.direction === "right"
+        ? { width: half(target.width), height: target.height }
+        : { width: target.width, height: half(target.height) };
+    if (input.direction === "right") target.width = half(target.width);
+    else target.height = half(target.height);
+    this.tabPanes.push({ paneId, ...next });
+    this.entries.delete(input.paneId);
+    this.entries.set(paneId, {});
+    return { paneId, workspaceId: workspace };
+  }
+
+  async panesAtPath(directory: string) {
+    this.calls.push(`panes-at:${directory}`);
+    return this.strays.get(directory) ?? [];
+  }
+
   async createWorkspace(input: {
     cwd: string;
     label: string;
@@ -48,6 +112,10 @@ export class StubAdapter implements LauncherAdapter {
     const paneId = `w${this.counter}:p1`;
     this.calls.push(`workspace:${input.label}:${input.role}`);
     this.entries.set(paneId, {});
+    if (input.role === "PM") {
+      this.pmWorkspace = `w${this.counter}`;
+      this.tabPanes = [{ paneId, ...this.layoutSize }];
+    }
     return { workspaceId: `w${this.counter}`, paneId };
   }
 
@@ -131,7 +199,10 @@ export class StubAdapter implements LauncherAdapter {
   async closePane(paneId: string) {
     this.calls.push(`close:${paneId}`);
     if (this.closeError) throw this.closeError;
+    if (this.closeMissingThrows && !this.entries.has(paneId))
+      throw new HerdrError("pane_not_found", "no such pane");
     this.entries.delete(paneId);
+    this.tabPanes = this.tabPanes.filter((p) => p.paneId !== paneId);
     for (const [agent, pane] of this.agentPanes)
       if (pane === paneId) this.agentPanes.delete(agent);
   }

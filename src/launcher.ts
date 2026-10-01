@@ -15,6 +15,7 @@ import type { AgentRecord } from "./controller/types.js";
 import {
   AgentPaneMismatch,
   PaneGone,
+  PaneLost,
   buildAgentEnvironment,
   shellQuote,
   claudeArguments,
@@ -22,6 +23,7 @@ import {
 } from "./herdr/adapter.js";
 import { HerdrError } from "./herdr/runner.js";
 import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
+import { choosePlacement, type LayoutPane } from "./layout.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
 
 export const STEP_BUDGET_MS = 60_000;
@@ -37,6 +39,9 @@ export type LauncherAdapter = Pick<
   HerdrAdapter,
   | "createWorkspace"
   | "createWorktree"
+  | "paneLayout"
+  | "placePane"
+  | "panesAtPath"
   | "prepareShell"
   | "startAgent"
   | "answerTrustDialog"
@@ -91,6 +96,10 @@ export interface SpawnResult {
   readonly paneId: string;
   readonly worktreePath: string;
   readonly branch: string;
+  /** "pane": the worker is a split in the PM's tab; "tab": it has its own Herdr workspace. */
+  readonly placement: "pane" | "tab";
+  /** Why a pane-mode spawn stayed a tab. */
+  readonly placementNote?: string;
   readonly hint?: string;
 }
 
@@ -147,6 +156,7 @@ interface Budget {
 
 /** Keeps a sync error to one short line in the refusal. */
 const MAX_SYNC_REASON_CHARS = 200;
+const MAX_NOTE_CHARS = 200;
 
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
@@ -870,6 +880,34 @@ export class Launcher {
           branch,
           baseSha,
         });
+        let paneId = tree.paneId;
+        let placement: SpawnResult["placement"] = "tab";
+        let placementNote: string | undefined;
+        if (this.#config.layout.spawn === "pane") {
+          budget.check("placing the worker pane");
+          const outcome = await this.#placeWorkerPane(
+            tree.paneId,
+            tree.path,
+            pmPane.paneId!,
+          );
+          if ("placed" in outcome) {
+            paneId = outcome.placed.paneId;
+            placement = "pane";
+            info.paneId = paneId;
+            this.#core.recordAgentPane(this.#context(), {
+              agentId: agent.agentId,
+              workspaceId: outcome.placed.workspaceId,
+              paneId,
+              worktreePath: tree.path,
+              branch,
+              baseSha,
+            });
+          } else placementNote = outcome.note;
+        }
+        const where = {
+          placement,
+          ...(placementNote === undefined ? {} : { placementNote }),
+        };
         budget.check("starting the worker");
         const promptFile = this.#adapter.writePromptFile(
           buildRolePrompt({
@@ -883,7 +921,7 @@ export class Launcher {
         const started = await this.#adapter.startAgent({
           name: agent.agentId,
           kind: "claude",
-          paneId: tree.paneId,
+          paneId,
           args: this.#arguments(role, promptFile),
           environment: this.#environment(agent.credential),
           timeoutMs: START_TIMEOUT_MS,
@@ -892,21 +930,23 @@ export class Launcher {
           return {
             state: "started",
             agentId: agent.agentId,
-            paneId: tree.paneId,
+            paneId,
             worktreePath: tree.path,
             branch,
+            ...where,
           };
         const answered = await this.#adapter.answerTrustDialog({
-          paneId: tree.paneId,
+          paneId,
           timeoutMs: DIALOG_TIMEOUT_MS,
           log: (entry) => this.#log("trust_dialog_key", { ...entry }),
         });
         return {
           state: answered.handled ? "started" : "blocked",
           agentId: agent.agentId,
-          paneId: tree.paneId,
+          paneId,
           worktreePath: tree.path,
           branch,
+          ...where,
           ...(answered.handled
             ? {}
             : {
@@ -918,6 +958,68 @@ export class Launcher {
         throw error;
       }
     });
+  }
+
+  // ----------------------------------------------------------- placement
+
+  /** Splits a new worker pane into the PM's tab, or says why it stays a tab. A pane that was lost in the move is an error, not a fallback. */
+  async #placeWorkerPane(
+    paneId: string,
+    worktreePath: string,
+    pmPaneId: string,
+  ): Promise<
+    | { readonly placed: { paneId: string; workspaceId: string } }
+    | { readonly note: string }
+  > {
+    const layoutConfig = this.#config.layout;
+    try {
+      const layout = await this.#adapter.paneLayout(pmPaneId);
+      if (layout.zoomed) return { note: "the PM's tab has a zoomed pane" };
+      const live = new Set(
+        this.#core
+          .agentPanes(this.#credential)
+          .filter((row) => {
+            const agent = this.#core.agentRecord(row.agentId);
+            return (
+              row.paneId !== null &&
+              agent?.state === "active" &&
+              (agent.kind === "PM" ||
+                !this.#cleanupFailed.some((c) => c.agentId === row.agentId)) &&
+              this.#adapter.paneEntry(row.paneId) !== undefined
+            );
+          })
+          .map((row) => row.paneId!),
+      );
+      const candidates: LayoutPane[] = layout.panes.filter((pane) =>
+        live.has(pane.paneId),
+      );
+      const choice = choosePlacement(candidates, {
+        split: layoutConfig.split,
+        minColumns: layoutConfig.minPaneColumns,
+        minRows: layoutConfig.minPaneRows,
+      });
+      if (choice === undefined)
+        return {
+          note: `no pane has room for a split of at least ${layoutConfig.minPaneColumns} columns by ${layoutConfig.minPaneRows} rows`,
+        };
+      const placed = await this.#adapter.placePane({
+        paneId,
+        tabId: layout.tabId,
+        targetPaneId: choice.targetPaneId,
+        direction: choice.direction,
+        worktreePath,
+      });
+      return { placed };
+    } catch (error) {
+      if (error instanceof PaneLost) throw error;
+      this.#log("placement_failed", { paneId, error: String(error) });
+      const text = (error instanceof Error ? error.message : String(error))
+        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ")
+        .trim();
+      return {
+        note: `the pane could not be placed (${Array.from(text).slice(0, MAX_NOTE_CHARS).join("")})`,
+      };
+    }
   }
 
   // ------------------------------------------------------------- cleanup
@@ -984,8 +1086,10 @@ export class Launcher {
       paneClosed = false;
       if (this.#within(budget)) {
         try {
-          await this.#close(info.paneId);
+          const existed = await this.#close(info.paneId);
           paneClosed = true;
+          if (!existed && info.worktreePath !== undefined)
+            await this.#closeMovedPane(agentId, info.worktreePath, info.paneId);
         } catch (error) {
           this.#log("pane_not_closed", {
             agentId,
@@ -1043,16 +1147,40 @@ export class Launcher {
     return { paneClosed, worktreeRemoved, branchKept };
   }
 
-  /** Closes a pane; a pane Herdr no longer knows counts as closed. */
-  async #close(paneId: string): Promise<void> {
+  /** Closes a pane; a pane Herdr no longer knows counts as closed. Returns false when the pane was already gone. */
+  async #close(paneId: string): Promise<boolean> {
     try {
       await this.#adapter.closePane(paneId);
+      return true;
     } catch (error) {
       if (error instanceof HerdrError && /not_found|no_such/.test(error.code)) {
         this.#adapter.forgetPane(paneId);
-        return;
+        return false;
       }
       throw error;
+    }
+  }
+
+  /**
+   * A recorded pane that is gone may have been moved (a split placement that
+   * was interrupted). Close the one unregistered pane whose directory is the
+   * agent's worktree; with none or several, leave everything alone.
+   */
+  async #closeMovedPane(
+    agentId: string,
+    worktreePath: string,
+    recordedPaneId: string,
+  ): Promise<void> {
+    try {
+      const strays = (await this.#adapter.panesAtPath(worktreePath)).filter(
+        (id) =>
+          id !== recordedPaneId && this.#adapter.paneEntry(id) === undefined,
+      );
+      if (strays.length !== 1) return;
+      await this.#close(strays[0]!);
+      this.#log("moved_pane_closed", { agentId, paneId: strays[0] });
+    } catch (error) {
+      this.#log("moved_pane_not_closed", { agentId, error: String(error) });
     }
   }
 
