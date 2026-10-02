@@ -749,6 +749,12 @@ function queuePanel(ctx: Ctx): Line[] {
 /** The longest severity word, `critical`. */
 const FINDING_SEVERITY_WIDTH = 8;
 
+/** The recorded reason, marked when the target is ended or not in the agent list. */
+function findingReason(f: FindingRow): string {
+  const marker = f.targetState === "active" ? "" : `(target ${f.targetState}) `;
+  return `${marker}${f.stateReason ?? ""}`.trim();
+}
+
 function findingsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
@@ -780,7 +786,7 @@ function findingsPanel(ctx: Ctx): Line[] {
       tableRow(ctx, cols, {
         selected: ctx.focused && win.start + i === view.selected.findings,
         changed: view.highlight.has(`f:${f.id}`),
-        dim: f.targetEnded,
+        dim: f.targetState === "ended",
         cells: {
           glyph: f.needsOperator
             ? span(g.attention, { color: theme.color("bad") })
@@ -792,15 +798,18 @@ function findingsPanel(ctx: Ctx): Line[] {
             color: theme.color(f.needsOperator ? "bad" : "warn"),
           }),
           int: span(`${f.interventions}/2`, { color: theme.color("dim") }),
-          reason: span(f.targetEnded ? "target ended" : (f.stateReason ?? ""), {
+          reason: span(findingReason(f), {
             color: theme.color("fg"),
           }),
         },
       }),
     ),
   );
-  const needs = rows.filter((f) => f.needsOperator && !f.targetEnded).length;
-  const orphaned = rows.filter((f) => f.targetEnded).length;
+  const needs = rows.filter(
+    (f) => f.needsOperator && f.targetState !== "ended",
+  ).length;
+  const orphaned = rows.filter((f) => f.targetState === "ended").length;
+  const unknown = rows.filter((f) => f.targetState === "unknown").length;
   return assemble(ctx, {
     id: "findings",
     tabs: [
@@ -809,6 +818,9 @@ function findingsPanel(ctx: Ctx): Line[] {
         : []),
       ...(orphaned > 0
         ? [{ text: `${orphaned} target ended`, color: theme.color("dim") }]
+        : []),
+      ...(unknown > 0
+        ? [{ text: `${unknown} target unknown`, color: theme.color("dim") }]
         : []),
     ],
     bottomRight: counter(ctx, view.selected.findings, rows.length, win),

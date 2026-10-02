@@ -68,8 +68,8 @@ export interface FindingRow {
   readonly interventions: number;
   readonly stateReason: string | null;
   readonly needsOperator: boolean;
-  /** The target agent is no longer active, so nobody can act on the finding any more. */
-  readonly targetEnded: boolean;
+  /** `ended` and `unknown` (not in the agent list) targets cannot act on the finding any more. */
+  readonly targetState: "active" | "ended" | "unknown";
   readonly fingerprint: string;
 }
 
@@ -354,7 +354,13 @@ export function buildDashModel(
         interventions: num(f.interventions),
         stateReason: textOrNull(f.stateReason),
         needsOperator: f.state === "escalated",
-        targetEnded: !activeAgents.has(text(f.targetAgentId)),
+        targetState: ((): FindingRow["targetState"] => {
+          const target = text(f.targetAgentId);
+          if (activeAgents.has(target)) return "active";
+          return agentRecords.some((a) => text(a.agentId) === target)
+            ? "ended"
+            : "unknown";
+        })(),
       };
       return {
         ...row,
@@ -362,7 +368,7 @@ export function buildDashModel(
           row.state,
           row.interventions,
           row.stateReason,
-          row.targetEnded,
+          row.targetState,
         ].join("|"),
       };
     });

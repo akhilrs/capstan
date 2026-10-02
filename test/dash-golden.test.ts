@@ -377,11 +377,11 @@ test("the selected detail area is hidden when the queue has nothing to select", 
 });
 
 test("an escalated finding on an ended agent is dimmed, says so and is not counted as needing the operator", () => {
-  const frame = buildFrame(modelOf(crowded(), 3), viewOf(118, 34), theme);
+  const frame = buildFrame(modelOf(crowded(), 3), viewOf(160, 45), theme);
   const text = plainLines(frame.lines).join("\n");
   assert.ok(text.includes("1 target ended"));
   assert.ok(!text.includes("needs operator"));
-  assert.ok(text.includes("ESCALATED 2/2 target ended"));
+  assert.ok(text.includes("ESCALATED 2/2 (target ended)"));
   const row = frame.lines.find((l) =>
     l.some((s) => s.text.includes("ESCALATED")),
   );
@@ -414,5 +414,37 @@ test("an empty worker meter is drawn with the empty glyph and no colour", () => 
   assert.ok(
     plain.includes("workers ░░░░░░░░ 0/3") ||
       plain.includes("workers ░░░░░░░░░░░░ 0/3"),
+  );
+});
+
+test("the findings panel keeps the reason and marks ended and unknown targets", () => {
+  const finding = (id: string, target: string, state: string) => ({
+    findingId: id,
+    targetAgentId: target,
+    severity: "low",
+    state,
+    interventions: 1,
+    stateReason: "why-kept",
+  });
+  const text = plainLines(
+    buildFrame(
+      modelOf(
+        crowded({
+          agentFindings: [
+            finding("f-esc", "designer-1", "escalated"),
+            finding("f-open", "designer-1", "open"),
+            finding("f-unk", "ghost-9", "open"),
+          ],
+        }),
+        3,
+      ),
+      viewOf(160, 45),
+      theme,
+    ).lines,
+  ).join("\n");
+  assert.equal(text.match(/\(target ended\) why-kept/g)?.length, 2);
+  assert.ok(text.includes("(target unknown) why-kept"));
+  assert.ok(
+    text.includes("2 target ended") && text.includes("1 target unknown"),
   );
 });

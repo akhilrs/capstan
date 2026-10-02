@@ -28,7 +28,7 @@
 │ integration confirmed  i2012345                     13m █│ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
 │ integration confirmed  i1012345                     16m █╰─────────────────────────────────────────────────────────╯
 │ review      passed     reviewer-5 -> i2012345 r1    18m │╭─⁴findings────────────────────────────┤ 1 target ended ├─╮
-│ review      passed     reviewer-4 -> i1012345 r1    23m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended │
+│ review      passed     reviewer-4 -> i1012345 r1    23m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 (target end… │
 │ review      findings   reviewer-3 -> developer-…    28m ││                                                         │
 ╰──────────────────────────────────────────────┤ 1-7/12 ├─╯╰─────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit                                    

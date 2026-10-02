@@ -19,6 +19,6 @@
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
-│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 (target ended) no progress after… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  tab focus  p pause  r refresh  ? help  q quit            
