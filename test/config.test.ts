@@ -1254,3 +1254,168 @@ test("the oversight timers and the supervision section have defaults, bounds and
     assertRejected(`${VALID}\n${bad}\n`, pattern);
   assert.ok(STARTER_CONFIG.includes("[supervision]"));
 });
+
+const DEFAULTS_BASE = `schema_version = 1
+
+[hosts.claude]
+kind = "claude"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[roles.dev]
+kind = "Developer"
+host = "claude"
+
+[roles.dev2]
+kind = "Developer"
+host = "claude"
+model = "claude-haiku-4-5"
+permission_mode = "acceptEdits"
+
+[roles.rev]
+kind = "Verifier"
+host = "claude"
+
+[roles.watch]
+kind = "Supervisor"
+host = "claude"
+`;
+
+const effective = (directory: string) =>
+  Object.fromEntries(
+    loadCapstanConfig(directory).roles.map((role) => [
+      role.name,
+      [role.model, role.permissionMode],
+    ]),
+  );
+
+test("a role takes its own model and mode, then its kind's default, then the global default, then the built-in", () => {
+  withConfig(DEFAULTS_BASE, (directory) => {
+    assert.deepEqual(effective(directory), {
+      pm: [null, "default"],
+      dev: [null, "default"],
+      dev2: ["claude-haiku-4-5", "acceptEdits"],
+      rev: [null, "default"],
+      watch: [null, "default"],
+    });
+  });
+  withConfig(
+    `${DEFAULTS_BASE}
+[defaults]
+model = "claude-sonnet-5-5"
+permission_mode = "auto"
+
+[defaults.PM]
+model = "claude-opus-5-5"
+
+[defaults.Supervisor]
+model = "claude-opus-5-5"
+permission_mode = "default"
+
+[defaults.Developer]
+permission_mode = "acceptEdits"
+`,
+    (directory) => {
+      assert.deepEqual(effective(directory), {
+        pm: ["claude-opus-5-5", "auto"],
+        dev: ["claude-sonnet-5-5", "acceptEdits"],
+        dev2: ["claude-haiku-4-5", "acceptEdits"],
+        rev: ["claude-sonnet-5-5", "auto"],
+        watch: ["claude-opus-5-5", "default"],
+      });
+    },
+  );
+});
+
+test("a changed default changes the role hash, so the role is synced again", () => {
+  const hashes = (extra: string): string[] =>
+    withConfig(`${DEFAULTS_BASE}${extra}`, (directory) =>
+      loadCapstanConfig(directory).roles.map((role) => role.configHash),
+    );
+  const base = hashes("");
+  const changed = hashes('\n[defaults.Developer]\nmodel = "claude-opus-5-5"\n');
+  assert.deepEqual(changed[0], base[0], "the PM is unchanged");
+  assert.notEqual(changed[1], base[1], "dev takes the new default");
+  assert.deepEqual(changed[2], base[2], "dev2 sets its own model");
+});
+
+for (const [name, extra, pattern] of [
+  [
+    "an unknown key",
+    '[defaults]\nspeed = "fast"',
+    /defaults.*speed|unknown key/i,
+  ],
+  ["an unknown kind", '[defaults.Designer]\nmodel = "x"', /defaults/],
+  [
+    "a bad mode",
+    '[defaults.PM]\npermission_mode = "bypass"',
+    /defaults\.PM\.permission_mode must be one of/,
+  ],
+  [
+    "a model with a dash first",
+    '[defaults]\nmodel = "--model"',
+    /defaults\.model must not start with a dash/,
+  ],
+  [
+    "a model shaped like a credential",
+    '[defaults.Developer]\nmodel = "sk-live-ABCDEFGHIJKLMNOP1234"',
+    /defaults\.Developer\.model/,
+  ],
+  ["a model that is not text", "[defaults]\nmodel = 5", /defaults\.model/],
+  ["a kind table that is not a table", "[defaults]\nPM = 3", /defaults\.PM/],
+  ["an unknown key in a kind", '[defaults.PM]\nhooks = "off"', /defaults\.PM/],
+] as const)
+  test(`configuration refuses ${name} under defaults`, () => {
+    assertRejected(`${DEFAULTS_BASE}\n${extra}\n`, pattern, "sk-live-ABCDEFGH");
+  });
+
+test("a default mode that a Codex role would inherit is checked after resolution", () => {
+  const codex = `schema_version = 1
+
+[hosts.claude]
+kind = "claude"
+
+[hosts.cx]
+kind = "codex"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[roles.dev]
+kind = "Developer"
+host = "cx"
+`;
+  assertRejected(
+    `${codex}\n[defaults.Developer]\nmodel = "gpt-x"\n`,
+    /roles\.dev\.permission_mode must be acceptEdits or auto on host cx/,
+  );
+  withConfig(
+    `${codex}\n[defaults.Developer]\npermission_mode = "auto"\n`,
+    (directory) => {
+      const role = loadCapstanConfig(directory).roles.find(
+        (r) => r.name === "dev",
+      )!;
+      assert.equal(role.permissionMode, "auto");
+    },
+  );
+});
+
+test("the starter file puts opus on PM and Supervisor and sonnet on Developer and Verifier, and loads", () => {
+  withConfig(STARTER_CONFIG, (directory) => {
+    const config = loadCapstanConfig(directory);
+    const byKind = (kind: string) =>
+      new Set(
+        config.roles
+          .filter((role) => role.kind === kind)
+          .map((role) => role.model),
+      );
+    assert.deepEqual([...byKind("PM")], ["claude-opus-5-5"]);
+    assert.deepEqual([...byKind("Supervisor")], ["claude-opus-5-5"]);
+    assert.deepEqual([...byKind("Developer")], ["claude-sonnet-5-5"]);
+    assert.deepEqual([...byKind("Verifier")], ["claude-sonnet-5-5"]);
+    assert.ok(STARTER_CONFIG.includes('# permission_mode = "auto"'));
+  });
+});
