@@ -1050,3 +1050,261 @@ test("the operator's status lists the agents the driver sees as lost", async () 
     await close(h);
   }
 });
+
+const PLAN_HEAD = "a".repeat(40);
+
+function planBody(...ids: string[]): string {
+  return JSON.stringify({
+    summary: "split the work",
+    packages: ids.map((id) => ({
+      id,
+      title: `package ${id}`,
+      owns: [`src/${id}/`],
+      acceptance: [`${id} works`],
+      estimate_hours: 2,
+    })),
+    risks: ["none known"],
+  });
+}
+
+function planOptions(
+  overrides: Partial<CapstanConfig["architect"]> = {},
+  enabled = true,
+): Partial<CommandDependencies> {
+  const base = waitConfig(1);
+  return {
+    config: {
+      ...base,
+      architect: {
+        ...base.architect,
+        enabled,
+        role: "developer2",
+        ...overrides,
+      },
+    },
+    integrationGit: {
+      headCommit: async () => PLAN_HEAD,
+    } as never,
+  };
+}
+
+test("plan open is for the PM and the operator, creates a draft with the chosen tier and refuses bad input", async () => {
+  const h = await harness({ commands: planOptions() });
+  try {
+    assert.equal(
+      codeOf(
+        await call(h, h.developer.credential, "plan", ["open", "normal", "t"]),
+      ),
+      "forbidden",
+    );
+    assert.equal(
+      codeOf(await call(h, h.seatOnly, "plan", ["open", "normal", "t"])),
+      "forbidden",
+    );
+    assert.deepEqual(
+      bodyOf(
+        await call(h, h.pm.credential, "plan", ["open", "normal", "First"]),
+      ),
+      { planId: "plan-1", tier: "normal", state: "draft" },
+    );
+    assert.deepEqual(
+      bodyOf(await call(h, h.owner, "plan", ["open", "high-risk", "Second"])),
+      { planId: "plan-2", tier: "high_risk", state: "draft" },
+    );
+    for (const args of [
+      ["open"],
+      ["open", "small", "t"],
+      ["open", "normal"],
+      ["open", "normal", "t", "bad id"],
+      ["bogus"],
+      [],
+    ])
+      assert.equal(
+        codeOf(await call(h, h.pm.credential, "plan", args)),
+        "invalid_request",
+        args.join(" "),
+      );
+    assert.equal(
+      codeOf(
+        await call(h, h.pm.credential, "plan", [
+          "open",
+          "normal",
+          "t",
+          "plan-9",
+        ]),
+      ),
+      "rejected",
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("plan submit is for the designated architect only and approves a normal plan at once", async () => {
+  const h = await harness({ commands: planOptions() });
+  try {
+    const architect = h.addMember("developer2", "Developer");
+    await call(h, h.pm.credential, "plan", ["open", "normal", "First"]);
+    for (const credential of [
+      h.developer.credential,
+      h.pm.credential,
+      h.seatOnly,
+    ])
+      assert.equal(
+        codeOf(
+          await call(h, credential, "plan", [
+            "submit",
+            "plan-1",
+            planBody("wp1"),
+          ]),
+        ),
+        "forbidden",
+      );
+    assert.equal(
+      codeOf(await call(h, architect.credential, "plan", ["submit", "plan-1"])),
+      "invalid_request",
+    );
+    assert.equal(
+      codeOf(
+        await call(h, architect.credential, "plan", [
+          "submit",
+          "plan-9",
+          planBody("wp1"),
+        ]),
+      ),
+      "rejected",
+    );
+    const invalid = await call(h, architect.credential, "plan", [
+      "submit",
+      "plan-1",
+      "{",
+    ]);
+    assert.equal(codeOf(invalid), "rejected");
+    assert.match(
+      String((invalid as { message: string }).message),
+      /^invalid_plan: /,
+    );
+    assert.deepEqual(
+      bodyOf(
+        await call(h, architect.credential, "plan", [
+          "submit",
+          "plan-1",
+          planBody("wp1", "wp2"),
+        ]),
+      ),
+      { planId: "plan-1", revision: 1, state: "approved" },
+    );
+    const again = await call(h, architect.credential, "plan", [
+      "submit",
+      "plan-1",
+      planBody("wp1"),
+    ]);
+    assert.equal(codeOf(again), "rejected");
+    assert.match(
+      String((again as { message: string }).message),
+      /^plan_not_open: /,
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("plan submit refuses a plan that needs a plan review until that exists", async () => {
+  const h = await harness({ commands: planOptions() });
+  try {
+    const architect = h.addMember("developer2", "Developer");
+    await call(h, h.pm.credential, "plan", ["open", "high-risk", "Risky"]);
+    const refused = await call(h, architect.credential, "plan", [
+      "submit",
+      "plan-1",
+      planBody("wp1"),
+    ]);
+    assert.equal(codeOf(refused), "rejected");
+    assert.match(
+      String((refused as { message: string }).message),
+      /^plan_review_unavailable: /,
+    );
+    assert.equal(h.core.listPlans(h.owner)[0]?.state, "draft");
+  } finally {
+    await close(h);
+  }
+});
+
+test("plan show lists plans and shows one with its packages, and is readable by any agent", async () => {
+  const h = await harness({ commands: planOptions() });
+  try {
+    const architect = h.addMember("developer2", "Developer");
+    await call(h, h.pm.credential, "plan", ["open", "normal", "First"]);
+    await call(h, architect.credential, "plan", [
+      "submit",
+      "plan-1",
+      planBody("wp1"),
+    ]);
+    await call(h, h.pm.credential, "plan", ["open", "normal", "Second"]);
+    for (const credential of [
+      h.developer.credential,
+      h.pm.credential,
+      h.owner,
+    ]) {
+      assert.deepEqual(bodyOf(await call(h, credential, "plan", ["show"])), {
+        plans: [
+          {
+            planId: "plan-1",
+            tier: "normal",
+            state: "approved",
+            title: "First",
+          },
+          { planId: "plan-2", tier: "normal", state: "draft", title: "Second" },
+        ],
+      });
+    }
+    const one = bodyOf(
+      await call(h, h.developer.credential, "plan", ["show", "plan-1"]),
+    ) as {
+      plan: { state: string };
+      revision: {
+        revision: number;
+        baseSha: string;
+        body: { packages: { id: string }[] };
+      };
+      packages: { packageId: string; progress: string }[];
+    };
+    assert.equal(one.plan.state, "approved");
+    assert.equal(one.revision.baseSha, PLAN_HEAD);
+    assert.deepEqual(
+      one.revision.body.packages.map((p) => p.id),
+      ["wp1"],
+    );
+    assert.deepEqual(
+      one.packages.map((p) => [p.packageId, p.progress]),
+      [["wp1", "unassigned"]],
+    );
+    assert.equal(
+      codeOf(await call(h, h.pm.credential, "plan", ["show", "plan-7"])),
+      "rejected",
+    );
+    assert.equal(
+      codeOf(await call(h, h.pm.credential, "plan", ["show", "a", "b"])),
+      "invalid_request",
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("plan commands are refused while [architect] is disabled", async () => {
+  const h = await harness({ commands: planOptions({}, false) });
+  try {
+    for (const args of [
+      ["open", "normal", "t"],
+      ["show"],
+      ["submit", "plan-1", "{}"],
+    ])
+      assert.equal(
+        codeOf(await call(h, h.pm.credential, "plan", args)),
+        "not_configured",
+      );
+  } finally {
+    await close(h);
+  }
+});
