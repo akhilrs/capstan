@@ -175,16 +175,16 @@ test("a review is refused for an unknown or rejected report, a second open revie
     begin(h, reportId, reviewer.agentId);
     const second = verifier(h, "reviewer-2");
     assert.throws(() => begin(h, reportId, second.agentId), /already open/);
-    for (const credential of [h.developer.credential, h.owner])
-      assert.throws(
-        () =>
-          h.core.beginReview(ctx(h.core, credential), {
-            subjectId: reportId,
-            reviewerRole: "reviewer",
-            reviewerAgentId: second.agentId,
-          }),
-        /does not have|not allowed|capability|Authorization/i,
-      );
+    // Developers hold review:request in the ledger; the request-review command limits it to the PM and the architect.
+    assert.throws(
+      () =>
+        h.core.beginReview(ctx(h.core, h.owner), {
+          subjectId: reportId,
+          reviewerRole: "reviewer",
+          reviewerAgentId: second.agentId,
+        }),
+      /does not have|not allowed|capability|Authorization/i,
+    );
   } finally {
     await close(h);
   }
@@ -231,7 +231,7 @@ test("a Verifier author can never review their own report, in code and in the le
         () =>
           db
             .prepare(
-              `INSERT INTO reviews SELECT project_id, 'forged', 99, 9, subject_report_id, NULL, commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, author_agent_id, author_actor_id, 'started', NULL, NULL, NULL, created_at, NULL FROM reviews`,
+              `INSERT INTO reviews SELECT project_id, 'forged', 99, 9, subject_report_id, NULL, NULL, NULL, commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, author_agent_id, author_actor_id, 'started', NULL, NULL, NULL, created_at, NULL FROM reviews`,
             )
             .run(),
         /CHECK constraint/,

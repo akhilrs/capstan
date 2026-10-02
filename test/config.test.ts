@@ -162,7 +162,10 @@ test("the starter configuration written by init is valid and gives the PM worker
     assert.equal(config.limits.maxWorkers, 3);
     assert.equal(config.layout.spawn, "pane");
     assert.equal(config.layout.pmWidthPercent, 60);
-    assert.deepEqual(config.warnings, []);
+    assert.deepEqual(
+      config.warnings.filter((warning) => !/^nexora\./.test(warning)),
+      [],
+    );
     for (const role of config.roles.filter(
       (r) =>
         r.kind !== "PM" && r.name !== "reviewer" && r.name !== "supervisor",
@@ -1213,8 +1216,9 @@ test("a role name longer than 16 characters is refused because the project-prefi
 test("layout.split is still accepted but ignored, and the loader and cstan config check say so", () => {
   withConfig(`${VALID}\n[layout]\nsplit = "down"\n`, (directory) => {
     const config = loadCapstanConfig(directory);
-    assert.equal(config.warnings.length, 1);
-    assert.match(config.warnings[0]!, /layout\.split is ignored/);
+    const warnings = config.warnings.filter((w) => !/^nexora\./.test(w));
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /layout\.split is ignored/);
     assert.equal(config.layout.pmWidthPercent, 60);
   });
   assert.ok(STARTER_CONFIG.includes("pm_width_percent = 60"));
@@ -1544,5 +1548,87 @@ test("the starter config names the architect table only as comments", () => {
       config.roles.find((r) => r.name === "architect")?.kind,
       "Developer",
     );
+  });
+});
+
+test("the nexora table defaults to ask and create, with or without the table", () => {
+  const expected = { track: "ask", defaultAction: "create" };
+  withConfig(VALID, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).nexora, expected);
+  });
+  withConfig(`${VALID}\n[nexora]\n`, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).nexora, expected);
+  });
+});
+
+test("the nexora table is parsed with every key and the accepted combinations load", () => {
+  for (const [track, defaultAction] of [
+    ["always", "create"],
+    ["always", "link"],
+    ["ask", "none"],
+    ["never", "none"],
+  ] as const) {
+    withConfig(
+      `${VALID}\n[nexora]\ntrack = "${track}"\ndefault_action = "${defaultAction}"\n`,
+      (directory) => {
+        assert.deepEqual(loadCapstanConfig(directory).nexora, {
+          track,
+          defaultAction,
+        });
+      },
+    );
+  }
+});
+
+test("the nexora table refuses unknown keys, bad values and the contradictory combination", () => {
+  const table = `${VALID}\n[nexora]\n`;
+  for (const [line, pattern] of [
+    ["mirror = true", /nexora has 1 unknown key/],
+    ['track = "sometimes"', /nexora\.track must be one of/],
+    ["track = true", /nexora\.track must be one of/],
+    ['default_action = "delete"', /nexora\.default_action must be one of/],
+    [
+      'track = "always"\ndefault_action = "none"',
+      /nexora\.track = "always" contradicts/,
+    ],
+  ] as const)
+    assertRejected(`${table}${line}\n`, pattern);
+});
+
+test("a missing .nexora.toml warns for ask and always but not for never", () => {
+  const warns = (extra: string, withFile = false): boolean =>
+    withConfig(`${VALID}${extra}`, (directory) => {
+      if (withFile) writeFileSync(path.join(directory, ".nexora.toml"), "");
+      return loadCapstanConfig(directory).warnings.some((w) =>
+        /\.nexora\.toml is missing/.test(w),
+      );
+    });
+  assert.equal(warns(""), true);
+  assert.equal(warns('\n[nexora]\ntrack = "always"\n'), true);
+  assert.equal(warns('\n[nexora]\ntrack = "never"\n'), false);
+  assert.equal(warns("", true), false);
+  withConfig(VALID, (directory) => {
+    const warning = loadCapstanConfig(directory).warnings.find((w) =>
+      /\.nexora\.toml/.test(w),
+    );
+    assert.match(warning ?? "", /track = "never"/);
+  });
+});
+
+test("the starter config names the nexora table only as comments", () => {
+  assert.ok(STARTER_CONFIG.includes("# [nexora]"));
+  withConfig(STARTER_CONFIG, (directory) => {
+    assert.equal(loadCapstanConfig(directory).nexora.track, "ask");
+  });
+  const uncommented = STARTER_CONFIG.replace(
+    /^# (\[nexora\]|track =|default_action =)/gm,
+    "$1",
+  );
+  assert.notEqual(uncommented, STARTER_CONFIG);
+  withConfig(uncommented, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).nexora, {
+      track: "ask",
+      defaultAction: "create",
+    });
   });
 });

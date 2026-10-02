@@ -30,7 +30,11 @@ import { projectDisplayName, workspaceLabel } from "./herdr/naming.js";
 import { HerdrError } from "./herdr/runner.js";
 import { sanitizeScreen } from "./observe.js";
 import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
-import { buildRolePrompt, CSTAN_ALLOW_RULE } from "./prompts.js";
+import {
+  buildRolePrompt,
+  CSTAN_ALLOW_RULE,
+  type PromptInput,
+} from "./prompts.js";
 import { choosePlacement, type LayoutPane } from "./layout.js";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
 
@@ -464,6 +468,26 @@ export class Launcher {
       .map((role) => ({ name: role.name, kind: role.kind }));
   }
 
+  /** The architect settings a prompt needs; undefined while the Architect is disabled, so no prompt changes. */
+  #architectPrompt(): PromptInput["architect"] {
+    const architect = this.#config.architect;
+    return architect?.enabled === true
+      ? {
+          role: architect.role,
+          highRiskTriggers: architect.highRiskTriggers,
+        }
+      : undefined;
+  }
+
+  #isArchitectRole(name: string, kind: string): boolean {
+    const architect = this.#config.architect;
+    return (
+      architect?.enabled === true &&
+      kind === "Developer" &&
+      name === architect.role
+    );
+  }
+
   #activeAgents(): AgentRecord[] {
     return this.#core.listAgents().filter((a) => a.state === "active");
   }
@@ -771,6 +795,9 @@ export class Launcher {
       waitTimeoutSeconds: this.#waitSeconds(role),
       rolePrompt: role.promptText,
       workerRoles: this.#workerRoles(),
+      ...(this.#architectPrompt() === undefined
+        ? {}
+        : { architect: this.#architectPrompt()! }),
       ...(summary === undefined ? {} : { restartSummary: summary }),
     });
     const promptFile = this.#adapter.writePromptFile(promptText);
@@ -1353,12 +1380,17 @@ export class Launcher {
           "a PM is launched, not spawned",
         );
       this.#assertRoleSynced(role);
-      // The Supervisor watches the workers and does not take one of their places.
+      // The Supervisor watches the workers and does not take one of their places; the Architect does not either unless the configuration says it counts.
+      const architectCounts =
+        this.#config.architect?.countTowardWorkerLimit === true;
+      const exempt = (name: string, kind: string): boolean =>
+        kind === "Supervisor" ||
+        (!architectCounts && this.#isArchitectRole(name, kind));
       const workers = this.#activeAgents().filter(
-        (a) => a.kind !== "PM" && a.kind !== "Supervisor",
+        (a) => a.kind !== "PM" && !exempt(a.roleName, a.kind),
       );
       const limit = this.#config.limits.maxWorkers;
-      if (role.kind !== "Supervisor" && workers.length >= limit) {
+      if (!exempt(role.name, role.kind) && workers.length >= limit) {
         const stuck = workers
           .map((a) => ({
             id: a.agentId,
@@ -1483,6 +1515,12 @@ export class Launcher {
           agentId: agent.agentId,
           waitTimeoutSeconds: this.#waitSeconds(role),
           rolePrompt: role.promptText,
+          ...(this.#architectPrompt() === undefined
+            ? {}
+            : {
+                architect: this.#architectPrompt()!,
+                isArchitect: this.#isArchitectRole(role.name, role.kind),
+              }),
           ...(options.seed === undefined
             ? {}
             : { replacementSeed: options.seed }),

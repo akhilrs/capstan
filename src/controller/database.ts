@@ -156,6 +156,19 @@ const migrations: Readonly<
     name: "0022_plans.sql",
     url: new URL("../../migrations/0022_plans.sql", import.meta.url),
   },
+  23: {
+    version: 23,
+    name: "0023_plan_reviews.sql",
+    url: new URL("../../migrations/0023_plan_reviews.sql", import.meta.url),
+  },
+  24: {
+    version: 24,
+    name: "0024_developer_review_request.sql",
+    url: new URL(
+      "../../migrations/0024_developer_review_request.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 export async function openDatabase(

@@ -120,6 +120,32 @@ function config(
   } as unknown as CapstanConfig;
 }
 
+function withArchitect(
+  base: CapstanConfig,
+  architect: { readonly counts: boolean } | undefined,
+): CapstanConfig {
+  if (architect === undefined) return base;
+  const developer = base.roles.find((r) => r.name === "developer")!;
+  const role = Object.defineProperty(
+    { ...developer, name: "architect", configHash: hashOf("architect") },
+    "promptText",
+    { value: null, enumerable: false },
+  );
+  return {
+    ...base,
+    roles: [...base.roles, role],
+    architect: {
+      enabled: true,
+      role: "architect",
+      planReview: "high_risk",
+      reviewerRole: null,
+      maxPackages: 8,
+      countTowardWorkerLimit: architect.counts,
+      highRiskTriggers: ["schema or migrations"],
+    },
+  } as CapstanConfig;
+}
+
 interface World {
   core: ControllerCore;
   owner: string;
@@ -141,6 +167,8 @@ async function world(
     readonly pass?: readonly string[];
     readonly base?: Readonly<Record<string, string>>;
     readonly hostOf?: Readonly<Record<string, "codex" | "omp">>;
+    /** Enables the Architect role in the configuration; `counts` is count_toward_worker_limit. */
+    readonly architect?: { readonly counts: boolean };
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -156,6 +184,7 @@ async function world(
         "pm2:PM",
         "developer:Developer",
         "developer2:Developer",
+        "architect:Developer",
         "supervisor:Supervisor",
       ].map((entry) => {
         const [name, kind] = entry.split(":") as [
@@ -177,12 +206,15 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: config(
-        fallback,
-        maxWorkers,
-        layout,
-        environment.pass,
-        environment.hostOf,
+      config: withArchitect(
+        config(
+          fallback,
+          maxWorkers,
+          layout,
+          environment.pass,
+          environment.hostOf,
+        ),
+        environment.architect,
       ),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
@@ -2440,6 +2472,69 @@ test("replace releases a running worker and starts a new agent of the same role 
   }
 });
 
+test("replace moves the work packages of the predecessor to the replacement and the seed names them", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    const old = await w.launcher.spawn("developer");
+    const other = await w.launcher.spawn("developer");
+    const planId = w.core.openPlan(ctx(w.core, w.owner), {
+      tier: "normal",
+      title: "split",
+    }).planId;
+    w.core.submitPlan(
+      ctx(w.core, w.adapter.starts[1]!.environment!.CAPSTAN_TOKEN!),
+      {
+        planId,
+        bodyJson: JSON.stringify({
+          summary: "s",
+          packages: [
+            {
+              id: "wp1",
+              title: "parser",
+              owns: ["src/parser.ts"],
+              acceptance: ["parses empty input"],
+            },
+            { id: "wp2", title: "other" },
+          ],
+        }),
+        baseSha: "a".repeat(40),
+        review: false,
+      },
+    );
+    for (const packageId of ["wp1", "wp2"])
+      w.core.assignPackage(ctx(w.core, w.owner), {
+        planId,
+        packageId,
+        agentId: packageId === "wp1" ? old.agentId : other.agentId,
+      });
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    const packages = w.core.planRecord(w.owner, planId)!.packages;
+    assert.equal(
+      packages.find((p) => p.packageId === "wp1")!.assigneeAgentId,
+      result.agentId,
+    );
+    assert.equal(
+      packages.find((p) => p.packageId === "wp2")!.assigneeAgentId,
+      other.agentId,
+      "a package of another agent is not touched",
+    );
+    const prompt = promptOf(w, 4);
+    assert.ok(
+      prompt.includes(
+        `${planId}/wp1: "parser"; owns "src/parser.ts"; acceptance "parses empty input"`,
+      ),
+      prompt,
+    );
+    assert.ok(!prompt.includes(`${planId}/wp2`));
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("replace falls back to the project's HEAD when the predecessor has no accepted report, its commit is not reachable or its branch is gone", async () => {
   const w = await world();
   try {
@@ -2898,6 +2993,72 @@ test("the Supervisor does not take a worker's place: it starts when every worker
         /1 of 1 workers are active \(developer-1\)/.test(e.message),
       "the Supervisor is not listed or counted among the workers",
     );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("the Architect takes no worker place unless count_toward_worker_limit is true, and its prompt differs from a developer's", async () => {
+  const exempt = await world(
+    true,
+    true,
+    1,
+    {},
+    { architect: { counts: false } },
+  );
+  try {
+    await launched(exempt);
+    const architect = await exempt.launcher.spawn("architect");
+    assert.equal(architect.state, "started");
+    const dev = await exempt.launcher.spawn("developer");
+    assert.equal(dev.state, "started", "the developer still has its place");
+    await assert.rejects(
+      exempt.launcher.spawn("developer2"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worker_limit" &&
+        /1 of 1 workers are active \(developer-1\)/.test(e.message),
+    );
+    const prompts = exempt.adapter.prompts;
+    assert.ok(prompts.some((t) => t.includes("You are the architect")));
+    assert.ok(
+      prompts.some((t) => t.includes("the architect named in it can answer")),
+    );
+    assert.ok(
+      prompts.some((t) => t.includes("Planned work")),
+      "the PM prompt carries the plan section",
+    );
+  } finally {
+    exempt.cleanup();
+  }
+  const counted = await world(
+    true,
+    true,
+    1,
+    {},
+    { architect: { counts: true } },
+  );
+  try {
+    await launched(counted);
+    await counted.launcher.spawn("architect");
+    await assert.rejects(
+      counted.launcher.spawn("developer"),
+      (e: unknown) => e instanceof LauncherError && e.code === "worker_limit",
+    );
+  } finally {
+    counted.cleanup();
+  }
+});
+
+test("without the Architect no prompt mentions plans", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    for (const text of w.adapter.prompts) {
+      assert.ok(!/architect/i.test(text), "no architect text");
+      assert.ok(!text.includes("cstan plan"), "no plan commands");
+    }
   } finally {
     w.cleanup();
   }

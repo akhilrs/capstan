@@ -17,6 +17,7 @@ const COMMIT = "b".repeat(40);
 const BRANCH = "capstan/developer-1-g1";
 
 const config = {
+  architect: { enabled: false, role: "architect" },
   roles: [
     { name: "pm", kind: "PM" },
     { name: "developer", kind: "Developer" },
@@ -380,7 +381,7 @@ test("integrate is for the PM and the operator, merges reviewed reports and the 
     assert.equal(refused.ok, false);
     assert.match(
       (refused as { message: string }).message,
-      /only the PM or the operator/,
+      /only the PM, the operator or the architect/,
     );
     const empty = await call(h, h.pm.credential, "integrate", []);
     assert.equal(empty.ok, false);

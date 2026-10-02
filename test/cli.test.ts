@@ -2076,6 +2076,7 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-logfmt-"));
   try {
     assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(path.join(cwd, ".nexora.toml"), "");
     assert.equal(invoke(cwd, "start").status, 0);
     assert.equal(invoke(cwd, "ping").status, 0);
     const lines = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
@@ -2405,6 +2406,18 @@ test("shutdown releases the project lock before it removes the socket", () => {
     assert.deepEqual(events, ["ready", "lock_released", "socket_removed"]);
   } finally {
     killDaemon(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the usage line lists the plan subcommands", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-plan-usage-"));
+  try {
+    const result = invoke(cwd, "no-such-command");
+    assert.match(result.stderr, /cstan plan open normal\|high-risk <title>/);
+    assert.match(result.stderr, /cstan plan submit <plan-id> <json>/);
+    assert.match(result.stderr, /cstan plan show \[<plan-id>\]/);
+  } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });

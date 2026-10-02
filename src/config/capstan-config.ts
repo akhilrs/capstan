@@ -37,6 +37,13 @@ check_seconds = 300
 # count_toward_worker_limit = false
 # high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
 
+# Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
+# which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
+# without asking, "never" removes every Nexora instruction from the PM prompt.
+# [nexora]
+# track = "ask"                 # "ask" | "always" | "never"
+# default_action = "create"     # what "always" does: "create" | "link" | "none"
+
 # The model and permission mode a role gets when it sets none of its own, by role kind
 # (PM, Supervisor, Developer, Verifier). [defaults] itself applies to every kind. A role's own
 # model or permission_mode always wins. permission_mode = "auto" lets Claude Code's auto mode
@@ -168,6 +175,17 @@ export const DEFAULT_HIGH_RISK_TRIGGERS: readonly string[] = [
   "public contracts or wire formats",
   "cross-cutting changes",
 ];
+
+export const NEXORA_TRACK_MODES = ["ask", "always", "never"] as const;
+export const NEXORA_DEFAULT_ACTIONS = ["create", "link", "none"] as const;
+export const NEXORA_PROJECT_FILE = ".nexora.toml";
+
+export type ResolvedNexora = {
+  /** Policy only: Capstan never reads Nexora's own config or calls Nexora. */
+  readonly track: (typeof NEXORA_TRACK_MODES)[number];
+  /** What "always" does, and the picker's recommended option. */
+  readonly defaultAction: (typeof NEXORA_DEFAULT_ACTIONS)[number];
+};
 
 export type ResolvedArchitect = {
   /** Off: no plan commands reach any prompt and behaviour is exactly that of a project without the table. */
@@ -319,6 +337,7 @@ export type CapstanConfig = {
   readonly timers: ResolvedTimers;
   readonly supervision: ResolvedSupervision;
   readonly architect: ResolvedArchitect;
+  readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
   /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
@@ -440,6 +459,7 @@ export function parseCapstanConfig(
       "timers",
       "supervision",
       "architect",
+      "nexora",
       "defaults",
       "limits",
       "layout",
@@ -606,6 +626,14 @@ export function parseCapstanConfig(
     roles,
     hostsByName,
   );
+  const nexora = resolveNexora(optionalTable(root.nexora, "nexora"));
+  if (
+    nexora.track !== "never" &&
+    !fs.existsSync(path.join(projectRoot, NEXORA_PROJECT_FILE))
+  )
+    warnings.push(
+      `nexora.track is "${nexora.track}" but ${NEXORA_PROJECT_FILE} is missing from the project root, so the PM will not track work in Nexora; set track = "never" in [nexora] to silence this`,
+    );
 
   return {
     schemaVersion: 1,
@@ -615,6 +643,7 @@ export function parseCapstanConfig(
     timers,
     supervision,
     architect,
+    nexora,
     limits,
     layout,
     env,
@@ -622,6 +651,29 @@ export function parseCapstanConfig(
     roles,
     warnings,
   };
+}
+
+function resolveNexora(table: Table): ResolvedNexora {
+  rejectUnknownKeys(table, ["track", "default_action"], "nexora");
+  const nexora: ResolvedNexora = {
+    track:
+      table.track === undefined
+        ? "ask"
+        : enumValue(table.track, "nexora.track", NEXORA_TRACK_MODES),
+    defaultAction:
+      table.default_action === undefined
+        ? "create"
+        : enumValue(
+            table.default_action,
+            "nexora.default_action",
+            NEXORA_DEFAULT_ACTIONS,
+          ),
+  };
+  if (nexora.track === "always" && nexora.defaultAction === "none")
+    throw new ConfigError(
+      'nexora.track = "always" contradicts nexora.default_action = "none"; use track = "never" to turn tracking off',
+    );
+  return nexora;
 }
 
 function resolveArchitect(
