@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createPoller, nextDelayMs, statusHash } from "../src/dash/poller.js";
+import {
+  createPoller,
+  nextDelayMs,
+  statusHash,
+  stepInterval,
+} from "../src/dash/poller.js";
 
 test("the delay follows the interval, then backs off 1 s, 2 s, 5 s and stays there", () => {
   assert.equal(nextDelayMs(0, 2000), 2000);
@@ -101,4 +106,51 @@ test("pause stops polling, a forced poll still runs and stop ends the loop", asy
   assert.deepEqual(h.events, ["changed", "changed"]);
   h.poller.stop();
   await done;
+});
+
+test("changing the interval restarts the sleep with the new value and does not poll early", async () => {
+  const h = harness();
+  const done = h.poller.run();
+  await tick();
+  assert.deepEqual(h.sleeps, [2000]);
+  h.poller.setIntervalMs(5000);
+  await tick();
+  assert.deepEqual(h.sleeps, [2000, 5000]);
+  assert.deepEqual(h.events, ["changed"], "no extra poll");
+  h.release();
+  h.release();
+  await tick();
+  assert.deepEqual(h.events, ["changed", "same"]);
+  assert.equal(h.sleeps.at(-1), 5000);
+  h.poller.stop();
+  await done;
+});
+
+test("a forced poll during an interval change still polls once", async () => {
+  const h = harness();
+  const done = h.poller.run();
+  await tick();
+  h.poller.setIntervalMs(3000);
+  h.poller.pollNow();
+  await tick();
+  assert.deepEqual(h.events, ["changed", "same"]);
+  h.poller.stop();
+  await done;
+});
+
+test("the interval steps by 1 s up to 10 s and by 5 s above, inside 1 to 60", () => {
+  assert.equal(stepInterval(2, false), 3, "+ lengthens");
+  assert.equal(stepInterval(2, true), 1, "- shortens");
+  assert.equal(stepInterval(1, true), 1);
+  assert.equal(stepInterval(9, false), 10);
+  assert.equal(stepInterval(10, false), 15);
+  assert.equal(stepInterval(15, true), 10);
+  assert.equal(stepInterval(10, true), 9);
+  assert.equal(stepInterval(60, false), 60);
+  assert.equal(stepInterval(58, false), 60);
+  for (let n = 1; n <= 60; n++)
+    for (const faster of [true, false]) {
+      const next = stepInterval(n, faster);
+      assert.ok(Number.isInteger(next) && next >= 1 && next <= 60);
+    }
 });

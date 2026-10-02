@@ -4,45 +4,50 @@ import { signalsOf } from "../watch.js";
 import {
   ACTION_KEYS,
   availableDecisions,
-  confirmText,
   observeAction,
   toWireCall,
   type DashAction,
 } from "./actions.js";
 import { age, clean, pushSample, truncate } from "./format.js";
-import {
-  allocate,
-  columnsOf,
-  FOOTER_ROWS,
-  HEADER_ROWS,
-  layoutFor,
-  MIN_COLUMNS,
-  MIN_ROWS,
-  type PanelId,
-} from "./layout.js";
+import { MIN_COLUMNS, MIN_ROWS, layoutFor, type PanelId } from "./layout.js";
 import {
   buildDashModel,
   EMPTY_CHANGES,
+  historySample,
+  pipelineItems,
+  queueRows,
   trackChanges,
   type ChangeState,
   type DashModel,
 } from "./model.js";
-import { abortableSleep, createPoller, type Poller } from "./poller.js";
+import {
+  confirmOverlay,
+  helpOverlay,
+  observeOverlay,
+  type Overlay,
+} from "./overlays.js";
+import {
+  abortableSleep,
+  createPoller,
+  stepInterval,
+  type Poller,
+} from "./poller.js";
+import { FloatingBox, Lines } from "./screen.js";
 import { ThemeContext, type Theme } from "./theme.js";
 import {
-  AgentsPanel,
-  FindingsPanel,
-  Header,
-  PipelinePanel,
-  QueuePanel,
-  WorkPanel,
-  type PanelProps,
-} from "./components/panels.js";
-import { SPINNER_MS, useTick } from "./components/widgets.js";
+  buildFrame,
+  EMPTY_RINGS,
+  PANEL_ORDER,
+  type Link,
+  type Rings,
+  type ViewState,
+} from "./view.js";
+import { useTick } from "./ticker.js";
 
-export const SAMPLE_LIMIT = 30;
+export const RING_LIMIT = 300;
 export const NOTICE_MS = 5000;
 export const DEFAULT_CONFIRM_DELAY_MS = 300;
+export const SPINNER_MS = 120;
 const BELL = "\u0007";
 
 export type CallResult =
@@ -65,7 +70,6 @@ export interface AppDeps {
   readonly size?: { readonly columns: number; readonly rows: number };
 }
 
-type Link = "starting" | "ok" | "down" | "toolarge";
 interface Prompt {
   readonly action: DashAction;
   readonly openedAt: number;
@@ -84,13 +88,45 @@ const PANEL_KEYS: Record<string, PanelId> = {
   "5": "work",
 };
 
-const HELP = [
-  "Tab / Shift+Tab or 1-5  focus a panel      up/down or j/k  move",
-  "o  observe the selected agent (read-only)",
-  "y  retry   s  skip   c  cancel   the selected message; then press y to confirm",
-  "p  pause polling   r  poll now   ?  close help   q  quit",
-  "Working is inferred: activity within 30 s or a message in flight.",
-];
+type Selection = Record<PanelId, { id: string | null; index: number }>;
+
+const EMPTY_SELECTION: Selection = {
+  agents: { id: null, index: 0 },
+  pipeline: { id: null, index: 0 },
+  queue: { id: null, index: 0 },
+  findings: { id: null, index: 0 },
+  work: { id: null, index: 0 },
+};
+
+/** The row ids each panel shows, in display order. */
+export function rowIds(
+  model: DashModel,
+  problemsOnly: boolean,
+): Record<PanelId, readonly string[]> {
+  return {
+    agents: model.agents.filter((a) => a.state === "active").map((a) => a.id),
+    pipeline: pipelineItems(model).map((i) => i.id),
+    queue: queueRows(model, problemsOnly).map((m) => m.id),
+    findings: model.findings.map((f) => f.id),
+    work: model.work.map((w) => w.id),
+  };
+}
+
+/** Where the selection is now: the remembered row if it is still shown, else the old position kept inside the list. */
+export function resolveSelection(
+  ids: readonly string[],
+  selection: { id: string | null; index: number },
+): number {
+  if (ids.length === 0) return 0;
+  const at = selection.id === null ? -1 : ids.indexOf(selection.id);
+  return at >= 0 ? at : Math.min(selection.index, ids.length - 1);
+}
+
+export function formatClock(ms: number): string {
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+}
 
 export function App({ deps }: { deps: AppDeps }) {
   const { exit } = useApp();
@@ -105,15 +141,11 @@ export function App({ deps }: { deps: AppDeps }) {
   const [model, setModel] = useState<DashModel | null>(null);
   const [link, setLink] = useState<Link>("starting");
   const [changes, setChanges] = useState<ChangeState>(EMPTY_CHANGES);
-  const [unresolvedSamples, setUnresolvedSamples] = useState<number[]>([]);
+  const [rings, setRings] = useState<Rings>(EMPTY_RINGS);
   const [focus, setFocus] = useState<PanelId>("queue");
-  const [cursors, setCursors] = useState<Record<PanelId, number>>({
-    agents: 0,
-    pipeline: 0,
-    queue: 0,
-    findings: 0,
-    work: 0,
-  });
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
+  const [problemsOnly, setProblemsOnly] = useState(false);
+  const [intervalSeconds, setIntervalSeconds] = useState(deps.intervalSeconds);
   const [paused, setPaused] = useState(false);
   const [help, setHelp] = useState(false);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
@@ -124,8 +156,10 @@ export function App({ deps }: { deps: AppDeps }) {
   const seenSignals = useRef<Set<string> | undefined>(undefined);
   const poller = useRef<Poller | undefined>(undefined);
   const changesRef = useRef<ChangeState>(EMPTY_CHANGES);
+  const modelRef = useRef<DashModel | null>(null);
+  const shownRef = useRef<readonly PanelId[]>(PANEL_ORDER);
 
-  // A one-second re-render keeps the ages in the header and rows current.
+  // A one-second re-render keeps the clock and the ages current.
   useTick(1000, true);
   const nowMs = now();
   const working = model?.counts.working ?? 0;
@@ -139,27 +173,31 @@ export function App({ deps }: { deps: AppDeps }) {
       onStatus: (status, changed) => {
         lastOk.current = now();
         setLink("ok");
-        const unresolved = Array.isArray(status.messages)
-          ? status.messages.length
-          : 0;
-        setUnresolvedSamples((samples) =>
-          pushSample(samples, unresolved, SAMPLE_LIMIT),
-        );
-        if (!changed) return;
-        const next = buildDashModel(status, now(), deps.workerLimit);
-        const tracked = trackChanges(changesRef.current, next);
-        changesRef.current = tracked;
-        setChanges(tracked);
-        setModel(next);
-        const signals = signalsOf(status);
-        const previous = seenSignals.current;
-        if (
-          !deps.theme.reducedMotion &&
-          previous !== undefined &&
-          [...signals].some((key) => !previous.has(key))
-        )
-          write(BELL);
-        seenSignals.current = signals;
+        let current = modelRef.current;
+        if (changed || current === null) {
+          const next = buildDashModel(status, now(), deps.workerLimit);
+          const tracked = trackChanges(changesRef.current, next);
+          changesRef.current = tracked;
+          setChanges(tracked);
+          modelRef.current = next;
+          setModel(next);
+          current = next;
+          const signals = signalsOf(status);
+          const previous = seenSignals.current;
+          if (
+            !deps.theme.reducedMotion &&
+            previous !== undefined &&
+            [...signals].some((key) => !previous.has(key))
+          )
+            write(BELL);
+          seenSignals.current = signals;
+        }
+        const sample = historySample(current, now());
+        setRings((r) => ({
+          unresolved: pushSample(r.unresolved, sample.unresolved, RING_LIMIT),
+          working: pushSample(r.working, sample.working, RING_LIMIT),
+          oldest: pushSample(r.oldest, sample.oldestSeconds, RING_LIMIT),
+        }));
       },
       onError: (error) => {
         const code =
@@ -191,33 +229,12 @@ export function App({ deps }: { deps: AppDeps }) {
     }
   }, [model, prompt]);
 
-  const panels = useMemo<PanelId[]>(
-    () =>
-      model !== null && model.work.length > 0
-        ? ["agents", "pipeline", "queue", "findings", "work"]
-        : ["agents", "pipeline", "queue", "findings"],
-    [model],
+  const ids = useMemo(
+    () => (model === null ? null : rowIds(model, problemsOnly)),
+    [model, problemsOnly],
   );
-
-  const rowCount = (panel: PanelId): number => {
-    if (model === null) return 0;
-    switch (panel) {
-      case "agents":
-        return model.agents.length;
-      case "queue":
-        return model.queue.messages.length;
-      case "findings":
-        return model.findings.length;
-      case "work":
-        return model.work.length;
-      case "pipeline":
-        return (
-          model.pipeline.reports.items.length +
-          model.pipeline.reviews.items.length +
-          model.pipeline.integrations.items.length
-        );
-    }
-  };
+  const indexOf = (panel: PanelId): number =>
+    ids === null ? 0 : resolveSelection(ids[panel], selection[panel]);
 
   const canAct = link === "ok" && !paused && !busy && model !== null;
 
@@ -250,6 +267,14 @@ export function App({ deps }: { deps: AppDeps }) {
     [deps],
   );
 
+  const select = (panel: PanelId, index: number) => {
+    const list = ids?.[panel] ?? [];
+    setSelection((s) => ({
+      ...s,
+      [panel]: { id: list[index] ?? null, index },
+    }));
+  };
+
   useInput((input, key) => {
     if (peek !== null) {
       if (key.escape || input === "q") setPeek(null);
@@ -274,30 +299,39 @@ export function App({ deps }: { deps: AppDeps }) {
       return setPaused(!paused);
     }
     if (input === "r") return poller.current?.pollNow();
+    if (input === "-" || input === "+" || input === "=") {
+      const next = stepInterval(intervalSeconds, input === "-");
+      if (next !== intervalSeconds) {
+        setIntervalSeconds(next);
+        poller.current?.setIntervalMs(next * 1000);
+      }
+      return;
+    }
+    const shown = shownRef.current;
     const jump = PANEL_KEYS[input];
-    if (jump !== undefined && panels.includes(jump)) return setFocus(jump);
+    if (jump !== undefined && shown.includes(jump)) return setFocus(jump);
     if (key.tab) {
-      const at = panels.indexOf(focus);
+      const at = shown.indexOf(focus);
       const step = key.shift ? -1 : 1;
-      return setFocus(panels[(at + step + panels.length) % panels.length]!);
+      return setFocus(shown[(at + step + shown.length) % shown.length]!);
     }
     if (key.upArrow || key.downArrow || input === "j" || input === "k") {
       const delta = key.upArrow || input === "k" ? -1 : 1;
-      const max = Math.max(0, rowCount(focus) - 1);
-      return setCursors((c) => ({
-        ...c,
-        [focus]: Math.min(max, Math.max(0, c[focus] + delta)),
-      }));
+      const max = Math.max(0, (ids?.[focus].length ?? 0) - 1);
+      return select(focus, Math.min(max, Math.max(0, indexOf(focus) + delta)));
+    }
+    if (input === "f" && focus === "queue") {
+      return setProblemsOnly((on) => !on);
     }
     if (model === null || !canAct) return;
     if (input === "o" && focus === "agents") {
-      const agent = model.agents[cursors.agents];
+      const agent = model.agents[indexOf("agents")];
       const action = agent === undefined ? undefined : observeAction(agent);
       if (action !== undefined) void execute(action);
       return;
     }
     if (focus === "queue") {
-      const message = model.queue.messages[cursors.queue];
+      const message = queueRows(model, problemsOnly)[indexOf("queue")];
       if (message === undefined) return;
       const decision = (
         Object.keys(ACTION_KEYS) as (keyof typeof ACTION_KEYS)[]
@@ -314,8 +348,8 @@ export function App({ deps }: { deps: AppDeps }) {
     }
   });
 
-  const layout = layoutFor(columns, rows);
-  if (layout.mode === "tiny")
+  const size = { columns, rows };
+  if (layoutFor(columns, rows).mode === "tiny")
     return (
       <ThemeContext.Provider value={deps.theme}>
         <Text>
@@ -324,134 +358,58 @@ export function App({ deps }: { deps: AppDeps }) {
         </Text>
       </ThemeContext.Provider>
     );
+  if (model === null || ids === null)
+    return (
+      <ThemeContext.Provider value={deps.theme}>
+        <Text>
+          {link === "down"
+            ? "controller not answering, retrying"
+            : "connecting to the controller..."}
+        </Text>
+      </ThemeContext.Provider>
+    );
 
-  const ageText =
-    lastOk.current === null
-      ? "-"
-      : age(new Date(lastOk.current).toISOString(), nowMs);
-  const bodyRows = rows - HEADER_ROWS - FOOTER_ROWS;
-  const colWidth =
-    layout.mode === "wide" ? Math.floor(columns / 2) - 1 : columns;
-
-  const renderPanel = (id: PanelId, capacity: number) => {
-    if (model === null) return null;
-    const props: PanelProps = {
-      capacity,
-      width: colWidth,
-      focused: focus === id,
-      cursor: cursors[id],
-      highlight: changes.highlight,
-      nowMs,
-      layout,
-      tick,
-    };
-    switch (id) {
-      case "agents":
-        return (
-          <AgentsPanel
-            key={id}
-            {...props}
-            agents={model.agents}
-            ended={model.endedAgentsHidden}
-          />
-        );
-      case "pipeline":
-        return <PipelinePanel key={id} {...props} pipeline={model.pipeline} />;
-      case "queue":
-        return (
-          <QueuePanel
-            key={id}
-            {...props}
-            queue={model.queue}
-            samples={unresolvedSamples}
-          />
-        );
-      case "findings":
-        return <FindingsPanel key={id} {...props} findings={model.findings} />;
-      case "work":
-        return <WorkPanel key={id} {...props} work={model.work} />;
-    }
+  const view: ViewState = {
+    size,
+    focus,
+    selected: {
+      agents: indexOf("agents"),
+      pipeline: indexOf("pipeline"),
+      queue: indexOf("queue"),
+      findings: indexOf("findings"),
+      work: indexOf("work"),
+    },
+    problemsOnly,
+    paused,
+    link,
+    linkAge:
+      lastOk.current === null
+        ? "-"
+        : age(new Date(lastOk.current).toISOString(), nowMs),
+    clock: formatClock(nowMs),
+    intervalSeconds,
+    nowMs,
+    tick,
+    rings,
+    highlight: changes.highlight,
+    notice: busy && notice === null ? "working..." : notice,
   };
-
-  const footerTop =
-    prompt !== null
-      ? confirmText(prompt.action)
-      : notice !== null
-        ? notice
-        : busy
-          ? "working..."
-          : "";
+  const frame = buildFrame(model, view, deps.theme);
+  shownRef.current = frame.shown;
+  const overlay: Overlay | null =
+    peek !== null
+      ? observeOverlay(peek, size, deps.theme)
+      : prompt !== null
+        ? confirmOverlay(prompt.action, size, deps.theme)
+        : help
+          ? helpOverlay(size, deps.theme)
+          : null;
 
   return (
     <ThemeContext.Provider value={deps.theme}>
       <Box flexDirection="column" width={columns} height={rows}>
-        {model !== null && (
-          <Header
-            model={model}
-            link={link}
-            ageText={ageText}
-            intervalSeconds={deps.intervalSeconds}
-            paused={paused}
-            width={columns}
-          />
-        )}
-        {model === null && (
-          <Text>
-            {link === "down"
-              ? "controller not answering, retrying"
-              : "connecting to the controller..."}
-          </Text>
-        )}
-        {peek !== null ? (
-          <Box flexDirection="column" height={bodyRows}>
-            <Text bold>
-              {truncate(
-                `screen of ${peek.agentId} (${peek.agentStatus}); unverified text, Esc closes`,
-                columns,
-              )}
-            </Text>
-            {peek.text
-              .split("\n")
-              .slice(-(bodyRows - 1))
-              .map((line, i) => (
-                <Text key={i} wrap="truncate-end">
-                  {clean(line)}
-                </Text>
-              ))}
-          </Box>
-        ) : help ? (
-          <Box flexDirection="column" height={bodyRows}>
-            {HELP.map((line) => (
-              <Text key={line}>{line}</Text>
-            ))}
-          </Box>
-        ) : (
-          <Box height={bodyRows}>
-            {model !== null &&
-              columnsOf(layout.mode, panels).map((column, c) => {
-                const budget = allocate(bodyRows, column, focus);
-                return (
-                  <Box
-                    key={c}
-                    flexDirection="column"
-                    width={colWidth}
-                    marginRight={layout.mode === "wide" && c === 0 ? 2 : 0}
-                  >
-                    {column.map((id) => renderPanel(id, budget.get(id) ?? 1))}
-                  </Box>
-                );
-              })}
-          </Box>
-        )}
-        <Text wrap="truncate-end" bold>
-          {footerTop}
-        </Text>
-        <Text wrap="truncate-end" dimColor>
-          {truncate(
-            "Tab focus  j/k move  o observe  y retry  s skip  c cancel  p pause  r poll  ? help  q quit",
-            columns,
-          )}
-        </Text>
+        <Lines lines={frame.lines} />
+        {overlay !== null && <FloatingBox overlay={overlay} />}
       </Box>
     </ThemeContext.Provider>
   );

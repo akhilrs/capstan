@@ -1,0 +1,30 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ○ NO LINK                                                       workers ██████░░ 3/4   ○ 12s ago │
+│   controller not answering, retrying; showing the last good frame                                │
+╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents───────────────────────────┤ 5 active ├─╮┏━³queue━━━━━━━━━━━━━━━━━━━┤ 1 stuck or failed ├━┓
+│   AGENT  ROLE       GEN STATE   ACTIVITY    AGE│┃     SEQ TO           STATE       AGE DETAIL    ┃
+│ ▲ devel… Developer  g1  STALLED ░░░░░░░░  3m41…│┃▌▲   #41 developer-2  unacked   3m41s ! no ack… ┃
+│ ● pm-1   PM         g1  idle    ░░░░░░░░  1m35…│┃ ●   #42 developer-2  queued    3m10s deferred… ┃
+│ ● super… Supervisor g1  idle    ░░░░░░░░    45…│┃ ●   #44 developer-1  sent         8s           ┃
+│ * devel… Developer  g2  working ████████     3…│┃ ●   #45 designer-1   sent         2s           ┃
+│ * desig… Designer   g1  working ████████     1…│┃ ●   #46 pm-1         queued       1s           ┃
+│ ○ devel… Developer  g1  ended               14…│┃ ── selected ─────────────────────────────────… ┃
+╰─┤ working: inferred ├──────────────────┤ 1/5 ├─╯┃ #41 to developer-2  unacked  queued 3m41s ago  ┃
+╭─²pipeline───┤ reported > review > integrated ├─╮┃ message 0192f4c1-3a7e-7b2d  notified           ┃
+│ reported 6  ──►  review 5  ──►  integrated 3   │┃ ! no acknowledgement after 3 attempts   can: … ┃
+│ reports      █████████▒▒   6  accepted 5  reje…│┃ unresolved messages ─ now 5 ─ max 0 ─ since d… ┃
+│ reviews      ███████▓▓▒▒   5  passed 3  starte…│┃                                                ┃
+│ integrations ███████▓▓▓▓   3  merged 2  runnin…│┃                                                ┃
+│ STAGE       STATE    WHO / COMMIT          AGE │┃                                                ┃
+│ integration running  7c1e0f2a               5s ▐┃                                                ┃
+│ review      started  developer-1 r2        40s ▐┃                                                ┃
+│ report      accepted designer-1 8bf60fa  1m12s ▐┃                                                ┃
+│ report      accepted developer-1 9abf4…  3m00s ▐┃                                                ┃
+│ integration merged   5d02b9c4            4m00s ▐┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/5 ├━┛
+│ review      findings developer-1 r1      6m00s ▐╭─⁴findings─────────────────┤ 1 needs operator ├─╮
+│ review      passed   designer-1 r1       9m00s ││   ID     TARGET       SEV  STATE     INT REASON│
+│ report      rejected developer-1 45fe0…    11m ││ ▲ 0192a1 developer-2  high ESCALATED 2/2 no pr…│
+│ report      accepted developer-2 fb4a3…    15m ││ ● 0192a4 developer-1  low  open      0/2 scope…│
+╰───────────────────────────────────────┤ 1/14 ├─╯╰────────────────────────────────────────┤ 1/2 ├─╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  p pause  r refresh  ? help  q quit    

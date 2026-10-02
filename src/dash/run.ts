@@ -1,5 +1,6 @@
 import { callDaemon } from "../client.js";
 import type { CallResult } from "./app.js";
+import { wantsAscii } from "./terminal.js";
 
 export interface DashOptions {
   readonly intervalSeconds: number;
@@ -31,7 +32,7 @@ export async function runDash(
       (process.env.NO_COLOR ?? "") !== "" ||
       process.env.TERM === "dumb",
     reducedMotion: options.reducedMotion,
-    ascii: process.env.TERM === "dumb",
+    ascii: wantsAscii(process.env),
   });
   const fetchStatus = async (): Promise<Record<string, unknown>> => {
     const result = await callDaemon(
@@ -70,7 +71,7 @@ export async function runDash(
         theme,
       },
     }),
-    { alternateScreen: true, exitOnCtrlC: false },
+    { alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true },
   );
   await app.waitUntilExit();
 }
