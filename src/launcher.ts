@@ -862,18 +862,31 @@ export class Launcher {
       label: "watch",
       role: "worker",
     });
-    await this.#adapter.prepareShell({
-      paneId: tab.paneId,
-      environment: this.#environment(null),
-    });
-    await this.#adapter.runInPane(
-      tab.paneId,
-      `cd ${shellQuote(this.#root)} && exec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} status --watch`,
-    );
-    this.#core.recordFallbackPane(this.#context(), {
-      workspaceId,
-      paneId: tab.paneId,
-    });
+    try {
+      await this.#adapter.prepareShell({
+        paneId: tab.paneId,
+        environment: this.#environment(null),
+      });
+      await this.#adapter.runInPane(
+        tab.paneId,
+        `cd ${shellQuote(this.#root)} && exec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} status --watch`,
+      );
+      this.#core.recordFallbackPane(this.#context(), {
+        workspaceId,
+        paneId: tab.paneId,
+      });
+    } catch (error) {
+      // A tab with no recorded watch pane would be made again at every check.
+      try {
+        await this.#close(tab.paneId);
+      } catch (closeError) {
+        this.#log("pane_not_closed", {
+          paneId: tab.paneId,
+          error: String(closeError),
+        });
+      }
+      throw error;
+    }
     return tab.paneId;
   }
 
@@ -923,9 +936,8 @@ export class Launcher {
           this.#log("hub_adopt_failed", { error: String(error) });
           return { status: "failed", workspaceId: null, freePmPane: null };
         }
-        this.#core.clearFallbackPane(this.#context());
       }
-      // The watch pane is gone; its workspace may not be, and closing a PM pane in a workspace with worktree children needs another tab there.
+      // The watch pane is gone; its workspace may not be, and closing a PM pane in a workspace with worktree children needs another tab there. Only a workspace that Herdr says is gone is replaced: any other failure leaves the row alone, so no second hub hides the worktrees under the first.
       if (row.workspaceId !== null) {
         try {
           budget.check("opening the watch tab");
@@ -937,8 +949,14 @@ export class Launcher {
           };
         } catch (error) {
           this.#log("watch_tab_failed", { error: String(error) });
+          if (
+            !(error instanceof HerdrError) ||
+            error.code !== "workspace_not_found"
+          )
+            return { status: "failed", workspaceId: null, freePmPane: null };
         }
       }
+      this.#core.clearFallbackPane(this.#context());
     }
     let workspace:
       { workspaceId: string; paneId: string; tabId: string } | undefined;

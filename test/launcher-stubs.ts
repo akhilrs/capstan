@@ -33,6 +33,7 @@ export class StubAdapter implements LauncherAdapter {
   metadataError: Error | undefined;
   /** Workspaces whose tabs cannot be made, as when the workspace is gone. */
   readonly tabErrors = new Set<string>();
+  tabFailure: Error | undefined;
   readonly starts: StartCall[] = [];
   readonly entries = new Map<string, { agent?: string }>();
   readonly agentPanes = new Map<string, string>();
@@ -140,6 +141,7 @@ export class StubAdapter implements LauncherAdapter {
     label: string;
     role: "PM" | "worker";
   }) {
+    if (this.tabFailure) throw this.tabFailure;
     if (this.tabErrors.has(input.workspaceId))
       throw new HerdrError("workspace_not_found", "no such workspace");
     this.counter += 1;

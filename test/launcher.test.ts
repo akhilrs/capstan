@@ -1716,6 +1716,10 @@ test("a project workspace that fails to open fails the PM start and leaves no ag
       w.adapter.calls.some((c) => c.startsWith("close:")),
       "the workspace made for the PM is closed again",
     );
+    assert.ok(
+      w.adapter.calls.some((c) => /^close:w1:p10\d$/.test(c)),
+      "the watch tab's pane is closed again, so no tab is left unrecorded",
+    );
     await assert.rejects(
       w.launcher.spawn("developer"),
       (e: unknown) =>
@@ -2803,6 +2807,39 @@ test("a hub made again while a PM is already running closes its empty root pane,
     assert.ok(
       fresh.calls.some((c) => c === `tab:${made.workspaceId}:watch:worker`),
     );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a watch tab that cannot be made again for a transient reason keeps the row and makes no second hub", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const hub = w.core.fallbackPane(w.owner)!;
+    const pmPane = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!.paneId!;
+    const fresh = new StubAdapter();
+    fresh.adoptErrors.set(hub.paneId, new PaneGone("gone"));
+    fresh.tabFailure = new HerdrError("timeout", "slow");
+    fresh.entries.set(pmPane, { agent: "pm-1" });
+    fresh.agentPanes.set("pm-1", pmPane);
+    const launcher = new Launcher({
+      core: w.core,
+      adapter: fresh,
+      config: config(),
+      projectRoot: w.root,
+      cliPath: "/c.js",
+      socketPath: "/s",
+      credential: w.owner,
+      git: w.git,
+      baseEnvironment: { PATH: "/usr/bin" },
+    });
+    const result = await launcher.launchPm();
+    assert.equal(result.hub, "failed");
+    assert.deepEqual(w.core.fallbackPane(w.owner), hub, "the row is kept");
+    assert.ok(!fresh.calls.some((c) => c.startsWith("workspace:")));
   } finally {
     w.cleanup();
   }
