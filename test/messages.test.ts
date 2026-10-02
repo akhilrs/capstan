@@ -1639,6 +1639,10 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "plan_signoffs",
+      "plan_packages",
+      "plan_revisions",
+      "plans",
       "pm_notices",
       "pm_wakes",
       "supervision_checks",
@@ -1683,6 +1687,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
             .filter(
               (row) =>
                 !row.includes('"message:') &&
+                !row.includes('"plan:') &&
                 !row.includes('"report:') &&
                 !row.includes('"review:') &&
                 !row.includes('"finding:raise') &&
@@ -1710,10 +1715,10 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       for (const table of newTables) db.exec(`DROP TABLE ${table}`);
       db.pragma("foreign_keys = ON");
       db.exec(
-        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
       );
       db.exec(
-        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
       );
       db.exec("DELETE FROM schema_migrations WHERE version >= 15");
       before = snapshot(db);

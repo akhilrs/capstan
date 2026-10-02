@@ -151,6 +151,11 @@ const migrations: Readonly<
     name: "0021_oversight.sql",
     url: new URL("../../migrations/0021_oversight.sql", import.meta.url),
   },
+  22: {
+    version: 22,
+    name: "0022_plans.sql",
+    url: new URL("../../migrations/0022_plans.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(
