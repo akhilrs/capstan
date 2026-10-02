@@ -297,3 +297,33 @@ test("the routine check is queued for the one Supervisor only while a worker is 
     await close(w.h);
   }
 });
+
+test("a message retried after a delivery problem tells the PM again when it goes wrong again, and a blocked worker's episode does not change while it stays blocked", async () => {
+  const w = await world();
+  try {
+    const owner = () => ctx(w.h.core, w.h.owner);
+    const dev = w.h.developer.agentId;
+    const id = send(w, dev, "retry me");
+    w.h.core.recordSent(owner(), id);
+    w.advance(TIMERS.workerAckTimeoutSeconds + 1);
+    w.h.core.advanceMessaging(owner(), TIMERS);
+    assert.equal(notices(w, "Delivery problem").length, 1);
+    w.h.core.resolveMessage(ctx(w.h.core, w.h.pm.credential), id, "retry");
+    w.h.core.recordSent(owner(), id);
+    w.advance(TIMERS.workerAckTimeoutSeconds + 1);
+    w.h.core.advanceMessaging(owner(), TIMERS);
+    assert.equal(
+      notices(w, "Delivery problem").length,
+      2,
+      "the second failure of the same message is told again",
+    );
+    w.h.core.recordAgentObservation(owner(), dev, "blocked");
+    w.advance(TIMERS.stallAfterSeconds + 5);
+    const first = w.h.core.advanceMessaging(owner(), TIMERS).attention;
+    w.advance(300);
+    const later = w.h.core.advanceMessaging(owner(), TIMERS).attention;
+    assert.equal(first[0]!.episodeMs, later[0]!.episodeMs);
+  } finally {
+    await close(w.h);
+  }
+});

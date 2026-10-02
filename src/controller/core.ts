@@ -5750,10 +5750,11 @@ export class ControllerCore {
       .get(this.#projectId, row.message_id);
     if (routine) return;
     const first = oneLineText(row.body, 80);
+    // One notice per delivery attempt: a message retried with `cstan resolve ... retry` that goes wrong again is told again.
     this.#queuePmNotice(
       "delivery",
       row.message_id,
-      state,
+      `${state}#${row.send_attempts}`,
       [
         `Delivery problem: message ${row.message_id} to ${recipient.agent_id} is ${state}${reason === null ? "" : ` (${oneLineText(reason, 120)})`}.`,
         `It starts: ${JSON.stringify(first)}`,

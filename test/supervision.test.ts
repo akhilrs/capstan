@@ -190,3 +190,30 @@ test("no tick runs after stop", async () => {
     await close(s.h);
   }
 });
+
+test("a failed release is logged and tried again only after a minute", async () => {
+  const s = await setup();
+  try {
+    s.h.addMember("supervisor", "Supervisor");
+    s.h.core.endAgent(ctx(s.h.core, s.h.owner), s.h.developer.agentId);
+    let tries = 0;
+    s.launcher = {
+      spawn: s.launcher.spawn,
+      async release() {
+        tries += 1;
+        throw new Error("pane stuck");
+      },
+    };
+    const handle = start(s);
+    s.clock.now += SUPERVISOR_IDLE_MS + 1000;
+    await until(() => tries === 1, "the first release");
+    await sleep(80);
+    assert.equal(tries, 1, "no retry within the minute");
+    assert.ok(s.log.some((e) => e.event === "supervisor_release_failed"));
+    s.clock.now += 61_000;
+    await until(() => tries === 2, "the retry");
+    await handle.stop();
+  } finally {
+    await close(s.h);
+  }
+});

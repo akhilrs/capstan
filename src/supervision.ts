@@ -36,6 +36,7 @@ export function startSupervision(options: {
   let running: Promise<void> | undefined;
   let lastWorkerSeen = now();
   let retryAt = 0;
+  let releaseRetryAt = 0;
   let stopped = false;
   const tickOnce = async (): Promise<void> => {
     if (
@@ -66,12 +67,18 @@ export function startSupervision(options: {
     if (supervisors.length === 1) {
       if (
         workers.length === 0 &&
-        now() - lastWorkerSeen >= SUPERVISOR_IDLE_MS
+        now() - lastWorkerSeen >= SUPERVISOR_IDLE_MS &&
+        now() >= releaseRetryAt
       ) {
-        await options.launcher.release(supervisors[0]!.agentId);
-        options.log("supervisor_released", {
-          agentId: supervisors[0]!.agentId,
-        });
+        try {
+          await options.launcher.release(supervisors[0]!.agentId);
+          options.log("supervisor_released", {
+            agentId: supervisors[0]!.agentId,
+          });
+        } catch (error) {
+          releaseRetryAt = now() + SPAWN_RETRY_MS;
+          options.log("supervisor_release_failed", { error: String(error) });
+        }
         return;
       }
       const queued = options.core.queueSupervisionCheck(

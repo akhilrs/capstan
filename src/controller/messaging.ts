@@ -372,10 +372,11 @@ export function evaluateMessaging(
     ) {
       const since = stateSince(agent.observations, nowMs);
       if (since !== null && nowMs - since >= timers.stallAfterSeconds * 1000)
+        // The agent's last activity names the episode: the observation window moves, so the start of the blocked run is not stable.
         attention.push({
           agentId: agent.agentId,
           kind: "blocked",
-          episodeMs: since,
+          episodeMs: agent.lastActivityMs,
         });
     }
     if (stateAt(agent.observations, nowMs) === "working") {
