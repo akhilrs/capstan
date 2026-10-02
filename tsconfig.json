@@ -14,9 +14,10 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node"],
+    "jsx": "react-jsx",
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
   "exclude": ["dist", "node_modules"]
 }

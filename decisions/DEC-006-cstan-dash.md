@@ -184,6 +184,15 @@ Answers from the user (all eight open questions resolved):
 7. Minimum terminal 60x16; two-column layout from 100 columns.
 8. `--interval` is identical to `status --watch` (1 to 60 seconds, default 2).
 
+Deviations found while implementing (all small, none change a decision above):
+
+- The alternate screen is entered with Ink's own `alternateScreen: true` option (Ink 7.1.1 restores the primary screen on exit and on signals), not a hand-written guard.
+- Test fixtures for the model come from a real in-process daemon (`test/harness.ts`) plus hand-built status literals in `test/dash-fixtures.ts`, not saved JSON files, so they cannot drift from the route.
+- Optional columns drop by the width of the panel (`cellsFor` in `src/dash/layout.ts`), not by the terminal width, so a half-width panel in two-column mode drops the same columns a narrow terminal does.
+- A finding row shows `n/2` for interventions (the plan said "n of 2") so `NEEDS OPERATOR` fits in a half-width panel.
+- `runDash` receives the daemon connection from `src/cli.ts`; nothing in `cli.ts` needed exporting. The shared `--interval` parser is `takeIntervalSeconds` in `src/cli.ts`.
+- `peek` is excluded from the CLI's routed commands, so there is no `cstan peek` (answer 4).
+
 Review note: `callDaemon` already has a 5 s default timeout (`DEFAULT_TIMEOUT_MS` in `src/client.ts`), so the poller relies on it and does not add its own.
 
 ## Consequences
