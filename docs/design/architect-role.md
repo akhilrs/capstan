@@ -264,10 +264,11 @@ Nexora steps (section 10); they depend on steps 3 and 4 and not on the review st
 
 | # | Step | Files | Tests |
 | --- | --- | --- | --- |
-| 10 | `[nexora]` config table (policy only): parse, validate, starter config (commented), `cstan config check` | `src/config/capstan-config.ts`, `test/config.test.ts` | defaults (`track = "never"`); reject unknown keys, a bad `track`/`default_action`/status name; `track = "always"` with `default_action = "none"` refused as contradictory |
-| 11 | Migration 0024 `external_links` table and ledger methods `linkExternal`, `externalLinks`, `syncDrift` (wanted state derived from package progress versus `synced_state`) | `migrations/0024_external_links.sql`, `src/controller/core.ts`, `test/plans-core.test.ts` | one link per (kind, ref, system); `synced_state` updatable, `external_id` immutable once set; drift derivation for each progress state; a link on an unknown reference refused |
-| 12 | `cstan link` command and `plan show` Nexora columns, `Nexora drift` section in `cstan status` for the PM | `src/daemon.ts` (`ROUTES`), `src/commands.ts`, `src/cli.ts`, `test/commands.test.ts` | only PM/operator may link; Developer and Architect get `forbidden`; `plan show` prints id, synced state and drift; no link means no drift line |
-| 13 | PM prompt: intake picker, mirroring rules, failure rules (only when `[nexora].track` is not `never`); PM restart summary lists links and drift | `src/prompts.ts`, `src/controller/core.ts` (`PmRestartSummary`), `test/prompts.test.ts` | prompt byte-identical to step 5 output when `track = "never"`; with `ask`, the prompt names the picker options and the status mapping; restart summary lists a drifted item |
+| 10 | **Verify the Nexora assumptions first** (section 10, "Assumptions to verify"): with the Nexora tools, create a throwaway parent and child item in the project, set each status in the mapping, set `estimated_hours`, log time with `duration_minutes`, read the item back, then delete or close the items. Record the results in the step's report and amend section 10 if any assumption is false. No repository change except this document. | `docs/design/architect-role.md` | the report lists, for each assumption, the call made and the observed result; the downstream steps are not started until it is accepted |
+| 11 | `[nexora]` config table (policy only): parse, validate, starter config (commented), `cstan config check` | `src/config/capstan-config.ts`, `test/config.test.ts` | defaults (`track = "never"`); reject unknown keys, a bad `track`/`default_action`; `track = "always"` with `default_action = "none"` refused as contradictory |
+| 12 | Migration 0024: `external_links` (with the `synced_state` CHECK and `bound_agent_id`), `plans.cancelled_at`, `plan_packages.cancelled_at`; ledger methods `linkExternal`, `bindRequirement`, `cancelPlan`, `externalLinks`, `wantedNexoraState`, `syncDrift`. `wantedNexoraState` is a pure function of (progress, cancelled, integration confirmed) and is tested from the table in section 10, one test row per table row | `migrations/0024_external_links.sql`, `src/controller/core.ts`, `test/plans-core.test.ts` | every row of the progress table in section 10 (assigned, reported, findings, reviewed, integrated, confirmed, cancelled) yields the stated wanted status; parent wanted state for: no packages started, mixed, all reviewed, signed off, all confirmed, any cancelled and the rest confirmed, all cancelled; requirement wanted state for an unbound link, a bound agent with no report, an accepted report, a passed review, a merged integration, a confirmed integration; `external_id` immutable; `synced_state` outside the CHECK list refused; drift is empty when `synced_state` equals wanted |
+| 13 | `cstan link` (`link`, `link bind`) and `plan cancel`; `plan show` Nexora columns; `Nexora drift` section in `cstan status` for the PM; the PM notice `Plan <id> package <pkg> reviewed` | `src/daemon.ts` (`ROUTES`), `src/commands.ts`, `src/cli.ts`, `src/controller/core.ts` (notice), `test/commands.test.ts`, `test/reviews.test.ts` | `link` is `access: "any"` in `ROUTES` and the handler accepts only PM or operator (same check as `plan open`), so a Developer or the Architect gets `forbidden`; `plan cancel` accepts only the operator; `plan show` prints id, synced state, wanted state and drift; the notice is queued once when the latest review of a package's report passes and `track` is not `never`, and not again for a repeat |
+| 14 | PM prompt: intake picker, mirroring rules, failure rules, the "ask the user before `integrate confirm`" rule (only when `[nexora].track` is not `never`); PM restart summary lists links and drift | `src/prompts.ts`, `src/controller/core.ts` (`PmRestartSummary`), `test/prompts.test.ts` | prompt byte-identical to step 5 output when `track = "never"`; with `ask`, the prompt names the picker options and the status mapping; restart summary lists a drifted item |
 
 Possible later steps, not part of this proposal: a dashboard view of plans (`src/dash/model.ts`), and a plan-to-integration link column if derivation proves slow.
 
@@ -308,7 +309,7 @@ Three options were weighed.
 | Option | Reliability | Cost |
 | --- | --- | --- |
 | A. Prompt only; the PM remembers ids and what it synced | Weak: ids and "what is synced" live in the PM's context; a PM restart (`pm-restart`, `PmRestartSummary`) or a missed message loses them, and duplicates are created on retry | none |
-| **B. Prompt + `external_links` table + drift view (proposed)** | Good: the ledger holds ids and the last synced state; the controller already messages the PM on every event that matters; the PM can reconcile at any time from `plan show`; writes stay idempotent | one table, one command, one status section |
+| **B. Prompt + `external_links` table + drift view (proposed)** | Good: the ledger holds ids and the last synced state; the PM reconciles from `plan show` and the `Nexora drift` section whenever it wakes, so a missed message costs lag, not correctness; the controller adds one small notice (package reviewed) for the event that otherwise has none; writes stay idempotent | one table, one command, one status section |
 | C. Controller sync queue with a Nexora client | Best on paper; automatic retry | The daemon needs the API key and network, an HTTP client, a mapping of statuses, error handling and a retry loop; it breaks the rule that the PM is the only Nexora writer and adds a failure surface to the process that must never block delivery |
 
 B is the smallest option that stays reliable. Delivery never depends on Nexora, because the table is passive: nothing in the controller reads it to decide a transition.
@@ -340,18 +341,23 @@ CREATE TABLE external_links (          -- migration 0024
   ref_id TEXT NOT NULL,
   system TEXT NOT NULL CHECK (system IN ('nexora')),
   external_id TEXT NOT NULL,           -- the display id, for example PRJ-019-42; immutable once set
-  synced_state TEXT NOT NULL,          -- last Nexora status the PM wrote: todo, in_progress, in_review, completed, wont_do
+  synced_state TEXT NOT NULL CHECK (synced_state IN ('backlog','todo','in_progress','in_review','completed','wont_do')),  -- last status the PM wrote
+  bound_agent_id TEXT,                 -- kind requirement only: the developer whose reports drive its wanted state; set by `link bind`
   linked_by TEXT NOT NULL, linked_at TEXT NOT NULL, synced_at TEXT NOT NULL,
   PRIMARY KEY (project_id, ref_kind, ref_id, system));
 ```
 
 A link to an item that already existed (the "link" option) uses the same row. A package is a link only after the PM creates its child item; the PM creates all child items when the plan is approved, in one pass.
 
-### Command
+### Commands
 
-`cstan link <requirement|plan|package> <ref-id> <external-id> [<synced-state>]` — PM and operator only (new route `link`, access `any`, handler checks like `plan open`). It inserts the row, or updates `synced_state` and `synced_at` when the row exists with the same `external_id`; a different `external_id` for an existing row is refused (`link_conflict`). The PM runs it after each successful Nexora write, so the ledger records only what really reached Nexora.
+`cstan link <requirement|plan|package> <ref-id> <external-id> [<synced-state>]` inserts the row, or updates `synced_state` and `synced_at` when the row exists with the same `external_id`; a different `external_id` for an existing row is refused (`link_conflict`); a state outside the CHECK list is refused. `cstan link bind <requirement-ref-id> <agent-id>` sets `bound_agent_id` for a requirement link (the small tier); `Launcher.replace` moves it to the replacement agent, as it does for package assignees. The PM runs both after each successful Nexora write, so the ledger records only what really reached Nexora.
 
-`cstan plan show <plan-id>` gains, per package, the external id, `synced_state` and a `wanted` state derived from the section 3 progress. `cstan status` for the PM gains a `Nexora drift` section listing linked items whose `synced_state` differs from the wanted state. This is the pending-sync record the user asked for: drift is derived, so it cannot be forgotten or go stale.
+Authorization: `link` is one route with `access: "any"` in `ROUTES` (`src/daemon.ts`), like `plan` and `integrate`. The handler resolves the caller with `workerManager(call.identity)` (`src/commands.ts`, the PM-or-operator check used by `spawn`, `release` and `replace`) and answers `forbidden` for anyone else, which is also the check `plan open` and `plan assign` use.
+
+`cstan plan cancel <plan-id> [<package-id>]` is new and **operator-only** (the handler accepts only the operator identity, the same rule `ROUTES` gives `cancel`, `src/daemon.ts:96`). The existing `cstan cancel <message-id>` cancels a queued message, not work, so it cannot carry this; there is no work cancellation in the controller today. It sets `cancelled_at` on the plan, or on one package; the controller then queues the PM notice `Plan <id> cancelled` (or `… package <pkg> cancelled`). The user tells the PM or runs the command themselves; the PM reacts and mirrors, it never cancels.
+
+`cstan plan show <plan-id>` gains, per package, the external id, `synced_state`, the `wanted` state and the drift flag. `cstan status` for the PM gains a `Nexora drift` section listing linked items whose `synced_state` differs from `wanted`. This is the pending-sync record: drift is derived, so it cannot be forgotten or go stale.
 
 ### Estimates and time
 
@@ -359,20 +365,89 @@ The Architect's plan carries `estimate_hours` per package (a number greater than
 
 Actual time is not tracked by default. The ledger can show a package's wall-clock span (`plan_packages.assigned_at` to the accepted report and review pass timestamps), and if the user wants it, the PM may log that span as Nexora time with the time-log tool (`duration_minutes`), labelled "agent wall-clock". It is not effort, and several agents run in parallel, so it is off unless the user asks (open question 6b).
 
-### Status sync (events the PM already receives)
+### Meaning of `in_review`
 
-| Controller event (existing or new message) | Nexora action by the PM | `synced_state` |
+In this design `in_review` means **waiting on a human**. An automated reviewer's pass does not complete anything: after it, the work still needs the user to merge to main. So a package is `in_review` from the moment its review passes until the user's merge is confirmed, and the parent is `in_review` from sign-off until then. `in_progress` is work an agent is doing (including fixing findings); `completed` is only reached through the user's merge.
+
+### The wanted state (derived, never stored)
+
+`wantedNexoraState(ref)` is a pure function over ledger facts. `synced_state` is what the PM last wrote; drift is `synced_state != wanted`. Package progress is the derivation of section 3; "confirmed" is added by this section.
+
+**Packages (`ref_kind = package`):**
+
+| Progress state | Ledger fact | Wanted Nexora status |
+| --- | --- | --- |
+| (not assigned) | approved plan, `assignee_agent_id` null | `todo` |
+| `assigned` | assignee set, no accepted report | `in_progress` |
+| `reported` | accepted report, no finished review | `in_progress` |
+| `findings` | latest finished review of the report has findings | `in_progress` (the developer is fixing) |
+| `reviewed` | latest review passed, report not in a `merged` integration | `in_review` |
+| `integrated` | report is in a `merged` integration (not yet confirmed) | `in_review` |
+| `confirmed` | report is in a `confirmed` integration | `completed` |
+| `cancelled` | `plan_packages.cancelled_at` or the plan's `cancelled_at` set, and not confirmed | `wont_do` |
+
+Precedence: `confirmed` over `cancelled` over every other row (finished work is not unwound by a later cancel); an integration that is `discarded` or `failed` does not change the package, it returns to `reviewed`. A package with a new report after findings starts again at `reported`.
+
+**Parent plan item (`ref_kind = plan`):**
+
+| Condition | Wanted |
+| --- | --- |
+| plan approved, no package assigned | `todo` |
+| any package `in_progress`, or any package not yet `reviewed` and not `cancelled` | `in_progress` |
+| every non-cancelled package is `reviewed`, `integrated` or `confirmed`, and not all are `confirmed` | `in_review` |
+| a sign-off exists and the integration is not yet `confirmed` | `in_review` |
+| every non-cancelled package is `confirmed` | `completed` |
+| every package is `cancelled`, or the plan is cancelled with none confirmed | `wont_do` |
+
+**Requirements of the small tier (`ref_kind = requirement`):** there are no packages. The requirement is driven by the one developer bound with `link bind` (the PM binds the agent it spawns). The facts are that agent's reports, their reviews and any integration containing them:
+
+| Condition | Wanted |
+| --- | --- |
+| bound, no accepted report | `in_progress` |
+| accepted report without a finished review, or latest review has findings | `in_progress` |
+| latest review passed, no confirmed integration | `in_review` |
+| report in a `confirmed` integration | `completed` |
+| unbound | none: no wanted state, no drift, the PM drives it by hand with `cstan link` and the status line says "unbound" |
+| the operator cancelled it with `cstan plan cancel` (a requirement link has a ref id, not a plan; the user cancelling the work tells the PM, who runs `cstan link requirement <ref> <id> wont_do`) | `wont_do` is a PM-declared state for this kind and is not drift-checked |
+
+If the small tier skips integration (the PM does not run `cstan integrate`), the requirement stays `in_review` after the passing review until the user says the change is merged; the PM then records `completed` by hand. This is the one place the human closes the gate without a controller fact, and the PM prompt says so.
+
+### How the user's merge is recorded
+
+The user merges the integration branch into main with their own git. The controller can verify that: `settleIntegration` refuses `confirm` unless the integration commit is already in HEAD (`isInHead`, `src/integration.ts`). So the recorded confirmation is the **`integrations.state = 'confirmed'` row** (with `completed_at`), written when `cstan integrate confirm <integration-id>` succeeds. The PM prompt rule: after the sign-off notice the PM tells the user the branch, asks (picker: merged / not yet) and runs `integrate confirm` only after the user says it is merged; the controller then checks that the merge really is in HEAD. Before that row exists, a `merged` integration yields wanted `in_review`; after it, wanted becomes `completed` and drift appears for the PM to fix. The human act is the user's merge plus their answer; the controller supplies the proof.
+
+### Status sync (PM actions)
+
+| Trigger the PM sees | Nexora action by the PM | `cstan link` state written |
 | --- | --- | --- |
 | `Plan <id> approved` | create child items with estimates; comment on the parent: plan approved, packages and order | `todo` |
-| `plan assign` succeeded | transition the package item | `in_progress` |
-| Verified report followed by a passing review (the `Review … PASS` notice, which for plan-governed work goes to the Architect and is relayed by the Architect's sign-off or by `plan show`) | transition the package item; comment: reviewed, commit | `in_review` |
-| `Review … FINDINGS` | comment on the package item with the findings summary; status stays | unchanged |
-| integration `merged` / `conflicted` / `failed` | comment on the parent item with the result (branch and head, or the conflicting files) | unchanged |
-| `Plan <id> signed off` | comment on the parent; parent to `in_review` | `in_review` |
-| the user merges to main and `integrate confirm` is accepted | **no automatic completion.** The PM asks the user to confirm the merge (picker: confirm / not yet); on confirmation the PM sets package items and the parent to `completed`. The human closes the gate. | `completed` |
-| `cstan cancel` or the user drops the work | `wont_do` with a comment | `wont_do` |
+| the PM's own `plan assign` succeeded | transition the package item | `in_progress` |
+| `Plan <id> package <pkg> reviewed` (new notice, below) | transition the package item; comment: reviewed, commit | `in_review` |
+| `Plan <id> signed off` | comment on the parent with the integration branch and head | `in_review` |
+| the user confirms the merge and `integrate confirm` is accepted | package items and the parent to `completed` | `completed` |
+| `Plan <id> cancelled` / `… package <pkg> cancelled` (operator ran `cstan plan cancel`) | transition to `wont_do` with a comment | `wont_do` |
+| a drift line in `cstan status` or `plan show` at any wake-up | write the wanted state | the wanted state |
 
-The package notice that the Architect sees (`Verified report … Work package: …`) does not reach the PM, so two events need a PM-visible signal: a package reaching `reviewed`, and the plan reaching sign-off. Rather than relay by hand, the controller adds the package state to what the PM reads: `plan show` (derived progress) and the existing PM notices `Plan … signed off` and `Plan … needs attention`. The PM prompt tells it to run `cstan plan show <plan-id>` at each wake-up and after each `Plan …` notice, and to mirror any drift. That keeps one rule: **the PM mirrors drift; it does not remember events.**
+Cancellation is driven by the user or operator (`cancel` and `plan cancel` are operator-only); the PM never decides it and only mirrors.
+
+### Sync lag and the one new notice
+
+Today the controller tells the PM only about reports (`Verified report`), review verdicts (`Review …`, section 4 routes them to the Architect for plan-governed work), and delivery or agent problems; it does not tell the PM about everything. Of the events that change a wanted state, the one with no PM-visible signal is **a package becoming `reviewed`**: the review notice goes to the Architect, and the PM only wakes on notices. This design adds the smallest fix: when the latest review of a package's report passes, the controller queues one short message to the PM, `Plan <plan-id> package <package-id> reviewed` (commit sha and report id, nothing else), once per report, only when `[nexora].track` is not `never` (it is queued with the existing once-per-episode machinery, `#queuePmNotice`, `src/controller/core.ts`). The other events already reach the PM: `Plan … approved`, `Plan … signed off`, `Plan … cancelled`, and the PM's own actions (assign, confirm).
+
+Two events are accepted as lagging, and the PM catches them at its next wake-up by running `cstan plan show` / reading the `Nexora drift` section: a `findings` verdict (the wanted status stays `in_progress`, so only the optional Nexora comment about the findings lags) and an integration result of `merged`, `conflicted` or `failed` before sign-off (the Architect sends conflicts to the PM by hand; the comment on the parent lags until sign-off). Nothing else is claimed: the PM prompt says to run `cstan plan show` after every `Plan …` notice and at every wake-up, and "the PM mirrors drift; it does not remember events".
+
+### Assumptions to verify
+
+These come from reading the Nexora tool schemas and were **not exercised**; step 10 checks each against the live tools before any implementation, and this section is amended with the result.
+
+| Assumption | Used for | Source and gap |
+| --- | --- | --- |
+| a status `wont_do` exists and is accepted by `nexora_work_item_transition` | cancellation mirror | the tool's status enum lists `backlog, todo, in_progress, in_review, completed, wont_do`; no call was made |
+| `parent_display_id` links a child to its parent on create | requirement to package mapping | present in the create schema; whether it works across item types (story, task) was not tried |
+| `estimated_hours` is accepted as a decimal and shown on the item | estimates | present in the create schema; rounding and a maximum were not checked |
+| time can be logged with `duration_minutes` (integer minutes, at least 1) | optional actual time | present in the time-log schema; whether the log is allowed on an `in_review` item was not tried |
+| the display id format returned by create (for example `PRJ-019-42`) is accepted back by `display_id` | `external_id` | the example in the schema is `PM-42`; the exact shape for this project was not seen |
+| the parent item keeps its own status independently of its children | parent wanted state | not known whether Nexora derives parent status from children |
 
 ### Failure behaviour
 
