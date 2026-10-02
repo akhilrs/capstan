@@ -5,6 +5,7 @@ import {
   buildRolePrompt,
   CSTAN_ALLOW_RULE,
 } from "../src/prompts.js";
+import { PM_DEFAULT_DENY } from "../src/config/capstan-config.js";
 import type { PmRestartSummary } from "../src/controller/core.js";
 
 const base = {
@@ -305,4 +306,24 @@ test("the PM prompt teaches replace and the loss message, and every worker promp
     "the seed comes after the reference",
   );
   assert.ok(!buildRolePrompt(base).includes("seed text"));
+});
+
+test("the PM prompt tells the PM to ask choice questions with the picker, and no other prompt does", () => {
+  const pm = buildRolePrompt({ ...base, workerRoles: [] });
+  assert.match(pm, /Asking the user:/);
+  assert.match(pm, /AskUserQuestion tool so the user gets a picker/);
+  assert.match(pm, /at most four questions in one call/);
+  assert.match(pm, /two to four options in each/);
+  assert.match(pm, /"\(Recommended\)" at the end of its label/);
+  assert.match(pm, /header of at most twelve characters/);
+  assert.match(pm, /multiSelect only when the choices are not exclusive/);
+  assert.match(pm, /Never add an "Other" option/);
+  assert.match(pm, /plain text only for an open-ended question/i);
+  for (const kind of ["Developer", "Verifier", "Supervisor"] as const)
+    assert.doesNotMatch(
+      buildRolePrompt({ ...base, kind, roleName: kind.toLowerCase() }),
+      /AskUserQuestion/,
+      kind,
+    );
+  assert.ok(!PM_DEFAULT_DENY.includes("AskUserQuestion"));
 });
