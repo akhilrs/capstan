@@ -1,0 +1,11 @@
+# .nexora.toml — Nexora project management config
+# API key: set NEXORA_API_KEY environment variable (never stored here)
+
+[api]
+url = "https://nexora.qusol.in/api/v1"
+
+[organization]
+id = "7e653580-472e-4e2b-885e-fa44ce754bba"
+
+[project]
+code = "PRJ-019"
