@@ -169,6 +169,11 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  25: {
+    version: 25,
+    name: "0025_external_links.sql",
+    url: new URL("../../migrations/0025_external_links.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(
