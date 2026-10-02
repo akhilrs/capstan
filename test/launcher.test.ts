@@ -2589,6 +2589,26 @@ test("replace falls back to the project's HEAD when the predecessor has no accep
   }
 });
 
+test("replace seeds from the head with the predecessor tip when the last accepted commit was amended away", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const tip = "d".repeat(40);
+    w.git.tips.set(first.branch, tip);
+    reportAs(w, first.agentId, 1, "e".repeat(40), "work");
+    w.git.reachable.clear();
+    const result = await w.launcher.replace(first.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    assert.equal(result.baseSource, "head");
+    assert.equal(result.baseSha, w.git.head);
+    assert.ok(promptOf(w, 2).includes(`(tip ${tip})`));
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("replace works on an agent that already ended, releases nothing and answers with no predecessor worktree", async () => {
   const w = await world();
   try {
