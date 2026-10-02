@@ -24,6 +24,19 @@ pm_width_percent = 60
 enabled = true
 check_seconds = 300
 
+# An optional Architect plans normal and high-risk work, runs integration and signs it off. The
+# user still merges to the main branch. While enabled = false, nothing about plans reaches an agent.
+# To use it, remove the leading # from this table and from [roles.architect] below. The role must
+# be a Developer role on a claude host; reviewer_role, if set, must be a Verifier role.
+# [architect]
+# enabled = true
+# role = "architect"
+# plan_review = "high_risk"     # "high_risk" | "always" | "never"
+# reviewer_role = "reviewer"
+# max_packages = 8              # 1 to 20
+# count_toward_worker_limit = false
+# high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
+
 # The model and permission mode a role gets when it sets none of its own, by role kind
 # (PM, Supervisor, Developer, Verifier). [defaults] itself applies to every kind. A role's own
 # model or permission_mode always wins. permission_mode = "auto" lets Claude Code's auto mode
@@ -92,6 +105,14 @@ kind = "Supervisor"
 host = "claude"
 deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
 prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
+
+# [roles.architect]
+# kind = "Developer"
+# host = "claude"
+# permission_mode = "acceptEdits"
+# allow = ["Bash(git *)"]
+# deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
+# prompt = "You plan and integrate; you never edit or commit project files. Follow the project rules the PM gives you."
 `;
 export const ROLE_KINDS = [
   "PM",
@@ -135,6 +156,31 @@ export type ResolvedSupervision = {
   /** The controller keeps a Supervisor running while workers are active and queues it a routine check. */
   readonly enabled: boolean;
   readonly checkSeconds: number;
+};
+
+export const PLAN_REVIEW_MODES = ["high_risk", "always", "never"] as const;
+export const DEFAULT_ARCHITECT_ROLE = "architect";
+export const DEFAULT_ARCHITECT_MAX_PACKAGES = 8;
+export const MAX_ARCHITECT_PACKAGES = 20;
+export const DEFAULT_HIGH_RISK_TRIGGERS: readonly string[] = [
+  "schema or migrations",
+  "security or auth",
+  "public contracts or wire formats",
+  "cross-cutting changes",
+];
+
+export type ResolvedArchitect = {
+  /** Off: no plan commands reach any prompt and behaviour is exactly that of a project without the table. */
+  readonly enabled: boolean;
+  /** The role of kind Developer that is the Architect; checked against the roles only when enabled. */
+  readonly role: string;
+  readonly planReview: (typeof PLAN_REVIEW_MODES)[number];
+  /** A Verifier role for plan reviews; null means the reviewer choice the report reviews use. */
+  readonly reviewerRole: string | null;
+  readonly maxPackages: number;
+  readonly countTowardWorkerLimit: boolean;
+  /** Prompt text for the PM, not a classifier: the tier stays the PM's judgement. */
+  readonly highRiskTriggers: readonly string[];
 };
 
 export type ResolvedHost = {
@@ -272,6 +318,7 @@ export type CapstanConfig = {
   readonly notifications: ResolvedNotifications;
   readonly timers: ResolvedTimers;
   readonly supervision: ResolvedSupervision;
+  readonly architect: ResolvedArchitect;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
   /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
@@ -392,6 +439,7 @@ export function parseCapstanConfig(
       "notifications",
       "timers",
       "supervision",
+      "architect",
       "defaults",
       "limits",
       "layout",
@@ -553,6 +601,11 @@ export function parseCapstanConfig(
   );
   if (roles.filter((role) => role.kind === "PM").length !== 1)
     throw new ConfigError("exactly one role must have kind PM");
+  const architect = resolveArchitect(
+    optionalTable(root.architect, "architect"),
+    roles,
+    hostsByName,
+  );
 
   return {
     schemaVersion: 1,
@@ -561,6 +614,7 @@ export function parseCapstanConfig(
     notifications,
     timers,
     supervision,
+    architect,
     limits,
     layout,
     env,
@@ -568,6 +622,96 @@ export function parseCapstanConfig(
     roles,
     warnings,
   };
+}
+
+function resolveArchitect(
+  table: Table,
+  roles: readonly ResolvedRole[],
+  hosts: ReadonlyMap<string, ResolvedHost>,
+): ResolvedArchitect {
+  rejectUnknownKeys(
+    table,
+    [
+      "enabled",
+      "role",
+      "plan_review",
+      "reviewer_role",
+      "max_packages",
+      "count_toward_worker_limit",
+      "high_risk_triggers",
+    ],
+    "architect",
+  );
+  const role =
+    optionalString(table.role, "architect.role", 32) ?? DEFAULT_ARCHITECT_ROLE;
+  if (!NAME_PATTERN.test(role))
+    throw new ConfigError(`architect.role must match ${NAME_PATTERN.source}`);
+  const reviewerRole = optionalString(
+    table.reviewer_role,
+    "architect.reviewer_role",
+    32,
+  );
+  if (reviewerRole !== null && !NAME_PATTERN.test(reviewerRole))
+    throw new ConfigError(
+      `architect.reviewer_role must match ${NAME_PATTERN.source}`,
+    );
+  const architect: ResolvedArchitect = {
+    enabled: optionalBoolean(table.enabled, "architect.enabled", false),
+    role,
+    planReview:
+      table.plan_review === undefined
+        ? "high_risk"
+        : enumValue(
+            table.plan_review,
+            "architect.plan_review",
+            PLAN_REVIEW_MODES,
+          ),
+    reviewerRole,
+    maxPackages: optionalInteger(
+      table.max_packages,
+      "architect.max_packages",
+      1,
+      MAX_ARCHITECT_PACKAGES,
+      DEFAULT_ARCHITECT_MAX_PACKAGES,
+    ),
+    countTowardWorkerLimit: optionalBoolean(
+      table.count_toward_worker_limit,
+      "architect.count_toward_worker_limit",
+      false,
+    ),
+    highRiskTriggers:
+      table.high_risk_triggers === undefined
+        ? DEFAULT_HIGH_RISK_TRIGGERS
+        : stringList(table.high_risk_triggers, "architect.high_risk_triggers"),
+  };
+  if (!architect.enabled) return architect;
+
+  const architectRole = roles.find((candidate) => candidate.name === role);
+  if (architectRole === undefined)
+    throw new ConfigError(
+      `architect.role "${role}" does not name a configured role`,
+    );
+  if (architectRole.kind !== "Developer")
+    throw new ConfigError(
+      `architect.role "${role}" must be a Developer role; roles.${role}.kind is ${architectRole.kind}`,
+    );
+  const host = hosts.get(architectRole.host);
+  if (host?.kind !== "claude")
+    throw new ConfigError(
+      `roles.${role}: the architect role needs a claude host so its deny rules are enforced; host ${architectRole.host} is ${host?.kind ?? "unknown"}`,
+    );
+  if (reviewerRole !== null) {
+    const reviewer = roles.find((candidate) => candidate.name === reviewerRole);
+    if (reviewer === undefined)
+      throw new ConfigError(
+        `architect.reviewer_role "${reviewerRole}" does not name a configured role`,
+      );
+    if (reviewer.kind !== "Verifier")
+      throw new ConfigError(
+        `architect.reviewer_role "${reviewerRole}" must be a Verifier role; roles.${reviewerRole}.kind is ${reviewer.kind}`,
+      );
+  }
+  return architect;
 }
 
 function resolveHosts(table: Table): ResolvedHost[] {
