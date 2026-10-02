@@ -349,3 +349,111 @@ test("the PM prompt describes the delivery problem, stall and wake messages and 
       kind,
     );
 });
+
+const workerRoles = [
+  { name: "developer", kind: "Developer" },
+  { name: "reviewer", kind: "Verifier" },
+];
+const architect = {
+  role: "architect",
+  highRiskTriggers: ["schema or migrations", "security or auth"],
+};
+const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
+  roleName: "x",
+  kind,
+  agentId: "a-1",
+  waitTimeoutSeconds: 90,
+  rolePrompt: "Be brief.",
+  workerRoles,
+});
+
+test("with the Architect disabled every prompt is byte-identical to the one before the Architect existed", async () => {
+  const { createHash } = await import("node:crypto");
+  const golden = {
+    PM: "29a9ad84d6ff5b35",
+    Developer: "b46b5989e238846b",
+    Verifier: "f7bfe2d19eee2f46",
+    Supervisor: "1032fc5dd4233bda",
+  } as const;
+  for (const [kind, prefix] of Object.entries(golden)) {
+    const text = buildRolePrompt(goldenInput(kind as keyof typeof golden));
+    const hash = createHash("sha256").update(text).digest("hex");
+    assert.equal(hash.slice(0, 16), prefix, kind);
+  }
+});
+
+test("the enabled PM prompt keeps the small-tier merge rule and adds the user-merges rule for planned work", () => {
+  const disabled = buildRolePrompt(goldenInput("PM"));
+  const text = buildRolePrompt({ ...goldenInput("PM"), architect });
+  assert.ok(
+    text.startsWith(disabled.split("Be brief.")[0]!.trimEnd()),
+    "the old reference text comes first",
+  );
+  assert.ok(
+    text.includes(
+      "merge the integration branch into the project's HEAD yourself",
+    ),
+  );
+  for (const needle of [
+    "small (a single file",
+    "you merge the integration branch into the project's HEAD yourself",
+    "normal (work that splits",
+    "high-risk (normal work that touches schema or migrations; security or auth)",
+    "the user merges it into the project's HEAD. Do not merge it yourself",
+    "run `cstan integrate confirm <integration-id>`; the Architect never runs it",
+    "cstan plan open <normal|high-risk>",
+    "cstan plan assign <plan-id> <package-id> <developer-agent-id>",
+    "may answer them directly",
+    "the user may override it",
+  ])
+    assert.ok(text.includes(needle), needle);
+});
+
+test("the developer prompt names the question path to the Architect only when enabled", () => {
+  const on = buildRolePrompt({ ...goldenInput("Developer"), architect });
+  const off = buildRolePrompt(goldenInput("Developer"));
+  assert.ok(on.includes("the architect named in it can answer questions"));
+  assert.ok(on.includes('cstan send <architect-agent-id> "<question>"'));
+  assert.ok(!on.includes("You are the architect"));
+  assert.ok(!/architect/i.test(off));
+});
+
+test("the Architect prompt: plan, integrate, direct replies, never confirm, never merge", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("Developer"),
+    roleName: "architect",
+    agentId: "architect-1",
+    architect,
+    isArchitect: true,
+  });
+  for (const needle of [
+    "Your agent id is architect-1",
+    'cstan plan submit <plan-id> "<json>"',
+    "cstan request-review <report-id>",
+    "cstan integrate <report-id>...",
+    'cstan plan signoff <plan-id> <integration-id> "<summary>"',
+    "You never run `cstan integrate confirm`",
+    "never push or merge",
+    'cstan send <developer-agent-id> "<answer>"',
+    "Never use `cstan send` to give a developer new work",
+  ])
+    assert.ok(text.includes(needle), needle);
+  assert.ok(!text.includes("the architect named in it can answer"));
+  for (const banned of [
+    "Commit your work",
+    "cstan report",
+    "git rev-parse HEAD",
+  ])
+    assert.ok(!text.includes(banned), banned);
+});
+
+test("an enabled prompt of each kind stays under the prompt limit", () => {
+  for (const input of [
+    { ...goldenInput("PM"), architect },
+    { ...goldenInput("Developer"), architect, isArchitect: true },
+    { ...goldenInput("Developer"), architect },
+  ])
+    assert.ok(
+      Buffer.byteLength(buildRolePrompt(input), "utf8") < MAX_PROMPT_BYTES,
+    );
+});
