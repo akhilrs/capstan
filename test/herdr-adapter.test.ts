@@ -3541,6 +3541,16 @@ test("metadata and workspace renames go to Herdr with the capstan source and che
     ]);
     await h.adapter.reportMetadata({ workspaceId: "w9" }, { project: "x" });
     assert.equal(h.fake.callsTo("workspace", "report-metadata").length, 1);
+    await h.adapter.reportMetadata(
+      { paneId: "w9:p1" },
+      { project: "😀".repeat(60) },
+    );
+    const cut = h.fake.callsTo("pane", "report-metadata").at(-1)!.at(-1)!;
+    assert.equal(
+      cut,
+      `project=${"😀".repeat(60)}`,
+      "a value within 64 code points goes whole",
+    );
     await h.adapter.renameWorkspace("w9", "Acme Shop · watch");
     assert.deepEqual(h.fake.callsTo("workspace", "rename")[0], [
       "workspace",

@@ -652,7 +652,7 @@ export class HerdrAdapter {
     args.push("--source", "capstan");
     for (const [name, value] of Object.entries(tokens)) {
       requireMatch(name, /^[a-z][a-z0-9_]{0,31}$/, "token name");
-      args.push("--token", `${name}=${requireLabel(value).slice(0, 80)}`);
+      args.push("--token", `${name}=${requireLabel(value)}`);
     }
     await this.#runChecked(args);
   }
