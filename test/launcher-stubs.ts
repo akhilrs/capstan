@@ -25,6 +25,11 @@ export class StubAdapter implements LauncherAdapter {
   }
 
   readonly calls: string[] = [];
+  readonly created: string[] = [];
+  readonly metadata: Array<{ target: string; tokens: Record<string, string> }> =
+    [];
+  readonly labels: string[] = [];
+  metadataError: Error | undefined;
   readonly starts: StartCall[] = [];
   readonly entries = new Map<string, { agent?: string }>();
   readonly agentPanes = new Map<string, string>();
@@ -129,13 +134,14 @@ export class StubAdapter implements LauncherAdapter {
     if (this.worktreeError) throw this.worktreeError;
     this.counter += 1;
     const paneId = `w${this.counter}:p1`;
+    this.created.push(input.label);
     this.calls.push(`worktree:${input.branch}:${input.base}`);
     this.worktreeParents.push(input.workspaceId);
     this.entries.set(paneId, {});
     return {
       workspaceId: `w${this.counter}`,
       paneId,
-      path: `/tmp/work/${input.label}`,
+      path: `/tmp/work/${input.label.split(" · ").pop()}`,
       branch: input.branch,
     };
   }
@@ -196,6 +202,21 @@ export class StubAdapter implements LauncherAdapter {
       await input.log(entry);
     }
     return { handled: true as const, keys: ["down", "enter"] };
+  }
+
+  async reportMetadata(
+    target: { paneId: string } | { workspaceId: string },
+    tokens: Readonly<Record<string, string>>,
+  ) {
+    if (this.metadataError) throw this.metadataError;
+    this.metadata.push({
+      target: "paneId" in target ? target.paneId : target.workspaceId,
+      tokens: { ...tokens },
+    });
+  }
+
+  async renameWorkspace(workspaceId: string, label: string) {
+    this.labels.push(`${workspaceId}:${label}`);
   }
 
   async closePane(paneId: string) {

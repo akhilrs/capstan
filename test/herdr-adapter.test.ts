@@ -310,6 +310,21 @@ class FakeHerdr {
     if (command === "pane" && sub === "close") return this.json({});
     if (command === "notification" && sub === "show")
       return this.json(this.notification);
+    if (command === "agent" && sub === "rename") {
+      const state = [...this.agentStates.entries()].find(
+        ([, value]) => value.paneId === args[2],
+      );
+      if (!state) return this.failure("agent_not_found", "no agent there");
+      this.agentStates.delete(state[0]);
+      this.agentStates.set(args[3]!, state[1]);
+      return this.json({});
+    }
+    if (command === "workspace" && sub === "rename") return this.json({});
+    if (
+      (command === "pane" || command === "workspace") &&
+      sub === "report-metadata"
+    )
+      return this.json({});
     return this.failure("unknown", `unhandled ${args.join(" ")}`);
   };
 }
@@ -319,10 +334,11 @@ interface Harness {
   readonly adapter: HerdrAdapter;
 }
 
-function harness(): Harness {
+function harness(projectSlug?: string): Harness {
   const fake = new FakeHerdr();
   let clock = 0;
   const adapter = new HerdrAdapter({
+    ...(projectSlug === undefined ? {} : { projectSlug }),
     run: fake.run,
     tempRoot: fake.root,
     sleep: async () => {
@@ -403,7 +419,7 @@ test("the adapter reads the Herdr version and creates worktrees and workspaces a
     for (const bad of [
       { workspaceId: "x9", branch: "b", label: "l" },
       { workspaceId: "w9", branch: "../evil", label: "l" },
-      { workspaceId: "w9", branch: "b", label: "has space" },
+      { workspaceId: "w9", branch: "b", label: "bad\nlabel" },
       { workspaceId: "w9", branch: "b", label: "l", base: "a b" },
     ])
       await assert.rejects(h.adapter.createWorktree(bad), InvalidArgumentError);
@@ -3364,6 +3380,196 @@ test("adoption takes the host kind from what Herdr reports for the agent, and re
       UnsupportedHostError,
     );
     assert.equal(next.paneEntry(worker.paneId), undefined);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("with a project slug Herdr sees <slug>-<id> at every agent call while callers keep the ledger id", async () => {
+  const h = harness("acme");
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "cap/task/dev-g1",
+      label: "acme · dev-1",
+    });
+    await h.adapter.startAgent({
+      name: "dev-1",
+      kind: "claude",
+      paneId,
+      args: [],
+      environment: CLEAN_ENV,
+    });
+    assert.deepEqual(h.fake.callsTo("agent", "start")[0]!.slice(0, 3), [
+      "agent",
+      "start",
+      "acme-dev-1",
+    ]);
+    assert.ok(h.fake.agentStates.has("acme-dev-1"));
+    h.fake.panes.get(paneId)!.screen = idleScreen();
+    assert.equal(h.adapter.paneForAgent("dev-1"), paneId);
+    assert.equal((await h.adapter.agentState("dev-1")).paneId, paneId);
+    assert.deepEqual(h.fake.callsTo("agent", "get").at(-1), [
+      "agent",
+      "get",
+      "acme-dev-1",
+    ]);
+    const sent = await h.adapter.guardedSend({
+      paneId,
+      text: "hello",
+      beforeSend: () => {},
+    });
+    assert.equal(sent.sent, true);
+    assert.deepEqual(h.fake.callsTo("agent", "prompt").at(-1), [
+      "agent",
+      "prompt",
+      "acme-dev-1",
+      "hello",
+    ]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("an agent id that does not fit Herdr's 32 characters behind the slug is refused at start, before Herdr is called", async () => {
+  const h = harness("acme");
+  try {
+    const { paneId } = await h.adapter.createWorktree({
+      workspaceId: "w9",
+      branch: "cap/task/long-g1",
+      label: "acme · long",
+    });
+    await assert.rejects(
+      h.adapter.startAgent({
+        name: "a-very-long-role-name-that-overflows-1",
+        kind: "claude",
+        paneId,
+        args: [],
+        environment: CLEAN_ENV,
+      }),
+      /does not fit Herdr's rule/,
+    );
+    assert.equal(h.fake.callsTo("agent", "start").length, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("adoption renames an agent that still has its bare name, and refuses one that sits on another pane", async () => {
+  const h = harness();
+  try {
+    const worker = await startedWorker(h);
+    const entry = h.adapter.paneEntry(worker.paneId)!;
+    const next = new HerdrAdapter({
+      run: h.fake.run,
+      tempRoot: h.fake.root,
+      sleep: async () => {},
+      now: () => 0,
+      projectSlug: "acme",
+    });
+    await next.adoptPane({
+      paneId: worker.paneId,
+      role: "worker",
+      agent: "dev",
+      workspaceId: entry.workspaceId ?? null,
+      worktreePath: entry.worktreePath ?? null,
+    });
+    assert.deepEqual(h.fake.callsTo("agent", "rename")[0], [
+      "agent",
+      "rename",
+      worker.paneId,
+      "acme-dev",
+    ]);
+    assert.ok(h.fake.agentStates.has("acme-dev"));
+    assert.ok(!h.fake.agentStates.has("dev"));
+    assert.equal(next.paneForAgent("dev"), worker.paneId);
+
+    const other = harness();
+    try {
+      const w = await startedWorker(other);
+      other.fake.agentStates.get("dev")!.paneId = "w99:p1";
+      const again = new HerdrAdapter({
+        run: other.fake.run,
+        tempRoot: other.fake.root,
+        sleep: async () => {},
+        now: () => 0,
+        projectSlug: "acme",
+      });
+      await assert.rejects(
+        again.adoptPane({
+          paneId: w.paneId,
+          role: "worker",
+          agent: "dev",
+          workspaceId: null,
+          worktreePath: null,
+        }),
+        AgentPaneMismatch,
+      );
+      assert.equal(other.fake.callsTo("agent", "rename").length, 0);
+    } finally {
+      other.adapter.close();
+      other.fake.cleanup();
+    }
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("metadata and workspace renames go to Herdr with the capstan source and checked text", async () => {
+  const h = harness("acme");
+  try {
+    await h.adapter.reportMetadata(
+      { paneId: "w9:p1" },
+      { project: "Acme Shop", role: "developer", agent: "developer-1" },
+    );
+    assert.deepEqual(h.fake.callsTo("pane", "report-metadata")[0], [
+      "pane",
+      "report-metadata",
+      "w9:p1",
+      "--source",
+      "capstan",
+      "--token",
+      "project=Acme Shop",
+      "--token",
+      "role=developer",
+      "--token",
+      "agent=developer-1",
+    ]);
+    await h.adapter.reportMetadata({ workspaceId: "w9" }, { project: "x" });
+    assert.equal(h.fake.callsTo("workspace", "report-metadata").length, 1);
+    await h.adapter.reportMetadata(
+      { paneId: "w9:p1" },
+      { project: "😀".repeat(60) },
+    );
+    const cut = h.fake.callsTo("pane", "report-metadata").at(-1)!.at(-1)!;
+    assert.equal(
+      cut,
+      `project=${"😀".repeat(60)}`,
+      "a value within 64 code points goes whole",
+    );
+    await h.adapter.renameWorkspace("w9", "Acme Shop · watch");
+    assert.deepEqual(h.fake.callsTo("workspace", "rename")[0], [
+      "workspace",
+      "rename",
+      "w9",
+      "Acme Shop · watch",
+    ]);
+    await assert.rejects(
+      h.adapter.reportMetadata({ paneId: "w9:p1" }, { Bad: "x" }),
+      InvalidArgumentError,
+    );
+    await assert.rejects(
+      h.adapter.reportMetadata({ paneId: "w9:p1" }, { project: "a\nb" }),
+      InvalidArgumentError,
+    );
+    await assert.rejects(
+      h.adapter.renameWorkspace("w9", "x".repeat(65)),
+      InvalidArgumentError,
+    );
   } finally {
     h.adapter.close();
     h.fake.cleanup();
