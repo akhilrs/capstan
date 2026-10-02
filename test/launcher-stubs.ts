@@ -125,7 +125,11 @@ export class StubAdapter implements LauncherAdapter {
       this.pmWorkspace = `w${this.counter}`;
       this.tabPanes = [{ paneId, ...this.layoutSize }];
     }
-    return { workspaceId: `w${this.counter}`, paneId };
+    return {
+      workspaceId: `w${this.counter}`,
+      paneId,
+      tabId: `w${this.counter}:t1`,
+    };
   }
 
   async createTab(input: {
@@ -230,6 +234,10 @@ export class StubAdapter implements LauncherAdapter {
       target: "paneId" in target ? target.paneId : target.workspaceId,
       tokens: { ...tokens },
     });
+  }
+
+  async renameTab(tabId: string, label: string) {
+    this.labels.push(`${tabId}:${label}`);
   }
 
   async renameWorkspace(workspaceId: string, label: string) {

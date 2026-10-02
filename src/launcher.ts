@@ -59,6 +59,7 @@ export type LauncherAdapter = Pick<
   | "adoptShellPane"
   | "reportMetadata"
   | "renameWorkspace"
+  | "renameTab"
   | "forgetPane"
   | "runInPane"
   | "writePromptFile"
@@ -918,7 +919,8 @@ export class Launcher {
         }
       }
     }
-    let workspace: { workspaceId: string; paneId: string } | undefined;
+    let workspace:
+      { workspaceId: string; paneId: string; tabId: string } | undefined;
     try {
       budget.check("opening the project workspace");
       workspace = await this.#adapter.createWorkspace({
@@ -927,6 +929,11 @@ export class Launcher {
         role: "PM",
       });
       await this.#labelHub(workspace.workspaceId);
+      try {
+        await this.#adapter.renameTab(workspace.tabId, "pm");
+      } catch (error) {
+        this.#log("describe_failed", { agentId: "pm", error: String(error) });
+      }
       await this.#openWatchTab(workspace.workspaceId);
       return {
         status: "opened",
@@ -1858,6 +1865,7 @@ export class Launcher {
           fallback.paneId,
           fallback.workspaceId,
         );
+        await this.#labelHub(fallback.workspaceId);
       } catch (error) {
         // A gone watch pane keeps its row: the workspace id in it lets the next hub check make the watch tab again in the same workspace.
         if (error instanceof PaneGone)

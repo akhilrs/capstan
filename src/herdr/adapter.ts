@@ -594,7 +594,7 @@ export class HerdrAdapter {
     cwd: string;
     label: string;
     role: PaneRole;
-  }): Promise<{ workspaceId: string; paneId: string }> {
+  }): Promise<{ workspaceId: string; paneId: string; tabId: string }> {
     if (!path.isAbsolute(input.cwd))
       throw new InvalidArgumentError("workspace directory must be absolute");
     requireLabel(input.label);
@@ -615,13 +615,18 @@ export class HerdrAdapter {
       WORKSPACE_PATTERN,
       "workspace id",
     );
+    const tabId = requireMatch(
+      this.#record(result.tab, "tab").tab_id,
+      TAB_PATTERN,
+      "tab id",
+    );
     this.#panes.set(paneId, {
       role: input.role,
       phase: "fresh",
       kind: "shell",
       workspaceId,
     });
-    return { workspaceId, paneId };
+    return { workspaceId, paneId, tabId };
   }
 
   /** A new tab with its own root pane inside an existing workspace. */
@@ -696,6 +701,12 @@ export class HerdrAdapter {
       args.push("--token", `${name}=${requireLabel(value)}`);
     }
     await this.#runChecked(args);
+  }
+
+  /** Names a tab; display only. */
+  async renameTab(tabId: string, label: string): Promise<void> {
+    requireMatch(tabId, TAB_PATTERN, "tab id");
+    await this.#runChecked(["tab", "rename", tabId, requireLabel(label)]);
   }
 
   /** Gives an existing workspace its current label (an upgraded project still holds the old one). */

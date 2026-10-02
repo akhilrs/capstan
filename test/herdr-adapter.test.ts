@@ -179,6 +179,7 @@ class FakeHerdr {
       return this.json({
         root_pane: { pane_id: pane.paneId },
         workspace: { workspace_id: pane.workspaceId },
+        tab: { tab_id: `${pane.workspaceId}:t1` },
       });
     }
     if (command === "worktree" && sub === "remove")
@@ -327,6 +328,7 @@ class FakeHerdr {
       return this.json({});
     }
     if (command === "workspace" && sub === "rename") return this.json({});
+    if (command === "tab" && sub === "rename") return this.json({});
     if (
       (command === "pane" || command === "workspace") &&
       sub === "report-metadata"
@@ -3585,6 +3587,27 @@ test("metadata and workspace renames go to Herdr with the capstan source and che
     );
     await assert.rejects(
       h.adapter.renameWorkspace("w9", "x".repeat(65)),
+      InvalidArgumentError,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a tab is renamed with checked text, and a new workspace reports its first tab", async () => {
+  const h = harness();
+  try {
+    await h.adapter.renameTab("w9:t1", "pm");
+    assert.deepEqual(h.fake.callsTo("tab", "rename")[0], [
+      "tab",
+      "rename",
+      "w9:t1",
+      "pm",
+    ]);
+    await assert.rejects(h.adapter.renameTab("w9", "pm"), InvalidArgumentError);
+    await assert.rejects(
+      h.adapter.renameTab("w9:t1", "bad\nname"),
       InvalidArgumentError,
     );
   } finally {

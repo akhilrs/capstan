@@ -2659,6 +2659,10 @@ test("workspaces are labelled with the project and every started pane reports pr
     );
     assert.ok(w.adapter.created.includes(`${project} · developer-1`));
     assert.ok(w.adapter.labels.includes(`${hub.workspaceId}:${project}`));
+    assert.ok(
+      w.adapter.labels.includes(`${hub.workspaceId}:t1:pm`),
+      "the PM's tab is named pm",
+    );
     const pm = w.adapter.metadata.find((m) => m.tokens.agent === "pm-1")!;
     assert.deepEqual(pm.tokens, {
       project,
@@ -2738,6 +2742,22 @@ test("an adopted PM keeps the project workspace name, an old PM workspace gets i
     w.adapter.labels.length = 0;
     await w.reopen().adoptAll();
     assert.ok(w.adapter.labels.includes(`w77:${project} · pm`));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("adoption renames a watch workspace of an earlier layout to the project name", async () => {
+  const w = await world();
+  try {
+    const project = path.basename(w.root);
+    await launched(w);
+    const hub = w.core.fallbackPane(w.owner)!;
+    w.adapter.entries.clear();
+    w.adapter.agentPanes.clear();
+    w.adapter.labels.length = 0;
+    await w.reopen().adoptAll();
+    assert.ok(w.adapter.labels.includes(`${hub.workspaceId}:${project}`));
   } finally {
     w.cleanup();
   }
