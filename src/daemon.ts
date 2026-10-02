@@ -89,6 +89,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   "request-review": { access: "agent" },
   integrate: { access: "any" },
   plan: { access: "any" },
+  link: { access: "any" },
   review: { access: "agent" },
   finding: { access: "agent" },
   observe: { access: "agent" },
