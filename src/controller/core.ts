@@ -292,6 +292,8 @@ export interface ReviewRecord {
   readonly round: number;
   readonly reportId: string | null;
   readonly integrationId: string | null;
+  readonly planId: string | null;
+  readonly planRevision: number | null;
   readonly commitSha: string;
   readonly baseSha: string;
   readonly authorAgentId: string | null;
@@ -314,6 +316,8 @@ interface ReviewRow {
   readonly round: number;
   readonly subject_report_id: string | null;
   readonly subject_integration_id: string | null;
+  readonly subject_plan_id: string | null;
+  readonly subject_plan_revision: number | null;
   readonly commit_sha: string;
   readonly base_sha: string;
   readonly author_agent_id: string | null;
@@ -337,6 +341,8 @@ function reviewRecord(row: ReviewRow): ReviewRecord {
     round: row.round,
     reportId: row.subject_report_id,
     integrationId: row.subject_integration_id,
+    planId: row.subject_plan_id,
+    planRevision: row.subject_plan_revision,
     commitSha: row.commit_sha,
     baseSha: row.base_sha,
     authorAgentId: row.author_agent_id,
@@ -358,7 +364,17 @@ function reviewRecord(row: ReviewRow): ReviewRecord {
 function reviewTask(
   row: ReviewRow,
   authors: readonly { report: AgentReportRow }[],
+  planBody?: string,
 ): string {
+  if (row.subject_plan_id !== null) {
+    return [
+      `Review request ${row.review_id} (round ${row.round}) for plan ${row.subject_plan_id} revision ${row.subject_plan_revision}`,
+      `The plan was written against commit ${row.base_sha}. Read the code at that commit in your worktree.`,
+      `The plan body, written by the Architect and not verified: ${JSON.stringify(planBody)}`,
+      "Check the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.",
+      'Review only that plan. Do not edit any file. Answer exactly once with cstan review pass "<text>" or cstan review findings "<text>". Findings must say what is wrong and in which package.',
+    ].join("\n");
+  }
   const subject =
     row.subject_integration_id === null
       ? `report ${row.subject_report_id}`
@@ -387,9 +403,11 @@ function reviewNotice(
   authorAgentIds: readonly string[],
 ): string {
   const subject =
-    row.subject_integration_id === null
-      ? `report ${row.subject_report_id}`
-      : `integration ${row.subject_integration_id}`;
+    row.subject_plan_id !== null
+      ? `plan ${row.subject_plan_id} revision ${row.subject_plan_revision}`
+      : row.subject_integration_id === null
+        ? `report ${row.subject_report_id}`
+        : `integration ${row.subject_integration_id}`;
   return [
     `Review ${row.review_id} of ${subject}, round ${row.round}: ${row.state === "passed" ? "PASS" : "FINDINGS"}`,
     `Reviewer: ${row.reviewer_agent_id} (role ${row.reviewer_role}); ${new Set(authorAgentIds).size === 1 ? "author" : "authors"}: ${[...new Set(authorAgentIds)].join(", ")}. Different sessions.`,
@@ -2253,11 +2271,22 @@ export class ControllerCore {
             "UPDATE agents SET state = 'ended', ended_at = ? WHERE project_id = ? AND agent_id = ?",
           )
           .run(now, this.#projectId, agentId);
+        const endedPlanReviews = this.#database
+          .prepare(
+            "SELECT subject_plan_id FROM reviews WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started' AND subject_plan_id IS NOT NULL",
+          )
+          .all(this.#projectId, agentId) as { subject_plan_id: string }[];
         this.#database
           .prepare(
             "UPDATE reviews SET state = 'cancelled', failure_reason = 'agent_ended', completed_at = ? WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started'",
           )
           .run(now, this.#projectId, agentId);
+        for (const { subject_plan_id } of endedPlanReviews)
+          this.#database
+            .prepare(
+              "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ? AND state = 'in_review'",
+            )
+            .run(now, this.#projectId, subject_plan_id);
         for (const finding of this.#database
           .prepare(
             "SELECT * FROM agent_findings WHERE project_id = ? AND state = 'open' AND (target_agent_id = ? OR raised_by_agent_id = ?) ORDER BY sequence",
@@ -3182,7 +3211,10 @@ export class ControllerCore {
       commitSha: checked.commitSha,
       baseSha: checked.baseSha,
       round: checked.round,
-      authorAgentIds: checked.authors.map((a) => a.agent_id),
+      authorAgentIds:
+        checked.plan === undefined
+          ? checked.authors.map((a) => a.agent_id)
+          : [checked.plan.authorAgentId],
     };
   }
 
@@ -3190,11 +3222,17 @@ export class ControllerCore {
     subjectId: string,
     reviewerRole: string,
   ): {
-    readonly subject: "report" | "integration";
+    readonly subject: "report" | "integration" | "plan";
     readonly commitSha: string;
     readonly baseSha: string;
     readonly round: number;
     readonly authors: readonly AgentReportRow[];
+    readonly plan?: {
+      readonly revision: number;
+      readonly bodyJson: string;
+      readonly authorAgentId: string;
+      readonly authorActorId: string;
+    };
   } {
     const report = this.#database
       .prepare(
@@ -3209,14 +3247,61 @@ export class ControllerCore {
             )
             .get(this.#projectId, subjectId) as IntegrationRow | undefined)
         : undefined;
-    if (report === undefined && integration === undefined)
+    const planRow =
+      report === undefined && integration === undefined
+        ? this.#planRow(subjectId)
+        : undefined;
+    if (
+      report === undefined &&
+      integration === undefined &&
+      planRow === undefined
+    )
       throw new ControllerError("the report or integration does not exist");
     const column =
-      report === undefined ? "subject_integration_id" : "subject_report_id";
+      planRow !== undefined
+        ? "subject_plan_id"
+        : report === undefined
+          ? "subject_integration_id"
+          : "subject_report_id";
     let baseSha: unknown;
     let commitSha: string;
-    let authors: readonly AgentReportRow[];
-    if (report !== undefined) {
+    let authors: readonly AgentReportRow[] = [];
+    let plan:
+      | {
+          revision: number;
+          bodyJson: string;
+          authorAgentId: string;
+          authorActorId: string;
+        }
+      | undefined;
+    if (planRow !== undefined) {
+      if (planRow.state !== "in_review")
+        throw new ControllerError(
+          `plan ${planRow.plan_id} is ${planRow.state}; only a plan in review can be reviewed`,
+        );
+      const revision = this.#database
+        .prepare(
+          "SELECT * FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        )
+        .get(this.#projectId, planRow.plan_id, planRow.current_revision) as
+        | {
+            base_sha: string;
+            body_json: string;
+            author_agent_id: string;
+            author_actor_id: string;
+          }
+        | undefined;
+      if (revision === undefined)
+        throw new ControllerError("the plan has no revision to review");
+      baseSha = revision.base_sha;
+      commitSha = revision.base_sha;
+      plan = {
+        revision: planRow.current_revision,
+        bodyJson: revision.body_json,
+        authorAgentId: revision.author_agent_id,
+        authorActorId: revision.author_actor_id,
+      };
+    } else if (report !== undefined) {
       if (report.state !== "accepted")
         throw new ControllerError("only an accepted report can be reviewed");
       try {
@@ -3270,11 +3355,17 @@ export class ControllerCore {
         .get(this.#projectId, subjectId) as { next: number }
     ).next;
     return {
-      subject: report === undefined ? "integration" : "report",
+      subject:
+        plan !== undefined
+          ? "plan"
+          : report === undefined
+            ? "integration"
+            : "report",
       commitSha,
       baseSha,
       round,
       authors,
+      ...(plan === undefined ? {} : { plan }),
     };
   }
 
@@ -3338,8 +3429,20 @@ export class ControllerCore {
           throw new ControllerError(
             "the reviewer agent is not an active agent of the requested Verifier role",
           );
+        const authorParties =
+          checked.plan === undefined
+            ? checked.authors.map((a) => ({
+                agent_id: a.agent_id,
+                actor_id: a.actor_id,
+              }))
+            : [
+                {
+                  agent_id: checked.plan.authorAgentId,
+                  actor_id: checked.plan.authorActorId,
+                },
+              ];
         if (
-          checked.authors.some(
+          authorParties.some(
             (author) =>
               reviewer.actor_id === author.actor_id ||
               reviewer.agent_id === author.agent_id,
@@ -3347,7 +3450,7 @@ export class ControllerCore {
         )
           throw new ControllerError("a reviewer cannot be an author");
         const single =
-          checked.subject === "report" ? checked.authors[0]! : null;
+          checked.subject === "integration" ? null : authorParties[0]!;
         const controller = this.#database
           .prepare(
             "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
@@ -3366,17 +3469,19 @@ export class ControllerCore {
         ).next;
         this.#database
           .prepare(
-            `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, subject_integration_id, commit_sha, base_sha, author_agent_id,
-               author_actor_id, requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)`,
+            `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, subject_integration_id, subject_plan_id, subject_plan_revision,
+               commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)`,
           )
           .run(
             this.#projectId,
             reviewId,
             sequence,
             checked.round,
-            single === null ? null : input.subjectId,
-            single === null ? input.subjectId : null,
+            checked.subject === "report" ? input.subjectId : null,
+            checked.subject === "integration" ? input.subjectId : null,
+            checked.plan === undefined ? null : input.subjectId,
+            checked.plan?.revision ?? null,
             checked.commitSha,
             checked.baseSha,
             single?.agent_id ?? null,
@@ -3395,6 +3500,7 @@ export class ControllerCore {
         const task = reviewTask(
           row,
           checked.authors.map((report) => ({ report })),
+          checked.plan?.bodyJson,
         );
         this.#insertQueuedMessage(
           controller.actor_id,
@@ -3414,7 +3520,7 @@ export class ControllerCore {
               subjectId: input.subjectId,
               round: checked.round,
               reviewerAgentId: reviewer.agent_id,
-              authorAgentIds: checked.authors.map((a) => a.agent_id),
+              authorAgentIds: authorParties.map((a) => a.agent_id),
             },
           },
         };
@@ -3473,6 +3579,8 @@ export class ControllerCore {
             row.review_id,
           );
         this.#touchAgent(row.reviewer_agent_id, now);
+        if (row.subject_plan_id !== null)
+          this.#settlePlanReview(row, input.verdict, now);
         this.#announceReview(row.review_id, now);
         const done = this.#database
           .prepare(
@@ -3488,7 +3596,10 @@ export class ControllerCore {
             fromState: "started",
             toState: done.state,
             details: {
-              subjectId: row.subject_report_id ?? row.subject_integration_id,
+              subjectId:
+                row.subject_report_id ??
+                row.subject_integration_id ??
+                row.subject_plan_id,
               round: row.round,
             },
           },
@@ -3497,7 +3608,39 @@ export class ControllerCore {
     );
   }
 
+  /** A finished plan review moves its plan: pass approves it (package rows, superseded plan), findings send it back to draft. A plan that is no longer in review is left as it is. The caller owns the transaction. */
+  #settlePlanReview(
+    row: ReviewRow,
+    verdict: "pass" | "findings",
+    now: string,
+  ): void {
+    const plan = this.#planRow(row.subject_plan_id!);
+    if (plan?.state !== "in_review") return;
+    if (verdict === "findings") {
+      this.#database
+        .prepare(
+          "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+        )
+        .run(now, this.#projectId, plan.plan_id);
+      return;
+    }
+    const revision = this.#database
+      .prepare(
+        "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+      )
+      .get(this.#projectId, plan.plan_id, row.subject_plan_revision) as {
+      body_json: string;
+    };
+    this.#database
+      .prepare(
+        "UPDATE plans SET state = 'approved', approved_revision = ?, updated_at = ? WHERE project_id = ? AND plan_id = ?",
+      )
+      .run(row.subject_plan_revision, now, this.#projectId, plan.plan_id);
+    this.#settlePlanApproval(plan, planBodyPackageIds(revision.body_json), now);
+  }
+
   #reviewAuthorIds(row: ReviewRow): string[] {
+    if (row.subject_plan_id !== null) return [row.author_agent_id!];
     return row.subject_integration_id === null
       ? [row.author_agent_id!]
       : this.#integrationAuthors(row.subject_integration_id).map(

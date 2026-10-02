@@ -799,7 +799,7 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
         db.exec(`DROP TABLE ${table}`);
       db.exec("DELETE FROM capability_grants WHERE capability LIKE 'plan:%'");
       db.exec("DELETE FROM role_capabilities WHERE capability LIKE 'plan:%'");
-      db.exec("DELETE FROM schema_migrations WHERE version = 22");
+      db.exec("DELETE FROM schema_migrations WHERE version IN (22, 23)");
     } finally {
       db.close();
     }
@@ -873,6 +873,367 @@ test("a sign-off refuses an integration without reports", async () => {
         }),
       /has no reports of plan/,
     );
+  } finally {
+    await close(t.h);
+  }
+});
+
+let planReviewers = 0;
+
+function startPlanReview(t: Team, planId: string): Member {
+  const reviewer = member(
+    t.h,
+    `plan-reviewer-${++planReviewers}`,
+    "Verifier",
+    "reviewer",
+  );
+  t.h.core.beginReview(ctx(t.h.core, t.h.pm.credential), {
+    subjectId: planId,
+    reviewerRole: "reviewer",
+    reviewerAgentId: reviewer.agentId,
+  });
+  return reviewer;
+}
+
+function finishPlanReview(
+  t: Team,
+  reviewer: Member,
+  verdict: "pass" | "findings",
+) {
+  return t.h.core.completeReview(ctx(t.h.core, reviewer.credential), {
+    verdict,
+    text: `${verdict} on the plan`,
+  });
+}
+
+function planState(t: Team, planId: string): string {
+  return t.h.core.planRecord(t.h.owner, planId)!.plan.state;
+}
+
+test("a passed plan review approves the plan, creates its packages and retires the plan it supersedes", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const old = approved(t, "wp1");
+    const planId = open(h, "high_risk", old);
+    submit(t, planId, body("wp1", "wp2"), true);
+    const check = h.core.checkReviewRequest(planId, "reviewer");
+    assert.equal(check.commitSha, BASE);
+    assert.equal(check.baseSha, BASE);
+    assert.equal(check.round, 1);
+    assert.deepEqual(check.authorAgentIds, ["architect"]);
+    const reviewer = startPlanReview(t, planId);
+    assert.equal(planState(t, planId), "in_review");
+    assert.equal(h.core.planRecord(h.owner, planId)!.packages.length, 0);
+    const done = finishPlanReview(t, reviewer, "pass");
+    assert.equal(done.planId, planId);
+    assert.equal(done.planRevision, 1);
+    assert.equal(done.reportId, null);
+    assert.equal(done.integrationId, null);
+    assert.equal(done.authorAgentId, "architect");
+    const detail = h.core.planRecord(h.owner, planId)!;
+    assert.equal(detail.plan.state, "approved");
+    assert.equal(detail.plan.approvedRevision, 1);
+    assert.deepEqual(
+      detail.packages.map((p) => p.packageId),
+      ["wp1", "wp2"],
+    );
+    assert.equal(planState(t, old), "superseded");
+    const notices = raw(
+      h,
+      (db) =>
+        db
+          .prepare(
+            "SELECT body FROM messages WHERE body LIKE 'Review % of plan %'",
+          )
+          .all() as { body: string }[],
+    );
+    assert.equal(notices.length, 1);
+    assert.match(
+      notices[0]!.body,
+      /^Review \S+ of plan plan-2 revision 1, round 1: PASS\nReviewer: plan-reviewer-\d+ .*author: architect/,
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a plan review with findings sends the plan back to draft, and a resubmitted revision is reviewed as round 2", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = open(h, "high_risk");
+    submit(t, planId, body("wp1"), true);
+    const first = startPlanReview(t, planId);
+    const verdict = finishPlanReview(t, first, "findings");
+    assert.equal(verdict.state, "findings");
+    assert.equal(planState(t, planId), "draft");
+    assert.equal(h.core.planRecord(h.owner, planId)!.packages.length, 0);
+    assert.throws(
+      () => startPlanReview(t, planId),
+      /is draft; only a plan in review can be reviewed/,
+    );
+    submit(t, planId, body("wp1", "wp2"), true);
+    assert.equal(h.core.checkReviewRequest(planId, "reviewer").round, 2);
+    const second = startPlanReview(t, planId);
+    const done = finishPlanReview(t, second, "pass");
+    assert.equal(done.round, 2);
+    assert.equal(done.planRevision, 2);
+    const detail = h.core.planRecord(h.owner, planId)!;
+    assert.equal(detail.plan.approvedRevision, 2);
+    assert.deepEqual(
+      detail.packages.map((p) => p.packageId),
+      ["wp1", "wp2"],
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a plan review is refused for a plan that is not in review, is open once and never uses the author as reviewer", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const draft = open(h, "high_risk");
+    assert.throws(
+      () => h.core.checkReviewRequest(draft, "reviewer"),
+      /is draft; only a plan in review can be reviewed/,
+    );
+    const normal = approved(t, "wp1");
+    assert.throws(
+      () => startPlanReview(t, normal),
+      /is approved; only a plan in review can be reviewed/,
+    );
+    const old = approved(t, "wp1");
+    const successor = open(h, "high_risk", old);
+    submit(t, successor, body("wp1"), true);
+    assert.throws(
+      () =>
+        h.core.beginReview(ctx(h.core, h.pm.credential), {
+          subjectId: successor,
+          reviewerRole: "developer",
+          reviewerAgentId: "architect",
+        }),
+      /reviewer role must be an active Verifier role/,
+    );
+    startPlanReview(t, successor);
+    assert.throws(
+      () => startPlanReview(t, successor),
+      /a review of this subject is already open/,
+    );
+    assert.throws(
+      () => h.core.checkReviewRequest("plan-99", "reviewer"),
+      /does not exist/,
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("the ledger enforces exactly one review subject, a plan in review and a reviewer who is not the author", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = open(h, "high_risk");
+    submit(t, planId, body("wp1"), true);
+    const reviewer = startPlanReview(t, planId);
+    finishPlanReview(t, reviewer, "findings");
+    submit(t, planId, body("wp1"), true);
+    const second = member(h, "extra-reviewer", "Verifier", "reviewer");
+    const reportId = reportBy(h, t.dev1, "e".repeat(40));
+    const insert = (
+      db: Database.Database,
+      columns: {
+        report?: string | null;
+        plan?: string | null;
+        revision?: number | null;
+        round?: number;
+        reviewerAgent?: string;
+        reviewerActor?: string;
+      },
+    ) =>
+      db
+        .prepare(
+          `INSERT INTO reviews(project_id, review_id, sequence, round, subject_report_id, subject_plan_id, subject_plan_revision,
+             commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, created_at)
+           VALUES ((SELECT project_id FROM plans LIMIT 1), lower(hex(randomblob(8))), (SELECT MAX(sequence) + 1 FROM reviews), ?, ?, ?, ?,
+             ?, ?, 'architect', (SELECT actor_id FROM agents WHERE agent_id = 'architect'), 'x', 'reviewer', ?, ?, 'started', 't')`,
+        )
+        .run(
+          columns.round ?? 9,
+          columns.report ?? null,
+          columns.plan ?? null,
+          columns.revision ?? null,
+          BASE,
+          BASE,
+          columns.reviewerAgent ?? second.agentId,
+          columns.reviewerActor ?? second.actorId,
+        );
+    raw(h, (db) => {
+      assert.throws(
+        () => insert(db, { report: reportId, plan: planId, revision: 2 }),
+        /CHECK constraint failed/,
+        "two subjects",
+      );
+      assert.throws(
+        () => insert(db, {}),
+        /CHECK constraint failed/,
+        "no subject",
+      );
+      assert.throws(
+        () => insert(db, { plan: planId, revision: null }),
+        /CHECK constraint failed|a plan review needs the current revision/,
+        "a plan subject without a revision",
+      );
+      assert.throws(
+        () => insert(db, { plan: planId, revision: 7 }),
+        /a plan review needs the current revision/,
+        "a revision the plan does not have",
+      );
+      assert.throws(
+        () =>
+          insert(db, {
+            plan: planId,
+            revision: 2,
+            reviewerAgent: "architect",
+            reviewerActor: "someone-else",
+          }),
+        /CHECK constraint failed/,
+        "reviewer is the author agent",
+      );
+      db.prepare("UPDATE plans SET state = 'draft' WHERE plan_id = ?").run(
+        planId,
+      );
+      assert.throws(
+        () => insert(db, { plan: planId, revision: 2 }),
+        /a plan review needs the current revision of a plan in review/,
+      );
+      db.prepare("UPDATE plans SET state = 'in_review' WHERE plan_id = ?").run(
+        planId,
+      );
+      assert.throws(
+        () => insert(db, { plan: planId, revision: 1 }),
+        /a plan review needs the current revision of a plan in review/,
+        "an older revision",
+      );
+      insert(db, { plan: planId, revision: 2 });
+      assert.throws(
+        () => insert(db, { plan: planId, revision: 2, round: 10 }),
+        /UNIQUE constraint failed/,
+        "one open review per plan",
+      );
+    });
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("ending a plan reviewer cancels the review and sends the plan back to draft", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = open(h, "high_risk");
+    submit(t, planId, body("wp1"), true);
+    const reviewer = startPlanReview(t, planId);
+    h.core.endAgent(ctx(h.core, h.owner), reviewer.agentId);
+    assert.equal(planState(t, planId), "draft");
+    submit(t, planId, body("wp1"), true);
+    assert.equal(h.core.checkReviewRequest(planId, "reviewer").round, 2);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("migration 0023 keeps existing review rows and accepts plan reviews afterwards", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const reportId = reportBy(h, t.dev1, "e".repeat(40));
+    review(h, reportId, "findings");
+    review(h, reportId, "pass");
+    const integrationId = await integrateReports(h, [reportId]);
+    review(h, integrationId, "pass");
+    const columns =
+      "project_id, review_id, sequence, round, subject_report_id, subject_integration_id, commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, reviewer_agent_id, reviewer_actor_id, state, verdict_text, failure_reason, notified_message_id, created_at, completed_at";
+    const before = raw(
+      h,
+      (db) =>
+        db
+          .prepare(`SELECT ${columns} FROM reviews ORDER BY sequence`)
+          .all() as unknown[],
+    );
+    assert.equal(before.length, 3);
+    const migrationsDirectory = new URL("../migrations/", import.meta.url);
+    const { readFileSync } = await import("node:fs");
+    const oldSchema = readFileSync(
+      new URL("0019_integrations.sql", migrationsDirectory),
+      "utf8",
+    );
+    const oldReviews = oldSchema
+      .slice(oldSchema.indexOf("CREATE TABLE reviews_next"))
+      .replace(/INSERT INTO reviews_next[\s\S]*?FROM reviews;\n/, "")
+      .replace("DROP TABLE reviews;\n", "");
+    raw(h, (db) => {
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.exec("DROP TABLE reviews");
+      db.exec(oldReviews);
+      db.exec("PRAGMA foreign_keys = ON");
+      const insertOld = db.prepare(
+        `INSERT INTO reviews(${columns}) VALUES (${columns
+          .split(", ")
+          .map((c) => `@${c}`)
+          .join(", ")})`,
+      );
+      for (const row of before) insertOld.run(row as Record<string, unknown>);
+      db.exec("DELETE FROM schema_migrations WHERE version = 23");
+    });
+    const reopened = await ReopenedCore.of(h);
+    try {
+      reopened.core.close();
+    } finally {
+      // the reopen above ran migration 0023 over the old table
+    }
+    const after = raw(
+      h,
+      (db) =>
+        db
+          .prepare(`SELECT ${columns} FROM reviews ORDER BY sequence`)
+          .all() as unknown[],
+    );
+    assert.deepEqual(after, before);
+    raw(h, (db) => {
+      assert.deepEqual(db.pragma("foreign_key_check"), []);
+      assert.deepEqual(
+        db
+          .prepare(
+            "SELECT version, name FROM schema_migrations WHERE version = 23",
+          )
+          .all(),
+        [{ version: 23, name: "0023_plan_reviews.sql" }],
+      );
+      assert.deepEqual(
+        (db.pragma("table_info(reviews)") as { name: string }[])
+          .map((c) => c.name)
+          .filter((n) => n.startsWith("subject_plan")),
+        ["subject_plan_id", "subject_plan_revision"],
+      );
+    });
+    const again = await ReopenedCore.of(h);
+    try {
+      const planId = again.core.openPlan(ctx(again.core, h.pm.credential), {
+        tier: "high_risk",
+        title: "after migration",
+      }).planId;
+      again.core.submitPlan(ctx(again.core, t.architect.credential), {
+        planId,
+        bodyJson: body("wp1"),
+        baseSha: BASE,
+        review: true,
+      });
+      assert.equal(again.core.checkReviewRequest(planId, "reviewer").round, 1);
+    } finally {
+      again.core.close();
+    }
   } finally {
     await close(t.h);
   }
