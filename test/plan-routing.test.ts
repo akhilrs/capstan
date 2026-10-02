@@ -173,7 +173,10 @@ function codeOf(response: Awaited<ReturnType<typeof call>>): string {
 }
 
 function bodiesFor(h: Harness, agentId: string): string[] {
-  return h.core.messagesFor(agentId).map((m) => m.body);
+  return h.core
+    .messagesFor(agentId)
+    .map((m) => m.body)
+    .filter((body) => !/^Plan \S+ approved/.test(body));
 }
 
 function reportBy(h: Harness, author: Member, commit: string): string {

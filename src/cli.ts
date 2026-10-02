@@ -784,6 +784,7 @@ async function runRouted(
             ? 3 * LAUNCHER_CLIENT_TIMEOUT_MS
             : command === "spawn" ||
                 command === "request-review" ||
+                command === "plan" ||
                 command === "integrate" ||
                 command === "release" ||
                 command === "pm-restart"

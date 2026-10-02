@@ -421,6 +421,24 @@ function reviewNotice(
   ].join("\n");
 }
 
+/** The notice the PM receives when a plan is approved: the packages, their dependencies and the order. */
+function planApprovedNotice(planId: string, bodyJson: string): string {
+  const body = JSON.parse(bodyJson) as {
+    packages: { id: string; title: string; dependsOn?: string[] }[];
+    integrationOrder?: string[];
+  };
+  const lines = [
+    `Plan ${planId} approved. Assign each package with cstan plan assign ${planId} <package-id> <agent-id>.`,
+    ...body.packages.map(
+      (p) =>
+        `- ${p.id}: ${JSON.stringify(p.title)}; depends on: ${(p.dependsOn ?? []).length === 0 ? "none" : p.dependsOn!.join(", ")}`,
+    ),
+  ];
+  if (body.integrationOrder !== undefined)
+    lines.push(`Integration order: ${body.integrationOrder.join(", ")}`);
+  return lines.join("\n");
+}
+
 export const MAX_PLAN_BODY_BYTES = 32 * 1024;
 export const MAX_PLAN_PACKAGES = 20;
 const PLAN_PACKAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -3667,6 +3685,11 @@ export class ControllerCore {
           "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
         )
         .run(now, this.#projectId, plan.plan_id);
+      if (this.#finishedPlanReviews(plan.plan_id) >= MAX_REVIEW_ROUNDS)
+        this.#noticeToPm(
+          `Plan ${plan.plan_id} needs attention: it used ${MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.`,
+          now,
+        );
       return;
     }
     const revision = this.#database
@@ -3681,7 +3704,7 @@ export class ControllerCore {
         "UPDATE plans SET state = 'approved', approved_revision = ?, updated_at = ? WHERE project_id = ? AND plan_id = ?",
       )
       .run(row.subject_plan_revision, now, this.#projectId, plan.plan_id);
-    this.#settlePlanApproval(plan, planBodyPackageIds(revision.body_json), now);
+    this.#settlePlanApproval(plan, revision.body_json, now);
   }
 
   #reviewAuthorIds(row: ReviewRow): string[] {
@@ -4220,7 +4243,7 @@ export class ControllerCore {
     safeId(input.planId, "plan id");
     if (!/^[0-9a-f]{40}$/.test(input.baseSha))
       throw new TypeError("the base commit must be a full lowercase sha1");
-    const packageIds = planBodyPackageIds(input.bodyJson);
+    planBodyPackageIds(input.bodyJson);
     return this.#mutate<PlanRecord>(
       context,
       "plan.submit",
@@ -4283,7 +4306,7 @@ export class ControllerCore {
             this.#projectId,
             input.planId,
           );
-        if (!input.review) this.#settlePlanApproval(plan, packageIds, now);
+        if (!input.review) this.#settlePlanApproval(plan, input.bodyJson, now);
         return {
           value: planRecordOf(this.#planRow(input.planId)!),
           event: {
@@ -4300,28 +4323,122 @@ export class ControllerCore {
   }
 
   /** On approval: one package row per package of the approved body, and the superseded plan is retired. The caller owns the transaction and has already moved the plan to approved. */
-  #settlePlanApproval(
-    plan: PlanRow,
-    packageIds: readonly string[],
-    now: string,
-  ): void {
-    for (const packageId of packageIds)
+  #settlePlanApproval(plan: PlanRow, bodyJson: string, now: string): void {
+    for (const packageId of planBodyPackageIds(bodyJson))
       this.#database
         .prepare(
           "INSERT INTO plan_packages(project_id, plan_id, package_id) VALUES (?, ?, ?)",
         )
         .run(this.#projectId, plan.plan_id, packageId);
-    if (plan.supersedes_plan_id === null) return;
-    const old = this.#planRow(plan.supersedes_plan_id);
-    if (old?.state !== "approved")
-      throw new ControllerError(
-        `plan ${plan.supersedes_plan_id} is no longer approved and cannot be superseded`,
-      );
-    this.#database
-      .prepare(
-        "UPDATE plans SET state = 'superseded', updated_at = ? WHERE project_id = ? AND plan_id = ?",
-      )
-      .run(now, this.#projectId, plan.supersedes_plan_id);
+    if (plan.supersedes_plan_id !== null) {
+      const old = this.#planRow(plan.supersedes_plan_id);
+      if (old?.state !== "approved")
+        throw new ControllerError(
+          `plan ${plan.supersedes_plan_id} is no longer approved and cannot be superseded`,
+        );
+      this.#database
+        .prepare(
+          "UPDATE plans SET state = 'superseded', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+        )
+        .run(now, this.#projectId, plan.supersedes_plan_id);
+    }
+    this.#noticeToPm(planApprovedNotice(plan.plan_id, bodyJson), now);
+  }
+
+  /** Queues a controller notice to the one active PM; false when there is none. The caller owns the transaction. */
+  #noticeToPm(body: string, now: string): boolean {
+    const parties = this.#noticeParties();
+    if (parties === undefined) return false;
+    this.#insertQueuedMessage(
+      parties.controllerActorId,
+      parties.pm,
+      body,
+      sha256(body),
+      now,
+    );
+    return true;
+  }
+
+  /** Review rounds of a plan that finished with a verdict. */
+  planReviewRounds(credential: string, planId: string): number {
+    this.#authorize(credential, "plan:read");
+    safeId(planId, "plan id");
+    return this.#finishedPlanReviews(planId);
+  }
+
+  #finishedPlanReviews(planId: string): number {
+    return (
+      this.#database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state IN ('passed', 'findings')",
+        )
+        .get(this.#projectId, planId) as { n: number }
+    ).n;
+  }
+
+  /**
+   * A plan review that could not start (the reviewer did not spawn or the review was refused): the plan goes back to
+   * draft and its architect is told why. A plan that is not in review is left as it is.
+   */
+  abandonPlanReview(
+    context: MutationContext,
+    input: { readonly planId: string; readonly reason: string },
+  ): PlanRecord {
+    safeId(input.planId, "plan id");
+    const reason = safeText(input.reason, "reason", 500, false);
+    return this.#mutate<PlanRecord>(
+      context,
+      "plan.review_abandon",
+      "plan:write",
+      { planId: input.planId, reason },
+      () => {
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.state === "in_review") {
+          const open = this.#database
+            .prepare(
+              "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started'",
+            )
+            .get(this.#projectId, input.planId);
+          if (open)
+            throw new ControllerError(
+              `plan ${input.planId} has a review in progress`,
+            );
+          const now = this.#now();
+          this.#database
+            .prepare(
+              "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+            )
+            .run(now, this.#projectId, input.planId);
+          const architect =
+            plan.architect_agent_id === null
+              ? undefined
+              : this.#agentRow(plan.architect_agent_id);
+          const parties = this.#noticeParties();
+          if (architect?.state === "active") {
+            const body = `Plan ${input.planId} review could not start: ${reason}. The plan is a draft again; submit it again with cstan plan submit.`;
+            this.#insertQueuedMessage(
+              parties?.controllerActorId ?? this.#controllerActorId(),
+              architect,
+              body,
+              sha256(body),
+              now,
+            );
+          }
+        }
+        return {
+          value: planRecordOf(this.#planRow(input.planId)!),
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            toState: "draft",
+            details: { reason },
+          },
+        };
+      },
+    );
   }
 
   #planRow(planId: string): PlanRow | undefined {
