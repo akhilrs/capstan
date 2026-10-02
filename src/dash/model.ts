@@ -2,7 +2,8 @@
 import { clean, commitShort } from "./format.js";
 
 export const WORKING_WINDOW_MS = 30_000;
-export const PIPELINE_ITEMS = 8;
+/** The daemon returns at most this many reports, reviews, integrations and findings, newest first. */
+export const PIPELINE_ITEMS = 20;
 export const HIGHLIGHT_POLLS = 2;
 
 export type Health = "healthy" | "evaluating" | "degraded" | "unknown";
@@ -53,6 +54,8 @@ export interface PipelineItem {
 export interface PipelineStage {
   readonly counts: Readonly<Record<string, number>>;
   readonly total: number;
+  /** The list reached the daemon's cap, so older rows may exist. */
+  readonly capped: boolean;
   readonly items: readonly PipelineItem[];
 }
 
@@ -167,7 +170,12 @@ function stageOf(
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, PIPELINE_ITEMS);
-  return { counts, total: rows.length, items };
+  return {
+    counts,
+    total: rows.length,
+    capped: rows.length >= PIPELINE_ITEMS,
+    items,
+  };
 }
 
 export function buildDashModel(
@@ -259,10 +267,15 @@ export function buildDashModel(
       ].join("|"),
     };
   });
-  const active = allAgents.filter((a) => a.state === "active");
+  const attention = (a: AgentRow) => (a.lost || a.stalled || a.blocked ? 0 : 1);
+  const active = allAgents
+    .filter((a) => a.state === "active")
+    .map((a, index) => ({ a, index }))
+    .sort((x, y) => attention(x.a) - attention(y.a) || x.index - y.index)
+    .map(({ a }) => a);
   const ended = allAgents.filter((a) => a.state !== "active");
 
-  const messages = rawMessages.map((m): MessageRow => {
+  const unsortedMessages = rawMessages.map((m): MessageRow => {
     const messageId = text(m.messageId);
     const state = text(m.state);
     const reason = stuck.get(messageId);
@@ -297,8 +310,21 @@ export function buildDashModel(
     };
   });
 
+  const messages = unsortedMessages
+    .map((m, index) => ({ m, index }))
+    .sort(
+      (x, y) =>
+        Number(y.m.problem !== null) - Number(x.m.problem !== null) ||
+        x.index - y.index,
+    )
+    .map(({ m }) => m);
+
   const findingRows = findings
     .filter((f) => f.state === "open" || f.state === "escalated")
+    .sort(
+      (x, y) =>
+        Number(y.state === "escalated") - Number(x.state === "escalated"),
+    )
     .map((f): FindingRow => {
       const row = {
         id: text(f.findingId),
@@ -442,4 +468,44 @@ export function trackChanges(
     }
   }
   return { fingerprints, highlight };
+}
+
+/** Messages shown in the queue panel: all of them, or only delivery problems. */
+export function queueRows(
+  model: DashModel,
+  problemsOnly: boolean,
+): readonly MessageRow[] {
+  return problemsOnly
+    ? model.queue.messages.filter((m) => m.problem !== null)
+    : model.queue.messages;
+}
+
+/** Pipeline items of all three stages, newest first. */
+export function pipelineItems(model: DashModel): readonly PipelineItem[] {
+  return [
+    ...model.pipeline.reports.items,
+    ...model.pipeline.reviews.items,
+    ...model.pipeline.integrations.items,
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export interface HistorySample {
+  readonly unresolved: number;
+  readonly working: number;
+  /** Seconds since the oldest unresolved message was queued; 0 when there is none. */
+  readonly oldestSeconds: number;
+}
+
+export function historySample(model: DashModel, nowMs: number): HistorySample {
+  let oldest = 0;
+  for (const m of model.queue.messages) {
+    const queued = Date.parse(m.queuedAt);
+    if (!Number.isNaN(queued))
+      oldest = Math.max(oldest, Math.floor((nowMs - queued) / 1000));
+  }
+  return {
+    unresolved: model.counts.unresolved,
+    working: model.counts.working,
+    oldestSeconds: oldest,
+  };
 }

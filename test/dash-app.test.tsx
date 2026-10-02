@@ -19,8 +19,11 @@ import {
 const { render } = await import("ink-testing-library");
 const { App } = await import("../src/dash/app.js");
 const { makeTheme } = await import("../src/dash/theme.js");
+const { resolveSelection, rowIds, formatClock } =
+  await import("../src/dash/app.js");
+const { buildDashModel } = await import("../src/dash/model.js");
 
-const COLOR = /\u001b\[(3[0-7]|9[0-7]|4[0-7])m/;
+const COLOR = /\u001b\[(3[0-7]|9[0-7]|4[0-7]|38;5;\d+|48;5;\d+)m/;
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 
 interface Fixture {
@@ -90,6 +93,11 @@ async function open(f: Fixture) {
   const app = render(createElement(App, { deps: f.deps }));
   mounted.push(app);
   await settle();
+  // The first poll can be slow on a loaded machine; wait for the first frame instead of guessing.
+  for (let waited = 0; waited < 3000; waited += 20) {
+    if (!/connecting to the controller/.test(app.lastFrame() ?? "")) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   return app;
 }
 
@@ -104,15 +112,16 @@ test("every panel renders at 80x24 and at 120x40, with health and its reason in 
     for (const text of [
       "cstan dash",
       "p1",
-      "workers 1/3",
-      "Agents",
-      "Report pipeline",
-      "Message queue",
-      "Supervisor findings",
+      "workers",
+      "1/3",
+      "agents",
+      "pipeline",
+      "queue",
+      "findings",
       "developer-agent",
       "STALLED",
-      "PROBLEM pane_mismatch",
-      "NEEDS OPERATOR",
+      "! pane_mismatch",
+      "ESCALATED",
     ])
       assert.ok(frame.includes(text), `${size.columns}x${size.rows}: ${text}`);
     app.unmount();
@@ -130,7 +139,7 @@ test("a degraded run shows the reason beside the health word", async () => {
 test("the pipeline panel shows reported, review and integrated counts", async () => {
   const app = await open(fixture(troubled()));
   const frame = app.lastFrame()!;
-  assert.ok(frame.includes("reported 2 > review 1 > integrated 1"));
+  assert.ok(frame.includes("reported 2  ──►  review 1  ──►  integrated 1"));
   app.unmount();
 });
 
@@ -178,13 +187,17 @@ test("o on an agent opens a read-only screen overlay through peek and Esc closes
   await settle();
   app.stdin.write("o");
   await settle();
-  assert.deepEqual(f.calls, [{ command: "peek", args: ["pm-agent", "40"] }]);
+  assert.deepEqual(f.calls, [
+    { command: "peek", args: ["developer-agent", "40"] },
+  ]);
   const frame = app.lastFrame()!;
-  assert.ok(frame.includes("screen of pm-agent"));
+  assert.ok(frame.includes("observe developer-agent"));
   assert.ok(frame.includes("line two"));
+  assert.ok(frame.includes("unverified text"));
+  assert.ok(frame.includes("cstan dash"), "the dashboard stays under the box");
   app.stdin.write("\u001b");
   await settle();
-  assert.ok(!app.lastFrame()!.includes("screen of pm-agent"));
+  assert.ok(!app.lastFrame()!.includes("observe developer-agent"));
   app.unmount();
 });
 
@@ -216,7 +229,8 @@ test("y then y retries once through the resolve route and shows the result", asy
   const app = await focusQueue(f);
   app.stdin.write("y");
   await settle();
-  assert.match(app.lastFrame()!, /may already have received it/);
+  assert.ok(app.lastFrame()!.includes("received it"));
+  assert.ok(app.lastFrame()!.includes("confirm"));
   assert.equal(f.calls.length, 0);
   app.stdin.write("y");
   await settle();
@@ -319,7 +333,7 @@ test("colour is used by default and absent with NO_COLOR, and the meaning stays 
   const frame = plain.lastFrame()!;
   assert.doesNotMatch(frame, COLOR);
   assert.ok(frame.includes("STALLED"));
-  assert.ok(frame.includes("PROBLEM pane_mismatch"));
+  assert.ok(frame.includes("! pane_mismatch"));
   plain.unmount();
 });
 
@@ -360,7 +374,7 @@ test("a new stuck message rings the bell once", async () => {
 
 test("the v1 work panel appears only when there are work rows", async () => {
   const without = await open(fixture(healthy()));
-  assert.ok(!without.lastFrame()!.includes("Work items"));
+  assert.ok(!without.lastFrame()!.includes("work items"));
   without.unmount();
   const withWork = await open(
     fixture(
@@ -369,17 +383,121 @@ test("the v1 work panel appears only when there are work rows", async () => {
       }),
     ),
   );
-  assert.ok(withWork.lastFrame()!.includes("Work items"));
+  assert.ok(withWork.lastFrame()!.includes("work items"));
   withWork.unmount();
 });
 
-test("help opens with ? and q quits", async () => {
+test("help floats over the dashboard and ? closes it", async () => {
   const app = await open(fixture(healthy()));
   app.stdin.write("?");
   await settle();
-  assert.ok(app.lastFrame()!.includes("Working is inferred"));
+  const open1 = app.lastFrame()!;
+  assert.ok(open1.includes("NAVIGATE"));
+  assert.ok(open1.includes("cstan dash"), "the header stays visible");
+  assert.ok(open1.includes("f   queue: show only delivery problems"));
   app.stdin.write("?");
   await settle();
-  assert.ok(!app.lastFrame()!.includes("Working is inferred"));
+  assert.ok(!app.lastFrame()!.includes("NAVIGATE"));
   app.unmount();
+});
+
+test("f toggles the problems-only queue filter and the selected message stays selected", async () => {
+  const f = fixture(troubled());
+  const app = await focusQueue(f);
+  assert.ok(app.lastFrame()!.includes("f problems only [ ]"));
+  app.stdin.write("j");
+  await settle();
+  app.stdin.write("f");
+  await settle();
+  const frame = app.lastFrame()!;
+  assert.ok(frame.includes("f problems only [x]"));
+  assert.ok(frame.includes("2/2"), "the failed message is the second problem");
+  app.stdin.write("f");
+  await settle();
+  assert.ok(
+    app.lastFrame()!.includes("2/3"),
+    "its position among all messages",
+  );
+  app.stdin.write("j");
+  await settle();
+  app.stdin.write("f");
+  await settle();
+  assert.ok(
+    app.lastFrame()!.includes("2/2"),
+    "a row hidden by the filter falls back to the nearest position",
+  );
+  app.unmount();
+});
+
+test("the problems filter shows an empty state when nothing is stuck", async () => {
+  const app = await focusQueue(
+    fixture(healthy({ messages: [message("m1", "queued")] })),
+  );
+  app.stdin.write("f");
+  await settle();
+  assert.ok(app.lastFrame()!.includes("no delivery problems"));
+  app.unmount();
+});
+
+test("- and + change the poll interval within 1 to 60 seconds and show it in the top border", async () => {
+  const app = await open(fixture(healthy()));
+  assert.ok(app.lastFrame()!.includes("- 1s +"));
+  app.stdin.write("-");
+  await settle();
+  assert.ok(app.lastFrame()!.includes("- 1s +"), "1 s is the floor");
+  app.stdin.write("+");
+  await settle();
+  assert.ok(app.lastFrame()!.includes("- 2s +"));
+  app.stdin.write("+");
+  await settle();
+  assert.ok(app.lastFrame()!.includes("- 3s +"));
+  app.stdin.write("-");
+  await settle();
+  assert.ok(app.lastFrame()!.includes("- 2s +"));
+  app.unmount();
+});
+
+test("an action key in another panel or on an agent does not open a prompt", async () => {
+  const f = fixture(troubled());
+  const app = await open(f);
+  app.stdin.write("1");
+  await settle();
+  app.stdin.write("s");
+  await settle();
+  assert.ok(!app.lastFrame()!.includes("confirm"));
+  app.unmount();
+});
+
+test("q quits", async () => {
+  const app = await open(fixture(healthy()));
+  app.stdin.write("q");
+  await settle();
+  app.unmount();
+});
+
+test("a selection follows its row id, and falls back to the old position when the row is gone", () => {
+  const ids = ["a", "b", "c"];
+  assert.equal(resolveSelection(ids, { id: "c", index: 0 }), 2);
+  assert.equal(resolveSelection(ids, { id: "gone", index: 1 }), 1);
+  assert.equal(resolveSelection(ids, { id: "gone", index: 9 }), 2);
+  assert.equal(resolveSelection(ids, { id: null, index: 1 }), 1);
+  assert.equal(resolveSelection([], { id: "a", index: 3 }), 0);
+});
+
+test("the ids of the rows shown follow the problems filter", () => {
+  const model = buildDashModel(troubled(), NOW, 3);
+  assert.equal(rowIds(model, false).queue.length, 3);
+  assert.deepEqual(rowIds(model, true).queue, ["m-stuck", "m-failed"]);
+  assert.deepEqual(rowIds(model, false).agents, [
+    "developer-agent",
+    "pm-agent",
+  ]);
+});
+
+test("the clock is zero-padded hours, minutes and seconds", () => {
+  assert.match(formatClock(NOW), /^\d\d:\d\d:\d\d$/);
+  assert.equal(
+    formatClock(new Date(2026, 9, 2, 4, 5, 6).getTime()),
+    "04:05:06",
+  );
 });

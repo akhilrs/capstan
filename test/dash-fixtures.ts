@@ -149,3 +149,189 @@ export function troubled(): Status {
     cleanupFailed: [{ agentId: "y-agent", reason: "worktree not removable" }],
   });
 }
+
+const agent = (
+  agentId: string,
+  kind: string,
+  generation: number,
+  state: string,
+  secondsAgo: number,
+): Status => ({
+  agentId,
+  roleName: kind.toLowerCase(),
+  kind,
+  generation,
+  state,
+  lastActivityAt: iso(secondsAgo),
+});
+
+/** The sample run used by the golden screens: a PM, a Supervisor, three workers (one stalled), a stuck message, an escalated finding and a degraded reason. */
+export function showcase(overrides: Status = {}): Status {
+  const report = (
+    id: string,
+    who: string,
+    sha: string,
+    state: string,
+    ago: number,
+  ) => ({
+    reportId: id,
+    agentId: who,
+    commitSha: sha.padEnd(40, "0"),
+    state,
+    createdAt: iso(ago),
+  });
+  const review = (
+    id: string,
+    who: string,
+    round: number,
+    state: string,
+    ago: number,
+  ) => ({
+    reviewId: id,
+    authorAgentId: who,
+    round,
+    state,
+    createdAt: iso(ago),
+  });
+  const integration = (id: string, state: string, ago: number) => ({
+    integrationId: id,
+    state,
+    createdAt: iso(ago),
+  });
+  return healthy({
+    projectId: "capstan",
+    supervision: {
+      enabled: true,
+      health: "degraded",
+      targetEpoch: 4,
+      checkpointEpoch: 4,
+      checkpointAssignmentId: null,
+      replacementAttempts: 0,
+    },
+    supervisionReason: "lost contact with developer-2 (pane p4 not responding)",
+    agents: [
+      agent("pm-1", "PM", 1, "active", 95),
+      agent("supervisor-1", "Supervisor", 1, "active", 45),
+      agent("developer-1", "Developer", 2, "active", 3),
+      agent("developer-2", "Developer", 1, "active", 221),
+      agent("designer-1", "Designer", 1, "active", 1),
+      agent("developer-0", "Developer", 1, "ended", 840),
+    ],
+    panes: [
+      { agentId: "pm-1", paneId: "p1" },
+      { agentId: "supervisor-1", paneId: "p2" },
+      { agentId: "developer-1", paneId: "p3" },
+      { agentId: "developer-2", paneId: "p4" },
+      { agentId: "designer-1", paneId: "p5" },
+    ],
+    messages: [
+      message("0192f4c1-3a7e-7b2d", "unacked", {
+        sequence: 41,
+        recipientAgentId: "developer-2",
+        queuedAt: iso(221),
+        lastNotifiedAt: iso(219),
+        stateReason: "no acknowledgement after 3 attempts",
+      }),
+      message("0192f4c9-61d0-7c13", "queued", {
+        sequence: 42,
+        recipientAgentId: "developer-2",
+        queuedAt: iso(190),
+        deferredReason: "recipient busy",
+      }),
+      message("0192f510-0b4e-79aa", "sent", {
+        sequence: 44,
+        recipientAgentId: "developer-1",
+        queuedAt: iso(8),
+        lastNotifiedAt: iso(7),
+      }),
+      message("0192f511-7c20-70f4", "sent", {
+        sequence: 45,
+        recipientAgentId: "designer-1",
+        queuedAt: iso(2),
+        lastNotifiedAt: iso(2),
+      }),
+      message("0192f511-b9e2-71c8", "queued", {
+        sequence: 46,
+        recipientAgentId: "pm-1",
+        queuedAt: iso(1),
+      }),
+    ],
+    stuck: [
+      {
+        messageId: "0192f4c1-3a7e-7b2d",
+        reason: "no acknowledgement after 3 attempts",
+      },
+    ],
+    stalledAgentIds: ["developer-2"],
+    inputClears: [{ messageId: "0192f3aa-0000", recordedAt: iso(600) }],
+    agentFindings: [
+      {
+        findingId: "0192a1-aaaa",
+        targetAgentId: "developer-2",
+        severity: "high",
+        state: "escalated",
+        interventions: 2,
+        stateReason: "no progress after 2 interventions",
+      },
+      {
+        findingId: "0192a4-bbbb",
+        targetAgentId: "developer-1",
+        severity: "low",
+        state: "open",
+        interventions: 0,
+        stateReason: "scope drift: edits files outside the task",
+      },
+    ],
+    reports: [
+      report("r1", "designer-1", "8bf60fa", "accepted", 72),
+      report("r2", "developer-1", "9abf487", "accepted", 180),
+      report("r3", "developer-1", "45fe0de", "rejected", 660),
+      report("r4", "developer-2", "fb4a3d5", "accepted", 900),
+      report("r5", "developer-0", "5451671", "accepted", 1560),
+      report("r6", "developer-0", "3f1d9a0", "accepted", 1740),
+    ],
+    reviews: [
+      review("v1", "developer-1", 2, "started", 40),
+      review("v2", "developer-1", 1, "findings", 360),
+      review("v3", "designer-1", 1, "passed", 540),
+      review("v4", "developer-2", 1, "passed", 1080),
+      review("v5", "developer-0", 1, "passed", 1440),
+    ],
+    integrations: [
+      integration("7c1e0f2a", "running", 5),
+      integration("5d02b9c4", "merged", 240),
+      integration("31aa8e07", "merged", 960),
+    ],
+    ...overrides,
+  });
+}
+
+/** History for the graphs: 150 samples (five minutes at 2 s), shaped like a queue that built up while one agent stalled. */
+export function showcaseRings() {
+  const n = 150;
+  const wiggle = [0, 0, 1, 0, -1, 0, 1, 1, 0, -1, 0, 1];
+  const unresolved = Array.from({ length: n }, (_, i) =>
+    Math.max(
+      0,
+      Math.min(
+        6,
+        Math.round(0.3 + 4.6 * Math.pow(i / n, 0.8) + wiggle[i % 12]! * 0.8),
+      ),
+    ),
+  );
+  unresolved.splice(-6, 6, 5, 5, 5, 5, 5, 5);
+  const working = Array.from({ length: n }, (_, i) =>
+    Math.max(
+      0,
+      Math.min(
+        4,
+        Math.round(2 + Math.sin(i / 7) * 1.3 + Math.cos(i / 3) * 0.4),
+      ),
+    ),
+  );
+  working.splice(-4, 4, 3, 3, 3, 3);
+  const oldest = Array.from({ length: n }, (_, i) =>
+    i < 50 ? (i % 25) * 4 : Math.min(221, (i - 30) * 2),
+  );
+  return { unresolved, working, oldest };
+}

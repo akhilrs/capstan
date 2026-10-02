@@ -3,7 +3,10 @@ import { test } from "node:test";
 import {
   EMPTY_CHANGES,
   buildDashModel,
+  historySample,
   isWorkerKind,
+  pipelineItems,
+  queueRows,
   trackChanges,
 } from "../src/dash/model.js";
 import { harness, close } from "./harness.js";
@@ -153,7 +156,20 @@ test("the pipeline counts each stage and lists the newest items first", () => {
   });
   const stage = buildDashModel(many, NOW, 3).pipeline.reports;
   assert.equal(stage.total, 12);
-  assert.equal(stage.items.length, 8);
+  assert.equal(stage.capped, false);
+  assert.equal(stage.items.length, 12);
+  const over = healthy({
+    reports: Array.from({ length: 20 }, (_, i) => ({
+      reportId: `r${i}`,
+      agentId: "a",
+      commitSha: "0".repeat(40),
+      state: "accepted",
+      createdAt: iso(i),
+    })),
+  });
+  const capped = buildDashModel(over, NOW, 3).pipeline.reports;
+  assert.equal(capped.capped, true);
+  assert.equal(capped.items.length, 20);
 });
 
 test("findings show only open and escalated ones, and an escalated one needs the operator", () => {
@@ -259,4 +275,85 @@ test("a status produced by a real daemon builds a model without gaps", async () 
   } finally {
     await close(h);
   }
+});
+
+test("agents needing attention sort first and keep the controller order otherwise", () => {
+  const model = buildDashModel(troubled(), NOW, 3);
+  assert.deepEqual(
+    model.agents.map((a) => a.agentId),
+    ["developer-agent", "pm-agent"],
+  );
+  const calm = buildDashModel(healthy(), NOW, 3);
+  assert.deepEqual(
+    calm.agents.map((a) => a.agentId),
+    ["pm-agent", "developer-agent"],
+  );
+});
+
+test("delivery problems sort first in the queue and the problems filter keeps only them", () => {
+  const status = healthy({
+    messages: [
+      message("m-ok", "queued", { sequence: 1 }),
+      message("m-bad", "failed", { sequence: 2, stateReason: "pane_gone" }),
+      message("m-late", "sent", { sequence: 3 }),
+    ],
+    stuck: [{ messageId: "m-late", reason: "no ack" }],
+  });
+  const model = buildDashModel(status, NOW, 3);
+  assert.deepEqual(
+    model.queue.messages.map((m) => m.id),
+    ["m-bad", "m-late", "m-ok"],
+  );
+  assert.deepEqual(
+    queueRows(model, true).map((m) => m.id),
+    ["m-bad", "m-late"],
+  );
+  assert.equal(queueRows(model, false).length, 3);
+});
+
+test("escalated findings sort before open ones", () => {
+  const status = healthy({
+    agentFindings: [
+      {
+        findingId: "a",
+        targetAgentId: "x",
+        severity: "low",
+        state: "open",
+        interventions: 0,
+        stateReason: null,
+      },
+      {
+        findingId: "b",
+        targetAgentId: "x",
+        severity: "high",
+        state: "escalated",
+        interventions: 2,
+        stateReason: null,
+      },
+    ],
+  });
+  assert.deepEqual(
+    buildDashModel(status, NOW, 3).findings.map((f) => f.id),
+    ["b", "a"],
+  );
+});
+
+test("pipeline items of all stages come newest first", () => {
+  const items = pipelineItems(buildDashModel(troubled(), NOW, 3));
+  assert.deepEqual(
+    items.map((i) => i.id),
+    ["integration:i-0123456789", "report:r2", "review:v1", "report:r1"],
+  );
+});
+
+test("a history sample counts unresolved and working agents and the age of the oldest message", () => {
+  const model = buildDashModel(troubled(), NOW, 3);
+  assert.deepEqual(historySample(model, NOW), {
+    unresolved: 3,
+    working: 1,
+    oldestSeconds: 60,
+  });
+  const empty = buildDashModel(healthy(), NOW, 3);
+  assert.equal(historySample(empty, NOW).oldestSeconds, 0);
+  assert.equal(historySample(model, NOW + 30_000).oldestSeconds, 90);
 });

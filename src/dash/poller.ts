@@ -9,6 +9,16 @@ export function nextDelayMs(failures: number, intervalMs: number): number {
   return BACKOFF_MS[Math.min(failures, BACKOFF_MS.length) - 1]!;
 }
 
+export const MIN_INTERVAL_SECONDS = 1;
+export const MAX_INTERVAL_SECONDS = 60;
+
+/** The poll interval one `-` (`faster`, fewer seconds) or `+` (more seconds) key press away: steps of 1 s up to 10 s, then 5 s, kept within 1 to 60. */
+export function stepInterval(seconds: number, faster: boolean): number {
+  const step = (faster ? seconds <= 10 : seconds < 10) ? 1 : 5;
+  const next = faster ? seconds - step : seconds + step;
+  return Math.min(MAX_INTERVAL_SECONDS, Math.max(MIN_INTERVAL_SECONDS, next));
+}
+
 export function statusHash(status: unknown): string {
   return createHash("sha256").update(JSON.stringify(status)).digest("hex");
 }
@@ -29,6 +39,8 @@ export interface Poller {
   /** Polls now, even when paused. */
   pollNow(): void;
   setPaused(paused: boolean): void;
+  /** Changes the poll interval; the sleep in progress restarts with it. */
+  setIntervalMs(intervalMs: number): void;
 }
 
 export function createPoller(deps: PollerDeps): Poller {
@@ -38,6 +50,8 @@ export function createPoller(deps: PollerDeps): Poller {
   let failures = 0;
   let hash: string | undefined;
   let wake: AbortController | undefined;
+  let intervalMs = deps.intervalMs;
+  let restart = false;
 
   const pollOnce = async (): Promise<void> => {
     try {
@@ -60,9 +74,12 @@ export function createPoller(deps: PollerDeps): Poller {
           await pollOnce();
         }
         if (stopped) break;
-        wake = new AbortController();
-        await deps.sleep(nextDelayMs(failures, deps.intervalMs), wake.signal);
-        wake = undefined;
+        do {
+          restart = false;
+          wake = new AbortController();
+          await deps.sleep(nextDelayMs(failures, intervalMs), wake.signal);
+          wake = undefined;
+        } while (restart && !stopped && !forced);
       }
     },
     stop() {
@@ -75,6 +92,11 @@ export function createPoller(deps: PollerDeps): Poller {
     },
     setPaused(value) {
       paused = value;
+    },
+    setIntervalMs(value) {
+      intervalMs = value;
+      restart = true;
+      wake?.abort();
     },
   };
 }

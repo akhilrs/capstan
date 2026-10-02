@@ -1,12 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  allocate,
-  cellsFor,
+  agentSections,
   columnsOf,
+  columnWidths,
+  fillRows,
+  fits,
   layoutFor,
+  pipelineSections,
+  queueSections,
   windowOf,
+  type PanelWish,
 } from "../src/dash/layout.js";
+
+const wish = (
+  id: PanelWish["id"],
+  min: number,
+  want: number,
+  weight: number,
+  stretch = false,
+): PanelWish => ({ id, min, want, weight, stretch });
 
 test("the layout mode follows the 60x16 minimum and the 100 column breakpoint", () => {
   assert.equal(layoutFor(59, 40).mode, "tiny");
@@ -16,33 +29,6 @@ test("the layout mode follows the 60x16 minimum and the 100 column breakpoint", 
   assert.equal(layoutFor(100, 40).mode, "wide");
 });
 
-test("sparklines show only in wide mode", () => {
-  assert.equal(layoutFor(99, 40).sparklines, false);
-  assert.equal(layoutFor(100, 40).sparklines, true);
-});
-
-test("optional columns drop as a panel narrows: pane, then role, notified and age", () => {
-  assert.deepEqual(cellsFor(110), {
-    showAge: true,
-    showNotified: true,
-    showRole: true,
-    showPane: true,
-  });
-  assert.deepEqual(cellsFor(80), {
-    showAge: true,
-    showNotified: true,
-    showRole: false,
-    showPane: false,
-  });
-  assert.deepEqual(cellsFor(60), {
-    showAge: true,
-    showNotified: false,
-    showRole: false,
-    showPane: false,
-  });
-  assert.equal(cellsFor(49).showAge, false);
-});
-
 test("panels stack in one column below 100 columns and split in two from there", () => {
   const panels = ["agents", "pipeline", "queue", "findings", "work"] as const;
   assert.deepEqual(columnsOf("narrow", panels), [panels]);
@@ -50,17 +36,87 @@ test("panels stack in one column below 100 columns and split in two from there",
     ["agents", "pipeline"],
     ["queue", "findings", "work"],
   ]);
+  assert.deepEqual(columnWidths(80, "narrow"), [80]);
+  assert.deepEqual(columnWidths(121, "wide"), [60, 61]);
 });
 
-test("every panel keeps a body row and the focused one gets the leftover", () => {
-  const all = ["agents", "pipeline", "queue", "findings"] as const;
-  const a = allocate(14, all, "queue");
-  assert.deepEqual([...a.values()], [2, 2, 4, 2]);
-  const sum = [...a.values()].reduce((x, y) => x + y, 0);
-  assert.equal(sum + all.length, 14);
-  const tight = allocate(3, all, "agents");
-  for (const rows of tight.values()) assert.ok(rows >= 1);
-  assert.equal(allocate(10, [], "agents").size, 0);
+test("every panel gets its minimum and short panels reach their content before long ones take more", () => {
+  const heights = fillRows(
+    40,
+    [
+      wish("agents", 3, 9, 4, true),
+      wish("pipeline", 3, 23, 2),
+      wish("queue", 3, 8, 4, true),
+      wish("findings", 3, 5, 1),
+    ],
+    "queue",
+  );
+  const total = [...heights.values()].reduce((a, b) => a + b, 0);
+  assert.equal(total, 40);
+  for (const rows of heights.values()) assert.ok(rows >= 3);
+  assert.equal(heights.get("queue"), 8);
+  assert.equal(heights.get("agents"), 9);
+  assert.equal(heights.get("findings"), 5);
+});
+
+test("rows stay equal to the budget whatever the wishes are", () => {
+  for (const rows of [12, 13, 19, 32, 41, 80]) {
+    const heights = fillRows(
+      rows,
+      [
+        wish("agents", 3, 9, 4, true),
+        wish("pipeline", 3, 23, 2),
+        wish("queue", 3, 8, 4, true),
+        wish("findings", 3, 5, 1),
+      ],
+      "agents",
+    );
+    assert.equal(
+      [...heights.values()].reduce((a, b) => a + b, 0),
+      rows,
+      `${rows} rows`,
+    );
+  }
+});
+
+test("spare rows after every wish go to the focused panel if it stretches, else the queue, then agents", () => {
+  const wishes = [
+    wish("agents", 3, 5, 4, true),
+    wish("pipeline", 3, 5, 1),
+    wish("queue", 3, 5, 4, true),
+    wish("findings", 3, 5, 1),
+  ];
+  assert.deepEqual([...fillRows(30, wishes, "agents").values()], [15, 5, 5, 5]);
+  assert.deepEqual([...fillRows(30, wishes, "queue").values()], [5, 5, 15, 5]);
+  assert.deepEqual(
+    [...fillRows(30, wishes, "findings").values()],
+    [5, 5, 15, 5],
+  );
+  const noStretch = wishes.map((w) => ({ ...w, stretch: false }));
+  assert.deepEqual(
+    [...fillRows(30, noStretch, "queue").values()],
+    [5, 5, 5, 15],
+  );
+});
+
+test("a column that cannot pay every minimum drops work, then findings, then pipeline", () => {
+  const all = [
+    wish("agents", 3, 9, 4, true),
+    wish("pipeline", 3, 9, 1),
+    wish("queue", 3, 9, 4, true),
+    wish("findings", 3, 9, 1),
+    wish("work", 3, 9, 1),
+  ];
+  assert.deepEqual(
+    [...fillRows(12, all, "queue").keys()],
+    ["agents", "pipeline", "queue", "findings"],
+  );
+  assert.deepEqual(
+    [...fillRows(9, all, "queue").keys()],
+    ["agents", "pipeline", "queue"],
+  );
+  assert.deepEqual([...fillRows(6, all, "queue").keys()], ["agents", "queue"]);
+  assert.equal(fillRows(10, [], "queue").size, 0);
 });
 
 test("the window keeps the cursor visible and reports hidden rows", () => {
@@ -68,4 +124,76 @@ test("the window keeps the cursor visible and reports hidden rows", () => {
   assert.deepEqual(windowOf(10, 0, 4), { start: 0, end: 4, hidden: 6 });
   assert.deepEqual(windowOf(10, 9, 4), { start: 6, end: 10, hidden: 6 });
   assert.deepEqual(windowOf(10, 5, 4), { start: 2, end: 6, hidden: 6 });
+  assert.deepEqual(windowOf(4, 0, 0), { start: 0, end: 0, hidden: 4 });
+});
+
+test("optional table columns drop below their content-width thresholds", () => {
+  assert.equal(fits(60, "agentsPane"), true);
+  assert.equal(fits(59, "agentsPane"), false);
+  assert.equal(fits(46, "agentsRole"), true);
+  assert.equal(fits(45, "agentsRole"), false);
+  assert.equal(fits(40, "agentsActivity"), true);
+  assert.equal(fits(55, "queueNotified"), false);
+});
+
+test("the queue shares body rows between header, list, selected detail and graphs", () => {
+  assert.deepEqual(queueSections(1, 5), {
+    header: 0,
+    list: 1,
+    detail: 0,
+    graphs: 0,
+  });
+  assert.deepEqual(queueSections(4, 5), {
+    header: 1,
+    list: 3,
+    detail: 0,
+    graphs: 0,
+  });
+  const roomy = queueSections(25, 5);
+  assert.equal(roomy.header, 1);
+  assert.equal(roomy.list, 5);
+  assert.equal(roomy.detail, 4);
+  assert.equal(roomy.graphs, 15);
+  assert.equal(
+    roomy.header + roomy.list + roomy.detail + roomy.graphs,
+    25,
+    "no row is left unused",
+  );
+});
+
+test("agents show active ones first, then ended ones, then a graph with what is left", () => {
+  assert.deepEqual(agentSections(4, 5, 1), {
+    header: 1,
+    active: 3,
+    ended: 0,
+    graph: 0,
+  });
+  assert.deepEqual(agentSections(9, 5, 1), {
+    header: 1,
+    active: 5,
+    ended: 1,
+    graph: 2 > 3 ? 2 : 0,
+  });
+  assert.equal(agentSections(18, 5, 1).graph, 11);
+});
+
+test("the pipeline collapses from the table to the stage bars to a flow line", () => {
+  assert.deepEqual(pipelineSections(1, 14), {
+    flow: 1,
+    stages: 0,
+    compactSummary: false,
+    spacers: false,
+    header: 0,
+    items: 0,
+  });
+  assert.equal(pipelineSections(2, 14).compactSummary, true);
+  const bars = pipelineSections(5, 14);
+  assert.equal(bars.stages, 3);
+  assert.equal(bars.header, 0);
+  const full = pipelineSections(21, 14);
+  assert.equal(full.spacers, true);
+  assert.equal(full.items, 14);
+  const tight = pipelineSections(12, 14);
+  assert.equal(tight.spacers, false);
+  assert.equal(tight.items, 7);
 });

@@ -1,0 +1,36 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ▲ DEGRADED  lost contact with developer-2 (pane p4 not responding)         workers █████████░░░ 3/4   ● answering 1s │
+╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents─────────────────────────────────────┤ 5 active ├─╮┏━³queue━━━━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├━┓
+│   AGEN┏━observe developer-2━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ agent status: blocked ├┤ unverified text ├━┓       ┃
+│ ▲ deve┃ developer-2 pane p4                                                                                  ┃ledge… ┃
+│ ● pm-1┃                                                                                                      ┃ecipi… ┃
+│ ● supe┃ Reading docs/spike-herdr-agents.md                                                                   ┃       ┃
+│ * deve┃ Edit(src/dash/theme.ts)                                                                              ┃       ┃
+│ * desi┃   Updated src/dash/theme.ts with 12 additions                                                        ┃       ┃
+│ ○ deve┃                                                                                                      ┃─────… ┃
+╰─┤ work┃ Thinking... (3m 41s, esc to interrupt)                                                               ┃       ┃
+╭─²pipel┃                                                                                                      ┃       ┃
+│ report┃   waiting for tool permission:                                                                       ┃, ski… ┃
+│       ┃   Bash(npm run check)                                                                                ┃tart   ┃
+│ report┃   1. Yes   2. No                                                                                     ┃  ⢸    ┃
+│ review┃                                                                                                      ┃⣿⡇⣿⣿⣿⣿ ┃
+│ integr┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│       ┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ STAGE ┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ integr┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ review┃                                                                                                      ┃e das… ┃
+│ report┃                                                                                                      ┃⣾⣿⣿⣿⣿⣿ ┃
+│ report┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ integr┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ review┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ review┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ report┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ report┃                                                                                                      ┃⣿⣿⣿⣿⣿⣿ ┃
+│ integr┃                                                                                                      ┃ 1/5 ├━┛
+│ review┃                                                                                                      ┃ator ├─╮
+│ review┗━┤ esc or q closes ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ tail, 12 lines ├━┛       │
+│ report      accepted developer-0 5451671             26m ││ ▲ 0192a1 developer-2  high ESCALATED 2/2 no progress af… │
+│ report      accepted developer-0 3f1d9a0             29m ││ ● 0192a4 developer-1  low  open      0/2 scope drift: e… │
+╰─────────────────────────────────────────────────┤ 1/14 ├─╯╰──────────────────────────────────────────────────┤ 1/2 ├─╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit          

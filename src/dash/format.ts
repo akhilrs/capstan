@@ -72,3 +72,24 @@ export function pushSample(
 ): number[] {
   return [...ring, value].slice(-limit);
 }
+
+/** Elapsed time with the next smaller unit: `41s`, `3m41s`, `14m`, `2h05m`, `3d`; `-` when the time is missing. */
+export function ageDetail(
+  iso: string | null | undefined,
+  nowMs: number,
+): string {
+  if (!iso) return "-";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "-";
+  return durationText(Math.max(0, Math.floor((nowMs - then) / 1000)));
+}
+
+export function durationText(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 600)
+    return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400)
+    return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
+  return `${Math.floor(seconds / 86_400)}d`;
+}
