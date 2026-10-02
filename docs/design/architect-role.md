@@ -1,0 +1,282 @@
+# Architect role and tiered planning flow
+
+**Status:** proposal, for the user's review. No code changes in this document's commit.
+**Naming:** follows `docs/design/cstan-dash-v2.md` (kebab-case file in `docs/design/`). The decisions in `decisions/` are `DEC-NNN-*.md`; if this is approved, the plan of record is a new `decisions/DEC-007-architect-role.md` that points here.
+**Base:** `main` at `691ac09`. `README.md` was requested as reading but is not tracked on this branch or on `main`; the design is grounded in the code, `MVP_PLAN_V2.md` and `decisions/DEC-005-capstan-v2-direction.md` instead.
+
+## 0. Decisions taken by the user (not re-opened here)
+
+1. One Architect role. No separate solution-architect role.
+2. The PM sets a tier at intake; the user may override it.
+   - **small** (single file, docs, mechanical): PM sends straight to a developer. No architect.
+   - **normal**: PM → Architect writes a plan → PM spawns developers per work package.
+   - **high-risk** (schema or migrations, security or auth, public contracts or wire formats, cross-cutting): as normal, plus an independent plan review before the plan is final.
+3. The plan is structured data in the ledger: work packages (owned files or areas, interfaces, dependencies and order, acceptance criteria, risks) plus the tier.
+4. The Architect writes no product code and is not a second PM. It owns integration: it runs `cstan integrate` for reviewed reports, decides conflict handling (asks the PM to assign a developer), and signs off the integration branch. The user keeps the final merge to main. The Architect never merges to main.
+5. Minimal added complexity and latency. Reuse existing kinds, seats, ledger records, review and integrate paths.
+
+## 1. Summary and flow
+
+The design adds **no new agent kind**. The Architect is a role of kind `Developer` that the configuration designates (`[architect] role = "architect"`). That reuses the seat, worktree, prompt, report-capable, supervised and replaceable machinery as is, and avoids rebuilding the `CHECK (role IN ('PM','Developer','Verifier','Supervisor'))` constraints that appear in migrations 0001, 0014 and 0015. DEC-005 item 5 states that the migration for roles is additive and that the existing role columns keep their CHECK constraints; a fifth kind would break that. Section 2 lists the cost of the alternative.
+
+New ledger objects: `plans`, `plan_revisions`, `plan_packages`, `plan_signoffs`, and a plan subject on `reviews`. New command: `cstan plan <open|submit|show|assign|signoff>`. Changed: who may run `request-review` and `integrate`, and who gets the report and review notices.
+
+```
+small      user ─► PM ─► spawn developer ─► send task ─► report ─► request-review ─► (integrate) ─► user merges
+                          (unchanged from today; no plan, no architect)
+
+normal     user ─► PM ──plan open normal──► spawn architect ──send requirements──►  Architect reads code, writes plan
+                                                                                      │ plan submit (JSON)
+                                       controller: plan approved ──► message to PM ◄──┘
+           PM ──plan assign <plan> <pkg> <dev>──► controller sends the package text to the developer
+           developers: commit, report ──► "Verified report … Work package …" to the Architect (not the PM)
+           Architect: request-review <report> ─► reviewer ─► "Review …" to the Architect
+           Architect: integrate <reports…> ─► merged | conflicted(→ send @pm; PM assigns a developer to resolve)
+           Architect: request-review <integration> ─► plan signoff ─► "Plan … signed off" to the PM
+           PM tells the user ─► USER merges the integration branch ─► integrate confirm (PM or Architect)
+
+high-risk  as normal, with one inserted gate:
+           Architect: plan submit ─► state in_review, controller starts a plan review (reviewer role, fresh agent)
+                       pass     ─► plan approved ─► PM notified
+                       findings ─► plan back to draft, "Review …" to the Architect, who revises and resubmits
+```
+
+## 2. Role definition
+
+**Kind: reuse `Developer`.** The ledger kind, the seat (`createSeat`, `Launcher.#seat`, `src/launcher.ts:472`), the worktree and branch (`capstan/<agent-id>-g<generation>`, created in `Launcher.spawn`) and the supervision (`src/supervision.ts:53` watches Developer and Verifier) are reused unchanged. The Architect gets a read-only worktree at the project HEAD so it can read the code; it commits nothing.
+
+**Rejected alternative: a fifth kind `Architect`.** It gives per-kind capabilities and a clearer `status`, but SQLite cannot alter a CHECK, so migration 0022 would rebuild `actors`, `role_capabilities`, `seats`, `agents`, `role_definitions` and `work_items` with their triggers and foreign keys (the pattern of migration 0019 for one table), and `ROLE_KINDS`, `roles` (`src/controller/types.ts`), `AgentKind`, the dashboard and every `kind ===` branch change. That is the largest single risk in the project for a name. If a later need (for example a separate dashboard column) justifies it, the designation below is the only thing that has to be replaced.
+
+**Designation.** `agent.roleName === config.architect.role` (`AgentRecord.roleName`, `src/controller/types.ts`). Command handlers already authorize by `caller.kind` (`src/commands.ts:313,766,990`); the new handlers authorize by kind `Developer` and the designated role name. The role is synced into the ledger with its hash (`role_definitions`, `Launcher.#assertRoleSynced`), so a config edit changes the designation only through the existing sync.
+
+**Access per `cstan` route** (`ROUTES` in `src/daemon.ts:81`; the access column is the route-level gate, the handler adds the role check):
+
+| Route | Architect | Change |
+| --- | --- | --- |
+| `inbox`, `ack`, `wait`, `status` | yes | none |
+| `send` | only to the PM | none; the rule at `src/commands.ts:478` already limits non-PM agents to the PM |
+| `report` | allowed but not used | none; the prompt tells it not to |
+| `observe`, `finding` | no | `observe` is Supervisor/PM only (`src/commands.ts:913`) |
+| `plan submit`, `plan show`, `plan signoff` | yes | new route `plan`, access `any` |
+| `plan open`, `plan assign` | no | PM or operator |
+| `request-review` | yes (reports, integrations, its own plan if high-risk is resubmitted by hand) | handler accepts PM or Architect (`src/commands.ts:764`) |
+| `integrate <report-id>…`, `integrate discard`, `integrate confirm` | yes | handler accepts PM, operator, Architect (`src/commands.ts:831`, replacing `workerManager` for this one route) |
+| `spawn`, `release`, `replace` | no | unchanged; `workerManager` stays PM or operator |
+| `review` | no | Verifier only |
+
+**May:** read the repository from its worktree, write and revise plans, request reviews, run integrations, sign off, message the PM. **May not:** edit files, commit, push, merge, spawn or release agents, message developers directly. The last rule holds because of `src/commands.ts:478`: developers and the Architect can send only to the PM, and the Architect states conflicts and package questions to the PM.
+
+**Enforcement.** The role in `capstan.toml` uses the reviewer's tool rules (`deny = ["Write","Edit","NotebookEdit","Agent","Task","Bash(git push)","Bash(git push *)","Bash(git merge *)"]`). These are Claude Code tool rules, not a sandbox (`src/config/capstan-config.ts:232`). The hard guarantees are in the controller: `settleIntegration` refuses `confirm` unless the integration commit is already in HEAD (`src/integration.ts`, `not_in_head`), and the Architect has no route that moves HEAD. A determined agent could still run `git -C <main checkout> merge`; DEC-005's trust model (one trusted user, same VM) already accepts that for every worker.
+
+**Prompt.** `ARCHITECT_REFERENCE` in `src/prompts.ts`, used when `PromptInput.kind === "Developer"` and `PromptInput.isArchitect`. `PromptInput` gains `isArchitect?: boolean`; the two call sites are `src/launcher.ts:767` and `:1480`. Draft:
+
+> You are the architect of a Capstan delivery team. Your agent id is `<id>`. You plan and integrate; you never edit or commit project files and never push or merge. When the PM sends you a plan id and requirements: read the code in your worktree, then submit one plan with `cstan plan submit <plan-id> "<json>"`. Split the work into the fewest work packages that can proceed in parallel; give each package the files or areas it owns (no two packages that may run at the same time own the same file), the interfaces it must keep or add, its dependencies, testable acceptance criteria and its risks. A message from `controller` that starts with `Verified report` names the package; request a review (`cstan request-review <report-id>`), and when every package you want is reviewed, run `cstan integrate <report-id>...`, then `cstan request-review <integration-id>`. On a conflict, send the PM the report and files and ask for a developer to resolve it as a new report. When the integration review passes, run `cstan plan signoff <plan-id> <integration-id> "<summary>"`. The user merges to main; you never do.
+
+## 3. Ledger changes
+
+One migration, `migrations/0022_plans.sql`, additive. Tables follow the style of 0017 to 0019: STRICT, composite keys on `project_id`, immutable content enforced by triggers, state moves forward only.
+
+```sql
+CREATE TABLE plans (               -- one row per plan, mutable only in state and pointers
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  plan_id TEXT NOT NULL,           -- SAFE_AGENT_ID-compatible, controller-generated
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
+  title TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK (tier IN ('normal','high_risk')),   -- small never reaches the ledger
+  state TEXT NOT NULL CHECK (state IN ('draft','in_review','approved','superseded')),
+  requested_by TEXT NOT NULL,      -- PM or operator actor
+  architect_agent_id TEXT,         -- set by the first submit
+  current_revision INTEGER NOT NULL DEFAULT 0,
+  approved_revision INTEGER,
+  supersedes_plan_id TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, plan_id), UNIQUE (project_id, sequence));
+
+CREATE TABLE plan_revisions (      -- immutable
+  project_id TEXT NOT NULL, plan_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 1),
+  base_sha TEXT NOT NULL CHECK (length(base_sha)=40),   -- HEAD when submitted
+  body_json TEXT NOT NULL CHECK (json_valid(body_json)),
+  body_sha TEXT NOT NULL, author_agent_id TEXT NOT NULL, author_actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, plan_id, revision),
+  FOREIGN KEY (project_id, plan_id) REFERENCES plans(project_id, plan_id));
+
+CREATE TABLE plan_packages (       -- the mutable part: who works on a package
+  project_id TEXT NOT NULL, plan_id TEXT NOT NULL, package_id TEXT NOT NULL,
+  assignee_agent_id TEXT, assigned_at TEXT, assignment_message_id TEXT,
+  PRIMARY KEY (project_id, plan_id, package_id),
+  FOREIGN KEY (project_id, plan_id) REFERENCES plans(project_id, plan_id));
+
+CREATE TABLE plan_signoffs (       -- immutable
+  project_id TEXT NOT NULL, plan_id TEXT NOT NULL, integration_id TEXT NOT NULL,
+  architect_agent_id TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, plan_id, integration_id),
+  FOREIGN KEY (project_id, integration_id) REFERENCES integrations(project_id, integration_id));
+```
+
+`plan_packages` rows are created when a revision is approved, one per package id in the approved body, so the assignee column is the only thing that ever changes after approval.
+
+**Plan body** (`plan_revisions.body_json`; parsed once at the boundary by a new pure module `src/plans.ts`, "parse, don't validate"):
+
+```json
+{
+  "summary": "one paragraph",
+  "packages": [
+    { "id": "wp1", "title": "…", "role": "developer",
+      "owns": ["src/foo/", "test/foo.test.ts"],
+      "interfaces": ["exports parseFoo(text): Foo"],
+      "depends_on": [],
+      "acceptance": ["parseFoo rejects empty input", "npm test passes"],
+      "risks": ["touches the wire format"] } ],
+  "risks": ["…"],
+  "integration_order": ["wp1", "wp2"]
+}
+```
+
+Validation (`src/plans.ts`): 1 to `max_packages` packages; ids match `^[a-z][a-z0-9-]{0,31}$` and are unique; `depends_on` references existing ids and is acyclic; each package has a non-empty `acceptance`; two packages whose `owns` overlap (equal path, or one is a directory prefix of the other) must be ordered by `depends_on`, else the plan is refused with `overlap`; `integration_order` is a permutation of the package ids that respects `depends_on` (default: topological order); body at most 32 KiB (the frame limit is `MAX_FRAME_BYTES` 64 KiB, `src/daemon.ts:40`). Text fields go through `normalizeText` (`src/text.ts`) like review text.
+
+**States.**
+
+| State | Meaning | Moves |
+| --- | --- | --- |
+| `draft` | opened by the PM, or sent back by a review with findings; the Architect is working | → `in_review` (high-risk submit), → `approved` (normal submit) |
+| `in_review` | a plan review is open (`reviews.state = 'started'`) | → `approved` (pass), → `draft` (findings, failed or cancelled review) |
+| `approved` | final; work packages can be assigned | → `superseded` |
+| `superseded` | a later approved plan names this one in `supersedes_plan_id` | terminal |
+
+A trigger on `plans` enforces forward moves except `in_review → draft`, as `integrations_move_forward` does in 0019. A resubmit after findings adds revision n+1; a review round is bound to one revision. An approved plan is never edited; a change is a new plan that supersedes it (`cstan plan open … <old-plan-id>`), and the old plan's already assigned packages keep running until the new plan's approval, after which assignments of still-unfinished packages must be re-created on the new plan (the PM does that with `plan assign`).
+
+**Review of a plan: reuse the review path.** Migration 0023 (separate, because it rebuilds `reviews` exactly as 0019 did) adds `subject_plan_id TEXT` and `subject_plan_revision INTEGER`, widens `CHECK ((subject_report_id IS NOT NULL) <> (subject_integration_id IS NOT NULL))` to exactly one of three subjects, adds `one_open_review_per_plan`, and extends the author checks (`author_agent_id` is the Architect for a plan). For a plan review `commit_sha` and `base_sha` both hold the revision's `base_sha`, so the reviewer worktree (`Launcher.spawn(role, {baseSha})`, `src/reviews.ts:requestReview`) is the code the plan was written against. `reviewTask` (`src/controller/core.ts:363`) gets a plan branch that embeds the plan JSON (as quoted data, like the author summaries) and says what a plan review checks: owned areas overlap, missing interfaces, untestable acceptance criteria, missing risks, ordering. `cstan review pass|findings` is unchanged for the reviewer. `completeReview` (`src/controller/core.ts:3289`) gains one step: for a plan subject it moves the plan `in_review → approved` on pass (creating `plan_packages` rows, superseding the old plan) or `in_review → draft` on findings, in the same transaction.
+
+**Work package ↔ assignment ↔ report.** The ledger's old `work_items`/`assignment_attempts` tables belong to the superseded fixed-seat model (`assign` is still a stub, `src/daemon.ts:ROUTES`), so v2 reports are tied to agents, not assignments. The link is:
+
+- `plan_packages.assignee_agent_id` is set by `plan assign`.
+- A report is attributed to a package by `agent_reports.agent_id = plan_packages.assignee_agent_id` (the report's generation is the agent's current one). No new column on `agent_reports`. Package progress is a derived read, not stored: `assigned` (no accepted report), `reported` (accepted report, no finished review), `findings` (latest review has findings), `reviewed` (latest review passed, not in a confirmed integration), `integrated` (in a `merged` or `confirmed` integration, from `integration_reports`).
+- `Launcher.replace` (`src/launcher.ts`) moves the assignee to the new agent id in the same step as the replacement, and `buildSeed` (`src/seed.ts`) adds the package text to the replacement seed.
+
+**Capabilities.** Migration 0022 inserts into `role_capabilities`: `plan:write` and `plan:read` for `PM`, `plan:write` (submit, signoff) and `plan:read` for `Developer`, `plan:read` for `Verifier`, and `review:request` for `Developer` and `controller`. Existing agents get grants by the same `INSERT OR IGNORE INTO capability_grants … SELECT` pattern as 0017 and 0018. The capability is per kind, so every Developer holds `plan:write` in the ledger; the handler's role-name check is the real gate. That is a weaker second layer than a distinct kind and is listed under risks.
+
+**Notices.** Both existing notices are hard-wired to the PM (`#noticeParties`, `src/controller/core.ts:3156`; `#announceReport` at `:2921`; `#announceReview` at `:3372`). Change:
+
+- `#announceReport`: if the reporting agent is an assignee of a package of an approved plan and the Architect of that plan is active, queue the notice to the Architect with one added line `Work package: <plan-id>/<package-id>`; else to the PM, as today.
+- `#announceReview`: queue the notice to the agent that requested the review (`requested_by_actor_id`), PM or Architect.
+- The PM is told only at plan milestones (section 4), not per report.
+
+## 4. Commands and controller message prefixes
+
+All syntax is positional (no flags), because arguments are plain strings (`args` in `src/daemon.ts`) and the wire is `MAX_ARGS` 16. One route, `plan: { access: "any" }`, with subcommands, like `integrate` and `finding check`. The CLI usage line in `src/cli.ts:820` and `runRouted`'s timeouts (`plan submit` in the high-risk case spawns a reviewer, so it joins the `LAUNCHER_CLIENT_TIMEOUT_MS` list, and `limitMs` in `src/commands.ts:1196`) change.
+
+| Command | Caller | Effect and answer |
+| --- | --- | --- |
+| `cstan plan open <normal\|high-risk> "<title>" [<superseded-plan-id>]` | PM, operator | Creates a `draft` plan with the tier the PM chose. Answer: `planId`, `tier`, `state`. The tier is the PM's recorded decision; a user override is the PM running `open` with the other tier. |
+| `cstan plan submit <plan-id> "<json>"` | designated Architect | Validates the body (section 3), stores revision n. Normal tier: plan → `approved`. High-risk: plan → `in_review` and the controller starts a plan review with `chooseReviewerRole(config, config.architect.reviewerRole)` (the same call `requestReview` uses). Answer: `revision`, `state`, and for high-risk `reviewId`, `reviewerAgentId`. Refused: `invalid_plan` (with the first reason), `plan_not_open` (state is not `draft`), `not_architect`. |
+| `cstan plan show [<plan-id>]` | any agent, operator | Without an id: one line per plan (id, tier, state, title). With an id: the approved or current revision, each package with its assignee and derived progress, and sign-offs. Read only; output is data. |
+| `cstan plan assign <plan-id> <package-id> <agent-id>` | PM, operator | Requires `approved`, a known package, an active Developer-kind agent that is not the Architect, and an unassigned package (or its assignee not active). Sets `assignee_agent_id` and queues the task to that agent in one transaction. Answer: `messageId`. |
+| `cstan plan signoff <plan-id> <integration-id> "<summary>"` | designated Architect | Requires the integration in state `merged` whose reports all belong to this plan's packages, and its latest review `passed`. Inserts the sign-off and queues the PM notice. |
+
+Messages written by the controller (the leading text is the contract, like `Verified report` and `Review`):
+
+| Prefix | To | When |
+| --- | --- | --- |
+| `Plan <plan-id> approved` | PM | normal submit; high-risk review pass. Lists the packages, their dependencies and the order. |
+| `Plan <plan-id> needs attention` | PM | a high-risk plan used `MAX_REVIEW_ROUNDS` (5, `src/controller/core.ts:MAX_REVIEW_ROUNDS`) without a pass, or the Architect was lost while the plan is `draft`. |
+| `Work package <plan-id>/<package-id>` | developer | `plan assign`. Body: the package fields, the project rules ("commit on your own branch, never push or merge, report with `cstan report`") and the sentence that only listed `owns` areas may be changed. |
+| `Verified report …` (existing) plus `Work package: <plan-id>/<package-id>` | Architect | an assigned developer's report is accepted. |
+| `Review …` (existing) | Architect | verdict of a review the Architect requested, including plan reviews. |
+| `Integration <integration-id> conflicted` | none new | the answer of `cstan integrate` already carries the report and files (`src/commands.ts:896`); the Architect sends them to the PM by hand. |
+| `Plan <plan-id> signed off` | PM | `plan signoff`. Gives the integration branch and head commit and the sentence that the user merges it. |
+| `Review <id> of plan <plan-id> revision <n>, round <r>: PASS|FINDINGS` | Architect | the existing `reviewNotice` text with the plan subject. |
+
+## 5. Integration ownership
+
+| Action | Today | With the Architect (plan-governed work) | Small path |
+| --- | --- | --- | --- |
+| `request-review <report-id>` | PM | Architect (PM still may) | PM |
+| `integrate <report-id>…` | PM or operator | Architect (PM and operator still may) | PM |
+| decide on a conflict | PM | Architect decides; asks the PM to assign a developer | PM |
+| `request-review <integration-id>` | PM | Architect | PM |
+| merge the branch into HEAD | PM, per the PM prompt | **the user**, never the PM or Architect | see Open question 1 |
+| `integrate confirm` | PM | PM or Architect, after the user merged | PM |
+| `integrate discard` | PM | Architect (PM may) | PM |
+| sign-off | none | Architect (`plan signoff`) | none |
+
+How the PM sees outcomes: `plan show` (progress per package), `Plan … approved`, `Plan … signed off`, `Plan … needs attention`, the existing `cstan status` (which gains a `plans` summary from `core.statusSnapshot()`), and a conflict relayed by the Architect through `send @pm`. The controller keeps no new automatic merge behaviour: conflicts are still reported, never resolved (`src/integration.ts` header comment). The one-running-integration rule (`one_running_integration` in 0019) and the review gate in `beginIntegration` (`src/controller/core.ts:3463`) are unchanged and enforce the same order for the Architect as for the PM.
+
+## 6. Configuration (`capstan.toml`)
+
+A new optional table, parsed in `src/config/capstan-config.ts` next to `[supervision]`, with an unknown-key check, and added to `STARTER_CONFIG` commented out so existing projects are unaffected:
+
+```toml
+[architect]
+enabled = false                # off: no plan commands in prompts, behaviour is exactly today's
+role = "architect"             # a role of kind Developer; must exist when enabled
+plan_review = "high_risk"      # "high_risk" | "always" | "never"; the review the tier gate runs
+reviewer_role = "reviewer"     # a Verifier role; default as chooseReviewerRole
+max_packages = 8
+count_toward_worker_limit = false
+high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
+
+[roles.architect]
+kind = "Developer"
+host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
+prompt = "…"                   # the section 2 text is the built-in reference; this adds project rules only
+```
+
+- `high_risk_triggers` is prompt text for the PM (rendered in `PM_REFERENCE`), not a controller classifier. The tier stays the PM's judgement, as decided. The thresholds the user asked for are therefore the list of triggers plus the `plan_review` mode: `high_risk` reviews only high-risk plans, `always` reviews normal plans too, `never` disables the review gate (for a project that accepts the risk).
+- Validation: when `enabled`, `role` must name a role of kind `Developer` on a `claude` host (the deny rules need a Claude host, as `rejectUnenforceable` requires); `reviewer_role`, if set, must name a `Verifier` role; `max_packages` is 1 to 20 (`MAX_INTEGRATION_REPORTS` is 20, `src/controller/core.ts`).
+- `count_toward_worker_limit = false` makes `Launcher.spawn` skip the Architect when it counts active workers (`src/launcher.ts:1358`, which already excludes the Supervisor), so a waiting Architect does not take a developer slot from `[limits] max_workers`.
+- The PM prompt (`PM_REFERENCE`, `src/prompts.ts`) gets the tier rules and the five plan commands only when `enabled`; it also drops the sentence "merge the integration branch into the project's HEAD yourself" for plan-governed work and says to tell the user the branch instead.
+
+## 7. Latency and cost per tier
+
+Costs are counted in agent sessions started, controller round trips and model waits. No timing was measured for this proposal; step 9 below records the ledger timestamps that would measure it. Spawning an agent is the slow, expensive step (Herdr worktree and pane, Claude start); everything else is a message.
+
+| Tier | Today | With the Architect | Added | Saved |
+| --- | --- | --- | --- | --- |
+| **small** | PM → spawn developer → task → report → review → (integrate) | identical, and the architect is not spawned | nothing | nothing |
+| **normal** | PM decomposes in its own context, spawns N developers, relays every report and runs every review and the integrate itself | `plan open` + spawn Architect + plan written (one model turn sequence) + approved notice, then `plan assign` per package; the Architect runs reviews and integrate | one agent session (Architect), one plan-writing wait, one approved notice, N `plan assign` calls (each replaces a PM-authored `send` of the task, so net zero) | PM turns per report (N report notices, N review notices and the integrate turns leave the PM's context); parallelism that a good package split enables |
+| **high-risk** | as normal, no plan review | as normal plus a plan review | one reviewer session and review round (spawn + read + verdict + release, the same cost as one existing report review); up to `MAX_REVIEW_ROUNDS` repeats on findings | plan defects found before developers start rather than at integration |
+
+Rules that keep it cheap: the Architect is spawned at `plan open` time, in parallel with the PM writing the requirements, not after; `plan submit` for the normal tier needs no extra round trip (state goes straight to `approved`); `plan assign` composes the developer task from the plan so the PM neither writes nor pastes it; report and review notices go to the Architect directly, so the PM is not a relay; the Architect stays alive across plans for the same objective (one `release` at the end), so its code reading is paid once. For single-package work the normal tier is slower than today (the extra session and plan wait) and the PM should choose small unless a package split or integration is expected; that is a stated cost, not a hidden one.
+
+The controller work added per tier is a handful of SQLite transactions (the same cost class as `report`); the only added processes are the Architect (long-lived) and, in high-risk, one reviewer per round (short-lived, already released by `releaseReviewerLater`, `src/reviews.ts`).
+
+## 8. Implementation plan
+
+Nine steps, each one developer report: one branch, tests green with `npm run check`, no step changes behaviour while `[architect].enabled` is false. Order is dependency order; steps 1, 2 and 3 can be done in parallel by different developers because they touch disjoint files.
+
+| # | Step | Files | Tests |
+| --- | --- | --- | --- |
+| 1 | `[architect]` config table: parse, validate, starter config (commented), `cstan config check` output | `src/config/capstan-config.ts`, `test/config.test.ts` | accept a valid table; reject an unknown key, a role that does not exist, a non-Developer role, a non-claude host, `max_packages` out of range; defaults leave `enabled = false` |
+| 2 | Plan body parser and validator (pure) | new `src/plans.ts`, new `test/plans.test.ts` | table-driven: valid plan; duplicate id; missing acceptance; unknown dependency; dependency cycle; overlapping `owns` without order; overlapping `owns` with order; body over 32 KiB; control characters normalized; integration order not a topological order |
+| 3 | Migration 0022 and the plain ledger methods `openPlan`, `submitPlan` (state moves, revisions, `plan_packages` on approval), `planRecord`, `listPlans`, `assignPackage`, `recordSignoff`, derived package progress | `migrations/0022_plans.sql`, `src/controller/core.ts`, `src/controller/types.ts` (`Capability`), `test/controller.test.ts` or a new `test/plans-core.test.ts` | forward-only state triggers (an update that skips a state aborts); revisions immutable; `plan_packages` only created on approval; double assign refused; progress derivation for each state using existing report and integration fixtures; migration applies on a ledger with data (existing migration tests pattern) |
+| 4 | `plan` route: `open`, `submit` (normal tier only: approve at once), `show` | `src/daemon.ts` (`ROUTES`), `src/commands.ts`, `src/cli.ts` (usage line, timeouts), `test/commands.test.ts`, `test/cli.test.ts` | PM can open, Developer cannot; only the designated role can submit; submit on a non-draft plan refused; `show` output for a list and a plan; `forbidden` for a Verifier on `submit`; route listed in the usage line |
+| 5 | Prompts and launcher wiring: `ARCHITECT_REFERENCE`, PM plan section when enabled, `isArchitect` in `PromptInput`, worker-limit exemption | `src/prompts.ts`, `src/launcher.ts`, `test/prompts.test.ts`, `test/launcher.test.ts` | prompt snapshot with and without `enabled` (disabled prompt byte-identical to today's, which proves no regression); Architect does not count toward `maxWorkers` when `count_toward_worker_limit` is false and does when true; `buildRolePrompt` stays under `MAX_PROMPT_BYTES` |
+| 6 | `plan assign` and report routing: bind and send the package task in one transaction; `Launcher.replace` rebinds; seed text; `#announceReport` to the Architect; `request-review` and `integrate` accept the Architect; `#announceReview` to the requester | `src/commands.ts`, `src/launcher.ts`, `src/seed.ts`, `src/controller/core.ts`, `test/commands.test.ts`, `test/reports.test.ts`, `test/reviews.test.ts`, `test/review-commands.test.ts`, `test/integration.test.ts`, `test/seed.test.ts` | assign sends exactly one message and sets the assignee atomically; a report from an assignee notifies the Architect and names the package; a report from a non-assignee still notifies the PM; the Architect can request a review and integrate; a Developer other than the Architect cannot; review verdict reaches the requester; replace moves the assignee; with the Architect inactive the PM gets the notice (fallback) |
+| 7 | High-risk plan review, data layer: migration 0023 (`reviews` rebuild with the plan subject), `checkReviewRequest`/`beginReview`/`reviewTask`/`completeReview` for a plan subject, the approve/back-to-draft transition | `migrations/0023_plan_reviews.sql`, `src/controller/core.ts`, `test/reviews.test.ts`, `test/controller.test.ts` | exactly one subject enforced; reviewer is not the plan's author; one open review per plan; pass approves and creates packages; findings returns to draft; a review of a superseded or non-`in_review` plan refused; migration preserves existing review rows (copy test as for 0019) |
+| 8 | High-risk plan review, command layer: `plan submit` starts the review for high-risk (or `plan_review = "always"`), `Plan … approved` and `needs attention` notices, `cstan request-review <plan-id>` accepted for the Architect | `src/commands.ts`, `src/reviews.ts`, `src/controller/core.ts`, `test/commands.test.ts`, `test/review-commands.test.ts` | with stub launcher (`test/launcher-stubs.ts`): high-risk submit spawns one reviewer and sets `in_review`; reviewer failure to spawn leaves the plan `draft` and tells the Architect; findings then revised resubmit starts round 2; round 6 refused with `needs attention` to the PM; normal tier never spawns a reviewer unless `plan_review = "always"` |
+| 9 | Sign-off, status and restart: `plan signoff`, `Plan … signed off` notice, `plans` in `statusSnapshot`, plans in `PmRestartSummary`, timestamps for latency measurement, end-to-end scenario per tier | `src/commands.ts`, `src/controller/core.ts`, `src/prompts.ts` (summary block), `test/plan-flow.test.ts` (new), `test/prompts.test.ts` | sign-off refused for an integration with a report outside the plan, with a non-passed review, or not `merged`; end-to-end with stubs: small (no plan, no architect), normal (open → submit → assign → report → review → integrate → integration review → signoff → user-merge simulated by `isInHead` stub → confirm), high-risk (adds the plan review with one findings round); PM restart summary lists open plans |
+
+Possible later steps, not part of this proposal: a dashboard view of plans (`src/dash/model.ts`), and a plan-to-integration link column if derivation proves slow.
+
+## 9. Open questions and risks
+
+**Open questions (for the user; none re-opens a decision above):**
+
+1. **PM prompt versus "user merges".** The PM prompt today tells the PM to merge the integration branch into HEAD itself (`PM_REFERENCE`, the `integrate` bullet), and `integrate confirm` needs that merge first. Decision 4 says the user does the final merge. I propose to change the prompt to "tell the user the branch" for plan-governed work only. Should the small path change too, so that no agent ever merges to HEAD?
+2. **Who runs `integrate confirm`.** It must come after the user's merge, which the Architect cannot observe except by trying. Proposed: the PM runs it when the user says they merged, and the Architect may too. Alternatively the controller could confirm on its own once the integration head is in HEAD (a poll in the existing driver), which saves a hop but adds automatic state change.
+3. **Does a normal-tier integration still need a review?** `settleIntegration` requires a passed integration review for every `confirm` (`src/controller/core.ts:3703`), which is existing behaviour and is kept. If the user wants the normal tier faster, relaxing it is a separate, explicit change.
+4. **Architect lifetime.** Proposed: one Architect for the life of an objective, released by the PM at the end. A context-heavy Architect gets slow; `replace` with the seed is the escape. Is that acceptable or should it be one per plan?
+5. **Developers talk to the Architect.** Today non-PM agents can message only the PM (`src/commands.ts:478`). A developer with a question about its package goes through the PM, an extra hop. Allowing Developer → Architect messages is a small change to that rule; I did not propose it to keep the PM as the single human-facing point, but it may be worth it.
+
+**Risks:**
+
+- **Designation by role name, not kind.** Capabilities are per kind, so every Developer holds `plan:write` and `review:request` in the ledger and the handlers' role check is the real gate. A bug in one handler is an escalation path. Mitigation: one shared helper `isArchitect(agent, config)` used by all five handlers, with a test that a non-Architect Developer is refused on each. The alternative (a fifth kind) is described in section 2 and costs a large table rebuild.
+- **Migration 0023 rebuilds `reviews`.** It has the same shape of risk as 0019 (immutability triggers, foreign keys, partial unique indexes must all be recreated). Mitigation: a copy-preserves-rows test and keeping it a migration of its own (step 7).
+- **Soft enforcement of "never merges".** Tool rules are advisory; the guarantee is that no route moves HEAD and `confirm` checks `isInHead`. A worker with `git -C` can still merge into the main checkout, as any worker can today (DEC-005 trust model).
+- **Plan quality is unchecked in the normal tier.** There is no review, by decision. The structured validation in step 2 (overlap, cycles, acceptance present) catches only structural defects. If the first real runs show weak plans, `plan_review = "always"` is the lever.
+- **Latency for small-but-plural work.** Two-package work that is really sequential pays the Architect cost for no parallelism gain. The PM prompt must say so; there is no mechanical tier classification, as decided.
+- **Notice routing when the Architect is lost.** The fallback to the PM (step 6) prevents a stuck queue, but the PM then holds reports it did not expect. The existing `Agent … lost` notice (`#recordLost`) already tells the PM, and `replace` rebinds packages.
+- **Unverified.** I did not run the code or any timing. The claims about function locations come from reading `src/` at `691ac09`; the line numbers will move. `README.md` could not be read because it is not in the repository at that commit.
