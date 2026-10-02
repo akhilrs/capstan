@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import Database from "better-sqlite3";
-import type { ReportEvidence } from "../src/controller/core.js";
+import type {
+  PackageProgress,
+  ReportEvidence,
+} from "../src/controller/core.js";
+import {
+  wantedPackageState,
+  wantedPlanState,
+  wantedRequirementState,
+  type NexoraState,
+  type PackageFacts,
+  type PlanFacts,
+  type RequirementFacts,
+} from "../src/nexora.js";
 import { integrate, type IntegrationGit } from "../src/integration.js";
 import { close, ctx, harness, type Harness, type Member } from "./harness.js";
 
@@ -794,6 +806,7 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
     const databasePath = `${h.stateDirectory}/controller.sqlite`;
     const db = new Database(databasePath);
     try {
+      undoMigration0025(db);
       for (const table of [
         "plan_signoffs",
         "plan_packages",
@@ -1199,6 +1212,7 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
       db.exec(
         "DELETE FROM role_capabilities WHERE role = 'Developer' AND capability = 'review:request'",
       );
+      undoMigration0025(db);
       db.exec("DELETE FROM schema_migrations WHERE version >= 23");
     });
     const reopened = await ReopenedCore.of(h);
@@ -1248,6 +1262,1114 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
     } finally {
       again.core.close();
     }
+  } finally {
+    await close(t.h);
+  }
+});
+
+// ---------------------------------------------------------------- Nexora wanted state and cancellation
+
+function undoMigration0025(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE external_links;
+    DROP TRIGGER plans_cancel_once;
+    DROP TRIGGER plans_frozen_after_cancel;
+    DROP TRIGGER plan_packages_cancel_once;
+    DROP TRIGGER plan_packages_frozen_after_cancel;
+    ALTER TABLE plans DROP COLUMN cancelled_at;
+    ALTER TABLE plan_packages DROP COLUMN cancelled_at;
+  `);
+}
+
+const facts = (
+  progress: PackageProgress,
+  extra: { cancelled?: boolean; confirmed?: boolean } = {},
+): PackageFacts => ({
+  progress,
+  cancelled: extra.cancelled ?? false,
+  confirmed: extra.confirmed ?? false,
+});
+
+test("wantedPackageState yields the status of each row of the package table", () => {
+  const rows: [string, PackageFacts, NexoraState][] = [
+    ["not assigned", facts("unassigned"), "todo"],
+    ["assigned", facts("assigned"), "in_progress"],
+    ["reported", facts("reported"), "in_progress"],
+    ["findings", facts("findings"), "in_progress"],
+    ["reviewed", facts("reviewed"), "in_review"],
+    ["integrated", facts("integrated"), "in_review"],
+    ["confirmed", facts("integrated", { confirmed: true }), "completed"],
+    ["cancelled", facts("assigned", { cancelled: true }), "wont_do"],
+    [
+      "cancelled before assignment",
+      facts("unassigned", { cancelled: true }),
+      "wont_do",
+    ],
+    [
+      "cancelled after review",
+      facts("reviewed", { cancelled: true }),
+      "wont_do",
+    ],
+    [
+      "confirmed wins over a later cancel",
+      facts("integrated", { confirmed: true, cancelled: true }),
+      "completed",
+    ],
+  ];
+  for (const [name, input, wanted] of rows)
+    assert.equal(wantedPackageState(input), wanted, name);
+});
+
+test("wantedPlanState evaluates the parent rows in order", () => {
+  const plan = (
+    state: PlanFacts["state"],
+    packages: PackageFacts[],
+    cancelled = false,
+  ): PlanFacts => ({ state, cancelled, packages });
+  const confirmed = facts("integrated", { confirmed: true });
+  const dropped = facts("assigned", { cancelled: true });
+  const rows: [string, PlanFacts, NexoraState | null][] = [
+    ["a draft plan", plan("draft", []), "todo"],
+    ["a plan in review", plan("in_review", []), "todo"],
+    [
+      "no package started",
+      plan("approved", [facts("unassigned"), facts("unassigned")]),
+      "todo",
+    ],
+    [
+      "one package assigned",
+      plan("approved", [facts("assigned"), facts("unassigned")]),
+      "in_progress",
+    ],
+    [
+      "mixed progress",
+      plan("approved", [facts("reviewed"), facts("reported")]),
+      "in_progress",
+    ],
+    [
+      "one reviewed and one not assigned",
+      plan("approved", [facts("reviewed"), facts("unassigned")]),
+      "in_progress",
+    ],
+    [
+      "all reviewed",
+      plan("approved", [facts("reviewed"), facts("integrated")]),
+      "in_review",
+    ],
+    [
+      "signed off: reviewed and integrated packages",
+      plan("approved", [facts("integrated"), facts("integrated")]),
+      "in_review",
+    ],
+    [
+      "some confirmed and the rest reviewed",
+      plan("approved", [confirmed, facts("reviewed")]),
+      "in_review",
+    ],
+    ["all confirmed", plan("approved", [confirmed, confirmed]), "completed"],
+    [
+      "one cancelled and the rest confirmed",
+      plan("approved", [confirmed, dropped]),
+      "completed",
+    ],
+    [
+      "one cancelled and the rest in progress",
+      plan("approved", [facts("reported"), dropped]),
+      "in_progress",
+    ],
+    [
+      "one cancelled and the rest not assigned",
+      plan("approved", [facts("unassigned"), dropped]),
+      "todo",
+    ],
+    ["all cancelled", plan("approved", [dropped, dropped]), "wont_do"],
+    [
+      "the plan is cancelled with unconfirmed packages",
+      plan(
+        "approved",
+        [
+          facts("reported", { cancelled: true }),
+          facts("reviewed", { cancelled: true }),
+        ],
+        true,
+      ),
+      "wont_do",
+    ],
+    ["a cancelled draft", plan("draft", [], true), "wont_do"],
+    [
+      "the plan is cancelled after everything was confirmed",
+      plan("approved", [confirmed, confirmed], true),
+      "completed",
+    ],
+    [
+      "the plan is cancelled after part was confirmed",
+      plan(
+        "approved",
+        [confirmed, facts("assigned", { cancelled: true })],
+        true,
+      ),
+      "wont_do",
+    ],
+    [
+      "a superseded plan has no wanted state",
+      plan("superseded", [confirmed]),
+      null,
+    ],
+  ];
+  for (const [name, input, wanted] of rows)
+    assert.equal(wantedPlanState(input), wanted, name);
+});
+
+test("wantedRequirementState evaluates the requirement rows in order", () => {
+  const requirement = (
+    extra: Partial<RequirementFacts> = {},
+  ): RequirementFacts => ({
+    bound: true,
+    syncedState: "in_progress",
+    reportConfirmed: false,
+    reviewPassed: false,
+    ...extra,
+  });
+  const rows: [string, RequirementFacts, NexoraState | null][] = [
+    ["an unbound link", requirement({ bound: false }), null],
+    [
+      "an unbound link recorded as wont_do",
+      requirement({ bound: false, syncedState: "wont_do" }),
+      null,
+    ],
+    ["a bound agent with no report", requirement(), "in_progress"],
+    [
+      "a report without a finished review, or with findings",
+      requirement({ reviewPassed: false }),
+      "in_progress",
+    ],
+    [
+      "a passed review",
+      requirement({ reviewPassed: true, syncedState: "in_progress" }),
+      "in_review",
+    ],
+    [
+      "a confirmed integration",
+      requirement({ reportConfirmed: true, reviewPassed: true }),
+      "completed",
+    ],
+    [
+      "a recorded wont_do",
+      requirement({ syncedState: "wont_do", reviewPassed: true }),
+      "wont_do",
+    ],
+    [
+      "a confirmed report beats a recorded wont_do",
+      requirement({
+        syncedState: "wont_do",
+        reportConfirmed: true,
+        reviewPassed: true,
+      }),
+      "completed",
+    ],
+  ];
+  for (const [name, input, wanted] of rows)
+    assert.equal(wantedRequirementState(input), wanted, name);
+});
+
+function link(
+  t: Team,
+  refKind: "requirement" | "plan" | "package",
+  refId: string,
+  externalId: string,
+  syncedState?: NexoraState,
+  who: Member = t.h.pm,
+) {
+  return t.h.core.linkExternal(ctx(t.h.core, who.credential), {
+    refKind,
+    refId,
+    externalId,
+    ...(syncedState === undefined ? {} : { syncedState }),
+  });
+}
+
+function wanted(
+  t: Team,
+  refKind: "requirement" | "plan" | "package",
+  refId: string,
+): NexoraState | null {
+  return t.h.core.wantedNexoraState(t.h.owner, refKind, refId);
+}
+
+function settle(t: Team, integrationId: string, outcome: "confirmed") {
+  t.h.core.settleIntegration(ctx(t.h.core, t.h.owner), {
+    integrationId,
+    outcome,
+  });
+}
+
+test("the ledger derives the wanted status of a package and its plan through the whole life of the work", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1", "wp2");
+    link(t, "plan", planId, "PM-10");
+    link(t, "package", `${planId}/wp1`, "PM-11");
+    link(t, "package", `${planId}/wp2`, "PM-12");
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "todo");
+    assert.equal(wanted(t, "plan", planId), "todo");
+    assert.deepEqual(h.core.syncDrift(h.owner), []);
+
+    assign(t, planId, "wp1", t.dev1);
+    assign(t, planId, "wp2", t.dev2);
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_progress");
+    assert.equal(wanted(t, "plan", planId), "in_progress");
+    assert.deepEqual(
+      h.core.syncDrift(h.owner).map((d) => [d.refKind, d.refId, d.wanted]),
+      [
+        ["plan", planId, "in_progress"],
+        ["package", `${planId}/wp1`, "in_progress"],
+        ["package", `${planId}/wp2`, "in_progress"],
+      ],
+    );
+
+    const first = reportBy(h, t.dev1, "1".repeat(40));
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_progress");
+    review(h, first, "findings");
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_progress");
+    const second = reportBy(h, t.dev1, "2".repeat(40));
+    review(h, second, "pass");
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_review");
+    assert.equal(
+      wanted(t, "plan", planId),
+      "in_progress",
+      "the other package has not reported",
+    );
+    const third = reportBy(h, t.dev2, "3".repeat(40));
+    review(h, third, "pass");
+    assert.equal(wanted(t, "plan", planId), "in_review");
+
+    const integrationId = await integrateReports(h, [second, third]);
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_review");
+    review(h, integrationId, "pass");
+    h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+      planId,
+      integrationId,
+      summary: "ok",
+    });
+    assert.equal(
+      wanted(t, "plan", planId),
+      "in_review",
+      "a sign-off is a comment trigger, not a state",
+    );
+
+    settle(t, integrationId, "confirmed");
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "completed");
+    assert.equal(wanted(t, "package", `${planId}/wp2`), "completed");
+    assert.equal(wanted(t, "plan", planId), "completed");
+    link(t, "plan", planId, "PM-10", "completed");
+    link(t, "package", `${planId}/wp1`, "PM-11", "completed");
+    link(t, "package", `${planId}/wp2`, "PM-12", "completed");
+    assert.deepEqual(h.core.syncDrift(h.owner), []);
+    assert.throws(
+      () => wanted(t, "package", `${planId}/nope`),
+      /has no package nope/,
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a replaced assignee restarts at assigned, and a conflicted or discarded integration leaves a package reviewed", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    assign(t, planId, "wp1", t.dev1);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    h.core.settleIntegration(ctx(h.core, h.owner), {
+      integrationId,
+      outcome: "discarded",
+    });
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_review");
+    assert.equal(progress(t, planId, "wp1"), "reviewed");
+    const successor = member(h, "dev-three", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: t.dev1.agentId,
+      successorId: successor.agentId,
+    });
+    assert.equal(wanted(t, "package", `${planId}/wp1`), "in_progress");
+    assert.equal(
+      h.core.planRecord(h.owner, planId)!.packages[0]!.assigneeAgentId,
+      "dev-three",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a requirement is driven by the latest report of the developer bound to it", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    link(t, "requirement", "req-1", "PM-20", "in_progress");
+    assert.equal(wanted(t, "requirement", "req-1"), null, "unbound");
+    assert.deepEqual(h.core.syncDrift(h.owner), []);
+    assert.equal(h.core.externalLinks(h.owner)[0]!.wanted, null);
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    assert.equal(wanted(t, "requirement", "req-1"), "in_progress");
+    const first = reportBy(h, t.dev1, "1".repeat(40));
+    assert.equal(wanted(t, "requirement", "req-1"), "in_progress");
+    review(h, first, "findings");
+    assert.equal(wanted(t, "requirement", "req-1"), "in_progress");
+    const second = reportBy(h, t.dev1, "2".repeat(40));
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "the fix report restarts the rows",
+    );
+    review(h, second, "pass");
+    assert.equal(wanted(t, "requirement", "req-1"), "in_review");
+    assert.deepEqual(
+      h.core.syncDrift(h.owner).map((d) => d.refId),
+      ["req-1"],
+    );
+    const integrationId = await integrateReports(h, [second]);
+    assert.equal(wanted(t, "requirement", "req-1"), "in_review", "merged");
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    assert.equal(wanted(t, "requirement", "req-1"), "completed");
+    const third = reportBy(h, t.dev1, "3".repeat(40));
+    assert.ok(third);
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "only the latest report counts",
+    );
+
+    link(t, "requirement", "req-2", "PM-21", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-2",
+      agentId: t.dev2.agentId,
+    });
+    reportBy(h, t.dev2, "4".repeat(40));
+    link(t, "requirement", "req-2", "PM-21", "wont_do");
+    assert.equal(wanted(t, "requirement", "req-2"), "wont_do");
+    assert.equal(
+      h.core.syncDrift(h.owner).some((d) => d.refId === "req-2"),
+      false,
+      "a recorded wont_do is never drift",
+    );
+    assert.equal(
+      wanted(t, "requirement", "req-unknown"),
+      null,
+      "an unlinked requirement has no wanted state",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a link is recorded by the PM or the operator, its external id is fixed and a bound requirement follows a replacement", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    const created = link(t, "plan", planId, "PM-10");
+    assert.equal(created.syncedState, "todo", "a new link starts at todo");
+    assert.equal(created.system, "nexora");
+    assert.equal(created.wanted, "todo");
+    assert.equal(created.drift, false);
+    assert.equal(link(t, "plan", planId, "PM-10", "in_progress").drift, true);
+    assert.equal(
+      link(t, "plan", planId, "PM-10").syncedState,
+      "in_progress",
+      "an update without a state keeps it",
+    );
+    assert.throws(
+      () => link(t, "plan", planId, "PM-11"),
+      /link_conflict: plan plan-1 is linked to PM-10, not PM-11/,
+    );
+    assert.equal(
+      link(t, "plan", planId, "PM-10", "todo", {
+        ...h.pm,
+        credential: h.owner,
+      }).syncedState,
+      "todo",
+      "the operator may record a link",
+    );
+    assert.throws(
+      () => link(t, "plan", planId, "PM-10", "todo", t.architect),
+      /only the PM or the operator/,
+    );
+    assert.throws(
+      () => link(t, "plan", planId, "PM-10", "doing" as NexoraState),
+      /not a Nexora status/,
+    );
+    assert.throws(() => link(t, "plan", planId, "47"), /must look like PM-47/);
+    assert.throws(
+      () => link(t, "plan", "plan-9", "PM-1"),
+      /plan plan-9 does not exist/,
+    );
+    assert.throws(
+      () => link(t, "package", `${planId}/wp9`, "PM-1"),
+      /has no package wp9/,
+    );
+    assert.throws(
+      () => link(t, "package", planId, "PM-1"),
+      /a package ref is <plan-id>\/<package-id>/,
+    );
+    assert.throws(
+      () => link(t, "bogus" as "plan", planId, "PM-1"),
+      /link kind must be one of/,
+    );
+    assert.throws(
+      () =>
+        h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+          refId: "req-1",
+          agentId: t.dev1.agentId,
+        }),
+      /is not linked; run link first/,
+    );
+    link(t, "requirement", "req-1", "PM-30", "in_progress");
+    assert.throws(
+      () =>
+        h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+          refId: "req-1",
+          agentId: h.pm.agentId,
+        }),
+      /not an active developer-kind agent/,
+    );
+    assert.throws(
+      () =>
+        h.core.bindRequirement(ctx(h.core, t.architect.credential), {
+          refId: "req-1",
+          agentId: t.dev1.agentId,
+        }),
+      /only the PM or the operator binds/,
+    );
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    const successor = member(h, "dev-three", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: t.dev1.agentId,
+      successorId: successor.agentId,
+    });
+    assert.equal(
+      h.core.externalLinks(h.owner).find((l) => l.refId === "req-1")!
+        .boundAgentId,
+      "dev-three",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("the ledger refuses to rewrite or delete a link, and a synced state outside the Nexora list", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    link(t, "plan", planId, "PM-10");
+    raw(h, (db) => {
+      assert.throws(
+        () => db.exec("UPDATE external_links SET external_id = 'PM-99'"),
+        /external link identity is immutable/,
+      );
+      assert.throws(
+        () => db.exec("UPDATE external_links SET ref_id = 'plan-2'"),
+        /external link identity is immutable/,
+      );
+      assert.throws(
+        () => db.exec("UPDATE external_links SET linked_by = 'someone'"),
+        /external link identity is immutable/,
+      );
+      assert.throws(
+        () => db.exec("UPDATE external_links SET synced_state = 'doing'"),
+        /CHECK constraint failed/,
+      );
+      assert.throws(
+        () => db.exec("DELETE FROM external_links"),
+        /external links are not deleted/,
+      );
+      assert.throws(
+        () =>
+          db.exec(
+            `INSERT INTO external_links(project_id, ref_kind, ref_id, system, external_id, synced_state, linked_by, linked_at, synced_at)
+             SELECT project_id, 'plan', 'plan-2', 'nexora', 'PM-2', 'done', linked_by, linked_at, synced_at FROM external_links`,
+          ),
+        /CHECK constraint failed/,
+      );
+      assert.throws(
+        () =>
+          db.exec(
+            `INSERT INTO external_links(project_id, ref_kind, ref_id, system, external_id, synced_state, bound_agent_id, linked_by, linked_at, synced_at)
+             SELECT project_id, 'plan', 'plan-2', 'nexora', 'PM-2', 'todo', 'dev-two', linked_by, linked_at, synced_at FROM external_links`,
+          ),
+        /CHECK constraint failed/,
+        "only a requirement link can be bound",
+      );
+      db.exec(
+        "UPDATE external_links SET synced_state = 'in_progress', synced_at = '2026-10-02T00:00:00.000Z'",
+      );
+      assert.equal(
+        (
+          db.prepare("SELECT synced_state AS s FROM external_links").get() as {
+            s: string;
+          }
+        ).s,
+        "in_progress",
+        "the synced state and time stay updatable",
+      );
+    });
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("plan cancel by state: a draft, an approved plan, a plan in review and a superseded plan", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const cancel = (planId: string, packageId?: string) =>
+      h.core.cancelPlan(ctx(h.core, h.owner), {
+        planId,
+        ...(packageId === undefined ? {} : { packageId }),
+      });
+    const draft = open(h);
+    const cancelledDraft = cancel(draft);
+    assert.deepEqual(cancelledDraft.cancelledPackages, []);
+    assert.deepEqual(cancelledDraft.notified, ["pm-agent"], "no architect yet");
+    assert.ok(h.core.planRecord(h.owner, draft)!.plan.cancelledAt);
+    assert.equal(planState(t, draft), "draft");
+    assert.throws(() => cancel(draft), /already_cancelled/);
+    assert.throws(
+      () => submit(t, draft, body("wp1")),
+      /plan_cancelled: plan plan-1 was cancelled/,
+    );
+    assert.throws(
+      () => open(h, "normal", draft),
+      /plan_cancelled: plan-1 was cancelled; open a fresh plan without naming it/,
+    );
+    assert.equal(
+      planState(t, draft),
+      "draft",
+      "a refused open leaves the cancelled plan unchanged",
+    );
+
+    const approvedPlan = approved(t, "wp1", "wp2", "wp3");
+    assign(t, approvedPlan, "wp1", t.dev1);
+    assign(t, approvedPlan, "wp2", t.dev2);
+    const reportOne = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, reportOne, "pass");
+    const integrationId = await integrateReports(h, [reportOne]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    assert.throws(
+      () => cancel(approvedPlan, "wp1"),
+      /package_confirmed: package wp1/,
+    );
+    const onePackage = cancel(approvedPlan, "wp3");
+    assert.deepEqual(onePackage.cancelledPackages, ["wp3"]);
+    assert.deepEqual(onePackage.notified, ["pm-agent", "architect"]);
+    assert.throws(() => cancel(approvedPlan, "wp3"), /already_cancelled/);
+    assert.throws(() => cancel(approvedPlan, "wp9"), /has no package wp9/);
+    assert.throws(
+      () => assign(t, approvedPlan, "wp3", t.dev2),
+      /package_cancelled: package wp3 of plan plan-2 was cancelled/,
+    );
+    const wholePlan = cancel(approvedPlan);
+    assert.deepEqual(
+      wholePlan.cancelledPackages,
+      ["wp2"],
+      "neither the confirmed nor the already cancelled package is touched",
+    );
+    const detail = h.core.planRecord(h.owner, approvedPlan)!;
+    assert.deepEqual(
+      detail.packages.map((p) => [p.packageId, p.cancelledAt !== null]),
+      [
+        ["wp1", false],
+        ["wp2", true],
+        ["wp3", true],
+      ],
+    );
+    assert.equal(detail.plan.state, "approved");
+    assert.throws(() => cancel(approvedPlan), /already_cancelled/);
+    assert.throws(
+      () => cancel(approvedPlan, "wp2"),
+      /plan_cancelled: plan plan-2 was cancelled/,
+    );
+    assert.throws(
+      () => assign(t, approvedPlan, "wp2", t.dev2),
+      /plan_cancelled: plan plan-2 was cancelled/,
+    );
+
+    link(t, "plan", approvedPlan, "PM-10");
+    link(t, "package", `${approvedPlan}/wp1`, "PM-11");
+    link(t, "package", `${approvedPlan}/wp2`, "PM-12");
+    assert.equal(wanted(t, "package", `${approvedPlan}/wp1`), "completed");
+    assert.equal(wanted(t, "package", `${approvedPlan}/wp2`), "wont_do");
+    assert.equal(
+      wanted(t, "plan", approvedPlan),
+      "wont_do",
+      "row 1: the plan is cancelled and not every package is confirmed",
+    );
+
+    const second = approved(t, "wp1");
+    const everything = cancel(second);
+    assert.deepEqual(everything.cancelledPackages, ["wp1"]);
+    link(t, "plan", second, "PM-13");
+    assert.equal(wanted(t, "plan", second), "wont_do");
+
+    const reviewedPlan = open(h, "high_risk");
+    submit(t, reviewedPlan, body("wp1"), true);
+    const reviewer = startPlanReview(t, reviewedPlan);
+    assert.equal(planState(t, reviewedPlan), "in_review");
+    const inReview = cancel(reviewedPlan);
+    assert.equal(inReview.reviewerAgentId, reviewer.agentId);
+    assert.ok(inReview.reviewId);
+    assert.deepEqual(inReview.notified, ["pm-agent", "architect"]);
+    assert.equal(planState(t, reviewedPlan), "draft");
+    assert.ok(h.core.planRecord(h.owner, reviewedPlan)!.plan.cancelledAt);
+    raw(h, (db) => {
+      assert.deepEqual(
+        db
+          .prepare(
+            "SELECT state, failure_reason FROM reviews WHERE review_id = ?",
+          )
+          .get(inReview.reviewId),
+        { state: "cancelled", failure_reason: "plan cancelled" },
+      );
+    });
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("only the operator cancels a plan, and a superseded plan cannot be cancelled", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const old = approved(t, "wp1");
+    const next = open(h, "normal", old);
+    submit(t, next, body("wp1"));
+    assert.equal(planState(t, old), "superseded");
+    assert.throws(
+      () => h.core.cancelPlan(ctx(h.core, h.pm.credential), { planId: next }),
+      /only the operator cancels a plan/,
+    );
+    assert.throws(
+      () =>
+        h.core.cancelPlan(ctx(h.core, t.architect.credential), {
+          planId: next,
+        }),
+      /only the operator cancels a plan/,
+    );
+    assert.throws(
+      () => h.core.cancelPlan(ctx(h.core, h.owner), { planId: old }),
+      /plan_superseded/,
+    );
+    assert.throws(
+      () => h.core.cancelPlan(ctx(h.core, h.owner), { planId: "plan-9" }),
+      /does not exist/,
+    );
+    const draft = open(h);
+    assert.throws(
+      () =>
+        h.core.cancelPlan(ctx(h.core, h.owner), {
+          planId: draft,
+          packageId: "wp1",
+        }),
+      /plan_not_approved: plan plan-3 is draft/,
+    );
+    link(t, "plan", old, "PM-10");
+    assert.equal(wanted(t, "plan", old), null, "a superseded plan has none");
+    assert.deepEqual(h.core.syncDrift(h.owner), []);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("cancel after open: the new plan is approved without superseding the cancelled one", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const a = approved(t, "wp1");
+    const b = open(h, "normal", a);
+    assert.equal(h.core.approvalNoticeNote(b), null);
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId: a });
+    submit(t, b, body("wp1", "wp2"));
+    const detail = h.core.planRecord(h.owner, b)!;
+    assert.equal(detail.plan.state, "approved");
+    assert.deepEqual(
+      detail.packages.map((p) => p.packageId),
+      ["wp1", "wp2"],
+    );
+    assert.equal(detail.plan.supersedesPlanId, a);
+    const old = h.core.planRecord(h.owner, a)!.plan;
+    assert.equal(old.state, "approved", "not superseded");
+    assert.ok(old.cancelledAt);
+    assert.equal(
+      h.core.approvalNoticeNote(b),
+      `Plan ${a} was cancelled before this plan was approved; it was not superseded`,
+    );
+    assert.equal(h.core.approvalNoticeNote(a), null);
+    const note = `Plan ${a} was cancelled before this plan was approved; it was not superseded`;
+    const notices = h.core
+      .messagesFor(h.pm.agentId)
+      .map((m) => m.body)
+      .filter((text) => text.startsWith(`Plan ${b} approved`));
+    assert.equal(notices.length, 1);
+    assert.ok(notices[0]!.endsWith(note), notices[0]);
+    const resent = h.core.announcePlanNotice(ctx(h.core, h.owner), {
+      planId: b,
+      kind: "approved",
+    });
+    assert.equal(resent.announced, true);
+    assert.ok(
+      h.core.messagesFor(h.pm.agentId).at(-1)!.body.endsWith(note),
+      "the reconcile re-send carries the note",
+    );
+    const c = open(h, "normal", b);
+    submit(t, c, body("wp1"));
+    assert.equal(planState(t, b), "superseded");
+    assert.equal(
+      h.core.approvalNoticeNote(c),
+      null,
+      "an approved plan is still superseded as before",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a cancelled plan stays frozen: a late review leaves it unchanged and the triggers abort a direct rewrite", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = open(h, "high_risk");
+    submit(t, planId, body("wp1"), true);
+    const reviewer = startPlanReview(t, planId);
+    raw(h, (db) => {
+      db.exec("UPDATE plans SET cancelled_at = '2026-10-02T00:00:00.000Z'");
+    });
+    const reopened = await ReopenedCore.of(h);
+    try {
+      const done = reopened.core.completeReview(
+        ctx(reopened.core, reviewer.credential),
+        { verdict: "pass", text: "late pass" },
+      );
+      assert.equal(done.state, "passed", "the review still finishes");
+      const detail = reopened.core.planRecord(h.owner, planId)!;
+      assert.equal(detail.plan.state, "in_review");
+      assert.equal(detail.plan.approvedRevision, null);
+      assert.equal(detail.packages.length, 0);
+    } finally {
+      reopened.core.close();
+    }
+    raw(h, (db) => {
+      for (const sql of [
+        "UPDATE plans SET cancelled_at = '2026-10-03T00:00:00.000Z'",
+        "UPDATE plans SET state = 'approved', approved_revision = 1",
+        "UPDATE plans SET current_revision = current_revision + 1",
+      ])
+        assert.throws(
+          () => db.exec(sql),
+          /a cancelled plan (stays cancelled|cannot change)/,
+          sql,
+        );
+    });
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a cancelled package cannot be reassigned by a direct update, and replace skips it", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1", "wp2");
+    assign(t, planId, "wp1", t.dev1);
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId, packageId: "wp1" });
+    const successor = member(h, "dev-three", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: t.dev1.agentId,
+      successorId: successor.agentId,
+    });
+    const detail = h.core.planRecord(h.owner, planId)!;
+    assert.equal(
+      detail.packages.find((p) => p.packageId === "wp1")!.assigneeAgentId,
+      t.dev1.agentId,
+      "a cancelled package keeps the old agent as history",
+    );
+    assert.deepEqual(
+      h.core.agentSeed(t.dev1.agentId).packages,
+      [],
+      "the replacement seed omits the cancelled package",
+    );
+    assign(t, planId, "wp2", t.dev1);
+    const other = member(h, "dev-four", "Developer", "developer");
+    raw(h, (db) => {
+      assert.throws(
+        () =>
+          db.exec(
+            `UPDATE plan_packages SET assignee_agent_id = '${other.agentId}' WHERE package_id = 'wp1'`,
+          ),
+        /a cancelled package cannot be reassigned/,
+      );
+      assert.throws(
+        () =>
+          db.exec(
+            "UPDATE plan_packages SET cancelled_at = '2026-10-03T00:00:00.000Z' WHERE package_id = 'wp1'",
+          ),
+        /a cancelled package stays cancelled/,
+      );
+      assert.equal(
+        db
+          .prepare(
+            "UPDATE plan_packages SET assignee_agent_id = ? WHERE assignee_agent_id = ? AND cancelled_at IS NULL",
+          )
+          .run(other.agentId, t.dev1.agentId).changes,
+        1,
+        "the rebinding query moves the live package and leaves the cancelled one",
+      );
+    });
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("migration 0025 adds the link table and the cancellation columns to a ledger with plans", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    assign(t, planId, "wp1", t.dev1);
+    h.core.close();
+    const databasePath = `${h.stateDirectory}/controller.sqlite`;
+    const db = new Database(databasePath);
+    try {
+      undoMigration0025(db);
+      db.exec("DELETE FROM schema_migrations WHERE version >= 25");
+    } finally {
+      db.close();
+    }
+    const reopened = await ReopenedCore.of(h);
+    try {
+      assert.deepEqual(reopened.core.externalLinks(h.owner), []);
+      const detail = reopened.core.planRecord(h.owner, planId)!;
+      assert.equal(detail.plan.cancelledAt, null);
+      assert.equal(detail.packages[0]!.cancelledAt, null);
+      assert.equal(detail.packages[0]!.assigneeAgentId, t.dev1.agentId);
+      reopened.core.linkExternal(ctx(reopened.core, h.pm.credential), {
+        refKind: "plan",
+        refId: planId,
+        externalId: "PM-10",
+      });
+      assert.equal(reopened.core.externalLinks(h.owner).length, 1);
+    } finally {
+      reopened.core.close();
+    }
+    const check = new Database(databasePath);
+    try {
+      assert.deepEqual(check.pragma("foreign_key_check"), []);
+      assert.deepEqual(
+        check
+          .prepare(
+            "SELECT version, name FROM schema_migrations WHERE version = 25",
+          )
+          .all(),
+        [{ version: 25, name: "0025_external_links.sql" }],
+      );
+    } finally {
+      check.close();
+    }
+  } finally {
+    await close(t.h);
+  }
+});
+
+function tickingClock(): () => Date {
+  let seconds = 0;
+  return () => new Date(Date.UTC(2026, 9, 2, 0, 0, seconds++));
+}
+
+test("cancelling a package or a plan tells the developers who hold cancelled work to stop", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const dev3 = member(h, "dev-three", "Developer", "developer");
+    const planId = approved(t, "wp1", "wp2", "wp3", "wp4");
+    assign(t, planId, "wp1", t.dev1);
+    assign(t, planId, "wp2", t.dev2);
+    assign(t, planId, "wp3", dev3);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+
+    const single = h.core.cancelPlan(ctx(h.core, h.owner), {
+      planId,
+      packageId: "wp2",
+    });
+    assert.deepEqual(single.notified, ["pm-agent", "architect", "dev-two"]);
+    const whole = h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    assert.deepEqual(
+      whole.notified,
+      ["pm-agent", "architect", "dev-three"],
+      "the confirmed holder, the unassigned package and the already cancelled holder are not told again",
+    );
+    const stops = raw(
+      h,
+      (db) =>
+        db
+          .prepare(
+            "SELECT recipient_agent_id AS who, body FROM messages WHERE body LIKE 'Stop work%' ORDER BY sequence",
+          )
+          .all() as { who: string; body: string }[],
+    );
+    assert.deepEqual(stops, [
+      {
+        who: "dev-two",
+        body: `Stop work on package wp2 of plan ${planId}: it was cancelled by the operator. Do not report it.`,
+      },
+      {
+        who: "dev-three",
+        body: `Stop work on package wp3 of plan ${planId}: it was cancelled by the operator. Do not report it.`,
+      },
+    ]);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a requirement counts only reports accepted since it was bound", async () => {
+  const t = await team(tickingClock());
+  try {
+    const { h } = t;
+    const old = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, old, "pass");
+    const integrationId = await integrateReports(h, [old]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    link(t, "requirement", "req-1", "PM-20", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    assert.equal(h.core.externalLinks(h.owner)[0]!.boundAt === null, false);
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "earlier confirmed work does not complete it",
+    );
+    const fresh = reportBy(h, t.dev1, "2".repeat(40));
+    assert.equal(wanted(t, "requirement", "req-1"), "in_progress");
+    review(h, fresh, "pass");
+    assert.equal(wanted(t, "requirement", "req-1"), "in_review");
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a requirement keeps the work of the developers a replacement carried forward", async () => {
+  const t = await team(tickingClock());
+  try {
+    const { h } = t;
+    link(t, "requirement", "req-1", "PM-20", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    assert.equal(wanted(t, "requirement", "req-1"), "completed");
+    const second = member(h, "dev-three", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: t.dev1.agentId,
+      successorId: second.agentId,
+    });
+    assert.equal(wanted(t, "requirement", "req-1"), "completed");
+    const third = member(h, "dev-four", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: second.agentId,
+      successorId: third.agentId,
+    });
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "completed",
+      "the whole predecessor chain counts",
+    );
+    assert.equal(h.core.externalLinks(h.owner)[0]!.boundAgentId, "dev-four");
+    reportBy(h, third, "3".repeat(40));
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "a newer report of the successor restarts the rows",
+    );
+    link(t, "requirement", "req-2", "PM-21", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-2",
+      agentId: t.dev2.agentId,
+    });
+    assert.equal(
+      wanted(t, "requirement", "req-2"),
+      "in_progress",
+      "an unrelated agent's reports are not in the chain",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("the PM restart summary lists Nexora links with drifted ones first and nothing without links", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const none = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.deepEqual(none.summary.links, []);
+    const pmAgain = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.ok(pmAgain);
+    link(t, "requirement", "req-1", "PM-20", "todo", {
+      ...h.pm,
+      credential: pmAgain.credential,
+    });
+    link(t, "requirement", "req-2", "PM-21", "in_progress", {
+      ...h.pm,
+      credential: pmAgain.credential,
+    });
+    h.core.bindRequirement(ctx(h.core, pmAgain.credential), {
+      refId: "req-2",
+      agentId: t.dev1.agentId,
+    });
+    h.core.bindRequirement(ctx(h.core, pmAgain.credential), {
+      refId: "req-1",
+      agentId: t.dev2.agentId,
+    });
+    const restarted = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.deepEqual(
+      restarted.summary.links?.map((l) => [l.refId, l.drift, l.wanted]),
+      [
+        ["req-1", true, "in_progress"],
+        ["req-2", false, "in_progress"],
+      ],
+      "the drifted link comes first",
+    );
   } finally {
     await close(t.h);
   }

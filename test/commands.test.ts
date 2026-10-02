@@ -1210,7 +1210,7 @@ test("plan submit is for the designated architect only and approves a normal pla
   }
 });
 
-test("plan submit refuses a plan that needs a plan review until that exists", async () => {
+test("plan submit refuses a plan that needs a plan review when no launcher is configured", async () => {
   const h = await harness({ commands: planOptions() });
   try {
     const architect = h.addMember("developer2", "Developer");
@@ -1220,11 +1220,7 @@ test("plan submit refuses a plan that needs a plan review until that exists", as
       "plan-1",
       planBody("wp1"),
     ]);
-    assert.equal(codeOf(refused), "rejected");
-    assert.match(
-      String((refused as { message: string }).message),
-      /^plan_review_unavailable: /,
-    );
+    assert.equal(codeOf(refused), "not_configured");
     assert.equal(h.core.listPlans(h.owner)[0]?.state, "draft");
   } finally {
     await close(h);

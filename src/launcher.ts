@@ -479,6 +479,15 @@ export class Launcher {
       : undefined;
   }
 
+  #nexoraPrompt(): Pick<PromptInput, "nexora"> {
+    const nexora = this.#config.nexora;
+    return nexora === undefined || nexora.track === "never"
+      ? {}
+      : {
+          nexora: { track: nexora.track, defaultAction: nexora.defaultAction },
+        };
+  }
+
   #isArchitectRole(name: string, kind: string): boolean {
     const architect = this.#config.architect;
     return (
@@ -798,6 +807,7 @@ export class Launcher {
       ...(this.#architectPrompt() === undefined
         ? {}
         : { architect: this.#architectPrompt()! }),
+      ...this.#nexoraPrompt(),
       ...(summary === undefined ? {} : { restartSummary: summary }),
     });
     const promptFile = this.#adapter.writePromptFile(promptText);
@@ -1521,6 +1531,7 @@ export class Launcher {
                 architect: this.#architectPrompt()!,
                 isArchitect: this.#isArchitectRole(role.name, role.kind),
               }),
+          ...this.#nexoraPrompt(),
           ...(options.seed === undefined
             ? {}
             : { replacementSeed: options.seed }),
