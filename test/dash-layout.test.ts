@@ -137,19 +137,19 @@ test("optional table columns drop below their content-width thresholds", () => {
 });
 
 test("the queue shares body rows between header, list, selected detail and graphs", () => {
-  assert.deepEqual(queueSections(1, 5), {
+  assert.deepEqual(queueSections(1, 5, true), {
     header: 0,
     list: 1,
     detail: 0,
     graphs: 0,
   });
-  assert.deepEqual(queueSections(4, 5), {
+  assert.deepEqual(queueSections(4, 5, true), {
     header: 1,
     list: 3,
     detail: 0,
     graphs: 0,
   });
-  const roomy = queueSections(25, 5);
+  const roomy = queueSections(25, 5, true);
   assert.equal(roomy.header, 1);
   assert.equal(roomy.list, 5);
   assert.equal(roomy.detail, 4);
@@ -161,20 +161,21 @@ test("the queue shares body rows between header, list, selected detail and graph
   );
 });
 
-test("agents show active ones first, then ended ones, then a graph with what is left", () => {
-  assert.deepEqual(agentSections(4, 5, 1), {
+test("the queue shows no selected-detail area when there is nothing to select", () => {
+  const empty = queueSections(25, 1, false);
+  assert.equal(empty.detail, 0);
+  assert.equal(empty.graphs, 23);
+});
+
+test("agents are one scrolling list, then a graph with what is left", () => {
+  assert.deepEqual(agentSections(4, 10), { header: 1, rows: 3, graph: 0 });
+  assert.deepEqual(agentSections(13, 10), {
     header: 1,
-    active: 3,
-    ended: 0,
-    graph: 0,
-  });
-  assert.deepEqual(agentSections(9, 5, 1), {
-    header: 1,
-    active: 5,
-    ended: 1,
+    rows: 10,
     graph: 2 > 3 ? 2 : 0,
   });
-  assert.equal(agentSections(18, 5, 1).graph, 11);
+  assert.deepEqual(agentSections(18, 6), { header: 1, rows: 6, graph: 11 });
+  assert.equal(agentSections(8, 0).rows, 1, "the empty row is kept");
 });
 
 test("the pipeline collapses from the table to the stage bars to a flow line", () => {
@@ -182,7 +183,7 @@ test("the pipeline collapses from the table to the stage bars to a flow line", (
     flow: 1,
     stages: 0,
     compactSummary: false,
-    spacers: false,
+    gapped: false,
     header: 0,
     items: 0,
   });
@@ -191,9 +192,11 @@ test("the pipeline collapses from the table to the stage bars to a flow line", (
   assert.equal(bars.stages, 3);
   assert.equal(bars.header, 0);
   const full = pipelineSections(21, 14);
-  assert.equal(full.spacers, true);
+  assert.equal(full.gapped, true);
+  assert.equal(full.stages, 5);
   assert.equal(full.items, 14);
-  const tight = pipelineSections(12, 14);
-  assert.equal(tight.spacers, false);
-  assert.equal(tight.items, 7);
+  const tight = pipelineSections(8, 14);
+  assert.equal(tight.gapped, false);
+  assert.equal(tight.stages, 3);
+  assert.equal(tight.items, 3);
 });

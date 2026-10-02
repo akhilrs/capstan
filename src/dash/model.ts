@@ -68,6 +68,8 @@ export interface FindingRow {
   readonly interventions: number;
   readonly stateReason: string | null;
   readonly needsOperator: boolean;
+  /** The target agent is no longer active, so nobody can act on the finding any more. */
+  readonly targetEnded: boolean;
   readonly fingerprint: string;
 }
 
@@ -93,8 +95,8 @@ export interface DashModel {
     readonly workers: number;
     readonly workerLimit: number | null;
   };
+  /** Active agents first (attention-first), then every ended agent, most recent activity first. */
   readonly agents: readonly AgentRow[];
-  readonly endedAgentsHidden: number;
   readonly pipeline: {
     readonly reports: PipelineStage;
     readonly reviews: PipelineStage;
@@ -144,6 +146,15 @@ const PROBLEM_STATES: ReadonlySet<string> = new Set([
   "expired",
   "unacked",
 ]);
+
+/** `reviewer-4 -> developer-1 r1`: who reviews, whose work and the round; an integration review names the integration. */
+function reviewLabel(r: Rec): string {
+  const reviewer = text(r.reviewerAgentId) || "no reviewer";
+  const subject =
+    text(r.authorAgentId) ||
+    (text(r.integrationId) ? text(r.integrationId).slice(0, 8) : "");
+  return `${reviewer}${subject === "" ? "" : ` -> ${subject}`} r${num(r.round)}`;
+}
 
 function stageOf(
   rows: readonly Rec[],
@@ -273,7 +284,15 @@ export function buildDashModel(
     .map((a, index) => ({ a, index }))
     .sort((x, y) => attention(x.a) - attention(y.a) || x.index - y.index)
     .map(({ a }) => a);
-  const ended = allAgents.filter((a) => a.state !== "active");
+  const ended = allAgents
+    .filter((a) => a.state !== "active")
+    .map((a, index) => ({ a, index, at: Date.parse(a.lastActivityAt) }))
+    .sort(
+      (x, y) =>
+        (Number.isNaN(y.at) ? -Infinity : y.at) -
+          (Number.isNaN(x.at) ? -Infinity : x.at) || y.index - x.index,
+    )
+    .map(({ a }) => a);
 
   const unsortedMessages = rawMessages.map((m): MessageRow => {
     const messageId = text(m.messageId);
@@ -335,10 +354,16 @@ export function buildDashModel(
         interventions: num(f.interventions),
         stateReason: textOrNull(f.stateReason),
         needsOperator: f.state === "escalated",
+        targetEnded: !activeAgents.has(text(f.targetAgentId)),
       };
       return {
         ...row,
-        fingerprint: [row.state, row.interventions, row.stateReason].join("|"),
+        fingerprint: [
+          row.state,
+          row.interventions,
+          row.stateReason,
+          row.targetEnded,
+        ].join("|"),
       };
     });
 
@@ -375,8 +400,7 @@ export function buildDashModel(
       workers: active.filter((a) => isWorkerKind(a.kind)).length,
       workerLimit,
     },
-    agents: [...active, ...ended.slice(0, 5)],
-    endedAgentsHidden: Math.max(0, ended.length - 5),
+    agents: [...active, ...ended],
     pipeline: {
       reports: stageOf(
         list(status.reports),
@@ -384,12 +408,7 @@ export function buildDashModel(
         "reportId",
         (r) => `${text(r.agentId)} ${commitShort(textOrNull(r.commitSha))}`,
       ),
-      reviews: stageOf(
-        list(status.reviews),
-        "review",
-        "reviewId",
-        (r) => `${text(r.authorAgentId)} r${num(r.round)}`,
-      ),
+      reviews: stageOf(list(status.reviews), "review", "reviewId", reviewLabel),
       integrations: stageOf(
         list(status.integrations),
         "integration",

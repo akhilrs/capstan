@@ -1,36 +1,36 @@
 +- cstan dash -[ capstan ][ run active ]--------------------------------------------------------[ 15:02:23 ][ - 2s + ]-+
 | ! DEGRADED  lost contact with developer-2 (pane p4 not responding)         workers #########... 3/4   * answering 1s |
 +-[ supervision on ]---------------------------------------------------------------------------------------------------+
-+-1.agents------------------------------------[ 5 active ]-++=3.queue==========[ 1 stuck or failed ][ input clears 1 ]=+
++-1.agents-------------------------[ 5 active ][ 1 ended ]-++=3.queue==========[ 1 stuck or failed ][ input clears 1 ]=+
 |   AGENT        ROLE       GEN STATE   ACTIVITY    AGE  Q ||     SEQ TO           STATE       AGE N DETAIL            |
 | ! developer-2  Developer  g1  STALLED ........  3m41s  2 ||>!   #41 developer-2  unacked   3m41s * ! no acknowledge~ |
 | o pm-1         PM         g1  idle    ........  1m35s  1 || o   #42 developer-2  queued    3m10s . deferred: recipi~ |
 | o supervisor-1 Supervisor g1  idle    ........    45s  0 || o   #44 developer-1  sent         8s *                   |
 | * developer-1  Developer  g2  working ########     3s  1 || o   #45 designer-1   sent         2s *                   |
 | * designer-1   Designer   g1  working ########     1s  1 || o   #46 pm-1         queued       1s .                   |
-| - developer-0  Developer  g1  ended               14m  0 || -- selected -------------------------------------------~ |
-+-[ working: inferred ]----------------------------[ 1/5 ]-+| #41 to developer-2  unacked  queued 3m41s ago            |
+| - developer-0  Developer  g1  ended               14m  0 || -- selected -------------------------------------------- |
++-[ working: inferred ]------------------------------------+| #41 to developer-2  unacked  queued 3m41s ago            |
 +-2.pipeline------------[ reported > review > integrated ]-+| message 0192f4c1-3a7e-7b2d  notified                     |
 | reported 6  ->  review 5  ->  integrated 3               || ! no acknowledgement after 3 attempts   can: retry, ski~ |
-|                                                          || unresolved messages - now 5 - max 6 - since dash start   |
-| reports      ############xx   6  accepted 5  rejected 1  ||                                                  #       |
+| reports      ############xx   6  accepted 5  rejected 1  || unresolved messages - now 5 - max 6 - since dash start   |
+|                                                          ||                                                  #       |
 | reviews      ########+++xxx   5  passed 3  started 1  fi~||          #   #  #   ##   #  #   ##   #  ## #### ######## |
-| integrations #########+++++   3  merged 2  running 1     ||  ##### #### ###### #### ###### ######################### |
-|                                                          || ######################################################## |
-| STAGE       STATE    WHO / COMMIT                    AGE || ######################################################## |
-| integration running  7c1e0f2a                         5s || ######################################################## |
-| review      started  developer-1 r2                  40s || oldest unresolved message (age) - now 3m41s - since das~ |
-| report      accepted designer-1 8bf60fa            1m12s ||                                        ################# |
-| report      accepted developer-1 9abf487           3m00s ||                        ################################# |
-| integration merged   5d02b9c4                      4m00s ||         ################################################ |
-| review      findings developer-1 r1                6m00s || ######################################################## |
-| review      passed   designer-1 r1                 9m00s || ######################################################## |
-| report      rejected developer-1 45fe0de             11m || ######################################################## |
-| report      accepted developer-2 fb4a3d5             15m || ######################################################## |
-| integration merged   31aa8e07                        16m |+==================================================[ 1/5 ]=+
-| review      passed   developer-2 r1                  18m |+-4.findings--------------------------[ 1 needs operator ]-+
-| review      passed   developer-0 r1                  24m ||   ID     TARGET       SEV  STATE     INT REASON          |
-| report      accepted developer-0 5451671             26m || ! 0192a1 developer-2  high ESCALATED 2/2 no progress af~ |
-| report      accepted developer-0 3f1d9a0             29m || o 0192a4 developer-1  low  open      0/2 scope drift: e~ |
-+-------------------------------------------------[ 1/14 ]-++--------------------------------------------------[ 1/2 ]-+
+|                                                          ||  ##### #### ###### #### ###### ######################### |
+| integrations #########+++++   3  merged 2  running 1     || ######################################################## |
+| STAGE       STATE      WHO / COMMIT                  AGE || ######################################################## |
+| integration running    7c1e0f2a                       5s || ######################################################## |
+| review      started    no reviewer -> developer-~    40s || oldest unresolved message (age) - now 3m41s - since das~ |
+| report      accepted   designer-1 8bf60fa          1m12s ||                                        ################# |
+| report      accepted   developer-1 9abf487         3m00s ||                        ################################# |
+| integration merged     5d02b9c4                    4m00s ||         ################################################ |
+| review      findings   no reviewer -> developer-~  6m00s || ######################################################## |
+| review      passed     no reviewer -> designer-1~  9m00s || ######################################################## |
+| report      rejected   developer-1 45fe0de           11m || ######################################################## |
+| report      accepted   developer-2 fb4a3d5           15m || ######################################################## |
+| integration merged     31aa8e07                      16m |+==================================================[ 1/5 ]=+
+| review      passed     no reviewer -> developer-~    18m |+-4.findings--------------------------[ 1 needs operator ]-+
+| review      passed     no reviewer -> developer-~    24m ||   ID     TARGET      SEV      STATE     INT REASON       |
+| report      accepted   developer-0 5451671           26m || ! 0192a1 developer-2 high     ESCALATED 2/2 no progress~ |
+| report      accepted   developer-0 3f1d9a0           29m || o 0192a4 developer-1 low      open      0/2 scope drift~ |
++----------------------------------------------------------++----------------------------------------------------------+
  updown select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit      

@@ -1,0 +1,24 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF                                workers ░░░░░░░░ 0/3   ● 1s │
+│   health reads degraded until supervision is enabled; this is the starting … │
+╰─┤ supervision off ├──────────────────────────────────────────────────────────╯
+┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓
+┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃
+┃▌* pm-1                       PM         g1  working ████████     2s  0 w1:p1 █
+┃ ○ reviewer-6                 Reviewer   g1  ended             5m00s  0 -     █
+┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃
+┃ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/10 ├━┛
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+│ reported 3  ──►  review 6  ──►  integrated 3                                 │
+│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
+│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
+│ no unresolved messages                                                       │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
+│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  o observe  tab focus  p pause  r refresh  ? help  q quit            

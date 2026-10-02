@@ -11,6 +11,7 @@ import {
   degraded,
   healthy,
   message,
+  crowded,
   troubled,
   type Status,
 } from "./dash-fixtures.js";
@@ -492,6 +493,9 @@ test("the ids of the rows shown follow the problems filter", () => {
     "developer-agent",
     "pm-agent",
   ]);
+  const crowdedModel = buildDashModel(crowded(), NOW, 3);
+  assert.equal(rowIds(crowdedModel, false).agents.length, 10);
+  assert.equal(rowIds(crowdedModel, false).agents[0], "pm-1");
 });
 
 test("the clock is zero-padded hours, minutes and seconds", () => {
@@ -500,4 +504,124 @@ test("the clock is zero-padded hours, minutes and seconds", () => {
     formatClock(new Date(2026, 9, 2, 4, 5, 6).getTime()),
     "04:05:06",
   );
+});
+
+test("j, k and the arrows move through every row of the agents panel, ended agents included", async () => {
+  const f = fixture(crowded(), {
+    size: { columns: 118, rows: 34 },
+    noColor: true,
+  });
+  const app = await open(f);
+  app.stdin.write("1");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 1\/10 ├/);
+  for (const key of ["j", "j", "j"]) {
+    app.stdin.write(key);
+    await settle();
+  }
+  assert.match(app.lastFrame()!, /┤ 4\/10 ├/);
+  const selected = app
+    .lastFrame()!
+    .split("\n")
+    .filter((l) => l.includes("▌"));
+  assert.equal(selected.length, 1);
+  assert.ok(selected[0]!.includes("reviewer-4"), selected[0]);
+  app.stdin.write("\u001b[B");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 5\/10 ├/);
+  app.stdin.write("k");
+  app.stdin.write("\u001b[A");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 3\/10 ├/);
+  for (let i = 0; i < 12; i++) app.stdin.write("j");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 10\/10 ├/);
+  assert.ok(
+    app.lastFrame()!.includes("supervisor-1"),
+    "the oldest is reachable",
+  );
+  app.unmount();
+});
+
+test("j and k move the cursor in the pipeline, queue and findings panels too", async () => {
+  const f = fixture(troubled(), {
+    size: { columns: 118, rows: 40 },
+    noColor: true,
+  });
+  const app = await open(f);
+  for (const [panel, total] of [
+    ["2", 4],
+    ["3", 3],
+  ] as const) {
+    app.stdin.write(panel);
+    await settle();
+    assert.match(app.lastFrame()!, new RegExp(`┤ 1/${total} ├`), panel);
+    app.stdin.write("j");
+    await settle();
+    assert.match(app.lastFrame()!, new RegExp(`┤ 2/${total} ├`), panel);
+    app.stdin.write("k");
+    await settle();
+    assert.match(app.lastFrame()!, new RegExp(`┤ 1/${total} ├`), panel);
+  }
+  const two = fixture(
+    {
+      ...troubled(),
+      agentFindings: [
+        ...(troubled().agentFindings as unknown[]),
+        {
+          findingId: "f-second",
+          targetAgentId: "pm-agent",
+          severity: "low",
+          state: "open",
+          interventions: 0,
+          stateReason: "x",
+        },
+      ],
+    },
+    { size: { columns: 118, rows: 40 }, noColor: true },
+  );
+  const second = await open(two);
+  second.stdin.write("4");
+  await settle();
+  assert.match(second.lastFrame()!, /┤ 1\/2 ├/);
+  second.stdin.write("j");
+  await settle();
+  assert.match(second.lastFrame()!, /┤ 2\/2 ├/);
+  second.unmount();
+  app.unmount();
+});
+
+test("an unfocused panel shows no cursor counter unless rows are hidden", async () => {
+  const f = fixture(crowded(), {
+    size: { columns: 118, rows: 34 },
+    noColor: true,
+  });
+  const app = await open(f);
+  const frame = app.lastFrame()!;
+  assert.ok(!/┤ \d+\/10 ├/.test(frame), "agents has no cursor while unfocused");
+  assert.match(frame, /┤ 1-7\/12 ├/, "the pipeline hides rows");
+  app.unmount();
+});
+
+test("o on an ended agent says so and makes no call", async () => {
+  const f = fixture(crowded(), {
+    size: { columns: 118, rows: 34 },
+    noColor: true,
+  });
+  const app = await open(f);
+  app.stdin.write("1");
+  await settle();
+  app.stdin.write("j");
+  await settle();
+  app.stdin.write("o");
+  await settle();
+  assert.deepEqual(f.calls, []);
+  assert.ok(app.lastFrame()!.includes("reviewer-6 has ended"));
+  app.unmount();
+});
+
+test("the problems-only filter starts off", async () => {
+  const app = await open(fixture(troubled()));
+  assert.ok(app.lastFrame()!.includes("f problems only [ ]"));
+  app.unmount();
 });

@@ -201,18 +201,101 @@ test("leftovers, truncation and the v1 work rows are carried through", () => {
   assert.equal(withWork.work[0]!.state, "blocked");
 });
 
-test("ended agents beyond five are counted, not listed", () => {
-  const ended = Array.from({ length: 8 }, (_, i) => ({
-    agentId: `e${i}`,
+test("every ended agent is listed, most recent activity first, after the active ones", () => {
+  const ended = (id: string, ago: number) => ({
+    agentId: id,
     roleName: "developer",
     kind: "Developer",
     generation: 1,
     state: "ended",
-    lastActivityAt: iso(9999),
-  }));
-  const model = buildDashModel(healthy({ agents: ended }), NOW, 3);
-  assert.equal(model.agents.length, 5);
-  assert.equal(model.endedAgentsHidden, 3);
+    lastActivityAt: iso(ago),
+  });
+  const model = buildDashModel(
+    healthy({
+      agents: [
+        ended("old", 900),
+        ended("newest", 10),
+        { ...ended("pm", 50), kind: "PM", state: "active" },
+        ended("mid", 300),
+        ...Array.from({ length: 6 }, (_, i) => ended(`bulk${i}`, 1000 + i)),
+      ],
+    }),
+    NOW,
+    3,
+  );
+  assert.equal(model.agents.length, 10);
+  assert.deepEqual(
+    model.agents.slice(0, 4).map((a) => a.agentId),
+    ["pm", "newest", "mid", "old"],
+  );
+});
+
+test("a review row names the reviewer and whose work it reviews", () => {
+  const model = buildDashModel(
+    healthy({
+      reviews: [
+        {
+          reviewId: "v1",
+          round: 2,
+          state: "passed",
+          authorAgentId: "developer-1",
+          reviewerAgentId: "reviewer-4",
+          createdAt: iso(10),
+        },
+        {
+          reviewId: "v2",
+          round: 1,
+          state: "passed",
+          authorAgentId: null,
+          integrationId: "0123456789abcdef",
+          reviewerAgentId: "reviewer-5",
+          createdAt: iso(20),
+        },
+      ],
+    }),
+    NOW,
+    3,
+  );
+  assert.deepEqual(
+    model.pipeline.reviews.items.map((i) => i.label),
+    ["reviewer-4 -> developer-1 r2", "reviewer-5 -> 01234567 r1"],
+  );
+});
+
+test("a finding whose target has ended is marked, an active target is not", () => {
+  const finding = (id: string, target: string) => ({
+    findingId: id,
+    targetAgentId: target,
+    severity: "medium",
+    state: "escalated",
+    interventions: 2,
+    stateReason: null,
+  });
+  const model = buildDashModel(
+    healthy({
+      agents: [
+        ...(healthy().agents as unknown[]),
+        {
+          agentId: "gone",
+          roleName: "designer",
+          kind: "Designer",
+          generation: 1,
+          state: "ended",
+          lastActivityAt: iso(100),
+        },
+      ],
+      agentFindings: [finding("f1", "developer-agent"), finding("f2", "gone")],
+    }),
+    NOW,
+    3,
+  );
+  assert.deepEqual(
+    model.findings.map((f) => [f.findingId, f.targetEnded]),
+    [
+      ["f1", false],
+      ["f2", true],
+    ],
+  );
 });
 
 test("text from agents is stripped of control characters before it is shown", () => {

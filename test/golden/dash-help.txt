@@ -1,36 +1,36 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ▲ DEGRADED  lost contact with developer-2 (pane p4 not responding)         workers █████████░░░ 3/4   ● answering 1s │
 ╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─¹agents─────────────────────────────────────┤ 5 active ├─╮┏━³queue━━━━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├━┓
+╭─¹agents──────────────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├━┓
 │   AGENT        ROLE       GEN STATE   ACTIVITY    AGE  Q │┃     SEQ TO           STATE       AGE N DETAIL            ┃
 │ ▲ developer-2  Developer  g1  STALLED ░░░░░░░░  3m41s  2 │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledge… ┃
 │ ● pm-1         PM         g1  idle    ░░░░░░░░  1m35s  1 │┃ ●   #42 developer-2  queued    3m10s · deferred: recipi… ┃
 │ ● supervisor-1 Supervisor g┏━help━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓     8s ●                   ┃
 │ * developer-1  Developer  g┃ NAVIGATE                                                   ┃     2s ●                   ┃
 │ * designer-1   Designer   g┃   tab / shift+tab   next / previous panel                  ┃     1s ·                   ┃
-│ ○ developer-0  Developer  g┃   1-5               jump to a panel                        ┃──────────────────────────… ┃
+│ ○ developer-0  Developer  g┃   1-5               jump to a panel                        ┃─────────────────────────── ┃
 ╰─┤ working: inferred ├──────┃   ↑ ↓  or  j k      move the selected row                  ┃queued 3m41s ago            ┃
 ╭─²pipeline─────────────┤ rep┃                                                            ┃otified                     ┃
 │ reported 6  ──►  review 5  ┃ ACT   (always asks first; the daemon decides)              ┃attempts   can: retry, ski… ┃
-│                            ┃   o   observe the selected agent (read-only)               ┃ max 6 ─ since dash start   ┃
-│ reports      ████████████▒▒┃   y retry   s skip   c cancel   the selected message       ┃                       ⢸    ┃
+│ reports      ████████████▒▒┃   o   observe the selected agent (read-only)               ┃ max 6 ─ since dash start   ┃
+│                            ┃   y retry   s skip   c cancel   the selected message       ┃                       ⢸    ┃
 │ reviews      ████████▓▓▓▒▒▒┃       then press y again to confirm                        ┃   ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
-│ integrations █████████▓▓▓▓▓┃   f   queue: show only delivery problems                   ┃⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│                            ┃                                                            ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ STAGE       STATE    WHO / ┃ VIEW                                                       ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration running  7c1e0f┃   p   pause / resume polling      r   poll now             ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      started  develo┃   -   +   shorter / longer poll interval (1 to 60 s)       ┃e) ─ now 3m41s ─ since das… ┃
-│ report      accepted design┃   q   quit (ctrl+c too)       ?   close this help          ┃               ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿ ┃
-│ report      accepted develo┃                                                            ┃       ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration merged   5d02b9┃ READING THE SCREEN                                         ┃⣀⣀⣤⣤⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      findings develo┃   ● idle   * working (inferred)   ▲ needs attention        ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      passed   design┃   ○ ended   ▌ selected row   ▐ scroll position             ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ report      rejected develo┃   working = activity within 30 s or a message in flight    ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ report      accepted develo┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ ? or esc closes ├━┛⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration merged   31aa8e07                        16m │┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/5 ├━┛
-│ review      passed   developer-2 r1                  18m │╭─⁴findings───────────────────────────┤ 1 needs operator ├─╮
-│ review      passed   developer-0 r1                  24m ││   ID     TARGET       SEV  STATE     INT REASON          │
-│ report      accepted developer-0 5451671             26m ││ ▲ 0192a1 developer-2  high ESCALATED 2/2 no progress af… │
-│ report      accepted developer-0 3f1d9a0             29m ││ ● 0192a4 developer-1  low  open      0/2 scope drift: e… │
-╰─────────────────────────────────────────────────┤ 1/14 ├─╯╰──────────────────────────────────────────────────┤ 1/2 ├─╯
+│                            ┃   f   queue: show only delivery problems                   ┃⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integrations █████████▓▓▓▓▓┃                                                            ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ STAGE       STATE      WHO ┃ VIEW                                                       ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integration running    7c1e┃   p   pause / resume polling      r   poll now             ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      started    no r┃   -   +   shorter / longer poll interval (1 to 60 s)       ┃e) ─ now 3m41s ─ since das… ┃
+│ report      accepted   desi┃   q   quit (ctrl+c too)       ?   close this help          ┃               ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿ ┃
+│ report      accepted   deve┃                                                            ┃       ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integration merged     5d02┃ READING THE SCREEN                                         ┃⣀⣀⣤⣤⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      findings   no r┃   ● idle   * working (inferred)   ▲ needs attention        ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      passed     no r┃   ○ ended   ▌ selected row   █ scroll position             ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ report      rejected   deve┃   working = activity within 30 s or a message in flight    ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ report      accepted   deve┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ ? or esc closes ├━┛⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integration merged     31aa8e07                      16m │┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/5 ├━┛
+│ review      passed     no reviewer -> developer-…    18m │╭─⁴findings───────────────────────────┤ 1 needs operator ├─╮
+│ review      passed     no reviewer -> developer-…    24m ││   ID     TARGET      SEV      STATE     INT REASON       │
+│ report      accepted   developer-0 5451671           26m ││ ▲ 0192a1 developer-2 high     ESCALATED 2/2 no progress… │
+│ report      accepted   developer-0 3f1d9a0           29m ││ ● 0192a4 developer-1 low      open      0/2 scope drift… │
+╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
  ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit          

@@ -335,3 +335,83 @@ export function showcaseRings() {
   );
   return { unresolved, working, oldest };
 }
+
+/** The run behind the real-terminal defect report: one active PM, nine ended agents, reviews by named reviewers, confirmed integrations and an escalated finding on an agent that has ended. */
+export function crowded(overrides: Status = {}): Status {
+  const ended = (id: string, kind: string, ago: number) =>
+    agent(id, kind, 1, "ended", ago);
+  return healthy({
+    projectId: "capstan",
+    supervision: {
+      enabled: false,
+      health: "degraded",
+      targetEpoch: 0,
+      checkpointEpoch: null,
+      checkpointAssignmentId: null,
+      replacementAttempts: 0,
+    },
+    agents: [
+      ended("supervisor-1", "Supervisor", 4000),
+      ended("designer-1", "Designer", 3500),
+      ended("developer-1", "Developer", 3000),
+      ended("reviewer-1", "Reviewer", 2500),
+      ended("reviewer-2", "Reviewer", 2000),
+      ended("reviewer-3", "Reviewer", 1500),
+      ended("reviewer-4", "Reviewer", 900),
+      ended("reviewer-5", "Reviewer", 600),
+      ended("reviewer-6", "Reviewer", 300),
+      agent("pm-1", "PM", 1, "active", 2),
+    ],
+    panes: [{ agentId: "pm-1", paneId: "w1:p1" }],
+    reports: [
+      {
+        reportId: "r1",
+        agentId: "designer-1",
+        commitSha: "8bf60fa".padEnd(40, "0"),
+        state: "accepted",
+        createdAt: iso(3400),
+      },
+      {
+        reportId: "r2",
+        agentId: "developer-1",
+        commitSha: "9abf487".padEnd(40, "0"),
+        state: "accepted",
+        createdAt: iso(2900),
+      },
+      {
+        reportId: "r3",
+        agentId: "developer-1",
+        commitSha: "45fe0de".padEnd(40, "0"),
+        state: "rejected",
+        createdAt: iso(2800),
+      },
+    ],
+    reviews: [1, 2, 3, 4, 5, 6].map((n) => ({
+      reviewId: `v${n}`,
+      reportId: n < 4 ? `r${n}` : null,
+      integrationId: n >= 4 ? `i${n - 3}0123456789` : null,
+      round: 1,
+      state: n === 3 ? "findings" : "passed",
+      authorAgentId:
+        n < 4 ? ["designer-1", "developer-1", "developer-1"][n - 1]! : null,
+      reviewerAgentId: `reviewer-${n}`,
+      createdAt: iso(2600 - n * 300),
+    })),
+    integrations: [1, 2, 3].map((n) => ({
+      integrationId: `i${n}0123456789`,
+      state: "confirmed",
+      createdAt: iso(1200 - n * 200),
+    })),
+    agentFindings: [
+      {
+        findingId: "0192a1-aaaa",
+        targetAgentId: "designer-1",
+        severity: "medium",
+        state: "escalated",
+        interventions: 2,
+        stateReason: "no progress after 2 interventions",
+      },
+    ],
+    ...overrides,
+  });
+}

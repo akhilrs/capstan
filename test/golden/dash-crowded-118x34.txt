@@ -1,0 +1,34 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├──────────────────────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF                                                            workers ░░░░░░░░ 0/3   ● answering 1s │
+│   health reads degraded until supervision is enabled; this is the starting value, not a fault                      │
+╰─┤ supervision off ├────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓╭─³queue───────────┤ no problems ├┤ f problems only [ ] ├─╮
+┃   AGENT                ROLE       GEN STATE      AGE  Q ┃│     SEQ TO           STATE       AGE DETAIL             │
+┃▌* pm-1                 PM         g1  working     2s  0 ┃│ no unresolved messages                                  │
+┃ ○ reviewer-6           Reviewer   g1  ended    5m00s  0 ┃│ unresolved messages ─ now 0 ─ max 6 ─ since dash start  │
+┃ ○ reviewer-5           Reviewer   g1  ended      10m  0 ┃│                                                    ⢸    │
+┃ ○ reviewer-4           Reviewer   g1  ended      15m  0 ┃│                                ⢠ ⢠ ⡄ ⣤ ⢠ ⡄ ⣤ ⢠ ⣤⢠⣤⡄⣼⣤⣤⣤ │
+┃ ○ reviewer-3           Reviewer   g1  ended      25m  0 ┃│                                ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ │
+┃ ○ reviewer-2           Reviewer   g1  ended      33m  0 ┃│              ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+┃ ○ reviewer-1           Reviewer   g1  ended      41m  0 ┃│  ⣤ ⢠ ⡄ ⣤ ⢠⣤⣤⢠⣼⡄⣼⣤⣧⢠⣿⡄⣼⣤⣧⣤⣿⣤⣼⣿⣿⣼⣿⣧⣿⣿⣿⣼⣿⣧⣿⣿⣿⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+┃ ○ developer-1          Developer  g1  ended      50m  0 ┃│  ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+┃ ○ designer-1           Designer   g1  ended      58m  0 ┃│ ⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+┃ ○ supervisor-1         Supervisor g1  ended    1h06m  0 ┃│ ⣼⣿⣧⣿⣿⣿⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/10 ├━┛│ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+╭─²pipeline────────────┤ reported > review > integrated ├─╮│ oldest unresolved message (age) ─ now 3m41s ─ since da… │
+│ reported 3  ──►  review 6  ──►  integrated 3            ││                                              ⢀⣀⣤⣴⣶⣿⣿⣿⣿⣿ │
+│ reports      █████████▒▒▒▒   3  accepted 2  rejected 1  ││                                         ⣀⣠⣤⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│                                                         ││                                   ⢀⣀⣤⣴⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ reviews      ███████████▒▒   6  passed 5  findings 1    ││                              ⣀⣠⣤⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│                                                         ││                        ⢀⣀⣤⣴⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ integrations █████████████   3  confirmed 3             ││     ⣀             ⣀⣠⣤⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ STAGE       STATE      WHO / COMMIT                 AGE ││  ⢀⣤⣾⣿       ⢀⣀⣤⣴⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ integration confirmed  i3012345                     10m █│ ⣾⣿⣿⣿⣿  ⣀⣠⣤⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ review      passed     reviewer-6 -> i3012345 r1    13m █│ ⣿⣿⣿⣿⣿⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ integration confirmed  i2012345                     13m █│ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
+│ integration confirmed  i1012345                     16m █╰─────────────────────────────────────────────────────────╯
+│ review      passed     reviewer-5 -> i2012345 r1    18m │╭─⁴findings────────────────────────────┤ 1 target ended ├─╮
+│ review      passed     reviewer-4 -> i1012345 r1    23m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended │
+│ review      findings   reviewer-3 -> developer-…    28m ││                                                         │
+╰──────────────────────────────────────────────┤ 1-7/12 ├─╯╰─────────────────────────────────────────────────────────╯
+ ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit                                    
