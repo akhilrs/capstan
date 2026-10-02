@@ -1,7 +1,7 @@
 # DEC-006: `cstan dash`, a full-screen live terminal dashboard (Ink)
 
-**Task:** design plan only; no implementation in this change.
-**Status:** proposed; becomes accepted when the PR that adds it is merged by the operator.
+**Task:** design plan and implementation.
+**Status:** accepted by the user 2026-10-02, pending operator merge of the PR that adds it. Independent plan review: PASS.
 **Decision:** Add `cstan dash`: an Ink (React for terminals) full-screen view of one Capstan run. It reads the operator `status` route of the running daemon over the control socket, redraws on change, and offers three safe actions (observe an agent's screen, retry/skip/cancel a stuck message), each behind a confirm key and each routed through an existing daemon command. `cstan status` is not changed.
 
 ## Context
@@ -173,16 +173,18 @@ Risks:
 6. **Operator credential in a long-lived process.** It is held in memory only, as in `status --watch`; never rendered, never logged.
 7. **ink-testing-library 4.0.0 with ink 7.1.1** passed a smoke render, but its last release predates ink 7; if a future ink changes internals, rendered tests are the first to break. Unit tests carry most coverage so this stays contained.
 
-Open questions for the user:
+Answers from the user (all eight open questions resolved):
 
-1. **`peek` route.** Is it acceptable to add an operator-only `peek` route (extract-and-share the `observe` body), or should v1 skip the observe action and ship only the read view plus message resolve? A third option is to let `observe` accept the operator; this plan does not take it because it widens an existing agent contract.
-2. **Pipeline words.** "candidate -> verified -> review -> integrated" is v1 vocabulary. The plan shows the v2 chain (reported -> reviewed -> integrated) and the v1 work items as a secondary panel. Is that the intent, or is the v1 chain wanted as the main panel?
-3. **"Working" signal.** Accept the inferred rule (activity within 30 s or a message in flight), or add a driver-side per-agent Herdr status to the operator status (a new field fed by the driver's pane observations, one Herdr call per agent per tick, with its own cost and failure modes)?
-4. **CLI by-product.** Should `cstan peek <agent-id> [lines]` ship alongside, or stay dashboard-internal?
-5. **Retry on `sent`/`unacked`.** The core permits it and only warns about duplicates. Should the dashboard additionally require typing the message id's last 4 characters for that one case?
-6. **tsconfig and layout.** OK to add `"jsx": "react-jsx"` and `.tsx` files, and a `src/dash/` directory (the repo has so far kept `src/` flat apart from `controller/`, `config/`, `herdr/`)?
-7. **Minimum terminal size** 60x16 and the two-column breakpoint at 100 columns: acceptable defaults?
-8. **Scope of `--interval`.** Keep it identical to `status --watch` (1 to 60 seconds, default 2)?
+1. Add the operator-only `peek` route; its body is extracted from `observe`, and `observe` is unchanged.
+2. The main pipeline panel is reported -> review -> integrated. v1 `work` rows are a secondary panel, shown only when present.
+3. "Working" is inferred (activity within 30 s or a message in flight) and labelled as inferred.
+4. No `cstan peek` CLI command. The route is dashboard-internal in v1.
+5. Retry confirm is a second `y` keypress plus the duplicate-delivery warning. No extra id typing.
+6. `"jsx": "react-jsx"`, `.tsx` files and `src/dash/` are accepted.
+7. Minimum terminal 60x16; two-column layout from 100 columns.
+8. `--interval` is identical to `status --watch` (1 to 60 seconds, default 2).
+
+Review note: `callDaemon` already has a 5 s default timeout (`DEFAULT_TIMEOUT_MS` in `src/client.ts`), so the poller relies on it and does not add its own.
 
 ## Consequences
 
