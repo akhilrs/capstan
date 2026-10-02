@@ -39,6 +39,7 @@ import { GitCheckError } from "./git.js";
 import { ReportRateLimiter, oneLineSummary } from "./reports.js";
 import { OBSERVE_RATE_LIMIT, parseObserveLines } from "./observe.js";
 import type { IntegrationDeps } from "./integration.js";
+import { parsePlanBody } from "./plans.js";
 import {
   IntegrationError,
   integrate,
@@ -901,6 +902,152 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           return fail("rejected", `${error.code}: ${error.message}`);
         if (error instanceof ControllerError)
           return fail("rejected", `integration_refused: ${error.message}`);
+        if (error instanceof GitCheckError)
+          return fail("error", "the controller could not run git just now");
+        return mapError(error);
+      }
+    },
+
+    async plan(call) {
+      const [sub, ...rest] = call.args;
+      if (sub !== "open" && sub !== "submit" && sub !== "show")
+        return fail("invalid_request", "plan needs open, submit or show");
+      const config = deps.config;
+      if (config === undefined || !config.architect.enabled)
+        return fail(
+          "not_configured",
+          "plans need [architect] enabled = true in capstan.toml",
+        );
+      try {
+        if (sub === "open") {
+          const requestedBy = workerManager(call.identity);
+          if (requestedBy === undefined)
+            return fail(
+              "forbidden",
+              "only the PM or the operator may open a plan",
+            );
+          const [tierText, title, supersedes, ...extra] = rest;
+          if (
+            (tierText !== "normal" && tierText !== "high-risk") ||
+            title === undefined ||
+            extra.length > 0
+          )
+            return fail(
+              "invalid_request",
+              "plan open needs normal|high-risk, a title and optionally a superseded plan id",
+            );
+          if (supersedes !== undefined && !SAFE_AGENT_ID.test(supersedes))
+            return fail(
+              "invalid_request",
+              "the superseded plan id is not valid",
+            );
+          log("plan_open_requested", { requestedBy, tier: tierText });
+          const plan = core.openPlan(context(call.credential), {
+            tier: tierText === "normal" ? "normal" : "high_risk",
+            title,
+            ...(supersedes === undefined
+              ? {}
+              : { supersedesPlanId: supersedes }),
+          });
+          return ok({
+            planId: plan.planId,
+            tier: plan.tier,
+            state: plan.state,
+          });
+        }
+        if (sub === "submit") {
+          const caller = agentOf(call.identity);
+          if (
+            caller?.kind !== "Developer" ||
+            caller.state !== "active" ||
+            caller.roleName !== config.architect.role
+          )
+            return fail(
+              "forbidden",
+              "not_architect: only the designated architect may submit a plan",
+            );
+          if (rest.length !== 2 || !SAFE_AGENT_ID.test(rest[0]!))
+            return fail(
+              "invalid_request",
+              "plan submit needs a plan id and the plan JSON",
+            );
+          const [planId, bodyText] = rest as [string, string];
+          const existing = core.planRecord(call.credential, planId);
+          if (existing === undefined)
+            return fail("rejected", `unknown_plan: no plan ${planId}`);
+          const { plan } = existing;
+          if (plan.state !== "draft")
+            return fail(
+              "rejected",
+              `plan_not_open: plan ${planId} is ${plan.state}, not a draft`,
+            );
+          if (
+            (plan.tier === "high_risk" &&
+              config.architect.planReview !== "never") ||
+            config.architect.planReview === "always"
+          )
+            return fail(
+              "rejected",
+              `plan_review_unavailable: plan ${planId} needs a plan review, which is not available yet`,
+            );
+          const parsed = parsePlanBody(bodyText, {
+            maxPackages: config.architect.maxPackages,
+          });
+          if (!parsed.ok)
+            return fail("rejected", `invalid_plan: ${parsed.reason}`);
+          if (deps.integrationGit === undefined)
+            return fail("not_configured", "plans need a git repository");
+          const baseSha = await deps.integrationGit.headCommit();
+          log("plan_submit_requested", {
+            requestedBy: caller.agentId,
+            planId,
+          });
+          const stored = core.submitPlan(context(call.credential), {
+            planId,
+            bodyJson: JSON.stringify(parsed.plan),
+            baseSha,
+            review: false,
+          });
+          return ok({
+            planId: stored.planId,
+            revision: stored.currentRevision,
+            state: stored.state,
+          });
+        }
+        if (
+          rest.length > 1 ||
+          (rest[0] !== undefined && !SAFE_AGENT_ID.test(rest[0]))
+        )
+          return fail("invalid_request", "plan show takes an optional plan id");
+        if (rest[0] === undefined)
+          return ok({
+            plans: core.listPlans(call.credential).map((p) => ({
+              planId: p.planId,
+              tier: p.tier,
+              state: p.state,
+              title: p.title,
+            })),
+          });
+        const detail = core.planRecord(call.credential, rest[0]);
+        if (detail === undefined)
+          return fail("rejected", `unknown_plan: no plan ${rest[0]}`);
+        return ok({
+          plan: detail.plan,
+          revision:
+            detail.revision === null
+              ? null
+              : {
+                  revision: detail.revision.revision,
+                  baseSha: detail.revision.baseSha,
+                  authorAgentId: detail.revision.authorAgentId,
+                  body: JSON.parse(detail.revision.bodyJson) as unknown,
+                },
+          packages: detail.packages,
+          signoffs: detail.signoffs,
+        });
+      } catch (error) {
+        if (error instanceof ControllerError)
+          return fail("rejected", `plan_refused: ${error.message}`);
         if (error instanceof GitCheckError)
           return fail("error", "the controller could not run git just now");
         return mapError(error);

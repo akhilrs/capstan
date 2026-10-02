@@ -2408,3 +2408,15 @@ test("shutdown releases the project lock before it removes the socket", () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("the usage line lists the plan subcommands", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-plan-usage-"));
+  try {
+    const result = invoke(cwd, "no-such-command");
+    assert.match(result.stderr, /cstan plan open normal\|high-risk <title>/);
+    assert.match(result.stderr, /cstan plan submit <plan-id> <json>/);
+    assert.match(result.stderr, /cstan plan show \[<plan-id>\]/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
