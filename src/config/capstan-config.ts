@@ -240,6 +240,16 @@ export type ResolvedLimits = {
 
 export const DEFAULT_MAX_WORKERS = 3;
 
+export const DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS = 600;
+export const MAX_WORKTREE_SETUP_TIMEOUT_SECONDS = 3600;
+const MAX_WORKTREE_SETUP_CHARS = 1000;
+
+export type ResolvedWorktree = {
+  /** A shell command run once in each new worktree, with the worktree as its working directory. */
+  readonly setup: string;
+  readonly setupTimeoutSeconds: number;
+};
+
 /** Names of environment variables copied from the daemon's environment into every agent it starts. */
 export type ResolvedEnvironment = {
   readonly pass: readonly string[];
@@ -340,6 +350,8 @@ export type CapstanConfig = {
   readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
+  /** Absent when `[worktree]` sets no `setup`. */
+  readonly worktree?: ResolvedWorktree;
   /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
   readonly warnings: readonly string[];
   readonly env: ResolvedEnvironment;
@@ -463,6 +475,7 @@ export function parseCapstanConfig(
       "defaults",
       "limits",
       "layout",
+      "worktree",
       "env",
       "hosts",
       "roles",
@@ -605,6 +618,8 @@ export function parseCapstanConfig(
     ),
   };
 
+  const worktree = resolveWorktree(optionalTable(root.worktree, "worktree"));
+
   const envTable = optionalTable(root.env, "env");
   rejectUnknownKeys(envTable, ["pass"], "env");
   const env: ResolvedEnvironment = {
@@ -646,10 +661,38 @@ export function parseCapstanConfig(
     nexora,
     limits,
     layout,
+    ...(worktree === undefined ? {} : { worktree }),
     env,
     hosts,
     roles,
     warnings,
+  };
+}
+
+function resolveWorktree(table: Table): ResolvedWorktree | undefined {
+  rejectUnknownKeys(table, ["setup", "setup_timeout_seconds"], "worktree");
+  if (table.setup === undefined) {
+    if (table.setup_timeout_seconds !== undefined)
+      throw new ConfigError(
+        "worktree.setup_timeout_seconds is set without worktree.setup",
+      );
+    return undefined;
+  }
+  const setup = requiredString(
+    table.setup,
+    "worktree.setup",
+    MAX_WORKTREE_SETUP_CHARS,
+  );
+  guardCredentialShape(setup, "worktree.setup");
+  return {
+    setup,
+    setupTimeoutSeconds: optionalInteger(
+      table.setup_timeout_seconds,
+      "worktree.setup_timeout_seconds",
+      1,
+      MAX_WORKTREE_SETUP_TIMEOUT_SECONDS,
+      DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
+    ),
   };
 }
 
