@@ -113,7 +113,7 @@ CREATE TABLE plan_signoffs (       -- immutable
   FOREIGN KEY (project_id, integration_id) REFERENCES integrations(project_id, integration_id));
 ```
 
-`plan_packages` rows are created when a revision is approved, one per package id in the approved body, so the assignee column is the only thing that ever changes after approval.
+`plan_packages` rows are created when a revision is approved, one per package id in the approved body, so after approval only two kinds of column change: `assignee_agent_id`/`assigned_at`/`assignment_message_id` (by `plan assign` and `Launcher.replace`) and `cancelled_at` (by `plan cancel`, section 10). Both are guarded by the triggers below.
 
 **Plan body** (`plan_revisions.body_json`; parsed once at the boundary by a new pure module `src/plans.ts`, "parse, don't validate"):
 
@@ -144,7 +144,20 @@ Validation (`src/plans.ts`): 1 to `max_packages` packages; ids match `^[a-z][a-z
 | `approved` | final; work packages can be assigned | → `superseded` |
 | `superseded` | a later approved plan names this one in `supersedes_plan_id` | terminal |
 
-A trigger on `plans` enforces forward moves except `in_review → draft`, as `integrations_move_forward` does in 0019. A resubmit after findings adds revision n+1; a review round is bound to one revision. An approved plan is never edited; a change is a new plan that supersedes it (`cstan plan open … <old-plan-id>`), and the old plan's already assigned packages keep running until the new plan's approval, after which assignments of still-unfinished packages must be re-created on the new plan (the PM does that with `plan assign`).
+A trigger on `plans` enforces forward moves except `in_review → draft`, as `integrations_move_forward` does in 0019. Cancellation (section 10) is a flag, not a fifth state, so the four states the user decided stay as they are. The cancellation columns are added by the Nexora migration (step 12) and carry these triggers:
+
+```sql
+ALTER TABLE plans ADD COLUMN cancelled_at TEXT;
+ALTER TABLE plan_packages ADD COLUMN cancelled_at TEXT;
+CREATE TRIGGER plans_cancel_once BEFORE UPDATE OF cancelled_at ON plans
+  WHEN OLD.cancelled_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'a cancelled plan stays cancelled'); END;
+CREATE TRIGGER plans_frozen_after_cancel BEFORE UPDATE OF state, current_revision, approved_revision ON plans
+  WHEN OLD.cancelled_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'a cancelled plan cannot change'); END;
+CREATE TRIGGER plan_packages_cancel_once BEFORE UPDATE OF cancelled_at ON plan_packages
+  WHEN OLD.cancelled_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'a cancelled package stays cancelled'); END;
+CREATE TRIGGER plan_packages_frozen_after_cancel BEFORE UPDATE OF assignee_agent_id, assigned_at, assignment_message_id ON plan_packages
+  WHEN OLD.cancelled_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'a cancelled package cannot be reassigned'); END;
+``` A resubmit after findings adds revision n+1; a review round is bound to one revision. An approved plan is never edited; a change is a new plan that supersedes it (`cstan plan open … <old-plan-id>`), and the old plan's already assigned packages keep running until the new plan's approval, after which assignments of still-unfinished packages must be re-created on the new plan (the PM does that with `plan assign`).
 
 **Review of a plan: reuse the review path.** Migration 0023 (separate, because it rebuilds `reviews` exactly as 0019 did) adds `subject_plan_id TEXT` and `subject_plan_revision INTEGER`, widens `CHECK ((subject_report_id IS NOT NULL) <> (subject_integration_id IS NOT NULL))` to exactly one of three subjects, adds `one_open_review_per_plan`, and extends the author checks (`author_agent_id` is the Architect for a plan). For a plan review `commit_sha` and `base_sha` both hold the revision's `base_sha`, so the reviewer worktree (`Launcher.spawn(role, {baseSha})`, `src/reviews.ts:requestReview`) is the code the plan was written against. `reviewTask` (`src/controller/core.ts:363`) gets a plan branch that embeds the plan JSON (as quoted data, like the author summaries) and says what a plan review checks: owned areas overlap, missing interfaces, untestable acceptance criteria, missing risks, ordering. `cstan review pass|findings` is unchanged for the reviewer. `completeReview` (`src/controller/core.ts:3289`) gains one step: for a plan subject it moves the plan `in_review → approved` on pass (creating `plan_packages` rows, superseding the old plan) or `in_review → draft` on findings, in the same transaction.
 
@@ -260,13 +273,13 @@ Nine steps, each one developer report: one branch, tests green with `npm run che
 | 8 | High-risk plan review, command layer: `plan submit` starts the review for high-risk (or `plan_review = "always"`), `Plan … approved` and `needs attention` notices, `cstan request-review <plan-id>` accepted for the Architect | `src/commands.ts`, `src/reviews.ts`, `src/controller/core.ts`, `test/commands.test.ts`, `test/review-commands.test.ts` | with stub launcher (`test/launcher-stubs.ts`): high-risk submit spawns one reviewer and sets `in_review`; reviewer failure to spawn leaves the plan `draft` and tells the Architect; findings then revised resubmit starts round 2; round 6 refused with `needs attention` to the PM; normal tier never spawns a reviewer unless `plan_review = "always"` |
 | 9 | Sign-off, status and restart: `plan signoff`, `Plan … signed off` notice, `plans` in `statusSnapshot`, plans in `PmRestartSummary`, timestamps for latency measurement, end-to-end scenario per tier | `src/commands.ts`, `src/controller/core.ts`, `src/prompts.ts` (summary block), `test/plan-flow.test.ts` (new), `test/prompts.test.ts` | sign-off refused for an integration with a report outside the plan, with a non-passed review, or not `merged`; end-to-end with stubs: small (no plan, no architect), normal (open → submit → assign → report → review → integrate → integration review → signoff → user-merge simulated by `isInHead` stub → confirm), high-risk (adds the plan review with one findings round); PM restart summary lists open plans |
 
-Nexora steps (section 10); they depend on steps 3 and 4 and not on the review steps 7 and 8:
+Nexora steps (section 10). They depend on steps 3 and 4 (the `plans` and `plan_packages` tables and the `plan` route) and are otherwise independent of the review steps 7 and 8. **Migration numbers are assigned in merge order**: the labels 0023 (plan reviews, step 7) and 0024 (Nexora, step 12) in this document are names, not reservations. The two files do not reference each other; the only coupling is that `plan cancel` of an `in_review` plan (which cancels a plan review) is meaningful only after step 7, so step 13 implements that row of the cancel table behind a check on the plan's state, and before step 7 lands no plan can be `in_review`, so the row is unreachable and untested until then; step 8's tests add the cancel-while-reviewing case.
 
 | # | Step | Files | Tests |
 | --- | --- | --- | --- |
 | 10 | **Verify the Nexora assumptions first** (section 10, "Assumptions to verify"): with the Nexora tools, create a throwaway parent and child item in the project, set each status in the mapping, set `estimated_hours`, log time with `duration_minutes`, read the item back, then delete or close the items. Record the results in the step's report and amend section 10 if any assumption is false. No repository change except this document. | `docs/design/architect-role.md` | the report lists, for each assumption, the call made and the observed result; the downstream steps are not started until it is accepted |
 | 11 | `[nexora]` config table (policy only): parse, validate, starter config (commented), `cstan config check` | `src/config/capstan-config.ts`, `test/config.test.ts` | defaults (`track = "never"`); reject unknown keys, a bad `track`/`default_action`; `track = "always"` with `default_action = "none"` refused as contradictory |
-| 12 | Migration 0024: `external_links` (with the `synced_state` CHECK and `bound_agent_id`), `plans.cancelled_at`, `plan_packages.cancelled_at`; ledger methods `linkExternal`, `bindRequirement`, `cancelPlan`, `externalLinks`, `wantedNexoraState`, `syncDrift`. `wantedNexoraState` is a pure function of (progress, cancelled, integration confirmed) and is tested from the table in section 10, one test row per table row | `migrations/0024_external_links.sql`, `src/controller/core.ts`, `test/plans-core.test.ts` | every row of the progress table in section 10 (assigned, reported, findings, reviewed, integrated, confirmed, cancelled) yields the stated wanted status; parent wanted state for: no packages started, mixed, all reviewed, signed off, all confirmed, any cancelled and the rest confirmed, all cancelled; requirement wanted state for an unbound link, a bound agent with no report, an accepted report, a passed review, a merged integration, a confirmed integration; `external_id` immutable; `synced_state` outside the CHECK list refused; drift is empty when `synced_state` equals wanted |
+| 12 | Migration 0024: `external_links` (with the `synced_state` CHECK and `bound_agent_id`), `plans.cancelled_at`, `plan_packages.cancelled_at`; ledger methods `linkExternal`, `bindRequirement`, `cancelPlan`, `externalLinks`, `wantedNexoraState`, `syncDrift`. `wantedNexoraState` is a pure function of (progress, cancelled, integration confirmed) and is tested from the table in section 10, one test row per table row | `migrations/0024_external_links.sql`, `src/controller/core.ts`, `test/plans-core.test.ts` | every row of the progress table in section 10 (assigned, reported, findings, reviewed, integrated, confirmed, cancelled) yields the stated wanted status; parent wanted state for: no packages started, mixed, all reviewed, signed off, all confirmed, any cancelled and the rest confirmed, all cancelled; requirement wanted state for an unbound link, a bound agent with no report, an accepted report, a passed review, a merged integration, a confirmed integration; `external_id` immutable; `synced_state` outside the CHECK list refused; an `UPDATE` of `external_id` aborts at the trigger (tested with raw SQL, not through the method); `plan cancel` in each plan state of the cancel table, including that a later `assignee_agent_id` update on a cancelled package aborts; the parent and requirement tables as written (rows evaluated in order, including the all-cancelled parent and the several-reports requirement); drift is empty when `synced_state` equals wanted |
 | 13 | `cstan link` (`link`, `link bind`) and `plan cancel`; `plan show` Nexora columns; `Nexora drift` section in `cstan status` for the PM; the PM notice `Plan <id> package <pkg> reviewed` | `src/daemon.ts` (`ROUTES`), `src/commands.ts`, `src/cli.ts`, `src/controller/core.ts` (notice), `test/commands.test.ts`, `test/reviews.test.ts` | `link` is `access: "any"` in `ROUTES` and the handler accepts only PM or operator (same check as `plan open`), so a Developer or the Architect gets `forbidden`; `plan cancel` accepts only the operator; `plan show` prints id, synced state, wanted state and drift; the notice is queued once when the latest review of a package's report passes and `track` is not `never`, and not again for a repeat |
 | 14 | PM prompt: intake picker, mirroring rules, failure rules, the "ask the user before `integrate confirm`" rule (only when `[nexora].track` is not `never`); PM restart summary lists links and drift | `src/prompts.ts`, `src/controller/core.ts` (`PmRestartSummary`), `test/prompts.test.ts` | prompt byte-identical to step 5 output when `track = "never"`; with `ask`, the prompt names the picker options and the status mapping; restart summary lists a drifted item |
 
@@ -282,7 +295,7 @@ Possible later steps, not part of this proposal: a dashboard view of plans (`src
 4. **Architect lifetime.** Proposed: one Architect for the life of an objective, released by the PM at the end. A context-heavy Architect gets slow; `replace` with the seed is the escape. Is that acceptable or should it be one per plan?
 5. **Developers talk to the Architect.** Today non-PM agents can message only the PM (`src/commands.ts:478`). A developer with a question about its package goes through the PM, an extra hop. Allowing Developer → Architect messages is a small change to that rule; I did not propose it to keep the PM as the single human-facing point, but it may be worth it.
 
-6. **Nexora (section 10).** (a) Is `estimate_hours` the right unit, given that agents work in minutes and the estimate is a planning figure? (b) Should the PM log agent wall-clock as Nexora time at all (default proposed: no)? (c) May `track = "always"` be the project default for this repository, with the picker kept for exceptions only? (d) A user who rejects a merge after `in_review`: the PM reopens the item to `in_progress`; confirm that is wanted.
+6. **Nexora (section 10).** (a) Is `estimate_hours` the right unit, given that agents work in minutes and the estimate is a planning figure? (b) Should the PM log agent wall-clock as Nexora time at all (default proposed: no)? (c) May `track = "always"` be the project default for this repository, with the picker kept for exceptions only? (d) A user who rejects a merge after `in_review`: the PM reopens the item to `in_progress`; confirm that is wanted. (e) A wrong external id cannot be edited (the id is immutable); should the PM be able to unlink and relink, or is it enough that the PM tells the user?
 
 **Risks:**
 
@@ -345,7 +358,14 @@ CREATE TABLE external_links (          -- migration 0024
   bound_agent_id TEXT,                 -- kind requirement only: the developer whose reports drive its wanted state; set by `link bind`
   linked_by TEXT NOT NULL, linked_at TEXT NOT NULL, synced_at TEXT NOT NULL,
   PRIMARY KEY (project_id, ref_kind, ref_id, system));
+
+CREATE TRIGGER external_links_identity BEFORE UPDATE OF project_id, ref_kind, ref_id, system, external_id, linked_by, linked_at ON external_links
+  BEGIN SELECT RAISE(ABORT, 'external link identity is immutable'); END;
+CREATE TRIGGER external_links_no_delete BEFORE DELETE ON external_links
+  BEGIN SELECT RAISE(ABORT, 'external links are not deleted'); END;
 ```
+
+`external_id` immutability is enforced by the trigger, not only by the ledger method; the method `linkExternal` checks first and answers `link_conflict` so the PM gets a readable error instead of an abort. Only `synced_state`, `synced_at` and `bound_agent_id` can be updated. A wrong id is corrected by linking the item under a new ref, which a deleted-never table allows only for refs not yet linked; the PM tells the user instead (open question 6e).
 
 A link to an item that already existed (the "link" option) uses the same row. A package is a link only after the PM creates its child item; the PM creates all child items when the plan is approved, in one pass.
 
@@ -386,29 +406,31 @@ In this design `in_review` means **waiting on a human**. An automated reviewer's
 | `confirmed` | report is in a `confirmed` integration | `completed` |
 | `cancelled` | `plan_packages.cancelled_at` or the plan's `cancelled_at` set, and not confirmed | `wont_do` |
 
-Precedence: `confirmed` over `cancelled` over every other row (finished work is not unwound by a later cancel); an integration that is `discarded` or `failed` does not change the package, it returns to `reviewed`. A package with a new report after findings starts again at `reported`.
+Precedence, first match wins: `confirmed`, then `cancelled`, then the other rows from the bottom of the table upward (`integrated`, `reviewed`, `findings`, `reported`, `assigned`, not assigned). Finished work is not unwound by a later cancel. An integration that is `conflicted`, `discarded` or `failed` leaves the package at `reviewed`: only a `merged` integration moves it to `integrated`, and only a `confirmed` one to `confirmed`. Progress is computed from the assignee's **latest accepted report** (highest `agent_reports.sequence`), so a new report after findings starts again at `reported`. Reports of an agent the assignee replaced are not counted: after `Launcher.replace` the package shows `assigned` (wanted `in_progress`) until the replacement reports. That can move an item back from `in_review`; it is accepted because the replacement has to redo the report anyway.
 
-**Parent plan item (`ref_kind = plan`):**
+**Parent plan item (`ref_kind = plan`):** let *live* be the packages whose package progress is not `cancelled` (a `confirmed` package is live). Rows are evaluated top to bottom and **the first match wins**, so no row can match together with an earlier one.
 
-| Condition | Wanted |
-| --- | --- |
-| plan approved, no package assigned | `todo` |
-| any package `in_progress`, or any package not yet `reviewed` and not `cancelled` | `in_progress` |
-| every non-cancelled package is `reviewed`, `integrated` or `confirmed`, and not all are `confirmed` | `in_review` |
-| a sign-off exists and the integration is not yet `confirmed` | `in_review` |
-| every non-cancelled package is `confirmed` | `completed` |
-| every package is `cancelled`, or the plan is cancelled with none confirmed | `wont_do` |
+| # | Condition | Wanted |
+| --- | --- | --- |
+| 1 | the plan has `cancelled_at` set and not every package is `confirmed`; or the plan is approved and *live* is empty (every package cancelled) | `wont_do` |
+| 2 | *live* is non-empty and every live package is `confirmed` (this includes a plan cancelled after everything was confirmed, and a per-package cancel of the rest) | `completed` |
+| 3 | the plan is `draft` or `in_review` (no packages exist yet), or no live package is assigned | `todo` |
+| 4 | *live* is non-empty and every live package is `reviewed`, `integrated` or `confirmed` (not all `confirmed`, by row 2) | `in_review` |
+| 5 | anything else (at least one live package assigned and at least one not yet `reviewed`) | `in_progress` |
 
-**Requirements of the small tier (`ref_kind = requirement`):** there are no packages. The requirement is driven by the one developer bound with `link bind` (the PM binds the agent it spawns). The facts are that agent's reports, their reviews and any integration containing them:
+A sign-off does not change the parent's wanted state on its own: after the last live package is `reviewed` the parent is already `in_review` (row 4); the sign-off is a comment trigger, not a state. A `superseded` plan keeps the wanted state it had when it was superseded and is not drift-checked afterwards.
 
-| Condition | Wanted |
-| --- | --- |
-| bound, no accepted report | `in_progress` |
-| accepted report without a finished review, or latest review has findings | `in_progress` |
-| latest review passed, no confirmed integration | `in_review` |
-| report in a `confirmed` integration | `completed` |
-| unbound | none: no wanted state, no drift, the PM drives it by hand with `cstan link` and the status line says "unbound" |
-| the operator cancelled it with `cstan plan cancel` (a requirement link has a ref id, not a plan; the user cancelling the work tells the PM, who runs `cstan link requirement <ref> <id> wont_do`) | `wont_do` is a PM-declared state for this kind and is not drift-checked |
+**Requirements of the small tier (`ref_kind = requirement`):** there are no packages. The requirement is driven by the one developer bound with `link bind` (the PM binds the agent it spawns). Only that agent's **latest accepted report** R (highest `agent_reports.sequence`) counts; earlier reports of the same agent are ignored, so a fix report after findings restarts the rows. The facts are R, the latest finished review of R, and the integrations containing R. Rows are evaluated top to bottom, first match wins:
+
+| # | Condition | Wanted |
+| --- | --- | --- |
+| 1 | no bound agent | none: no wanted state, no drift; the status line says "unbound" and the PM drives the link by hand with `cstan link` |
+| 2 | the PM recorded `wont_do` on the link (cancellation, below) and R is not in a `confirmed` integration | `wont_do` |
+| 3 | R is in a `confirmed` integration | `completed` |
+| 4 | the latest review of R passed (R may be in a `merged` integration or none) | `in_review` |
+| 5 | anything else: no accepted report, report without a finished review, or latest review has findings | `in_progress` |
+
+Row 2 reads `synced_state`: a requirement has no ledger fact for cancellation, so the PM's recorded `wont_do` is itself the input. It is therefore never drift (wanted equals synced).
 
 If the small tier skips integration (the PM does not run `cstan integrate`), the requirement stays `in_review` after the passing review until the user says the change is merged; the PM then records `completed` by hand. This is the one place the human closes the gate without a controller fact, and the PM prompt says so.
 
@@ -428,7 +450,18 @@ The user merges the integration branch into main with their own git. The control
 | `Plan <id> cancelled` / `… package <pkg> cancelled` (operator ran `cstan plan cancel`) | transition to `wont_do` with a comment | `wont_do` |
 | a drift line in `cstan status` or `plan show` at any wake-up | write the wanted state | the wanted state |
 
-Cancellation is driven by the user or operator (`cancel` and `plan cancel` are operator-only); the PM never decides it and only mirrors.
+**Cancellation: one rule.** The user or operator decides; the PM never decides and only records the decision. For work that has a plan, the operator runs `cstan plan cancel` (operator-only) and the ledger holds the decision; the PM sees the `Plan … cancelled` notice and mirrors `wont_do`. For a small-tier requirement there is no plan, so the user tells the PM in the conversation and the PM records `wont_do` on the link (`cstan link requirement <ref-id> <external-id> wont_do`) and releases the developer; the requirement table's row 2 treats that record as the decision. In both cases the Nexora comment names who decided ("cancelled by the user").
+
+**What `plan cancel` does**, in one transaction, by the plan's state:
+
+| Plan state | Effect |
+| --- | --- |
+| `draft` | sets `cancelled_at`; no packages exist; queues a message to the Architect (`Plan <id> cancelled`) so it stops |
+| `in_review` | the open plan review is cancelled (`reviews.state = 'cancelled'`, `failure_reason = 'plan cancelled'`, which the existing CHECK for cancelled rows requires; the reviewer is released with the existing `releaseReviewerLater`), the plan moves `in_review → draft` (an allowed move), then `cancelled_at` is set; Architect and PM are notified |
+| `approved` | sets `cancelled_at` on the plan and on every package not yet `confirmed`; assigned developers are not released by the controller (the PM releases them, as for any worker); an `integrate` already running finishes, and the Architect is told to `discard` an unconfirmed integration |
+| `superseded` | refused (`plan_superseded`) |
+
+With a package id, only that package is cancelled (plan `approved` only). A cancelled plan refuses `submit`, `assign`, and review completion. A review that finishes after the cancel is ignored by the transition (the trigger `plans_frozen_after_cancel` aborts the state move, which the handler turns into a no-op for the reviewer's answer).
 
 ### Sync lag and the one new notice
 
