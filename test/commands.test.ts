@@ -56,6 +56,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
         waitTimeoutSeconds: waitSeconds,
       },
     ],
+    nexora: { track: "never", defaultAction: "none" },
     warnings: [],
     roles: [
       {
