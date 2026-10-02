@@ -4,7 +4,7 @@
  * It runs inside the daemon, which owns the adapter, and does one operation at
  * a time. Every core write builds its own context at the moment of the call.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -207,6 +207,8 @@ export interface LauncherOptions {
   readonly log?: (event: string, details: Record<string, unknown>) => void;
   /** Brings the configured roles into the ledger; the launcher calls it once more when a role is missing or out of date. */
   readonly syncRoles?: () => void;
+  /** Runs the worktree setup command; tests stub it. */
+  readonly runSetup?: SetupRunner;
 }
 
 interface Hub {
@@ -219,7 +221,33 @@ interface Hub {
 interface Budget {
   readonly deadline: number;
   check(step: string): void;
+  /** Moves the deadline later, for time the operation spent on a step that has its own deadline. */
+  extend(ms: number): void;
 }
+
+/** The worktree setup step of the configuration. */
+export interface ResolvedWorktree {
+  readonly setup: string;
+  readonly setupTimeoutSeconds: number;
+}
+
+export type SetupOutcome =
+  | { readonly status: "ok" }
+  | {
+      readonly status: "failed";
+      readonly exitCode: number | null;
+      readonly output: string;
+    }
+  | { readonly status: "timeout" };
+
+export type SetupRunner = (
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+) => Promise<SetupOutcome>;
+
+const SETUP_OUTPUT_CHARS = 2000;
+const SETUP_KILL_GRACE_MS = 2000;
 
 /** Escape sequences (CSI with any parameter bytes, OSC, DCS and the other string forms even when unterminated, the 8-bit C1 forms, and two-byte escapes), control and format characters, lone surrogates, line separators and runs of blanks are removed or become one space. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it; a first grapheme longer than that leaves nothing. */
 function oneLine(text: string, maxLength: number): string {
@@ -335,6 +363,67 @@ export function defaultGit(projectRoot: string): GitRunner {
   };
 }
 
+/** Runs `command` through `sh -c` in its own process group; the whole group is killed on timeout. Its output is kept only as a capped tail. */
+export function runSetupCommand(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  environment: NodeJS.ProcessEnv,
+): Promise<SetupOutcome> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn("sh", ["-c", command], {
+        cwd,
+        detached: true,
+        env: environment,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      resolve({
+        status: "failed",
+        exitCode: null,
+        output: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    let output = "";
+    const collect = (chunk: Buffer) => {
+      output = (output + chunk.toString("utf8")).slice(-SETUP_OUTPUT_CHARS * 2);
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    const killGroup = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, signal);
+      } catch {
+        // The group is already gone.
+      }
+    };
+    let timedOut = false;
+    let hardKill: NodeJS.Timeout | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup("SIGTERM");
+      hardKill = setTimeout(() => killGroup("SIGKILL"), SETUP_KILL_GRACE_MS);
+    }, timeoutMs);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      clearTimeout(hardKill);
+      resolve({ status: "failed", exitCode: null, output: error.message });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      // A group member that ignored SIGTERM must still die.
+      if (timedOut) killGroup("SIGKILL");
+      clearTimeout(hardKill);
+      if (timedOut) resolve({ status: "timeout" });
+      else if (code === 0) resolve({ status: "ok" });
+      else resolve({ status: "failed", exitCode: code, output });
+    });
+  });
+}
+
 export class Launcher {
   readonly #core: ControllerCore;
   readonly #adapter: LauncherAdapter;
@@ -354,6 +443,7 @@ export class Launcher {
   readonly #now: () => number;
   readonly #log: (event: string, details: Record<string, unknown>) => void;
   readonly #syncRoles: (() => void) | undefined;
+  readonly #runSetup: SetupRunner;
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
   #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
@@ -376,6 +466,10 @@ export class Launcher {
     this.#now = options.now ?? Date.now;
     this.#log = options.log ?? (() => undefined);
     this.#syncRoles = options.syncRoles;
+    this.#runSetup =
+      options.runSetup ??
+      ((command, cwd, timeoutMs) =>
+        runSetupCommand(command, cwd, timeoutMs, this.#baseEnvironment));
   }
 
   status(): LauncherStatus {
@@ -426,9 +520,14 @@ export class Launcher {
   }
 
   #budget(ms: number): Budget {
-    const deadline = this.#now() + ms;
+    let deadline = this.#now() + ms;
     return {
-      deadline,
+      get deadline() {
+        return deadline;
+      },
+      extend: (extra) => {
+        deadline += extra;
+      },
       check: (step) => {
         if (this.#now() > deadline)
           throw new LauncherError(
@@ -1482,6 +1581,16 @@ export class Launcher {
           branch,
           baseSha,
         });
+        const worktreeConfig = (
+          this.#config as CapstanConfig & { worktree?: ResolvedWorktree }
+        ).worktree;
+        if (worktreeConfig !== undefined)
+          await this.#setupWorktree(
+            worktreeConfig,
+            agent.agentId,
+            tree.path,
+            budget,
+          );
         let paneId = tree.paneId;
         let placement: SpawnResult["placement"] = "tab";
         let placementNote: string | undefined;
@@ -1589,6 +1698,39 @@ export class Launcher {
         throw error;
       }
     });
+  }
+
+  /** Runs the configured setup command in a new worktree. Its time is not taken from the operation's budget; a failure or timeout throws, so the caller's cleanup removes the agent. */
+  async #setupWorktree(
+    config: ResolvedWorktree,
+    agentId: string,
+    worktreePath: string,
+    budget: Budget,
+  ): Promise<void> {
+    budget.check("running the worktree setup");
+    const started = this.#now();
+    let outcome: SetupOutcome;
+    try {
+      outcome = await this.#runSetup(
+        config.setup,
+        worktreePath,
+        config.setupTimeoutSeconds * 1000,
+      );
+    } finally {
+      budget.extend(Math.max(0, this.#now() - started));
+    }
+    if (outcome.status === "ok") return;
+    const command = oneLine(config.setup, 200);
+    if (outcome.status === "timeout")
+      throw new LauncherError(
+        "worktree_setup_failed",
+        `the setup of ${agentId} (${command}) timed out after ${config.setupTimeoutSeconds}s`,
+      );
+    const tail = oneLine(outcome.output, SETUP_OUTPUT_CHARS);
+    throw new LauncherError(
+      "worktree_setup_failed",
+      `the setup of ${agentId} (${command}) failed with exit code ${outcome.exitCode ?? "none"}${tail === "" ? "" : `: ${tail}`}`,
+    );
   }
 
   // ----------------------------------------------------------- placement
