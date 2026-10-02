@@ -439,16 +439,22 @@ function planNeedsAttentionNotice(planId: string): string {
 const PLAN_NOTICE_BUDGET_BYTES = 12 * 1024;
 
 /** The notice the PM receives when a plan is approved: the packages, their dependencies and the order, cut to fit one message. */
-function planApprovedNotice(planId: string, bodyJson: string): string {
+function planApprovedNotice(
+  planId: string,
+  bodyJson: string,
+  note: string | null,
+): string {
   const body = JSON.parse(bodyJson) as {
     packages: { id: string; title: string; dependsOn?: string[] }[];
     integrationOrder?: string[];
   };
   const head = `Plan ${planId} approved. Assign each package with cstan plan assign ${planId} <package-id> <agent-id>.`;
-  const order =
-    body.integrationOrder === undefined
+  const order = [
+    ...(body.integrationOrder === undefined
       ? []
-      : [`Integration order: ${body.integrationOrder.join(", ")}`];
+      : [`Integration order: ${body.integrationOrder.join(", ")}`]),
+    ...(note === null ? [] : [note]),
+  ];
   const lines: string[] = [];
   let bytes = Buffer.byteLength(head, "utf8");
   // Room for the order line and the cut marker, so neither can push the notice over the limit.
@@ -468,7 +474,11 @@ function planApprovedNotice(planId: string, bodyJson: string): string {
   const text = [head, ...lines, ...order].join("\n");
   return Buffer.byteLength(text, "utf8") <= MAX_MESSAGE_BYTES
     ? text
-    : `${head}\nThe plan is too large to list; see cstan plan show ${planId}`;
+    : [
+        head,
+        `The plan is too large to list; see cstan plan show ${planId}`,
+        ...(note === null ? [] : [note]),
+      ].join("\n");
 }
 
 export const MAX_PLAN_BODY_BYTES = 32 * 1024;
@@ -4471,7 +4481,10 @@ export class ControllerCore {
           .run(now, this.#projectId, plan.supersedes_plan_id);
       }
     }
-    this.#noticeToPm(planApprovedNotice(plan.plan_id, bodyJson), now);
+    this.#noticeToPm(
+      planApprovedNotice(plan.plan_id, bodyJson, this.#approvalNote(plan)),
+      now,
+    );
   }
 
   /** Queues a controller notice to the one active PM; false when there is none, and then the reconcile loop re-sends it (unannouncedPlanNotices). The caller owns the transaction. */
@@ -4563,7 +4576,11 @@ export class ControllerCore {
             { body_json: string } | undefined;
           if (plan.state !== "approved" || revision === undefined)
             throw new ControllerError(`plan ${input.planId} is not approved`);
-          body = planApprovedNotice(plan.plan_id, revision.body_json);
+          body = planApprovedNotice(
+            plan.plan_id,
+            revision.body_json,
+            this.#approvalNote(plan),
+          );
         } else body = planNeedsAttentionNotice(plan.plan_id);
         const announced = this.#noticeToPm(body, this.#now());
         return {
@@ -5488,8 +5505,12 @@ export class ControllerCore {
     this.#assertOpen();
     safeId(planId, "plan id");
     const plan = this.#planRow(planId);
+    return plan === undefined ? null : this.#approvalNote(plan);
+  }
+
+  #approvalNote(plan: PlanRow): string | null {
     const old =
-      plan?.supersedes_plan_id == null
+      plan.supersedes_plan_id === null
         ? undefined
         : this.#planRow(plan.supersedes_plan_id);
     return old !== undefined && old.cancelled_at !== null

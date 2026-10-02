@@ -2016,6 +2016,22 @@ test("cancel after open: the new plan is approved without superseding the cancel
       `Plan ${a} was cancelled before this plan was approved; it was not superseded`,
     );
     assert.equal(h.core.approvalNoticeNote(a), null);
+    const note = `Plan ${a} was cancelled before this plan was approved; it was not superseded`;
+    const notices = h.core
+      .messagesFor(h.pm.agentId)
+      .map((m) => m.body)
+      .filter((text) => text.startsWith(`Plan ${b} approved`));
+    assert.equal(notices.length, 1);
+    assert.ok(notices[0]!.endsWith(note), notices[0]);
+    const resent = h.core.announcePlanNotice(ctx(h.core, h.owner), {
+      planId: b,
+      kind: "approved",
+    });
+    assert.equal(resent.announced, true);
+    assert.ok(
+      h.core.messagesFor(h.pm.agentId).at(-1)!.body.endsWith(note),
+      "the reconcile re-send carries the note",
+    );
     const c = open(h, "normal", b);
     submit(t, c, body("wp1"));
     assert.equal(planState(t, b), "superseded");
