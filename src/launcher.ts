@@ -12,6 +12,7 @@ import type {
   CapstanConfig,
   HostKind,
   ResolvedRole,
+  ResolvedWorktree,
 } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import type { ControllerCore, PmRestartSummary } from "./controller/core.js";
@@ -223,12 +224,6 @@ interface Budget {
   check(step: string): void;
   /** Moves the deadline later, for time the operation spent on a step that has its own deadline. */
   extend(ms: number): void;
-}
-
-/** The worktree setup step of the configuration. */
-export interface ResolvedWorktree {
-  readonly setup: string;
-  readonly setupTimeoutSeconds: number;
 }
 
 export type SetupOutcome =
@@ -1581,12 +1576,9 @@ export class Launcher {
           branch,
           baseSha,
         });
-        const worktreeConfig = (
-          this.#config as CapstanConfig & { worktree?: ResolvedWorktree }
-        ).worktree;
-        if (worktreeConfig !== undefined)
+        if (this.#config.worktree !== undefined)
           await this.#setupWorktree(
-            worktreeConfig,
+            this.#config.worktree,
             agent.agentId,
             tree.path,
             budget,

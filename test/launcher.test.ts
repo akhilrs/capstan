@@ -15,14 +15,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
-import type { CapstanConfig } from "../src/config/capstan-config.js";
+import {
+  CONFIG_FILE_NAME,
+  loadCapstanConfig,
+  type CapstanConfig,
+  type ResolvedWorktree,
+} from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
 import {
   Launcher,
   LauncherError,
   defaultGit,
   runSetupCommand,
-  type ResolvedWorktree,
   type SetupRunner,
 } from "../src/launcher.js";
 import { CSTAN_ALLOW_RULE } from "../src/prompts.js";
@@ -3346,5 +3350,51 @@ test("runSetupCommand kills the whole process group on timeout", async () => {
     assert.throws(() => process.kill(pid, 0), /ESRCH/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a worktree section loaded from capstan.toml reaches runSetup with its command, cwd and timeout", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-launcher-toml-"));
+  const calls: Array<[string, string, number]> = [];
+  let w: World | undefined;
+  try {
+    writeFileSync(
+      path.join(directory, CONFIG_FILE_NAME),
+      `schema_version = 1
+
+[hosts.claude]
+kind = "claude"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[worktree]
+setup = "make deps"
+setup_timeout_seconds = 42
+`,
+      { mode: 0o600 },
+    );
+    const loaded = loadCapstanConfig(directory);
+    assert.ok(loaded.worktree !== undefined);
+    w = await world(
+      true,
+      true,
+      3,
+      {},
+      {
+        worktree: loaded.worktree,
+        runSetup: async (command, cwd, timeoutMs) => {
+          calls.push([command, cwd, timeoutMs]);
+          return { status: "ok" };
+        },
+      },
+    );
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    assert.deepEqual(calls, [["make deps", result.worktreePath, 42_000]]);
+  } finally {
+    w?.cleanup();
+    rmSync(directory, { recursive: true, force: true });
   }
 });
