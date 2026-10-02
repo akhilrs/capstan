@@ -104,7 +104,7 @@ export function rowIds(
   problemsOnly: boolean,
 ): Record<PanelId, readonly string[]> {
   return {
-    agents: model.agents.filter((a) => a.state === "active").map((a) => a.id),
+    agents: model.agents.map((a) => a.id),
     pipeline: pipelineItems(model).map((i) => i.id),
     queue: queueRows(model, problemsOnly).map((m) => m.id),
     findings: model.findings.map((f) => f.id),
@@ -267,12 +267,21 @@ export function App({ deps }: { deps: AppDeps }) {
     [deps],
   );
 
-  const select = (panel: PanelId, index: number) => {
+  // Keys can arrive faster than React re-renders, so a move starts from the
+  // last selection written, not from the one the current render saw.
+  const selectionRef = useRef<Selection>(EMPTY_SELECTION);
+  const move = (panel: PanelId, delta: number) => {
     const list = ids?.[panel] ?? [];
-    setSelection((s) => ({
-      ...s,
+    const at = resolveSelection(list, selectionRef.current[panel]);
+    const index = Math.min(
+      Math.max(0, list.length - 1),
+      Math.max(0, at + delta),
+    );
+    selectionRef.current = {
+      ...selectionRef.current,
       [panel]: { id: list[index] ?? null, index },
-    }));
+    };
+    setSelection(selectionRef.current);
   };
 
   useInput((input, key) => {
@@ -317,8 +326,7 @@ export function App({ deps }: { deps: AppDeps }) {
     }
     if (key.upArrow || key.downArrow || input === "j" || input === "k") {
       const delta = key.upArrow || input === "k" ? -1 : 1;
-      const max = Math.max(0, (ids?.[focus].length ?? 0) - 1);
-      return select(focus, Math.min(max, Math.max(0, indexOf(focus) + delta)));
+      return move(focus, delta);
     }
     if (input === "f" && focus === "queue") {
       return setProblemsOnly((on) => !on);
@@ -327,6 +335,10 @@ export function App({ deps }: { deps: AppDeps }) {
     if (input === "o" && focus === "agents") {
       const agent = model.agents[indexOf("agents")];
       const action = agent === undefined ? undefined : observeAction(agent);
+      if (agent !== undefined && action === undefined)
+        return setNotice(
+          `${agent.agentId} has ended; observe needs an active agent`,
+        );
       if (action !== undefined) void execute(action);
       return;
     }

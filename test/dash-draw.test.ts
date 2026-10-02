@@ -332,3 +332,36 @@ test("footer hints depend on the focused panel and the arrow keys have an ASCII 
   assert.ok(keys("queue").includes("-/+"));
   assert.ok(keys("queue", ascii).includes("updown"));
 });
+
+test("meters and stage bars are drawn with glyphs in a foreground colour, never with a background", () => {
+  const spec = new Set([..."█▓▒░"]);
+  const bars = [
+    ...meter(0, 3, 8, g, color),
+    ...meter(3, 3, 8, g, color),
+    ...recencyBar(0, 8, g, color),
+    ...recencyBar(0.5, 8, g, color),
+    ...stackedBar(
+      [
+        { count: 4, kind: "good" },
+        { count: 2, kind: "progress" },
+        { count: 1, kind: "bad" },
+      ],
+      16,
+      g,
+      color,
+    ),
+    ...stackedBar([], 8, g, color),
+  ];
+  for (const s of bars) {
+    assert.equal(s.bg, undefined);
+    assert.ok(s.color !== undefined, "a foreground colour is set");
+    for (const ch of s.text) assert.ok(spec.has(ch), `${ch} is in the spec`);
+  }
+  assert.equal(plainLine(meter(0, 3, 8, g, plain)), "░░░░░░░░");
+  assert.equal(plainLine(recencyBar(0, 8, g, plain)), "░░░░░░░░");
+  assert.equal(
+    glyphsFor(false).thumb,
+    "█",
+    "the thumb sits inside the border column",
+  );
+});

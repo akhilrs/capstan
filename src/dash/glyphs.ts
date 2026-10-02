@@ -61,7 +61,7 @@ const UNICODE: Glyphs = {
   stageBad: "▒",
   selected: "▌",
   changed: "+",
-  thumb: "▐",
+  thumb: "█",
   arrow: "──►",
   rule: "─",
   notified: "●",

@@ -410,3 +410,245 @@ Regenerate the golden screens (deterministic, from fixtures) with `UPDATE_GOLDEN
 ╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit                           cancelled
 ```
+
+## seeded daemon with 1 active and 9 ended agents (defect-fix round)
+
+Captured with tmux the same way as above (`TERM=xterm-256color`, `LANG=en_US.UTF-8`, `capture-pane -p`), on 2026-10-02, from the built `runDash` against a **seeded stand-in daemon**: a small script that answers the control socket's `status` route with a fixed operator status. It is not the real controller (the real status route needs Herdr for stalled, stuck and delivery state). The seed: one active agent (`pm-1`), nine ended agents (`supervisor-1`, `designer-1`, `developer-1`, `reviewer-1` to `reviewer-6`), three reports, six reviews by named reviewers (three of reports, three of integrations), three confirmed integrations, no messages, supervision off, and one escalated finding of severity `medium` on the ended `designer-1`. The same data is the `crowded()` fixture in `test/dash-fixtures.ts` and the `dash-crowded-*` golden files. The earlier "seeded daemon" sections above predate this round and show the first v2 build (`▐` thumb, five ended agents at most).
+
+Each size is shown at start (queue focused, as the dashboard starts) and after pressing `1` then `j` three times: the agents cursor moves through the ended rows (`4/10`, on `reviewer-4`). Seven more widths (61, 99, 100, 101, 117, 119, 133 columns, 30 rows) were captured and every line of each ends in a border glyph.
+
+### 80x24, at start
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├┤ 16:53:16 ├─╮
+│ ○ SUPERVISION OFF                                workers ░░░░░░░░ 0/3   ● 0s │
+│   health reads degraded until supervision is enabled; this is the starting … │
+╰─┤ supervision off ├──────────────────────────────────────────────────────────╯
+╭─¹agents──────────────────────────────────────────────┤ 1 active ├┤ 9 ended ├─╮
+│   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  │
+│ * pm-1                       PM         g1  working ███████░     5s  0 w1:p1 █
+│ ○ reviewer-6                 Reviewer   g1  ended             5m03s  0 -     █
+│ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     │
+│ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     │
+╰─┤ working: inferred ├─────────────────────────────────────────────┤ 1-4/10 ├─╯
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+│ reported 3  ──►  review 6  ──►  integrated 3                                 │
+│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
+│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+┏━³queue━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ no problems ├┤ f problems only [ ] ├━┓
+┃ no unresolved messages                                                       ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
+│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  ? help  q quit
+```
+
+### 80x24, after 1 j j j
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├┤ 16:53:22 ├─╮
+│ ○ SUPERVISION OFF                                workers ░░░░░░░░ 0/3   ● 0s │
+│   health reads degraded until supervision is enabled; this is the starting … │
+╰─┤ supervision off ├──────────────────────────────────────────────────────────╯
+┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓
+┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃
+┃ * pm-1                       PM         g1  working ███████░     7s  0 w1:p1 █
+┃ ○ reviewer-6                 Reviewer   g1  ended             5m05s  0 -     █
+┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃
+┃▌○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 4/10 ├━┛
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+│ reported 3  ──►  review 6  ──►  integrated 3                                 │
+│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
+│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
+│ no unresolved messages                                                       │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
+│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  o observe  tab focus  p pause  r refresh  ? help  q quit
+```
+
+### 118x34, at start
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├────────────────────────────┤ 16:53:25 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF                                                            workers ░░░░░░░░ 0/3   ● answering 0s │
+│   health reads degraded until supervision is enabled; this is the starting value, not a fault                      │
+╰─┤ supervision off ├────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents─────────────────────────┤ 1 active ├┤ 9 ended ├─╮┏━³queue━━━━━━━━━━━┤ no problems ├┤ f problems only [ ] ├━┓
+│   AGENT                ROLE       GEN STATE      AGE  Q │┃     SEQ TO           STATE       AGE DETAIL             ┃
+│ * pm-1                 PM         g1  working     5s  0 │┃ no unresolved messages                                  ┃
+│ ○ reviewer-6           Reviewer   g1  ended    5m03s  0 │┃ unresolved messages ─ now 0 ─ max 0 ─ since dash start  ┃
+│ ○ reviewer-5           Reviewer   g1  ended      10m  0 │┃                                                         ┃
+│ ○ reviewer-4           Reviewer   g1  ended      15m  0 │┃                                                         ┃
+│ ○ reviewer-3           Reviewer   g1  ended      25m  0 │┃                                                         ┃
+│ ○ reviewer-2           Reviewer   g1  ended      33m  0 │┃                                                         ┃
+│ ○ reviewer-1           Reviewer   g1  ended      41m  0 │┃                                                         ┃
+│ ○ developer-1          Developer  g1  ended      50m  0 │┃                                                         ┃
+│ ○ designer-1           Designer   g1  ended      58m  0 │┃                                                         ┃
+│ ○ supervisor-1         Supervisor g1  ended    1h06m  0 │┃                                                         ┃
+╰─┤ working: inferred ├───────────────────────────────────╯┃                                                         ┃
+╭─²pipeline────────────┤ reported > review > integrated ├─╮┃ oldest unresolved message (age) ─ now 0s ─ since dash … ┃
+│ reported 3  ──►  review 6  ──►  integrated 3            │┃                                                         ┃
+│ reports      █████████▒▒▒▒   3  accepted 2  rejected 1  │┃                                                         ┃
+│                                                         │┃                                                         ┃
+│ reviews      ███████████▒▒   6  passed 5  findings 1    │┃                                                         ┃
+│                                                         │┃                                                         ┃
+│ integrations █████████████   3  confirmed 3             │┃                                                         ┃
+│ STAGE       STATE      WHO / COMMIT                 AGE │┃                                                         ┃
+│ integration confirmed  i3012345                     10m █┃                                                         ┃
+│ review      passed     reviewer-6 -> i3 r1          13m █┃                                                         ┃
+│ integration confirmed  i2012345                     13m █┃                                                         ┃
+│ integration confirmed  i1012345                     16m █┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+│ review      passed     reviewer-5 -> i2 r1          18m │╭─⁴findings────────────────────────────┤ 1 target ended ├─╮
+│ review      passed     reviewer-4 -> i1 r1          23m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended │
+│ review      findings   reviewer-3 -> developer-…    28m ││                                                         │
+╰──────────────────────────────────────────────┤ 1-7/12 ├─╯╰─────────────────────────────────────────────────────────╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit
+```
+
+### 118x34, after 1 j j j
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├────────────────────────────┤ 16:53:31 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF                                                            workers ░░░░░░░░ 0/3   ● answering 0s │
+│   health reads degraded until supervision is enabled; this is the starting value, not a fault                      │
+╰─┤ supervision off ├────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓╭─³queue───────────┤ no problems ├┤ f problems only [ ] ├─╮
+┃   AGENT                ROLE       GEN STATE      AGE  Q ┃│     SEQ TO           STATE       AGE DETAIL             │
+┃ * pm-1                 PM         g1  working     7s  0 ┃│ no unresolved messages                                  │
+┃ ○ reviewer-6           Reviewer   g1  ended    5m05s  0 ┃│ unresolved messages ─ now 0 ─ max 0 ─ since dash start  │
+┃ ○ reviewer-5           Reviewer   g1  ended      10m  0 ┃│                                                         │
+┃▌○ reviewer-4           Reviewer   g1  ended      15m  0 ┃│                                                         │
+┃ ○ reviewer-3           Reviewer   g1  ended      25m  0 ┃│                                                         │
+┃ ○ reviewer-2           Reviewer   g1  ended      33m  0 ┃│                                                         │
+┃ ○ reviewer-1           Reviewer   g1  ended      41m  0 ┃│                                                         │
+┃ ○ developer-1          Developer  g1  ended      50m  0 ┃│                                                         │
+┃ ○ designer-1           Designer   g1  ended      58m  0 ┃│                                                         │
+┃ ○ supervisor-1         Supervisor g1  ended    1h06m  0 ┃│                                                         │
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 4/10 ├━┛│                                                         │
+╭─²pipeline────────────┤ reported > review > integrated ├─╮│ oldest unresolved message (age) ─ now 0s ─ since dash … │
+│ reported 3  ──►  review 6  ──►  integrated 3            ││                                                         │
+│ reports      █████████▒▒▒▒   3  accepted 2  rejected 1  ││                                                         │
+│                                                         ││                                                         │
+│ reviews      ███████████▒▒   6  passed 5  findings 1    ││                                                         │
+│                                                         ││                                                         │
+│ integrations █████████████   3  confirmed 3             ││                                                         │
+│ STAGE       STATE      WHO / COMMIT                 AGE ││                                                         │
+│ integration confirmed  i3012345                     10m █│                                                         │
+│ review      passed     reviewer-6 -> i3 r1          13m █│                                                         │
+│ integration confirmed  i2012345                     13m █│                                                         │
+│ integration confirmed  i1012345                     16m █╰─────────────────────────────────────────────────────────╯
+│ review      passed     reviewer-5 -> i2 r1          18m │╭─⁴findings────────────────────────────┤ 1 target ended ├─╮
+│ review      passed     reviewer-4 -> i1 r1          23m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended │
+│ review      findings   reviewer-3 -> developer-…    28m ││                                                         │
+╰──────────────────────────────────────────────┤ 1-7/12 ├─╯╰─────────────────────────────────────────────────────────╯
+ ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit
+```
+
+### 160x45, at start
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├──────────────────────────────────────────────────────────────────────┤ 16:53:35 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF  health reads degraded until supervision is enabled; this is the starting value, not a fault     workers ░░░░░░░░░░░░ 0/3   ● answering 0s │
+╰─┤ supervision off ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents──────────────────────────────────────────────┤ 1 active ├┤ 9 ended ├─╮┏━³queue━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ no problems ├┤ f problems only [ ] ├━┓
+│   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  │┃     SEQ TO           STATE       AGE N DETAIL                                ┃
+│ * pm-1                       PM         g1  working ███████░     5s  0 w1:p1 │┃ no unresolved messages                                                       ┃
+│ ○ reviewer-6                 Reviewer   g1  ended             5m03s  0 -     │┃ unresolved messages ─ now 0 ─ max 0 ─ since dash start                       ┃
+│ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     │┃                                                                              ┃
+│ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     │┃                                                                              ┃
+│ ○ reviewer-3                 Reviewer   g1  ended               25m  0 -     │┃                                                                              ┃
+│ ○ reviewer-2                 Reviewer   g1  ended               33m  0 -     │┃                                                                              ┃
+│ ○ reviewer-1                 Reviewer   g1  ended               41m  0 -     │┃                                                                              ┃
+│ ○ developer-1                Developer  g1  ended               50m  0 -     │┃                                                                              ┃
+│ ○ designer-1                 Designer   g1  ended               58m  0 -     │┃                                                                              ┃
+│ ○ supervisor-1               Supervisor g1  ended             1h06m  0 -     │┃                                                                              ┃
+│ working agents (inferred) ─ now 1 ─ since dash start                         │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│                                                                            ⢸ │┃                                                                              ┃
+│                                                                            ⢸ │┃                                                                              ┃
+╰─┤ working: inferred ├────────────────────────────────────────────────────────╯┃ oldest unresolved message (age) ─ now 0s ─ since dash start                  ┃
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮┃                                                                              ┃
+│ reported 3  ──►  review 6  ──►  integrated 3                                 │┃                                                                              ┃
+│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │┃                                                                              ┃
+│                                                                              │┃                                                                              ┃
+│ integrations ████████████████   3  confirmed 3                               │┃                                                                              ┃
+│ STAGE       STATE      WHO / COMMIT                                      AGE │┃                                                                              ┃
+│ integration confirmed  i3012345                                          10m │┃                                                                              ┃
+│ review      passed     reviewer-6 -> i3 r1                               13m │┃                                                                              ┃
+│ integration confirmed  i2012345                                          13m │┃                                                                              ┃
+│ integration confirmed  i1012345                                          16m │┃                                                                              ┃
+│ review      passed     reviewer-5 -> i2 r1                               18m │┃                                                                              ┃
+│ review      passed     reviewer-4 -> i1 r1                               23m │┃                                                                              ┃
+│ review      findings   reviewer-3 -> developer-1 r1                      28m │┃                                                                              ┃
+│ review      passed     reviewer-2 -> developer-1 r1                      33m │┃                                                                              ┃
+│ review      passed     reviewer-1 -> designer-1 r1                       38m │┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+│ report      rejected   developer-1 45fe0de                               46m │╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
+│ report      accepted   developer-1 9abf487                               48m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+│ report      accepted   designer-1 8bf60fa                                56m ││                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit
+```
+
+### 160x45, after 1 j j j
+
+```text
+╭─ cstan dash ─┤ pe7275bc45ede472f8acaa75ce193ee32 ├┤ run active ├──────────────────────────────────────────────────────────────────────┤ 16:53:41 ├┤ - 2s + ├─╮
+│ ○ SUPERVISION OFF  health reads degraded until supervision is enabled; this is the starting value, not a fault     workers ░░░░░░░░░░░░ 0/3   ● answering 0s │
+╰─┤ supervision off ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
+┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃│     SEQ TO           STATE       AGE N DETAIL                                │
+┃ * pm-1                       PM         g1  working ███████░     7s  0 w1:p1 ┃│ no unresolved messages                                                       │
+┃ ○ reviewer-6                 Reviewer   g1  ended             5m05s  0 -     ┃│ unresolved messages ─ now 0 ─ max 0 ─ since dash start                       │
+┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃│                                                                              │
+┃▌○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃│                                                                              │
+┃ ○ reviewer-3                 Reviewer   g1  ended               25m  0 -     ┃│                                                                              │
+┃ ○ reviewer-2                 Reviewer   g1  ended               33m  0 -     ┃│                                                                              │
+┃ ○ reviewer-1                 Reviewer   g1  ended               41m  0 -     ┃│                                                                              │
+┃ ○ developer-1                Developer  g1  ended               50m  0 -     ┃│                                                                              │
+┃ ○ designer-1                 Designer   g1  ended               58m  0 -     ┃│                                                                              │
+┃ ○ supervisor-1               Supervisor g1  ended             1h06m  0 -     ┃│                                                                              │
+┃ working agents (inferred) ─ now 1 ─ since dash start                         ┃│                                                                              │
+┃                                                                              ┃│                                                                              │
+┃                                                                              ┃│                                                                              │
+┃                                                                              ┃│                                                                              │
+┃                                                                              ┃│                                                                              │
+┃                                                                            ⣿ ┃│                                                                              │
+┃                                                                            ⣿ ┃│                                                                              │
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 4/10 ├━┛│ oldest unresolved message (age) ─ now 0s ─ since dash start                  │
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮│                                                                              │
+│ reported 3  ──►  review 6  ──►  integrated 3                                 ││                                                                              │
+│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    ││                                                                              │
+│                                                                              ││                                                                              │
+│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      ││                                                                              │
+│                                                                              ││                                                                              │
+│ integrations ████████████████   3  confirmed 3                               ││                                                                              │
+│ STAGE       STATE      WHO / COMMIT                                      AGE ││                                                                              │
+│ integration confirmed  i3012345                                          10m ││                                                                              │
+│ review      passed     reviewer-6 -> i3 r1                               13m ││                                                                              │
+│ integration confirmed  i2012345                                          13m ││                                                                              │
+│ integration confirmed  i1012345                                          16m ││                                                                              │
+│ review      passed     reviewer-5 -> i2 r1                               18m ││                                                                              │
+│ review      passed     reviewer-4 -> i1 r1                               23m ││                                                                              │
+│ review      findings   reviewer-3 -> developer-1 r1                      28m ││                                                                              │
+│ review      passed     reviewer-2 -> developer-1 r1                      33m ││                                                                              │
+│ review      passed     reviewer-1 -> designer-1 r1                       38m │╰──────────────────────────────────────────────────────────────────────────────╯
+│ report      rejected   developer-1 45fe0de                               46m │╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
+│ report      accepted   developer-1 9abf487                               48m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+│ report      accepted   designer-1 8bf60fa                                56m ││                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit
+```

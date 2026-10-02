@@ -33,7 +33,7 @@ Conventions in the mockups:
 - `▌` at the left edge of a row is the selected row. In the real render the whole row also gets the selected background.
 - `⠋` in the first column of an agent row is the spinner frame (an agent that is working). It animates through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`.
 - `▲` marks "needs attention". `●` is idle or fine. `○` is ended.
-- `▐` in the right border is the scroll thumb. `n/total` in the bottom border is the cursor position.
+- `█` in the right border is the scroll thumb (section 9.4). `n/total` in the bottom border is the cursor position.
 
 ## 1. Mockups
 
@@ -391,7 +391,7 @@ Not verified: contrast on light terminal backgrounds. `fg.dim` on a dark backgro
 | Stage bar good / in progress / bad | `█` / `▓` / `▒` | `#` / `+` / `x` |
 | Selected row marker | `▌` | `>` |
 | Changed row marker (reduced motion) | `+` | `+` |
-| Scroll thumb / track | `▐` / `│` or `┃` | `#` / `\|` |
+| Scroll thumb / track | `█` / `│` or `┃` | `#` / `\|` |
 | Pipeline flow arrow | `──▶` | `->` |
 | Truncation | `…` | `~` |
 | Graph (area) | braille `⠀⡀⣀⣄⣤⣦⣶⣷⣿` (2x4 dots per cell) | `_ . - : = #` sparkline, one row |
@@ -685,3 +685,20 @@ Measured in a real pty (`script`, 120x36, idle project, 8 seconds): full redraw 
 - **Colour rendering in a real terminal.** pty captures were taken as plain text (`tmux capture-pane -p`); the colour build is covered by tests on span data and by the 256-colour sequence check, not by eye.
 - **A stalled agent, a stuck message and an escalated finding in a live daemon.** These need the delivery driver and a supervisor, which need Herdr. The live captures show a seeded daemon (agents and queued messages) and an empty one; the stalled, stuck and escalated rows are covered by golden screens from status fixtures shaped like the real route.
 - **Flicker** beyond the byte counts in 9.5; **ambiguous-width glyphs** in terminals set to wide ambiguous characters; **light backgrounds**.
+
+### 9.4 Corrections after the first real-terminal report
+
+A real-terminal screenshot of the first build showed the defects below. The rendered result is in the `dash-crowded-*` golden files and in `docs/design/cstan-dash-v2-frames.md`. Where this section differs from sections 1 to 8, this section wins.
+
+| Defect | Root cause | Fix |
+| --- | --- | --- |
+| The agents cursor does not move; the counter reads `1/1` | `rowIds` listed only active agents, so the cursor list had one row | The cursor covers every agent row, active first, then ended. `o` on an ended agent shows a notice and makes no call. A key pressed before the previous one re-rendered started from a stale index and was lost; moves now start from the last selection written |
+| `9 ended`, five shown, the wrong five | `buildDashModel` kept `ended.slice(0, 5)` in daemon order and counted the rest in `endedAgentsHidden` | Every ended agent is in the model, newest activity first. The panel scrolls them as one list with the active ones; the thumb and the range or cursor counter show what is hidden |
+| Counter `4/13` while unfocused, thumb outside the edge | The counter always showed the cursor, a cursor an unfocused panel does not have. The `▐` thumb is a right-half block, so it draws off the centre of the border cell | A focused panel shows `cursor/total`. An unfocused panel shows the visible range `first-last/total`, and only when rows are hidden. The thumb is `█` |
+| Solid green block, grey blocks for empty meters | Bars already use foreground glyphs (no background escape is emitted); three full-block rows stacked with no gap read as one slab, and `░` is a grey hatch in many fonts | The three stage bars have a blank row between them when the pipeline has room for it. Tests assert that no meter or bar span has a background and that only the spec glyphs are used |
+| `r1` with no names; `confirm…`, `med…`; pane `w1:…` | Review label was the author only (empty for an integration review); STATE and SEV were sized for the shortest words; PANE was 4 wide | A review reads `reviewer-4 -> developer-1 r1` (an integration review names the integration). STATE is 10 wide (`conflicted`), SEV 8 (`critical`), TARGET and PANE follow the longest value, and the AGENT column drops optional columns before it cuts a name |
+| `── selected ──` with no messages | The detail area was reserved whether or not a row existed | Hidden when there is no message; the graphs take the rows. The rule line also no longer ends in `…` |
+| Right column loses its right edge | Not reproduced. Every line of every panel and of the header is exactly the terminal width by three measures (cell width, code points, Ink's `string-width`) at every width from 60 to 200; the pty captures at 61 to 160 columns end every line in a border glyph | A property test covers widths 60 to 200 at four heights, both glyph sets, two data sets. If a terminal still loses the last two columns, suspect a terminal narrower than the size Ink reports |
+| An escalated finding on a released agent stays `needs operator` | By design in the controller: ending an agent cancels its `open` findings, while `escalated` is a closed state that waits for the operator and is never cancelled | The dashboard dims such a row, shows `target ended`, and counts it as `N target ended` instead of `needs operator` |
+
+The `f problems only` toggle starts off (`useState(false)`); the `[x]` in the screenshot means `f` was pressed while the queue was focused. A test asserts the default.

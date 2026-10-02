@@ -157,11 +157,15 @@ export const DETAIL_ROWS = 4;
 export const GRAPH_MIN_ROWS = 4;
 export const TWO_GRAPHS_ROWS = 14;
 
-export function queueSections(body: number, messages: number): QueueSections {
+export function queueSections(
+  body: number,
+  messages: number,
+  hasSelection: boolean,
+): QueueSections {
   const header = body >= 3 ? 1 : 0;
   const avail = body - header;
   const spare = avail - messages;
-  const detail = spare >= DETAIL_ROWS + 1 ? DETAIL_ROWS : 0;
+  const detail = hasSelection && spare >= DETAIL_ROWS + 1 ? DETAIL_ROWS : 0;
   const graphSpare = spare - detail;
   const graphs = graphSpare >= GRAPH_MIN_ROWS ? graphSpare : 0;
   return {
@@ -174,28 +178,17 @@ export function queueSections(body: number, messages: number): QueueSections {
 
 export interface AgentSections {
   readonly header: number;
-  readonly active: number;
-  readonly ended: number;
+  /** Rows for agents, active first and then ended, scrolled as one list. */
+  readonly rows: number;
   readonly graph: number;
 }
 
-export function agentSections(
-  body: number,
-  active: number,
-  ended: number,
-): AgentSections {
+export function agentSections(body: number, agents: number): AgentSections {
   const header = body >= 3 ? 1 : 0;
   const avail = body - header;
-  const shown = Math.min(active, avail);
-  let left = avail - shown;
-  const endedRows = Math.min(left, ended);
-  left -= endedRows;
-  return {
-    header,
-    active: shown,
-    ended: endedRows,
-    graph: left >= 3 ? left : 0,
-  };
+  const rows = Math.min(Math.max(1, agents), avail);
+  const left = avail - rows;
+  return { header, rows, graph: left >= 3 ? left : 0 };
 }
 
 export interface PipelineSections {
@@ -203,10 +196,14 @@ export interface PipelineSections {
   /** Stage bars, or the one-line history summary in the compact form. */
   readonly stages: number;
   readonly compactSummary: boolean;
-  readonly spacers: boolean;
+  /** A blank row between the stage bars, so full-block bars do not merge into one slab. */
+  readonly gapped: boolean;
   readonly header: number;
   readonly items: number;
 }
+
+/** Rows a gapped stage block takes: three bars and the two blank rows between them. */
+export const GAPPED_STAGE_ROWS = 5;
 
 export function pipelineSections(
   body: number,
@@ -217,29 +214,28 @@ export function pipelineSections(
       flow: Math.min(1, body),
       stages: 0,
       compactSummary: body === 2,
-      spacers: false,
+      gapped: false,
       header: 0,
       items: 0,
     };
-  const stages = Math.min(3, body - 1);
+  const gapped = body - 1 - GAPPED_STAGE_ROWS >= 3;
+  const stages = gapped ? GAPPED_STAGE_ROWS : Math.min(3, body - 1);
   const rest = body - 1 - stages;
   if (rest < 3)
     return {
       flow: 1,
       stages,
       compactSummary: false,
-      spacers: false,
+      gapped: false,
       header: 0,
       items: 0,
     };
-  const spacers = rest >= items + 3;
-  const listRows = rest - 1 - (spacers ? 2 : 0);
   return {
     flow: 1,
     stages,
     compactSummary: false,
-    spacers,
+    gapped,
     header: 1,
-    items: Math.min(items, listRows),
+    items: Math.min(items, rest - 1),
   };
 }

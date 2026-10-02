@@ -12,7 +12,8 @@ import {
 import { makeTheme } from "../src/dash/theme.js";
 import { buildFrame, EMPTY_RINGS } from "../src/dash/view.js";
 import { modelOf, viewOf } from "./dash-view-helpers.js";
-import { NOW, showcase } from "./dash-fixtures.js";
+import { cellWidth } from "../src/dash/format.js";
+import { NOW, crowded, showcase } from "./dash-fixtures.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const goldenDirectory = path.join(root, "test", "golden");
@@ -269,4 +270,149 @@ test("long text cut by the width never changes the frame size, even at the small
     for (const line of lines)
       assert.equal(Array.from(line).length, columns, `${columns}x${rows}`);
   }
+});
+
+const EDGES = new Set([..."│┃╮╯┓┛+|█#"]);
+
+test("every line of every screen is exactly the terminal width and every panel line ends in a border", () => {
+  const ascii = makeTheme({ noColor: true, reducedMotion: true, ascii: true });
+  for (const status of [showcase(), crowded()])
+    for (let columns = 60; columns <= 200; columns++)
+      for (const rows of [16, 24, 36, 45]) {
+        for (const t of [theme, ascii]) {
+          const frame = buildFrame(
+            modelOf(status),
+            viewOf(columns, rows, { focus: "agents" }),
+            t,
+          );
+          const lines = plainLines(frame.lines);
+          assert.equal(lines.length, rows);
+          lines.forEach((line, row) => {
+            const where = `${columns}x${rows} row ${row}: ${line}`;
+            assert.equal(cellWidth(line), columns, where);
+            assert.equal(Array.from(line).length, columns, where);
+            if (row < rows - 1)
+              assert.ok(EDGES.has(line.at(-1)!), `no right edge, ${where}`);
+          });
+        }
+      }
+});
+
+for (const [columns, rows] of [
+  [80, 24],
+  [118, 34],
+  [160, 45],
+] as const) {
+  test(`the crowded run (1 active, 9 ended) at ${columns}x${rows} matches its golden file`, () => {
+    const frame = buildFrame(
+      modelOf(crowded(), 3),
+      viewOf(columns, rows, { focus: "agents" }),
+      theme,
+    );
+    matchesGolden(`dash-crowded-${columns}x${rows}`, plainLines(frame.lines));
+  });
+}
+
+test("ended agents are listed after the active ones, newest first, with a count and a scroll position", () => {
+  const text = plainLines(
+    buildFrame(modelOf(crowded(), 3), viewOf(118, 34), theme).lines,
+  ).join("\n");
+  assert.ok(text.includes("1 active") && text.includes("9 ended"));
+  const at = (name: string) => text.indexOf(`${name} `);
+  assert.ok(
+    at("pm-1") < at("reviewer-6") && at("reviewer-6") < at("reviewer-5"),
+  );
+  const small = plainLines(
+    buildFrame(modelOf(crowded(), 3), viewOf(80, 24), theme).lines,
+  ).join("\n");
+  assert.match(small, /1-\d+\/10/, "hidden rows are shown as a range");
+});
+
+test("state, severity and reviewer words are never cut", () => {
+  const text = plainLines(
+    buildFrame(modelOf(crowded(), 3), viewOf(160, 45), theme).lines,
+  ).join("\n");
+  for (const word of ["confirmed", "medium", "reviewer-3 -> developer-1"])
+    assert.ok(text.includes(word), word);
+  assert.ok(!/confirm…|med…/.test(text));
+  const sized = plainLines(
+    buildFrame(
+      modelOf(
+        crowded({
+          agentFindings: [
+            {
+              findingId: "f-critical",
+              targetAgentId: "pm-1",
+              severity: "critical",
+              state: "open",
+              interventions: 0,
+              stateReason: "x",
+            },
+          ],
+          integrations: [
+            {
+              integrationId: "i9",
+              state: "conflicted",
+              createdAt: "2026-10-02T11:59:00.000Z",
+            },
+          ],
+        }),
+        3,
+      ),
+      viewOf(118, 34),
+      theme,
+    ).lines,
+  ).join("\n");
+  assert.ok(sized.includes("critical") && sized.includes("conflicted"));
+});
+
+test("the selected detail area is hidden when the queue has nothing to select", () => {
+  const empty = plainLines(
+    buildFrame(modelOf(crowded(), 3), viewOf(118, 34), theme).lines,
+  ).join("\n");
+  assert.ok(!empty.includes("selected"));
+  assert.ok(empty.includes("f problems only [ ]"));
+  const full = plainLines(buildFrame(modelOf(), viewOf(118, 34), theme).lines);
+  assert.ok(full.join("\n").includes("── selected"));
+});
+
+test("an escalated finding on an ended agent is dimmed, says so and is not counted as needing the operator", () => {
+  const frame = buildFrame(modelOf(crowded(), 3), viewOf(118, 34), theme);
+  const text = plainLines(frame.lines).join("\n");
+  assert.ok(text.includes("1 target ended"));
+  assert.ok(!text.includes("needs operator"));
+  assert.ok(text.includes("ESCALATED 2/2 target ended"));
+  const row = frame.lines.find((l) =>
+    l.some((s) => s.text.includes("ESCALATED")),
+  );
+  assert.ok(row?.some((s) => s.dim === true));
+});
+
+test("stage bars are separated by blank rows when there is room, and use glyphs, not backgrounds", () => {
+  const color = makeTheme({ noColor: false, reducedMotion: true });
+  const frame = buildFrame(modelOf(crowded(), 3), viewOf(160, 45), color);
+  const lines = plainLines(frame.lines);
+  const at = (word: string) => lines.findIndex((l) => l.includes(word));
+  const reports = at("reports  ");
+  assert.ok(reports > 0);
+  assert.ok(
+    lines[reports + 1]!.slice(0, 80).replaceAll(/[│┃]/g, "").trim() === "",
+  );
+  assert.ok(lines[reports + 2]!.includes("reviews"));
+  for (const line of frame.lines)
+    for (const s of line)
+      assert.equal(
+        s.bg === undefined || s.bg === color.color("selectBg"),
+        true,
+      );
+});
+
+test("an empty worker meter is drawn with the empty glyph and no colour", () => {
+  const plain = plainLines(
+    buildFrame(modelOf(crowded(), 3), viewOf(118, 34), theme).lines,
+  ).join("\n");
+  assert.ok(
+    plain.includes("workers ░░░░░░░░ 0/3") ||
+      plain.includes("workers ░░░░░░░░░░░░ 0/3"),
+  );
 });

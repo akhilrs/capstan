@@ -26,7 +26,6 @@ import {
   TWO_GRAPHS_ROWS,
   windowOf,
   WRAP_REASON_ROWS,
-  DETAIL_ROWS,
   type PanelId,
   type PanelWish,
 } from "./layout.js";
@@ -273,10 +272,26 @@ function assemble(ctx: Ctx, spec: PanelSpec): Line[] {
   return out.slice(0, h);
 }
 
-const counter = (ctx: Ctx, selected: number, total: number): Tab[] =>
-  total > 0
-    ? [{ text: `${selected + 1}/${total}`, color: ctx.theme.color("info") }]
-    : [];
+/**
+ * The position tab of a panel's bottom border. A focused panel has a cursor, so
+ * it shows `cursor/total`. An unfocused panel has none; it shows the visible
+ * range `first-last/total`, and only when rows are hidden.
+ */
+const counter = (
+  ctx: Ctx,
+  selected: number,
+  total: number,
+  win: { readonly start: number; readonly end: number },
+): Tab[] => {
+  const info = ctx.theme.color("info");
+  if (total <= 0) return [];
+  if (ctx.focused) return [{ text: `${selected + 1}/${total}`, color: info }];
+  if (win.end - win.start >= total) return [];
+  return [{ text: `${win.start + 1}-${win.end}/${total}`, color: info }];
+};
+
+const widest = (words: readonly string[], floor: number): number =>
+  words.reduce((n, w) => Math.max(n, cellWidth(w)), floor);
 
 function stateSpan(ctx: Ctx, text: string, state = text): Span {
   return span(text, { color: ctx.theme.color(colorOfState(state)) });
@@ -295,30 +310,60 @@ function agentState(a: AgentRow): { word: string; role: ColorRole } {
 
 const ACTIVITY_WINDOW_SECONDS = 30;
 
+const AGENT_NAME_MAX = 20;
+
 function agentsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
-  const active = model.agents.filter((a) => a.state === "active");
-  const ended = model.agents.filter((a) => a.state !== "active");
-  const sec = agentSections(bodyOf(ctx), active.length, ended.length);
-  const cols = resolveCols(cw, [
-    { key: "glyph", title: " ", width: 1 },
-    { key: "agent", title: "AGENT", width: 12, flex: true },
-    ...(fits(cw, "agentsRole")
-      ? [{ key: "role", title: "ROLE", width: 10 }]
-      : []),
-    { key: "gen", title: "GEN", width: 3 },
-    { key: "state", title: "STATE", width: 7 },
-    ...(fits(cw, "agentsActivity")
-      ? [{ key: "activity", title: "ACTIVITY", width: 8 }]
-      : []),
-    { key: "age", title: "AGE", width: 6, right: true },
-    { key: "q", title: "Q", width: 2, right: true },
-    ...(fits(cw, "agentsPane")
-      ? [{ key: "pane", title: "PANE", width: 4 }]
-      : []),
-  ]);
-  const win = windowOf(active.length, view.selected.agents, sec.active);
+  const agents = model.agents;
+  const active = agents.filter((a) => a.state === "active").length;
+  const sec = agentSections(bodyOf(ctx), agents.length);
+  const nameWidth = Math.min(
+    AGENT_NAME_MAX,
+    widest(
+      agents.map((a) => a.agentId),
+      12,
+    ),
+  );
+  const paneWidth = widest(
+    agents.map((a) => a.paneId ?? "-"),
+    4,
+  );
+  // Optional columns go, rightmost first, before an agent name is cut.
+  const optional = [
+    { key: "pane", ok: fits(cw, "agentsPane") },
+    { key: "activity", ok: fits(cw, "agentsActivity") },
+    { key: "role", ok: fits(cw, "agentsRole") },
+  ];
+  const build = (drop: number): Col[] => {
+    const kept = new Set(
+      optional.filter((o, i) => o.ok && i >= drop).map((o) => o.key),
+    );
+    return resolveCols(cw, [
+      { key: "glyph", title: " ", width: 1 },
+      { key: "agent", title: "AGENT", width: nameWidth, flex: true },
+      ...(kept.has("role") ? [{ key: "role", title: "ROLE", width: 10 }] : []),
+      { key: "gen", title: "GEN", width: 3 },
+      { key: "state", title: "STATE", width: 7 },
+      ...(kept.has("activity")
+        ? [{ key: "activity", title: "ACTIVITY", width: 8 }]
+        : []),
+      { key: "age", title: "AGE", width: 6, right: true },
+      { key: "q", title: "Q", width: 2, right: true },
+      ...(kept.has("pane")
+        ? [{ key: "pane", title: "PANE", width: paneWidth }]
+        : []),
+    ]);
+  };
+  let cols = build(0);
+  for (
+    let drop = 1;
+    drop <= optional.length &&
+    cols.find((c) => c.key === "agent")!.width < nameWidth;
+    drop++
+  )
+    cols = build(drop);
+  const win = windowOf(agents.length, view.selected.agents, sec.rows);
   const rowOf = (a: AgentRow, isSelected: boolean): Line => {
     const st = agentState(a);
     const spinner = g.spinner[view.tick % g.spinner.length] ?? g.working;
@@ -367,15 +412,14 @@ function agentsPanel(ctx: Ctx): Line[] {
   };
   const body: Line[] = [];
   if (sec.header > 0) body.push(indent(tableHeader(cols, theme), ctx.w - 2));
-  if (active.length === 0) body.push(textLine(ctx, "no agents"));
-  active
+  if (agents.length === 0) body.push(textLine(ctx, "no agents"));
+  agents
     .slice(win.start, win.end)
     .forEach((a, i) =>
       body.push(
         rowOf(a, ctx.focused && win.start + i === view.selected.agents),
       ),
     );
-  ended.slice(0, sec.ended).forEach((a) => body.push(rowOf(a, false)));
   if (sec.graph > 0) {
     const limit = model.header.workerLimit;
     body.push(
@@ -395,20 +439,20 @@ function agentsPanel(ctx: Ctx): Line[] {
       theme,
     ).forEach((spans) => body.push(indent(spans, ctx.w - 2)));
   }
-  const endedTotal = ended.length + model.endedAgentsHidden;
+  const ended = agents.length - active;
   const tabs: Tab[] = [
-    { text: `${active.length} active`, color: theme.color("fg") },
-    ...(endedTotal > 0 && sec.ended < ended.length + model.endedAgentsHidden
-      ? [{ text: `${endedTotal} ended`, color: theme.color("dim") }]
+    { text: `${active} active`, color: theme.color("fg") },
+    ...(ended > 0
+      ? [{ text: `${ended} ended`, color: theme.color("dim") }]
       : []),
   ];
   return assemble(ctx, {
     id: "agents",
     tabs,
     bottomLeft: [{ text: "working: inferred", color: theme.color("dim") }],
-    bottomRight: counter(ctx, view.selected.agents, active.length),
+    bottomRight: counter(ctx, view.selected.agents, agents.length, win),
     body,
-    thumb: thumbRange(active.length, sec.active, win.start, sec.active),
+    thumb: thumbRange(agents.length, sec.rows, win.start, sec.rows),
     thumbTop: sec.header,
   });
 }
@@ -454,6 +498,9 @@ function stageLine(
   );
 }
 
+/** The longest pipeline state word, `conflicted`. */
+const PIPELINE_STATE_WIDTH = 10;
+
 function pipelinePanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
@@ -476,21 +523,24 @@ function pipelinePanel(ctx: Ctx): Line[] {
     );
   }
   if (sec.stages > 0) {
-    if (sec.spacers) body.push(blankLine(ctx.w - 2));
     const barCells = Math.min(16, Math.max(6, Math.floor(cw / 4)));
     const lines = [
       stageLine(ctx, "reports", p.reports, barCells),
       stageLine(ctx, "reviews", p.reviews, barCells),
       stageLine(ctx, "integrations", p.integrations, barCells),
     ];
-    body.push(...lines.slice(0, sec.stages));
-    if (sec.spacers) body.push(blankLine(ctx.w - 2));
+    if (sec.gapped)
+      lines.forEach((line, i) => {
+        if (i > 0) body.push(blankLine(ctx.w - 2));
+        body.push(line);
+      });
+    else body.push(...lines.slice(0, sec.stages));
   }
   let win = { start: 0, end: 0, hidden: 0 };
   if (sec.header > 0 && items.length > 0) {
     const cols = resolveCols(cw, [
       { key: "stage", title: "STAGE", width: 11 },
-      { key: "state", title: "STATE", width: 8 },
+      { key: "state", title: "STATE", width: PIPELINE_STATE_WIDTH },
       { key: "who", title: "WHO / COMMIT", width: 12, flex: true },
       { key: "age", title: "AGE", width: 6, right: true },
     ]);
@@ -520,7 +570,9 @@ function pipelinePanel(ctx: Ctx): Line[] {
       ? [{ text: "reported > review > integrated", color: theme.color("dim") }]
       : [],
     bottomRight:
-      sec.header > 0 ? counter(ctx, view.selected.pipeline, items.length) : [],
+      sec.header > 0
+        ? counter(ctx, view.selected.pipeline, items.length, win)
+        : [],
     body,
     thumb: thumbRange(items.length, sec.items, win.start, sec.items),
     thumbTop: headerLines,
@@ -539,7 +591,11 @@ function queuePanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
   const rows = queueRows(model, view.problemsOnly);
-  const sec = queueSections(bodyOf(ctx), Math.max(1, rows.length));
+  const sec = queueSections(
+    bodyOf(ctx),
+    Math.max(1, rows.length),
+    rows.length > 0,
+  );
   const cols = resolveCols(cw, [
     { key: "glyph", title: " ", width: 1 },
     { key: "seq", title: "SEQ", width: 5, right: true },
@@ -594,12 +650,11 @@ function queuePanel(ctx: Ctx): Line[] {
       used + (sec.list - Math.min(sec.list, win.end - win.start))
     )
       body.push(blankLine(ctx.w - 2));
+    const caption = `${g.rule.repeat(2)} selected `;
     body.push(
-      textLine(ctx, `${g.rule.repeat(2)} selected ${g.rule.repeat(cw)}`),
+      textLine(ctx, caption + g.rule.repeat(Math.max(0, cw - caption.length))),
     );
-    if (selected === undefined) {
-      for (let i = 1; i < DETAIL_ROWS; i++) body.push(blankLine(ctx.w - 2));
-    } else {
+    if (selected !== undefined) {
       const decisions = availableDecisions(selected);
       body.push(
         textLine(
@@ -682,7 +737,7 @@ function queuePanel(ctx: Ctx): Line[] {
   return assemble(ctx, {
     id: "queue",
     tabs,
-    bottomRight: counter(ctx, selectedIndex, rows.length),
+    bottomRight: counter(ctx, selectedIndex, rows.length, win),
     body,
     thumb: thumbRange(rows.length, sec.list, win.start, sec.list),
     thumbTop: sec.header,
@@ -690,6 +745,9 @@ function queuePanel(ctx: Ctx): Line[] {
 }
 
 // -------------------------------------------------------------- findings
+
+/** The longest severity word, `critical`. */
+const FINDING_SEVERITY_WIDTH = 8;
 
 function findingsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
@@ -700,8 +758,15 @@ function findingsPanel(ctx: Ctx): Line[] {
   const cols = resolveCols(cw, [
     { key: "glyph", title: " ", width: 1 },
     { key: "id", title: "ID", width: 6 },
-    { key: "target", title: "TARGET", width: 12 },
-    { key: "sev", title: "SEV", width: 4 },
+    {
+      key: "target",
+      title: "TARGET",
+      width: widest(
+        rows.map((f) => f.targetAgentId),
+        6,
+      ),
+    },
+    { key: "sev", title: "SEV", width: FINDING_SEVERITY_WIDTH },
     { key: "state", title: "STATE", width: 9 },
     { key: "int", title: "INT", width: 3 },
     { key: "reason", title: "REASON", width: 10, flex: true },
@@ -715,6 +780,7 @@ function findingsPanel(ctx: Ctx): Line[] {
       tableRow(ctx, cols, {
         selected: ctx.focused && win.start + i === view.selected.findings,
         changed: view.highlight.has(`f:${f.id}`),
+        dim: f.targetEnded,
         cells: {
           glyph: f.needsOperator
             ? span(g.attention, { color: theme.color("bad") })
@@ -726,19 +792,26 @@ function findingsPanel(ctx: Ctx): Line[] {
             color: theme.color(f.needsOperator ? "bad" : "warn"),
           }),
           int: span(`${f.interventions}/2`, { color: theme.color("dim") }),
-          reason: span(f.stateReason ?? "", { color: theme.color("fg") }),
+          reason: span(f.targetEnded ? "target ended" : (f.stateReason ?? ""), {
+            color: theme.color("fg"),
+          }),
         },
       }),
     ),
   );
-  const needs = rows.filter((f) => f.needsOperator).length;
+  const needs = rows.filter((f) => f.needsOperator && !f.targetEnded).length;
+  const orphaned = rows.filter((f) => f.targetEnded).length;
   return assemble(ctx, {
     id: "findings",
-    tabs:
-      needs > 0
+    tabs: [
+      ...(needs > 0
         ? [{ text: `${needs} needs operator`, color: theme.color("bad") }]
-        : [],
-    bottomRight: counter(ctx, view.selected.findings, rows.length),
+        : []),
+      ...(orphaned > 0
+        ? [{ text: `${orphaned} target ended`, color: theme.color("dim") }]
+        : []),
+    ],
+    bottomRight: counter(ctx, view.selected.findings, rows.length, win),
     body,
     thumb: thumbRange(rows.length, body0 - header, win.start, body0 - header),
     thumbTop: header,
@@ -775,7 +848,7 @@ function workPanel(ctx: Ctx): Line[] {
   return assemble(ctx, {
     id: "work",
     tabs: [{ text: "v1", color: theme.color("dim") }],
-    bottomRight: counter(ctx, view.selected.work, rows.length),
+    bottomRight: counter(ctx, view.selected.work, rows.length, win),
     body,
     thumb: thumbRange(rows.length, body0 - header, win.start, body0 - header),
     thumbTop: header,
@@ -794,12 +867,10 @@ function wishFor(id: PanelId, model: DashModel, view: ViewState): PanelWish {
   const count = (n: number) => Math.max(1, n);
   switch (id) {
     case "agents": {
-      const active = model.agents.filter((a) => a.state === "active").length;
-      const ended = model.agents.length - active;
       return {
         id,
         min: 3,
-        want: CHROME_ROWS + 1 + count(active) + ended,
+        want: CHROME_ROWS + 1 + count(model.agents.length),
         weight: 4,
         stretch: true,
       };
