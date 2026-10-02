@@ -26,3 +26,4 @@ About 14 real Claude turns in total: developer-1 about 5 (three instructions, on
 - The finding was seeded by the operator, so what is shown is the finding, delivery, acknowledgement and check mechanism with real agents, not that a real Supervisor detects a real stuck agent unprompted. That detection has still not been seen.
 - The predecessor's token was not retried after the replacement (covered by the fake-agent gate in `STAGE6_GATE_RESULTS.md`).
 - The Supervisor's evidence text is model-written and was not checked against the observed screen by the controller.
+- Not in the evidence file and checked by hand only: that `hello.txt` existed in the developer's worktree (listed on disk after the run), the base commit shown by `cstan replace`, and the cleanup of the Herdr session and `~/.claude.json`. The commit id in the resolution check is the Supervisor's own text; no `git log` was run against it.
