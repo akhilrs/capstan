@@ -401,7 +401,7 @@ function reviewTask(
     `Commit to review: ${row.commit_sha}`,
     row.subject_integration_id === null
       ? `The author's base commit: ${row.base_sha}`
-      : `The integration's base commit: ${row.base_sha}. The commit to review merges the reports below, in this order, each as its own merge.`,
+      : `The integration's base commit: ${row.base_sha}. The commit to review combines the reports below, in this order.`,
     `See the change with: git diff ${row.base_sha} ${row.commit_sha}   and   git log --first-parent ${row.base_sha}..${row.commit_sha}`,
   ];
   for (const { report } of authors)
@@ -5845,6 +5845,59 @@ export class ControllerCore {
     this.#assertOpen();
     safeId(integrationId, "integration id");
     return this.#integrationRecord(integrationId);
+  }
+
+  /** What the squash commit of an integration says: the plan title when every report is a package of one plan, and the reports in merge order. */
+  integrationCommitInfo(integrationId: string): {
+    readonly planTitle: string | null;
+    readonly reports: readonly {
+      readonly reportId: string;
+      readonly agentId: string;
+      readonly summary: string;
+    }[];
+  } {
+    this.#assertOpen();
+    safeId(integrationId, "integration id");
+    const reports = this.#integrationAuthors(integrationId);
+    const plans = this.#database
+      .prepare(
+        `SELECT DISTINCT pl.plan_id, pl.title FROM integration_reports ir
+         JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+         JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
+         JOIN plan_packages pp ON pp.project_id = ir.project_id AND pp.assignee_agent_id = r.agent_id
+         JOIN plans pl ON pl.project_id = pp.project_id AND pl.plan_id = pp.plan_id
+         WHERE ir.project_id = ? AND ir.integration_id = ?`,
+      )
+      .all(this.#projectId, integrationId) as {
+      plan_id: string;
+      title: string;
+    }[];
+    const common = plans.filter(
+      (plan) =>
+        !reports.some(
+          (report) =>
+            this.#database
+              .prepare(
+                `SELECT 1 FROM plan_packages pp JOIN agents a ON a.project_id = pp.project_id AND a.agent_id = pp.assignee_agent_id
+                 WHERE pp.project_id = ? AND pp.plan_id = ? AND pp.assignee_agent_id = ? AND a.generation = ?`,
+              )
+              .get(
+                this.#projectId,
+                plan.plan_id,
+                report.agent_id,
+                report.generation,
+              ) === undefined,
+        ),
+    );
+    return {
+      planTitle:
+        reports.length > 0 && common.length === 1 ? common[0]!.title : null,
+      reports: reports.map((report) => ({
+        reportId: report.report_id,
+        agentId: report.agent_id,
+        summary: report.summary,
+      })),
+    };
   }
 
   integrations(credential: string, limit = 20): readonly IntegrationRecord[] {

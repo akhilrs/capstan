@@ -65,11 +65,11 @@ function input(repo: Repo, branch: string, shas: [string, string][]) {
   return {
     baseSha: repo.base,
     branch,
-    merges: shas.map(([reportId, sha]) => ({
-      reportId,
-      sha,
-      message: `Merge report ${reportId}`,
-    })),
+    subject: "chore: combined",
+    body: shas
+      .map(([reportId]) => `Report ${reportId} (agent-x): done`)
+      .join("\n"),
+    merges: shas.map(([reportId, sha]) => ({ reportId, sha })),
   };
 }
 
@@ -79,7 +79,7 @@ function worktrees(repo: Repo): string[] {
     .filter((line) => line.startsWith("worktree "));
 }
 
-test("reports merge in order, each as a merge commit, onto a new branch, and nothing is checked out", async () => {
+test("reports squash into one commit on a new branch, and nothing is checked out", async () => {
   const repo = makeRepo();
   try {
     const request = input(repo, "capstan/integration/ok", [
@@ -93,14 +93,17 @@ test("reports merge in order, each as a merge commit, onto a new branch, and not
       await branchTip(repo.root, "capstan/integration/ok"),
       result.headSha,
     );
-    const subjects = git(
-      repo.root,
-      "log",
-      "--first-parent",
-      "--format=%s",
-      `${repo.base}..${result.headSha}`,
-    ).split("\n");
-    assert.deepEqual(subjects, ["Merge report r-c", "Merge report r-a"]);
+    assert.equal(
+      git(repo.root, "rev-list", "--count", `${repo.base}..${result.headSha}`),
+      "1",
+    );
+    assert.equal(git(repo.root, "rev-parse", `${result.headSha}^@`), repo.base);
+    const message = git(repo.root, "log", "-1", "--format=%B", result.headSha);
+    assert.match(
+      message,
+      /^chore: combined\n\nReport r-a \(agent-x\): done\nReport r-c/,
+    );
+    assert.doesNotMatch(message, /Co-Authored-By|Claude/);
     assert.equal(git(repo.root, "show", `${result.headSha}:own.txt`), "own");
     assert.equal(
       git(repo.root, "show", `${result.headSha}:shared.txt`),
@@ -177,7 +180,9 @@ test("conflict paths are escaped, kept distinct and capped", async () => {
     const result = await mergeIntoBranch(root, {
       baseSha: x,
       branch: "capstan/integration/paths",
-      merges: [{ reportId: "r", sha: y, message: "m" }],
+      subject: "chore: x",
+      body: "Report r (a): y",
+      merges: [{ reportId: "r", sha: y }],
     });
     assert.equal(result.kind, "conflicted");
     if (result.kind !== "conflicted") return;
@@ -317,6 +322,116 @@ test("a missing commit, a report already in the base and an existing branch fail
         )
       ).kind,
       "failed",
+    );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+function referenceTree(repo: Repo, shas: string[]): string {
+  git(
+    repo.root,
+    "worktree",
+    "add",
+    "-q",
+    "--detach",
+    `${repo.root}-ref`,
+    repo.base,
+  );
+  try {
+    for (const sha of shas)
+      git(`${repo.root}-ref`, "merge", "-q", "--no-ff", "-m", "m", sha);
+    return git(`${repo.root}-ref`, "rev-parse", "HEAD^{tree}");
+  } finally {
+    git(repo.root, "worktree", "remove", "--force", `${repo.root}-ref`);
+  }
+}
+
+test("the squash tree equals the tree of merging each report with --no-ff, including a contained report", async () => {
+  const repo = makeRepo();
+  try {
+    git(repo.root, "checkout", "-q", "-b", "d", repo.c);
+    writeFileSync(path.join(repo.root, "more.txt"), "more\n");
+    git(repo.root, "add", "more.txt");
+    git(repo.root, "commit", "-q", "-m", "d");
+    const d = git(repo.root, "rev-parse", "HEAD");
+    git(repo.root, "checkout", "-q", "main");
+    const cases: [string, string[]][] = [
+      ["one", [repo.a]],
+      ["disjoint", [repo.a, repo.c]],
+      ["contained", [repo.c, d]],
+      ["contained-first", [d, repo.c]],
+    ];
+    for (const [name, shas] of cases) {
+      const result = await mergeIntoBranch(
+        repo.root,
+        input(
+          repo,
+          `capstan/integration/${name}`,
+          shas.map((s, i) => [`r${i}`, s]),
+        ),
+      );
+      assert.equal(result.kind, "merged", name);
+      if (result.kind !== "merged") return;
+      assert.equal(
+        git(
+          repo.root,
+          "rev-list",
+          "--count",
+          `${repo.base}..${result.headSha}`,
+        ),
+        "1",
+        name,
+      );
+      assert.equal(
+        git(repo.root, "rev-parse", `${result.headSha}^{tree}`),
+        referenceTree(repo, shas),
+        name,
+      );
+    }
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("overlapping files in different hunks squash to the reference tree", async () => {
+  const repo = makeRepo();
+  try {
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i}`);
+    const write = (edit: (l: string[]) => void): void => {
+      const copy = [...lines];
+      edit(copy);
+      writeFileSync(path.join(repo.root, "big.txt"), `${copy.join("\n")}\n`);
+    };
+    write(() => undefined);
+    git(repo.root, "add", "big.txt");
+    git(repo.root, "commit", "-q", "-m", "big");
+    const base = git(repo.root, "rev-parse", "HEAD");
+    const branchWith = (name: string, line: number): string => {
+      git(repo.root, "checkout", "-q", "-b", name, base);
+      write((l) => {
+        l[line] = name;
+      });
+      git(repo.root, "commit", "-q", "-am", name);
+      const sha = git(repo.root, "rev-parse", "HEAD");
+      git(repo.root, "checkout", "-q", "main");
+      return sha;
+    };
+    const top = branchWith("top", 1);
+    const bottom = branchWith("bottom", 27);
+    const moved = { ...repo, base };
+    const result = await mergeIntoBranch(
+      repo.root,
+      input(moved, "capstan/integration/hunks", [
+        ["r1", top],
+        ["r2", bottom],
+      ]),
+    );
+    assert.equal(result.kind, "merged");
+    if (result.kind !== "merged") return;
+    assert.equal(
+      git(repo.root, "rev-parse", `${result.headSha}^{tree}`),
+      referenceTree(moved, [top, bottom]),
     );
   } finally {
     rmSync(repo.root, { recursive: true, force: true });

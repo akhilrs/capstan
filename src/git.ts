@@ -240,16 +240,19 @@ export type MergeResult =
 export interface IntegrationMergeInput {
   readonly baseSha: string;
   readonly branch: string;
+  readonly subject: string;
+  readonly body: string;
   readonly merges: readonly {
     readonly reportId: string;
     readonly sha: string;
-    readonly message: string;
   }[];
 }
 
 /**
- * Merges the commits in order onto the base, each as its own merge commit, and
- * creates the branch at the result. It builds the trees with `git merge-tree`
+ * Merges the commits in order onto the base and creates the branch at one
+ * squash commit whose only parent is the base and whose tree is the result of
+ * the merges. The merges are chained through intermediate merge commits that no
+ * ref keeps, so each report is merged against the result so far. It builds the trees with `git merge-tree`
  * and the commits with `git commit-tree`, so nothing is checked out: no
  * worktree exists, and no hook, filter, fsmonitor or rerere setting of the
  * repository can run. (A merge driver named in the committed attributes still
@@ -274,6 +277,7 @@ export async function mergeIntoBranch(
         reason: `the commit of report ${merge.reportId} does not exist`,
       };
   let head = input.baseSha;
+  let tree: string | undefined;
   for (const merge of input.merges) {
     if (await isAncestor(repoRoot, merge.sha, head)) continue;
     const merged = await runGit(
@@ -324,7 +328,7 @@ export async function mergeIntoBranch(
         "-p",
         merge.sha,
         "-m",
-        merge.message,
+        `Merge report ${merge.reportId}`,
       ],
       WRITE_OPTIONS,
     );
@@ -335,15 +339,36 @@ export async function mergeIntoBranch(
         reason: `git could not commit the merge of report ${merge.reportId}`,
       };
     head = next;
+    tree = fields[0]!;
   }
-  if (head === input.baseSha)
+  if (head === input.baseSha || tree === undefined)
     return {
       kind: "failed",
       reason: "every report is already contained in the base commit",
     };
+  const squash = await runGit(
+    repoRoot,
+    [
+      "-c",
+      "commit.gpgSign=false",
+      "commit-tree",
+      tree,
+      "-p",
+      input.baseSha,
+      "-m",
+      `${input.subject}\n\n${input.body}`,
+    ],
+    WRITE_OPTIONS,
+  );
+  const squashed = squash.stdout.trim();
+  if (squash.code !== 0 || !FULL_SHA.test(squashed))
+    return {
+      kind: "failed",
+      reason: "git could not commit the squashed integration",
+    };
   const created = await runGit(
     repoRoot,
-    ["update-ref", ref, head, NO_COMMIT],
+    ["update-ref", ref, squashed, NO_COMMIT],
     WRITE_OPTIONS,
   );
   if (created.code !== 0)
@@ -351,7 +376,7 @@ export async function mergeIntoBranch(
       kind: "failed",
       reason: "git could not create the integration branch",
     };
-  return { kind: "merged", headSha: head };
+  return { kind: "merged", headSha: squashed };
 }
 
 /** Whether any worktree of the repository has this branch checked out. */

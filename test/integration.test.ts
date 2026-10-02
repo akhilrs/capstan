@@ -8,7 +8,7 @@ import {
   settleIntegration,
   type IntegrationGit,
 } from "../src/integration.js";
-import type { MergeResult } from "../src/git.js";
+import type { IntegrationMergeInput, MergeResult } from "../src/git.js";
 import { close, ctx, harness, type Harness, type Member } from "./harness.js";
 
 const BASE = "a".repeat(40);
@@ -56,7 +56,12 @@ function member(
   };
 }
 
-function reportBy(h: Harness, author: Member, commit: string): string {
+function reportBy(
+  h: Harness,
+  author: Member,
+  commit: string,
+  summary = `work of ${author.agentId}`,
+): string {
   const branch = `capstan/${author.agentId}-g1`;
   h.core.recordAgentPane(ctx(h.core, h.owner), {
     agentId: author.agentId,
@@ -78,7 +83,7 @@ function reportBy(h: Harness, author: Member, commit: string): string {
   };
   const { record } = h.core.recordAgentReport(ctx(h.core, author.credential), {
     commitSha: commit,
-    summary: `work of ${author.agentId}`,
+    summary,
     evidence,
   });
   assert.equal(record.state, "accepted");
@@ -106,6 +111,7 @@ function review(
 
 interface FakeGit extends IntegrationGit {
   readonly calls: string[];
+  readonly inputs: IntegrationMergeInput[];
   mergeResult: MergeResult;
   inHead: boolean;
 }
@@ -113,11 +119,13 @@ interface FakeGit extends IntegrationGit {
 function fakeGit(): FakeGit {
   const fake: FakeGit = {
     calls: [],
+    inputs: [],
     mergeResult: { kind: "merged", headSha: HEAD },
     inHead: false,
     headCommit: async () => BASE,
     commitExists: async () => true,
     merge: async (input) => {
+      fake.inputs.push(input);
       fake.calls.push(`merge ${input.merges.map((m) => m.reportId).join(",")}`);
       return fake.mergeResult;
     },
@@ -682,6 +690,122 @@ test("a branch that could not be deleted at settle is swept by the next integrat
       requestedBy: "operator",
     });
     assert.equal(deletes(), before, "a swept branch is not tried again");
+  } finally {
+    await close(h);
+  }
+});
+
+function approvedPlan(h: Harness, title: string, packages: [string, Member][]) {
+  const architect = member(
+    h,
+    `architect-${title.replace(/\W/g, "")}`,
+    "Developer",
+    "developer",
+  );
+  const { planId } = h.core.openPlan(ctx(h.core, h.pm.credential), {
+    tier: "normal",
+    title,
+  });
+  h.core.submitPlan(ctx(h.core, architect.credential), {
+    planId,
+    bodyJson: JSON.stringify({
+      summary: "s",
+      packages: packages.map(([id]) => ({ id, title: id })),
+    }),
+    baseSha: BASE,
+    review: false,
+  });
+  for (const [packageId, who] of packages)
+    h.core.assignPackage(ctx(h.core, h.pm.credential), {
+      planId,
+      packageId,
+      agentId: who.agentId,
+    });
+}
+
+async function squashOf(h: Harness, ids: string[]) {
+  const git = fakeGit();
+  await integrate(deps(h, git), { reportIds: ids, requestedBy: h.pm.agentId });
+  return git.inputs[0]!;
+}
+
+test("the squash message takes the plan title when the reports are packages of one plan, and the first summary otherwise", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    const a = h.developer;
+    const b = member(h, "developer-2", "Developer", "developer");
+    approvedPlan(h, "Plan Alpha", [
+      ["wp1", a],
+      ["wp2", b],
+    ]);
+    const ids = [
+      reportBy(h, a, "1".repeat(40), "fix(core): repair the thing"),
+      reportBy(h, b, "2".repeat(40), "second summary"),
+    ];
+    for (const id of ids) review(h, id, "pass");
+    const input = await squashOf(h, ids);
+    assert.equal(input.subject, "fix: Plan Alpha");
+    assert.equal(
+      input.body,
+      `Report ${ids[0]} (${a.agentId}): fix(core): repair the thing\nReport ${ids[1]} (developer-2): second summary`,
+    );
+    assert.doesNotMatch(input.body, /Co-Authored-By|Claude/);
+  } finally {
+    await close(h);
+  }
+});
+
+test("without one plan the squash subject is the first summary line, typed chore unless it names a type", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    const a = h.developer;
+    const b = member(h, "developer-2", "Developer", "developer");
+    const c = member(h, "developer-3", "Developer", "developer");
+    approvedPlan(h, "Plan One", [["wp1", a]]);
+    approvedPlan(h, "Plan Two", [["wp1", b]]);
+    const ids = [
+      reportBy(h, a, "1".repeat(40), "plain summary " + "x".repeat(100)),
+      reportBy(h, b, "2".repeat(40), "feat: other"),
+      reportBy(h, c, "3".repeat(40), "docs(x): unplanned"),
+    ];
+    for (const id of ids) review(h, id, "pass");
+    const two = await squashOf(h, [ids[0]!, ids[1]!]);
+    assert.match(two.subject, /^chore: plain summary x+\.\.\.$/);
+    assert.equal(two.subject.length, 72);
+    const unplanned = await squashOf(h, [ids[2]!]);
+    assert.equal(unplanned.subject, "docs: docs(x): unplanned");
+    assert.match(
+      unplanned.subject,
+      /^(feat|fix|refactor|docs|test|chore|style|perf|ci)(\([^)]+\))?: .{1,}/,
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("the integration review task does not claim one merge per report", async () => {
+  const h = await harness();
+  try {
+    const { ids } = reviewedPair(h);
+    const record = await integrate(deps(h, fakeGit()), {
+      reportIds: ids,
+      requestedBy: h.pm.agentId,
+    });
+    const reviewer = member(h, "squash-reviewer", "Verifier", "reviewer");
+    h.core.beginReview(ctx(h.core, h.pm.credential), {
+      subjectId: record.integrationId,
+      reviewerRole: "reviewer",
+      reviewerAgentId: reviewer.agentId,
+    });
+    const [task] = h.core.messagesFor(reviewer.agentId);
+    assert.ok(
+      task!.body.includes(
+        "The commit to review combines the reports below, in this order.",
+      ),
+    );
+    assert.ok(!task!.body.includes("each as its own merge"));
   } finally {
     await close(h);
   }
