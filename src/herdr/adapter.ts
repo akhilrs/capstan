@@ -18,6 +18,7 @@ import {
   type DeferralReason,
   type HerdrState,
 } from "../controller/messaging.js";
+import { herdrAgentName } from "./naming.js";
 import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
 import {
   extractInputLine,
@@ -135,6 +136,8 @@ export interface AdapterOptions {
   readonly pollMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly now?: () => number;
+  /** The project's slug: Herdr then sees every agent as `<slug>-<agent-id>`, while callers keep passing the ledger id. */
+  readonly projectSlug?: string;
 }
 
 const MAX_CLEAR_ROUNDS = 5;
@@ -200,6 +203,20 @@ const CONTROL_CHARACTERS = /\p{Cc}/u;
 function requireMatch(value: unknown, pattern: RegExp, label: string): string {
   if (typeof value !== "string" || !pattern.test(value))
     throw new InvalidArgumentError(`${label} is not acceptable`);
+  return value;
+}
+
+/** A display label: printable text on one line, at most 64 characters. */
+function requireLabel(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.trim() === "" ||
+    value.length > 128 ||
+    Array.from(value).length > 64 ||
+    !value.isWellFormed() ||
+    UNSAFE_TEXT.test(value)
+  )
+    throw new InvalidArgumentError("label is not acceptable");
   return value;
 }
 
@@ -305,16 +322,31 @@ export class HerdrAdapter {
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #now: () => number;
   readonly #panes = new Map<string, PaneEntry>();
+  readonly #slug: string | undefined;
   #promptDirectory: string | undefined;
 
   constructor(options: AdapterOptions) {
     this.#run = options.run;
+    this.#slug = options.projectSlug;
     this.#tempRoot = options.tempRoot ?? os.tmpdir();
     this.#pollMs = options.pollMs ?? 100;
     this.#sleep =
       options.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#now = options.now ?? Date.now;
+  }
+
+  /** The name Herdr knows an agent by: the ledger id behind the project's slug. */
+  #herdrName(agentId: string): string {
+    try {
+      return this.#slug === undefined
+        ? agentId
+        : herdrAgentName(this.#slug, agentId);
+    } catch (error) {
+      throw new InvalidArgumentError(
+        error instanceof Error ? error.message : "agent name is not acceptable",
+      );
+    }
   }
 
   async version(): Promise<string> {
@@ -349,7 +381,7 @@ export class HerdrAdapter {
   }> {
     requireMatch(input.workspaceId, WORKSPACE_PATTERN, "workspace id");
     requireMatch(input.branch, BRANCH_PATTERN, "branch");
-    requireMatch(input.label, NAME_PATTERN, "label");
+    requireLabel(input.label);
     const args = [
       "worktree",
       "create",
@@ -559,7 +591,7 @@ export class HerdrAdapter {
   }): Promise<{ workspaceId: string; paneId: string }> {
     if (!path.isAbsolute(input.cwd))
       throw new InvalidArgumentError("workspace directory must be absolute");
-    requireMatch(input.label, NAME_PATTERN, "label");
+    requireLabel(input.label);
     const result = await runJson(this.#run, [
       "workspace",
       "create",
@@ -607,6 +639,35 @@ export class HerdrAdapter {
         this.#panes.delete(paneId);
   }
 
+  /** Display-only metadata for the operator's sidebar; the caller treats a failure as non-fatal. */
+  async reportMetadata(
+    target: { readonly paneId: string } | { readonly workspaceId: string },
+    tokens: Readonly<Record<string, string>>,
+  ): Promise<void> {
+    const pane = "paneId" in target;
+    const id = pane
+      ? requireMatch(target.paneId, PANE_PATTERN, "pane id")
+      : requireMatch(target.workspaceId, WORKSPACE_PATTERN, "workspace id");
+    const args = [pane ? "pane" : "workspace", "report-metadata", id];
+    args.push("--source", "capstan");
+    for (const [name, value] of Object.entries(tokens)) {
+      requireMatch(name, /^[a-z][a-z0-9_]{0,31}$/, "token name");
+      args.push("--token", `${name}=${requireLabel(value).slice(0, 80)}`);
+    }
+    await this.#runChecked(args);
+  }
+
+  /** Gives an existing workspace its current label (an upgraded project still holds the old one). */
+  async renameWorkspace(workspaceId: string, label: string): Promise<void> {
+    requireMatch(workspaceId, WORKSPACE_PATTERN, "workspace id");
+    await this.#runChecked([
+      "workspace",
+      "rename",
+      workspaceId,
+      requireLabel(label),
+    ]);
+  }
+
   async closePane(paneId: string): Promise<void> {
     requireMatch(paneId, PANE_PATTERN, "pane id");
     await this.#runChecked(["pane", "close", paneId]);
@@ -631,7 +692,30 @@ export class HerdrAdapter {
     if (this.#panes.has(input.paneId))
       throw new PhaseError("the pane is already registered");
     await this.#assertPaneExists(input.paneId);
-    const state = await this.agentState(input.agent);
+    let state: { status: string; paneId: string; kind: string };
+    try {
+      state = await this.agentState(input.agent);
+    } catch (error) {
+      if (
+        this.#slug === undefined ||
+        !(error instanceof HerdrError) ||
+        error.code !== "agent_not_found"
+      )
+        throw error;
+      // An agent started before names carried the project is still known by its bare id: name it the new way when it is on the recorded pane.
+      const legacy = await this.#agentStateByHerdrName(input.agent);
+      if (legacy.paneId !== input.paneId)
+        throw new AgentPaneMismatch(
+          "the agent name points at another pane than the recorded one",
+        );
+      await this.#runChecked([
+        "agent",
+        "rename",
+        input.paneId,
+        this.#herdrName(input.agent),
+      ]);
+      state = await this.agentState(input.agent);
+    }
     if (state.paneId !== input.paneId)
       throw new AgentPaneMismatch(
         "the agent name points at another pane than the recorded one",
@@ -771,7 +855,13 @@ export class HerdrAdapter {
     name: string,
   ): Promise<{ status: string; paneId: string; kind: string }> {
     requireMatch(name, NAME_PATTERN, "agent name");
-    const result = await runJson(this.#run, ["agent", "get", name]);
+    return await this.#agentStateByHerdrName(this.#herdrName(name));
+  }
+
+  async #agentStateByHerdrName(
+    herdrName: string,
+  ): Promise<{ status: string; paneId: string; kind: string }> {
+    const result = await runJson(this.#run, ["agent", "get", herdrName]);
     const agent = this.#record(result.agent, "agent");
     return {
       status:
@@ -919,6 +1009,7 @@ export class HerdrAdapter {
         `agent kind ${input.kind} is not supported yet`,
       );
     requireMatch(input.name, NAME_PATTERN, "agent name");
+    const herdrName = this.#herdrName(input.name);
     for (const other of this.#panes.values())
       if (other.agent === input.name)
         throw new InvalidArgumentError(
@@ -962,7 +1053,7 @@ export class HerdrAdapter {
         [
           "agent",
           "start",
-          input.name,
+          herdrName,
           "--kind",
           input.kind,
           "--pane",
@@ -1025,7 +1116,12 @@ export class HerdrAdapter {
     if (second !== undefined) return { sent: false, reason: second };
     await input.beforeSend();
     try {
-      await runJson(this.#run, ["agent", "prompt", agent, input.text]);
+      await runJson(this.#run, [
+        "agent",
+        "prompt",
+        this.#herdrName(agent),
+        input.text,
+      ]);
     } catch (error) {
       throw new SendAfterRecordError(
         "the message was recorded but Herdr did not accept the prompt",

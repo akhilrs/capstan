@@ -1064,6 +1064,23 @@ test("cstan config check warns about every role that runs unattended on a host o
   }
 });
 
+test("cstan herdr-config prints a Herdr config snippet that uses the project token and takes no arguments", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-herdr-config-"));
+  try {
+    const result = invoke(cwd, "herdr-config");
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[ui\.sidebar\.agents\]/);
+    assert.match(
+      result.stdout,
+      /rows = \[\["state_icon", "\$project", "workspace"\], \["agent"\]\]/,
+    );
+    assert.match(result.stdout, /\[ui\.sidebar\.spaces\]/);
+    assert.equal(invoke(cwd, "herdr-config", "extra").status, 2);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cstan config sync writes once and a second run writes nothing", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-config-sync-"));
   try {

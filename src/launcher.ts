@@ -26,6 +26,7 @@ import {
   type HerdrAdapter,
 } from "./herdr/adapter.js";
 import { codexArguments, ompArguments } from "./herdr/hosts.js";
+import { projectDisplayName, workspaceLabel } from "./herdr/naming.js";
 import { HerdrError } from "./herdr/runner.js";
 import { sanitizeScreen } from "./observe.js";
 import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
@@ -55,6 +56,8 @@ export type LauncherAdapter = Pick<
   | "closePane"
   | "adoptPane"
   | "adoptShellPane"
+  | "reportMetadata"
+  | "renameWorkspace"
   | "forgetPane"
   | "runInPane"
   | "writePromptFile"
@@ -324,6 +327,7 @@ export class Launcher {
   readonly #adapter: LauncherAdapter;
   readonly #config: CapstanConfig;
   readonly #root: string;
+  readonly #project: string;
   readonly #cliPath: string;
   readonly #socketPath: string;
   readonly #credential: string;
@@ -346,6 +350,10 @@ export class Launcher {
     this.#adapter = options.adapter;
     this.#config = options.config;
     this.#root = options.projectRoot;
+    this.#project = projectDisplayName(
+      options.config.projectName,
+      options.projectRoot,
+    );
     this.#cliPath = options.cliPath;
     this.#socketPath = options.socketPath;
     this.#credential = options.credential;
@@ -709,6 +717,34 @@ export class Launcher {
     return claudeArguments({ ...role, allow }, prompt.file);
   }
 
+  /** Tells Herdr which project, role and agent a pane belongs to, for the operator's sidebar; display only, so a failure is logged and never stops a start. */
+  async #describe(input: {
+    paneId: string;
+    workspaceId: string | null;
+    agentId: string;
+    roleName: string;
+    label?: string;
+  }): Promise<void> {
+    try {
+      if (input.label !== undefined && input.workspaceId !== null)
+        await this.#adapter.renameWorkspace(input.workspaceId, input.label);
+      await this.#adapter.reportMetadata(
+        { paneId: input.paneId },
+        { project: this.#project, role: input.roleName, agent: input.agentId },
+      );
+      if (input.workspaceId !== null)
+        await this.#adapter.reportMetadata(
+          { workspaceId: input.workspaceId },
+          { project: this.#project },
+        );
+    } catch (error) {
+      this.#log("describe_failed", {
+        agentId: input.agentId,
+        error: String(error),
+      });
+    }
+  }
+
   // ---------------------------------------------------------------- start
 
   async #startPm(
@@ -730,7 +766,7 @@ export class Launcher {
     const promptFile = this.#adapter.writePromptFile(promptText);
     const workspace = await this.#adapter.createWorkspace({
       cwd: this.#root,
-      label: `capstan-${role.name}`,
+      label: workspaceLabel(this.#project, role.name),
       role: "PM",
     });
     try {
@@ -751,6 +787,12 @@ export class Launcher {
         worktreePath: null,
         branch: null,
         baseSha: null,
+      });
+      await this.#describe({
+        paneId: workspace.paneId,
+        workspaceId: workspace.workspaceId,
+        agentId: agent.agentId,
+        roleName: role.name,
       });
       return started.status === "started"
         ? { state: "started", agentId: agent.agentId, paneId: workspace.paneId }
@@ -773,6 +815,23 @@ export class Launcher {
     }
   }
 
+  /** The watch workspace carries the project's name, so the worker worktrees under it read as one group; display only. */
+  async #labelHub(workspaceId: string | null): Promise<void> {
+    if (workspaceId === null) return;
+    try {
+      await this.#adapter.renameWorkspace(
+        workspaceId,
+        workspaceLabel(this.#project, "watch"),
+      );
+      await this.#adapter.reportMetadata(
+        { workspaceId },
+        { project: this.#project },
+      );
+    } catch (error) {
+      this.#log("describe_failed", { agentId: "watch", error: String(error) });
+    }
+  }
+
   async #ensureHub(budget: Budget): Promise<NonNullable<LaunchResult["hub"]>> {
     const row = this.#core.fallbackPane(this.#credential);
     if (row !== undefined) {
@@ -781,6 +840,7 @@ export class Launcher {
       // worktrees that hang under the first.
       try {
         await this.#adapter.adoptShellPane(row.paneId, row.workspaceId);
+        await this.#labelHub(row.workspaceId);
         return "present";
       } catch (error) {
         if (!(error instanceof PaneGone)) {
@@ -794,9 +854,10 @@ export class Launcher {
       budget.check("opening the watch pane");
       const workspace = await this.#adapter.createWorkspace({
         cwd: this.#root,
-        label: "capstan-watch",
+        label: workspaceLabel(this.#project, "watch"),
         role: "worker",
       });
+      await this.#labelHub(workspace.workspaceId);
       await this.#adapter.prepareShell({
         paneId: workspace.paneId,
         environment: this.#environment(null),
@@ -1220,7 +1281,7 @@ export class Launcher {
         const tree = await this.#adapter.createWorktree({
           workspaceId: hub.workspaceId,
           branch,
-          label: agent.agentId,
+          label: workspaceLabel(this.#project, agent.agentId),
           base: baseSha,
         });
         info.worktreePath = tree.path;
@@ -1294,6 +1355,12 @@ export class Launcher {
           timeoutMs: START_TIMEOUT_MS,
         });
         this.#agentsStarted += 1;
+        await this.#describe({
+          paneId,
+          workspaceId: tree.workspaceId,
+          agentId: agent.agentId,
+          roleName: role.name,
+        });
         if (started.status === "started")
           return {
             state: "started",
@@ -1645,6 +1712,16 @@ export class Launcher {
           agent: row.agentId,
           workspaceId: row.workspaceId,
           worktreePath: row.worktreePath,
+        });
+        await this.#describe({
+          paneId: row.paneId,
+          workspaceId: row.workspaceId,
+          agentId: row.agentId,
+          roleName: agent.roleName,
+          label: workspaceLabel(
+            this.#project,
+            agent.kind === "PM" ? agent.roleName : row.agentId,
+          ),
         });
       } catch (error) {
         if (error instanceof PaneGone || error instanceof AgentPaneMismatch) {

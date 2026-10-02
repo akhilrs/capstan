@@ -34,6 +34,7 @@ import {
   ProjectLockHeldError,
 } from "./controller/ownership.js";
 import { HerdrAdapter } from "./herdr/adapter.js";
+import { projectDisplayName, projectSlug } from "./herdr/naming.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
 import { watchStatus } from "./watch.js";
@@ -803,9 +804,18 @@ async function runRouted(
   }
 }
 
+const HERDR_CONFIG_SNIPPET = `# Paste into Herdr's config.toml (Capstan never edits it), then run: herdr server reload-config
+# Capstan reports a $project token on every pane and workspace it creates.
+[ui.sidebar.agents]
+rows = [["state_icon", "$project", "workspace"], ["agent"]]
+
+[ui.sidebar.spaces]
+rows = [["state_icon", "workspace"], ["$project", "branch", "git_status"]]
+`;
+
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan review pass|findings <text> | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan review pass|findings <text> | cstan pm restart",
   );
 }
 
@@ -955,6 +965,11 @@ async function runCli(argv: string[]): Promise<number> {
     }
     return EXIT.ok;
   }
+  if (command === "herdr-config") {
+    if (rest.length !== 0) usage();
+    process.stdout.write(HERDR_CONFIG_SNIPPET);
+    return EXIT.ok;
+  }
   if (command === "daemon") {
     if (rest.length !== 0) usage();
     const { config, credential } = loadOperator(cwd);
@@ -967,6 +982,9 @@ async function runCli(argv: string[]): Promise<number> {
         ? undefined
         : new HerdrAdapter({
             run: createHerdrRunner({ session: capstan.herdrSession }),
+            projectSlug: projectSlug(
+              projectDisplayName(capstan.projectName, cwd),
+            ),
           });
     const notifier =
       capstan === undefined || adapter === undefined

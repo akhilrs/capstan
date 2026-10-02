@@ -1183,3 +1183,20 @@ test("a legacy runtime or Docker key is refused as an unknown key", () => {
     /unknown|not (a )?recognized|runtime/i,
   );
 });
+
+test("a role name longer than 16 characters is refused because the project-prefixed agent name would not fit Herdr", () => {
+  assertRejected(
+    `${VALID}\n[roles.abcdefghijklmnopq]\nkind = "Developer"\nhost = "claude"\n`,
+    /roles\.abcdefghijklmnopq: the role name is longer than 16 characters/,
+  );
+  withConfig(
+    `${VALID}\n[roles.abcdefghijklmnop]\nkind = "Developer"\nhost = "claude"\n`,
+    (directory) => {
+      assert.ok(
+        loadCapstanConfig(directory).roles.some(
+          (role) => role.name === "abcdefghijklmnop",
+        ),
+      );
+    },
+  );
+});

@@ -1,3 +1,4 @@
+import { MAX_ROLE_NAME_CHARS } from "../herdr/naming.js";
 import fs from "node:fs";
 import path from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
@@ -588,6 +589,10 @@ function resolveRoles(
       at,
     );
     const kind = enumValue(role.kind, `${at}.kind`, ROLE_KINDS);
+    if (name.length > MAX_ROLE_NAME_CHARS)
+      throw new ConfigError(
+        `${at}: the role name is longer than ${MAX_ROLE_NAME_CHARS} characters, so an agent name with the project prefix would not fit Herdr's 32`,
+      );
     const hostName = requiredString(role.host, `${at}.host`, 32);
     const host = hosts.get(hostName);
     if (!host)

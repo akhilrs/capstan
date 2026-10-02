@@ -2611,3 +2611,82 @@ test("a worker on an OMP host starts with every tool approved and the prompt fil
     w.cleanup();
   }
 });
+
+test("workspaces are labelled with the project and every started pane reports project, role and agent", async () => {
+  const w = await world();
+  try {
+    const project = path.basename(w.root);
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer");
+    assert.equal(spawned.state, "started");
+    assert.ok(w.adapter.calls.includes(`workspace:${project} · pm:PM`));
+    assert.ok(w.adapter.calls.includes(`workspace:${project} · watch:worker`));
+    assert.ok(w.adapter.created.includes(`${project} · developer-1`));
+    assert.ok(
+      w.adapter.labels.some((l) => l.endsWith(`:${project} · watch`)) ||
+        w.adapter.metadata.some((m) => m.tokens.project === project),
+    );
+    const pm = w.adapter.metadata.find((m) => m.tokens.agent === "pm-1")!;
+    assert.deepEqual(pm.tokens, {
+      project,
+      role: "pm",
+      agent: "pm-1",
+    });
+    const dev = w.adapter.metadata.find(
+      (m) => m.tokens.agent === "developer-1",
+    )!;
+    assert.deepEqual(dev.tokens, {
+      project,
+      role: "developer",
+      agent: "developer-1",
+    });
+    assert.ok(
+      w.adapter.metadata.some(
+        (m) => m.tokens.project === project && m.tokens.agent === undefined,
+      ),
+      "workspaces carry the project token",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a failure to report metadata is logged and never fails a start", async () => {
+  const w = await world();
+  try {
+    w.adapter.metadataError = new Error("herdr is busy");
+    const result = await w.launcher.launchPm();
+    assert.equal(result.state, "started");
+    assert.ok(w.events.some((e) => e.event === "describe_failed"));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a restart renames the workspace of an adopted agent to its project label and reports its metadata again", async () => {
+  const w = await world();
+  try {
+    const project = path.basename(w.root);
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer");
+    assert.equal(spawned.state, "started");
+    w.adapter.labels.length = 0;
+    w.adapter.metadata.length = 0;
+    w.adapter.entries.clear();
+    w.adapter.agentPanes.clear();
+    await w.reopen().adoptAll();
+    const worker = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "developer-1")!;
+    assert.ok(
+      w.adapter.labels.includes(
+        `${worker.workspaceId}:${project} · developer-1`,
+      ),
+    );
+    const pm = w.core.agentPanes(w.owner).find((r) => r.agentId === "pm-1")!;
+    assert.ok(w.adapter.labels.includes(`${pm.workspaceId}:${project} · pm`));
+    assert.ok(w.adapter.metadata.some((m) => m.tokens.agent === "developer-1"));
+  } finally {
+    w.cleanup();
+  }
+});
