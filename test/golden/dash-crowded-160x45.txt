@@ -39,7 +39,7 @@
 │ review      passed     reviewer-2 -> developer-1 r1                      33m ││  ⢀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
 │ review      passed     reviewer-1 -> designer-1 r1                       38m │╰──────────────────────────────────────────────────────────────────────────────╯
 │ report      rejected   developer-1 45fe0de                               46m │╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
-│ report      accepted   developer-1 9abf487                               48m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 target ended                      │
+│ report      accepted   developer-1 9abf487                               48m ││ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 (target ended) no progress after… │
 │ report      accepted   designer-1 8bf60fa                                56m ││                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  tab focus  -/+ interval  p pause  r refresh  ? help  q quit                                                                              

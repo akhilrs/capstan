@@ -262,14 +262,14 @@ test("a review row names the reviewer and whose work it reviews", () => {
   );
 });
 
-test("a finding whose target has ended is marked, an active target is not", () => {
-  const finding = (id: string, target: string) => ({
+test("a finding is marked when its target has ended or is not in the agent list", () => {
+  const finding = (id: string, target: string, state = "escalated") => ({
     findingId: id,
     targetAgentId: target,
     severity: "medium",
-    state: "escalated",
+    state,
     interventions: 2,
-    stateReason: null,
+    stateReason: "kept reason",
   });
   const model = buildDashModel(
     healthy({
@@ -284,16 +284,23 @@ test("a finding whose target has ended is marked, an active target is not", () =
           lastActivityAt: iso(100),
         },
       ],
-      agentFindings: [finding("f1", "developer-agent"), finding("f2", "gone")],
+      agentFindings: [
+        finding("f1", "developer-agent"),
+        finding("f2", "gone"),
+        finding("f3", "gone", "open"),
+        finding("f4", "nobody"),
+      ],
     }),
     NOW,
     3,
   );
   assert.deepEqual(
-    model.findings.map((f) => [f.findingId, f.targetEnded]),
+    model.findings.map((f) => [f.findingId, f.targetState, f.stateReason]),
     [
-      ["f1", false],
-      ["f2", true],
+      ["f1", "active", "kept reason"],
+      ["f2", "ended", "kept reason"],
+      ["f4", "unknown", "kept reason"],
+      ["f3", "ended", "kept reason"],
     ],
   );
 });
