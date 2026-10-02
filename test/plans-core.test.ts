@@ -1269,7 +1269,17 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
 
 // ---------------------------------------------------------------- Nexora wanted state and cancellation
 
+function undoMigration0026(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE operator_runs;
+    DROP TABLE operator_proposals;
+    DELETE FROM capability_grants WHERE capability LIKE 'operator:%';
+    DELETE FROM role_capabilities WHERE capability LIKE 'operator:%';
+  `);
+}
+
 function undoMigration0025(db: Database.Database): void {
+  undoMigration0026(db);
   db.exec(`
     DROP TABLE external_links;
     DROP TRIGGER plans_cancel_once;

@@ -44,6 +44,21 @@ import {
 } from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import { stripTerminalSequences } from "../observe.js";
+import {
+  HASH_PREFIX_CHARS,
+  MAX_OPERATOR_COMMAND_BYTES,
+  MAX_OPERATOR_REASON_BYTES,
+  commandHash,
+  normalizeCommand,
+  normalizeReason,
+} from "../operator-policy.js";
+import {
+  decisionNotice,
+  endedWithoutRunNotice,
+  expiredNotice,
+  proposalNoticeToPm,
+  runResultNotice,
+} from "../operator.js";
 import { normalizeText, oneLine } from "../text.js";
 import {
   packageOfBody,
@@ -79,6 +94,10 @@ import type {
   MessageRejectionRecord,
   MessagingAdvance,
   MutationContext,
+  OperatorProposalKind,
+  OperatorProposalRecord,
+  OperatorProposalState,
+  OperatorRunStatus,
   ProjectInput,
   ReplacedAgent,
   ReplacementInput,
@@ -90,6 +109,7 @@ import type {
   SeatInput,
   WorkItemInput,
 } from "./types.js";
+import { OPERATOR_PROPOSAL_STATES } from "./types.js";
 
 // Bounds on the stored dispatch command, so one work item cannot put an unbounded row in the outbox.
 const DISPATCH_MAX_FRAME_BYTES = 1_048_576;
@@ -102,6 +122,9 @@ const ROLE_KINDS: readonly string[] = [
   "Supervisor",
 ];
 export const MAX_MESSAGE_BYTES = 16 * 1024;
+/** What a restart proposal stores as its command text; the hash covers it with the kind and the force flag. */
+export const RESTART_COMMAND_TEXT = "restart";
+const MAX_OPERATOR_TAIL_BYTES = 12288;
 export const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const MAX_SUMMARY_MESSAGES = 50;
 const MAX_SUMMARY_BODY = 2000;
@@ -1102,6 +1125,45 @@ interface AgentRow {
   readonly state: "active" | "ended";
   readonly last_activity_at: string;
 }
+
+interface OperatorProposalRow {
+  readonly proposal_id: string;
+  readonly sequence: number;
+  readonly kind: OperatorProposalKind;
+  readonly command: string;
+  readonly command_sha: string;
+  readonly reason: string;
+  readonly force_restart: number;
+  readonly proposer_agent_id: string;
+  readonly proposer_actor_id: string;
+  readonly state: OperatorProposalState;
+  readonly auto_rule: string | null;
+  readonly decided_by_actor_id: string | null;
+  readonly decided_at: string | null;
+  readonly decision_note: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+interface OperatorRunRow {
+  readonly proposal_id: string;
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly status: OperatorRunStatus;
+  readonly exit_code: number | null;
+  readonly duration_ms: number | null;
+  readonly output_tail: string;
+  readonly output_truncated: number;
+  readonly notified_message_id: string | null;
+  readonly pgid: number | null;
+  readonly leader_start: string | null;
+  readonly orphan_cleared_at: string | null;
+}
+
+export type OperatorClaimRefusal = "not_approved" | "expired" | "busy";
+export type OperatorClaim =
+  | { readonly claimed: true; readonly proposal: OperatorProposalRecord }
+  | { readonly claimed: false; readonly reason: OperatorClaimRefusal };
 
 interface MessageRow {
   readonly message_id: string;
@@ -2487,6 +2549,7 @@ export class ControllerCore {
               : "raiser_ended",
             now,
           );
+        this.#cancelUnstartedOperatorProposalsOf(agentId, now);
         const unacknowledged = this.#messageRowsFor(agentId)
           .filter((row) => !isFinalState(row.state))
           .map((row) => row.message_id);
@@ -2576,6 +2639,7 @@ export class ControllerCore {
       )
       .run(actorId, generation, now, this.#projectId, agentId);
     this.#closeWaits(agentId, now);
+    this.#cancelUnstartedOperatorProposalsOf(agentId, now);
     this.#database
       .prepare(
         "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
@@ -16456,6 +16520,898 @@ export class ControllerCore {
       throw new MutationConflictError(
         "run cannot complete without a current healthy Supervisor checkpoint",
       );
+  }
+
+  // ------------------------------------------------------------ operator
+
+  #operatorRow(proposalId: string): OperatorProposalRow | undefined {
+    return this.#database
+      .prepare(
+        "SELECT * FROM operator_proposals WHERE project_id = ? AND proposal_id = ?",
+      )
+      .get(this.#projectId, proposalId) as OperatorProposalRow | undefined;
+  }
+
+  #operatorRecord(row: OperatorProposalRow): OperatorProposalRecord {
+    const run = this.#database
+      .prepare(
+        "SELECT * FROM operator_runs WHERE project_id = ? AND proposal_id = ?",
+      )
+      .get(this.#projectId, row.proposal_id) as OperatorRunRow | undefined;
+    return {
+      proposalId: row.proposal_id,
+      sequence: row.sequence,
+      kind: row.kind,
+      command: row.command,
+      commandSha: row.command_sha,
+      reason: row.reason,
+      forceRestart: row.force_restart === 1,
+      proposerAgentId: row.proposer_agent_id,
+      proposerActorId: row.proposer_actor_id,
+      state: row.state,
+      autoRule: row.auto_rule,
+      decidedByActorId: row.decided_by_actor_id,
+      decidedAt: row.decided_at,
+      decisionNote: row.decision_note,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      run:
+        run === undefined
+          ? null
+          : {
+              proposalId: run.proposal_id,
+              startedAt: run.started_at,
+              finishedAt: run.finished_at,
+              status: run.status,
+              exitCode: run.exit_code,
+              durationMs: run.duration_ms,
+              outputTail: run.output_tail,
+              outputTruncated: run.output_truncated === 1,
+              notifiedMessageId: run.notified_message_id,
+              pgid: run.pgid,
+              leaderStart: run.leader_start,
+              orphanClearedAt: run.orphan_cleared_at,
+            },
+    };
+  }
+
+  operatorProposal(proposalId: string): OperatorProposalRecord | undefined {
+    this.#assertOpen();
+    safeId(proposalId, "proposal id");
+    const row = this.#operatorRow(proposalId);
+    return row === undefined ? undefined : this.#operatorRecord(row);
+  }
+
+  /** Proposals newest first, optionally of some states or of one proposer. */
+  listOperatorProposals(
+    filter: {
+      readonly states?: readonly OperatorProposalState[];
+      readonly proposerAgentId?: string;
+      readonly limit?: number;
+    } = {},
+  ): readonly OperatorProposalRecord[] {
+    this.#assertOpen();
+    const states = filter.states ?? OPERATOR_PROPOSAL_STATES;
+    const rows = this.#database
+      .prepare(
+        `SELECT * FROM operator_proposals WHERE project_id = ?
+           AND state IN (${states.map(() => "?").join(", ")})
+           AND (? IS NULL OR proposer_agent_id = ?)
+         ORDER BY sequence DESC LIMIT ?`,
+      )
+      .all(
+        this.#projectId,
+        ...states,
+        filter.proposerAgentId ?? null,
+        filter.proposerAgentId ?? null,
+        filter.limit ?? 50,
+      ) as OperatorProposalRow[];
+    return rows.map((row) => this.#operatorRecord(row));
+  }
+
+  /** Proposals of an agent that still wait for a decision, a run or the end of a run. */
+  pendingOperatorProposalCount(agentId: string): number {
+    this.#assertOpen();
+    safeId(agentId, "agent id");
+    return (
+      this.#database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM operator_proposals WHERE project_id = ? AND proposer_agent_id = ? AND state IN ('proposed', 'approved', 'running')",
+        )
+        .get(this.#projectId, agentId) as { n: number }
+    ).n;
+  }
+
+  /** Approved proposals in approval order; the worker takes the first. */
+  approvedOperatorProposals(): readonly OperatorProposalRecord[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM operator_proposals WHERE project_id = ? AND state = 'approved' ORDER BY decided_at, sequence",
+        )
+        .all(this.#projectId) as OperatorProposalRow[]
+    ).map((row) => this.#operatorRecord(row));
+  }
+
+  runningOperatorProposal(): OperatorProposalRecord | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM operator_proposals WHERE project_id = ? AND state = 'running' ORDER BY sequence LIMIT 1",
+      )
+      .get(this.#projectId) as OperatorProposalRow | undefined;
+    return row === undefined ? undefined : this.#operatorRecord(row);
+  }
+
+  /** Abandoned runs whose process group has not been confirmed gone. */
+  unclearedOperatorOrphans(): readonly {
+    readonly proposalId: string;
+    readonly pgid: number;
+    readonly leaderStart: string | null;
+  }[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT proposal_id, pgid, leader_start FROM operator_runs WHERE project_id = ? AND status = 'abandoned' AND pgid IS NOT NULL AND orphan_cleared_at IS NULL ORDER BY started_at",
+        )
+        .all(this.#projectId) as {
+        proposal_id: string;
+        pgid: number;
+        leader_start: string | null;
+      }[]
+    ).map((row) => ({
+      proposalId: row.proposal_id,
+      pgid: row.pgid,
+      leaderStart: row.leader_start,
+    }));
+  }
+
+  /** What an Operator restart waits for. Read-only. */
+  busyIndicators(): {
+    readonly startedReviews: number;
+    readonly nonTerminalIntegrations: number;
+    readonly unackedDeliveries: number;
+  } {
+    this.#assertOpen();
+    const count = (sql: string): number =>
+      (this.#database.prepare(sql).get(this.#projectId) as { n: number }).n;
+    return {
+      startedReviews: count(
+        "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND state = 'started'",
+      ),
+      nonTerminalIntegrations: count(
+        "SELECT COUNT(*) AS n FROM integrations WHERE project_id = ? AND state IN ('running', 'merged', 'conflicted')",
+      ),
+      unackedDeliveries: count(
+        "SELECT COUNT(*) AS n FROM messages WHERE project_id = ? AND state IN ('sent', 'unacked')",
+      ),
+    };
+  }
+
+  /** A controller message to one active agent; null when the agent has ended. The caller owns the transaction. */
+  #noticeToAgent(agentId: string, body: string, now: string): string | null {
+    const agent = this.#agentRow(agentId);
+    if (agent?.state !== "active") return null;
+    return this.#insertQueuedMessage(
+      this.#internalActorId,
+      agent,
+      body,
+      sha256(body),
+      now,
+    );
+  }
+
+  #operatorEvent(
+    proposalId: string,
+    fromState: string | undefined,
+    toState: string,
+    details: Record<string, unknown> = {},
+  ): MutationEvent {
+    return {
+      entityType: "operator_proposal",
+      entityId: proposalId,
+      stateVersion: 0,
+      ...(fromState === undefined ? {} : { fromState }),
+      toState,
+      details,
+    };
+  }
+
+  #setOperatorState(
+    row: OperatorProposalRow,
+    state: OperatorProposalState,
+    now: string,
+  ): void {
+    this.#database
+      .prepare(
+        "UPDATE operator_proposals SET state = ?, updated_at = ? WHERE project_id = ? AND proposal_id = ?",
+      )
+      .run(state, now, this.#projectId, row.proposal_id);
+  }
+
+  #operatorRunning(): OperatorProposalRow | undefined {
+    return this.#database
+      .prepare(
+        "SELECT * FROM operator_proposals WHERE project_id = ? AND state = 'running' ORDER BY sequence LIMIT 1",
+      )
+      .get(this.#projectId) as OperatorProposalRow | undefined;
+  }
+
+  /**
+   * Records a proposal from the Operator agent. The command-layer checks that the caller is the designated
+   * Operator; here the caller must be an active Developer-kind agent. `autoRule` is the rule the controller
+   * matched for an auto-approved command; the row then starts approved.
+   */
+  proposeOperatorAction(
+    context: MutationContext,
+    input: {
+      readonly kind: OperatorProposalKind;
+      readonly command: string;
+      readonly reason: string;
+      readonly forceRestart?: boolean;
+      readonly autoRule?: string | null;
+      readonly maxPending: number;
+    },
+  ): OperatorProposalRecord {
+    if (input.kind !== "command" && input.kind !== "restart")
+      throw new TypeError("the proposal kind must be command or restart");
+    const forceRestart = input.forceRestart === true;
+    if (forceRestart && input.kind !== "restart")
+      throw new TypeError("only a restart proposal can carry force");
+    const autoRule = input.autoRule ?? null;
+    if (autoRule !== null && input.kind !== "command")
+      throw new TypeError("only a command can be auto-approved");
+    if (!Number.isInteger(input.maxPending) || input.maxPending < 1)
+      throw new TypeError("the pending limit must be a positive integer");
+    const commandText =
+      input.kind === "restart" ? RESTART_COMMAND_TEXT : input.command;
+    const command = normalizeCommand(commandText);
+    if (!command.ok)
+      throw new TypeError(
+        `the command must be non-empty printable ASCII of at most ${MAX_OPERATOR_COMMAND_BYTES} bytes (${command.code})`,
+      );
+    const reason = normalizeReason(input.reason);
+    if (!reason.ok)
+      throw new TypeError(
+        `the reason must be non-empty printable ASCII of at most ${MAX_OPERATOR_REASON_BYTES} bytes (${reason.code})`,
+      );
+    const sha = commandHash({
+      kind: input.kind,
+      command: command.text,
+      forceRestart,
+    });
+    return this.#mutate<OperatorProposalRecord>(
+      context,
+      "operator.propose",
+      "operator:propose",
+      {
+        kind: input.kind,
+        commandSha: sha,
+        reasonSha: sha256(reason.text),
+        autoRule,
+      },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (agent?.kind !== "Developer")
+          throw new ControllerError(
+            "only an active developer-kind agent proposes an operator action",
+          );
+        const parties = this.#noticeParties();
+        if (parties === undefined && autoRule === null)
+          throw new ControllerError(
+            "no_pm: no PM is active to decide this proposal",
+          );
+        if (
+          this.pendingOperatorProposalCount(agent.agent_id) >= input.maxPending
+        )
+          throw new ControllerError(
+            `pending_limit: ${agent.agent_id} already has ${input.maxPending} proposals that wait for a decision or a run`,
+          );
+        const now = this.#now();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM operator_proposals WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        const proposalId = `op-${sequence}`;
+        this.#database
+          .prepare(
+            `INSERT INTO operator_proposals(project_id, proposal_id, sequence, kind, command, command_sha, reason, force_restart,
+               proposer_agent_id, proposer_actor_id, state, auto_rule, decided_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            proposalId,
+            sequence,
+            input.kind,
+            command.text,
+            sha,
+            reason.text,
+            forceRestart ? 1 : 0,
+            agent.agent_id,
+            actor.actorId,
+            autoRule === null ? "proposed" : "approved",
+            autoRule,
+            autoRule === null ? null : now,
+            now,
+            now,
+          );
+        const record = this.#operatorRecord(this.#operatorRow(proposalId)!);
+        this.#noticeToPm(proposalNoticeToPm(record), now);
+        return {
+          value: record,
+          event: this.#operatorEvent(proposalId, undefined, record.state, {
+            kind: input.kind,
+            autoRule,
+            agentId: agent.agent_id,
+          }),
+        };
+      },
+    );
+  }
+
+  /**
+   * Records the PM's decision. Approval is bound to the exact text: `hash` must be a prefix of at least 12
+   * characters of the stored hash, and the force flag is part of that hash. The operator CLI identity may
+   * deny but never approve, and no approval is taken while a run is in progress or a stray process group of
+   * an abandoned run may still be alive.
+   */
+  decideOperatorProposal(
+    context: MutationContext,
+    input: {
+      readonly proposalId: string;
+      readonly decision: "approve" | "deny";
+      readonly hash?: string;
+      readonly note?: string;
+      readonly proposalTtlMinutes: number;
+    },
+  ): OperatorProposalRecord {
+    safeId(input.proposalId, "proposal id");
+    if (input.decision !== "approve" && input.decision !== "deny")
+      throw new TypeError("the decision must be approve or deny");
+    const note =
+      input.note === undefined || input.note === ""
+        ? null
+        : safeText(input.note, "decision note", 1024, true);
+    if (note !== null && Buffer.byteLength(note, "utf8") > 1024)
+      throw new TypeError("the decision note must be at most 1024 bytes");
+    return this.#mutate<OperatorProposalRecord>(
+      context,
+      "operator.decide",
+      "operator:decide",
+      {
+        proposalId: input.proposalId,
+        decision: input.decision,
+        hash: input.hash ?? null,
+        note,
+      },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        const isPm = agent?.kind === "PM";
+        if (actor.role === "operator") {
+          if (input.decision === "approve")
+            throw new ControllerError(
+              "approve_requires_pm: only an active PM agent approves an operator proposal; the operator may deny, cancel and show",
+            );
+        } else if (!isPm)
+          throw new ControllerError(
+            "approve_requires_pm: only an active PM agent decides an operator proposal",
+          );
+        const row = this.#operatorRow(input.proposalId);
+        if (row === undefined)
+          throw new ControllerError(
+            `unknown_proposal: proposal ${input.proposalId} does not exist`,
+          );
+        if (row.state !== "proposed")
+          throw new ControllerError(
+            `proposal_not_open: proposal ${row.proposal_id} is ${row.state}`,
+          );
+        const now = this.#now();
+        if (this.#isOlderThan(row.created_at, input.proposalTtlMinutes, now))
+          throw new ControllerError(
+            `proposal_expired: proposal ${row.proposal_id} waited longer than ${input.proposalTtlMinutes} minutes for a decision`,
+          );
+        if (input.decision === "approve") {
+          if (
+            agent?.agent_id === row.proposer_agent_id ||
+            actor.actorId === row.proposer_actor_id
+          )
+            throw new ControllerError(
+              "self_approval: the proposer cannot approve its own proposal",
+            );
+          if (this.#operatorRunning() !== undefined)
+            throw new ControllerError(
+              "run_in_progress: an operator run is in progress; decide again when it ends",
+            );
+          if (this.unclearedOperatorOrphans().length > 0)
+            throw new ControllerError(
+              "orphan_running: a process of an abandoned operator run may still be alive; decide again when the controller has cleared it",
+            );
+          const hash = input.hash;
+          if (
+            typeof hash !== "string" ||
+            !/^[0-9a-f]{12,64}$/.test(hash) ||
+            !row.command_sha.startsWith(hash)
+          )
+            throw new ControllerError(
+              `hash_mismatch: --hash must be at least ${HASH_PREFIX_CHARS} hex characters of the hash in the proposal notice for this exact text`,
+            );
+        }
+        const state: OperatorProposalState =
+          input.decision === "approve" ? "approved" : "denied";
+        this.#database
+          .prepare(
+            `UPDATE operator_proposals SET state = ?, decided_by_actor_id = ?, decided_at = ?, decision_note = ?, updated_at = ?
+             WHERE project_id = ? AND proposal_id = ?`,
+          )
+          .run(
+            state,
+            actor.actorId,
+            now,
+            note,
+            now,
+            this.#projectId,
+            row.proposal_id,
+          );
+        const record = this.#operatorRecord(
+          this.#operatorRow(row.proposal_id)!,
+        );
+        this.#noticeToAgent(
+          row.proposer_agent_id,
+          decisionNotice(record, state),
+          now,
+        );
+        return {
+          value: record,
+          event: this.#operatorEvent(row.proposal_id, "proposed", state, {
+            decidedBy: actor.actorId,
+          }),
+        };
+      },
+    );
+  }
+
+  /** Withdraws a proposal that has not started: the proposer, the PM or the operator may. */
+  cancelOperatorProposal(
+    context: MutationContext,
+    proposalId: string,
+  ): OperatorProposalRecord {
+    safeId(proposalId, "proposal id");
+    return this.#mutate<OperatorProposalRecord>(
+      context,
+      "operator.cancel",
+      "operator:read",
+      { proposalId },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        const row = this.#operatorRow(proposalId);
+        if (row === undefined)
+          throw new ControllerError(
+            `unknown_proposal: proposal ${proposalId} does not exist`,
+          );
+        const isProposer = agent?.agent_id === row.proposer_agent_id;
+        if (actor.role !== "operator" && agent?.kind !== "PM" && !isProposer)
+          throw new ControllerError(
+            "only the proposer, the PM or the operator cancels a proposal",
+          );
+        if (row.state !== "proposed" && row.state !== "approved")
+          throw new ControllerError(
+            `not_cancellable: proposal ${proposalId} is ${row.state}; only a proposal that has not started can be cancelled`,
+          );
+        const now = this.#now();
+        this.#setOperatorState(row, "cancelled", now);
+        const record = this.#operatorRecord(this.#operatorRow(proposalId)!);
+        if (!isProposer)
+          this.#noticeToAgent(
+            row.proposer_agent_id,
+            endedWithoutRunNotice(record, "was cancelled; it was not run."),
+            now,
+          );
+        return {
+          value: record,
+          event: this.#operatorEvent(proposalId, row.state, "cancelled"),
+        };
+      },
+    );
+  }
+
+  /** The proposals of an agent that has not started, cancelled because the agent ends or is replaced. The caller owns the transaction. */
+  #cancelUnstartedOperatorProposalsOf(agentId: string, now: string): void {
+    for (const row of this.#database
+      .prepare(
+        "SELECT * FROM operator_proposals WHERE project_id = ? AND proposer_agent_id = ? AND state IN ('proposed', 'approved')",
+      )
+      .all(this.#projectId, agentId) as OperatorProposalRow[])
+      this.#setOperatorState(row, "cancelled", now);
+  }
+
+  #isOlderThan(createdAt: string, minutes: number, nowIso: string): boolean {
+    return Date.parse(createdAt) + minutes * 60_000 <= Date.parse(nowIso);
+  }
+
+  /** Proposals that are past their time to live: undecided ones past the proposal limit, approved ones past the approval limit. Read-only. */
+  dueOperatorExpiries(limits: {
+    readonly proposalTtlMinutes: number;
+    readonly approvalTtlMinutes: number;
+  }): readonly string[] {
+    this.#assertOpen();
+    const now = this.#now();
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM operator_proposals WHERE project_id = ? AND state IN ('proposed', 'approved') ORDER BY sequence",
+        )
+        .all(this.#projectId) as OperatorProposalRow[]
+    )
+      .filter((row) => this.#operatorIsStale(row, limits, now))
+      .map((row) => row.proposal_id);
+  }
+
+  #operatorIsStale(
+    row: OperatorProposalRow,
+    limits: {
+      readonly proposalTtlMinutes: number;
+      readonly approvalTtlMinutes: number;
+    },
+    now: string,
+  ): boolean {
+    if (row.state === "proposed")
+      return this.#isOlderThan(row.created_at, limits.proposalTtlMinutes, now);
+    return (
+      this.#isOlderThan(row.created_at, limits.proposalTtlMinutes, now) ||
+      (row.decided_at !== null &&
+        this.#isOlderThan(row.decided_at, limits.approvalTtlMinutes, now))
+    );
+  }
+
+  /** Marks a stale row expired and tells whoever waits: the Operator always, the PM too when an approval lapsed. The caller owns the transaction. */
+  #expireOperatorRow(row: OperatorProposalRow, now: string): void {
+    const behind = this.#operatorRunning()?.proposal_id ?? null;
+    this.#setOperatorState(row, "expired", now);
+    const record = this.#operatorRecord(this.#operatorRow(row.proposal_id)!);
+    const body = expiredNotice(record, behind);
+    this.#noticeToAgent(row.proposer_agent_id, body, now);
+    if (row.state === "approved") this.#noticeToPm(body, now);
+  }
+
+  expireOperatorProposals(
+    context: MutationContext,
+    limits: {
+      readonly proposalTtlMinutes: number;
+      readonly approvalTtlMinutes: number;
+    },
+  ): readonly string[] {
+    return this.#mutate<readonly string[]>(
+      context,
+      "operator.expire",
+      "controller:reconcile",
+      { ...limits },
+      () => {
+        const now = this.#now();
+        const expired: string[] = [];
+        for (const row of this.#database
+          .prepare(
+            "SELECT * FROM operator_proposals WHERE project_id = ? AND state IN ('proposed', 'approved') ORDER BY sequence",
+          )
+          .all(this.#projectId) as OperatorProposalRow[])
+          if (this.#operatorIsStale(row, limits, now)) {
+            this.#expireOperatorRow(row, now);
+            expired.push(row.proposal_id);
+          }
+        return {
+          value: expired,
+          event: {
+            entityType: "operator_proposal",
+            entityId: expired[0] ?? "none",
+            stateVersion: 0,
+            details: { expired },
+          },
+        };
+      },
+    );
+  }
+
+  /**
+   * The only way a proposal starts to run: approved -> running and the run row in one transaction, so one
+   * approval executes at most once and concurrent claims have one winner. A row that is past its time to live
+   * becomes expired and is not claimed.
+   */
+  claimOperatorRun(
+    context: MutationContext,
+    input: {
+      readonly proposalId: string;
+      readonly proposalTtlMinutes: number;
+      readonly approvalTtlMinutes: number;
+    },
+  ): OperatorClaim {
+    safeId(input.proposalId, "proposal id");
+    return this.#mutate<OperatorClaim>(
+      context,
+      "operator.claim",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const row = this.#operatorRow(input.proposalId);
+        const refuse = (
+          reason: OperatorClaimRefusal,
+        ): MutationOutput<OperatorClaim> => ({
+          value: { claimed: false, reason },
+          event: {
+            entityType: "operator_proposal",
+            entityId: input.proposalId,
+            stateVersion: 0,
+            details: { claimed: false, reason },
+          },
+        });
+        if (row === undefined || row.state !== "approved")
+          return refuse("not_approved");
+        const now = this.#now();
+        if (this.#operatorIsStale(row, input, now)) {
+          this.#expireOperatorRow(row, now);
+          return refuse("expired");
+        }
+        if (this.#operatorRunning() !== undefined) return refuse("busy");
+        this.#setOperatorState(row, "running", now);
+        this.#database
+          .prepare(
+            "INSERT INTO operator_runs(project_id, proposal_id, started_at, status) VALUES (?, ?, ?, 'running')",
+          )
+          .run(this.#projectId, row.proposal_id, now);
+        return {
+          value: {
+            claimed: true,
+            proposal: this.#operatorRecord(this.#operatorRow(row.proposal_id)!),
+          },
+          event: this.#operatorEvent(row.proposal_id, "approved", "running"),
+        };
+      },
+    );
+  }
+
+  /** The process group of a run that started, so a later start can find a stray one. */
+  recordOperatorRunProcess(
+    context: MutationContext,
+    input: {
+      readonly proposalId: string;
+      readonly pgid: number;
+      readonly leaderStart: string | null;
+    },
+  ): null {
+    safeId(input.proposalId, "proposal id");
+    if (!Number.isInteger(input.pgid) || input.pgid <= 1)
+      throw new TypeError("the process group must be an integer above 1");
+    return this.#mutate<null>(
+      context,
+      "operator.process",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const changed = this.#database
+          .prepare(
+            "UPDATE operator_runs SET pgid = ?, leader_start = ? WHERE project_id = ? AND proposal_id = ? AND status = 'running' AND pgid IS NULL",
+          )
+          .run(
+            input.pgid,
+            input.leaderStart,
+            this.#projectId,
+            input.proposalId,
+          ).changes;
+        if (changed !== 1)
+          throw new ControllerError(
+            `no running run of ${input.proposalId} can record a process`,
+          );
+        return {
+          value: null,
+          event: {
+            entityType: "operator_proposal",
+            entityId: input.proposalId,
+            stateVersion: 0,
+            details: { pgid: input.pgid },
+          },
+        };
+      },
+    );
+  }
+
+  /** Ends a run with its result, tells the Operator (and the PM for an auto-approved command) and moves the proposal to its final state. */
+  finishOperatorRun(
+    context: MutationContext,
+    input: {
+      readonly proposalId: string;
+      readonly status: "ok" | "failed" | "timeout" | "error";
+      readonly exitCode: number | null;
+      readonly durationMs: number;
+      readonly outputTail: string;
+      readonly truncated: boolean;
+    },
+  ): OperatorProposalRecord {
+    safeId(input.proposalId, "proposal id");
+    if (Buffer.byteLength(input.outputTail, "utf8") > MAX_OPERATOR_TAIL_BYTES)
+      throw new TypeError(
+        `the output tail must be at most ${MAX_OPERATOR_TAIL_BYTES} bytes`,
+      );
+    return this.#mutate<OperatorProposalRecord>(
+      context,
+      "operator.finish",
+      "controller:reconcile",
+      {
+        proposalId: input.proposalId,
+        status: input.status,
+        exitCode: input.exitCode,
+        durationMs: input.durationMs,
+        tailSha: sha256(input.outputTail),
+      },
+      () => {
+        const row = this.#operatorRow(input.proposalId);
+        if (row?.state !== "running")
+          throw new ControllerError(
+            `proposal ${input.proposalId} is not running`,
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            `UPDATE operator_runs SET status = ?, finished_at = ?, exit_code = ?, duration_ms = ?, output_tail = ?, output_truncated = ?
+             WHERE project_id = ? AND proposal_id = ? AND status = 'running'`,
+          )
+          .run(
+            input.status,
+            now,
+            input.exitCode,
+            Math.max(0, Math.round(input.durationMs)),
+            input.outputTail,
+            input.truncated ? 1 : 0,
+            this.#projectId,
+            input.proposalId,
+          );
+        const state: OperatorProposalState =
+          input.status === "ok"
+            ? "finished"
+            : input.status === "timeout"
+              ? "timeout"
+              : "failed";
+        this.#setOperatorState(row, state, now);
+        const record = this.#operatorRecord(
+          this.#operatorRow(row.proposal_id)!,
+        );
+        this.#announceOperatorRun(record, now);
+        return {
+          value: this.#operatorRecord(this.#operatorRow(row.proposal_id)!),
+          event: this.#operatorEvent(row.proposal_id, "running", state, {
+            status: input.status,
+            exitCode: input.exitCode,
+          }),
+        };
+      },
+    );
+  }
+
+  /** Sends the result of an ended run once. The caller owns the transaction. */
+  #announceOperatorRun(record: OperatorProposalRecord, now: string): void {
+    if (record.run === null) return;
+    const body = runResultNotice(record, record.run);
+    const messageId = this.#noticeToAgent(record.proposerAgentId, body, now);
+    if (record.autoRule !== null) this.#noticeToPm(body, now);
+    if (messageId !== null)
+      this.#database
+        .prepare(
+          "UPDATE operator_runs SET notified_message_id = ? WHERE project_id = ? AND proposal_id = ? AND notified_message_id IS NULL",
+        )
+        .run(messageId, this.#projectId, record.proposalId);
+  }
+
+  /**
+   * At startup: a run that was running when the controller stopped is abandoned and never run again. A
+   * restart row whose plan file exists is left alone when `skipRestartsWithPlan` says so; its result is
+   * ingested by the restart recovery. Returns the abandoned runs that recorded a process group.
+   */
+  abandonRunningOperatorRuns(
+    context: MutationContext,
+    options: {
+      readonly skipRestartsWithPlan?: (proposalId: string) => boolean;
+    } = {},
+  ): readonly {
+    readonly proposalId: string;
+    readonly pgid: number | null;
+    readonly leaderStart: string | null;
+  }[] {
+    return this.#mutate(
+      context,
+      "operator.abandon",
+      "controller:reconcile",
+      {},
+      () => {
+        const now = this.#now();
+        const abandoned: {
+          proposalId: string;
+          pgid: number | null;
+          leaderStart: string | null;
+        }[] = [];
+        for (const row of this.#database
+          .prepare(
+            "SELECT * FROM operator_proposals WHERE project_id = ? AND state = 'running' ORDER BY sequence",
+          )
+          .all(this.#projectId) as OperatorProposalRow[]) {
+          if (
+            row.kind === "restart" &&
+            options.skipRestartsWithPlan?.(row.proposal_id) === true
+          )
+            continue;
+          const run = this.#database
+            .prepare(
+              "SELECT pgid, leader_start, started_at FROM operator_runs WHERE project_id = ? AND proposal_id = ?",
+            )
+            .get(this.#projectId, row.proposal_id) as
+            | {
+                pgid: number | null;
+                leader_start: string | null;
+                started_at: string;
+              }
+            | undefined;
+          this.#database
+            .prepare(
+              `UPDATE operator_runs SET status = 'abandoned', finished_at = ?, duration_ms = ?
+               WHERE project_id = ? AND proposal_id = ? AND status = 'running'`,
+            )
+            .run(
+              now,
+              Math.max(0, Date.parse(now) - Date.parse(run?.started_at ?? now)),
+              this.#projectId,
+              row.proposal_id,
+            );
+          this.#setOperatorState(row, "abandoned", now);
+          this.#announceOperatorRun(
+            this.#operatorRecord(this.#operatorRow(row.proposal_id)!),
+            now,
+          );
+          abandoned.push({
+            proposalId: row.proposal_id,
+            pgid: run?.pgid ?? null,
+            leaderStart: run?.leader_start ?? null,
+          });
+        }
+        return {
+          value: abandoned,
+          event: {
+            entityType: "operator_proposal",
+            entityId: abandoned[0]?.proposalId ?? "none",
+            stateVersion: 0,
+            details: { abandoned: abandoned.map((a) => a.proposalId) },
+          },
+        };
+      },
+    );
+  }
+
+  /** Records that the process group of an abandoned run is gone (or was never ours to signal). */
+  clearOperatorOrphan(context: MutationContext, proposalId: string): null {
+    safeId(proposalId, "proposal id");
+    return this.#mutate<null>(
+      context,
+      "operator.orphan_clear",
+      "controller:reconcile",
+      { proposalId },
+      () => {
+        this.#database
+          .prepare(
+            "UPDATE operator_runs SET orphan_cleared_at = ? WHERE project_id = ? AND proposal_id = ? AND status = 'abandoned' AND orphan_cleared_at IS NULL",
+          )
+          .run(this.#now(), this.#projectId, proposalId);
+        return {
+          value: null,
+          event: {
+            entityType: "operator_proposal",
+            entityId: proposalId,
+            stateVersion: 0,
+            details: { orphanCleared: true },
+          },
+        };
+      },
+    );
   }
 
   #mutate<T>(

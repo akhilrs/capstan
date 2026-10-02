@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { digestJson, sha256 } from "../controller/canonical.js";
+import { autoApproveRuleProblem } from "../operator-policy.js";
 
 export const CONFIG_FILE_NAME = "capstan.toml";
 export const DEFAULT_WAIT_TIMEOUT_SECONDS = 90;
@@ -36,6 +37,26 @@ check_seconds = 300
 # max_packages = 8              # 1 to 20
 # count_toward_worker_limit = false
 # high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
+
+# An optional Operator runs shell commands for the PM, but only one proposal at a time and only after
+# you approve it in the PM's picker; auto_approve lists exact read-only commands that skip the picker
+# (the allowlist is in src/operator-policy.ts). While enabled = false, nothing about an Operator
+# reaches an agent. To use it, remove the leading # from this table and from [roles.operator] below.
+# The role must be a Developer role on a claude host, different from the architect role.
+# [operator]
+# enabled = true
+# role = "operator"
+# auto_approve = ["ls -l", "git rev-parse --short HEAD"]   # exact commands only
+# auto_approve_prefix = []      # opt-in prefixes; only safe path arguments may follow
+# timeout_seconds = 300
+# max_timeout_seconds = 1800    # at most 3600
+# output_tail_bytes = 8192      # at most 12288
+# proposal_ttl_minutes = 60
+# approval_ttl_minutes = 10
+# max_pending_proposals = 5
+# count_toward_worker_limit = false
+# restart_health_timeout_seconds = 60
+# restart_idle_wait_seconds = 120
 
 # Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
 # which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
@@ -120,6 +141,14 @@ prompt = "You watch the other agents and raise findings when one is stuck. You o
 # allow = ["Bash(git *)"]
 # deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
 # prompt = "You plan and integrate; you never edit or commit project files. Follow the project rules the PM gives you."
+
+# [roles.operator]
+# kind = "Developer"
+# host = "claude"
+# permission_mode = "default"
+# allow = ["Bash(cstan *)"]
+# deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]
+# prompt = "You run shell commands for the PM through cstan op propose, and nothing else."
 `;
 export const ROLE_KINDS = [
   "PM",
@@ -176,6 +205,22 @@ export const DEFAULT_HIGH_RISK_TRIGGERS: readonly string[] = [
   "cross-cutting changes",
 ];
 
+export const DEFAULT_OPERATOR_ROLE = "operator";
+export const OPERATOR_HARD_MAX_TIMEOUT_SECONDS = 3600;
+export const MAX_OPERATOR_OUTPUT_TAIL_BYTES = 12288;
+/** Tool rules the Operator role must deny so it cannot read the state directory, tokens or the key, or hand work to a subagent. */
+export const OPERATOR_REQUIRED_DENY: readonly string[] = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Agent",
+  "Task",
+  "Read",
+  "Glob",
+  "Grep",
+];
+const OPERATOR_ALLOW_RULE = /^Bash\(cstan[ :][^()`$;&|<>\\\n]*\)$/;
+
 export const NEXORA_TRACK_MODES = ["ask", "always", "never"] as const;
 export const NEXORA_DEFAULT_ACTIONS = ["create", "link", "none"] as const;
 export const NEXORA_PROJECT_FILE = ".nexora.toml";
@@ -199,6 +244,27 @@ export type ResolvedArchitect = {
   readonly countTowardWorkerLimit: boolean;
   /** Prompt text for the PM, not a classifier: the tier stays the PM's judgement. */
   readonly highRiskTriggers: readonly string[];
+};
+
+export type ResolvedOperator = {
+  /** True only when `[operator]` is present in the file; an absent table leaves every role an ordinary role, even one named "operator". */
+  readonly configured: boolean;
+  /** Off: no operator text reaches any prompt and behaviour is exactly that of a project without the table. */
+  readonly enabled: boolean;
+  readonly role: string;
+  /** Exact command strings that need no human decision; each is on the read-only allowlist. */
+  readonly autoApprove: readonly string[];
+  /** Opt-in command prefixes; only safe positional tokens may follow one. */
+  readonly autoApprovePrefix: readonly string[];
+  readonly timeoutSeconds: number;
+  readonly maxTimeoutSeconds: number;
+  readonly outputTailBytes: number;
+  readonly proposalTtlMinutes: number;
+  readonly approvalTtlMinutes: number;
+  readonly maxPendingProposals: number;
+  readonly countTowardWorkerLimit: boolean;
+  readonly restartHealthTimeoutSeconds: number;
+  readonly restartIdleWaitSeconds: number;
 };
 
 export type ResolvedHost = {
@@ -347,6 +413,7 @@ export type CapstanConfig = {
   readonly timers: ResolvedTimers;
   readonly supervision: ResolvedSupervision;
   readonly architect: ResolvedArchitect;
+  readonly operator: ResolvedOperator;
   readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
@@ -471,6 +538,7 @@ export function parseCapstanConfig(
       "timers",
       "supervision",
       "architect",
+      "operator",
       "nexora",
       "defaults",
       "limits",
@@ -641,6 +709,13 @@ export function parseCapstanConfig(
     roles,
     hostsByName,
   );
+  const operator = resolveOperator(
+    optionalTable(root.operator, "operator"),
+    root.operator !== undefined,
+    roles,
+    hostsByName,
+    architect,
+  );
   const nexora = resolveNexora(optionalTable(root.nexora, "nexora"));
   if (
     nexora.track !== "never" &&
@@ -658,6 +733,7 @@ export function parseCapstanConfig(
     timers,
     supervision,
     architect,
+    operator,
     nexora,
     limits,
     layout,
@@ -807,6 +883,154 @@ function resolveArchitect(
       );
   }
   return architect;
+}
+
+function operatorRules(value: unknown, at: string): string[] {
+  const rules = stringList(value, at);
+  rules.forEach((rule, index) => {
+    const problem = autoApproveRuleProblem(rule);
+    if (problem !== null) throw new ConfigError(`${at}[${index}] ${problem}`);
+  });
+  return rules;
+}
+
+function resolveOperator(
+  table: Table,
+  configured: boolean,
+  roles: readonly ResolvedRole[],
+  hosts: ReadonlyMap<string, ResolvedHost>,
+  architect: ResolvedArchitect,
+): ResolvedOperator {
+  rejectUnknownKeys(
+    table,
+    [
+      "enabled",
+      "role",
+      "auto_approve",
+      "auto_approve_prefix",
+      "timeout_seconds",
+      "max_timeout_seconds",
+      "output_tail_bytes",
+      "proposal_ttl_minutes",
+      "approval_ttl_minutes",
+      "max_pending_proposals",
+      "count_toward_worker_limit",
+      "restart_health_timeout_seconds",
+      "restart_idle_wait_seconds",
+    ],
+    "operator",
+  );
+  const role =
+    optionalString(table.role, "operator.role", 32) ?? DEFAULT_OPERATOR_ROLE;
+  if (!NAME_PATTERN.test(role))
+    throw new ConfigError(`operator.role must match ${NAME_PATTERN.source}`);
+  const operator: ResolvedOperator = {
+    configured,
+    enabled: optionalBoolean(table.enabled, "operator.enabled", false),
+    role,
+    autoApprove: operatorRules(table.auto_approve, "operator.auto_approve"),
+    autoApprovePrefix: operatorRules(
+      table.auto_approve_prefix,
+      "operator.auto_approve_prefix",
+    ),
+    timeoutSeconds: optionalInteger(
+      table.timeout_seconds,
+      "operator.timeout_seconds",
+      1,
+      OPERATOR_HARD_MAX_TIMEOUT_SECONDS,
+      300,
+    ),
+    maxTimeoutSeconds: optionalInteger(
+      table.max_timeout_seconds,
+      "operator.max_timeout_seconds",
+      1,
+      OPERATOR_HARD_MAX_TIMEOUT_SECONDS,
+      1800,
+    ),
+    outputTailBytes: optionalInteger(
+      table.output_tail_bytes,
+      "operator.output_tail_bytes",
+      1,
+      MAX_OPERATOR_OUTPUT_TAIL_BYTES,
+      8192,
+    ),
+    proposalTtlMinutes: optionalInteger(
+      table.proposal_ttl_minutes,
+      "operator.proposal_ttl_minutes",
+      1,
+      1440,
+      60,
+    ),
+    approvalTtlMinutes: optionalInteger(
+      table.approval_ttl_minutes,
+      "operator.approval_ttl_minutes",
+      1,
+      120,
+      10,
+    ),
+    maxPendingProposals: optionalInteger(
+      table.max_pending_proposals,
+      "operator.max_pending_proposals",
+      1,
+      50,
+      5,
+    ),
+    countTowardWorkerLimit: optionalBoolean(
+      table.count_toward_worker_limit,
+      "operator.count_toward_worker_limit",
+      false,
+    ),
+    restartHealthTimeoutSeconds: optionalInteger(
+      table.restart_health_timeout_seconds,
+      "operator.restart_health_timeout_seconds",
+      1,
+      600,
+      60,
+    ),
+    restartIdleWaitSeconds: optionalInteger(
+      table.restart_idle_wait_seconds,
+      "operator.restart_idle_wait_seconds",
+      0,
+      3600,
+      120,
+    ),
+  };
+  if (operator.timeoutSeconds > operator.maxTimeoutSeconds)
+    throw new ConfigError(
+      `operator.timeout_seconds (${operator.timeoutSeconds}) must not exceed operator.max_timeout_seconds (${operator.maxTimeoutSeconds})`,
+    );
+  if (!operator.enabled) return operator;
+
+  if (role === architect.role)
+    throw new ConfigError(
+      `operator.role "${role}" must differ from architect.role`,
+    );
+  const operatorRole = roles.find((candidate) => candidate.name === role);
+  if (operatorRole === undefined)
+    throw new ConfigError(
+      `operator.role "${role}" does not name a configured role`,
+    );
+  if (operatorRole.kind !== "Developer")
+    throw new ConfigError(
+      `operator.role "${role}" must be a Developer role; roles.${role}.kind is ${operatorRole.kind}`,
+    );
+  const host = hosts.get(operatorRole.host);
+  if (host?.kind !== "claude")
+    throw new ConfigError(
+      `roles.${role}: the operator role needs a claude host so its deny rules are enforced; host ${operatorRole.host} is ${host?.kind ?? "unknown"}`,
+    );
+  operatorRole.allow.forEach((rule, index) => {
+    if (!OPERATOR_ALLOW_RULE.test(rule))
+      throw new ConfigError(
+        `roles.${role}.allow[${index}] must be a Bash(cstan ...) rule; the operator role may not allow ${rule}`,
+      );
+  });
+  for (const required of OPERATOR_REQUIRED_DENY)
+    if (!operatorRole.deny.includes(required))
+      throw new ConfigError(
+        `roles.${role}.deny must include ${required}: the operator role may not read or edit project files or start subagents`,
+      );
+  return operator;
 }
 
 function resolveHosts(table: Table): ResolvedHost[] {

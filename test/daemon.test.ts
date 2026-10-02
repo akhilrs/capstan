@@ -66,7 +66,7 @@ const ANY = Object.keys(ROUTES).filter(
 /** What a call with no arguments answers: a stub says so, a real command wants arguments. */
 function bareAnswer(name: string): string {
   // Without a launcher the launch and restart commands say so first; spawn and release check their arguments first.
-  if (["launch", "pm-restart"].includes(name)) return "not_configured";
+  if (["launch", "pm-restart", "op"].includes(name)) return "not_configured";
   return ROUTES[name]!.stub !== undefined
     ? "not_implemented"
     : "invalid_request";

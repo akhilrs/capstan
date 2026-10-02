@@ -30,10 +30,15 @@ import type { IntegrationGit } from "./integration.js";
 import { startReportRelay, type ReportRelay } from "./reports.js";
 import { startSupervision, type SupervisionHandle } from "./supervision.js";
 import { recoverReviews } from "./reviews.js";
-import type { CapstanConfig } from "./config/capstan-config.js";
+import type {
+  CapstanConfig,
+  ResolvedOperator,
+} from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
 import { Launcher, type LauncherAdapter } from "./launcher.js";
+import { createOperatorService, type OperatorService } from "./operator.js";
+import type { RestartCoordinatorOptions } from "./restart.js";
 import type { Notifier } from "./notifier.js";
 import type { Identity, InitialProject } from "./controller/types.js";
 
@@ -89,6 +94,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   "request-review": { access: "agent" },
   integrate: { access: "any" },
   plan: { access: "any" },
+  op: { access: "any" },
   link: { access: "any" },
   review: { access: "agent" },
   finding: { access: "agent" },
@@ -680,6 +686,11 @@ export interface DaemonOptions {
   readonly cliPath?: string;
   /** Brings the configured roles into the ledger as the daemon starts, so `cstan start` needs no separate `config sync`. */
   readonly syncRoles?: (core: ControllerCore) => void;
+  /** Replaces parts of the Operator restart wiring; a test uses it to avoid a real helper and a 60 second settle time. */
+  readonly restart?: Partial<RestartCoordinatorOptions> & {
+    readonly knownGoodSettleMs?: number;
+    readonly resultPollMs?: number;
+  };
 }
 
 /** Runs until SIGTERM, SIGINT or the shutdown command. */
@@ -702,6 +713,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let adoption: Promise<void> = Promise.resolve();
   let reportRelay: ReportRelay | undefined;
   let supervision: SupervisionHandle | undefined;
+  let operatorService: OperatorService | undefined;
+  let stopRestartWatch: (() => void) | undefined;
   let stopping = false;
   void stop.then(() => {
     stopping = true;
@@ -763,10 +776,118 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           ? {}
           : { syncRoles: () => options.syncRoles!(core!) }),
       });
+    const operatorConfig: ResolvedOperator | undefined =
+      options.capstan?.operator;
+    if (operatorConfig?.enabled === true && launcher !== undefined) {
+      const environmentLauncher = launcher;
+      // The restart code is loaded only when the Operator is on; with [operator] absent none of it runs.
+      const restartModule = await import("./restart.js");
+      const stateDir = options.stateDirectory;
+      const distDir =
+        options.restart?.distDir ??
+        path.dirname(path.dirname(options.cliPath ?? process.argv[1] ?? ""));
+      const notifyPm = (body: string): void => {
+        const pm = core!
+          .listAgents()
+          .find((agent) => agent.kind === "PM" && agent.state === "active");
+        if (pm === undefined) {
+          detailLog("restart_pm_notice_skipped", { reason: "no active PM" });
+          return;
+        }
+        core!.enqueueMessage(newContext(core!, credential), {
+          recipientAgentId: pm.agentId,
+          body,
+        });
+      };
+      const coordinator = restartModule.createRestartCoordinator({
+        stateDir,
+        projectRoot: options.workspaceRoot,
+        distDir,
+        helperSource: path.join(distDir, "src", "restart-helper.js"),
+        node: process.execPath,
+        argv: [...process.execArgv, ...process.argv.slice(1)],
+        socketPath,
+        pidPath,
+        logPath: path.join(path.dirname(stateDir), "daemon.log"),
+        credentialFile: path.join(path.dirname(stateDir), "operator.key"),
+        healthTimeoutSeconds: operatorConfig.restartHealthTimeoutSeconds,
+        idleWaitSeconds: operatorConfig.restartIdleWaitSeconds,
+        busy: () => restartModule.busySnapshot(core!, environmentLauncher),
+        notifyPm,
+        requestStop: stopRequested,
+        log: detailLog,
+        ...options.restart,
+      });
+      operatorService = createOperatorService({
+        core,
+        config: operatorConfig,
+        controllerCredential: credential,
+        projectRoot: options.workspaceRoot,
+        environment: () => environmentLauncher.operatorEnvironment(),
+        restart: (proposal) => coordinator.run(proposal),
+        restartPreflight: () => coordinator.preflight(),
+        notifyPm,
+        log: detailLog,
+      });
+      const service = operatorService;
+      const ingestResults = (): void => {
+        restartModule.recoverRestartResults({
+          stateDir,
+          runningRestarts: () =>
+            core!
+              .listOperatorProposals({ states: ["running"] })
+              .filter((proposal) => proposal.kind === "restart"),
+          finishRun: (proposalId, report, durationMs) => {
+            core!.finishOperatorRun(newContext(core!, credential), {
+              proposalId,
+              status: report.status,
+              exitCode: report.exitCode,
+              durationMs,
+              outputTail: report.outputTail,
+              truncated: false,
+            });
+          },
+          notifyPm,
+          log: detailLog,
+        });
+      };
+      // Order matters: the result of a restart that just ended is ingested first, then the run rows that were
+      // running when the last controller stopped are abandoned, except a restart whose helper is still working.
+      ingestResults();
+      await service.recover({
+        skipRestartsWithPlan: restartModule.skipRestartsWithLivePlan(stateDir),
+      });
+      service.start();
+      const resultTimer = setInterval(
+        ingestResults,
+        options.restart?.resultPollMs ?? 2000,
+      );
+      resultTimer.unref();
+      let snapshot: { stop(): void } | undefined;
+      try {
+        snapshot = restartModule.scheduleKnownGoodSnapshot({
+          stateDir,
+          projectRoot: options.workspaceRoot,
+          distDir,
+          loadedHash: restartModule.distHash(distDir),
+          log: detailLog,
+          ...(options.restart?.knownGoodSettleMs === undefined
+            ? {}
+            : { settleMs: options.restart.knownGoodSettleMs }),
+        });
+      } catch (error) {
+        detailLog("known_good_not_scheduled", { error: String(error) });
+      }
+      stopRestartWatch = () => {
+        clearInterval(resultTimer);
+        snapshot?.stop();
+      };
+    }
     const commands = createCommandHandlers({
       core,
       ...(options.capstan === undefined ? {} : { config: options.capstan }),
       ...(launcher === undefined ? {} : { launcher }),
+      ...(operatorService === undefined ? {} : { operator: operatorService }),
       controllerCredential: credential,
       inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
       commitExists: (sha) => commitExists(options.workspaceRoot, sha),
@@ -855,6 +976,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     await adoption;
     await supervision?.stop();
     await driver?.stop();
+    stopRestartWatch?.();
+    await operatorService?.stop();
     if (server !== undefined) await server.drain();
     if (core !== undefined) {
       core.close();

@@ -157,6 +157,42 @@ function withArchitect(
   } as CapstanConfig;
 }
 
+function withOperator(
+  base: CapstanConfig,
+  operator:
+    | {
+        readonly counts: boolean;
+        readonly enabled: boolean;
+        /** False: the role exists but the configuration has no [operator] table. */
+        readonly table?: boolean;
+      }
+    | undefined,
+): CapstanConfig {
+  if (operator === undefined) return base;
+  const developer = base.roles.find((r) => r.name === "developer")!;
+  const role = Object.defineProperty(
+    { ...developer, name: "operator", configHash: hashOf("operator") },
+    "promptText",
+    { value: null, enumerable: false },
+  );
+  return {
+    ...base,
+    roles: [...base.roles, role],
+    ...(operator.table === false
+      ? {}
+      : {
+          operator: {
+            configured: true,
+            enabled: operator.enabled,
+            role: "operator",
+            autoApprove: ["ls -l"],
+            autoApprovePrefix: [],
+            countTowardWorkerLimit: operator.counts,
+          },
+        }),
+  } as unknown as CapstanConfig;
+}
+
 interface World {
   core: ControllerCore;
   owner: string;
@@ -180,6 +216,12 @@ async function world(
     readonly hostOf?: Readonly<Record<string, "codex" | "omp">>;
     /** Enables the Architect role in the configuration; `counts` is count_toward_worker_limit. */
     readonly architect?: { readonly counts: boolean };
+    /** Adds the Operator role to the configuration, enabled or not. */
+    readonly operator?: {
+      readonly counts: boolean;
+      readonly enabled: boolean;
+      readonly table?: boolean;
+    };
     readonly worktree?: ResolvedWorktree;
     readonly runSetup?: SetupRunner;
   } = {},
@@ -198,6 +240,7 @@ async function world(
         "developer:Developer",
         "developer2:Developer",
         "architect:Developer",
+        "operator:Developer",
         "supervisor:Supervisor",
       ].map((entry) => {
         const [name, kind] = entry.split(":") as [
@@ -220,15 +263,18 @@ async function world(
       core,
       adapter,
       config: {
-        ...withArchitect(
-          config(
-            fallback,
-            maxWorkers,
-            layout,
-            environment.pass,
-            environment.hostOf,
+        ...withOperator(
+          withArchitect(
+            config(
+              fallback,
+              maxWorkers,
+              layout,
+              environment.pass,
+              environment.hostOf,
+            ),
+            environment.architect,
           ),
-          environment.architect,
+          environment.operator,
         ),
         ...(environment.worktree === undefined
           ? {}
@@ -3448,5 +3494,157 @@ test("setup runs with the agents' filtered environment: no daemon-only variable,
   } finally {
     w.cleanup();
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("the Operator is refused while disabled, takes no worker place unless it counts, and has its own prompt", async () => {
+  const off = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      operator: { counts: false, enabled: false },
+    },
+  );
+  try {
+    await launched(off);
+    await assert.rejects(
+      off.launcher.spawn("operator"),
+      (e: unknown) =>
+        e instanceof LauncherError && e.code === "operator_disabled",
+    );
+  } finally {
+    off.cleanup();
+  }
+  const exempt = await world(
+    true,
+    true,
+    1,
+    {},
+    {
+      operator: { counts: false, enabled: true },
+    },
+  );
+  try {
+    await launched(exempt);
+    const operator = await exempt.launcher.spawn("operator");
+    assert.equal(operator.state, "started");
+    const dev = await exempt.launcher.spawn("developer");
+    assert.equal(dev.state, "started", "the developer still has its place");
+    const prompts = exempt.adapter.prompts;
+    assert.ok(prompts.some((t) => t.includes("You are the operator")));
+    assert.ok(prompts.some((t) => t.includes("the Operator is enabled")));
+    assert.ok(
+      !prompts.some(
+        (t) =>
+          t.includes("You are developer (Developer)") &&
+          t.includes("cstan op propose"),
+      ),
+      "an ordinary developer prompt does not mention the operator",
+    );
+  } finally {
+    exempt.cleanup();
+  }
+  const counted = await world(
+    true,
+    true,
+    1,
+    {},
+    {
+      operator: { counts: true, enabled: true },
+    },
+  );
+  try {
+    await launched(counted);
+    await counted.launcher.spawn("operator");
+    await assert.rejects(
+      counted.launcher.spawn("developer"),
+      (e: unknown) => e instanceof LauncherError && e.code === "worker_limit",
+    );
+  } finally {
+    counted.cleanup();
+  }
+});
+
+test("a plain Developer role named operator with no [operator] table spawns with the ordinary developer prompt", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    { operator: { counts: false, enabled: false, table: false } },
+  );
+  try {
+    await launched(w);
+    const spawned = await w.launcher.spawn("operator");
+    assert.equal(spawned.state, "started");
+    const prompt = w.adapter.prompts.at(-1)!;
+    assert.ok(prompt.includes("(Developer) on a Capstan delivery team"));
+    assert.ok(!prompt.includes("You are the operator"));
+    assert.ok(!prompt.includes("cstan op "));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("operatorEnvironment is the filtered setup environment with no CAPSTAN_ variable and no cstan wrapper directory", async () => {
+  const w = await world();
+  try {
+    const wrapperDirectory = path.join(w.root, ".capstan", "bin");
+    const launcher = new Launcher({
+      core: w.core,
+      adapter: w.adapter,
+      config: config(true, 3, {}, ["KEPT_NAME"]),
+      projectRoot: w.root,
+      cliPath: "/opt/capstan/cli.js",
+      socketPath: path.join(w.root, "control.sock"),
+      credential: w.owner,
+      nodePath: "/usr/bin/node",
+      baseEnvironment: {
+        PATH: `${wrapperDirectory}:/usr/bin:/bin`,
+        HOME: "/home/x",
+        CAPSTAN_TOKEN: "agent-token-value",
+        CAPSTAN_SOCKET: "/tmp/socket",
+        KEPT_NAME: "kept",
+        SECRET: "no",
+      },
+      git: w.git,
+    });
+    const environment = launcher.operatorEnvironment();
+    assert.deepEqual(
+      Object.keys(environment).filter((name) => name.startsWith("CAPSTAN_")),
+      [],
+    );
+    assert.equal(environment.PATH, "/usr/bin:/bin");
+    assert.equal(environment.KEPT_NAME, "kept");
+    assert.equal(environment.HOME, "/home/x");
+    assert.equal(environment.SECRET, undefined);
+    assert.ok(!JSON.stringify(environment).includes("agent-token-value"));
+    // Building it does not create the wrapper, which only agent environments need.
+    assert.equal(existsSync(wrapperDirectory), false);
+    assert.equal(launcher.inFlightOperations(), 0);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("operatorEnvironment drops PATH when only the wrapper directory was on it", async () => {
+  const w = await world();
+  try {
+    const launcher = new Launcher({
+      core: w.core,
+      adapter: w.adapter,
+      config: config(),
+      projectRoot: w.root,
+      cliPath: "/opt/capstan/cli.js",
+      socketPath: path.join(w.root, "control.sock"),
+      credential: w.owner,
+      baseEnvironment: { PATH: path.join(w.root, ".capstan", "bin") },
+      git: w.git,
+    });
+    assert.equal(launcher.operatorEnvironment().PATH, undefined);
+  } finally {
+    w.cleanup();
   }
 });

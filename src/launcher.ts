@@ -4,7 +4,7 @@
  * It runs inside the daemon, which owns the adapter, and does one operation at
  * a time. Every core write builds its own context at the moment of the call.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -14,6 +14,7 @@ import type {
   ResolvedRole,
   ResolvedWorktree,
 } from "./config/capstan-config.js";
+import { runCommand } from "./command-runner.js";
 import { newContext } from "./context.js";
 import type { ControllerCore, PmRestartSummary } from "./controller/core.js";
 import type { AgentRecord } from "./controller/types.js";
@@ -242,7 +243,6 @@ export type SetupRunner = (
 ) => Promise<SetupOutcome>;
 
 const SETUP_OUTPUT_CHARS = 2000;
-const SETUP_KILL_GRACE_MS = 2000;
 
 /** Escape sequences (CSI with any parameter bytes, OSC, DCS and the other string forms even when unterminated, the 8-bit C1 forms, and two-byte escapes), control and format characters, lone surrogates, line separators and runs of blanks are removed or become one space. The text is cut at a grapheme boundary and kept within `maxLength` UTF-16 units, so combining marks cannot stretch it; a first grapheme longer than that leaves nothing. */
 function oneLine(text: string, maxLength: number): string {
@@ -359,64 +359,26 @@ export function defaultGit(projectRoot: string): GitRunner {
 }
 
 /** Runs `command` through `sh -c` in its own process group; the whole group is killed on timeout. Its output is kept only as a capped tail. */
-export function runSetupCommand(
+export async function runSetupCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
   environment: NodeJS.ProcessEnv,
 ): Promise<SetupOutcome> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn("sh", ["-c", command], {
-        cwd,
-        detached: true,
-        env: environment,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
-      resolve({
-        status: "failed",
-        exitCode: null,
-        output: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-    let output = "";
-    const collect = (chunk: Buffer) => {
-      output = (output + chunk.toString("utf8")).slice(-SETUP_OUTPUT_CHARS * 2);
-    };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
-    const killGroup = (signal: NodeJS.Signals) => {
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, signal);
-      } catch {
-        // The group is already gone.
-      }
-    };
-    let timedOut = false;
-    let hardKill: NodeJS.Timeout | undefined;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup("SIGTERM");
-      hardKill = setTimeout(() => killGroup("SIGKILL"), SETUP_KILL_GRACE_MS);
-    }, timeoutMs);
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      clearTimeout(hardKill);
-      resolve({ status: "failed", exitCode: null, output: error.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      // A group member that ignored SIGTERM must still die.
-      if (timedOut) killGroup("SIGKILL");
-      clearTimeout(hardKill);
-      if (timedOut) resolve({ status: "timeout" });
-      else if (code === 0) resolve({ status: "ok" });
-      else resolve({ status: "failed", exitCode: code, output });
-    });
+  const result = await runCommand({
+    command,
+    cwd,
+    timeoutMs,
+    environment,
+    outputTailBytes: SETUP_OUTPUT_CHARS * 2,
   });
+  if (result.status === "ok") return { status: "ok" };
+  if (result.status === "timeout") return { status: "timeout" };
+  return {
+    status: "failed",
+    exitCode: result.exitCode,
+    output: result.outputTail,
+  };
 }
 
 export class Launcher {
@@ -576,6 +538,23 @@ export class Launcher {
           highRiskTriggers: architect.highRiskTriggers,
         }
       : undefined;
+  }
+
+  /** The operator settings a prompt needs; undefined while the Operator is disabled, so no prompt changes. */
+  #operatorPrompt(): PromptInput["operator"] {
+    const operator = this.#config.operator;
+    return operator?.enabled === true
+      ? { role: operator.role, autoApprove: operator.autoApprove }
+      : undefined;
+  }
+
+  #isOperatorRole(name: string, kind: string): boolean {
+    const operator = this.#config.operator;
+    return (
+      operator?.configured === true &&
+      kind === "Developer" &&
+      name === operator.role
+    );
   }
 
   #nexoraPrompt(): Pick<PromptInput, "nexora"> {
@@ -836,6 +815,32 @@ export class Launcher {
     );
   }
 
+  /** The environment an approved Operator command runs in: the setup command's filtered environment, with every CAPSTAN_ variable absent and no `cstan` wrapper directory on PATH. */
+  operatorEnvironment(): Record<string, string> {
+    const wrapperDirectory = path.resolve(this.#root, ".capstan", "bin");
+    const basePath = this.#baseEnvironment.PATH;
+    const kept = (basePath ?? "")
+      .split(":")
+      .filter(
+        (entry) => entry !== "" && path.resolve(entry) !== wrapperDirectory,
+      );
+    const environment = buildAgentEnvironment(
+      this.#baseEnvironment,
+      {},
+      this.#config.env.pass,
+    );
+    for (const name of Object.keys(environment))
+      if (name.startsWith("CAPSTAN_")) delete environment[name];
+    if (kept.length > 0) environment.PATH = kept.join(":");
+    else delete environment.PATH;
+    return environment;
+  }
+
+  /** How many spawn, release or replace operations are running or waiting; a restart waits until it is zero. */
+  inFlightOperations(): number {
+    return this.#active;
+  }
+
   #hostKind(role: ResolvedRole): HostKind {
     const host = this.#config.hosts.find((h) => h.name === role.host);
     if (host === undefined)
@@ -909,6 +914,9 @@ export class Launcher {
       ...(this.#architectPrompt() === undefined
         ? {}
         : { architect: this.#architectPrompt()! }),
+      ...(this.#operatorPrompt() === undefined
+        ? {}
+        : { operator: this.#operatorPrompt()! }),
       ...this.#nexoraPrompt(),
       ...(summary === undefined ? {} : { restartSummary: summary }),
     });
@@ -1491,13 +1499,26 @@ export class Launcher {
           "kind_not_spawnable",
           "a PM is launched, not spawned",
         );
+      if (
+        this.#config.operator?.enabled !== true &&
+        this.#isOperatorRole(role.name, role.kind)
+      )
+        throw new LauncherError(
+          "operator_disabled",
+          `the role ${role.name} is the Operator and [operator] is not enabled`,
+        );
       this.#assertRoleSynced(role);
-      // The Supervisor watches the workers and does not take one of their places; the Architect does not either unless the configuration says it counts.
+      // The Supervisor watches the workers and does not take one of their places; the Architect and the Operator do not either unless the configuration says they count.
       const architectCounts =
         this.#config.architect?.countTowardWorkerLimit === true;
+      const operatorCounts =
+        this.#config.operator?.countTowardWorkerLimit === true;
       const exempt = (name: string, kind: string): boolean =>
         kind === "Supervisor" ||
-        (!architectCounts && this.#isArchitectRole(name, kind));
+        (!architectCounts && this.#isArchitectRole(name, kind)) ||
+        (!operatorCounts &&
+          this.#config.operator?.enabled === true &&
+          this.#isOperatorRole(name, kind));
       const workers = this.#activeAgents().filter(
         (a) => a.kind !== "PM" && !exempt(a.roleName, a.kind),
       );
@@ -1639,6 +1660,12 @@ export class Launcher {
             : {
                 architect: this.#architectPrompt()!,
                 isArchitect: this.#isArchitectRole(role.name, role.kind),
+              }),
+          ...(this.#operatorPrompt() === undefined
+            ? {}
+            : {
+                operator: this.#operatorPrompt()!,
+                isOperator: this.#isOperatorRole(role.name, role.kind),
               }),
           ...this.#nexoraPrompt(),
           ...(options.seed === undefined

@@ -65,6 +65,9 @@ export type Capability =
   | "review:submit"
   | "plan:write"
   | "plan:read"
+  | "operator:propose"
+  | "operator:decide"
+  | "operator:read"
   | "finding:raise"
   | "finding:check"
   | "agent:observe"
@@ -272,4 +275,56 @@ export interface Identity {
   readonly role: Role;
   readonly capabilities: readonly string[];
   readonly agent: AgentRecord | null;
+}
+
+export type OperatorProposalKind = "command" | "restart";
+export const OPERATOR_PROPOSAL_STATES = [
+  "proposed",
+  "approved",
+  "denied",
+  "cancelled",
+  "expired",
+  "running",
+  "finished",
+  "failed",
+  "timeout",
+  "abandoned",
+] as const;
+export type OperatorProposalState = (typeof OPERATOR_PROPOSAL_STATES)[number];
+export type OperatorRunStatus =
+  "running" | "ok" | "failed" | "timeout" | "error" | "abandoned";
+
+export interface OperatorRunRecord {
+  readonly proposalId: string;
+  readonly startedAt: string;
+  readonly finishedAt: string | null;
+  readonly status: OperatorRunStatus;
+  readonly exitCode: number | null;
+  readonly durationMs: number | null;
+  readonly outputTail: string;
+  readonly outputTruncated: boolean;
+  readonly notifiedMessageId: string | null;
+  readonly pgid: number | null;
+  readonly leaderStart: string | null;
+  readonly orphanClearedAt: string | null;
+}
+
+export interface OperatorProposalRecord {
+  readonly proposalId: string;
+  readonly sequence: number;
+  readonly kind: OperatorProposalKind;
+  readonly command: string;
+  readonly commandSha: string;
+  readonly reason: string;
+  readonly forceRestart: boolean;
+  readonly proposerAgentId: string;
+  readonly proposerActorId: string;
+  readonly state: OperatorProposalState;
+  readonly autoRule: string | null;
+  readonly decidedByActorId: string | null;
+  readonly decidedAt: string | null;
+  readonly decisionNote: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly run: OperatorRunRecord | null;
 }

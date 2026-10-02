@@ -16,6 +16,7 @@ Everything is driven through one command, `cstan`.
 - [Messaging](#messaging)
 - [Worker lifecycle](#worker-lifecycle)
 - [Supervisor findings](#supervisor-findings)
+- [Operator (remote actions)](#operator-remote-actions)
 - [Status, observe and the dashboard](#status-observe-and-the-dashboard)
 - [`cstan` command reference](#cstan-command-reference)
 - [Controller messages](#controller-messages)
@@ -29,12 +30,12 @@ Everything is driven through one command, `cstan`.
 
 A role has a free name (for example `developer`, `designer`, `reviewer`, `tester`) and one of four **kinds**. The kind decides what the agent may do:
 
-| Kind | Purpose | What it may run |
-| --- | --- | --- |
-| `PM` | Talks to you, plans, spawns and releases workers, sends tasks, reads reports, requests reviews, integrates, resolves delivery problems. Never edits project files. | `spawn`, `release`, `replace`, `send`, `inbox`, `wait`, `ack`, `request-review`, `integrate`, `observe`, `status` |
-| `Developer` | Implements or designs changes in its own worktree and branch (`developer` and `designer` in the starter config). | `ack`, `inbox`, `send @pm`, `report`, `status` |
-| `Verifier` | Reviews one commit (`reviewer`) or runs tests (`tester`). A reviewer answers a review request once and is then ended by the controller. | `ack`, `inbox`, `send @pm`, `report`, `review`, `status` |
-| `Supervisor` | Watches the other agents and raises findings. Read and report only. | `status`, `observe`, `finding`, `inbox`, `ack` |
+| Kind         | Purpose                                                                                                                                                            | What it may run                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `PM`         | Talks to you, plans, spawns and releases workers, sends tasks, reads reports, requests reviews, integrates, resolves delivery problems. Never edits project files. | `spawn`, `release`, `replace`, `send`, `inbox`, `wait`, `ack`, `request-review`, `integrate`, `observe`, `status` |
+| `Developer`  | Implements or designs changes in its own worktree and branch (`developer` and `designer` in the starter config).                                                   | `ack`, `inbox`, `send @pm`, `report`, `status`                                                                    |
+| `Verifier`   | Reviews one commit (`reviewer`) or runs tests (`tester`). A reviewer answers a review request once and is then ended by the controller.                            | `ack`, `inbox`, `send @pm`, `report`, `review`, `status`                                                          |
+| `Supervisor` | Watches the other agents and raises findings. Read and report only.                                                                                                | `status`, `observe`, `finding`, `inbox`, `ack`                                                                    |
 
 `resolve` and `cancel` are registered as operator-only in `ROUTES` (`src/daemon.ts`), although the PM prompt (`src/prompts.ts`) tells the PM to run the `cstan resolve` a delivery notice names. Run them yourself from the project directory; an agent token is refused with `forbidden`.
 
@@ -85,20 +86,20 @@ cstan dash            # watch the team (optional)
 
 `cstan init` writes this file. Keys are checked strictly: an unknown key is an error (`cstan config check` shows errors and warnings). The authoritative schema is `src/config/capstan-config.ts`.
 
-| Table | Keys | Notes |
-| --- | --- | --- |
-| top level | `schema_version` (1), `herdr_session` | Herdr session name; default `default`. |
-| `[project]` | `name` | Must match the initialized project name. |
-| `[limits]` | `max_workers` | Default 3, at most 16. |
-| `[layout]` | `spawn` (`tab` or `pane`), `split` (`auto`, `right`, `down`), `pm_width_percent`, `min_pane_columns`, `min_pane_rows` | Starter file sets `spawn = "pane"`, `pm_width_percent = 60`. |
-| `[worktree]` | `setup`, `setup_timeout_seconds` | Optional. `setup` is a shell command run once per new worktree with `sh -c`, the worktree as the working directory, e.g. `setup = "npm install"`. It applies to workers, replacements and the architect, not the PM. `setup_timeout_seconds` is 1 to 3600, default 600, and is refused without `setup`. A failing or timed-out setup aborts the spawn. The setup command runs with the same filtered environment as agents (the default allowlist plus `[env] pass`), not the daemon's full environment. `setup` is trusted project config, like the other commands in `capstan.toml`: anyone who can edit the file can run commands. |
-| `[supervision]` | `enabled`, `check_seconds` | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off. |
-| `[defaults]`, `[defaults.PM]`, `.Supervisor`, `.Developer`, `.Verifier` | `model`, `permission_mode` | Used when a role sets none. `permission_mode` is one of `default`, `acceptEdits`, `plan`, `auto`. |
-| `[env]` | `pass` | Extra environment variable names copied from where the daemon started into every agent. |
-| `[hosts.<name>]` | `kind` (`claude`, `codex`, `omp`), `command`, `shell_command_timeout_seconds`, `wait_timeout_seconds` | `codex` and `omp` hosts run unattended with full access; `cstan config check` warns about it. |
-| `[roles.<name>]` | `kind` (`PM`, `Developer`, `Verifier`, `Supervisor`), `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks` (`off` or `inherit`), `prompt` or `prompt_file` | Role names match `^[a-z][a-z0-9-]{0,31}$`. A PM may not edit files or start subagents by default, and a Supervisor may not edit or push, unless the role sets `deny` itself. |
-| `[notifications]` | `herdr`, `fallback` | At least one must be true. |
-| `[timers]` | `max_deferral_seconds`, `max_busy_deferral_seconds`, `pm_ack_timeout_seconds`, `pm_notify_after_seconds`, `notify_interval_seconds`, `stall_after_seconds`, `worker_ack_timeout_seconds`, `finding_check_seconds`, `pm_wake_after_seconds`, `pm_wake_interval_seconds` | Defaults and ranges are in `TIMER_DEFAULTS`. |
+| Table                                                                   | Keys                                                                                                                                                                                                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| top level                                                               | `schema_version` (1), `herdr_session`                                                                                                                                                                                                                                  | Herdr session name; default `default`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `[project]`                                                             | `name`                                                                                                                                                                                                                                                                 | Must match the initialized project name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `[limits]`                                                              | `max_workers`                                                                                                                                                                                                                                                          | Default 3, at most 16.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `[layout]`                                                              | `spawn` (`tab` or `pane`), `split` (`auto`, `right`, `down`), `pm_width_percent`, `min_pane_columns`, `min_pane_rows`                                                                                                                                                  | Starter file sets `spawn = "pane"`, `pm_width_percent = 60`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `[worktree]`                                                            | `setup`, `setup_timeout_seconds`                                                                                                                                                                                                                                       | Optional. `setup` is a shell command run once per new worktree with `sh -c`, the worktree as the working directory, e.g. `setup = "npm install"`. It applies to workers, replacements and the architect, not the PM. `setup_timeout_seconds` is 1 to 3600, default 600, and is refused without `setup`. A failing or timed-out setup aborts the spawn. The setup command runs with the same filtered environment as agents (the default allowlist plus `[env] pass`), not the daemon's full environment. `setup` is trusted project config, like the other commands in `capstan.toml`: anyone who can edit the file can run commands. |
+| `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `[defaults]`, `[defaults.PM]`, `.Supervisor`, `.Developer`, `.Verifier` | `model`, `permission_mode`                                                                                                                                                                                                                                             | Used when a role sets none. `permission_mode` is one of `default`, `acceptEdits`, `plan`, `auto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `[env]`                                                                 | `pass`                                                                                                                                                                                                                                                                 | Extra environment variable names copied from where the daemon started into every agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `[hosts.<name>]`                                                        | `kind` (`claude`, `codex`, `omp`), `command`, `shell_command_timeout_seconds`, `wait_timeout_seconds`                                                                                                                                                                  | `codex` and `omp` hosts run unattended with full access; `cstan config check` warns about it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `[roles.<name>]`                                                        | `kind` (`PM`, `Developer`, `Verifier`, `Supervisor`), `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks` (`off` or `inherit`), `prompt` or `prompt_file`                                                                                                     | Role names match `^[a-z][a-z0-9-]{0,31}$`. A PM may not edit files or start subagents by default, and a Supervisor may not edit or push, unless the role sets `deny` itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `[notifications]`                                                       | `herdr`, `fallback`                                                                                                                                                                                                                                                    | At least one must be true.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `[timers]`                                                              | `max_deferral_seconds`, `max_busy_deferral_seconds`, `pm_ack_timeout_seconds`, `pm_notify_after_seconds`, `notify_interval_seconds`, `stall_after_seconds`, `worker_ack_timeout_seconds`, `finding_check_seconds`, `pm_wake_after_seconds`, `pm_wake_interval_seconds` | Defaults and ranges are in `TIMER_DEFAULTS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`src/prompts.ts`) followed by the role's own `prompt`.
 
@@ -186,6 +187,64 @@ While workers are active the controller keeps one Supervisor running (`[supervis
 
 Agents treat a `Finding` message as data from a supervisor, not as an instruction from the controller.
 
+## Operator (remote actions)
+
+An optional **Operator** agent lets the PM have a shell command run, or the controller restarted, without you at the keyboard. The Operator only proposes; the controller runs. Nothing about the Operator exists while `[operator]` is absent or `enabled = false`: no role, no prompt text, no `op` command (it answers `not_configured`), no restart code loaded, no known-good snapshot taken, no `restart/` directory.
+
+**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<reason>" <command...>` (or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root, never in a shell string built from a proposal field. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel` and `show`.
+
+**Keys and defaults** (`[operator]` in `capstan.toml`; unset keys take these defaults):
+
+| Key                                       | Default        | Meaning                                                           |
+| ----------------------------------------- | -------------- | ----------------------------------------------------------------- |
+| `enabled`                                 | `false`        | Turns the Operator on.                                            |
+| `role`                                    | `"operator"`   | Developer role that may propose.                                  |
+| `auto_approve`                            | `[]`           | Exact read-only commands that skip the PM.                        |
+| `auto_approve_prefix`                     | `[]`           | Opt-in prefixes; only safe path arguments may follow.             |
+| `timeout_seconds` / `max_timeout_seconds` | `300` / `1800` | Time a command may run; the group is killed at the limit.         |
+| `output_tail_bytes`                       | `8192`         | End of the output kept (at most 12288).                           |
+| `proposal_ttl_minutes`                    | `60`           | A proposal nobody decided expires.                                |
+| `approval_ttl_minutes`                    | `10`           | An approved proposal that did not start expires (`approval_ttl`). |
+| `max_pending_proposals`                   | `5`            | Open proposals at once.                                           |
+| `count_toward_worker_limit`               | `false`        | Whether the Operator counts as a worker.                          |
+| `restart_health_timeout_seconds`          | `60`           | How long a restarted controller has to answer `ping`.             |
+| `restart_idle_wait_seconds`               | `120`          | How long a restart waits for the controller to be idle.           |
+
+**Auto allowlist.** Only exact commands that match `OPERATOR_AUTO_ALLOWLIST` in `src/operator-policy.ts` and are listed in `auto_approve` (or match an `auto_approve_prefix`) run without the PM: `ls` with `-l -a -la -h` and plain path arguments, `pwd`, `whoami`, `date`, `uname -a`, `df -h`, `cstan ping`, `cstan status`, `git rev-parse` (`--abbrev-ref`, `--short`, `HEAD`) and `git ls-files`. `git status`, `git diff` and `git show` are deliberately not on it: they can run project-configured helpers (`diff.external`, textconv, pagers), so they can execute project code. A restart is never auto-approved, even if you list it.
+
+**Denylist.** A second layer, not the guard: a command containing words such as `push`, `rm`, `reset`, `checkout`, `merge`, `sudo`, `curl`, `ssh`, `sh`, `bash`, `eval`, `xargs`, `find`, `npm`, `node`, `python`, `make`, `docker`, or the short options `-f -d -D -x -r -R -o -O -e -c`, always needs the PM, whatever the rules say. The full list is `OPERATOR_ALWAYS_APPROVAL` in `src/operator-policy.ts`.
+
+**PM approval.** The PM sees the exact command, the reason and the hash, shows you the command and decides. Approval is bound to the text, the kind and the force flag: a changed text has another hash. An approved proposal runs once; no approval is taken while a run is in progress. Command text and reason are printable ASCII only.
+
+**Working directory and environment.** Commands run in the project root. The child gets no `CAPSTAN_` variable and no `cstan` wrapper on its `PATH`.
+
+**Output sanitisation, and its limits.** The output tail has terminal sequences removed and anything that looks like a credential (values of `TOKEN`, `SECRET`, `KEY`, `PASSWORD` variables, bearer headers, provider key prefixes, JWTs, private keys, long mixed letter-digit runs) replaced by `[redacted]`. It is a best effort. `cat .env` prints a file whose values do not look like credentials, so the PM and the Operator receive them. Do not approve commands that print secrets. Output is shown to agents as untrusted data.
+
+**Limits you must accept.** An approved command runs with your full authority. A process of the same user that outlives its run (`setsid`, `nohup`) can reach the control socket or read tokens from `/proc`. Nothing proves a human approved a command beyond the PM prompt: the PM agent is the approver, and a PM that approves without asking you has bypassed the control. Read what the PM shows you.
+
+**Audit.** Every proposal, decision, run, result and expiry is a ledger event. `cstan op show <id>` prints a proposal with its run and output tail; the ledger keeps them (tables `operator_proposals` and `operator_runs`).
+
+### Restart and rollback
+
+`cstan op propose --restart [--force] "<reason>"` asks the controller to restart itself so a new build of `dist/` takes effect. There is one flag name: `--force` on `propose` (there is no `--force-restart` and no flag on `decide`); the hash covers it.
+
+1. **Refused without a rollback target.** The controller keeps a known-good copy of the build it is running in `.capstan/state/known-good/` (`dist/` plus `manifest.json` with `createdAt`, `controllerVersion`, `maxMigration` and the sha256 of `package.json`, `package-lock.json` and `node_modules/.package-lock.json`). It saves the copy 60 seconds after start, and only when `dist/` on disk still equals the build the controller loaded: a build run in that window never becomes known-good. Until the copy exists, `op propose --restart` is refused with `no_known_good`, and the check is repeated when the restart runs. A restart never starts without a rollback target. Restart proposals are also refused with `no_schema_probe` when Node has no `node:sqlite` (the helper reads the ledger schema with it; Node 22.5 or newer).
+2. **Idle check.** Unless `--force` was proposed, the restart waits up to `restart_idle_wait_seconds` until no spawn, release or replace is in flight, no review is `started`, no integration is non-terminal and no delivery is sent but unacknowledged (Operator runs are not counted). Otherwise it fails with the list of what was busy and the PM is told. Re-propose with `--force` to restart anyway; the PM approves the hash that covers it.
+3. **Detached helper.** The controller copies `restart-helper.js` to `.capstan/state/restart/<id>/helper.mjs`, writes `plan.json`, starts the helper detached in its own process group, and stops itself with the same graceful stop as the `shutdown` command. The helper waits for the socket and pid file to go (SIGTERM, then SIGKILL after 10 seconds, for a stuck old controller), copies the ledger and its `-wal` and `-shm` files into `restart/<id>/ledger.bak/`, starts the new controller and pings it over the control socket every second until `restart_health_timeout_seconds`. Success writes `result.json` with outcome `ok`.
+4. **Rollback.** If the new controller exits or does not answer, the helper stops it, renames `dist/` to `dist.failed-<id>`, restores `known-good/dist` (copied beside it, then renamed into place, so it is never half-copied) and starts it again (at most twice). If the stored ledger schema is newer than `manifest.maxMigration`, the helper first restores the ledger from `ledger.bak`; writes made only by the failed new controller are lost, and the PM notice says `LEDGER RESTORED`. The result is `rolled_back` with the reason. If the old build does not start either, the result is `down` with the manual recovery steps. If the handoff fails, the result is `rolled_back` only when the old controller still answers ping; otherwise it is `down` and says the controller is not running. An unreadable operator key or a corrupt plan also ends as `down`, and the controller refuses a restart whose key file it cannot read.
+5. **Dependency changes.** If `package.json`, `package-lock.json` or `node_modules/.package-lock.json` differ from the manifest when you propose, the PM notice says `dependencies changed since the known-good build: rollback may not start`. Rollback is still tried; a failure ends as `down` and names the change.
+6. **After the restart.** At every controller start the controller first ingests any `result.json`, tells the PM and the Operator and finishes the run (`finished`, `failed` for a rollback, `error` for `down`); only then does it abandon runs that were running when the last controller stopped. A restart whose helper is still working is left running and its result is ingested when it appears; a restart with no result and no live helper becomes `abandoned`. Agents' panes are re-adopted by the normal startup (`adoptAll`).
+
+**Manual recovery** when the outcome is `down` or the controller is not running after a restart (the PM notice and `result.json` name the paths). From the project root:
+
+```sh
+rm -rf dist && cp -a .capstan/state/known-good/dist dist   # or inspect dist.failed-<id> first
+# if the controller refuses the ledger: copy .capstan/state/restart/<id>/ledger.bak/* over .capstan/state/ (keep the file names)
+cstan start
+```
+
+The known-good copy is not refreshed during a restart. The helper never deletes anything it did not create; `restart/<id>/`, `ledger.bak/` and `dist.failed-<id>` stay until you remove them.
+
 ## Status, observe and the dashboard
 
 - `cstan status [--json]` prints the project state: roles and seats, work, findings and, when the daemon is reachable as the operator, agents, unresolved messages, panes, reports, reviews, integrations, agent findings, stalled/lost agents and cleanup failures. If the daemon is stopped it reads the ledger directly. `cstan status --watch [--interval <seconds>]` redraws it (interval 1 to 60, default 2).
@@ -199,58 +258,58 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Project and daemon (operator)
 
-| Command | Purpose |
-| --- | --- |
-| `cstan init` | Create `.capstan/` and a starter `capstan.toml`. |
-| `cstan start` | Start the daemon and launch the PM. |
-| `cstan stop` | Stop the daemon. |
-| `cstan ping` | Check that the daemon answers. |
-| `cstan config check` | Validate `capstan.toml` and print the resolved config (warnings on stderr). |
-| `cstan config sync` | Write role definitions into the ledger (daemon stopped). |
-| `cstan herdr-config` | Print an optional Herdr `config.toml` snippet. |
-| `cstan pm restart` | Replace the PM session, seeded from the ledger. |
-| `cstan resolve <message-id> retry\|skip\|cancel ["<note>"]` | Settle a blocked message. |
-| `cstan cancel <message-id>` | Cancel a message. |
+| Command                                                     | Purpose                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `cstan init`                                                | Create `.capstan/` and a starter `capstan.toml`.                            |
+| `cstan start`                                               | Start the daemon and launch the PM.                                         |
+| `cstan stop`                                                | Stop the daemon.                                                            |
+| `cstan ping`                                                | Check that the daemon answers.                                              |
+| `cstan config check`                                        | Validate `capstan.toml` and print the resolved config (warnings on stderr). |
+| `cstan config sync`                                         | Write role definitions into the ledger (daemon stopped).                    |
+| `cstan herdr-config`                                        | Print an optional Herdr `config.toml` snippet.                              |
+| `cstan pm restart`                                          | Replace the PM session, seeded from the ledger.                             |
+| `cstan resolve <message-id> retry\|skip\|cancel ["<note>"]` | Settle a blocked message.                                                   |
+| `cstan cancel <message-id>`                                 | Cancel a message.                                                           |
 
 `cstan daemon` is the internal command that `cstan start` runs in the background; you do not need to run it. `cstan assign` and `cstan ask` are listed in the usage string but answer `not_implemented` in this version.
 
 ### Look and read
 
-| Command | Who | Purpose |
-| --- | --- | --- |
-| `cstan status [--json]` / `--watch [--interval N]` | either | Project state. |
-| `cstan inspect <id> [--json]` | operator | One ledger record. |
-| `cstan dash [--interval N] [--no-color] [--reduced-motion]` | operator | Dashboard. |
-| `cstan inbox [<agent-id>]` | either | Agent: own pending messages. Operator: an agent's mailbox (id required). |
-| `cstan observe <agent-id> [lines]` | PM, Supervisor | Another agent's recent screen. |
+| Command                                                     | Who            | Purpose                                                                  |
+| ----------------------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
+| `cstan status [--json]` / `--watch [--interval N]`          | either         | Project state.                                                           |
+| `cstan inspect <id> [--json]`                               | operator       | One ledger record.                                                       |
+| `cstan dash [--interval N] [--no-color] [--reduced-motion]` | operator       | Dashboard.                                                               |
+| `cstan inbox [<agent-id>]`                                  | either         | Agent: own pending messages. Operator: an agent's mailbox (id required). |
+| `cstan observe <agent-id> [lines]`                          | PM, Supervisor | Another agent's recent screen.                                           |
 
 ### Messaging and workers
 
-| Command | Who | Purpose |
-| --- | --- | --- |
-| `cstan send <agent-id\|@pm> "<text>"` | either | Queue a message. |
-| `cstan wait` | PM | Block for new messages. |
-| `cstan ack <message-id>` | agent | Acknowledge a message. |
-| `cstan spawn <role>` | either | Start a worker. |
-| `cstan release <agent-id>` | either | End a worker, free its pane and worktree. |
-| `cstan replace <agent-id>` | either | Replace a lost or stuck worker. |
+| Command                               | Who    | Purpose                                   |
+| ------------------------------------- | ------ | ----------------------------------------- |
+| `cstan send <agent-id\|@pm> "<text>"` | either | Queue a message.                          |
+| `cstan wait`                          | PM     | Block for new messages.                   |
+| `cstan ack <message-id>`              | agent  | Acknowledge a message.                    |
+| `cstan spawn <role>`                  | either | Start a worker.                           |
+| `cstan release <agent-id>`            | either | End a worker, free its pane and worktree. |
+| `cstan replace <agent-id>`            | either | Replace a lost or stuck worker.           |
 
 ### Delivery flow
 
-| Command | Who | Purpose |
-| --- | --- | --- |
-| `cstan report <commit> "<summary>"` | Developer, Verifier | Report a finished commit (full 40-character id). |
-| `cstan request-review <report-id\|integration-id> [role]` | PM | Start an independent review. |
-| `cstan review pass\|findings "<text>"` | Verifier | Answer a review request once. |
-| `cstan integrate <report-id>...` | PM or operator | Merge reviewed reports onto an integration branch. |
-| `cstan integrate confirm\|discard <integration-id>` | PM or operator | Settle a merged integration. |
+| Command                                                   | Who                 | Purpose                                            |
+| --------------------------------------------------------- | ------------------- | -------------------------------------------------- |
+| `cstan report <commit> "<summary>"`                       | Developer, Verifier | Report a finished commit (full 40-character id).   |
+| `cstan request-review <report-id\|integration-id> [role]` | PM                  | Start an independent review.                       |
+| `cstan review pass\|findings "<text>"`                    | Verifier            | Answer a review request once.                      |
+| `cstan integrate <report-id>...`                          | PM or operator      | Merge reviewed reports onto an integration branch. |
+| `cstan integrate confirm\|discard <integration-id>`       | PM or operator      | Settle a merged integration.                       |
 
 ### Supervision
 
-| Command | Who | Purpose |
-| --- | --- | --- |
+| Command                                                                         | Who        | Purpose          |
+| ------------------------------------------------------------------------------- | ---------- | ---------------- |
 | `cstan finding <agent-id> <severity> "<evidence>" "<correction>" "<done-when>"` | Supervisor | Raise a finding. |
-| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"` | Supervisor | Check a finding. |
+| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"`            | Supervisor | Check a finding. |
 
 Arguments may not be empty and may not contain invalid UTF-8. Put long text in a quoted heredoc so the shell does not expand it:
 
@@ -265,16 +324,16 @@ EOF
 
 Messages whose sender is `controller` start with one of these prefixes (`src/controller/core.ts`, `src/prompts.ts`):
 
-| Prefix | Meaning |
-| --- | --- |
-| `Verified report` | A report was accepted: the commit exists on that worker's branch. Not a review. |
-| `Review request` | To a reviewer: the commit (or integration) to review. |
-| `Review` | To the PM: the reviewer's verdict as recorded. The text inside is the reviewer's opinion. |
-| `Finding` | A supervisor raised, resolved, escalated or cancelled a finding. |
-| `Delivery problem` | A message to a worker is `unacked`, `expired` or `failed`; run the `cstan resolve` it names. |
-| `Agent stalled` / `Agent blocked` | A worker made no progress / waits at a prompt. |
-| `Agent ... is lost` | Herdr no longer finds the agent's pane or process. |
-| `Routine check` | To the Supervisor: do one watch pass. |
+| Prefix                            | Meaning                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Verified report`                 | A report was accepted: the commit exists on that worker's branch. Not a review.              |
+| `Review request`                  | To a reviewer: the commit (or integration) to review.                                        |
+| `Review`                          | To the PM: the reviewer's verdict as recorded. The text inside is the reviewer's opinion.    |
+| `Finding`                         | A supervisor raised, resolved, escalated or cancelled a finding.                             |
+| `Delivery problem`                | A message to a worker is `unacked`, `expired` or `failed`; run the `cstan resolve` it names. |
+| `Agent stalled` / `Agent blocked` | A worker made no progress / waits at a prompt.                                               |
+| `Agent ... is lost`               | Herdr no longer finds the agent's pane or process.                                           |
+| `Routine check`                   | To the Supervisor: do one watch pass.                                                        |
 
 ## Exit codes
 

@@ -7314,7 +7314,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'operator_runs', 'operator_proposals', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -7331,6 +7331,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
                 !row.includes('"plan:') &&
                 !row.includes('"report:') &&
                 !row.includes('"review:') &&
+                !row.includes('"operator:') &&
                 !row.includes('"finding:raise') &&
                 !row.includes('"finding:check') &&
                 !row.includes('"agent:observe'),
@@ -7343,6 +7344,8 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "operator_runs",
+        "operator_proposals",
         "external_links",
         "plan_signoffs",
         "plan_packages",
@@ -7375,10 +7378,10 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       ])
         db.exec(`DROP TABLE ${table}`);
       db.exec(
-        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
       );
       db.exec(
-        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
       );
       db.prepare("DELETE FROM schema_migrations WHERE version >= 14").run();
       before = snapshot(db);
@@ -7414,6 +7417,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 23, name: "0023_plan_reviews.sql" },
           { version: 24, name: "0024_developer_review_request.sql" },
           { version: 25, name: "0025_external_links.sql" },
+          { version: 26, name: "0026_operator.sql" },
         ],
       );
       assert.equal(

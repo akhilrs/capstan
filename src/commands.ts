@@ -24,6 +24,7 @@ import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   NAME_PATTERN,
   type CapstanConfig,
+  type ResolvedOperator,
 } from "./config/capstan-config.js";
 import { MAX_TEXT_BYTES, isAgentName } from "./herdr/adapter.js";
 import { newContext } from "./context.js";
@@ -32,6 +33,7 @@ import {
   ControllerError,
   MAX_REVIEW_ROUNDS,
   MAX_REPORT_SUMMARY_BYTES,
+  RESTART_COMMAND_TEXT,
   type ReportEvidence,
   type ReportReason,
 } from "./controller/core.js";
@@ -59,6 +61,13 @@ import {
   reviewText,
 } from "./reviews.js";
 import { LauncherError } from "./launcher.js";
+import {
+  OperatorError,
+  frameOutput,
+  type OperatorService,
+} from "./operator.js";
+import { hashPrefix } from "./operator-policy.js";
+import type { OperatorProposalRecord } from "./controller/types.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
@@ -115,6 +124,39 @@ function imitatesFrame(body: string): boolean {
 const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
+const MAX_STATUS_PROPOSALS = 20;
+
+/** What `op` answers for a proposal; the output tail is framed as untrusted data. */
+function describeProposal(proposal: OperatorProposalRecord) {
+  return {
+    proposalId: proposal.proposalId,
+    kind: proposal.kind,
+    state: proposal.state,
+    proposer: proposal.proposerAgentId,
+    hash: hashPrefix(proposal.commandSha),
+    forceRestart: proposal.forceRestart,
+    command: proposal.command,
+    reason: proposal.reason,
+    autoRule: proposal.autoRule,
+    decidedByActorId: proposal.decidedByActorId,
+    decidedAt: proposal.decidedAt,
+    decisionNote: proposal.decisionNote,
+    createdAt: proposal.createdAt,
+    ...(proposal.run === null
+      ? {}
+      : {
+          run: {
+            status: proposal.run.status,
+            exitCode: proposal.run.exitCode,
+            durationMs: proposal.run.durationMs,
+            startedAt: proposal.run.startedAt,
+            finishedAt: proposal.run.finishedAt,
+            outputTruncated: proposal.run.outputTruncated,
+            output: frameOutput(proposal.run),
+          },
+        }),
+  };
+}
 /** Room the driver's frame header and footer need inside the adapter's text limit. */
 export const FRAME_RESERVE = 1024;
 export const MAX_SEND_BODY_BYTES = MAX_TEXT_BYTES - FRAME_RESERVE;
@@ -166,6 +208,8 @@ export interface CommandDependencies {
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly driverSnapshot?: () => DriverSnapshot;
   readonly launcher?: LauncherApi;
+  /** Runs and records Operator proposals; the daemon builds it when `[operator]` is enabled. */
+  readonly operator?: OperatorService;
   /** Whether a commit exists in the project repository; the daemon passes the real check. */
   readonly commitExists?: (sha: string) => Promise<boolean>;
   /** Looks a reported commit up in git; the daemon passes the real one. */
@@ -495,6 +539,19 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           return fail(
             "unknown_recipient",
             "the recipient is not an active agent",
+          );
+        const operatorConfig: ResolvedOperator | undefined =
+          deps.config?.operator;
+        if (
+          caller !== undefined &&
+          caller.kind !== "PM" &&
+          operatorConfig?.enabled === true &&
+          recipient.kind === "Developer" &&
+          recipient.roleName === operatorConfig.role
+        )
+          return fail(
+            "recipient_not_allowed",
+            "only the PM sends to the operator agent; the controller tells it what it needs",
           );
         if (caller !== undefined) {
           if (caller.agentId === recipient.agentId)
@@ -1596,6 +1653,178 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         return ok(result);
       } catch (error) {
         return mapError(error);
+      }
+    },
+
+    op(call) {
+      const config = deps.config;
+      const service = deps.operator;
+      if (
+        config === undefined ||
+        !config.operator.enabled ||
+        service === undefined
+      )
+        return fail(
+          "not_configured",
+          "operator commands need [operator] enabled = true in capstan.toml",
+        );
+      const [sub, ...rest] = call.args;
+      if (
+        sub !== "propose" &&
+        sub !== "decide" &&
+        sub !== "show" &&
+        sub !== "cancel"
+      )
+        return fail(
+          "invalid_request",
+          "op needs propose, decide, show or cancel",
+        );
+      const caller = agentOf(call.identity);
+      const refuse = (error: unknown): CommandResponse => {
+        if (error instanceof OperatorError)
+          return fail("rejected", `${error.code}: ${error.message}`);
+        if (error instanceof ControllerError)
+          return fail("rejected", error.message);
+        return mapError(error);
+      };
+      const isOperatorAgent =
+        caller?.state === "active" &&
+        caller.kind === "Developer" &&
+        caller.roleName === config.operator.role;
+      const isActivePm = caller?.state === "active" && caller.kind === "PM";
+      const isCli = call.identity.role === "operator";
+      try {
+        if (sub === "propose") {
+          if (!isOperatorAgent)
+            return fail(
+              "forbidden",
+              "only the designated operator agent proposes a command",
+            );
+          let kind: "command" | "restart" = "command";
+          let forceRestart = false;
+          let command: string;
+          let reason: string;
+          if (rest[0] === "--restart") {
+            kind = "restart";
+            const tail = rest.slice(1);
+            if (tail[0] === "--force") {
+              forceRestart = true;
+              tail.shift();
+            }
+            if (tail.length !== 1)
+              return fail(
+                "invalid_request",
+                "op propose --restart needs [--force] and one reason",
+              );
+            command = RESTART_COMMAND_TEXT;
+            reason = tail[0]!;
+          } else {
+            if (rest.length !== 2)
+              return fail(
+                "invalid_request",
+                'op propose needs "<command>" and "<reason>"',
+              );
+            if (rest[0]!.startsWith("-"))
+              return fail(
+                "invalid_request",
+                "a command cannot start with -; the only options are --restart and --force",
+              );
+            [command, reason] = rest as [string, string];
+          }
+          log("operator_propose_requested", { agentId: caller.agentId, kind });
+          const proposal = service.propose(call.credential, {
+            kind,
+            command,
+            reason,
+            forceRestart,
+          });
+          return ok(describeProposal(proposal));
+        }
+        if (sub === "decide") {
+          const [proposalId, decision, ...tail] = rest;
+          if (
+            proposalId === undefined ||
+            (decision !== "approve" && decision !== "deny")
+          )
+            return fail(
+              "invalid_request",
+              'op decide needs a proposal id and approve --hash <hash12> or deny ["<note>"]',
+            );
+          if (decision === "approve") {
+            if (isCli)
+              return fail(
+                "rejected",
+                "approve_requires_pm: only an active PM agent approves an operator proposal; the operator may deny, cancel and show",
+              );
+            if (!isActivePm)
+              return fail("forbidden", "only an active PM approves a proposal");
+            if (tail.length !== 2 || tail[0] !== "--hash")
+              return fail(
+                "invalid_request",
+                "op decide approve needs --hash <hash12> and takes no --force; the force value is part of the proposal",
+              );
+            return ok(
+              describeProposal(
+                service.decide(call.credential, {
+                  proposalId,
+                  decision,
+                  hash: tail[1]!,
+                }),
+              ),
+            );
+          }
+          if (!isCli && !isActivePm)
+            return fail("forbidden", "only the PM or the operator denies");
+          if (tail.length > 1)
+            return fail(
+              "invalid_request",
+              "op decide deny takes at most one note; there is no --force at decide time",
+            );
+          return ok(
+            describeProposal(
+              service.decide(call.credential, {
+                proposalId,
+                decision,
+                ...(tail[0] === undefined ? {} : { note: tail[0] }),
+              }),
+            ),
+          );
+        }
+        if (sub === "cancel") {
+          if (rest.length !== 1 || !SAFE_AGENT_ID.test(rest[0]!))
+            return fail("invalid_request", "op cancel needs one proposal id");
+          if (!isCli && !isActivePm && !isOperatorAgent)
+            return fail("forbidden", "the caller may not cancel a proposal");
+          return ok(
+            describeProposal(service.cancel(call.credential, rest[0]!)),
+          );
+        }
+        if (!isCli && !isActivePm && !isOperatorAgent)
+          return fail("forbidden", "the caller may not show proposals");
+        if (rest.length > 1)
+          return fail("invalid_request", "op show takes at most one id");
+        const own = isOperatorAgent && caller !== undefined;
+        if (rest[0] !== undefined) {
+          if (!SAFE_AGENT_ID.test(rest[0]))
+            return fail("invalid_request", "the proposal id is not valid");
+          const proposal = service.show(rest[0]);
+          if (
+            proposal === undefined ||
+            (own && proposal.proposerAgentId !== caller.agentId)
+          )
+            return fail("rejected", `unknown_proposal: no proposal ${rest[0]}`);
+          return ok(describeProposal(proposal));
+        }
+        return ok({
+          proposals: service
+            .list({
+              limit: MAX_STATUS_PROPOSALS,
+              ...(own ? { proposerAgentId: caller.agentId } : {}),
+            })
+            .map(describeProposal),
+        });
+      } catch (error) {
+        return refuse(error);
       }
     },
 
