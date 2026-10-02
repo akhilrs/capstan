@@ -30,6 +30,15 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       findingCheckSeconds: 1800,
     },
     supervision: { enabled: false, checkSeconds: 300 },
+    architect: {
+      enabled: false,
+      role: "architect",
+      planReview: "high_risk",
+      reviewerRole: null,
+      maxPackages: 8,
+      countTowardWorkerLimit: false,
+      highRiskTriggers: [],
+    },
     limits: { maxWorkers: 3 },
     layout: {
       spawn: "tab",

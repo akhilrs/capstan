@@ -1419,3 +1419,130 @@ test("the starter file puts opus on PM and Supervisor and sonnet on Developer an
     assert.ok(STARTER_CONFIG.includes('# permission_mode = "auto"'));
   });
 });
+
+const ARCHITECT_ROLE = `
+[roles.architect]
+kind = "Developer"
+host = "claude"
+deny = ["Write", "Edit"]
+`;
+
+test("the architect table defaults to disabled and leaves a project without it unchanged", () => {
+  const expected = {
+    enabled: false,
+    role: "architect",
+    planReview: "high_risk",
+    reviewerRole: null,
+    maxPackages: 8,
+    countTowardWorkerLimit: false,
+    highRiskTriggers: [
+      "schema or migrations",
+      "security or auth",
+      "public contracts or wire formats",
+      "cross-cutting changes",
+    ],
+  };
+  withConfig(VALID, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).architect, expected);
+  });
+  withConfig(`${VALID}\n[architect]\n`, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).architect, expected);
+  });
+  // Disabled, the role and reviewer names are not looked up.
+  withConfig(
+    `${VALID}\n[architect]\nrole = "nobody"\nreviewer_role = "ghost"\n`,
+    (directory) => {
+      assert.equal(loadCapstanConfig(directory).architect.enabled, false);
+    },
+  );
+});
+
+test("an enabled architect table is parsed with every key", () => {
+  withConfig(
+    `${VALID}${ARCHITECT_ROLE}
+[architect]
+enabled = true
+plan_review = "always"
+reviewer_role = "reviewer"
+max_packages = 20
+count_toward_worker_limit = true
+high_risk_triggers = ["billing"]
+`,
+    (directory) => {
+      assert.deepEqual(loadCapstanConfig(directory).architect, {
+        enabled: true,
+        role: "architect",
+        planReview: "always",
+        reviewerRole: "reviewer",
+        maxPackages: 20,
+        countTowardWorkerLimit: true,
+        highRiskTriggers: ["billing"],
+      });
+    },
+  );
+});
+
+test("the architect table refuses bad keys, values, roles and hosts", () => {
+  const table = `${VALID}${ARCHITECT_ROLE}\n[architect]\n`;
+  for (const [bad, pattern] of [
+    ["every = 5", /architect has 1 unknown key/],
+    ['enabled = "yes"', /architect\.enabled/],
+    ['plan_review = "sometimes"', /architect\.plan_review/],
+    ['role = "Bad Name"', /architect\.role must match/],
+    ['reviewer_role = "Bad Name"', /architect\.reviewer_role must match/],
+    ["max_packages = 0", /architect\.max_packages/],
+    ["max_packages = 21", /architect\.max_packages/],
+    ["count_toward_worker_limit = 1", /architect\.count_toward_worker_limit/],
+    ['high_risk_triggers = "x"', /architect\.high_risk_triggers/],
+    ['role = "missing"', /does not name a configured role/],
+    ['role = "reviewer"', /must be a Developer role/],
+    ['role = "pm"', /must be a Developer role/],
+    [
+      'reviewer_role = "missing"',
+      /architect\.reviewer_role .* configured role/,
+    ],
+    ['reviewer_role = "architect"', /must be a Verifier role/],
+  ] as const)
+    assertRejected(
+      bad.startsWith("enabled")
+        ? `${table}${bad}\n`
+        : `${table}enabled = true\n${bad}\n`,
+      pattern,
+    );
+  assertRejected(
+    `${VALID.replace("[roles.reviewer]", '[hosts.other]\nkind = "codex"\n\n[roles.reviewer]')}
+[roles.architect]
+kind = "Developer"
+host = "other"
+permission_mode = "acceptEdits"
+
+[architect]
+enabled = true
+`,
+    /needs a claude host/,
+  );
+});
+
+test("the starter config names the architect table only as comments", () => {
+  assert.ok(STARTER_CONFIG.includes("# [architect]"));
+  assert.ok(STARTER_CONFIG.includes("# [roles.architect]"));
+  withConfig(STARTER_CONFIG, (directory) => {
+    assert.equal(loadCapstanConfig(directory).architect.enabled, false);
+  });
+  const uncommented = STARTER_CONFIG.split("\n")
+    .map((line) =>
+      line.replace(
+        /^# (?=\[|enabled|role =|plan_review|reviewer_role|max_packages|count_toward|high_risk|kind =|host =|permission_mode|allow =|deny =|prompt =)/,
+        "",
+      ),
+    )
+    .join("\n");
+  withConfig(uncommented, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.equal(config.architect.enabled, true);
+    assert.equal(
+      config.roles.find((r) => r.name === "architect")?.kind,
+      "Developer",
+    );
+  });
+});
