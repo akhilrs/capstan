@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -15,7 +16,9 @@ import {
   ConfigError,
   DEFAULT_HERDR_SESSION,
   DEFAULT_WAIT_TIMEOUT_SECONDS,
+  DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
   MAX_WAIT_TIMEOUT_SECONDS,
+  MAX_WORKTREE_SETUP_TIMEOUT_SECONDS,
   STARTER_CONFIG,
   loadCapstanConfig,
 } from "../src/config/capstan-config.js";
@@ -1631,4 +1634,79 @@ test("the starter config names the nexora table only as comments", () => {
       defaultAction: "create",
     });
   });
+});
+
+test("[worktree] is absent by default and resolves setup with a 600 second timeout", () => {
+  withConfig(VALID, (directory) =>
+    assert.equal(loadCapstanConfig(directory).worktree, undefined),
+  );
+  withConfig(`${VALID}\n[worktree]\n`, (directory) =>
+    assert.equal(loadCapstanConfig(directory).worktree, undefined),
+  );
+  withConfig(`${VALID}\n[worktree]\nsetup = "npm install"\n`, (directory) =>
+    assert.deepEqual(loadCapstanConfig(directory).worktree, {
+      setup: "npm install",
+      setupTimeoutSeconds: DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
+    }),
+  );
+  for (const value of [1, 30, MAX_WORKTREE_SETUP_TIMEOUT_SECONDS])
+    withConfig(
+      `${VALID}\n[worktree]\nsetup = "make"\nsetup_timeout_seconds = ${value}\n`,
+      (directory) =>
+        assert.equal(
+          loadCapstanConfig(directory).worktree?.setupTimeoutSeconds,
+          value,
+        ),
+    );
+});
+
+test("[worktree] refuses a bad setup, a bad timeout, a timeout without setup and unknown keys", () => {
+  for (const value of [
+    '""',
+    '"   "',
+    "5",
+    "true",
+    '"a\\nb"',
+    '"a\\u0007b"',
+    '"export K=sk-live-ABCDEFGHIJKLMNOP1234"',
+  ])
+    assertRejected(
+      `${VALID}\n[worktree]\nsetup = ${value}\n`,
+      /worktree\.setup/,
+      "ABCDEFGH",
+    );
+  for (const value of ["0", "3601", "-1", "30.5", '"30"', "true"])
+    assertRejected(
+      `${VALID}\n[worktree]\nsetup = "make"\nsetup_timeout_seconds = ${value}\n`,
+      /worktree\.setup_timeout_seconds/,
+    );
+  assertRejected(
+    `${VALID}\n[worktree]\nsetup_timeout_seconds = 30\n`,
+    /worktree\.setup_timeout_seconds/,
+  );
+  assertRejected(
+    `${VALID}\n[worktree]\nsetup = "make"\nrun = "x"\n`,
+    /worktree/,
+  );
+  assertRejected(`${VALID}\n[bogus]\nx = 1\n`, /top level/);
+});
+
+test("cstan config check surfaces [worktree] errors", () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "cstan-worktree-check-"));
+  try {
+    writeFileSync(
+      path.join(cwd, CONFIG_FILE_NAME),
+      `${VALID}\n[worktree]\nsetup_timeout_seconds = 30\n`,
+      { mode: 0o600 },
+    );
+    const cli = path.resolve("dist/src/cli.js");
+    const result = spawnSync(process.execPath, [cli, "config", "check"], {
+      cwd,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 3);
+    assert.match(result.stderr, /worktree\.setup_timeout_seconds/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
