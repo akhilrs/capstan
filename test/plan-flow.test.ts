@@ -115,6 +115,7 @@ async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
       ctx(h.core, h.owner),
       [
         ["pm", "PM"],
+        ["pm2", "PM"],
         ["developer", "Developer"],
         ["architect", "Developer"],
         ["reviewer", "Verifier"],
@@ -657,5 +658,87 @@ test("a restarted PM's summary lists open plans and merged integrations until th
     );
     assert.deepEqual(later.summary.plans, []);
     assert.deepEqual(later.summary.integrations, []);
+  });
+});
+
+test("a sign-off made while no PM is active is relayed to the next PM once, and never for a cancelled plan", async () => {
+  await withTeam(async (t) => {
+    const { h } = t;
+    const planId = await openAndSubmit(t, "normal", "wp1", "wp2");
+    const { integrationId } = await integratedPlan(t, planId);
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    resultOf(
+      await call(h, t.architect.credential, "plan", [
+        "signoff",
+        planId,
+        integrationId,
+        "done",
+      ]),
+    );
+    const missing = {
+      planId,
+      kind: "signed_off",
+      integrationId,
+    } as const;
+    assert.ok(
+      h.core
+        .unannouncedPlanNotices(h.owner)
+        .some(
+          (n) => n.kind === "signed_off" && n.integrationId === integrationId,
+        ),
+    );
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), missing).announced,
+      false,
+    );
+    const pm2 = h.addMember("pm2", "PM");
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), missing).announced,
+      true,
+    );
+    const notices = bodies(h, pm2.agentId).filter((b) =>
+      b.startsWith(`Plan ${planId} signed off. Integration ${integrationId} `),
+    );
+    assert.equal(notices.length, 1);
+    assert.ok(notices[0]!.includes(`capstan/integration/${integrationId}`));
+    assert.deepEqual(
+      h.core
+        .unannouncedPlanNotices(h.owner)
+        .filter((n) => n.kind === "signed_off"),
+      [],
+    );
+  });
+});
+
+test("a sign-off notice for a plan cancelled while no PM was active is never relayed", async () => {
+  await withTeam(async (t) => {
+    const { h } = t;
+    const planId = await openAndSubmit(t, "normal", "wp1", "wp2");
+    const { integrationId } = await integratedPlan(t, planId);
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    resultOf(
+      await call(h, t.architect.credential, "plan", [
+        "signoff",
+        planId,
+        integrationId,
+        "done",
+      ]),
+    );
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    h.addMember("pm2", "PM");
+    assert.deepEqual(
+      h.core
+        .unannouncedPlanNotices(h.owner)
+        .filter((n) => n.kind === "signed_off"),
+      [],
+    );
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), {
+        planId,
+        kind: "signed_off",
+        integrationId,
+      }).announced,
+      false,
+    );
   });
 });

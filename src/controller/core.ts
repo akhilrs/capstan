@@ -576,6 +576,14 @@ export interface PlanCancelResult {
   readonly notified: readonly string[];
 }
 
+export type PlanNoticeRef =
+  | { readonly planId: string; readonly kind: "approved" | "needs_attention" }
+  | {
+      readonly planId: string;
+      readonly kind: "signed_off";
+      readonly integrationId: string;
+    };
+
 export interface PlanSignoffRecord {
   readonly integrationId: string;
   readonly architectAgentId: string;
@@ -4505,9 +4513,7 @@ export class ControllerCore {
    * Plan notices the PM has not received (no PM was active when the plan was approved or ran out of review rounds).
    * A notice counts as sent when a controller message with its leading text exists.
    */
-  unannouncedPlanNotices(
-    credential: string,
-  ): readonly { planId: string; kind: "approved" | "needs_attention" }[] {
+  unannouncedPlanNotices(credential: string): readonly PlanNoticeRef[] {
     this.#authorize(credential, "controller:reconcile");
     const sent = (planId: string, lead: string): boolean => {
       const text = `Plan ${planId} ${lead}`;
@@ -4519,7 +4525,7 @@ export class ControllerCore {
           .get(this.#projectId, text.length, text) !== undefined
       );
     };
-    const out: { planId: string; kind: "approved" | "needs_attention" }[] = [];
+    const out: PlanNoticeRef[] = [];
     for (const plan of this.#database
       .prepare(
         "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence",
@@ -4535,23 +4541,41 @@ export class ControllerCore {
       )
         out.push({ planId: plan.plan_id, kind: "needs_attention" });
     }
+    for (const signoff of this.#database
+      .prepare(
+        `SELECT s.plan_id, s.integration_id FROM plan_signoffs s JOIN plans p
+           ON p.project_id = s.project_id AND p.plan_id = s.plan_id
+         WHERE s.project_id = ? AND p.cancelled_at IS NULL ORDER BY p.sequence, s.created_at, s.integration_id`,
+      )
+      .all(this.#projectId) as { plan_id: string; integration_id: string }[]) {
+      if (
+        !sent(
+          signoff.plan_id,
+          `signed off. Integration ${signoff.integration_id} `,
+        )
+      )
+        out.push({
+          planId: signoff.plan_id,
+          kind: "signed_off",
+          integrationId: signoff.integration_id,
+        });
+    }
     return out;
   }
 
   /** Queues one missing plan notice to the PM; false when no PM is the sole active one. */
   announcePlanNotice(
     context: MutationContext,
-    input: {
-      readonly planId: string;
-      readonly kind: "approved" | "needs_attention";
-    },
+    input: PlanNoticeRef,
   ): { readonly announced: boolean } {
     safeId(input.planId, "plan id");
+    if (input.kind === "signed_off")
+      safeId(input.integrationId, "integration id");
     return this.#mutate(
       context,
       "plan.announce",
       "controller:reconcile",
-      { planId: input.planId, kind: input.kind },
+      { ...input },
       () => {
         const plan = this.#planRow(input.planId);
         if (plan === undefined)
@@ -4577,6 +4601,27 @@ export class ControllerCore {
           if (plan.state !== "approved" || revision === undefined)
             throw new ControllerError(`plan ${input.planId} is not approved`);
           body = planApprovedNotice(plan.plan_id, revision.body_json);
+        } else if (input.kind === "signed_off") {
+          const signoff = this.#database
+            .prepare(
+              `SELECT s.summary, i.branch, i.head_sha FROM plan_signoffs s JOIN integrations i
+                 ON i.project_id = s.project_id AND i.integration_id = s.integration_id
+               WHERE s.project_id = ? AND s.plan_id = ? AND s.integration_id = ?`,
+            )
+            .get(this.#projectId, plan.plan_id, input.integrationId) as
+            | { summary: string; branch: string; head_sha: string | null }
+            | undefined;
+          if (signoff === undefined)
+            throw new ControllerError(
+              `plan ${input.planId} is not signed off for integration ${input.integrationId}`,
+            );
+          body = planSignedOffNotice(
+            plan.plan_id,
+            input.integrationId,
+            signoff.branch,
+            signoff.head_sha,
+            signoff.summary,
+          );
         } else body = planNeedsAttentionNotice(plan.plan_id);
         const announced = this.#noticeToPm(body, this.#now());
         return {
