@@ -4468,6 +4468,7 @@ export class ControllerCore {
         "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence",
       )
       .all(this.#projectId) as PlanRow[]) {
+      if (plan.cancelled_at !== null) continue;
       if (plan.state === "approved") {
         if (!sent(plan.plan_id, "approved"))
           out.push({ planId: plan.plan_id, kind: "approved" });
@@ -4498,6 +4499,16 @@ export class ControllerCore {
         const plan = this.#planRow(input.planId);
         if (plan === undefined)
           throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.cancelled_at !== null)
+          return {
+            value: { announced: false },
+            event: {
+              entityType: "plan",
+              entityId: input.planId,
+              stateVersion: 0,
+              details: { announced: false, kind: input.kind },
+            },
+          };
         let body: string;
         if (input.kind === "approved") {
           const revision = this.#database

@@ -412,3 +412,52 @@ test("a notice with no active PM is kept and sent when a PM is active", async ()
     assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), []);
   });
 });
+
+test("an approved plan cancelled while no PM was active is never announced", async () => {
+  await withPlans("high_risk", async (h, _stub, architect) => {
+    const planId = await open(h, "normal");
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    await call(h, architect.credential, "plan", ["submit", planId, planBody()]);
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    h.addMember("pm2", "PM");
+    assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), []);
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), {
+        planId,
+        kind: "approved",
+      }).announced,
+      false,
+    );
+  });
+});
+
+test("a plan cancelled after its review rounds ran out is never announced as needing attention", async () => {
+  await withPlans("high_risk", async (h, _stub, architect, reviewers) => {
+    const planId = await open(h, "high-risk");
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    for (let round = 1; round <= 5; round += 1) {
+      await call(h, architect.credential, "plan", [
+        "submit",
+        planId,
+        planBody(),
+      ]);
+      await call(h, reviewers[round - 1]!.credential, "review", [
+        "findings",
+        `fix round ${round}`,
+      ]);
+    }
+    assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), [
+      { planId, kind: "needs_attention" },
+    ]);
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    h.addMember("pm2", "PM");
+    assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), []);
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), {
+        planId,
+        kind: "needs_attention",
+      }).announced,
+      false,
+    );
+  });
+});
