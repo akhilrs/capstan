@@ -327,3 +327,25 @@ test("the PM prompt tells the PM to ask choice questions with the picker, and no
     );
   assert.ok(!PM_DEFAULT_DENY.includes("AskUserQuestion"));
 });
+
+test("the PM prompt describes the delivery problem, stall and wake messages and the automatic Supervisor, and the Supervisor prompt the routine check", () => {
+  const pm = buildRolePrompt({ ...base, workerRoles: [] });
+  assert.match(pm, /starts with `Delivery problem`/);
+  assert.match(pm, /cstan resolve` command it names/);
+  assert.match(pm, /`Agent stalled` and `Agent blocked`/);
+  assert.match(pm, /A message to a worker that is busy simply waits/);
+  assert.match(pm, /types `Run cstan inbox` into your pane: do it/);
+  assert.match(pm, /A Supervisor is started and checked by the controller/);
+  const supervisor = buildRolePrompt({
+    ...base,
+    kind: "Supervisor",
+    roleName: "supervisor",
+  });
+  assert.match(supervisor, /starts with `Routine check`/);
+  for (const kind of ["Developer", "Verifier"] as const)
+    assert.doesNotMatch(
+      buildRolePrompt({ ...base, kind, roleName: kind.toLowerCase() }),
+      /Delivery problem|Routine check/,
+      kind,
+    );
+});

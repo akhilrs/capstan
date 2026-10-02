@@ -5340,7 +5340,7 @@ export class ControllerCore {
           { state_reason: reason },
           failedAt,
         );
-        this.#queueDeliveryNotice(row!, "failed", failedAt);
+        this.#queueDeliveryNotice(row!, "failed", failedAt, reason);
         return {
           value: messageRecord(this.#messageRow(messageId)!),
           event: {
@@ -5739,6 +5739,7 @@ export class ControllerCore {
     row: MessageRow,
     state: "unacked" | "expired" | "failed",
     now: string,
+    reason: string | null = null,
   ): void {
     const recipient = this.#agentRow(row.recipient_agent_id);
     if (recipient === undefined || recipient.kind === "PM") return;
@@ -5754,7 +5755,7 @@ export class ControllerCore {
       row.message_id,
       state,
       [
-        `Delivery problem: message ${row.message_id} to ${recipient.agent_id} is ${state}${state === "failed" && row.state_reason !== null ? ` (${oneLineText(row.state_reason, 120)})` : ""}.`,
+        `Delivery problem: message ${row.message_id} to ${recipient.agent_id} is ${state}${reason === null ? "" : ` (${oneLineText(reason, 120)})`}.`,
         `It starts: ${JSON.stringify(first)}`,
         `Messages behind it wait for ${recipient.agent_id} until you resolve it: cstan resolve ${row.message_id} retry (types it once more), skip (counts it handled) or cancel (drops it).`,
       ].join("\n"),

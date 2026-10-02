@@ -1211,6 +1211,7 @@ export class HerdrAdapter {
       throw new PhaseError("the pane has no agent");
     if (
       !isSafeText(input.text) ||
+      /[\r\n]/.test(input.text) ||
       COMMAND_START.test(input.text) ||
       Buffer.byteLength(input.text, "utf8") > MAX_TEXT_BYTES
     )

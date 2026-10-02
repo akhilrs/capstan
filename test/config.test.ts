@@ -1220,3 +1220,37 @@ test("layout.split is still accepted but ignored, and the loader and cstan confi
   assert.ok(STARTER_CONFIG.includes("pm_width_percent = 60"));
   assert.ok(!STARTER_CONFIG.includes("split ="));
 });
+
+test("the oversight timers and the supervision section have defaults, bounds and refuse unknown keys", () => {
+  withConfig(VALID, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.equal(config.timers.maxBusyDeferralSeconds, 3600);
+    assert.equal(config.timers.pmWakeAfterSeconds, 20);
+    assert.equal(config.timers.pmWakeIntervalSeconds, 120);
+    assert.deepEqual(config.supervision, { enabled: true, checkSeconds: 300 });
+  });
+  withConfig(
+    `${VALID}\n[timers]\npm_wake_after_seconds = 0\nmax_busy_deferral_seconds = 60\n[supervision]\nenabled = false\ncheck_seconds = 3600\n`,
+    (directory) => {
+      const config = loadCapstanConfig(directory);
+      assert.equal(config.timers.pmWakeAfterSeconds, 0);
+      assert.equal(config.timers.maxBusyDeferralSeconds, 60);
+      assert.deepEqual(config.supervision, {
+        enabled: false,
+        checkSeconds: 3600,
+      });
+    },
+  );
+  for (const [bad, pattern] of [
+    ["[timers]\npm_wake_after_seconds = -1", /pm_wake_after_seconds/],
+    ["[timers]\npm_wake_after_seconds = 3601", /pm_wake_after_seconds/],
+    ["[timers]\npm_wake_interval_seconds = 9", /pm_wake_interval_seconds/],
+    ["[timers]\nmax_busy_deferral_seconds = 59", /max_busy_deferral_seconds/],
+    ["[supervision]\ncheck_seconds = 59", /supervision\.check_seconds/],
+    ["[supervision]\ncheck_seconds = 3601", /supervision\.check_seconds/],
+    ['[supervision]\nenabled = "yes"', /supervision\.enabled/],
+    ["[supervision]\nevery = 5", /supervision/],
+  ] as const)
+    assertRejected(`${VALID}\n${bad}\n`, pattern);
+  assert.ok(STARTER_CONFIG.includes("[supervision]"));
+});

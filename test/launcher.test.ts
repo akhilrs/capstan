@@ -40,7 +40,11 @@ function config(
   pass: readonly string[] = [],
   hostOf: Readonly<Record<string, "codex" | "omp">> = {},
 ): CapstanConfig {
-  const role = (name: string, kind: "PM" | "Developer", extra = {}) => ({
+  const role = (
+    name: string,
+    kind: "PM" | "Developer" | "Supervisor",
+    extra = {},
+  ) => ({
     name,
     kind,
     host: hostOf[name] ?? "claude",
@@ -111,6 +115,7 @@ function config(
       withText(role("pm", "PM"), "Keep the plan small."),
       withText(role("developer", "Developer"), null),
       withText(role("developer2", "Developer"), null),
+      withText(role("supervisor", "Supervisor"), null),
     ],
   } as unknown as CapstanConfig;
 }
@@ -146,17 +151,24 @@ async function world(
   if (synced)
     core.syncRoleDefinitions(
       ctx(core, owner),
-      ["pm:PM", "pm2:PM", "developer:Developer", "developer2:Developer"].map(
-        (entry) => {
-          const [name, kind] = entry.split(":") as [string, "PM" | "Developer"];
-          return {
-            name,
-            kind,
-            host: environment.hostOf?.[name] ?? "claude",
-            configHash: hashOf(name),
-          };
-        },
-      ),
+      [
+        "pm:PM",
+        "pm2:PM",
+        "developer:Developer",
+        "developer2:Developer",
+        "supervisor:Supervisor",
+      ].map((entry) => {
+        const [name, kind] = entry.split(":") as [
+          string,
+          "PM" | "Developer" | "Supervisor",
+        ];
+        return {
+          name,
+          kind,
+          host: environment.hostOf?.[name] ?? "claude",
+          configHash: hashOf(name),
+        };
+      }),
     );
   const adapter = new StubAdapter();
   const git = new StubGit();
@@ -2861,6 +2873,31 @@ test("a PM start that fails before it takes the new workspace's root pane closes
       "the empty root pane is closed once",
     );
     assert.ok(w.core.fallbackPane(w.owner), "the watch tab stays recorded");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("the Supervisor does not take a worker's place: it starts when every worker place is taken, and is not counted against the limit", async () => {
+  const w = await world(true, true, 1);
+  try {
+    await launched(w);
+    const dev = await w.launcher.spawn("developer");
+    assert.equal(dev.state, "started");
+    await assert.rejects(
+      w.launcher.spawn("developer2"),
+      (e: unknown) => e instanceof LauncherError && e.code === "worker_limit",
+    );
+    const supervisor = await w.launcher.spawn("supervisor");
+    assert.equal(supervisor.state, "started");
+    await assert.rejects(
+      w.launcher.spawn("developer2"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worker_limit" &&
+        /1 of 1 workers are active \(developer-1\)/.test(e.message),
+      "the Supervisor is not listed or counted among the workers",
+    );
   } finally {
     w.cleanup();
   }

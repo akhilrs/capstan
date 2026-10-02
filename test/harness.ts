@@ -68,7 +68,10 @@ export interface Harness {
   readonly pm: Member;
   readonly developer: Member;
   /** Registers one more agent; the names developer2 and pm2 have role definitions. */
-  readonly addMember: (name: string, kind: "PM" | "Developer") => Member;
+  readonly addMember: (
+    name: string,
+    kind: "PM" | "Developer" | "Supervisor",
+  ) => Member;
   readonly seatOnly: string;
   readonly log: LogEntry[];
   readonly shutdowns: number[];
@@ -104,8 +107,17 @@ export async function harness(
       configHash: "c".repeat(64),
     },
     { name: "pm2", kind: "PM", host: "claude", configHash: "d".repeat(64) },
+    {
+      name: "supervisor",
+      kind: "Supervisor",
+      host: "claude",
+      configHash: "e".repeat(64),
+    },
   ]);
-  const member = (name: string, kind: "PM" | "Developer"): Member => {
+  const member = (
+    name: string,
+    kind: "PM" | "Developer" | "Supervisor",
+  ): Member => {
     const seatId = `${name}-seat`;
     core.createSeat(ctx(core, owner), { seatId, name, role: kind });
     const actor = core.createActor(ctx(core, owner), {
