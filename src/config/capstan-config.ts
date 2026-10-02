@@ -643,7 +643,7 @@ function rejectUnenforceable(
     );
   if (permissionMode !== "acceptEdits" && permissionMode !== "auto")
     throw new ConfigError(
-      `${at}.permission_mode must be acceptEdits or auto on host ${host.name} (${host.kind}), which runs unattended with full access`,
+      `${at}.permission_mode must be acceptEdits or auto on host ${host.name} (${host.kind}), which runs unattended with full access (set it on the role or in [defaults])`,
     );
 }
 
