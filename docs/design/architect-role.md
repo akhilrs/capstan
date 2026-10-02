@@ -471,7 +471,7 @@ With a package id, only that package is cancelled (plan `approved` only). A canc
 | --- | --- | --- |
 | `plan cancel <plan-id>` sets `plans.cancelled_at` | `cancelled_at IS NULL` and state is not `superseded` | already cancelled: no-op, answer `already_cancelled`; superseded: `plan_superseded` |
 | `plan cancel <plan-id>` sets `plan_packages.cancelled_at` | `cancelled_at IS NULL` and the package is not `confirmed` (in the `WHERE`, as above) | rows that fail are skipped, not errors |
-| `plan cancel <plan-id> <package-id>` | plan not cancelled; package exists, `cancelled_at IS NULL`, not `confirmed` | `plan_cancelled`, `already_cancelled`, `package_confirmed` |
+| `plan cancel <plan-id> <package-id>` | plan not cancelled; package exists, `cancelled_at IS NULL`, not `confirmed` | `plan_cancelled`, `plan_not_approved` (plan is `draft`, `in_review` or `superseded`), `already_cancelled`, `package_confirmed` |
 | `plan assign` sets the assignee | plan not cancelled and package `cancelled_at IS NULL` | `plan_cancelled`, `package_cancelled` |
 | `plan submit` sets `current_revision` and `state` | plan `cancelled_at IS NULL` and state `draft` | `plan_cancelled`, `plan_not_open` |
 | review completion sets `plans.state` and `approved_revision` | plan `cancelled_at IS NULL` | the review row is still finished (`passed` or `findings`); the plan is left unchanged and the PM and Architect are told the plan was cancelled |
@@ -483,7 +483,7 @@ With a package id, only that package is cancelled (plan `approved` only). A canc
 
 **Interaction with `Launcher.replace`.** The freeze trigger on `plan_packages` would abort a replace that tries to move a cancelled package to the replacement agent. The rebinding step of `replace` (step 6) therefore updates only packages with `cancelled_at IS NULL` (`UPDATE plan_packages SET assignee_agent_id = <new> … WHERE assignee_agent_id = <old> AND cancelled_at IS NULL`); cancelled packages keep the old agent id as history, and nobody works on them. The developer assigned to a cancelled package stays releasable and replaceable: `replace` and `release` never touch cancelled rows, and the replacement is not given that package (its seed omits cancelled packages).
 
-**Interaction with supersede.** `plans_frozen_after_cancel` also blocks the `approved → superseded` move on a cancelled plan, so `cstan plan open <tier> "<title>" <superseded-plan-id>` refuses a cancelled plan with `plan_cancelled: <id> was cancelled; open a fresh plan without naming it` (and a plan that is not `approved` with `plan_not_supersedable`). Work that is cancelled is never "replaced"; a new plan is simply opened. A review that finishes after the cancel is ignored by the transition (the trigger `plans_frozen_after_cancel` aborts the state move, which the handler turns into a no-op for the reviewer's answer).
+**Interaction with supersede.** `plans_frozen_after_cancel` also blocks the `approved → superseded` move on a cancelled plan, so `cstan plan open <tier> "<title>" <superseded-plan-id>` refuses a cancelled plan with `plan_cancelled: <id> was cancelled; open a fresh plan without naming it` (and a plan that is not `approved` with `plan_not_supersedable`). Work that is cancelled is never "replaced"; a new plan is simply opened. A review that finishes after the cancel is handled by the "review completion" row of the guard table above (the review row is still finished, the plan is left unchanged, the PM and Architect are told).
 
 ### Sync lag and the one new notice
 
