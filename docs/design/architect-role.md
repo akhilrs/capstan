@@ -1,6 +1,6 @@
-# Architect role and tiered planning flow
+# Architect role, tiered planning flow and PM-owned Nexora tracking
 
-**Status:** proposal, for the user's review. No code changes in this document's commit.
+**Status:** proposal, for the user's review. No code changes in this document's commit. Sections 0 to 9 design the Architect role and the tiered flow; section 10 adds PM-owned Nexora tracking (user decision: the PM handles all Nexora work), and its steps and questions are appended to sections 8 and 9.
 **Naming:** follows `docs/design/cstan-dash-v2.md` (kebab-case file in `docs/design/`). The decisions in `decisions/` are `DEC-NNN-*.md`; if this is approved, the plan of record is a new `decisions/DEC-007-architect-role.md` that points here.
 **Base:** `main` at `691ac09`. `README.md` was requested as reading but is not tracked on this branch or on `main`; the design is grounded in the code, `MVP_PLAN_V2.md` and `decisions/DEC-005-capstan-v2-direction.md` instead.
 
@@ -125,6 +125,7 @@ CREATE TABLE plan_signoffs (       -- immutable
       "owns": ["src/foo/", "test/foo.test.ts"],
       "interfaces": ["exports parseFoo(text): Foo"],
       "depends_on": [],
+      "estimate_hours": 3,
       "acceptance": ["parseFoo rejects empty input", "npm test passes"],
       "risks": ["touches the wire format"] } ],
   "risks": ["…"],
@@ -132,7 +133,7 @@ CREATE TABLE plan_signoffs (       -- immutable
 }
 ```
 
-Validation (`src/plans.ts`): 1 to `max_packages` packages; ids match `^[a-z][a-z0-9-]{0,31}$` and are unique; `depends_on` references existing ids and is acyclic; each package has a non-empty `acceptance`; two packages whose `owns` overlap (equal path, or one is a directory prefix of the other) must be ordered by `depends_on`, else the plan is refused with `overlap`; `integration_order` is a permutation of the package ids that respects `depends_on` (default: topological order); body at most 32 KiB (the frame limit is `MAX_FRAME_BYTES` 64 KiB, `src/daemon.ts:40`). Text fields go through `normalizeText` (`src/text.ts`) like review text.
+Validation (`src/plans.ts`): 1 to `max_packages` packages; ids match `^[a-z][a-z0-9-]{0,31}$` and are unique; `depends_on` references existing ids and is acyclic; each package has a non-empty `acceptance` and an `estimate_hours` number greater than 0 and at most 80 (section 10); two packages whose `owns` overlap (equal path, or one is a directory prefix of the other) must be ordered by `depends_on`, else the plan is refused with `overlap`; `integration_order` is a permutation of the package ids that respects `depends_on` (default: topological order); body at most 32 KiB (the frame limit is `MAX_FRAME_BYTES` 64 KiB, `src/daemon.ts:40`). Text fields go through `normalizeText` (`src/text.ts`) like review text.
 
 **States.**
 
@@ -259,6 +260,15 @@ Nine steps, each one developer report: one branch, tests green with `npm run che
 | 8 | High-risk plan review, command layer: `plan submit` starts the review for high-risk (or `plan_review = "always"`), `Plan … approved` and `needs attention` notices, `cstan request-review <plan-id>` accepted for the Architect | `src/commands.ts`, `src/reviews.ts`, `src/controller/core.ts`, `test/commands.test.ts`, `test/review-commands.test.ts` | with stub launcher (`test/launcher-stubs.ts`): high-risk submit spawns one reviewer and sets `in_review`; reviewer failure to spawn leaves the plan `draft` and tells the Architect; findings then revised resubmit starts round 2; round 6 refused with `needs attention` to the PM; normal tier never spawns a reviewer unless `plan_review = "always"` |
 | 9 | Sign-off, status and restart: `plan signoff`, `Plan … signed off` notice, `plans` in `statusSnapshot`, plans in `PmRestartSummary`, timestamps for latency measurement, end-to-end scenario per tier | `src/commands.ts`, `src/controller/core.ts`, `src/prompts.ts` (summary block), `test/plan-flow.test.ts` (new), `test/prompts.test.ts` | sign-off refused for an integration with a report outside the plan, with a non-passed review, or not `merged`; end-to-end with stubs: small (no plan, no architect), normal (open → submit → assign → report → review → integrate → integration review → signoff → user-merge simulated by `isInHead` stub → confirm), high-risk (adds the plan review with one findings round); PM restart summary lists open plans |
 
+Nexora steps (section 10); they depend on steps 3 and 4 and not on the review steps 7 and 8:
+
+| # | Step | Files | Tests |
+| --- | --- | --- | --- |
+| 10 | `[nexora]` config table (policy only): parse, validate, starter config (commented), `cstan config check` | `src/config/capstan-config.ts`, `test/config.test.ts` | defaults (`track = "never"`); reject unknown keys, a bad `track`/`default_action`/status name; `track = "always"` with `default_action = "none"` refused as contradictory |
+| 11 | Migration 0024 `external_links` table and ledger methods `linkExternal`, `externalLinks`, `syncDrift` (wanted state derived from package progress versus `synced_state`) | `migrations/0024_external_links.sql`, `src/controller/core.ts`, `test/plans-core.test.ts` | one link per (kind, ref, system); `synced_state` updatable, `external_id` immutable once set; drift derivation for each progress state; a link on an unknown reference refused |
+| 12 | `cstan link` command and `plan show` Nexora columns, `Nexora drift` section in `cstan status` for the PM | `src/daemon.ts` (`ROUTES`), `src/commands.ts`, `src/cli.ts`, `test/commands.test.ts` | only PM/operator may link; Developer and Architect get `forbidden`; `plan show` prints id, synced state and drift; no link means no drift line |
+| 13 | PM prompt: intake picker, mirroring rules, failure rules (only when `[nexora].track` is not `never`); PM restart summary lists links and drift | `src/prompts.ts`, `src/controller/core.ts` (`PmRestartSummary`), `test/prompts.test.ts` | prompt byte-identical to step 5 output when `track = "never"`; with `ask`, the prompt names the picker options and the status mapping; restart summary lists a drifted item |
+
 Possible later steps, not part of this proposal: a dashboard view of plans (`src/dash/model.ts`), and a plan-to-integration link column if derivation proves slow.
 
 ## 9. Open questions and risks
@@ -271,6 +281,8 @@ Possible later steps, not part of this proposal: a dashboard view of plans (`src
 4. **Architect lifetime.** Proposed: one Architect for the life of an objective, released by the PM at the end. A context-heavy Architect gets slow; `replace` with the seed is the escape. Is that acceptable or should it be one per plan?
 5. **Developers talk to the Architect.** Today non-PM agents can message only the PM (`src/commands.ts:478`). A developer with a question about its package goes through the PM, an extra hop. Allowing Developer → Architect messages is a small change to that rule; I did not propose it to keep the PM as the single human-facing point, but it may be worth it.
 
+6. **Nexora (section 10).** (a) Is `estimate_hours` the right unit, given that agents work in minutes and the estimate is a planning figure? (b) Should the PM log agent wall-clock as Nexora time at all (default proposed: no)? (c) May `track = "always"` be the project default for this repository, with the picker kept for exceptions only? (d) A user who rejects a merge after `in_review`: the PM reopens the item to `in_progress`; confirm that is wanted.
+
 **Risks:**
 
 - **Designation by role name, not kind.** Capabilities are per kind, so every Developer holds `plan:write` and `review:request` in the ledger and the handlers' role check is the real gate. A bug in one handler is an escalation path. Mitigation: one shared helper `isArchitect(agent, config)` used by all five handlers, with a test that a non-Architect Developer is refused on each. The alternative (a fifth kind) is described in section 2 and costs a large table rebuild.
@@ -280,3 +292,100 @@ Possible later steps, not part of this proposal: a dashboard view of plans (`src
 - **Latency for small-but-plural work.** Two-package work that is really sequential pays the Architect cost for no parallelism gain. The PM prompt must say so; there is no mechanical tier classification, as decided.
 - **Notice routing when the Architect is lost.** The fallback to the PM (step 6) prevents a stuck queue, but the PM then holds reports it did not expect. The existing `Agent … lost` notice (`#recordLost`) already tells the PM, and `replace` rebinds packages.
 - **Unverified.** I did not run the code or any timing. The claims about function locations come from reading `src/` at `691ac09`; the line numbers will move. `README.md` could not be read because it is not in the repository at that commit.
+
+## 10. Nexora integration (PM-owned)
+
+User decision: the PM handles all Nexora work. Workers and the Architect never call Nexora; they report through `cstan` and the PM mirrors outcomes. The controller never calls Nexora either.
+
+### What exists today
+
+Capstan's source does not read `.nexora.toml` or call Nexora. The only trace is the `NEXORA_API_KEY` example under `[env] pass` in `src/config/capstan-config.ts` (`STARTER_CONFIG`), which copies the variable into agents' environments. In the repository root, `.nexora.toml` holds the API URL, organization id and project code (`PRJ-019`); `capstan.toml` passes `NEXORA_API_KEY`. The PM's Claude session reaches Nexora through its own Nexora tools (the MCP tools that read `.nexora.toml`), and `PM_DEFAULT_DENY` (`src/config/capstan-config.ts`) denies only file edits and subagents, so those tools are available to the PM and nothing in Capstan needs to change to allow them. Whether they are allowed for a non-PM role is a role `allow`/`deny` matter; workers get no Nexora rule, and the prompt tells them not to use any.
+
+### Decision: PM prompt plus a small ledger link table, no controller sync
+
+Three options were weighed.
+
+| Option | Reliability | Cost |
+| --- | --- | --- |
+| A. Prompt only; the PM remembers ids and what it synced | Weak: ids and "what is synced" live in the PM's context; a PM restart (`pm-restart`, `PmRestartSummary`) or a missed message loses them, and duplicates are created on retry | none |
+| **B. Prompt + `external_links` table + drift view (proposed)** | Good: the ledger holds ids and the last synced state; the controller already messages the PM on every event that matters; the PM can reconcile at any time from `plan show`; writes stay idempotent | one table, one command, one status section |
+| C. Controller sync queue with a Nexora client | Best on paper; automatic retry | The daemon needs the API key and network, an HTTP client, a mapping of statuses, error handling and a retry loop; it breaks the rule that the PM is the only Nexora writer and adds a failure surface to the process that must never block delivery |
+
+B is the smallest option that stays reliable. Delivery never depends on Nexora, because the table is passive: nothing in the controller reads it to decide a transition.
+
+### Policy: ask, default and the picker
+
+A new optional table in `capstan.toml`, policy only (the connection details stay in `.nexora.toml`, which Capstan still does not read):
+
+```toml
+[nexora]
+track = "ask"             # "ask" | "always" | "never"; default "never" so existing projects are unchanged
+default_action = "create" # what "always" does, and the recommended picker option: "create" | "link" | "none"
+```
+
+At intake, when `track = "ask"`, the PM asks once with Claude Code's `AskUserQuestion` (the PM prompt already requires it for choices, `PM_REFERENCE`), three options, the default first with "(Recommended)": **Create a new Nexora item**, **Link to an existing item** (the PM then asks for the id as plain text, an open-ended value), **Do not track**. `always` skips the question and applies `default_action`; `never` removes every Nexora instruction from the PM prompt, so the prompt is byte-identical to today's. A user can still say "do not track this one" under `always`; the PM then treats it as `none` for that requirement.
+
+### Mapping
+
+| Capstan | Nexora | Where the id is stored |
+| --- | --- | --- |
+| requirement (what the user shared) | parent work item (type `story` or `feature`, PM's choice) | `external_links` kind `plan` for tiers normal/high-risk; kind `requirement` for the small tier (ref id chosen by the PM, such as `req-1`) |
+| Architect work package | child work item (`parent_display_id` = the parent), title and acceptance criteria from the package, `estimated_hours` from the plan | `external_links` kind `package`, ref `<plan-id>/<package-id>` |
+| small tier | the parent item only, no children | kind `requirement` |
+
+```sql
+CREATE TABLE external_links (          -- migration 0024
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  ref_kind TEXT NOT NULL CHECK (ref_kind IN ('requirement','plan','package')),
+  ref_id TEXT NOT NULL,
+  system TEXT NOT NULL CHECK (system IN ('nexora')),
+  external_id TEXT NOT NULL,           -- the display id, for example PRJ-019-42; immutable once set
+  synced_state TEXT NOT NULL,          -- last Nexora status the PM wrote: todo, in_progress, in_review, completed, wont_do
+  linked_by TEXT NOT NULL, linked_at TEXT NOT NULL, synced_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, ref_kind, ref_id, system));
+```
+
+A link to an item that already existed (the "link" option) uses the same row. A package is a link only after the PM creates its child item; the PM creates all child items when the plan is approved, in one pass.
+
+### Command
+
+`cstan link <requirement|plan|package> <ref-id> <external-id> [<synced-state>]` — PM and operator only (new route `link`, access `any`, handler checks like `plan open`). It inserts the row, or updates `synced_state` and `synced_at` when the row exists with the same `external_id`; a different `external_id` for an existing row is refused (`link_conflict`). The PM runs it after each successful Nexora write, so the ledger records only what really reached Nexora.
+
+`cstan plan show <plan-id>` gains, per package, the external id, `synced_state` and a `wanted` state derived from the section 3 progress. `cstan status` for the PM gains a `Nexora drift` section listing linked items whose `synced_state` differs from the wanted state. This is the pending-sync record the user asked for: drift is derived, so it cannot be forgotten or go stale.
+
+### Estimates and time
+
+The Architect's plan carries `estimate_hours` per package (a number greater than 0 and at most 80; the validator in section 3 enforces it). The unit is hours of focused agent-plus-review effort for one package, an estimate for planning, not a promise. The unit matches Nexora's `estimated_hours` field on `nexora_work_item_create`, so the PM copies it unchanged and the parent item's estimate is the sum. A re-plan produces new packages and new estimates; the PM updates the items.
+
+Actual time is not tracked by default. The ledger can show a package's wall-clock span (`plan_packages.assigned_at` to the accepted report and review pass timestamps), and if the user wants it, the PM may log that span as Nexora time with the time-log tool (`duration_minutes`), labelled "agent wall-clock". It is not effort, and several agents run in parallel, so it is off unless the user asks (open question 6b).
+
+### Status sync (events the PM already receives)
+
+| Controller event (existing or new message) | Nexora action by the PM | `synced_state` |
+| --- | --- | --- |
+| `Plan <id> approved` | create child items with estimates; comment on the parent: plan approved, packages and order | `todo` |
+| `plan assign` succeeded | transition the package item | `in_progress` |
+| Verified report followed by a passing review (the `Review … PASS` notice, which for plan-governed work goes to the Architect and is relayed by the Architect's sign-off or by `plan show`) | transition the package item; comment: reviewed, commit | `in_review` |
+| `Review … FINDINGS` | comment on the package item with the findings summary; status stays | unchanged |
+| integration `merged` / `conflicted` / `failed` | comment on the parent item with the result (branch and head, or the conflicting files) | unchanged |
+| `Plan <id> signed off` | comment on the parent; parent to `in_review` | `in_review` |
+| the user merges to main and `integrate confirm` is accepted | **no automatic completion.** The PM asks the user to confirm the merge (picker: confirm / not yet); on confirmation the PM sets package items and the parent to `completed`. The human closes the gate. | `completed` |
+| `cstan cancel` or the user drops the work | `wont_do` with a comment | `wont_do` |
+
+The package notice that the Architect sees (`Verified report … Work package: …`) does not reach the PM, so two events need a PM-visible signal: a package reaching `reviewed`, and the plan reaching sign-off. Rather than relay by hand, the controller adds the package state to what the PM reads: `plan show` (derived progress) and the existing PM notices `Plan … signed off` and `Plan … needs attention`. The PM prompt tells it to run `cstan plan show <plan-id>` at each wake-up and after each `Plan …` notice, and to mirror any drift. That keeps one rule: **the PM mirrors drift; it does not remember events.**
+
+### Failure behaviour
+
+- Nexora unreachable, the key missing, or `[nexora].track = "never"`: delivery continues. The PM never waits on a Nexora call before a `cstan` command.
+- A failed write is not recorded with `cstan link`, so the item shows as drift. The PM tells the user once ("Nexora unreachable, N items out of sync") and retries at its next wake-up, with a limit of three tries per item per session; after that it leaves the drift and says so in its next report to the user.
+- A PM restart loses nothing: the links and drift are in the ledger and in the restart summary (`PmRestartSummary`, rendered in `src/prompts.ts`).
+- The Nexora calls themselves are idempotent when the PM checks `plan show` first: it creates an item only when the package has no link, and transitions only when `synced_state` differs from `wanted`.
+- The Supervisor and the controller do not look at Nexora; a PM that stops mirroring is visible as drift in `status` and on the dashboard in a later step.
+
+### PM prompt additions (only when `[nexora].track` is not `never`)
+
+Rendered in `PM_REFERENCE`: the picker rule above; "you are the only agent that writes to Nexora; never ask a worker to"; the mapping table; the status table; "run `cstan link` after every successful Nexora write"; "before any Nexora write run `cstan plan show` and write only what differs"; "Nexora failures never block delivery; tell the user once". Worker, Architect and Verifier prompts gain one sentence: "Do not use Nexora tools; the project manager records progress there."
+
+### What this section does not change
+
+No controller code reads or calls Nexora. No ledger transition depends on a link. The existing flows (small, normal, high-risk) are unchanged when `track = "never"`. Worker permissions: a role that lists Nexora tools in `allow` could still call them (tool rules are advisory, section 2); the guard is the prompt and a `deny` entry for the Nexora tool names in the Developer, Verifier and Architect roles, which the starter config for a tracked project should include.
