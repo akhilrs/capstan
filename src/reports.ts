@@ -146,6 +146,19 @@ export function startReportRelay(options: {
         }
         options.log("review_announced", { reviewId: review.reviewId });
       }
+      for (const notice of options.core.unannouncedPlanNotices(
+        options.credential,
+      )) {
+        const result = options.core.announcePlanNotice(
+          newContext(options.core, options.credential),
+          notice,
+        );
+        if (!result.announced) {
+          backoffUntil = Date.now() + RELAY_BACKOFF_MS;
+          return;
+        }
+        options.log("plan_notice_announced", notice);
+      }
       for (const notice of options.core.unannouncedFindingNotices(
         options.credential,
       )) {

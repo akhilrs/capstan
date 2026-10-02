@@ -370,6 +370,7 @@ CREATE TABLE external_links (          -- migration 0025
   external_id TEXT NOT NULL,           -- the display id, for example PM-47 (the prefix is Nexora's, not the project code); immutable once set
   synced_state TEXT NOT NULL CHECK (synced_state IN ('backlog','todo','in_progress','in_review','completed','wont_do')),  -- last status the PM wrote
   bound_agent_id TEXT,                 -- kind requirement only: the developer whose reports drive its wanted state; set by `link bind`
+  bound_at TEXT,                       -- when `link bind` ran; null exactly when bound_agent_id is null
   linked_by TEXT NOT NULL, linked_at TEXT NOT NULL, synced_at TEXT NOT NULL,
   PRIMARY KEY (project_id, ref_kind, ref_id, system));
 
@@ -434,11 +435,11 @@ Precedence, first match wins: `confirmed`, then `cancelled`, then the other rows
 
 A sign-off does not change the parent's wanted state on its own: after the last live package is `reviewed` the parent is already `in_review` (row 4); the sign-off is a comment trigger, not a state. A `superseded` plan keeps the wanted state it had when it was superseded and is not drift-checked afterwards.
 
-**Requirements of the small tier (`ref_kind = requirement`):** there are no packages. The requirement is driven by the one developer bound with `link bind` (the PM binds the agent it spawns). Only that agent's **latest accepted report** R (highest `agent_reports.sequence`) counts; earlier reports of the same agent are ignored, so a fix report after findings restarts the rows. The facts are R, the latest finished review of R, and the integrations containing R. Rows are evaluated top to bottom, first match wins:
+**Requirements of the small tier (`ref_kind = requirement`):** there are no packages. The requirement is driven by the one developer bound with `link bind` (the PM binds the agent it spawns). Only the **latest accepted report** R (highest `agent_reports.sequence`) of the bound agent or of an agent in its replacement chain (the agents it replaced, followed through the `replaced` events), accepted at or after `bound_at`, counts; earlier reports are ignored, so a fix report after findings restarts the rows, and work confirmed before the binding does not complete the requirement. `link bind` sets `bound_at`; `Launcher.replace` moves `bound_agent_id` and keeps `bound_at`. The facts are R, the latest finished review of R, and the integrations containing R. Rows are evaluated top to bottom, first match wins:
 
 | # | Condition | Wanted |
 | --- | --- | --- |
-| 1 | no bound agent | none: no wanted state, no drift; the status line says "unbound" and the PM drives the link by hand with `cstan link` |
+| 1 | no bound agent (so no `bound_at`) | none: no wanted state, no drift; the status line says "unbound" and the PM drives the link by hand with `cstan link` |
 | 2 | the PM recorded `wont_do` on the link (cancellation, below) and R is not in a `confirmed` integration | `wont_do` |
 | 3 | R is in a `confirmed` integration | `completed` |
 | 4 | the latest review of R passed (R may be in a `merged` integration or none) | `in_review` |
@@ -472,7 +473,7 @@ The user merges the integration branch into main with their own git. The control
 | --- | --- |
 | `draft` | sets `cancelled_at`; no packages exist; queues a message to the Architect (`Plan <id> cancelled`) so it stops |
 | `in_review` | the open plan review is cancelled (`reviews.state = 'cancelled'`, `failure_reason = 'plan cancelled'`, which the existing CHECK for cancelled rows requires; the reviewer is released with the existing `releaseReviewerLater`), the plan moves `in_review → draft` (an allowed move), then `cancelled_at` is set; Architect and PM are notified |
-| `approved` | sets `cancelled_at` on the plan and on every package that is not yet cancelled and not `confirmed` (`UPDATE plan_packages SET cancelled_at = <now> WHERE plan_id = <id> AND cancelled_at IS NULL AND <package is not confirmed>`, so a package cancelled earlier is not touched and `plan_packages_cancel_once` cannot fire); assigned developers are not released by the controller (the PM releases them, as for any worker); an `integrate` already running finishes, and the Architect is told to `discard` an unconfirmed integration |
+| `approved` | sets `cancelled_at` on the plan and on every package that is not yet cancelled and not `confirmed` (`UPDATE plan_packages SET cancelled_at = <now> WHERE plan_id = <id> AND cancelled_at IS NULL AND <package is not confirmed>`, so a package cancelled earlier is not touched and `plan_packages_cancel_once` cannot fire); every assigned developer of a package cancelled by this call gets the controller message `Stop work on package <pkg> of plan <id>: it was cancelled by the operator. Do not report it.` (confirmed packages and already cancelled ones are skipped); assigned developers are not released by the controller (the PM releases them, as for any worker); an `integrate` already running finishes, and the Architect is told to `discard` an unconfirmed integration |
 | `superseded` | refused (`plan_superseded`) |
 
 With a package id, only that package is cancelled (plan `approved` only). A cancelled plan refuses `submit`, `assign`, and review completion.

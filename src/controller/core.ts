@@ -50,6 +50,17 @@ import {
   workPackageMessage,
   type PackageView,
 } from "../plans.js";
+import {
+  EXTERNAL_REF_KINDS,
+  NEXORA_ID_PATTERN,
+  isNexoraState,
+  wantedPackageState,
+  wantedPlanState,
+  wantedRequirementState,
+  type ExternalRefKind,
+  type NexoraState,
+  type PackageFacts,
+} from "../nexora.js";
 import type {
   AgentInput,
   AgentRecord,
@@ -421,6 +432,45 @@ function reviewNotice(
   ].join("\n");
 }
 
+function planNeedsAttentionNotice(planId: string): string {
+  return `Plan ${planId} needs attention: it used ${MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.`;
+}
+
+const PLAN_NOTICE_BUDGET_BYTES = 12 * 1024;
+
+/** The notice the PM receives when a plan is approved: the packages, their dependencies and the order, cut to fit one message. */
+function planApprovedNotice(planId: string, bodyJson: string): string {
+  const body = JSON.parse(bodyJson) as {
+    packages: { id: string; title: string; dependsOn?: string[] }[];
+    integrationOrder?: string[];
+  };
+  const head = `Plan ${planId} approved. Assign each package with cstan plan assign ${planId} <package-id> <agent-id>.`;
+  const order =
+    body.integrationOrder === undefined
+      ? []
+      : [`Integration order: ${body.integrationOrder.join(", ")}`];
+  const lines: string[] = [];
+  let bytes = Buffer.byteLength(head, "utf8");
+  // Room for the order line and the cut marker, so neither can push the notice over the limit.
+  const reserve = 1024 + Buffer.byteLength(order.join("\n"), "utf8");
+  for (const [index, p] of body.packages.entries()) {
+    const line = `- ${p.id}: ${JSON.stringify(p.title)}; depends on: ${(p.dependsOn ?? []).length === 0 ? "none" : p.dependsOn!.join(", ")}`;
+    const size = Buffer.byteLength(line, "utf8") + 1;
+    if (bytes + size + reserve > PLAN_NOTICE_BUDGET_BYTES) {
+      lines.push(
+        `... and ${body.packages.length - index} more; see cstan plan show ${planId}`,
+      );
+      break;
+    }
+    lines.push(line);
+    bytes += size;
+  }
+  const text = [head, ...lines, ...order].join("\n");
+  return Buffer.byteLength(text, "utf8") <= MAX_MESSAGE_BYTES
+    ? text
+    : `${head}\nThe plan is too large to list; see cstan plan show ${planId}`;
+}
+
 export const MAX_PLAN_BODY_BYTES = 32 * 1024;
 export const MAX_PLAN_PACKAGES = 20;
 const PLAN_PACKAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -446,6 +496,7 @@ export interface PlanRecord {
   readonly currentRevision: number;
   readonly approvedRevision: number | null;
   readonly supersedesPlanId: string | null;
+  readonly cancelledAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -464,7 +515,50 @@ export interface PlanPackageRecord {
   readonly assigneeAgentId: string | null;
   readonly assignedAt: string | null;
   readonly assignmentMessageId: string | null;
+  readonly cancelledAt: string | null;
   readonly progress: PackageProgress;
+}
+
+export interface ExternalLinkRecord {
+  readonly refKind: ExternalRefKind;
+  readonly refId: string;
+  readonly system: "nexora";
+  readonly externalId: string;
+  readonly syncedState: NexoraState;
+  readonly boundAgentId: string | null;
+  /** When the agent was bound; only reports accepted at or after it count for the requirement. */
+  readonly boundAt: string | null;
+  readonly linkedBy: string;
+  readonly linkedAt: string;
+  readonly syncedAt: string;
+  /** Derived from ledger facts, never stored; null when the ledger has no wanted state for the ref. */
+  readonly wanted: NexoraState | null;
+  readonly drift: boolean;
+}
+
+interface ExternalLinkRow {
+  readonly ref_kind: ExternalRefKind;
+  readonly ref_id: string;
+  readonly system: "nexora";
+  readonly external_id: string;
+  readonly synced_state: NexoraState;
+  readonly bound_agent_id: string | null;
+  readonly bound_at: string | null;
+  readonly linked_by: string;
+  readonly linked_at: string;
+  readonly synced_at: string;
+}
+
+export interface PlanCancelResult {
+  readonly planId: string;
+  readonly packageId: string | null;
+  /** The packages this call cancelled. */
+  readonly cancelledPackages: readonly string[];
+  /** The plan review this call cancelled, and its reviewer, whom the caller releases. */
+  readonly reviewId: string | null;
+  readonly reviewerAgentId: string | null;
+  /** The agents the controller queued the notice for. */
+  readonly notified: readonly string[];
 }
 
 export interface PlanSignoffRecord {
@@ -493,6 +587,7 @@ interface PlanRow {
   readonly current_revision: number;
   readonly approved_revision: number | null;
   readonly supersedes_plan_id: string | null;
+  readonly cancelled_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -509,6 +604,7 @@ function planRecordOf(row: PlanRow): PlanRecord {
     currentRevision: row.current_revision,
     approvedRevision: row.approved_revision,
     supersedesPlanId: row.supersedes_plan_id,
+    cancelledAt: row.cancelled_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -3660,13 +3756,15 @@ export class ControllerCore {
     now: string,
   ): void {
     const plan = this.#planRow(row.subject_plan_id!);
-    if (plan?.state !== "in_review") return;
+    if (plan?.state !== "in_review" || plan.cancelled_at !== null) return;
     if (verdict === "findings") {
       this.#database
         .prepare(
           "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
         )
         .run(now, this.#projectId, plan.plan_id);
+      if (this.#finishedPlanReviews(plan.plan_id) >= MAX_REVIEW_ROUNDS)
+        this.#noticeToPm(planNeedsAttentionNotice(plan.plan_id), now);
       return;
     }
     const revision = this.#database
@@ -3681,7 +3779,7 @@ export class ControllerCore {
         "UPDATE plans SET state = 'approved', approved_revision = ?, updated_at = ? WHERE project_id = ? AND plan_id = ?",
       )
       .run(row.subject_plan_revision, now, this.#projectId, plan.plan_id);
-    this.#settlePlanApproval(plan, planBodyPackageIds(revision.body_json), now);
+    this.#settlePlanApproval(plan, revision.body_json, now);
   }
 
   #reviewAuthorIds(row: ReviewRow): string[] {
@@ -4158,6 +4256,10 @@ export class ControllerCore {
           const old = this.#planRow(supersedes);
           if (old === undefined)
             throw new ControllerError(`plan ${supersedes} does not exist`);
+          if (old.cancelled_at !== null)
+            throw new ControllerError(
+              `plan_cancelled: ${supersedes} was cancelled; open a fresh plan without naming it`,
+            );
           if (old.state !== "approved")
             throw new ControllerError(
               `plan ${supersedes} is ${old.state}; only an approved plan can be superseded`,
@@ -4220,7 +4322,7 @@ export class ControllerCore {
     safeId(input.planId, "plan id");
     if (!/^[0-9a-f]{40}$/.test(input.baseSha))
       throw new TypeError("the base commit must be a full lowercase sha1");
-    const packageIds = planBodyPackageIds(input.bodyJson);
+    planBodyPackageIds(input.bodyJson);
     return this.#mutate<PlanRecord>(
       context,
       "plan.submit",
@@ -4240,6 +4342,10 @@ export class ControllerCore {
         const plan = this.#planRow(input.planId);
         if (plan === undefined)
           throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.cancelled_at !== null)
+          throw new ControllerError(
+            `plan_cancelled: plan ${input.planId} was cancelled`,
+          );
         if (plan.state !== "draft")
           throw new ControllerError(
             `plan ${input.planId} is ${plan.state}, not a draft`,
@@ -4283,7 +4389,7 @@ export class ControllerCore {
             this.#projectId,
             input.planId,
           );
-        if (!input.review) this.#settlePlanApproval(plan, packageIds, now);
+        if (!input.review) this.#settlePlanApproval(plan, input.bodyJson, now);
         return {
           value: planRecordOf(this.#planRow(input.planId)!),
           event: {
@@ -4300,28 +4406,215 @@ export class ControllerCore {
   }
 
   /** On approval: one package row per package of the approved body, and the superseded plan is retired. The caller owns the transaction and has already moved the plan to approved. */
-  #settlePlanApproval(
-    plan: PlanRow,
-    packageIds: readonly string[],
-    now: string,
-  ): void {
-    for (const packageId of packageIds)
+  #settlePlanApproval(plan: PlanRow, bodyJson: string, now: string): void {
+    for (const packageId of planBodyPackageIds(bodyJson))
       this.#database
         .prepare(
           "INSERT INTO plan_packages(project_id, plan_id, package_id) VALUES (?, ?, ?)",
         )
         .run(this.#projectId, plan.plan_id, packageId);
-    if (plan.supersedes_plan_id === null) return;
-    const old = this.#planRow(plan.supersedes_plan_id);
-    if (old?.state !== "approved")
-      throw new ControllerError(
-        `plan ${plan.supersedes_plan_id} is no longer approved and cannot be superseded`,
+    if (plan.supersedes_plan_id !== null) {
+      const old = this.#planRow(plan.supersedes_plan_id);
+      if (old === undefined || old.cancelled_at === null) {
+        if (old?.state !== "approved")
+          throw new ControllerError(
+            `plan ${plan.supersedes_plan_id} is no longer approved and cannot be superseded`,
+          );
+        this.#database
+          .prepare(
+            "UPDATE plans SET state = 'superseded', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+          )
+          .run(now, this.#projectId, plan.supersedes_plan_id);
+      }
+    }
+    this.#noticeToPm(planApprovedNotice(plan.plan_id, bodyJson), now);
+  }
+
+  /** Queues a controller notice to the one active PM; false when there is none, and then the reconcile loop re-sends it (unannouncedPlanNotices). The caller owns the transaction. */
+  #noticeToPm(body: string, now: string): boolean {
+    const parties = this.#noticeParties();
+    if (parties === undefined) return false;
+    this.#insertQueuedMessage(
+      parties.controllerActorId,
+      parties.pm,
+      body,
+      sha256(body),
+      now,
+    );
+    return true;
+  }
+
+  /**
+   * Plan notices the PM has not received (no PM was active when the plan was approved or ran out of review rounds).
+   * A notice counts as sent when a controller message with its leading text exists.
+   */
+  unannouncedPlanNotices(
+    credential: string,
+  ): readonly { planId: string; kind: "approved" | "needs_attention" }[] {
+    this.#authorize(credential, "controller:reconcile");
+    const sent = (planId: string, lead: string): boolean => {
+      const text = `Plan ${planId} ${lead}`;
+      return (
+        this.#database
+          .prepare(
+            "SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?",
+          )
+          .get(this.#projectId, text.length, text) !== undefined
       );
-    this.#database
+    };
+    const out: { planId: string; kind: "approved" | "needs_attention" }[] = [];
+    for (const plan of this.#database
       .prepare(
-        "UPDATE plans SET state = 'superseded', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+        "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence",
       )
-      .run(now, this.#projectId, plan.supersedes_plan_id);
+      .all(this.#projectId) as PlanRow[]) {
+      if (plan.cancelled_at !== null) continue;
+      if (plan.state === "approved") {
+        if (!sent(plan.plan_id, "approved"))
+          out.push({ planId: plan.plan_id, kind: "approved" });
+      } else if (
+        this.#finishedPlanReviews(plan.plan_id) >= MAX_REVIEW_ROUNDS &&
+        !sent(plan.plan_id, "needs attention")
+      )
+        out.push({ planId: plan.plan_id, kind: "needs_attention" });
+    }
+    return out;
+  }
+
+  /** Queues one missing plan notice to the PM; false when no PM is the sole active one. */
+  announcePlanNotice(
+    context: MutationContext,
+    input: {
+      readonly planId: string;
+      readonly kind: "approved" | "needs_attention";
+    },
+  ): { readonly announced: boolean } {
+    safeId(input.planId, "plan id");
+    return this.#mutate(
+      context,
+      "plan.announce",
+      "controller:reconcile",
+      { planId: input.planId, kind: input.kind },
+      () => {
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.cancelled_at !== null)
+          return {
+            value: { announced: false },
+            event: {
+              entityType: "plan",
+              entityId: input.planId,
+              stateVersion: 0,
+              details: { announced: false, kind: input.kind },
+            },
+          };
+        let body: string;
+        if (input.kind === "approved") {
+          const revision = this.#database
+            .prepare(
+              "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+            )
+            .get(this.#projectId, plan.plan_id, plan.approved_revision) as
+            { body_json: string } | undefined;
+          if (plan.state !== "approved" || revision === undefined)
+            throw new ControllerError(`plan ${input.planId} is not approved`);
+          body = planApprovedNotice(plan.plan_id, revision.body_json);
+        } else body = planNeedsAttentionNotice(plan.plan_id);
+        const announced = this.#noticeToPm(body, this.#now());
+        return {
+          value: { announced },
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            details: { announced, kind: input.kind },
+          },
+        };
+      },
+    );
+  }
+
+  /** Review rounds of a plan that finished with a verdict. */
+  planReviewRounds(credential: string, planId: string): number {
+    this.#authorize(credential, "plan:read");
+    safeId(planId, "plan id");
+    return this.#finishedPlanReviews(planId);
+  }
+
+  #finishedPlanReviews(planId: string): number {
+    return (
+      this.#database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state IN ('passed', 'findings')",
+        )
+        .get(this.#projectId, planId) as { n: number }
+    ).n;
+  }
+
+  /**
+   * A plan review that could not start (the reviewer did not spawn or the review was refused): the plan goes back to
+   * draft and its architect is told why. A plan that is not in review is left as it is.
+   */
+  abandonPlanReview(
+    context: MutationContext,
+    input: { readonly planId: string; readonly reason: string },
+  ): PlanRecord {
+    safeId(input.planId, "plan id");
+    const reason = safeText(input.reason, "reason", 500, false);
+    return this.#mutate<PlanRecord>(
+      context,
+      "plan.review_abandon",
+      "plan:write",
+      { planId: input.planId, reason },
+      () => {
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.state === "in_review") {
+          const open = this.#database
+            .prepare(
+              "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started'",
+            )
+            .get(this.#projectId, input.planId);
+          if (open)
+            throw new ControllerError(
+              `plan ${input.planId} has a review in progress`,
+            );
+          const now = this.#now();
+          this.#database
+            .prepare(
+              "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+            )
+            .run(now, this.#projectId, input.planId);
+          const architect =
+            plan.architect_agent_id === null
+              ? undefined
+              : this.#agentRow(plan.architect_agent_id);
+          const parties = this.#noticeParties();
+          if (architect?.state === "active") {
+            const body = `Plan ${input.planId} review could not start: ${reason}. The plan is a draft again; submit it again with cstan plan submit.`;
+            this.#insertQueuedMessage(
+              parties?.controllerActorId ?? this.#controllerActorId(),
+              architect,
+              body,
+              sha256(body),
+              now,
+            );
+          }
+        }
+        return {
+          value: planRecordOf(this.#planRow(input.planId)!),
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            toState: "draft",
+            details: { reason },
+          },
+        };
+      },
+    );
   }
 
   #planRow(planId: string): PlanRow | undefined {
@@ -4335,14 +4628,14 @@ export class ControllerCore {
    * A report counts only for the package assigned last at or before the report was accepted, so it never predates the
    * assignment it counts for and never counts for two packages (ties on assigned_at fall back to plan and package id).
    */
-  #packageProgress(
+  #packageReport(
     planId: string,
     packageId: string,
     assigneeAgentId: string | null,
     assignedAt: string | null,
-  ): PackageProgress {
-    if (assigneeAgentId === null || assignedAt === null) return "unassigned";
-    const report = this.#database
+  ): { report_id: string } | undefined {
+    if (assigneeAgentId === null || assignedAt === null) return undefined;
+    return this.#database
       .prepare(
         `SELECT r.report_id FROM agent_reports r
          JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
@@ -4362,6 +4655,21 @@ export class ControllerCore {
         planId,
         packageId,
       ) as { report_id: string } | undefined;
+  }
+
+  #packageProgress(
+    planId: string,
+    packageId: string,
+    assigneeAgentId: string | null,
+    assignedAt: string | null,
+  ): PackageProgress {
+    if (assigneeAgentId === null || assignedAt === null) return "unassigned";
+    const report = this.#packageReport(
+      planId,
+      packageId,
+      assigneeAgentId,
+      assignedAt,
+    );
     if (report === undefined) return "assigned";
     const integrated = this.#database
       .prepare(
@@ -4392,12 +4700,14 @@ export class ControllerCore {
         assignee_agent_id: string | null;
         assigned_at: string | null;
         assignment_message_id: string | null;
+        cancelled_at: string | null;
       }[]
     ).map((row) => ({
       packageId: row.package_id,
       assigneeAgentId: row.assignee_agent_id,
       assignedAt: row.assigned_at,
       assignmentMessageId: row.assignment_message_id,
+      cancelledAt: row.cancelled_at,
       progress: this.#packageProgress(
         planId,
         row.package_id,
@@ -4500,19 +4810,28 @@ export class ControllerCore {
         const plan = this.#planRow(input.planId);
         if (plan === undefined)
           throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.cancelled_at !== null)
+          throw new ControllerError(
+            `plan_cancelled: plan ${input.planId} was cancelled`,
+          );
         if (plan.state !== "approved")
           throw new ControllerError(
             `plan ${input.planId} is ${plan.state}; packages are assigned once it is approved`,
           );
         const pkg = this.#database
           .prepare(
-            "SELECT assignee_agent_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+            "SELECT assignee_agent_id, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
           )
           .get(this.#projectId, input.planId, input.packageId) as
-          { assignee_agent_id: string | null } | undefined;
+          | { assignee_agent_id: string | null; cancelled_at: string | null }
+          | undefined;
         if (pkg === undefined)
           throw new ControllerError(
             `plan ${input.planId} has no package ${input.packageId}`,
+          );
+        if (pkg.cancelled_at !== null)
+          throw new ControllerError(
+            `package_cancelled: package ${input.packageId} of plan ${input.planId} was cancelled`,
           );
         const agent = this.#agentRow(input.agentId);
         if (
@@ -4534,7 +4853,7 @@ export class ControllerCore {
         }
         const holding = this.#database
           .prepare(
-            "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? AND package_id <> ?",
+            "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? AND package_id <> ? AND cancelled_at IS NULL",
           )
           .get(
             this.#projectId,
@@ -4733,6 +5052,581 @@ export class ControllerCore {
         };
       },
     );
+  }
+
+  // ------------------------------------------------------------ Nexora links and cancellation
+
+  /** The facts `wantedPackageState` needs for one package row; `planCancelled` is the plan's flag. */
+  #packageFacts(
+    planId: string,
+    row: {
+      readonly package_id: string;
+      readonly assignee_agent_id: string | null;
+      readonly assigned_at: string | null;
+      readonly cancelled_at: string | null;
+    },
+    planCancelled: boolean,
+  ): PackageFacts {
+    const report = this.#packageReport(
+      planId,
+      row.package_id,
+      row.assignee_agent_id,
+      row.assigned_at,
+    );
+    const confirmed =
+      report !== undefined &&
+      this.#reportInConfirmedIntegration(report.report_id);
+    return {
+      progress: this.#packageProgress(
+        planId,
+        row.package_id,
+        row.assignee_agent_id,
+        row.assigned_at,
+      ),
+      cancelled: planCancelled || row.cancelled_at !== null,
+      confirmed,
+    };
+  }
+
+  #reportInConfirmedIntegration(reportId: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `SELECT 1 AS present FROM integration_reports ir
+           JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+           WHERE ir.project_id = ? AND ir.report_id = ? AND i.state = 'confirmed'`,
+        )
+        .get(this.#projectId, reportId) !== undefined
+    );
+  }
+
+  #planPackageRows(planId: string): {
+    package_id: string;
+    assignee_agent_id: string | null;
+    assigned_at: string | null;
+    cancelled_at: string | null;
+  }[] {
+    return this.#database
+      .prepare(
+        "SELECT package_id, assignee_agent_id, assigned_at, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? ORDER BY package_id",
+      )
+      .all(this.#projectId, planId) as {
+      package_id: string;
+      assignee_agent_id: string | null;
+      assigned_at: string | null;
+      cancelled_at: string | null;
+    }[];
+  }
+
+  /** Splits a package ref `<plan-id>/<package-id>`; the ids themselves are checked against the ledger by the caller. */
+  #packageRef(refId: string): { planId: string; packageId: string } {
+    const parts = refId.split("/");
+    if (parts.length !== 2)
+      throw new TypeError("a package ref is <plan-id>/<package-id>");
+    return {
+      planId: safeId(parts[0], "plan id"),
+      packageId: safeId(parts[1], "package id"),
+    };
+  }
+
+  /** The wanted Nexora status of a linked item, derived from ledger facts and never stored; null when there is none (unbound requirement, superseded plan). */
+  #wantedState(
+    refKind: ExternalRefKind,
+    refId: string,
+    link:
+      | {
+          syncedState: NexoraState;
+          boundAgentId: string | null;
+          boundAt: string | null;
+        }
+      | undefined,
+  ): NexoraState | null {
+    if (refKind === "requirement") {
+      if (
+        link === undefined ||
+        link.boundAgentId === null ||
+        link.boundAt === null
+      )
+        return null;
+      // The bound agent and the agents it replaced count, but only reports made since the binding.
+      const report = this.#database
+        .prepare(
+          `WITH RECURSIVE chain(agent_id) AS (
+             SELECT ?
+             UNION
+             SELECT e.entity_id FROM controller_events e JOIN chain c
+               ON json_extract(e.payload_json, '$.details.successorId') = c.agent_id
+             WHERE e.project_id = ? AND e.entity_type = 'agent' AND e.to_state = 'replaced')
+           SELECT r.report_id FROM agent_reports r
+           WHERE r.project_id = ? AND r.agent_id IN (SELECT agent_id FROM chain)
+             AND r.state = 'accepted' AND r.created_at >= ?
+           ORDER BY r.sequence DESC LIMIT 1`,
+        )
+        .get(
+          link.boundAgentId,
+          this.#projectId,
+          this.#projectId,
+          link.boundAt,
+        ) as { report_id: string } | undefined;
+      const verdict =
+        report === undefined
+          ? undefined
+          : (this.#database
+              .prepare(
+                `SELECT state FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')
+                 ORDER BY sequence DESC LIMIT 1`,
+              )
+              .get(this.#projectId, report.report_id) as
+              { state: string } | undefined);
+      return wantedRequirementState({
+        bound: true,
+        syncedState: link.syncedState,
+        reportConfirmed:
+          report !== undefined &&
+          this.#reportInConfirmedIntegration(report.report_id),
+        reviewPassed: verdict?.state === "passed",
+      });
+    }
+    const planId = refKind === "plan" ? refId : this.#packageRef(refId).planId;
+    const plan = this.#planRow(planId);
+    if (plan === undefined)
+      throw new ControllerError(`plan ${planId} does not exist`);
+    const planCancelled = plan.cancelled_at !== null;
+    const rows = this.#planPackageRows(planId);
+    if (refKind === "plan")
+      return wantedPlanState({
+        state: plan.state,
+        cancelled: planCancelled,
+        packages: rows.map((row) =>
+          this.#packageFacts(planId, row, planCancelled),
+        ),
+      });
+    const { packageId } = this.#packageRef(refId);
+    const row = rows.find((r) => r.package_id === packageId);
+    if (row === undefined)
+      throw new ControllerError(`plan ${planId} has no package ${packageId}`);
+    return wantedPackageState(this.#packageFacts(planId, row, planCancelled));
+  }
+
+  #linkRecord(row: ExternalLinkRow): ExternalLinkRecord {
+    const wanted = this.#wantedState(row.ref_kind, row.ref_id, {
+      syncedState: row.synced_state,
+      boundAgentId: row.bound_agent_id,
+      boundAt: row.bound_at,
+    });
+    return {
+      refKind: row.ref_kind,
+      refId: row.ref_id,
+      system: row.system,
+      externalId: row.external_id,
+      syncedState: row.synced_state,
+      boundAgentId: row.bound_agent_id,
+      boundAt: row.bound_at,
+      linkedBy: row.linked_by,
+      linkedAt: row.linked_at,
+      syncedAt: row.synced_at,
+      wanted,
+      drift: wanted !== null && wanted !== row.synced_state,
+    };
+  }
+
+  #linkRow(refKind: string, refId: string): ExternalLinkRow | undefined {
+    return this.#database
+      .prepare(
+        "SELECT * FROM external_links WHERE project_id = ? AND ref_kind = ? AND ref_id = ? AND system = 'nexora'",
+      )
+      .get(this.#projectId, refKind, refId) as ExternalLinkRow | undefined;
+  }
+
+  #assertLinkTarget(refKind: ExternalRefKind, refId: string): void {
+    if (refKind === "requirement") return;
+    if (refKind === "plan") {
+      if (this.#planRow(refId) === undefined)
+        throw new ControllerError(`plan ${refId} does not exist`);
+      return;
+    }
+    const { planId, packageId } = this.#packageRef(refId);
+    const exists = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+      )
+      .get(this.#projectId, planId, packageId);
+    if (exists === undefined)
+      throw new ControllerError(`plan ${planId} has no package ${packageId}`);
+  }
+
+  /**
+   * Records what the PM wrote to Nexora for a requirement, a plan or a package. A new row starts at `todo` (what Nexora
+   * creates) unless a state is given; an existing row only moves its synced state, and a different external id for it is
+   * refused as `link_conflict` before the trigger can abort.
+   */
+  linkExternal(
+    context: MutationContext,
+    input: {
+      readonly refKind: ExternalRefKind;
+      readonly refId: string;
+      readonly externalId: string;
+      readonly syncedState?: NexoraState;
+    },
+  ): ExternalLinkRecord {
+    if (!(EXTERNAL_REF_KINDS as readonly unknown[]).includes(input.refKind))
+      throw new TypeError(
+        `the link kind must be one of ${EXTERNAL_REF_KINDS.join(", ")}`,
+      );
+    if (input.refKind === "package") this.#packageRef(input.refId);
+    else safeId(input.refId, "ref id");
+    if (
+      typeof input.externalId !== "string" ||
+      !NEXORA_ID_PATTERN.test(input.externalId)
+    )
+      throw new TypeError("the external id must look like PM-47");
+    if (input.syncedState !== undefined && !isNexoraState(input.syncedState))
+      throw new TypeError("the synced state is not a Nexora status");
+    return this.#mutate<ExternalLinkRecord>(
+      context,
+      "link.external",
+      "plan:write",
+      { ...input },
+      (actor) => {
+        if (actor.role !== "PM" && actor.role !== "operator")
+          throw new ControllerError(
+            "only the PM or the operator records a link",
+          );
+        this.#assertLinkTarget(input.refKind, input.refId);
+        const now = this.#now();
+        const existing = this.#linkRow(input.refKind, input.refId);
+        if (existing === undefined)
+          this.#database
+            .prepare(
+              `INSERT INTO external_links(project_id, ref_kind, ref_id, system, external_id, synced_state, linked_by, linked_at, synced_at)
+               VALUES (?, ?, ?, 'nexora', ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              this.#projectId,
+              input.refKind,
+              input.refId,
+              input.externalId,
+              input.syncedState ?? "todo",
+              actor.actorId,
+              now,
+              now,
+            );
+        else if (existing.external_id !== input.externalId)
+          throw new ControllerError(
+            `link_conflict: ${input.refKind} ${input.refId} is linked to ${existing.external_id}, not ${input.externalId}`,
+          );
+        else
+          this.#database
+            .prepare(
+              "UPDATE external_links SET synced_state = ?, synced_at = ? WHERE project_id = ? AND ref_kind = ? AND ref_id = ? AND system = 'nexora'",
+            )
+            .run(
+              input.syncedState ?? existing.synced_state,
+              now,
+              this.#projectId,
+              input.refKind,
+              input.refId,
+            );
+        return {
+          value: this.#linkRecord(this.#linkRow(input.refKind, input.refId)!),
+          event: {
+            entityType: "external_link",
+            entityId: `${input.refKind}:${input.refId}`,
+            stateVersion: 0,
+            details: {
+              externalId: input.externalId,
+              syncedState: input.syncedState ?? null,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** Binds the developer whose reports drive a small-tier requirement's wanted state; the requirement must be linked first. */
+  bindRequirement(
+    context: MutationContext,
+    input: { readonly refId: string; readonly agentId: string },
+  ): ExternalLinkRecord {
+    safeId(input.refId, "requirement ref id");
+    safeId(input.agentId, "agent id");
+    return this.#mutate<ExternalLinkRecord>(
+      context,
+      "link.bind",
+      "plan:write",
+      { ...input },
+      (actor) => {
+        if (actor.role !== "PM" && actor.role !== "operator")
+          throw new ControllerError(
+            "only the PM or the operator binds a requirement",
+          );
+        const link = this.#linkRow("requirement", input.refId);
+        if (link === undefined)
+          throw new ControllerError(
+            `requirement ${input.refId} is not linked; run link first`,
+          );
+        const agent = this.#agentRow(input.agentId);
+        if (
+          agent === undefined ||
+          agent.state !== "active" ||
+          agent.kind !== "Developer"
+        )
+          throw new ControllerError(
+            `${input.agentId} is not an active developer-kind agent`,
+          );
+        this.#database
+          .prepare(
+            "UPDATE external_links SET bound_agent_id = ?, bound_at = ? WHERE project_id = ? AND ref_kind = 'requirement' AND ref_id = ? AND system = 'nexora'",
+          )
+          .run(agent.agent_id, this.#now(), this.#projectId, input.refId);
+        return {
+          value: this.#linkRecord(this.#linkRow("requirement", input.refId)!),
+          event: {
+            entityType: "external_link",
+            entityId: `requirement:${input.refId}`,
+            stateVersion: 0,
+            details: { boundAgentId: agent.agent_id },
+          },
+        };
+      },
+    );
+  }
+
+  /** Every link with its wanted state and drift flag, oldest first. */
+  externalLinks(credential: string): readonly ExternalLinkRecord[] {
+    this.#authorize(credential, "plan:read");
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM external_links WHERE project_id = ? ORDER BY linked_at, ref_kind, ref_id",
+        )
+        .all(this.#projectId) as ExternalLinkRow[]
+    ).map((row) => this.#linkRecord(row));
+  }
+
+  /** The wanted Nexora status of one ref; null when the ledger has none (an unlinked or unbound requirement, a superseded plan). */
+  wantedNexoraState(
+    credential: string,
+    refKind: ExternalRefKind,
+    refId: string,
+  ): NexoraState | null {
+    this.#authorize(credential, "plan:read");
+    if (!(EXTERNAL_REF_KINDS as readonly unknown[]).includes(refKind))
+      throw new TypeError(
+        `the link kind must be one of ${EXTERNAL_REF_KINDS.join(", ")}`,
+      );
+    if (refKind === "package") this.#packageRef(refId);
+    else safeId(refId, "ref id");
+    const link = this.#linkRow(refKind, refId);
+    return this.#wantedState(
+      refKind,
+      refId,
+      link === undefined
+        ? undefined
+        : {
+            syncedState: link.synced_state,
+            boundAgentId: link.bound_agent_id,
+            boundAt: link.bound_at,
+          },
+    );
+  }
+
+  /** The links whose last synced state differs from the wanted one: the work the PM still owes Nexora. */
+  syncDrift(credential: string): readonly ExternalLinkRecord[] {
+    return this.externalLinks(credential).filter((link) => link.drift);
+  }
+
+  /**
+   * The extra line of the `Plan <id> approved` notice when the plan it supersedes was cancelled first: that plan
+   * stays cancelled and is not marked superseded. Null otherwise.
+   */
+  approvalNoticeNote(planId: string): string | null {
+    this.#assertOpen();
+    safeId(planId, "plan id");
+    const plan = this.#planRow(planId);
+    const old =
+      plan?.supersedes_plan_id == null
+        ? undefined
+        : this.#planRow(plan.supersedes_plan_id);
+    return old !== undefined && old.cancelled_at !== null
+      ? `Plan ${old.plan_id} was cancelled before this plan was approved; it was not superseded`
+      : null;
+  }
+
+  /**
+   * Records the operator's decision to cancel a plan or one package of an approved plan. The guards run first so a
+   * request fails with a named reason (`plan_cancelled`, `already_cancelled`, `plan_superseded`, `plan_not_approved`,
+   * `package_confirmed`), never with a trigger abort. A plan in review loses its open review: the review is cancelled
+   * and `reviewerAgentId` names the reviewer the caller still has to release. The Architect and the PM are told.
+   */
+  cancelPlan(
+    context: MutationContext,
+    input: { readonly planId: string; readonly packageId?: string },
+  ): PlanCancelResult {
+    safeId(input.planId, "plan id");
+    if (input.packageId !== undefined) safeId(input.packageId, "package id");
+    return this.#mutate<PlanCancelResult>(
+      context,
+      "plan.cancel",
+      "plan:write",
+      { ...input },
+      (actor) => {
+        if (actor.role !== "operator")
+          throw new ControllerError("only the operator cancels a plan");
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.cancelled_at !== null)
+          throw new ControllerError(
+            `${input.packageId === undefined ? "already_cancelled" : "plan_cancelled"}: plan ${input.planId} was cancelled`,
+          );
+        const now = this.#now();
+        let cancelledPackages: string[];
+        let reviewId: string | null = null;
+        let reviewerAgentId: string | null = null;
+        if (input.packageId !== undefined) {
+          if (plan.state !== "approved")
+            throw new ControllerError(
+              `plan_not_approved: plan ${input.planId} is ${plan.state}`,
+            );
+          const row = this.#planPackageRows(input.planId).find(
+            (r) => r.package_id === input.packageId,
+          );
+          if (row === undefined)
+            throw new ControllerError(
+              `plan ${input.planId} has no package ${input.packageId}`,
+            );
+          if (row.cancelled_at !== null)
+            throw new ControllerError(
+              `already_cancelled: package ${input.packageId} was cancelled`,
+            );
+          if (this.#packageFacts(input.planId, row, false).confirmed)
+            throw new ControllerError(
+              `package_confirmed: package ${input.packageId} is already integrated and confirmed`,
+            );
+          this.#database
+            .prepare(
+              "UPDATE plan_packages SET cancelled_at = ? WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
+            )
+            .run(now, this.#projectId, input.planId, input.packageId);
+          cancelledPackages = [input.packageId];
+        } else {
+          if (plan.state === "superseded")
+            throw new ControllerError(
+              `plan_superseded: plan ${input.planId} was superseded`,
+            );
+          if (plan.state === "in_review") {
+            const open = this.#database
+              .prepare(
+                "SELECT review_id, reviewer_agent_id FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started'",
+              )
+              .get(this.#projectId, input.planId) as
+              { review_id: string; reviewer_agent_id: string } | undefined;
+            if (open !== undefined) {
+              this.#database
+                .prepare(
+                  "UPDATE reviews SET state = 'cancelled', failure_reason = 'plan cancelled', completed_at = ? WHERE project_id = ? AND review_id = ? AND state = 'started'",
+                )
+                .run(now, this.#projectId, open.review_id);
+              reviewId = open.review_id;
+              reviewerAgentId = open.reviewer_agent_id;
+            }
+            this.#database
+              .prepare(
+                "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+              )
+              .run(now, this.#projectId, input.planId);
+          }
+          cancelledPackages = this.#planPackageRows(input.planId)
+            .filter(
+              (row) =>
+                row.cancelled_at === null &&
+                !this.#packageFacts(input.planId, row, false).confirmed,
+            )
+            .map((row) => row.package_id);
+          for (const packageId of cancelledPackages)
+            this.#database
+              .prepare(
+                "UPDATE plan_packages SET cancelled_at = ? WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
+              )
+              .run(now, this.#projectId, input.planId, packageId);
+          this.#database
+            .prepare(
+              "UPDATE plans SET cancelled_at = ?, updated_at = ? WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL",
+            )
+            .run(now, now, this.#projectId, input.planId);
+        }
+        const subject =
+          input.packageId === undefined
+            ? `Plan ${input.planId} cancelled`
+            : `Plan ${input.planId} package ${input.packageId} cancelled`;
+        const notified = this.#queuePlanNotice(
+          plan,
+          `${subject} by the operator.`,
+          now,
+        );
+        const held = this.#planPackageRows(input.planId).filter((row) =>
+          cancelledPackages.includes(row.package_id),
+        );
+        for (const row of held) {
+          const developer =
+            row.assignee_agent_id === null
+              ? undefined
+              : this.#agentRow(row.assignee_agent_id);
+          if (developer?.state !== "active") continue;
+          const body = `Stop work on package ${row.package_id} of plan ${input.planId}: it was cancelled by the operator. Do not report it.`;
+          this.#insertQueuedMessage(
+            this.#controllerActorId(),
+            developer,
+            body,
+            sha256(body),
+            now,
+          );
+          if (!notified.includes(developer.agent_id))
+            notified.push(developer.agent_id);
+        }
+        return {
+          value: {
+            planId: input.planId,
+            packageId: input.packageId ?? null,
+            cancelledPackages,
+            reviewId,
+            reviewerAgentId,
+            notified,
+          },
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            details: {
+              packageId: input.packageId ?? null,
+              cancelledPackages,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** Queues a controller notice to the plan's architect (while active) and to the sole active PM; returns the agents told. The caller owns the transaction. */
+  #queuePlanNotice(plan: PlanRow, body: string, now: string): string[] {
+    const parties = this.#noticeParties();
+    if (parties === undefined) return [];
+    const recipients: AgentRow[] = [parties.pm];
+    const architect =
+      plan.architect_agent_id === null
+        ? undefined
+        : this.#agentRow(plan.architect_agent_id);
+    if (architect?.state === "active") recipients.push(architect);
+    for (const recipient of recipients)
+      this.#insertQueuedMessage(
+        parties.controllerActorId,
+        recipient,
+        body,
+        sha256(body),
+        now,
+      );
+    return recipients.map((r) => r.agent_id);
   }
 
   integration(integrationId: string): IntegrationRecord {
@@ -4943,9 +5837,14 @@ export class ControllerCore {
           throw new ControllerError("the agent was already replaced");
         const rebound = this.#database
           .prepare(
-            "UPDATE plan_packages SET assignee_agent_id = ? WHERE project_id = ? AND assignee_agent_id = ?",
+            "UPDATE plan_packages SET assignee_agent_id = ? WHERE project_id = ? AND assignee_agent_id = ? AND cancelled_at IS NULL",
           )
           .run(input.successorId, this.#projectId, input.predecessorId).changes;
+        this.#database
+          .prepare(
+            "UPDATE external_links SET bound_agent_id = ? WHERE project_id = ? AND bound_agent_id = ?",
+          )
+          .run(input.successorId, this.#projectId, input.predecessorId);
         return {
           value: { recorded: true },
           event: {
@@ -5041,7 +5940,7 @@ export class ControllerCore {
             `SELECT p.plan_id, p.package_id, pl.architect_agent_id, r.body_json FROM plan_packages p
              JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
              LEFT JOIN plan_revisions r ON r.project_id = pl.project_id AND r.plan_id = pl.plan_id AND r.revision = pl.approved_revision
-             WHERE p.project_id = ? AND p.assignee_agent_id = ? ORDER BY pl.sequence, p.package_id`,
+             WHERE p.project_id = ? AND p.assignee_agent_id = ? AND p.cancelled_at IS NULL ORDER BY pl.sequence, p.package_id`,
           )
           .all(this.#projectId, agentId) as {
           plan_id: string;

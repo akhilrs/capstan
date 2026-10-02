@@ -30,6 +30,7 @@ import { newContext } from "./context.js";
 import {
   type AgentFindingRecord,
   ControllerError,
+  MAX_REVIEW_ROUNDS,
   MAX_REPORT_SUMMARY_BYTES,
   type ReportEvidence,
   type ReportReason,
@@ -1067,14 +1068,25 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               "rejected",
               `plan_not_open: plan ${planId} is ${plan.state}, not a draft`,
             );
-          if (
+          const needsReview =
             (plan.tier === "high_risk" &&
               config.architect.planReview !== "never") ||
-            config.architect.planReview === "always"
+            config.architect.planReview === "always";
+          if (
+            needsReview &&
+            core.planReviewRounds(call.credential, planId) >= MAX_REVIEW_ROUNDS
           )
             return fail(
               "rejected",
-              `plan_review_unavailable: plan ${planId} needs a plan review, which is not available yet`,
+              `review_limit: plan ${planId} used ${MAX_REVIEW_ROUNDS} review rounds; the PM has been told`,
+            );
+          if (
+            needsReview &&
+            (deps.launcher === undefined || deps.commitExists === undefined)
+          )
+            return fail(
+              "not_configured",
+              "a plan review needs Herdr and a git repository",
             );
           const parsed = parsePlanBody(bodyText, {
             maxPackages: config.architect.maxPackages,
@@ -1092,13 +1104,61 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             planId,
             bodyJson: JSON.stringify(parsed.plan),
             baseSha,
-            review: false,
+            review: needsReview,
           });
-          return ok({
-            planId: stored.planId,
-            revision: stored.currentRevision,
-            state: stored.state,
-          });
+          if (!needsReview)
+            return ok({
+              planId: stored.planId,
+              revision: stored.currentRevision,
+              state: stored.state,
+            });
+          try {
+            const { review, spawnState } = await requestReview(
+              {
+                core,
+                launcher: deps.launcher!,
+                config,
+                commitExists: deps.commitExists!,
+                context,
+                log,
+              },
+              {
+                subjectId: planId,
+                requestedRole: config.architect.reviewerRole ?? undefined,
+                pmCredential: call.credential,
+              },
+            );
+            return ok({
+              planId: stored.planId,
+              revision: stored.currentRevision,
+              state: "in_review",
+              reviewId: review.reviewId,
+              reviewerAgentId: review.reviewerAgentId,
+              reviewerState: spawnState,
+            });
+          } catch (error) {
+            const reason =
+              error instanceof ReviewRequestError ||
+              error instanceof ControllerError
+                ? error.message
+                : "the reviewer could not be started";
+            try {
+              core.abandonPlanReview(context(call.credential), {
+                planId,
+                reason,
+              });
+            } catch (cleanupError) {
+              log("plan_review_abandon_failed", {
+                planId,
+                error: String(cleanupError),
+              });
+            }
+            if (error instanceof ReviewRequestError)
+              return fail("rejected", `${error.code}: ${error.message}`);
+            if (error instanceof ControllerError)
+              return fail("rejected", `review_refused: ${error.message}`);
+            throw error;
+          }
         }
         if (
           rest.length > 1 ||
@@ -1427,6 +1487,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         command === "launch" ||
         command === "spawn" ||
         command === "request-review" ||
+        command === "plan" ||
         command === "integrate" ||
         command === "release" ||
         command === "pm-restart"
