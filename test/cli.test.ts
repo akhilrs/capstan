@@ -2076,6 +2076,7 @@ test("every line of daemon.log is JSON, and a partial or invalid agent environme
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-logfmt-"));
   try {
     assert.equal(invoke(cwd, "init").status, 0);
+    writeFileSync(path.join(cwd, ".nexora.toml"), "");
     assert.equal(invoke(cwd, "start").status, 0);
     assert.equal(invoke(cwd, "ping").status, 0);
     const lines = readFileSync(path.join(cwd, ".capstan/daemon.log"), "utf8")
