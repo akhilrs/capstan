@@ -33,8 +33,6 @@ export type AssignmentState =
   | "completed"
   | "revoked"
   | "failed";
-export type RuntimeState =
-  "starting" | "ready" | "working" | "stopping" | "exited" | "unknown";
 export type FindingState =
   | "detected"
   | "reported"
@@ -46,12 +44,7 @@ export type FindingState =
 export type RunState =
   "active" | "paused" | "canceling" | "canceled" | "completed" | "failed";
 export type EntityType =
-  | "work_item"
-  | "assignment_attempt"
-  | "runtime_session"
-  | "finding"
-  | "run_control"
-  | "command";
+  "work_item" | "assignment_attempt" | "finding" | "run_control" | "command";
 export type Capability =
   | "project:inputs:write"
   | "work:write"

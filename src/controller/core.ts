@@ -950,7 +950,6 @@ export interface RecoveryInput {
 }
 export interface UsageInput {
   readonly observationId: string;
-  readonly sessionId?: string;
   readonly assignmentId?: string;
   readonly provider: string;
   readonly metric: string;
@@ -10960,33 +10959,9 @@ export class ControllerCore {
           throw new ControllerError(
             "usage assignment does not belong to this project",
           );
-        const session = input.sessionId
-          ? (this.#database
-              .prepare(
-                "SELECT assignment_id, seat_id FROM runtime_sessions WHERE project_id = ? AND session_id = ?",
-              )
-              .get(this.#projectId, input.sessionId) as
-              { assignment_id: string | null; seat_id: string } | undefined)
-          : undefined;
-        if (input.sessionId && !session)
-          throw new ControllerError(
-            "usage session does not belong to this project",
-          );
-        if (
-          session &&
-          input.assignmentId &&
-          session.assignment_id !== input.assignmentId
-        )
-          throw new ControllerError(
-            "usage session and assignment do not belong together",
-          );
-        if (actor.seatId && session && !input.assignmentId)
+        if (actor.seatId && !input.assignmentId)
           throw new TransitionAuthorizationError(
-            "worker usage requires a session bound to its assignment",
-          );
-        if (actor.seatId && !input.sessionId && !input.assignmentId)
-          throw new TransitionAuthorizationError(
-            "worker usage requires a session or assignment binding",
+            "worker usage requires an assignment binding",
           );
         if (
           actor.seatId &&
@@ -10997,15 +10972,6 @@ export class ControllerCore {
         )
           throw new TransitionAuthorizationError(
             "worker usage must belong to the actor's active assignment generation",
-          );
-        if (
-          actor.seatId &&
-          session &&
-          (session.seat_id !== actor.seatId ||
-            session.assignment_id !== (input.assignmentId ?? null))
-        )
-          throw new TransitionAuthorizationError(
-            "worker usage must belong to the actor's assigned session",
           );
         this.#database
           .prepare(
@@ -11018,7 +10984,7 @@ export class ControllerCore {
           .run(
             this.#projectId,
             input.observationId,
-            input.sessionId ?? null,
+            null,
             input.assignmentId ?? null,
             input.provider,
             input.metric,
@@ -12624,8 +12590,6 @@ export class ControllerCore {
       SELECT s.role, s.seat_id, s.state AS seat_state,
         EXISTS(SELECT 1 FROM actors a WHERE a.project_id = s.project_id
           AND a.seat_id = s.seat_id AND a.active = 1 AND a.revoked_at IS NULL) AS actor_active,
-        (SELECT rs.state FROM runtime_sessions rs WHERE rs.project_id = s.project_id
-          AND rs.seat_id = s.seat_id ORDER BY rs.started_at DESC LIMIT 1) AS session_state,
         (SELECT a.assignment_id FROM assignments a WHERE a.project_id = s.project_id
           AND a.seat_id = s.seat_id AND a.authority_state IN ('active', 'unknown')
           ORDER BY a.created_at DESC LIMIT 1) AS assignment_id
@@ -12637,7 +12601,6 @@ export class ControllerCore {
       seat_id: string;
       seat_state: string;
       actor_active: number;
-      session_state: string | null;
       assignment_id: string | null;
     }>;
     const work = this.#database
@@ -12823,7 +12786,7 @@ export class ControllerCore {
         seatId: row.seat_id,
         seatState: row.seat_state,
         actorActive: row.actor_active === 1,
-        sessionState: row.session_state,
+        sessionState: null,
         assignmentId: row.assignment_id,
       })),
       work: work.map((row) => {
@@ -13318,79 +13281,6 @@ export class ControllerCore {
             now,
             this.#projectId,
           );
-      }
-      const sessions = this.#database
-        .prepare(
-          `SELECT session_id, state, state_version FROM runtime_sessions
-           WHERE project_id = ? AND state IN ('starting', 'ready', 'working', 'stopping')
-           ORDER BY session_id`,
-        )
-        .all(this.#projectId) as Array<{
-        session_id: string;
-        state: string;
-        state_version: number;
-      }>;
-      for (const session of sessions) {
-        if (
-          !this.#isTransitionAllowed(
-            "runtime_session",
-            session.state,
-            "unknown",
-            controller,
-          )
-        )
-          throw new TransitionAuthorizationError(
-            `transition table rejects restart reconciliation of ${session.state} runtime session`,
-          );
-        const now = new Date().toISOString();
-        this.#database
-          .prepare(
-            `UPDATE runtime_sessions SET state = 'unknown', state_version = state_version + 1
-             WHERE project_id = ? AND session_id = ?`,
-          )
-          .run(this.#projectId, session.session_id);
-        const projectVersion =
-          (
-            this.#database
-              .prepare(
-                "SELECT state_version FROM projects WHERE project_id = ?",
-              )
-              .get(this.#projectId) as { state_version: number }
-          ).state_version + 1;
-        const sequence = (
-          this.#database
-            .prepare(
-              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
-            )
-            .get(this.#projectId) as { next: number }
-        ).next;
-        this.#database
-          .prepare("UPDATE projects SET state_version = ? WHERE project_id = ?")
-          .run(projectVersion, this.#projectId);
-        this.#database
-          .prepare(
-            `INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id,
-              from_state, to_state, state_version, actor_id, request_id, input_revision, payload_json, created_at)
-             SELECT ?, ?, ?, 'runtime_session', ?, ?, 'unknown', ?, ?, ?, current_input_revision, ?, ?
-             FROM projects WHERE project_id = ?`,
-          )
-          .run(
-            this.#projectId,
-            sequence,
-            randomUUID(),
-            session.session_id,
-            session.state,
-            session.state_version + 1,
-            this.#internalActorId,
-            `restart-reconcile:session:${session.session_id}`,
-            canonicalJson({
-              previousState: session.state,
-              identityPreserved: true,
-            }),
-            now,
-            this.#projectId,
-          );
-        reconciled++;
       }
       this.#database.exec("COMMIT");
       return reconciled;

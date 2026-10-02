@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 // No test may reach a real Herdr session: the daemon and `cstan start` stay out of it.
 process.env.CAPSTAN_LAUNCH = "off";
 import { randomUUID } from "node:crypto";
-import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -29,7 +28,6 @@ import {
   reserveDispatchSlot,
   syncConfiguredRoles,
 } from "../src/cli.js";
-import { listenControl } from "../src/control.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
 import type { MutationContext } from "../src/controller/types.js";
@@ -529,10 +527,9 @@ test("cstan init rejects a project name the CLI cannot load", () => {
     rmSync(parent, { recursive: true, force: true });
   }
 });
-test("cstan status reads the authenticated live control socket through the executable", async () => {
+test("cstan status and inspect read a populated ledger through the executable", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-live-status-"));
   let core: ControllerCore | undefined;
-  let closeControl: (() => Promise<void>) | undefined;
   try {
     assert.equal(invoke(cwd, "init").status, 0);
     const config = JSON.parse(
@@ -760,36 +757,6 @@ test("cstan status reads the authenticated live control socket through the execu
       "status-candidate-work",
       candidate.candidateId,
     );
-    closeControl = await listenControl(
-      path.join(config.stateDirectory, "control.sock"),
-      credential,
-      core,
-    );
-    const malformedResponse = await new Promise<string>((resolve, reject) => {
-      const socket = net.createConnection(
-        path.join(config.stateDirectory, "control.sock"),
-      );
-      let response = "";
-      socket.once("connect", () => {
-        socket.write(
-          Buffer.concat([
-            Buffer.from(
-              JSON.stringify({ token: credential, action: "status" }),
-            ),
-            Buffer.from([0xff, 0x0a]),
-          ]),
-        );
-      });
-      socket.on("data", (chunk) => (response += chunk.toString("utf8")));
-      socket.once("end", () => resolve(response));
-      socket.once("error", reject);
-    });
-    const malformedResult = JSON.parse(malformedResponse) as {
-      error?: string;
-      result?: unknown;
-    };
-    assert.equal(malformedResult.result, undefined);
-    assert.match(malformedResult.error ?? "", /encoded data/i);
     const status = await invokeAsync(cwd, "status", "--json");
     assert.equal(status.status, 0, status.stderr);
     const result = JSON.parse(status.stdout) as {
@@ -887,14 +854,7 @@ test("cstan status reads the authenticated live control socket through the execu
       record: { description: string };
     };
     assert.equal(largeRecord.record.description.length, 20_000);
-    await closeControl();
-    await closeControl();
-    assert.equal(
-      existsSync(path.join(config.stateDirectory, "control.sock")),
-      false,
-    );
   } finally {
-    await closeControl?.();
     core?.close();
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -1438,39 +1398,6 @@ test(
     }
   },
 );
-
-test("start, ping and stop report a foreground cstan run controller instead of spawning a daemon", async () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-legacy-"));
-  let legacy: ReturnType<typeof spawn> | undefined;
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const socketPath = path.join(cwd, ".capstan/state/control.sock");
-    legacy = spawn(
-      process.execPath,
-      [
-        "-e",
-        `require("node:net").createServer(s=>s.once("data",()=>s.end('{"error":"unauthorized"}\\n'))).listen(process.argv[1],()=>console.log("up"))`,
-        socketPath,
-      ],
-      { stdio: ["ignore", "pipe", "ignore"] },
-    );
-    await new Promise<void>((resolve) =>
-      legacy!.stdout!.once("data", () => resolve()),
-    );
-    for (const command of ["start", "ping", "stop"]) {
-      const result = invoke(cwd, command);
-      assert.equal(result.status, 4, `${command}: ${result.stderr}`);
-      assert.match(
-        result.stderr,
-        /foreground cstan run controller owns this project/,
-      );
-    }
-    assert.equal(daemonPid(cwd), undefined);
-  } finally {
-    legacy?.kill("SIGKILL");
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
 
 test("after kill -9 the next command restarts the daemon and reconciles without duplicating anything", async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-restart-"));

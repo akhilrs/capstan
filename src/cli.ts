@@ -681,7 +681,7 @@ async function ensureRunning(
 
 function controllerUnavailable(error: unknown): Error {
   if (error instanceof ControllerUnavailableError)
-    return error.reason === "legacy" || error.reason === "refused"
+    return error.reason === "refused"
       ? new BlockedError(error.message)
       : new Error(error.message);
   return error instanceof Error ? error : new Error(String(error));
@@ -722,10 +722,6 @@ function renderMessages(result: unknown): string {
 }
 
 function handleWire(result: WireResult, json: boolean, command = ""): number {
-  if (result.kind === "legacy")
-    throw new BlockedError(
-      "a foreground cstan run controller owns this project; the daemon commands are unavailable",
-    );
   const response = result.response;
   if (response.ok) {
     if (!json && (command === "inbox" || command === "wait"))
@@ -1146,8 +1142,7 @@ async function runCli(argv: string[]): Promise<number> {
           operator.credential,
           "status",
         );
-        if (result.kind !== "response" || !result.response.ok)
-          throw new Error("status is unavailable");
+        if (!result.response.ok) throw new Error("status is unavailable");
         return result.response.result as Record<string, unknown>;
       },
       write: (text) => void process.stdout.write(text),
