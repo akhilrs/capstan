@@ -221,6 +221,7 @@ min_pane_rows = 12      # ...and this tall
 - **Change.** The PM reference in the role prompt (`PM_REFERENCE` in `src/prompts.ts`) gains a short "Asking the user" section: use `AskUserQuestion` when a question has concrete choices; at most four questions in one call; two to four options each, the recommended one first with `(Recommended)` at the end of its label; a reason in each option's description; a header of at most twelve characters; `multiSelect` only when the choices are not exclusive; never an `Other` option (the picker adds one); plain text only for an open-ended question (a name, a value, free text); after the answer, restate the decision in one line and act on it. Worker, Supervisor and Verifier prompts do not change.
 - **Why no controller change.** The PM's deny list names only `Write`, `Edit`, `NotebookEdit`, `Agent` and `Task`, so `AskUserQuestion` is already allowed. A test pins that.
 - **Oracle.** A prompt test reads the built PM prompt and checks each rule above is stated, and that the other three prompts do not mention `AskUserQuestion`; a config test checks the PM default deny list does not contain it; `npm run check` is green.
+- **Not verified.** Whether the PM follows the rule in practice; that needs a real PM session and is not part of this change.
 
 **Grouping agents by project in Herdr (PM-42).**
 
@@ -234,7 +235,6 @@ min_pane_rows = 12      # ...and this tall
 - **Upgrade without losing running agents.** When the daemon adopts a pane and Herdr has no agent under the new name, the adapter looks the old bare name up; if it is on the same pane it runs `herdr agent rename <pane> <new name>` and adopts it. Nothing else about adoption changes. A bare name that is on another pane is a mismatch, as today.
 - **Oracle.** Unit tests for the slug, the name and its length limits, the translation at each Herdr call, the labels, the metadata calls (and that a failure is not fatal), the rename-on-adopt path and the config refusal. A live gate in an isolated Herdr session runs two projects, each with a PM and a worker, at once: no collision, the sidebar shows the project in each label, the metadata is reported, a daemon restarted on a project whose agents carry the old names renames and adopts them, and `herdr agent list` shows `<slug>-<id>` names. The default Herdr session is compared before and after.
 - **Limits.** Two projects whose names slug to the same ten characters still collide in one session; the second start fails with Herdr's name error and the hint to set `[project] name`. Herdr's UI templates are the operator's to set: without the snippet, the labels and names already carry the project, and the tokens add nothing visible.
-- **Not verified.** Whether the PM follows the rule in practice; that needs a real PM session and is not part of this change.
 
 Each message carries an id and asks for `cstan ack <id>`. The ack shows receipt, not understanding, and is forgeable (E5). A nonce adds nothing against a same-user forger and is left out of the slice.
 
