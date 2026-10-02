@@ -398,6 +398,143 @@ function reviewNotice(
   ].join("\n");
 }
 
+export const MAX_PLAN_BODY_BYTES = 32 * 1024;
+export const MAX_PLAN_PACKAGES = 20;
+const PLAN_PACKAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
+
+export type PlanTier = "normal" | "high_risk";
+export type PlanState = "draft" | "in_review" | "approved" | "superseded";
+export type PackageProgress =
+  | "unassigned"
+  | "assigned"
+  | "reported"
+  | "findings"
+  | "reviewed"
+  | "integrated";
+
+export interface PlanRecord {
+  readonly planId: string;
+  readonly sequence: number;
+  readonly title: string;
+  readonly tier: PlanTier;
+  readonly state: PlanState;
+  readonly requestedBy: string;
+  readonly architectAgentId: string | null;
+  readonly currentRevision: number;
+  readonly approvedRevision: number | null;
+  readonly supersedesPlanId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface PlanRevisionRecord {
+  readonly revision: number;
+  readonly baseSha: string;
+  readonly bodyJson: string;
+  readonly bodySha: string;
+  readonly authorAgentId: string;
+  readonly createdAt: string;
+}
+
+export interface PlanPackageRecord {
+  readonly packageId: string;
+  readonly assigneeAgentId: string | null;
+  readonly assignedAt: string | null;
+  readonly assignmentMessageId: string | null;
+  readonly progress: PackageProgress;
+}
+
+export interface PlanSignoffRecord {
+  readonly integrationId: string;
+  readonly architectAgentId: string;
+  readonly summary: string;
+  readonly createdAt: string;
+}
+
+/** A plan with its approved revision (or the current one while it is not approved), its packages and its sign-offs. */
+export interface PlanDetail {
+  readonly plan: PlanRecord;
+  readonly revision: PlanRevisionRecord | null;
+  readonly packages: readonly PlanPackageRecord[];
+  readonly signoffs: readonly PlanSignoffRecord[];
+}
+
+interface PlanRow {
+  readonly plan_id: string;
+  readonly sequence: number;
+  readonly title: string;
+  readonly tier: PlanTier;
+  readonly state: PlanState;
+  readonly requested_by: string;
+  readonly architect_agent_id: string | null;
+  readonly current_revision: number;
+  readonly approved_revision: number | null;
+  readonly supersedes_plan_id: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+function planRecordOf(row: PlanRow): PlanRecord {
+  return {
+    planId: row.plan_id,
+    sequence: row.sequence,
+    title: row.title,
+    tier: row.tier,
+    state: row.state,
+    requestedBy: row.requested_by,
+    architectAgentId: row.architect_agent_id,
+    currentRevision: row.current_revision,
+    approvedRevision: row.approved_revision,
+    supersedesPlanId: row.supersedes_plan_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** The package ids of a plan body; the body itself is validated by the caller (`src/plans.ts`), the ledger only needs the ids to create package rows. */
+function planBodyPackageIds(bodyJson: unknown): readonly string[] {
+  if (
+    typeof bodyJson !== "string" ||
+    !bodyJson.isWellFormed() ||
+    Buffer.byteLength(bodyJson, "utf8") > MAX_PLAN_BODY_BYTES
+  )
+    throw new TypeError(
+      `the plan body must be text of at most ${MAX_PLAN_BODY_BYTES} bytes`,
+    );
+  let body: unknown;
+  try {
+    body = JSON.parse(bodyJson);
+  } catch {
+    throw new TypeError("the plan body must be JSON");
+  }
+  const packages =
+    typeof body === "object" && body !== null
+      ? (body as { packages?: unknown }).packages
+      : undefined;
+  if (
+    !Array.isArray(packages) ||
+    packages.length < 1 ||
+    packages.length > MAX_PLAN_PACKAGES
+  )
+    throw new TypeError(
+      `a plan has 1 to ${MAX_PLAN_PACKAGES} packages in its packages list`,
+    );
+  const ids = packages.map((entry: unknown) => {
+    const id =
+      typeof entry === "object" && entry !== null
+        ? (entry as { id?: unknown }).id
+        : undefined;
+    if (typeof id !== "string" || !PLAN_PACKAGE_ID.test(id))
+      throw new TypeError(
+        "every package needs an id of lowercase letters, digits and hyphens that starts with a letter",
+      );
+    return id;
+  });
+  if (new Set(ids).size !== ids.length)
+    throw new TypeError("package ids must be unique");
+  return ids;
+}
+
 export const MAX_INTEGRATION_REPORTS = 20;
 export const MAX_CONFLICT_FILES = 50;
 export const MAX_CONFLICT_PATH_CHARS = 200;
@@ -3798,6 +3935,535 @@ export class ControllerCore {
       createdAt: row.created_at,
       completedAt: row.completed_at,
     };
+  }
+
+  /** Opens a draft plan; only the PM or the operator may. `supersedesPlanId` must name an approved plan. */
+  openPlan(
+    context: MutationContext,
+    input: {
+      readonly tier: PlanTier;
+      readonly title: string;
+      readonly supersedesPlanId?: string;
+    },
+  ): PlanRecord {
+    if (input.tier !== "normal" && input.tier !== "high_risk")
+      throw new TypeError("the plan tier must be normal or high_risk");
+    const title = safeText(input.title, "plan title", 200, false);
+    const supersedes =
+      input.supersedesPlanId === undefined
+        ? null
+        : safeId(input.supersedesPlanId, "superseded plan id");
+    return this.#mutate<PlanRecord>(
+      context,
+      "plan.open",
+      "plan:write",
+      { tier: input.tier, title, supersedesPlanId: supersedes },
+      (actor) => {
+        if (actor.role !== "PM" && actor.role !== "operator")
+          throw new ControllerError("only the PM or the operator opens a plan");
+        if (supersedes !== null) {
+          const old = this.#planRow(supersedes);
+          if (old === undefined)
+            throw new ControllerError(`plan ${supersedes} does not exist`);
+          if (old.state !== "approved")
+            throw new ControllerError(
+              `plan ${supersedes} is ${old.state}; only an approved plan can be superseded`,
+            );
+        }
+        const now = this.#now();
+        const sequence = (
+          this.#database
+            .prepare(
+              "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM plans WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { next: number }
+        ).next;
+        const planId = `plan-${sequence}`;
+        this.#database
+          .prepare(
+            `INSERT INTO plans(project_id, plan_id, sequence, title, tier, state, requested_by, supersedes_plan_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            planId,
+            sequence,
+            title,
+            input.tier,
+            actor.actorId,
+            supersedes,
+            now,
+            now,
+          );
+        return {
+          value: planRecordOf(this.#planRow(planId)!),
+          event: {
+            entityType: "plan",
+            entityId: planId,
+            stateVersion: 0,
+            toState: "draft",
+            details: { tier: input.tier, supersedesPlanId: supersedes },
+          },
+        };
+      },
+    );
+  }
+
+  /**
+   * Stores the next revision of a draft plan, written by an active Developer-kind agent (the designated
+   * Architect check belongs to the command layer; the first submitter is recorded as the plan's architect
+   * and no other agent may submit afterwards). `bodyJson` is the canonical text of a body that `src/plans.ts`
+   * validated. With `review` the plan moves to in_review, otherwise it is approved at once.
+   */
+  submitPlan(
+    context: MutationContext,
+    input: {
+      readonly planId: string;
+      readonly bodyJson: string;
+      readonly baseSha: string;
+      readonly review: boolean;
+    },
+  ): PlanRecord {
+    safeId(input.planId, "plan id");
+    if (!/^[0-9a-f]{40}$/.test(input.baseSha))
+      throw new TypeError("the base commit must be a full lowercase sha1");
+    const packageIds = planBodyPackageIds(input.bodyJson);
+    return this.#mutate<PlanRecord>(
+      context,
+      "plan.submit",
+      "plan:write",
+      {
+        planId: input.planId,
+        bodySha: sha256(input.bodyJson),
+        baseSha: input.baseSha,
+        review: input.review,
+      },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (agent?.kind !== "Developer")
+          throw new ControllerError(
+            "only an active developer-kind agent submits a plan",
+          );
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.state !== "draft")
+          throw new ControllerError(
+            `plan ${input.planId} is ${plan.state}, not a draft`,
+          );
+        if (
+          plan.architect_agent_id !== null &&
+          plan.architect_agent_id !== agent.agent_id
+        )
+          throw new ControllerError(
+            `plan ${input.planId} belongs to the architect ${plan.architect_agent_id}`,
+          );
+        const now = this.#now();
+        const revision = plan.current_revision + 1;
+        this.#database
+          .prepare(
+            `INSERT INTO plan_revisions(project_id, plan_id, revision, base_sha, body_json, body_sha, author_agent_id, author_actor_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            input.planId,
+            revision,
+            input.baseSha,
+            input.bodyJson,
+            sha256(input.bodyJson),
+            agent.agent_id,
+            actor.actorId,
+            now,
+          );
+        this.#database
+          .prepare(
+            `UPDATE plans SET current_revision = ?, architect_agent_id = ?, state = ?, approved_revision = ?, updated_at = ?
+             WHERE project_id = ? AND plan_id = ?`,
+          )
+          .run(
+            revision,
+            agent.agent_id,
+            input.review ? "in_review" : "approved",
+            input.review ? null : revision,
+            now,
+            this.#projectId,
+            input.planId,
+          );
+        if (!input.review) this.#settlePlanApproval(plan, packageIds, now);
+        return {
+          value: planRecordOf(this.#planRow(input.planId)!),
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            fromState: "draft",
+            toState: input.review ? "in_review" : "approved",
+            details: { revision, agentId: agent.agent_id },
+          },
+        };
+      },
+    );
+  }
+
+  /** On approval: one package row per package of the approved body, and the superseded plan is retired. The caller owns the transaction and has already moved the plan to approved. */
+  #settlePlanApproval(
+    plan: PlanRow,
+    packageIds: readonly string[],
+    now: string,
+  ): void {
+    for (const packageId of packageIds)
+      this.#database
+        .prepare(
+          "INSERT INTO plan_packages(project_id, plan_id, package_id) VALUES (?, ?, ?)",
+        )
+        .run(this.#projectId, plan.plan_id, packageId);
+    if (plan.supersedes_plan_id === null) return;
+    const old = this.#planRow(plan.supersedes_plan_id);
+    if (old?.state !== "approved")
+      throw new ControllerError(
+        `plan ${plan.supersedes_plan_id} is no longer approved and cannot be superseded`,
+      );
+    this.#database
+      .prepare(
+        "UPDATE plans SET state = 'superseded', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+      )
+      .run(now, this.#projectId, plan.supersedes_plan_id);
+  }
+
+  #planRow(planId: string): PlanRow | undefined {
+    return this.#database
+      .prepare("SELECT * FROM plans WHERE project_id = ? AND plan_id = ?")
+      .get(this.#projectId, planId) as PlanRow | undefined;
+  }
+
+  /** One line of derived state per package: the latest accepted report of the assignee's current generation decides. */
+  #packageProgress(assigneeAgentId: string | null): PackageProgress {
+    if (assigneeAgentId === null) return "unassigned";
+    const report = this.#database
+      .prepare(
+        `SELECT r.report_id FROM agent_reports r
+         JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
+         WHERE r.project_id = ? AND r.agent_id = ? AND r.state = 'accepted' ORDER BY r.sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId, assigneeAgentId) as
+      { report_id: string } | undefined;
+    if (report === undefined) return "assigned";
+    const integrated = this.#database
+      .prepare(
+        `SELECT 1 AS present FROM integration_reports ir
+         JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+         WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('merged', 'confirmed')`,
+      )
+      .get(this.#projectId, report.report_id);
+    if (integrated) return "integrated";
+    const latest = this.#database
+      .prepare(
+        `SELECT state FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')
+         ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId, report.report_id) as { state: string } | undefined;
+    if (latest === undefined) return "reported";
+    return latest.state === "passed" ? "reviewed" : "findings";
+  }
+
+  #planPackages(planId: string): PlanPackageRecord[] {
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM plan_packages WHERE project_id = ? AND plan_id = ? ORDER BY package_id",
+        )
+        .all(this.#projectId, planId) as {
+        package_id: string;
+        assignee_agent_id: string | null;
+        assigned_at: string | null;
+        assignment_message_id: string | null;
+      }[]
+    ).map((row) => ({
+      packageId: row.package_id,
+      assigneeAgentId: row.assignee_agent_id,
+      assignedAt: row.assigned_at,
+      assignmentMessageId: row.assignment_message_id,
+      progress: this.#packageProgress(row.assignee_agent_id),
+    }));
+  }
+
+  /** The plan with its approved revision (the current one while it is not approved), packages with derived progress, and sign-offs. */
+  planRecord(credential: string, planId: string): PlanDetail | undefined {
+    this.#authorize(credential, "plan:read");
+    safeId(planId, "plan id");
+    const plan = this.#planRow(planId);
+    if (plan === undefined) return undefined;
+    const shown = plan.approved_revision ?? plan.current_revision;
+    const revision = this.#database
+      .prepare(
+        "SELECT * FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+      )
+      .get(this.#projectId, planId, shown) as
+      | {
+          revision: number;
+          base_sha: string;
+          body_json: string;
+          body_sha: string;
+          author_agent_id: string;
+          created_at: string;
+        }
+      | undefined;
+    return {
+      plan: planRecordOf(plan),
+      revision:
+        revision === undefined
+          ? null
+          : {
+              revision: revision.revision,
+              baseSha: revision.base_sha,
+              bodyJson: revision.body_json,
+              bodySha: revision.body_sha,
+              authorAgentId: revision.author_agent_id,
+              createdAt: revision.created_at,
+            },
+      packages: this.#planPackages(planId),
+      signoffs: (
+        this.#database
+          .prepare(
+            "SELECT * FROM plan_signoffs WHERE project_id = ? AND plan_id = ? ORDER BY created_at, integration_id",
+          )
+          .all(this.#projectId, planId) as {
+          integration_id: string;
+          architect_agent_id: string;
+          summary: string;
+          created_at: string;
+        }[]
+      ).map((row) => ({
+        integrationId: row.integration_id,
+        architectAgentId: row.architect_agent_id,
+        summary: row.summary,
+        createdAt: row.created_at,
+      })),
+    };
+  }
+
+  listPlans(credential: string): readonly PlanRecord[] {
+    this.#authorize(credential, "plan:read");
+    return (
+      this.#database
+        .prepare("SELECT * FROM plans WHERE project_id = ? ORDER BY sequence")
+        .all(this.#projectId) as PlanRow[]
+    ).map(planRecordOf);
+  }
+
+  /**
+   * Binds a package of an approved plan to an active Developer-kind agent other than the plan's architect.
+   * A package is bound once: it can be bound again only when its assignee is no longer active. An agent
+   * holds at most one package of a plan, so a report maps to exactly one package.
+   */
+  assignPackage(
+    context: MutationContext,
+    input: {
+      readonly planId: string;
+      readonly packageId: string;
+      readonly agentId: string;
+    },
+  ): PlanPackageRecord {
+    safeId(input.planId, "plan id");
+    safeId(input.packageId, "package id");
+    safeId(input.agentId, "agent id");
+    return this.#mutate<PlanPackageRecord>(
+      context,
+      "plan.assign",
+      "plan:write",
+      { ...input },
+      (actor) => {
+        if (actor.role !== "PM" && actor.role !== "operator")
+          throw new ControllerError(
+            "only the PM or the operator assigns a package",
+          );
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (plan.state !== "approved")
+          throw new ControllerError(
+            `plan ${input.planId} is ${plan.state}; packages are assigned once it is approved`,
+          );
+        const pkg = this.#database
+          .prepare(
+            "SELECT assignee_agent_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+          )
+          .get(this.#projectId, input.planId, input.packageId) as
+          { assignee_agent_id: string | null } | undefined;
+        if (pkg === undefined)
+          throw new ControllerError(
+            `plan ${input.planId} has no package ${input.packageId}`,
+          );
+        const agent = this.#agentRow(input.agentId);
+        if (
+          agent === undefined ||
+          agent.state !== "active" ||
+          agent.kind !== "Developer"
+        )
+          throw new ControllerError(
+            `${input.agentId} is not an active developer-kind agent`,
+          );
+        if (agent.agent_id === plan.architect_agent_id)
+          throw new ControllerError("the architect cannot hold a package");
+        if (pkg.assignee_agent_id !== null) {
+          const current = this.#agentRow(pkg.assignee_agent_id);
+          if (current?.state === "active")
+            throw new ControllerError(
+              `package ${input.packageId} is already assigned to ${pkg.assignee_agent_id}`,
+            );
+        }
+        const holding = this.#database
+          .prepare(
+            "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? AND package_id <> ?",
+          )
+          .get(
+            this.#projectId,
+            input.planId,
+            agent.agent_id,
+            input.packageId,
+          ) as { package_id: string } | undefined;
+        if (holding !== undefined)
+          throw new ControllerError(
+            `${agent.agent_id} already holds package ${holding.package_id} of this plan`,
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "UPDATE plan_packages SET assignee_agent_id = ?, assigned_at = ?, assignment_message_id = NULL WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+          )
+          .run(
+            agent.agent_id,
+            now,
+            this.#projectId,
+            input.planId,
+            input.packageId,
+          );
+        this.#database
+          .prepare(
+            "UPDATE plans SET updated_at = ? WHERE project_id = ? AND plan_id = ?",
+          )
+          .run(now, this.#projectId, input.planId);
+        return {
+          value: this.#planPackages(input.planId).find(
+            (p) => p.packageId === input.packageId,
+          )!,
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            details: {
+              packageId: input.packageId,
+              agentId: agent.agent_id,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /**
+   * The plan's architect signs off a merged integration whose reports all belong to the plan's packages
+   * and whose latest finished review passed. One sign-off per plan and integration.
+   */
+  recordSignoff(
+    context: MutationContext,
+    input: {
+      readonly planId: string;
+      readonly integrationId: string;
+      readonly summary: string;
+    },
+  ): PlanSignoffRecord {
+    safeId(input.planId, "plan id");
+    safeId(input.integrationId, "integration id");
+    const summary = safeText(input.summary, "sign-off summary", 1000, true);
+    return this.#mutate<PlanSignoffRecord>(
+      context,
+      "plan.signoff",
+      "plan:write",
+      { ...input, summary },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        if (agent === undefined || agent.agent_id !== plan.architect_agent_id)
+          throw new ControllerError("only the plan's architect signs it off");
+        if (plan.state !== "approved")
+          throw new ControllerError(
+            `plan ${input.planId} is ${plan.state}, not approved`,
+          );
+        const integration = this.#database
+          .prepare(
+            "SELECT state FROM integrations WHERE project_id = ? AND integration_id = ?",
+          )
+          .get(this.#projectId, input.integrationId) as
+          { state: string } | undefined;
+        if (integration === undefined)
+          throw new ControllerError(
+            `integration ${input.integrationId} does not exist`,
+          );
+        if (integration.state !== "merged")
+          throw new ControllerError(
+            `integration ${input.integrationId} is ${integration.state}, not merged`,
+          );
+        const outside = this.#database
+          .prepare(
+            `SELECT ir.report_id FROM integration_reports ir
+             JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+             JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id
+             WHERE ir.project_id = ? AND ir.integration_id = ? AND NOT EXISTS (
+               SELECT 1 FROM plan_packages pp
+               WHERE pp.project_id = ir.project_id AND pp.plan_id = ? AND pp.assignee_agent_id = r.agent_id AND a.generation = r.generation)
+             ORDER BY ir.position LIMIT 1`,
+          )
+          .get(this.#projectId, input.integrationId, input.planId) as
+          { report_id: string } | undefined;
+        if (outside !== undefined)
+          throw new ControllerError(
+            `report ${outside.report_id} of the integration is not a package of plan ${input.planId}`,
+          );
+        const latest = this.#database
+          .prepare(
+            `SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
+             ORDER BY sequence DESC LIMIT 1`,
+          )
+          .get(this.#projectId, input.integrationId) as
+          { state: string } | undefined;
+        if (latest?.state !== "passed")
+          throw new ControllerError(
+            `integration ${input.integrationId} has no passed review as its latest verdict`,
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            `INSERT INTO plan_signoffs(project_id, plan_id, integration_id, architect_agent_id, summary, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            this.#projectId,
+            input.planId,
+            input.integrationId,
+            agent.agent_id,
+            summary,
+            now,
+          );
+        return {
+          value: {
+            integrationId: input.integrationId,
+            architectAgentId: agent.agent_id,
+            summary,
+            createdAt: now,
+          },
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            details: { integrationId: input.integrationId },
+          },
+        };
+      },
+    );
   }
 
   integration(integrationId: string): IntegrationRecord {

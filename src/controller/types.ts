@@ -63,6 +63,8 @@ export type Capability =
   | "report:submit"
   | "review:request"
   | "review:submit"
+  | "plan:write"
+  | "plan:read"
   | "finding:raise"
   | "finding:check"
   | "agent:observe"
