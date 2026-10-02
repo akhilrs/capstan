@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 
 // No test may reach a real Herdr session: the daemon and `cstan start` stay out of it.
 process.env.CAPSTAN_LAUNCH = "off";
+// A shell that runs as a Capstan agent exports these; inherited, they would send every `cstan` call below to that agent's real controller.
+delete process.env.CAPSTAN_TOKEN;
+delete process.env.CAPSTAN_SOCKET;
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
