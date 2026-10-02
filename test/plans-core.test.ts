@@ -141,8 +141,8 @@ interface Team {
   readonly dev2: Member;
 }
 
-async function team(): Promise<Team> {
-  const h = await harness();
+async function team(clock?: () => Date): Promise<Team> {
+  const h = await harness(clock === undefined ? {} : { clock });
   withRoles(h);
   return {
     h,
@@ -613,6 +613,49 @@ test("package progress follows the assignee's latest report through review and i
   }
 });
 
+test("package progress ignores reports before the assignment and counts a report for one package only", async () => {
+  let tick = Date.parse("2026-10-01T00:00:00.000Z");
+  const t = await team(() => new Date(tick));
+  const advance = () => {
+    tick += 1000;
+  };
+  try {
+    const { h } = t;
+    const first = approved(t, "wp1");
+    const second = approved(t, "wp1");
+    const early = reportBy(h, t.dev1, "1".repeat(40));
+    advance();
+    assign(t, first, "wp1", t.dev1);
+    assert.equal(
+      progress(t, first, "wp1"),
+      "assigned",
+      "a report accepted before the assignment does not count",
+    );
+    advance();
+    const own = reportBy(h, t.dev1, "2".repeat(40));
+    assert.notEqual(own, early);
+    assert.equal(progress(t, first, "wp1"), "reported");
+    advance();
+    assign(t, second, "wp1", t.dev1);
+    assert.equal(
+      progress(t, second, "wp1"),
+      "assigned",
+      "the report of the first assignment does not count for the second",
+    );
+    assert.equal(progress(t, first, "wp1"), "reported");
+    advance();
+    reportBy(h, t.dev1, "3".repeat(40));
+    assert.equal(progress(t, second, "wp1"), "reported");
+    assert.equal(
+      progress(t, first, "wp1"),
+      "reported",
+      "the first package keeps the report that preceded the second assignment",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
+
 test("a sign-off needs the architect, a merged integration of this plan's packages and a passed integration review", async () => {
   const t = await team();
   try {
@@ -676,7 +719,7 @@ test("a sign-off needs the architect, a merged integration of this plan's packag
     );
     assert.throws(
       () => signoff(t.architect, planId, integrationId),
-      /UNIQUE|constraint/,
+      /already signed off/,
     );
   } finally {
     await close(t.h);
@@ -799,6 +842,37 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
     } finally {
       check.close();
     }
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a sign-off refuses an integration without reports", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    assign(t, planId, "wp1", t.dev1);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    try {
+      db.exec("DROP TRIGGER immutable_integration_reports_delete");
+      db.exec("DELETE FROM integration_reports");
+    } finally {
+      db.close();
+    }
+    assert.throws(
+      () =>
+        h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+          planId,
+          integrationId,
+          summary: "empty",
+        }),
+      /has no reports of plan/,
+    );
   } finally {
     await close(t.h);
   }

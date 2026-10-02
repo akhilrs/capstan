@@ -4137,17 +4137,38 @@ export class ControllerCore {
       .get(this.#projectId, planId) as PlanRow | undefined;
   }
 
-  /** One line of derived state per package: the latest accepted report of the assignee's current generation decides. */
-  #packageProgress(assigneeAgentId: string | null): PackageProgress {
-    if (assigneeAgentId === null) return "unassigned";
+  /**
+   * One line of derived state per package: the latest accepted report of the assignee's current generation decides.
+   * A report counts only for the package assigned last at or before the report was accepted, so it never predates the
+   * assignment it counts for and never counts for two packages (ties on assigned_at fall back to plan and package id).
+   */
+  #packageProgress(
+    planId: string,
+    packageId: string,
+    assigneeAgentId: string | null,
+    assignedAt: string | null,
+  ): PackageProgress {
+    if (assigneeAgentId === null || assignedAt === null) return "unassigned";
     const report = this.#database
       .prepare(
         `SELECT r.report_id FROM agent_reports r
          JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
-         WHERE r.project_id = ? AND r.agent_id = ? AND r.state = 'accepted' ORDER BY r.sequence DESC LIMIT 1`,
+         WHERE r.project_id = ? AND r.agent_id = ? AND r.state = 'accepted' AND r.created_at >= ?
+           AND NOT EXISTS (
+             SELECT 1 FROM plan_packages other
+             WHERE other.project_id = r.project_id AND other.assignee_agent_id = r.agent_id
+               AND other.assigned_at <= r.created_at
+               AND (other.assigned_at, other.plan_id, other.package_id) > (?, ?, ?))
+         ORDER BY r.sequence DESC LIMIT 1`,
       )
-      .get(this.#projectId, assigneeAgentId) as
-      { report_id: string } | undefined;
+      .get(
+        this.#projectId,
+        assigneeAgentId,
+        assignedAt,
+        assignedAt,
+        planId,
+        packageId,
+      ) as { report_id: string } | undefined;
     if (report === undefined) return "assigned";
     const integrated = this.#database
       .prepare(
@@ -4184,7 +4205,12 @@ export class ControllerCore {
       assigneeAgentId: row.assignee_agent_id,
       assignedAt: row.assigned_at,
       assignmentMessageId: row.assignment_message_id,
-      progress: this.#packageProgress(row.assignee_agent_id),
+      progress: this.#packageProgress(
+        planId,
+        row.package_id,
+        row.assignee_agent_id,
+        row.assigned_at,
+      ),
     }));
   }
 
@@ -4423,6 +4449,15 @@ export class ControllerCore {
           throw new ControllerError(
             `report ${outside.report_id} of the integration is not a package of plan ${input.planId}`,
           );
+        const reportCount = this.#database
+          .prepare(
+            "SELECT COUNT(*) AS n FROM integration_reports WHERE project_id = ? AND integration_id = ?",
+          )
+          .get(this.#projectId, input.integrationId) as { n: number };
+        if (reportCount.n === 0)
+          throw new ControllerError(
+            `integration ${input.integrationId} has no reports of plan ${input.planId}`,
+          );
         const latest = this.#database
           .prepare(
             `SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
@@ -4433,6 +4468,15 @@ export class ControllerCore {
         if (latest?.state !== "passed")
           throw new ControllerError(
             `integration ${input.integrationId} has no passed review as its latest verdict`,
+          );
+        const signed = this.#database
+          .prepare(
+            "SELECT 1 AS present FROM plan_signoffs WHERE project_id = ? AND plan_id = ? AND integration_id = ?",
+          )
+          .get(this.#projectId, input.planId, input.integrationId);
+        if (signed)
+          throw new ControllerError(
+            `plan ${input.planId} is already signed off for integration ${input.integrationId}`,
           );
         const now = this.#now();
         this.#database
