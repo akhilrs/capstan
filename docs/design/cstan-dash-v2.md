@@ -1,6 +1,6 @@
 # `cstan dash` v2: visual redesign spec
 
-**Status:** proposal for user approval. Mockups only; no implementation code is changed by this document.
+**Status:** approved by the user and implemented (see section 9 for the decisions, the overlay spike result and where the build differs from the proposal below). Sections 1 to 8 are the approved proposal; the rendered screens that the code actually produces are the golden files in `test/golden/` and the pty captures in `docs/design/cstan-dash-v2-frames.md`, and they win where the two differ.
 **Plan of record:** `decisions/DEC-006-cstan-dash.md` (the dashboard exists in `src/dash/`; this spec replaces its look, not its behaviour).
 **Reference look:** btop (rounded boxes, titles and tabs embedded in the border, hotkey numbers, gradient meters, braille graphs, selected-row bar, clock and interval in the top border).
 
@@ -618,3 +618,70 @@ Nothing here blocks the mockups; these are the places where the redesign goes be
 6. **Ring size 300** and the `20+` cap label change small constants in `model.ts` and `app.tsx`.
 7. **Dark background assumed.** The palette is untested on light backgrounds; `NO_COLOR` is the escape.
 8. **Not verified:** ambiguous-width glyph behaviour in terminals configured for wide ambiguous characters; Ink 7.1.1 flicker and absolute-overlay behaviour; contrast numbers are computed, not measured on a real terminal. The mockups themselves were generated and width-checked, but have not been seen in a terminal because no implementation exists yet.
+
+## 9. Implementation record
+
+### 9.1 User decisions on section 8
+
+| # | Decision | Built as |
+| --- | --- | --- |
+| 1 | Yes: `-` / `+` change the poll interval live | `-` shortens and `+` lengthens the interval (the tab reads `- 2s +`, so `-` lowers the number). Steps of 1 s up to 10 s, then 5 s, kept within 1 to 60 (`stepInterval` in `src/dash/poller.ts`). `=` also lengthens, so no shift is needed. The poller restarts its sleep with the new value and does not poll early (`setIntervalMs`) |
+| 2 | Accepted: a non-UTF-8 locale triggers ASCII mode | `wantsAscii(env)` in `src/dash/terminal.ts`: `TERM=dumb`, or the first set of `LC_ALL`, `LC_CTYPE`, `LANG` is not UTF-8. With none set the terminal is assumed to be UTF-8 |
+| 3 | Do the overlay spike first | Route 1 works; see 9.2 |
+| 4 | Yes: a problems-only toggle on the queue | Key `f` (free in DEC-006), a toggle tab `f problems only [ ]` / `[x]` in the queue's top border, listed in help and in the footer when the queue is focused. A selection follows its row id, so toggling keeps the selected message selected; when the filter hides it, the selection falls back to the nearest position and returns to the message when the filter is switched off (`resolveSelection` in `src/dash/app.tsx`) |
+| 5 | Accepted: wrap the degraded reason | Built as specified (wraps to a second header line from 20 rows) |
+| 6 | Accepted: ring size 300, `20+` cap label | `RING_LIMIT = 300`; stage totals read `20+` when the daemon's list reached its cap of 20 |
+| 7 | Dark background assumed; `NO_COLOR` is the escape | Unchanged |
+
+### 9.2 Overlay spike (Ink 7.1.1, `ink-testing-library` 4.0.0)
+
+A `Box position="absolute"` with `marginTop` and `marginLeft`, rendered after a full-screen column of `Text`, is drawn on top of the earlier siblings and overwrites exactly the cells its own lines cover, including the space cells of a padded line. Result for a 3-line heavy box floated at column 8, row 1 over six lines of letters: the letters under the box are gone, the letters beside it are untouched, and the lines above and below are untouched. **Route 1 is the build.** The cell-grid compositor is not needed and was not written. Every overlay line is padded to the box width by `box()` in `src/dash/overlays.ts`, which is what makes the overwrite complete.
+
+A second spike confirmed `Text color="#77ca9b"` downsamples to the 256-colour value in the palette table (`38;5;115`) under `FORCE_COLOR=1`.
+
+### 9.3 Where the build differs from the proposal
+
+- **Screens are data.** `src/dash/view.ts` builds the whole screen as `Line[]` of styled spans (pure, golden-tested); `src/dash/screen.tsx` only paints them. There is no yoga layout for panels. New pure modules: `border.ts`, `graph.ts`, `glyphs.ts`, `lines.ts`, `overlays.ts`; `layout.ts` and `theme.ts` were rewritten; `components/` was removed.
+- **Fill, then stretch** is `fillRows()` in `src/dash/layout.ts`. The share of spare rows uses D'Hondt (best `weight / (extra rows + 1)`) with weights agents 4, queue 4, pipeline 2, findings 1, work 1, and every panel's minimum is 3 rows (one body row). The pipeline minimum is therefore 1 body row (the flow line), not 2 as section 4.3 said; at 80x24 it gets 4 rows and shows the flow line plus the one-line history summary. Worked heights from the real code: 80x24: header 4, agents 6, pipeline 4, queue 6, findings 3; 120x36: agents 9, pipeline 23, queue 27 (the proposal said 26), findings 5; 160x45: agents 18, pipeline 23, queue 36, findings 5.
+- **The pipeline flow arrow is `──►`**, not `──▶`: `▶` (U+25B6) is an emoji-capable character that the existing `cellWidth()` counts as two cells, which would misalign every row. ASCII fallback `->`.
+- **ASCII graphs are `#` column bars** (one dot level per cell, any height), not a one-row sparkline. The compact pipeline summary line uses block sparklines (`▁▂▃▄▅▆▇█`, ASCII `_.-:=+*#`).
+- **Graph colour is by row height**, not by column value, so a tall graph shades from the bottom row to the top row.
+- **Zero values** draw no dot in an area graph (blank), a non-zero value always lights at least one dot; missing history is blank on the left.
+- **Ages** use two units under 10 minutes (`3m41s`) and one unit above (`14m`, `2h05m`, `3d`): `ageDetail()` in `src/dash/format.ts`.
+- **Epoch tab** shows only while supervision is enabled and the target epoch is above 0 and the checkpoint epoch differs from it. A fresh project has target epoch 0 and no checkpoint, which printed `epoch -/0` before.
+- **`SUPERVISION OFF` chip.** See 9.4.
+- **Rendering** uses Ink's `incrementalRendering: true` (`src/dash/run.ts`). See 9.5.
+- **Confirm dialog text** is the existing `confirmText()` wrapped to the dialog width, so the DEC-006 sentence and the full message id are shown intact (bug B6).
+- **Observe screen:** a failed `peek` shows as a one-line notice in the footer, not inside a box (the box opens only on success).
+
+### 9.4 B5 root cause, confirmed against a live daemon
+
+A freshly initialised project reports `supervision.enabled: false` and `supervision.health: degraded` with no reason, because `ControllerCore` inserts the `supervision_control` row as `(enabled 0, health 'degraded', target epoch 0)` and never records a degraded event (`src/controller/core.ts:1352`; `supervisionReason()` only returns a reason when a degraded event exists, `core.ts:12960-12973`). This is exactly the screen the user saw (`supervision:off DEGRADED`, `epoch -/0`). It is the starting value, not a fault. The dashboard now shows `○ SUPERVISION OFF` in a neutral colour with the line "health reads degraded until supervision is enabled; this is the starting value, not a fault". A real degraded state (a reason exists, or supervision is on) still shows the red `▲ DEGRADED` with its reason, wrapped so it is never cut off.
+
+### 9.5 Flicker
+
+Measured in a real pty (`script`, 120x36, idle project, 8 seconds): full redraw per frame: 110 385 bytes and 362 erase-line sequences; with `incrementalRendering`: 15 599 bytes and 0 erase-line sequences. Every frame is also wrapped in DEC synchronized-output markers (`CSI ? 2026 h`) by Ink, which terminals that support them use to avoid tearing. This shows the redraw volume is small; it does not prove that no terminal flickers. Not tested: terminals without synchronized-output support under a working agent (spinner at 120 ms).
+
+### 9.6 Bugs B1 to B12
+
+| # | Fixed by |
+| --- | --- |
+| B1 even height split | `fillRows()` in `layout.ts` (content-driven fill, then stretch), unit-tested with budgets of 6 to 80 rows summing exactly |
+| B2 capacity ignores extra lines | Each panel is built to an exact height from `queueSections`, `agentSections`, `pipelineSections`; the golden test asserts every frame has exactly `rows` lines of exactly `columns` cells, including for 300-character reasons and 30 long agent ids at 60x16 to 200x60 |
+| B3 no boxes or headers | `border.ts`, table headers in `view.ts` |
+| B4 help and observe replace the screen | `overlays.ts` + `FloatingBox` (absolute box); the app tests assert the header stays visible under help and under observe |
+| B5 degraded reason | 9.4 and the header wrap; golden file `dash-100x30-no-link.txt` and the supervision-off test |
+| B6 truncated confirm | Wrapped dialog (`confirmOverlay`) |
+| B7 repeated pipeline text | Flow line, stacked stage bars with counts, one items table |
+| B8 incomplete history | Rings for unresolved, working and oldest age, 300 samples, sampled on every successful poll; graphs in agents, queue and the compact pipeline summary |
+| B9 header noise and no clock | Clock and `- 2s +` tabs, epoch only when meaningful |
+| B10 flat footer | One row, hints for the focused panel, notice on the right, hints dropped by priority when narrow |
+| B11 stale frame not dimmed | `buildFrame` dims every body cell when the link is down or the status is too large (header and footer stay readable) |
+| B12 markers and colour-only state | `▌` selected, `+` changed under reduced motion, heavy border for focus, words and glyphs for every state; golden tests run with colour off |
+
+### 9.7 What was not verified
+
+- **Observe against real Herdr.** The `o` key was exercised in a pty against a daemon without a launcher; it shows the daemon's refusal ("observing agents needs capstan.toml and Herdr") in the footer. The observe box is covered by a golden screen and an app test with a fake `peek`; it has not been seen with real pane text.
+- **Colour rendering in a real terminal.** pty captures were taken as plain text (`tmux capture-pane -p`); the colour build is covered by tests on span data and by the 256-colour sequence check, not by eye.
+- **A stalled agent, a stuck message and an escalated finding in a live daemon.** These need the delivery driver and a supervisor, which need Herdr. The live captures show a seeded daemon (agents and queued messages) and an empty one; the stalled, stuck and escalated rows are covered by golden screens from status fixtures shaped like the real route.
+- **Flicker** beyond the byte counts in 9.5; **ambiguous-width glyphs** in terminals set to wide ambiguous characters; **light backgrounds**.
