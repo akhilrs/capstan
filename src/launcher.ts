@@ -1041,8 +1041,10 @@ export class Launcher {
       const agent = this.#createAgent(role);
       let result: LaunchResult;
       let hubStatus: NonNullable<LaunchResult["hub"]> = "failed";
+      let madeHub: Hub | undefined;
       try {
         const hub = await this.#ensureHub(budget);
+        madeHub = hub;
         hubStatus = hub.status;
         if (hub.status === "failed")
           throw new LauncherError(
@@ -1052,6 +1054,12 @@ export class Launcher {
         result = await this.#startPm(role, agent, budget, hub);
       } catch (error) {
         await this.#cleanupAgent(agent.agentId, {});
+        // A start that failed before it took the new workspace's root pane leaves it empty.
+        if (
+          madeHub?.freePmPane != null &&
+          this.#adapter.paneEntry(madeHub.freePmPane) !== undefined
+        )
+          await this.#dropUnusedRoot(madeHub);
         return {
           state: "failed",
           agentId: agent.agentId,

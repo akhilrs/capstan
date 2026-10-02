@@ -288,7 +288,9 @@ export class StubAdapter implements LauncherAdapter {
     this.calls.push(`run:${paneId}:${command}`);
   }
 
+  promptError: Error | undefined;
   writePromptFile(text: string): string {
+    if (this.promptError) throw this.promptError;
     this.prompts.push(text);
     const file = path.join(this.dir, `prompt-${this.prompts.length}.md`);
     writeFileSync(file, text, { mode: 0o600 });

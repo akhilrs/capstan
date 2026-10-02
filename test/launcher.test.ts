@@ -2844,3 +2844,21 @@ test("a watch tab that cannot be made again for a transient reason keeps the row
     w.cleanup();
   }
 });
+
+test("a PM start that fails before it takes the new workspace's root pane closes that pane", async () => {
+  const w = await world();
+  try {
+    w.adapter.promptError = new Error("disk full");
+    const result = await w.launcher.launchPm();
+    assert.equal(result.state, "failed");
+    assert.match(result.reason!, /disk full/);
+    assert.equal(
+      w.adapter.calls.filter((c) => c === "close:w1:p1").length,
+      1,
+      "the empty root pane is closed once",
+    );
+    assert.ok(w.core.fallbackPane(w.owner), "the watch tab stays recorded");
+  } finally {
+    w.cleanup();
+  }
+});
