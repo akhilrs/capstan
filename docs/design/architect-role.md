@@ -505,6 +505,8 @@ Two events are accepted as lagging, and the PM catches them at its next wake-up 
 
 ### Assumptions to verify
 
+**Step 10 is partly done and stopped by user decision.** From now on only the PM touches Nexora, including any remaining verification; developers make no further Nexora calls. The rows below record only what was observed; anything not listed was not checked and is still unverified (see "Still unverified" after the table).
+
 Step 10 ran against project PRJ-019 with the Nexora MCP tools. Five throwaway items (`PM-47` to `PM-51`, titled `[capstan-test] DELETE ME ...`) were created, exercised and then removed with `nexora_work_item_delete`. That call is a soft delete: it sets the status `wont_do`, so the items still exist in that state and cannot be purged with these tools.
 
 | Assumption | Result | Call made and observed result |
@@ -515,6 +517,8 @@ Step 10 ran against project PRJ-019 with the Nexora MCP tools. Five throwaway it
 | time can be logged with `duration_minutes` (integer minutes, at least 1) | **true, including on an `in_review` item** | `nexora_time_log PM-50 duration_minutes=5` while PM-50 was `in_review` returned `Logged 5m on PM-50`. Side effect found: a transition to `in_progress` starts an **auto-timer** and a transition to `in_review` stops it (the transition output prints `auto-timer: started` and `auto-timer: stopped`), so the PM's status writes create Nexora time entries unless the PM accepts that |
 | the display id returned by create is accepted back by `display_id` | **true, shape differs** | create returned `PM-47` to `PM-51`; the prefix is `PM`, not the project code `PRJ-019`. Every later call accepted `PM-<n>`. The `external_links.external_id` example is corrected |
 | the parent keeps its own status independently of its children | **true** | PM-49 stayed `backlog` while its child PM-50 moved through `in_progress`, `in_review` and `completed`; PM-49 was then moved to `in_review` by hand. Nexora does not derive parent status, so the PM must write it, as this section already assumes |
+
+**Still unverified:** an upper bound for `estimated_hours`; whether a `story` parent with `task` children works for packages end to end (the create call and parent link worked, not tried as the PM mapping); whether the `completed` status stamps `completed_at` again after a later `wont_do` (PM-50 kept its `completed_at` after the soft delete); behaviour of `nexora_work_item_update` on `parent_display_id` (not offered by the tool); and the Nexora tool behaviour for a PM session under Capstan (the PM must confirm these itself).
 
 Consequences for the steps: step 11 to 14 text needs no change except the type hierarchy and the id shape (both amended above); the PM prompt (step 14) must say to create the parent as an `epic` and each package as a `story`, and that a status write to `in_progress` or `in_review` starts or stops a Nexora timer.
 
