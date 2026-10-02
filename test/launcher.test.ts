@@ -2762,3 +2762,48 @@ test("adoption renames a watch workspace of an earlier layout to the project nam
     w.cleanup();
   }
 });
+
+test("a hub made again while a PM is already running closes its empty root pane, and keeps the watch tab", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const hub = w.core.fallbackPane(w.owner)!;
+    const pmPane = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === "pm-1")!.paneId!;
+    const fresh = new StubAdapter();
+    fresh.adoptErrors.set(hub.paneId, new PaneGone("gone"));
+    fresh.tabErrors.add(hub.workspaceId!);
+    await fresh.createWorkspace({ cwd: "/x", label: "other", role: "worker" });
+    fresh.calls.length = 0;
+    fresh.entries.set(pmPane, { agent: "pm-1" });
+    fresh.agentPanes.set("pm-1", pmPane);
+    const launcher = new Launcher({
+      core: w.core,
+      adapter: fresh,
+      config: config(),
+      projectRoot: w.root,
+      cliPath: "/c.js",
+      socketPath: "/s",
+      credential: w.owner,
+      git: w.git,
+      baseEnvironment: { PATH: "/usr/bin" },
+    });
+    const result = await launcher.launchPm();
+    assert.equal(result.state, "running");
+    assert.equal(result.hub, "opened");
+    const made = w.core.fallbackPane(w.owner)!;
+    assert.notEqual(made.workspaceId, hub.workspaceId);
+    const root = fresh.calls.find((c) => c.startsWith("workspace:"))!;
+    assert.ok(root.endsWith(":PM"));
+    assert.ok(
+      fresh.calls.some((c) => c === `close:${made.workspaceId}:p1`),
+      "the empty root pane is closed",
+    );
+    assert.ok(
+      fresh.calls.some((c) => c === `tab:${made.workspaceId}:watch:worker`),
+    );
+  } finally {
+    w.cleanup();
+  }
+});

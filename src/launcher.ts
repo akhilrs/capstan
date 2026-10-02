@@ -877,6 +877,27 @@ export class Launcher {
     return tab.paneId;
   }
 
+  async #ensureHubWithoutPm(
+    budget: Budget,
+  ): Promise<NonNullable<LaunchResult["hub"]>> {
+    const hub = await this.#ensureHub(budget);
+    await this.#dropUnusedRoot(hub);
+    return hub.status;
+  }
+
+  /** A hub made while a PM is already running has an empty root pane no PM will take; it goes, and the workspace keeps its watch tab. */
+  async #dropUnusedRoot(hub: Hub): Promise<void> {
+    if (hub.freePmPane === null) return;
+    try {
+      await this.#close(hub.freePmPane);
+    } catch (error) {
+      this.#log("pane_not_closed", {
+        paneId: hub.freePmPane,
+        error: String(error),
+      });
+    }
+  }
+
   /** The project workspace: tab 1 is the PM's, a `watch` tab keeps the workspace open when a PM pane is replaced, and worker worktrees hang under it. */
   async #ensureHub(budget: Budget): Promise<Hub> {
     const row = this.#core.fallbackPane(this.#credential);
@@ -996,7 +1017,7 @@ export class Launcher {
           agentId: existing.agentId,
           paneId,
           generation: existing.generation,
-          hub: (await this.#ensureHub(budget)).status,
+          hub: await this.#ensureHubWithoutPm(budget),
         };
       }
       const agent = this.#createAgent(role);
@@ -1335,7 +1356,7 @@ export class Launcher {
         );
       // Herdr refuses to close a pane whose workspace has worktree children, so
       // worktrees hang under the long-lived hub workspace, never under the PM's.
-      if ((await this.#ensureHub(budget)).status === "failed")
+      if ((await this.#ensureHubWithoutPm(budget)) === "failed")
         throw new LauncherError(
           "hub_unavailable",
           "the hub workspace could not be opened",
