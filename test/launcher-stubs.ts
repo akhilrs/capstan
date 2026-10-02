@@ -20,6 +20,9 @@ export class StubAdapter implements LauncherAdapter {
   async guardedSend() {
     return { sent: false as const, reason: "agent_busy" as const };
   }
+  async wakePm() {
+    return { sent: false as const, reason: "pm_not_idle" as const };
+  }
   async clearAfterDeferral() {
     return { cleared: false, text: "" };
   }

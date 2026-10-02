@@ -1183,6 +1183,55 @@ export class HerdrAdapter {
     return { sent: true };
   }
 
+  /**
+   * Types a short wake line into the PM's pane, which `guardedSend` never
+   * does. Only a registered, started PM pane is typed into, and only when
+   * Herdr reports it idle or done, its input line reads as empty, and both
+   * hold again right before the keys. A line that cannot be read or has text
+   * on it is never typed over.
+   */
+  async wakePm(input: {
+    paneId: string;
+    text: string;
+    beforeSend: () => void | Promise<void>;
+  }): Promise<
+    | { readonly sent: true }
+    | {
+        readonly sent: false;
+        readonly reason: "pm_not_idle" | "input_not_empty";
+      }
+  > {
+    requireMatch(input.paneId, PANE_PATTERN, "pane id");
+    const entry = this.#panes.get(input.paneId);
+    if (entry === undefined)
+      throw new UnknownPaneError("pane is not registered");
+    if (entry.role !== "PM" || entry.phase !== "started")
+      throw new PhaseError("only a started PM pane can be woken");
+    if (entry.agent === undefined)
+      throw new PhaseError("the pane has no agent");
+    if (
+      !isSafeText(input.text) ||
+      COMMAND_START.test(input.text) ||
+      Buffer.byteLength(input.text, "utf8") > MAX_TEXT_BYTES
+    )
+      throw new InvalidArgumentError("wake text is not acceptable");
+    const idle = async (): Promise<boolean> =>
+      deferralFor(await this.#stateFor(entry.agent!, input.paneId)) ===
+      undefined;
+    if (!(await idle())) return { sent: false, reason: "pm_not_idle" };
+    if ((await this.readInput(input.paneId)) !== "")
+      return { sent: false, reason: "input_not_empty" };
+    if (!(await idle())) return { sent: false, reason: "pm_not_idle" };
+    await input.beforeSend();
+    await runJson(this.#run, [
+      "agent",
+      "prompt",
+      this.#herdrName(entry.agent),
+      input.text,
+    ]);
+    return { sent: true };
+  }
+
   async clearAfterDeferral(input: {
     paneId: string;
     deferredForMs: number;

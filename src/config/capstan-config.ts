@@ -18,6 +18,12 @@ max_workers = 3
 spawn = "pane"
 pm_width_percent = 60
 
+# While workers are active the controller keeps one Supervisor running and sends it a routine
+# check. A Supervisor is a Claude session, so it uses usage; set enabled = false to turn it off.
+[supervision]
+enabled = true
+check_seconds = 300
+
 # Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
 # from the environment where \`cstan start\` runs, never from your interactive shell file alone.
 # Name them here (one-line values only); a name that is not set where the daemon starts is reported
@@ -94,6 +100,8 @@ export class ConfigError extends Error {
 
 export type ResolvedTimers = {
   readonly maxDeferralSeconds: number;
+  /** How long a message waits for a busy or blocked worker before it expires and the PM is told. */
+  readonly maxBusyDeferralSeconds: number;
   readonly pmAckTimeoutSeconds: number;
   readonly pmNotifyAfterSeconds: number;
   readonly notifyIntervalSeconds: number;
@@ -101,6 +109,15 @@ export type ResolvedTimers = {
   readonly workerAckTimeoutSeconds: number;
   /** How long a finding may wait for its Supervisor's check before the controller escalates it. */
   readonly findingCheckSeconds: number;
+  /** An unread message waits this long before the controller types a wake line into an idle PM; 0 turns the wake off. */
+  readonly pmWakeAfterSeconds: number;
+  readonly pmWakeIntervalSeconds: number;
+};
+
+export type ResolvedSupervision = {
+  /** The controller keeps a Supervisor running while workers are active and queues it a routine check. */
+  readonly enabled: boolean;
+  readonly checkSeconds: number;
 };
 
 export type ResolvedHost = {
@@ -237,6 +254,7 @@ export type CapstanConfig = {
   readonly herdrSession: string;
   readonly notifications: ResolvedNotifications;
   readonly timers: ResolvedTimers;
+  readonly supervision: ResolvedSupervision;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
   /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
@@ -264,13 +282,18 @@ const CREDENTIAL_SHAPES: readonly RegExp[] = [
 
 const TIMER_DEFAULTS = {
   max_deferral_seconds: [120, 1, 3600],
+  max_busy_deferral_seconds: [3600, 60, 86_400],
   pm_ack_timeout_seconds: [600, 1, 86_400],
   pm_notify_after_seconds: [300, 1, 86_400],
   notify_interval_seconds: [600, 1, 86_400],
   stall_after_seconds: [900, 1, 86_400],
   worker_ack_timeout_seconds: [600, 1, 86_400],
   finding_check_seconds: [1800, 60, 86_400],
+  pm_wake_after_seconds: [20, 0, 3600],
+  pm_wake_interval_seconds: [120, 10, 3600],
 } as const;
+
+export const DEFAULT_SUPERVISION_CHECK_SECONDS = 300;
 
 type Table = Record<string, unknown>;
 
@@ -351,6 +374,7 @@ export function parseCapstanConfig(
       "herdr_session",
       "notifications",
       "timers",
+      "supervision",
       "limits",
       "layout",
       "env",
@@ -406,12 +430,36 @@ export function parseCapstanConfig(
   };
   const timers: ResolvedTimers = {
     maxDeferralSeconds: timerValue("max_deferral_seconds"),
+    maxBusyDeferralSeconds: timerValue("max_busy_deferral_seconds"),
     pmAckTimeoutSeconds: timerValue("pm_ack_timeout_seconds"),
     pmNotifyAfterSeconds: timerValue("pm_notify_after_seconds"),
     notifyIntervalSeconds: timerValue("notify_interval_seconds"),
     stallAfterSeconds: timerValue("stall_after_seconds"),
     workerAckTimeoutSeconds: timerValue("worker_ack_timeout_seconds"),
     findingCheckSeconds: timerValue("finding_check_seconds"),
+    pmWakeAfterSeconds: timerValue("pm_wake_after_seconds"),
+    pmWakeIntervalSeconds: timerValue("pm_wake_interval_seconds"),
+  };
+
+  const supervisionTable = optionalTable(root.supervision, "supervision");
+  rejectUnknownKeys(
+    supervisionTable,
+    ["enabled", "check_seconds"],
+    "supervision",
+  );
+  const supervision: ResolvedSupervision = {
+    enabled: optionalBoolean(
+      supervisionTable.enabled,
+      "supervision.enabled",
+      true,
+    ),
+    checkSeconds: optionalInteger(
+      supervisionTable.check_seconds,
+      "supervision.check_seconds",
+      60,
+      3600,
+      DEFAULT_SUPERVISION_CHECK_SECONDS,
+    ),
   };
 
   const limitTable = optionalTable(root.limits, "limits");
@@ -493,6 +541,7 @@ export function parseCapstanConfig(
     herdrSession,
     notifications,
     timers,
+    supervision,
     limits,
     layout,
     env,

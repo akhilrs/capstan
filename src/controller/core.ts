@@ -33,6 +33,7 @@ import {
   queueHead,
   resolutionTarget,
   type AgentFacts,
+  type AttentionEpisode,
   type DeferralReason,
   type HerdrState,
   type MessageFacts,
@@ -163,8 +164,12 @@ function assertTimers(timers: MessagingTimers): void {
       throw new TypeError(`unknown timer ${name}`);
   for (const name of TIMER_NAMES) {
     const value: unknown = timers[name];
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
-      throw new TypeError(`timer ${name} must be a positive finite number`);
+    // The wake is the one timer that may be 0: it turns the wake off.
+    const minimum = name === "pmWakeAfterSeconds" ? 0 : Number.MIN_VALUE;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < minimum)
+      throw new TypeError(
+        `timer ${name} must be a ${name === "pmWakeAfterSeconds" ? "non-negative" : "positive"} finite number`,
+      );
   }
 }
 
@@ -730,6 +735,9 @@ export class MessageTransitionError extends ControllerError {
 
 class NoMessageTransitionDue extends Error {}
 
+const SUPERVISION_CHECK_TEXT =
+  "Routine check from the controller. Run cstan status, then cstan observe each active worker, and apply your standing instructions. Raise a finding only for the same failing command repeated, a step that cannot work, or no progress while looking busy; otherwise raise nothing. Then cstan ack this message.";
+
 interface MessageRejection {
   readonly rejected: true;
   readonly code: string;
@@ -807,6 +815,7 @@ function advance(
     applied,
     actions: evaluation.actions,
     stalledAgentIds: evaluation.stalledAgentIds,
+    attention: evaluation.attention,
   };
 }
 
@@ -5171,6 +5180,10 @@ export class ControllerCore {
                 row!,
                 "deferred",
                 {
+                  // The clock restarts with the reason, so the maximum deferral counts from when the input line was first seen non-empty, not from when the worker first looked busy.
+                  ...(row!.deferred_reason !== reason
+                    ? { deferred_at: now }
+                    : {}),
                   deferred_reason: reason,
                   deferral_count:
                     reason === "input_not_empty"
@@ -5320,12 +5333,14 @@ export class ControllerCore {
         );
         if (refused) return refused;
         const from = row!.state;
+        const failedAt = this.#now();
         const version = this.#updateMessage(
           row!,
           "failed",
           { state_reason: reason },
-          this.#now(),
+          failedAt,
         );
+        this.#queueDeliveryNotice(row!, "failed", failedAt);
         return {
           value: messageRecord(this.#messageRow(messageId)!),
           event: {
@@ -5657,6 +5672,7 @@ export class ControllerCore {
               stateVersion: version,
               details: { timer: true },
             });
+            this.#queueDeliveryNotice(row, transition.to, now);
             applied.push(row.message_id);
           }
           return {
@@ -5679,8 +5695,320 @@ export class ControllerCore {
     }
   }
 
+  /** Queues one controller message to the PM, once per (kind, subject, episode). The caller owns the transaction. */
+  #queuePmNotice(
+    kind: "delivery" | "stalled" | "blocked",
+    subject: string,
+    episode: string,
+    body: string,
+    now: string,
+  ): boolean {
+    const parties = this.#noticeParties();
+    if (parties === undefined) return false;
+    const known = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM pm_notices WHERE project_id = ? AND kind = ? AND subject = ? AND episode = ?",
+      )
+      .get(this.#projectId, kind, subject, episode);
+    if (known) return false;
+    const messageId = this.#insertQueuedMessage(
+      parties.controllerActorId,
+      parties.pm,
+      body,
+      sha256(body),
+      now,
+    );
+    this.#database
+      .prepare(
+        "INSERT INTO pm_notices(project_id, notice_id, kind, subject, episode, message_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        this.#projectId,
+        randomUUID(),
+        kind,
+        subject,
+        episode,
+        messageId,
+        now,
+      );
+    return true;
+  }
+
+  /** Tells the PM that a message to a worker is stuck, and which command unblocks the worker's queue. Routine Supervisor checks and messages to the PM are not told. */
+  #queueDeliveryNotice(
+    row: MessageRow,
+    state: "unacked" | "expired" | "failed",
+    now: string,
+  ): void {
+    const recipient = this.#agentRow(row.recipient_agent_id);
+    if (recipient === undefined || recipient.kind === "PM") return;
+    const routine = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM supervision_checks WHERE project_id = ? AND message_id = ?",
+      )
+      .get(this.#projectId, row.message_id);
+    if (routine) return;
+    const first = oneLineText(row.body, 80);
+    this.#queuePmNotice(
+      "delivery",
+      row.message_id,
+      state,
+      [
+        `Delivery problem: message ${row.message_id} to ${recipient.agent_id} is ${state}${state === "failed" && row.state_reason !== null ? ` (${oneLineText(row.state_reason, 120)})` : ""}.`,
+        `It starts: ${JSON.stringify(first)}`,
+        `Messages behind it wait for ${recipient.agent_id} until you resolve it: cstan resolve ${row.message_id} retry (types it once more), skip (counts it handled) or cancel (drops it).`,
+      ].join("\n"),
+      now,
+    );
+  }
+
+  /** Tells the PM, once per episode, of workers that have been stalled (working without activity) or blocked at a dialog for the stall time. */
+  queueAttentionNotices(
+    context: MutationContext,
+    episodes: readonly AttentionEpisode[],
+  ): { readonly queued: number } {
+    this.#authorize(context.credential, "controller:reconcile");
+    const fresh = episodes.filter((episode) => {
+      const known = this.#database
+        .prepare(
+          "SELECT 1 AS present FROM pm_notices WHERE project_id = ? AND kind = ? AND subject = ? AND episode = ?",
+        )
+        .get(
+          this.#projectId,
+          episode.kind,
+          episode.agentId,
+          String(episode.episodeMs),
+        );
+      return !known;
+    });
+    if (fresh.length === 0) return { queued: 0 };
+    return this.#mutate(
+      context,
+      "pm.attention",
+      "controller:reconcile",
+      { episodes: fresh },
+      () => {
+        const now = this.#now();
+        let queued = 0;
+        for (const episode of fresh) {
+          const body =
+            episode.kind === "stalled"
+              ? `Agent stalled: ${episode.agentId} has shown no activity while working for a long time. Look with cstan observe ${episode.agentId}; if it is stuck, cstan replace ${episode.agentId} or tell the operator.`
+              : `Agent blocked: ${episode.agentId} has been waiting at a dialog or permission prompt for a long time. Its pane needs an answer from the operator; messages to it wait until then. Look with cstan observe ${episode.agentId}.`;
+          if (
+            this.#queuePmNotice(
+              episode.kind,
+              episode.agentId,
+              String(episode.episodeMs),
+              body,
+              now,
+            )
+          )
+            queued += 1;
+        }
+        return {
+          value: { queued },
+          event: {
+            entityType: "pm_notice",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { queued },
+          },
+        };
+      },
+    );
+  }
+
+  /** Records a wake line before it is typed, so a crash after the record never types it twice. */
+  recordPmWake(
+    context: MutationContext,
+    messageId: string,
+  ): { readonly wakes: number } {
+    safeId(messageId, "message id");
+    return this.#mutate(
+      context,
+      "pm.wake",
+      "controller:reconcile",
+      { messageId },
+      () => {
+        const row = this.#messageRow(messageId);
+        const recipient =
+          row === undefined
+            ? undefined
+            : this.#agentRow(row.recipient_agent_id);
+        if (row?.state !== "queued" || recipient?.kind !== "PM")
+          throw new ControllerError(
+            "the message is no longer waiting for the PM",
+          );
+        const now = this.#now();
+        this.#database
+          .prepare(
+            "INSERT INTO pm_wakes(project_id, wake_id, message_id, sent_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(this.#projectId, randomUUID(), messageId, now);
+        const wakes = (
+          this.#database
+            .prepare(
+              "SELECT COUNT(*) AS n FROM pm_wakes WHERE project_id = ? AND message_id = ?",
+            )
+            .get(this.#projectId, messageId) as { n: number }
+        ).n;
+        return {
+          value: { wakes },
+          event: {
+            entityType: "message_note",
+            entityId: messageId,
+            stateVersion: 0,
+            details: { wake: wakes },
+          },
+        };
+      },
+    );
+  }
+
+  #supervisionCheckDue(intervalSeconds: number): boolean {
+    const active = this.#database
+      .prepare(
+        "SELECT agent_id, kind FROM agents WHERE project_id = ? AND state = 'active' AND kind IN ('Supervisor', 'Developer', 'Verifier')",
+      )
+      .all(this.#projectId) as Array<{ agent_id: string; kind: string }>;
+    const supervisors = active.filter((a) => a.kind === "Supervisor");
+    if (
+      supervisors.length !== 1 ||
+      active.length === 1 ||
+      this.#noticeParties() === undefined
+    )
+      return false;
+    const last = this.#database
+      .prepare(
+        `SELECT MAX(c.queued_at) AS at FROM supervision_checks c JOIN messages m ON m.project_id = c.project_id AND m.message_id = c.message_id
+         WHERE c.project_id = ? AND m.recipient_agent_id = ?`,
+      )
+      .get(this.#projectId, supervisors[0]!.agent_id) as { at: string | null };
+    return (
+      last.at === null ||
+      this.#clock().getTime() - Date.parse(last.at) >= intervalSeconds * 1000
+    );
+  }
+
+  /**
+   * Queues the routine check for the one active Supervisor when a worker is
+   * active and the last check is at least `intervalSeconds` old. A check that
+   * is still open when the next is due is cancelled and replaced, so a
+   * Supervisor's queue is never blocked by its own checks.
+   */
+  queueSupervisionCheck(
+    context: MutationContext,
+    intervalSeconds: number,
+  ): { readonly queued: boolean; readonly cancelled: number } {
+    this.#authorize(context.credential, "controller:reconcile");
+    if (!Number.isSafeInteger(intervalSeconds) || intervalSeconds < 1)
+      throw new TypeError("the check interval must be a positive integer");
+    // Nothing is written, not even an event, while no check is due: the tick asks every few seconds.
+    if (!this.#supervisionCheckDue(intervalSeconds))
+      return { queued: false, cancelled: 0 };
+    return this.#mutate(
+      context,
+      "supervision.check",
+      "controller:reconcile",
+      { intervalSeconds },
+      (actor) => {
+        const none = {
+          value: { queued: false, cancelled: 0 },
+          event: {
+            entityType: "supervision",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { queued: false },
+          },
+        };
+        const active = this.#database
+          .prepare(
+            "SELECT * FROM agents WHERE project_id = ? AND state = 'active' AND kind IN ('Supervisor', 'Developer', 'Verifier')",
+          )
+          .all(this.#projectId) as AgentRow[];
+        const supervisors = active.filter((a) => a.kind === "Supervisor");
+        const workers = active.filter((a) => a.kind !== "Supervisor");
+        const parties = this.#noticeParties();
+        if (supervisors.length !== 1 || workers.length === 0 || !parties)
+          return none;
+        const supervisor = supervisors[0]!;
+        const checks = this.#database
+          .prepare(
+            `SELECT m.* FROM messages m JOIN supervision_checks c ON c.project_id = m.project_id AND c.message_id = m.message_id
+             WHERE m.project_id = ? AND m.recipient_agent_id = ? ORDER BY m.sequence DESC`,
+          )
+          .all(this.#projectId, supervisor.agent_id) as MessageRow[];
+        const nowMs = this.#clock().getTime();
+        const last = checks[0];
+        if (
+          last !== undefined &&
+          nowMs - Date.parse(last.queued_at) < intervalSeconds * 1000
+        )
+          return none;
+        const now = this.#now();
+        let cancelled = 0;
+        for (const open of checks) {
+          if (isFinalState(open.state)) continue;
+          const version = this.#updateMessage(
+            open,
+            "cancelled",
+            { state_reason: "superseded_check" },
+            now,
+          );
+          this.#appendMessageEvent(actor, context, {
+            messageId: open.message_id,
+            from: open.state,
+            to: "cancelled",
+            stateVersion: version,
+            details: { reason: "superseded_check" },
+          });
+          cancelled += 1;
+        }
+        const body = SUPERVISION_CHECK_TEXT;
+        const messageId = this.#insertQueuedMessage(
+          parties.controllerActorId,
+          supervisor,
+          body,
+          sha256(body),
+          now,
+        );
+        this.#database
+          .prepare(
+            "INSERT INTO supervision_checks(project_id, message_id, queued_at) VALUES (?, ?, ?)",
+          )
+          .run(this.#projectId, messageId, now);
+        return {
+          value: { queued: true, cancelled },
+          event: {
+            entityType: "supervision",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { queued: true, cancelled },
+          },
+        };
+      },
+    );
+  }
+
   #evaluateMessaging(timers: MessagingTimers): MessagingEvaluation {
     const nowMs = this.#clock().getTime();
+    const wakes = new Map<string, { count: number; lastMs: number }>(
+      (
+        this.#database
+          .prepare(
+            "SELECT message_id, COUNT(*) AS n, MAX(sent_at) AS last FROM pm_wakes WHERE project_id = ? GROUP BY message_id",
+          )
+          .all(this.#projectId) as Array<{
+          message_id: string;
+          n: number;
+          last: string;
+        }>
+      ).map((row) => [
+        row.message_id,
+        { count: row.n, lastMs: Date.parse(row.last) },
+      ]),
+    );
     const messages: MessageFacts[] = (
       this.#database
         .prepare(
@@ -5693,6 +6021,8 @@ export class ControllerCore {
         MessageRow & { input_clear_recorded: number }
       >
     ).map((row) => ({
+      wakeCount: wakes.get(row.message_id)?.count ?? 0,
+      lastWakeMs: wakes.get(row.message_id)?.lastMs ?? null,
       messageId: row.message_id,
       recipientAgentId: row.recipient_agent_id,
       state: row.state,

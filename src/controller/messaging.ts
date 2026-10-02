@@ -160,20 +160,31 @@ export function countedMillis(
 
 export interface MessagingTimers {
   readonly maxDeferralSeconds: number;
+  /** How long a message may wait because its worker is busy or blocked before it expires (and the PM is told). */
+  readonly maxBusyDeferralSeconds: number;
   readonly pmAckTimeoutSeconds: number;
   readonly pmNotifyAfterSeconds: number;
   readonly notifyIntervalSeconds: number;
   readonly stallAfterSeconds: number;
   readonly workerAckTimeoutSeconds: number;
+  /** An unread message waits this long before an idle PM is woken; 0 turns the wake off. */
+  readonly pmWakeAfterSeconds: number;
+  readonly pmWakeIntervalSeconds: number;
 }
+
+/** The most wake lines the controller types for one unread message. */
+export const MAX_PM_WAKES = 5;
 
 export const MESSAGING_TIMER_NAMES: readonly (keyof MessagingTimers)[] = [
   "maxDeferralSeconds",
+  "maxBusyDeferralSeconds",
   "pmAckTimeoutSeconds",
   "pmNotifyAfterSeconds",
   "notifyIntervalSeconds",
   "stallAfterSeconds",
   "workerAckTimeoutSeconds",
+  "pmWakeAfterSeconds",
+  "pmWakeIntervalSeconds",
 ];
 
 /**
@@ -206,6 +217,8 @@ export interface MessageFacts {
   readonly deferredReason: DeferralReason | null;
   readonly inputClearRecorded: boolean;
   readonly lastNotifiedMs: number | null;
+  readonly wakeCount: number;
+  readonly lastWakeMs: number | null;
 }
 
 export interface DueTransition {
@@ -214,6 +227,7 @@ export interface DueTransition {
 }
 
 export type MessagingAction =
+  | { readonly kind: "wake_pm"; readonly messageId: string }
   | {
       readonly kind: "clear_then_send";
       readonly messageId: string;
@@ -225,10 +239,33 @@ export type MessagingAction =
       readonly repeat: boolean;
     };
 
+/** A worker that needs the PM's attention: `stalled` is working without activity, `blocked` waits at a dialog. The episode identifies this one stall. */
+export interface AttentionEpisode {
+  readonly agentId: string;
+  readonly kind: "stalled" | "blocked";
+  readonly episodeMs: number;
+}
+
 export interface MessagingEvaluation {
   readonly transitions: readonly DueTransition[];
   readonly actions: readonly MessagingAction[];
   readonly stalledAgentIds: readonly string[];
+  readonly attention: readonly AttentionEpisode[];
+}
+
+/** When the agent's current Herdr state began: the earliest observation of an unbroken run of that state up to `atMs`. */
+function stateSince(
+  observations: readonly StateObservation[],
+  atMs: number,
+): number | null {
+  const current = stateAt(observations, atMs);
+  let since: number | null = null;
+  for (const observation of observations) {
+    if (observation.atMs > atMs) break;
+    if (observation.state === current) since ??= observation.atMs;
+    else since = null;
+  }
+  return since;
 }
 
 /**
@@ -245,6 +282,7 @@ export function evaluateMessaging(
   const transitions: DueTransition[] = [];
   const actions: MessagingAction[] = [];
   const stalledAgentIds: string[] = [];
+  const attention: AttentionEpisode[] = [];
   for (const agent of agents) {
     const own = messages.filter(
       (message) => message.recipientAgentId === agent.agentId,
@@ -268,15 +306,19 @@ export function evaluateMessaging(
       }
     }
     if (head?.state === "deferred" && head.deferredMs !== null) {
-      if (nowMs - head.deferredMs >= timers.maxDeferralSeconds * 1000) {
-        if (head.deferredReason === "input_not_empty")
+      // Time spent waiting for a busy or blocked worker is not a delivery failure for minutes: it gets its own, much longer limit. A line with text on it is cleared after the shorter one.
+      if (head.deferredReason === "input_not_empty") {
+        if (nowMs - head.deferredMs >= timers.maxDeferralSeconds * 1000)
           actions.push({
             kind: "clear_then_send",
             messageId: head.messageId,
             notifyOperator: !head.inputClearRecorded,
           });
-        else transitions.push({ messageId: head.messageId, to: "expired" });
-      }
+      } else if (
+        nowMs - head.deferredMs >=
+        timers.maxBusyDeferralSeconds * 1000
+      )
+        transitions.push({ messageId: head.messageId, to: "expired" });
     }
     if (
       agent.kind === "PM" &&
@@ -310,6 +352,32 @@ export function evaluateMessaging(
           });
       }
     }
+    if (
+      agent.kind === "PM" &&
+      timers.pmWakeAfterSeconds > 0 &&
+      head?.state === "queued" &&
+      nowMs - head.queuedMs >= timers.pmWakeAfterSeconds * 1000 &&
+      head.wakeCount < MAX_PM_WAKES &&
+      (head.lastWakeMs === null ||
+        nowMs - head.lastWakeMs >= timers.pmWakeIntervalSeconds * 1000)
+    ) {
+      const state = stateAt(agent.observations, nowMs);
+      if (state === "idle" || state === "done")
+        actions.push({ kind: "wake_pm", messageId: head.messageId });
+    }
+    if (
+      agent.kind !== "PM" &&
+      agent.kind !== "Supervisor" &&
+      stateAt(agent.observations, nowMs) === "blocked"
+    ) {
+      const since = stateSince(agent.observations, nowMs);
+      if (since !== null && nowMs - since >= timers.stallAfterSeconds * 1000)
+        attention.push({
+          agentId: agent.agentId,
+          kind: "blocked",
+          episodeMs: since,
+        });
+    }
     if (stateAt(agent.observations, nowMs) === "working") {
       const stalled =
         countedMillis(
@@ -320,8 +388,16 @@ export function evaluateMessaging(
           agent.waits,
         ) >=
         timers.stallAfterSeconds * 1000;
-      if (stalled) stalledAgentIds.push(agent.agentId);
+      if (stalled) {
+        stalledAgentIds.push(agent.agentId);
+        if (agent.kind !== "PM" && agent.kind !== "Supervisor")
+          attention.push({
+            agentId: agent.agentId,
+            kind: "stalled",
+            episodeMs: agent.lastActivityMs,
+          });
+      }
     }
   }
-  return { transitions, actions, stalledAgentIds };
+  return { transitions, actions, stalledAgentIds, attention };
 }

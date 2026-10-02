@@ -28,6 +28,7 @@ import {
 import { recoverIntegrations } from "./integration.js";
 import type { IntegrationGit } from "./integration.js";
 import { startReportRelay, type ReportRelay } from "./reports.js";
+import { startSupervision, type SupervisionHandle } from "./supervision.js";
 import { recoverReviews } from "./reviews.js";
 import type { CapstanConfig } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
@@ -670,6 +671,8 @@ export interface DaemonOptions {
   readonly adapter?: DriverAdapter & LauncherAdapter;
   readonly notifier?: Notifier;
   readonly tickMs?: number;
+  /** How often the supervision tick looks; a test makes it short. */
+  readonly supervisionTickMs?: number;
   /** Absolute path of the CLI entry the launched agents' `cstan` wrapper runs. */
   readonly cliPath?: string;
   /** Brings the configured roles into the ledger as the daemon starts, so `cstan start` needs no separate `config sync`. */
@@ -695,6 +698,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let launcher: Launcher | undefined;
   let adoption: Promise<void> = Promise.resolve();
   let reportRelay: ReportRelay | undefined;
+  let supervision: SupervisionHandle | undefined;
   let stopping = false;
   void stop.then(() => {
     stopping = true;
@@ -785,6 +789,18 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           });
     void adoption.then(() => {
       if (!stopping) driver?.start();
+      if (!stopping && launcher !== undefined && options.capstan !== undefined)
+        supervision = startSupervision({
+          core: core!,
+          launcher,
+          credential,
+          supervision: options.capstan.supervision,
+          supervisorRole: options.capstan.roles.find(
+            (role) => role.kind === "Supervisor",
+          )?.name,
+          intervalMs: options.supervisionTickMs ?? 15_000,
+          log: detailLog,
+        });
     });
     if (launcher !== undefined) {
       const reviewLauncher = launcher;
@@ -834,6 +850,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     server?.stopAccepting();
     reportRelay?.stop();
     await adoption;
+    await supervision?.stop();
     await driver?.stop();
     if (server !== undefined) await server.drain();
     if (core !== undefined) {

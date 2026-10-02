@@ -22,11 +22,14 @@ import type {
 
 const timers: MessagingTimers = {
   maxDeferralSeconds: 120,
+  maxBusyDeferralSeconds: 120,
   pmAckTimeoutSeconds: 600,
   pmNotifyAfterSeconds: 300,
   notifyIntervalSeconds: 600,
   stallAfterSeconds: 900,
   workerAckTimeoutSeconds: 600,
+  pmWakeAfterSeconds: 0,
+  pmWakeIntervalSeconds: 120,
 };
 
 const inputKinds = [
@@ -1133,6 +1136,7 @@ test("a reason change back to input_not_empty starts a new input cycle and an em
     assert.equal(notify(), false);
     core.recordDeferral(w.ctx(), message, "agent_busy");
     core.recordDeferral(w.ctx(), message, "input_not_empty");
+    w.advance(120);
     assert.equal(notify(), true);
     assert.throws(() => core.recordInputClear(w.ctx(), message, ""), TypeError);
     core.recordInputClear(w.ctx(), message, "Y");
@@ -1580,6 +1584,7 @@ test("advanceMessaging writes nothing when nothing is due and rolls back when th
       applied: [],
       actions: [],
       stalledAgentIds: [],
+      attention: [],
     });
     assert.equal(core.stateVersion, version);
     w.advance(601);
@@ -1634,6 +1639,9 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "pm_notices",
+      "pm_wakes",
+      "supervision_checks",
       "agent_finding_notices",
       "agent_finding_checks",
       "agent_finding_deliveries",
@@ -1918,6 +1926,29 @@ test("unresolvedMessages puts notified messages first so a bell is never cut by 
     assert.deepEqual(
       all.messages.map((m) => m.messageId),
       [notified, older],
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("the deferral clock restarts when the reason changes, so a long wait for a busy worker is not counted against a line with text on it", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const message = send(w, developer, "wait for me");
+    core.recordDeferral(w.ctx(), message, "agent_busy");
+    w.advance(100);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).actions, []);
+    core.recordDeferral(w.ctx(), message, "input_not_empty");
+    w.advance(119);
+    assert.deepEqual(core.advanceMessaging(w.ctx(), timers).actions, []);
+    w.advance(1);
+    assert.deepEqual(
+      core
+        .advanceMessaging(w.ctx(), timers)
+        .actions.map((action) => action.kind),
+      ["clear_then_send"],
     );
   } finally {
     close(w);

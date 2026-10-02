@@ -37,11 +37,14 @@ import { close, ctx, harness, type Harness } from "./harness.js";
 
 const TIMERS: MessagingTimers = {
   maxDeferralSeconds: 120,
+  maxBusyDeferralSeconds: 120,
   pmAckTimeoutSeconds: 600,
   pmNotifyAfterSeconds: 300,
   notifyIntervalSeconds: 600,
   stallAfterSeconds: 900,
   workerAckTimeoutSeconds: 600,
+  pmWakeAfterSeconds: 0,
+  pmWakeIntervalSeconds: 120,
 };
 
 interface Typed {
@@ -106,6 +109,9 @@ class StubAdapter implements DriverAdapter {
     return { sent: true };
   }
 
+  async wakePm() {
+    return { sent: false as const, reason: "pm_not_idle" as const };
+  }
   async clearAfterDeferral(input: {
     paneId: string;
     deferredForMs: number;

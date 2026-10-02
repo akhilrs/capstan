@@ -85,13 +85,17 @@ test("a valid configuration resolves every default", () => {
     const config = loadCapstanConfig(directory);
     assert.deepEqual(config.timers, {
       maxDeferralSeconds: 120,
+      maxBusyDeferralSeconds: 3600,
       pmAckTimeoutSeconds: 600,
       pmNotifyAfterSeconds: 300,
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
       findingCheckSeconds: 1800,
+      pmWakeAfterSeconds: 20,
+      pmWakeIntervalSeconds: 120,
     });
+    assert.deepEqual(config.supervision, { enabled: true, checkSeconds: 300 });
     assert.deepEqual(config.hosts, [
       {
         name: "claude",

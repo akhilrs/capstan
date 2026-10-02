@@ -29,11 +29,14 @@ import { ctx, projectInfo, type Member } from "./harness.js";
 
 export const TIMERS: MessagingTimers = {
   maxDeferralSeconds: 120,
+  maxBusyDeferralSeconds: 120,
   pmAckTimeoutSeconds: 600,
   pmNotifyAfterSeconds: 300,
   notifyIntervalSeconds: 600,
   stallAfterSeconds: 900,
   workerAckTimeoutSeconds: 600,
+  pmWakeAfterSeconds: 0,
+  pmWakeIntervalSeconds: 120,
 };
 
 const FRAME = /^\[capstan message ([0-9a-f-]{36}) from /;
@@ -131,6 +134,9 @@ export class World implements DriverAdapter {
     return { sent: true };
   }
 
+  async wakePm() {
+    return { sent: false as const, reason: "pm_not_idle" as const };
+  }
   async clearAfterDeferral(input: {
     paneId: string;
     deferredForMs: number;
