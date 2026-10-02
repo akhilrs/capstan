@@ -1142,10 +1142,17 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               error instanceof ControllerError
                 ? error.message
                 : "the reviewer could not be started";
-            core.abandonPlanReview(context(call.credential), {
-              planId,
-              reason,
-            });
+            try {
+              core.abandonPlanReview(context(call.credential), {
+                planId,
+                reason,
+              });
+            } catch (cleanupError) {
+              log("plan_review_abandon_failed", {
+                planId,
+                error: String(cleanupError),
+              });
+            }
             if (error instanceof ReviewRequestError)
               return fail("rejected", `${error.code}: ${error.message}`);
             if (error instanceof ControllerError)

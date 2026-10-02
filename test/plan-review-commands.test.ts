@@ -12,14 +12,17 @@ import {
 
 const HEAD = "d".repeat(40);
 
-function config(planReview: "high_risk" | "always"): CapstanConfig {
+function config(
+  planReview: "high_risk" | "always",
+  maxPackages = 8,
+): CapstanConfig {
   return {
     architect: {
       enabled: true,
       role: "developer2",
       planReview,
       reviewerRole: null,
-      maxPackages: 8,
+      maxPackages,
       countTowardWorkerLimit: false,
       highRiskTriggers: [],
     },
@@ -57,6 +60,7 @@ function planBody(): string {
 }
 
 interface Stub {
+  events: string[];
   spawns: string[];
   releases: string[];
   failSpawn: Error | undefined;
@@ -95,12 +99,18 @@ async function withPlans(
     reviewers: Member[],
   ) => Promise<void>,
 ): Promise<void> {
-  const stub: Stub = { spawns: [], releases: [], failSpawn: undefined };
+  const stub: Stub = {
+    events: [],
+    spawns: [],
+    releases: [],
+    failSpawn: undefined,
+  };
   const reviewers: Member[] = [];
   const holder: { h?: Harness } = {};
   const h = await harness({
     commands: {
-      config: config(planReview),
+      config: config(planReview, 20),
+      log: (event: string) => stub.events.push(event),
       commitExists: async () => true,
       integrationGit: { headCommit: async () => HEAD } as never,
       launcher: {
@@ -130,6 +140,7 @@ async function withPlans(
         ["pm", "PM"],
         ["developer", "Developer"],
         ["developer2", "Developer"],
+        ["pm2", "PM"],
         ["reviewer", "Verifier"],
       ].map(([name, kind], index) => ({
         name: name!,
@@ -310,5 +321,94 @@ test("the architect may request a review of its own plan by id", async () => {
       (await call(h, h.developer.credential, "request-review", [planId])).ok,
       false,
     );
+  });
+});
+
+test("a failing cleanup does not mask the original spawn error", async () => {
+  await withPlans("high_risk", async (h, stub, architect) => {
+    const planId = await open(h, "high-risk");
+    stub.failSpawn = new Error("herdr is down");
+    (
+      h.core as unknown as { abandonPlanReview: () => never }
+    ).abandonPlanReview = () => {
+      throw new Error("ledger is busy");
+    };
+    const failed = await call(h, architect.credential, "plan", [
+      "submit",
+      planId,
+      planBody(),
+    ]);
+    assert.equal(failed.ok, false);
+    assert.doesNotMatch(
+      JSON.stringify(failed),
+      /ledger is busy/,
+      "the cleanup error is not the answer",
+    );
+    assert.ok(stub.events.includes("plan_review_abandon_failed"));
+  });
+});
+
+test("the approved notice of a 20-package plan with long titles fits one message", async () => {
+  await withPlans("high_risk", async (h, _stub, architect) => {
+    const planId = await open(h, "normal");
+    const body = JSON.stringify({
+      summary: "big",
+      packages: Array.from({ length: 20 }, (_, i) => ({
+        id: `wp${i + 1}`,
+        title: `${"long title ".repeat(120)}${i}`,
+        owns: [`src/p${i}/`],
+        acceptance: ["works"],
+        estimate_hours: 1,
+      })),
+      risks: ["none"],
+    });
+    const answer = await call(h, architect.credential, "plan", [
+      "submit",
+      planId,
+      body,
+    ]);
+    assert.ok(answer.ok, JSON.stringify(answer));
+    const notice = bodies(h, h.pm.agentId).find((b) =>
+      b.startsWith(`Plan ${planId} approved`),
+    )!;
+    assert.ok(Buffer.byteLength(notice, "utf8") <= 16 * 1024);
+    assert.match(
+      notice,
+      new RegExp(`\\.\\.\\. and \\d+ more; see cstan plan show ${planId}`),
+    );
+    assert.match(notice, /Integration order: /);
+  });
+});
+
+test("a notice with no active PM is kept and sent when a PM is active", async () => {
+  await withPlans("high_risk", async (h, _stub, architect) => {
+    const planId = await open(h, "normal");
+    h.core.endAgent(ctx(h.core, h.owner), h.pm.agentId);
+    await call(h, architect.credential, "plan", ["submit", planId, planBody()]);
+    assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), [
+      { planId, kind: "approved" },
+    ]);
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), {
+        planId,
+        kind: "approved",
+      }).announced,
+      false,
+    );
+    const pm2 = h.addMember("pm2", "PM");
+    assert.equal(
+      h.core.announcePlanNotice(ctx(h.core, h.owner), {
+        planId,
+        kind: "approved",
+      }).announced,
+      true,
+    );
+    assert.equal(
+      bodies(h, pm2.agentId).filter((b) =>
+        b.startsWith(`Plan ${planId} approved`),
+      ).length,
+      1,
+    );
+    assert.deepEqual(h.core.unannouncedPlanNotices(h.owner), []);
   });
 });

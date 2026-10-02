@@ -421,22 +421,43 @@ function reviewNotice(
   ].join("\n");
 }
 
-/** The notice the PM receives when a plan is approved: the packages, their dependencies and the order. */
+function planNeedsAttentionNotice(planId: string): string {
+  return `Plan ${planId} needs attention: it used ${MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.`;
+}
+
+const PLAN_NOTICE_BUDGET_BYTES = 12 * 1024;
+
+/** The notice the PM receives when a plan is approved: the packages, their dependencies and the order, cut to fit one message. */
 function planApprovedNotice(planId: string, bodyJson: string): string {
   const body = JSON.parse(bodyJson) as {
     packages: { id: string; title: string; dependsOn?: string[] }[];
     integrationOrder?: string[];
   };
-  const lines = [
-    `Plan ${planId} approved. Assign each package with cstan plan assign ${planId} <package-id> <agent-id>.`,
-    ...body.packages.map(
-      (p) =>
-        `- ${p.id}: ${JSON.stringify(p.title)}; depends on: ${(p.dependsOn ?? []).length === 0 ? "none" : p.dependsOn!.join(", ")}`,
-    ),
-  ];
-  if (body.integrationOrder !== undefined)
-    lines.push(`Integration order: ${body.integrationOrder.join(", ")}`);
-  return lines.join("\n");
+  const head = `Plan ${planId} approved. Assign each package with cstan plan assign ${planId} <package-id> <agent-id>.`;
+  const order =
+    body.integrationOrder === undefined
+      ? []
+      : [`Integration order: ${body.integrationOrder.join(", ")}`];
+  const lines: string[] = [];
+  let bytes = Buffer.byteLength(head, "utf8");
+  // Room for the order line and the cut marker, so neither can push the notice over the limit.
+  const reserve = 1024 + Buffer.byteLength(order.join("\n"), "utf8");
+  for (const [index, p] of body.packages.entries()) {
+    const line = `- ${p.id}: ${JSON.stringify(p.title)}; depends on: ${(p.dependsOn ?? []).length === 0 ? "none" : p.dependsOn!.join(", ")}`;
+    const size = Buffer.byteLength(line, "utf8") + 1;
+    if (bytes + size + reserve > PLAN_NOTICE_BUDGET_BYTES) {
+      lines.push(
+        `... and ${body.packages.length - index} more; see cstan plan show ${planId}`,
+      );
+      break;
+    }
+    lines.push(line);
+    bytes += size;
+  }
+  const text = [head, ...lines, ...order].join("\n");
+  return Buffer.byteLength(text, "utf8") <= MAX_MESSAGE_BYTES
+    ? text
+    : `${head}\nThe plan is too large to list; see cstan plan show ${planId}`;
 }
 
 export const MAX_PLAN_BODY_BYTES = 32 * 1024;
@@ -3686,10 +3707,7 @@ export class ControllerCore {
         )
         .run(now, this.#projectId, plan.plan_id);
       if (this.#finishedPlanReviews(plan.plan_id) >= MAX_REVIEW_ROUNDS)
-        this.#noticeToPm(
-          `Plan ${plan.plan_id} needs attention: it used ${MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.`,
-          now,
-        );
+        this.#noticeToPm(planNeedsAttentionNotice(plan.plan_id), now);
       return;
     }
     const revision = this.#database
@@ -4345,7 +4363,7 @@ export class ControllerCore {
     this.#noticeToPm(planApprovedNotice(plan.plan_id, bodyJson), now);
   }
 
-  /** Queues a controller notice to the one active PM; false when there is none. The caller owns the transaction. */
+  /** Queues a controller notice to the one active PM; false when there is none, and then the reconcile loop re-sends it (unannouncedPlanNotices). The caller owns the transaction. */
   #noticeToPm(body: string, now: string): boolean {
     const parties = this.#noticeParties();
     if (parties === undefined) return false;
@@ -4357,6 +4375,86 @@ export class ControllerCore {
       now,
     );
     return true;
+  }
+
+  /**
+   * Plan notices the PM has not received (no PM was active when the plan was approved or ran out of review rounds).
+   * A notice counts as sent when a controller message with its leading text exists.
+   */
+  unannouncedPlanNotices(
+    credential: string,
+  ): readonly { planId: string; kind: "approved" | "needs_attention" }[] {
+    this.#authorize(credential, "controller:reconcile");
+    const sent = (planId: string, lead: string): boolean => {
+      const text = `Plan ${planId} ${lead}`;
+      return (
+        this.#database
+          .prepare(
+            "SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?",
+          )
+          .get(this.#projectId, text.length, text) !== undefined
+      );
+    };
+    const out: { planId: string; kind: "approved" | "needs_attention" }[] = [];
+    for (const plan of this.#database
+      .prepare(
+        "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence",
+      )
+      .all(this.#projectId) as PlanRow[]) {
+      if (plan.state === "approved") {
+        if (!sent(plan.plan_id, "approved"))
+          out.push({ planId: plan.plan_id, kind: "approved" });
+      } else if (
+        this.#finishedPlanReviews(plan.plan_id) >= MAX_REVIEW_ROUNDS &&
+        !sent(plan.plan_id, "needs attention")
+      )
+        out.push({ planId: plan.plan_id, kind: "needs_attention" });
+    }
+    return out;
+  }
+
+  /** Queues one missing plan notice to the PM; false when no PM is the sole active one. */
+  announcePlanNotice(
+    context: MutationContext,
+    input: {
+      readonly planId: string;
+      readonly kind: "approved" | "needs_attention";
+    },
+  ): { readonly announced: boolean } {
+    safeId(input.planId, "plan id");
+    return this.#mutate(
+      context,
+      "plan.announce",
+      "controller:reconcile",
+      { planId: input.planId, kind: input.kind },
+      () => {
+        const plan = this.#planRow(input.planId);
+        if (plan === undefined)
+          throw new ControllerError(`plan ${input.planId} does not exist`);
+        let body: string;
+        if (input.kind === "approved") {
+          const revision = this.#database
+            .prepare(
+              "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+            )
+            .get(this.#projectId, plan.plan_id, plan.approved_revision) as
+            { body_json: string } | undefined;
+          if (plan.state !== "approved" || revision === undefined)
+            throw new ControllerError(`plan ${input.planId} is not approved`);
+          body = planApprovedNotice(plan.plan_id, revision.body_json);
+        } else body = planNeedsAttentionNotice(plan.plan_id);
+        const announced = this.#noticeToPm(body, this.#now());
+        return {
+          value: { announced },
+          event: {
+            entityType: "plan",
+            entityId: input.planId,
+            stateVersion: 0,
+            details: { announced, kind: input.kind },
+          },
+        };
+      },
+    );
   }
 
   /** Review rounds of a plan that finished with a verdict. */
