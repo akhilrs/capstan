@@ -15,9 +15,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
-import type { CapstanConfig } from "../src/config/capstan-config.js";
+import {
+  CONFIG_FILE_NAME,
+  loadCapstanConfig,
+  type CapstanConfig,
+  type ResolvedWorktree,
+} from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
-import { Launcher, LauncherError, defaultGit } from "../src/launcher.js";
+import {
+  Launcher,
+  LauncherError,
+  defaultGit,
+  runSetupCommand,
+  type SetupRunner,
+} from "../src/launcher.js";
 import { CSTAN_ALLOW_RULE } from "../src/prompts.js";
 import {
   AgentPaneMismatch,
@@ -169,6 +180,8 @@ async function world(
     readonly hostOf?: Readonly<Record<string, "codex" | "omp">>;
     /** Enables the Architect role in the configuration; `counts` is count_toward_worker_limit. */
     readonly architect?: { readonly counts: boolean };
+    readonly worktree?: ResolvedWorktree;
+    readonly runSetup?: SetupRunner;
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -206,16 +219,24 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: withArchitect(
-        config(
-          fallback,
-          maxWorkers,
-          layout,
-          environment.pass,
-          environment.hostOf,
+      config: {
+        ...withArchitect(
+          config(
+            fallback,
+            maxWorkers,
+            layout,
+            environment.pass,
+            environment.hostOf,
+          ),
+          environment.architect,
         ),
-        environment.architect,
-      ),
+        ...(environment.worktree === undefined
+          ? {}
+          : { worktree: environment.worktree }),
+      },
+      ...(environment.runSetup === undefined
+        ? {}
+        : { runSetup: environment.runSetup }),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -3061,5 +3082,351 @@ test("without the Architect no prompt mentions plans", async () => {
     }
   } finally {
     w.cleanup();
+  }
+});
+
+const SETUP: ResolvedWorktree = { setup: "npm ci", setupTimeoutSeconds: 7 };
+
+test("without a worktree configuration spawn never runs setup", async () => {
+  const calls: string[] = [];
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      runSetup: async (command) => {
+        calls.push(command);
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    assert.deepEqual(calls, []);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("setup runs once in the new worktree after it is created and before the worker starts, for a worker and the architect, not the PM", async () => {
+  const calls: Array<[string, string, number]> = [];
+  const startsAtSetup: number[] = [];
+  const holder: { w?: World } = {};
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      architect: { counts: false },
+      worktree: SETUP,
+      runSetup: async (command, cwd, timeoutMs) => {
+        calls.push([command, cwd, timeoutMs]);
+        startsAtSetup.push(holder.w!.adapter.starts.length);
+        return { status: "ok" };
+      },
+    },
+  );
+  holder.w = w;
+  try {
+    await launched(w);
+    assert.deepEqual(calls, []);
+    const first = await w.launcher.spawn("developer");
+    assert.deepEqual(calls, [["npm ci", first.worktreePath, 7000]]);
+    assert.deepEqual(startsAtSetup, [1], "only the PM had started");
+    assert.ok(
+      w.adapter.calls.findIndex((c) => c.startsWith("worktree:")) <
+        w.adapter.calls.findIndex((c) => c.startsWith("place:")) ||
+        !w.adapter.calls.some((c) => c.startsWith("place:")),
+    );
+    await w.launcher.spawn("architect");
+    assert.equal(calls.length, 2);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a failing setup rejects with worktree_setup_failed naming the exit code and output, and removes pane, worktree, branch and agent", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: SETUP,
+      runSetup: async () => ({
+        status: "failed",
+        exitCode: 3,
+        output: "npm ERR! \u001b[31mboom\u001b[0m\nsecond line",
+      }),
+    },
+  );
+  try {
+    await launched(w);
+    const startsBefore = w.adapter.starts.length;
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worktree_setup_failed" &&
+        /developer-1/.test(e.message) &&
+        /npm ci/.test(e.message) &&
+        /exit code 3/.test(e.message) &&
+        /npm ERR! boom second line/.test(e.message),
+    );
+    assert.equal(w.adapter.starts.length, startsBefore);
+    assert.ok(w.adapter.calls.some((c) => c.startsWith("close:")));
+    assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+    assert.equal(
+      w.core.listAgents().find((a) => a.agentId === "developer-1")!.state,
+      "ended",
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      false,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a timed-out setup rejects with worktree_setup_failed and the same cleanup", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: SETUP,
+      runSetup: async () => ({ status: "timeout" }),
+    },
+  );
+  try {
+    await launched(w);
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worktree_setup_failed" &&
+        /timed out after 7s/.test(e.message),
+    );
+    assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
+    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("setup time is not charged to the step budget", async () => {
+  let clock = 1_000_000;
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: SETUP,
+      runSetup: async () => {
+        clock += 5 * 60_000;
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const slow = new Launcher({
+      core: w.core,
+      adapter: w.adapter,
+      config: {
+        ...config(),
+        worktree: SETUP,
+      } as CapstanConfig,
+      projectRoot: w.root,
+      cliPath: "/opt/capstan/cli.js",
+      socketPath: path.join(w.root, ".capstan", "state", "control.sock"),
+      credential: w.owner,
+      nodePath: "/usr/bin/node",
+      baseEnvironment: { PATH: "/usr/bin:/bin" },
+      git: w.git,
+      now: () => clock,
+      runSetup: async () => {
+        clock += 5 * 60_000;
+        return { status: "ok" };
+      },
+    });
+    const result = await slow.spawn("developer");
+    assert.equal(result.state, "started");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace runs setup in the new worktree and reports a setup failure", async () => {
+  let fail = false;
+  const cwds: string[] = [];
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: SETUP,
+      runSetup: async (_command, cwd) => {
+        cwds.push(cwd);
+        return fail
+          ? { status: "failed", exitCode: 1, output: "nope" }
+          : { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    const replaced = await w.launcher.replace(old.agentId);
+    assert.equal(replaced.state, "started");
+    assert.equal(cwds.length, 2);
+    if (replaced.state !== "started") return;
+    fail = true;
+    await assert.rejects(
+      w.launcher.replace(replaced.agentId),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        /worktree_setup_failed|setup/.test(String((e as Error).message)),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("runSetupCommand leaves a succeeding command's effect in the directory", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "capstan-setup-"));
+  try {
+    const outcome = await runSetupCommand("touch made.txt", dir, 10_000, {
+      PATH: "/usr/bin:/bin",
+    });
+    assert.deepEqual(outcome, { status: "ok" });
+    assert.ok(existsSync(path.join(dir, "made.txt")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runSetupCommand reports exit code and a capped output tail on failure", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "capstan-setup-"));
+  try {
+    const outcome = await runSetupCommand(
+      "echo oops >&2; exit 4",
+      dir,
+      10_000,
+      { PATH: "/usr/bin:/bin" },
+    );
+    assert.equal(outcome.status, "failed");
+    if (outcome.status === "failed") {
+      assert.equal(outcome.exitCode, 4);
+      assert.match(outcome.output, /oops/);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runSetupCommand kills the whole process group on timeout", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "capstan-setup-"));
+  try {
+    const started = Date.now();
+    const outcome = await runSetupCommand(
+      "sleep 30 & echo $! > child.pid; wait",
+      dir,
+      1000,
+      { PATH: "/usr/bin:/bin" },
+    );
+    assert.deepEqual(outcome, { status: "timeout" });
+    assert.ok(Date.now() - started < 10_000);
+    const pid = Number(readFileSync(path.join(dir, "child.pid"), "utf8"));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.throws(() => process.kill(pid, 0), /ESRCH/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a worktree section loaded from capstan.toml reaches runSetup with its command, cwd and timeout", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-launcher-toml-"));
+  const calls: Array<[string, string, number]> = [];
+  let w: World | undefined;
+  try {
+    writeFileSync(
+      path.join(directory, CONFIG_FILE_NAME),
+      `schema_version = 1
+
+[hosts.claude]
+kind = "claude"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[worktree]
+setup = "make deps"
+setup_timeout_seconds = 42
+`,
+      { mode: 0o600 },
+    );
+    const loaded = loadCapstanConfig(directory);
+    assert.ok(loaded.worktree !== undefined);
+    w = await world(
+      true,
+      true,
+      3,
+      {},
+      {
+        worktree: loaded.worktree,
+        runSetup: async (command, cwd, timeoutMs) => {
+          calls.push([command, cwd, timeoutMs]);
+          return { status: "ok" };
+        },
+      },
+    );
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    assert.deepEqual(calls, [["make deps", result.worktreePath, 42_000]]);
+  } finally {
+    w?.cleanup();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("setup runs with the agents' filtered environment: no daemon-only variable, the [env] pass variables present, no agent token", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "capstan-setup-env-"));
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: { setup: "env > setup-env.txt", setupTimeoutSeconds: 10 },
+      pass: ["PASSED_VALUE"],
+      base: { PASSED_VALUE: "yes", DAEMON_ONLY: "leak" },
+    },
+  );
+  try {
+    mkdirSync(path.join(base, "developer-1"));
+    w.adapter.worktreeBase = base;
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    const text = readFileSync(
+      path.join(result.worktreePath, "setup-env.txt"),
+      "utf8",
+    );
+    assert.match(text, /^PASSED_VALUE=yes$/m);
+    assert.match(text, /^HOME=\/home\/x$/m);
+    assert.doesNotMatch(text, /DAEMON_ONLY|SECRET/);
+    assert.doesNotMatch(text, /CAPSTAN_TOKEN/);
+  } finally {
+    w.cleanup();
+    rmSync(base, { recursive: true, force: true });
   }
 });

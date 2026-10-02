@@ -52,6 +52,8 @@ export class StubAdapter implements LauncherAdapter {
   closeError: Error | undefined;
   worktreeError: Error | undefined;
   runError: Error | undefined;
+  /** Where created worktrees are said to be; a test that runs a real command there points it at a real directory. */
+  worktreeBase = "/tmp/work";
   dir = mkdtempSync(path.join(tmpdir(), "capstan-launcher-prompts-"));
 
   // The PM's tab as the layout sees it: sizes in terminal cells.
@@ -171,7 +173,7 @@ export class StubAdapter implements LauncherAdapter {
     return {
       workspaceId: `w${this.counter}`,
       paneId,
-      path: `/tmp/work/${input.label.split(" · ").pop()}`,
+      path: `${this.worktreeBase}/${input.label.split(" · ").pop()}`,
       branch: input.branch,
     };
   }
