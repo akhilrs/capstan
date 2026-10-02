@@ -263,6 +263,11 @@ test("ending an agent keeps its failed messages failed and cancels the rest; a P
         recipientAgentId: dev,
         body: "x",
       }).messageId;
+    // The failure below queues a delivery notice for the PM; this message goes first, so it stays the head of the PM's queue.
+    const toPm = h.core.enqueueMessage(ctx(h.core, h.owner), {
+      recipientAgentId: h.pm.agentId,
+      body: "for the pm",
+    }).messageId;
     const failing = make();
     h.core.recordFailure(
       ctx(h.core, h.owner),
@@ -278,10 +283,6 @@ test("ending an agent keeps its failed messages failed and cancels the rest; a P
       "Herdr failed: agent_not_found",
     );
     assert.equal(h.core.message(waiting)!.stateReason, "agent_ended");
-    const toPm = h.core.enqueueMessage(ctx(h.core, h.owner), {
-      recipientAgentId: h.pm.agentId,
-      body: "for the pm",
-    }).messageId;
     h.core.recordFailure(ctx(h.core, h.owner), toPm, "r".repeat(250));
     h.core.replaceAgentGeneration(ctx(h.core, h.owner), h.pm.agentId);
     const reason = h.core.message(toPm)!.stateReason!;

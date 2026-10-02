@@ -37,11 +37,14 @@ import { close, ctx, harness, type Harness } from "./harness.js";
 
 const TIMERS: MessagingTimers = {
   maxDeferralSeconds: 120,
+  maxBusyDeferralSeconds: 120,
   pmAckTimeoutSeconds: 600,
   pmNotifyAfterSeconds: 300,
   notifyIntervalSeconds: 600,
   stallAfterSeconds: 900,
   workerAckTimeoutSeconds: 600,
+  pmWakeAfterSeconds: 0,
+  pmWakeIntervalSeconds: 120,
 };
 
 interface Typed {
@@ -106,6 +109,19 @@ class StubAdapter implements DriverAdapter {
     return { sent: true };
   }
 
+  readonly wakes: Typed[] = [];
+  wakeOutcome: "sent" | "pm_not_idle" | "input_not_empty" = "sent";
+  async wakePm(input: {
+    paneId: string;
+    text: string;
+    beforeSend: () => void | Promise<void>;
+  }) {
+    if (this.wakeOutcome !== "sent")
+      return { sent: false as const, reason: this.wakeOutcome };
+    await input.beforeSend();
+    this.wakes.push({ paneId: input.paneId, text: input.text });
+    return { sent: true as const };
+  }
   async clearAfterDeferral(input: {
     paneId: string;
     deferredForMs: number;
@@ -160,7 +176,7 @@ interface World {
   eventNames(): string[];
 }
 
-async function world(): Promise<World> {
+async function world(timers: MessagingTimers = TIMERS): Promise<World> {
   const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
   const h = await harness({ clock: () => new Date(clock.now) });
   const adapter = new StubAdapter();
@@ -170,7 +186,7 @@ async function world(): Promise<World> {
   const driver = new DeliveryDriver({
     core: h.core,
     adapter,
-    timers: TIMERS,
+    timers,
     notifier,
     credential: h.owner,
     now: () => clock.now,
@@ -1014,5 +1030,95 @@ test("the timers of a resolved capstan.toml, whatever else it holds, are accepte
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const WAKE_TIMERS: MessagingTimers = {
+  ...TIMERS,
+  pmWakeAfterSeconds: 20,
+  pmWakeIntervalSeconds: 120,
+};
+
+test("an idle PM with an unread message is woken once, recorded first, and not again within the interval", async () => {
+  const w = await world(WAKE_TIMERS);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    const id = w.h.core.enqueueMessage(ctx(w.h.core, w.h.owner), {
+      recipientAgentId: w.h.pm.agentId,
+      body: "report",
+    }).messageId;
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 0, "not before the wait");
+    w.advance(21_000);
+    await w.tick();
+    assert.deepEqual(w.adapter.wakes, [
+      {
+        paneId: `w1:${w.h.pm.agentId}`,
+        text: "Run cstan inbox: a teammate has written to you.",
+      },
+    ]);
+    assert.ok(w.eventNames().includes("pm_woken"));
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 1, "not within the interval");
+    w.advance(121_000);
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 2);
+    w.h.core.recordSent(ctx(w.h.core, w.h.owner), id);
+    w.advance(121_000);
+    await w.tick();
+    assert.equal(
+      w.adapter.wakes.length,
+      2,
+      "a message the PM read is not a reason",
+    );
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a wake the adapter declines is logged once and records nothing, so the next tick tries again", async () => {
+  const w = await world(WAKE_TIMERS);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    w.adapter.wakeOutcome = "input_not_empty";
+    w.h.core.enqueueMessage(ctx(w.h.core, w.h.owner), {
+      recipientAgentId: w.h.pm.agentId,
+      body: "report",
+    });
+    w.advance(30_000);
+    await w.tick();
+    await w.tick();
+    assert.equal(
+      w.events.filter((e) => e.event === "wake_skipped").length,
+      1,
+      "logged once",
+    );
+    w.adapter.wakeOutcome = "sent";
+    await w.tick();
+    assert.equal(
+      w.adapter.wakes.length,
+      1,
+      "the declined wakes were never recorded",
+    );
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a stalled worker makes the driver queue one Agent stalled notice for the PM", async () => {
+  const w = await world();
+  try {
+    w.adapter.states.set(w.h.developer.agentId, "working");
+    await w.tick();
+    w.advance((TIMERS.stallAfterSeconds + 5) * 1000);
+    await w.tick();
+    await w.tick();
+    const told = w.h.core
+      .messagesFor(w.h.pm.agentId)
+      .filter((m) => m.body.startsWith("Agent stalled"));
+    assert.equal(told.length, 1);
+    assert.match(told[0]!.body, new RegExp(w.h.developer.agentId));
+  } finally {
+    await close(w.h);
   }
 });

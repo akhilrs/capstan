@@ -610,11 +610,14 @@ test("a delivery the target has not acknowledged does not allow a check, and one
     nowMs += 700_000;
     h.core.advanceMessaging(ctx(h.core, h.owner), {
       maxDeferralSeconds: 120,
+      maxBusyDeferralSeconds: 120,
       pmAckTimeoutSeconds: 600,
       pmNotifyAfterSeconds: 300,
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      pmWakeAfterSeconds: 0,
+      pmWakeIntervalSeconds: 120,
     });
     assert.equal(messageState(h, messageId), "unacked");
     assert.throws(

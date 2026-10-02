@@ -18,11 +18,14 @@ import {
 const SECOND = 1000;
 const timers: MessagingTimers = {
   maxDeferralSeconds: 120,
+  maxBusyDeferralSeconds: 120,
   pmAckTimeoutSeconds: 600,
   pmNotifyAfterSeconds: 300,
   notifyIntervalSeconds: 600,
   stallAfterSeconds: 900,
   workerAckTimeoutSeconds: 600,
+  pmWakeAfterSeconds: 0,
+  pmWakeIntervalSeconds: 120,
 };
 
 const LEGAL: ReadonlyArray<[MessageState, MessageState]> = [
@@ -189,6 +192,8 @@ function facts(overrides: Partial<MessageFacts>): MessageFacts {
     deferredReason: null,
     inputClearRecorded: false,
     lastNotifiedMs: null,
+    wakeCount: 0,
+    lastWakeMs: null,
     ...overrides,
   };
 }

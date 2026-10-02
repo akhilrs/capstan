@@ -1353,9 +1353,12 @@ export class Launcher {
           "a PM is launched, not spawned",
         );
       this.#assertRoleSynced(role);
-      const workers = this.#activeAgents().filter((a) => a.kind !== "PM");
+      // The Supervisor watches the workers and does not take one of their places.
+      const workers = this.#activeAgents().filter(
+        (a) => a.kind !== "PM" && a.kind !== "Supervisor",
+      );
       const limit = this.#config.limits.maxWorkers;
-      if (workers.length >= limit) {
+      if (role.kind !== "Supervisor" && workers.length >= limit) {
         const stuck = workers
           .map((a) => ({
             id: a.agentId,

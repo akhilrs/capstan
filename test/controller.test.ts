@@ -7314,7 +7314,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -7342,6 +7342,9 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "pm_notices",
+        "pm_wakes",
+        "supervision_checks",
         "agent_finding_notices",
         "agent_finding_checks",
         "agent_finding_deliveries",
@@ -7400,6 +7403,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 18, name: "0018_reviews.sql" },
           { version: 19, name: "0019_integrations.sql" },
           { version: 20, name: "0020_agent_findings.sql" },
+          { version: 21, name: "0021_oversight.sql" },
         ],
       );
       assert.equal(

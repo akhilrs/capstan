@@ -1,6 +1,7 @@
 import type {
   DeferralReason,
   MessageState,
+  AttentionEpisode,
   MessagingAction,
 } from "./messaging.js";
 export const roles = [
@@ -261,6 +262,7 @@ export interface MessagingAdvance {
   readonly applied: readonly string[];
   readonly actions: readonly MessagingAction[];
   readonly stalledAgentIds: readonly string[];
+  readonly attention: readonly AttentionEpisode[];
 }
 
 export interface Identity {

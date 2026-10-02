@@ -59,6 +59,17 @@ export interface DriverAdapter {
     text: string;
     beforeSend: () => void | Promise<void>;
   }): Promise<SendOutcome>;
+  wakePm(input: {
+    paneId: string;
+    text: string;
+    beforeSend: () => void | Promise<void>;
+  }): Promise<
+    | { readonly sent: true }
+    | {
+        readonly sent: false;
+        readonly reason: "pm_not_idle" | "input_not_empty";
+      }
+  >;
   clearAfterDeferral(input: {
     paneId: string;
     deferredForMs: number;
@@ -89,6 +100,9 @@ export interface DriverOptions {
 export class StaleActionError extends Error {
   override readonly name = "StaleActionError";
 }
+
+/** The line typed into an idle PM that has an unread message. */
+export const PM_WAKE_TEXT = "Run cstan inbox: a teammate has written to you.";
 
 type Outcome = "ok" | "not_found" | "other";
 
@@ -344,9 +358,22 @@ export class DeliveryDriver {
     this.#stalled = advance.stalledAgentIds;
     for (const agentId of advance.stalledAgentIds)
       this.#logOnce(`${agentId}|agent_stalled`, "agent_stalled", { agentId });
+    try {
+      this.#core.queueMissingDeliveryNotices(this.#context());
+    } catch (error) {
+      this.#log("delivery_notice_failed", { error: String(error) });
+    }
+    if (advance.attention.length > 0) {
+      try {
+        this.#core.queueAttentionNotices(this.#context(), advance.attention);
+      } catch (error) {
+        this.#log("attention_notice_failed", { error: String(error) });
+      }
+    }
     for (const action of advance.actions) {
       try {
         if (action.kind === "notify_operator") await this.#notifyHead(action);
+        else if (action.kind === "wake_pm") await this.#wake(action);
         else await this.#clear(action);
       } catch (error) {
         this.#log("action_failed", { kind: action.kind, error: String(error) });
@@ -371,6 +398,44 @@ export class DeliveryDriver {
       return true;
     }
     return false;
+  }
+
+  /** Types one wake line into an idle PM that has an unread message; the wake is recorded first and never repeated sooner than the interval. */
+  async #wake(
+    action: Extract<MessagingAction, { kind: "wake_pm" }>,
+  ): Promise<void> {
+    const message = this.#core.message(action.messageId);
+    if (message === undefined || message.state !== "queued") return;
+    const agent = this.#core.agentRecord(message.recipientAgentId);
+    if (agent === undefined || agent.state !== "active" || agent.kind !== "PM")
+      return;
+    const owned = this.#owned(agent);
+    if (typeof owned === "string") return;
+    try {
+      const outcome = await this.#adapter.wakePm({
+        paneId: owned.paneId,
+        text: PM_WAKE_TEXT,
+        beforeSend: () => {
+          const current = this.#core.message(message.messageId);
+          if (current === undefined || current.state !== "queued")
+            throw new StaleActionError("the message is no longer unread");
+          this.#core.recordPmWake(this.#context(), message.messageId);
+        },
+      });
+      if (!outcome.sent)
+        this.#logOnce(
+          `${message.messageId}|wake_skipped|${outcome.reason}`,
+          "wake_skipped",
+          { messageId: message.messageId, reason: outcome.reason },
+        );
+      else this.#log("pm_woken", { messageId: message.messageId });
+    } catch (error) {
+      if (!this.#isStale(error, message.messageId))
+        this.#log("wake_failed", {
+          messageId: message.messageId,
+          error: String(error),
+        });
+    }
   }
 
   async #notifyHead(

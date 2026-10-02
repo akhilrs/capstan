@@ -19,13 +19,17 @@ function waitConfig(waitSeconds: number): CapstanConfig {
     notifications: { herdr: true, fallback: true },
     timers: {
       maxDeferralSeconds: 120,
+      maxBusyDeferralSeconds: 120,
       pmAckTimeoutSeconds: 600,
       pmNotifyAfterSeconds: 300,
       notifyIntervalSeconds: 600,
       stallAfterSeconds: 900,
       workerAckTimeoutSeconds: 600,
+      pmWakeAfterSeconds: 0,
+      pmWakeIntervalSeconds: 120,
       findingCheckSeconds: 1800,
     },
+    supervision: { enabled: false, checkSeconds: 300 },
     limits: { maxWorkers: 3 },
     layout: {
       spawn: "tab",

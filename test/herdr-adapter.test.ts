@@ -3615,3 +3615,121 @@ test("a tab is renamed with checked text, and a new workspace reports its first 
     h.fake.cleanup();
   }
 });
+
+async function startedPm(h: Harness, screen = idleScreen()) {
+  const pm = await h.adapter.createWorkspace({
+    cwd: "/tmp",
+    label: "proj",
+    role: "PM",
+  });
+  await h.adapter.startAgent({
+    name: "pm-1",
+    kind: "claude",
+    paneId: pm.paneId,
+    args: [],
+    environment: CLEAN_ENV,
+  });
+  const pane = h.fake.panes.get(pm.paneId)!;
+  pane.screen = screen;
+  h.fake.agentStates.set("pm-1", { paneId: pm.paneId, statuses: ["idle"] });
+  h.fake.events.length = 0;
+  return { paneId: pm.paneId, pane };
+}
+
+test("wakePm types the wake line into a started PM pane that is idle with an empty input line, and records before it types", async () => {
+  const h = harness("acme");
+  try {
+    const { paneId } = await startedPm(h);
+    const order: string[] = [];
+    const outcome = await h.adapter.wakePm({
+      paneId,
+      text: "Run cstan inbox: a teammate has written to you.",
+      beforeSend: () => {
+        order.push(`record:${h.fake.events.length}`);
+      },
+    });
+    assert.deepEqual(outcome, { sent: true });
+    assert.deepEqual(order, ["record:0"], "the record comes before any typing");
+    assert.deepEqual(h.fake.callsTo("agent", "prompt").at(-1), [
+      "agent",
+      "prompt",
+      "acme-pm-1",
+      "Run cstan inbox: a teammate has written to you.",
+    ]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("wakePm never types while the PM works or is blocked, with text on its input line, or when the line cannot be read", async () => {
+  const h = harness();
+  try {
+    const { paneId, pane } = await startedPm(h);
+    const wake = () =>
+      h.adapter.wakePm({
+        paneId,
+        text: "Run cstan inbox",
+        beforeSend: () => {},
+      });
+    for (const status of ["working", "blocked"]) {
+      h.fake.agentStates.get("pm-1")!.statuses = [status];
+      assert.deepEqual(
+        await wake(),
+        { sent: false, reason: "pm_not_idle" },
+        status,
+      );
+    }
+    h.fake.agentStates.get("pm-1")!.statuses = ["idle"];
+    pane.screen = idleScreen("half a sentence");
+    assert.deepEqual(await wake(), { sent: false, reason: "input_not_empty" });
+    pane.screen = "nothing that looks like an input line";
+    assert.deepEqual(await wake(), { sent: false, reason: "input_not_empty" });
+    assert.equal(h.fake.callsTo("agent", "prompt").length, 0);
+    h.fake.agentStates.get("pm-1")!.statuses = ["idle"];
+    pane.screen = idleScreen();
+    assert.deepEqual(await wake(), { sent: true });
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a state that changes between the two checks stops the wake before the keys, and a worker pane, an unregistered pane or a bad text is refused", async () => {
+  const h = harness();
+  try {
+    const { paneId } = await startedPm(h);
+    h.fake.agentStates.get("pm-1")!.statuses = ["idle", "working"];
+    assert.deepEqual(
+      await h.adapter.wakePm({
+        paneId,
+        text: "Run cstan inbox",
+        beforeSend: () => {},
+      }),
+      { sent: false, reason: "pm_not_idle" },
+    );
+    assert.equal(h.fake.callsTo("agent", "prompt").length, 0);
+    const worker = await startedWorker(h);
+    await assert.rejects(
+      h.adapter.wakePm({
+        paneId: worker.paneId,
+        text: "x y",
+        beforeSend: () => {},
+      }),
+      PhaseError,
+    );
+    await assert.rejects(
+      h.adapter.wakePm({ paneId: "w77:p1", text: "x y", beforeSend: () => {} }),
+      UnknownPaneError,
+    );
+    h.fake.agentStates.get("pm-1")!.statuses = ["idle"];
+    for (const text of ["/clear", "!ls", "a\nb", "x".repeat(20_000)])
+      await assert.rejects(
+        h.adapter.wakePm({ paneId, text, beforeSend: () => {} }),
+        InvalidArgumentError,
+      );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
