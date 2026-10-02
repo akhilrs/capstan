@@ -215,6 +215,14 @@ min_pane_rows = 12      # ...and this tall
 - **Kept on purpose.** The assignment, dispatch, candidate and containment model in `core.ts` and its tests: the status and inspect output and the recovery path still read it, and removing it is a separate, larger change.
 - **Oracle.** `npm run check` from a clean `dist` with no test skipped; the removed tests are named in the PR; `grep -rn "listenControl\|LEGACY_FOREGROUND\|WorkflowScheduler\|validateWorkflowPlan\|mutation-contexts\|ControlAction\|kind: \"legacy\"\|outcome: \"legacy\"\|runtime_sessions" src test` is empty.
 
+**The PM asks choices with the picker (PM-41).**
+
+- **Problem.** The PM wrote decisions into its reply as a numbered list with lettered options, so the operator had to type the answer. claw8's workflow rule already says to use Claude Code's `AskUserQuestion` tool for questions with concrete choices.
+- **Change.** The PM reference in the role prompt (`PM_REFERENCE` in `src/prompts.ts`) gains a short "Asking the user" section: use `AskUserQuestion` when a question has concrete choices; at most four questions in one call; two to four options each, the recommended one first with `(Recommended)` at the end of its label; a reason in each option's description; a header of at most twelve characters; `multiSelect` only when the choices are not exclusive; never an `Other` option (the picker adds one); plain text only for an open-ended question (a name, a value, free text); after the answer, restate the decision in one line and act on it. Worker, Supervisor and Verifier prompts do not change.
+- **Why no controller change.** The PM's deny list names only `Write`, `Edit`, `NotebookEdit`, `Agent` and `Task`, so `AskUserQuestion` is already allowed. A test pins that.
+- **Oracle.** A prompt test reads the built PM prompt and checks each rule above is stated, and that the other three prompts do not mention `AskUserQuestion`; a config test checks the PM default deny list does not contain it; `npm run check` is green.
+- **Not verified.** Whether the PM follows the rule in practice; that needs a real PM session and is not part of this change.
+
 Each message carries an id and asks for `cstan ack <id>`. The ack shows receipt, not understanding, and is forgeable (E5). A nonce adds nothing against a same-user forger and is left out of the slice.
 
 ## 6. Facts are verified, not trusted
