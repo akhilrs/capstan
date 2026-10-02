@@ -439,6 +439,12 @@ test("the Architect prompt: plan, integrate, direct replies, never confirm, neve
   ])
     assert.ok(text.includes(needle), needle);
   assert.ok(!text.includes("the architect named in it can answer"));
+  for (const banned of [
+    "Commit your work",
+    "cstan report",
+    "git rev-parse HEAD",
+  ])
+    assert.ok(!text.includes(banned), banned);
 });
 
 test("an enabled prompt of each kind stays under the prompt limit", () => {
