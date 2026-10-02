@@ -106,6 +106,7 @@ export const MAX_INPUT_CLEAR_BYTES = 64 * 1024;
 const MAX_SUMMARY_MESSAGES = 50;
 const MAX_SUMMARY_BODY = 2000;
 const MAX_SUMMARY_WORK = 200;
+const MAX_SUMMARY_LINKS = 50;
 const MAX_SUMMARY_BYTES = 32 * 1024;
 const MAX_OBJECTIVE_BYTES = 8 * 1024;
 const TRUNCATION_MARKER = "[truncated]";
@@ -1021,6 +1022,16 @@ export interface PmRestartSummary {
     readonly integrationId: string;
     readonly branch: string;
     readonly headSha: string | null;
+  }[];
+  /** Nexora links with their synced and wanted states, drifted first. Absent in summaries recorded before links existed. */
+  readonly links?: readonly {
+    readonly refKind: ExternalRefKind;
+    readonly refId: string;
+    readonly externalId: string;
+    readonly syncedState: NexoraState;
+    readonly wanted: NexoraState | null;
+    readonly drift: boolean;
+    readonly boundAgentId: string | null;
   }[];
   readonly truncated: boolean;
   readonly summarizedGeneration: number;
@@ -2654,12 +2665,32 @@ export class ControllerCore {
         body: `${cutAtCharacters(message.body, MAX_SUMMARY_BODY)}${TRUNCATION_MARKER}`,
       };
     });
+    const allLinks = (
+      this.#database
+        .prepare(
+          "SELECT * FROM external_links WHERE project_id = ? ORDER BY linked_at, ref_kind, ref_id",
+        )
+        .all(this.#projectId) as ExternalLinkRow[]
+    )
+      .map((row) => this.#linkRecord(row))
+      .sort((a, b) => Number(b.drift) - Number(a.drift));
+    if (allLinks.length > MAX_SUMMARY_LINKS) truncated = true;
+    const linksForSummary = allLinks.slice(0, MAX_SUMMARY_LINKS).map((l) => ({
+      refKind: l.refKind,
+      refId: l.refId,
+      externalId: l.externalId,
+      syncedState: l.syncedState,
+      wanted: l.wanted,
+      drift: l.drift,
+      boundAgentId: l.boundAgentId,
+    }));
     const summary: {
       objective: unknown;
       openWork: PmRestartSummary["openWork"][number][];
       messages: PmRestartSummary["messages"][number][];
       plans: NonNullable<PmRestartSummary["plans"]>[number][];
       integrations: NonNullable<PmRestartSummary["integrations"]>[number][];
+      links: NonNullable<PmRestartSummary["links"]>[number][];
       truncated: boolean;
       summarizedGeneration: number;
       generatedAt: string;
@@ -2676,6 +2707,7 @@ export class ControllerCore {
       messages: bounded,
       plans: this.#openPlansForSummary(),
       integrations: this.#mergedIntegrationsForSummary(),
+      links: linksForSummary,
       truncated,
       summarizedGeneration: generation,
       generatedAt: this.#now(),
@@ -2687,12 +2719,14 @@ export class ControllerCore {
       (summary.messages.length > 0 ||
         summary.openWork.length > 0 ||
         summary.plans.length > 0 ||
-        summary.integrations.length > 0)
+        summary.integrations.length > 0 ||
+        summary.links.length > 0)
     ) {
       if (summary.messages.length > 0) summary.messages.pop();
       else if (summary.openWork.length > 0) summary.openWork.pop();
       else if (summary.plans.length > 0) summary.plans.pop();
-      else summary.integrations.pop();
+      else if (summary.integrations.length > 0) summary.integrations.pop();
+      else summary.links.pop();
       summary.truncated = true;
     }
     return summary;

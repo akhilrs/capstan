@@ -2327,3 +2327,50 @@ test("a requirement keeps the work of the developers a replacement carried forwa
     await close(t.h);
   }
 });
+
+test("the PM restart summary lists Nexora links with drifted ones first and nothing without links", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const none = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.deepEqual(none.summary.links, []);
+    const pmAgain = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.ok(pmAgain);
+    link(t, "requirement", "req-1", "PM-20", "todo", {
+      ...h.pm,
+      credential: pmAgain.credential,
+    });
+    link(t, "requirement", "req-2", "PM-21", "in_progress", {
+      ...h.pm,
+      credential: pmAgain.credential,
+    });
+    h.core.bindRequirement(ctx(h.core, pmAgain.credential), {
+      refId: "req-2",
+      agentId: t.dev1.agentId,
+    });
+    h.core.bindRequirement(ctx(h.core, pmAgain.credential), {
+      refId: "req-1",
+      agentId: t.dev2.agentId,
+    });
+    const restarted = h.core.restartAgentGeneration(
+      ctx(h.core, h.owner),
+      h.pm.agentId,
+    );
+    assert.deepEqual(
+      restarted.summary.links?.map((l) => [l.refId, l.drift, l.wanted]),
+      [
+        ["req-1", true, "in_progress"],
+        ["req-2", false, "in_progress"],
+      ],
+      "the drifted link comes first",
+    );
+  } finally {
+    await close(t.h);
+  }
+});

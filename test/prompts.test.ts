@@ -496,3 +496,138 @@ test("the restart summary lists open plans and merged integrations only when the
     ),
   );
 });
+
+const nexoraAsk = { track: "ask", defaultAction: "create" } as const;
+
+test("with [nexora] track = never every prompt is byte-identical to one without the table", () => {
+  for (const kind of ["PM", "Developer", "Verifier", "Supervisor"] as const) {
+    const plain = buildRolePrompt(goldenInput(kind));
+    assert.equal(
+      buildRolePrompt({
+        ...goldenInput(kind),
+        nexora: { track: "never", defaultAction: "create" },
+      }),
+      plain,
+      kind,
+    );
+    assert.doesNotMatch(plain, /Nexora/, kind);
+  }
+});
+
+test("under the default ask the PM prompt has the picker, the mapping, the failure rules and the not-configured sentence", () => {
+  const text = buildRolePrompt({ ...goldenInput("PM"), nexora: nexoraAsk });
+  for (const needle of [
+    "You are the only agent that writes to Nexora; never ask a worker to",
+    "check that `.nexora.toml` exists in the project root",
+    'say once to the user "Nexora is not configured for this project, so I am not tracking this work"',
+    "AskUserQuestion",
+    '"Create a new Nexora item"',
+    '"Link to an existing item"',
+    '"Do not track"',
+    "one parent item of type epic",
+    "each work package is a child item of type story",
+    "estimated_hours",
+    "PM-<n>",
+    "in_progress, in_review, completed, wont_do",
+    "in_review means waiting on a human",
+    "starts a Nexora timer",
+    "cstan link bind <ref-id> <developer-agent-id>",
+    "Before any Nexora write run `cstan status`",
+    "Failures never block delivery",
+    "Nexora unreachable, N items out of sync",
+    "at most three tries per item per session",
+    "Cancellation is the user's or operator's decision, never yours",
+  ])
+    assert.ok(text.includes(needle), needle);
+  assert.ok(
+    !text.includes("cstan plan assign"),
+    "no plan text without the Architect",
+  );
+  assert.ok(
+    text.startsWith(
+      buildRolePrompt(goldenInput("PM")).split("Be brief.")[0]!.trimEnd(),
+    ),
+    "the old reference comes first",
+  );
+});
+
+test("with the Architect the PM prompt adds the plan mirroring and the ask-before-confirm rule", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("PM"),
+    architect,
+    nexora: nexoraAsk,
+  });
+  for (const needle of [
+    "cstan link plan <plan-id> <PM-n> todo",
+    "cstan link package <plan-id>/<package-id> <PM-n> todo",
+    "Before any Nexora write run `cstan plan show`",
+    "Before you run `cstan integrate confirm` for plan work, ask the user with AskUserQuestion",
+    'options "Merged" and "Not yet"',
+    "the operator runs `cstan plan cancel`",
+  ])
+    assert.ok(text.includes(needle), needle);
+});
+
+test("track = always applies the default action without the picker", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("PM"),
+    nexora: { track: "always", defaultAction: "link" },
+  });
+  assert.ok(text.includes("do not ask: apply the default action"));
+  assert.ok(!text.includes('"Create a new Nexora item"'));
+  assert.ok(text.includes("ask the user for an existing item id"));
+});
+
+test("workers are told not to use Nexora tools only when tracking is on", () => {
+  for (const kind of ["Developer", "Verifier"] as const) {
+    assert.ok(
+      buildRolePrompt({ ...goldenInput(kind), nexora: nexoraAsk }).includes(
+        "Do not use Nexora tools; the project manager records progress there.",
+      ),
+      kind,
+    );
+  }
+});
+
+test("the restart summary renders links and marks drift", () => {
+  const text = buildRolePrompt({
+    ...base,
+    restartSummary: {
+      ...summary,
+      links: [
+        {
+          refKind: "package",
+          refId: "plan-1/pkg-a",
+          externalId: "PM-52",
+          syncedState: "in_progress",
+          wanted: "in_review",
+          drift: true,
+          boundAgentId: null,
+        },
+        {
+          refKind: "plan",
+          refId: "plan-1",
+          externalId: "PM-51",
+          syncedState: "todo",
+          wanted: "todo",
+          drift: false,
+          boundAgentId: null,
+        },
+      ],
+    },
+  });
+  assert.ok(text.includes("Nexora links"));
+  assert.ok(
+    text.includes(
+      '- package "plan-1/pkg-a" -> "PM-52" [synced in_progress, wanted in_review, DRIFT]',
+    ),
+  );
+  assert.ok(
+    text.includes('- plan "plan-1" -> "PM-51" [synced todo, wanted todo]'),
+  );
+  assert.ok(
+    !buildRolePrompt({ ...base, restartSummary: summary }).includes(
+      "Nexora links",
+    ),
+  );
+});
