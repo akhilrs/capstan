@@ -3722,6 +3722,8 @@ export class ControllerCore {
         this.#touchAgent(row.reviewer_agent_id, now);
         if (row.subject_plan_id !== null)
           this.#settlePlanReview(row, input.verdict, now);
+        else if (input.verdict === "pass" && row.subject_report_id !== null)
+          this.#noticePackageReviewed(row, now);
         this.#announceReview(row.review_id, now);
         const done = this.#database
           .prepare(
@@ -3780,6 +3782,48 @@ export class ControllerCore {
       )
       .run(row.subject_plan_revision, now, this.#projectId, plan.plan_id);
     this.#settlePlanApproval(plan, revision.body_json, now);
+  }
+
+  /**
+   * Tells the PM that a package's report passed review, once per report, when the package's plan has a `plan` link:
+   * this is the one status change the PM has no other signal for. A cancelled plan or package is not announced.
+   */
+  #noticePackageReviewed(row: ReviewRow, now: string): void {
+    const candidates = this.#database
+      .prepare(
+        `SELECT p.plan_id, p.package_id, p.assignee_agent_id, p.assigned_at FROM plan_packages p
+         JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
+         JOIN external_links l ON l.project_id = p.project_id AND l.ref_kind = 'plan' AND l.ref_id = p.plan_id AND l.system = 'nexora'
+         WHERE p.project_id = ? AND p.assignee_agent_id = ? AND p.cancelled_at IS NULL AND pl.cancelled_at IS NULL
+         ORDER BY p.plan_id, p.package_id`,
+      )
+      .all(this.#projectId, row.author_agent_id) as {
+      plan_id: string;
+      package_id: string;
+      assignee_agent_id: string;
+      assigned_at: string;
+    }[];
+    const match = candidates.find(
+      (c) =>
+        this.#packageReport(
+          c.plan_id,
+          c.package_id,
+          c.assignee_agent_id,
+          c.assigned_at,
+        )?.report_id === row.subject_report_id,
+    );
+    if (match === undefined) return;
+    const body = [
+      `Plan ${match.plan_id} package ${match.package_id} reviewed`,
+      `Report: ${row.subject_report_id}`,
+      `Commit: ${row.commit_sha}`,
+    ].join("\n");
+    const sent = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM messages WHERE project_id = ? AND body = ?",
+      )
+      .get(this.#projectId, body);
+    if (sent === undefined) this.#noticeToPm(body, now);
   }
 
   #reviewAuthorIds(row: ReviewRow): string[] {

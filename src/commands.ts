@@ -42,6 +42,12 @@ import { OBSERVE_RATE_LIMIT, parseObserveLines } from "./observe.js";
 import type { IntegrationDeps } from "./integration.js";
 import { parsePlanBody } from "./plans.js";
 import {
+  EXTERNAL_REF_KINDS,
+  NEXORA_STATES,
+  isNexoraState,
+  type ExternalRefKind,
+} from "./nexora.js";
+import {
   IntegrationError,
   integrate,
   settleIntegration,
@@ -951,11 +957,12 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         sub !== "open" &&
         sub !== "submit" &&
         sub !== "show" &&
-        sub !== "assign"
+        sub !== "assign" &&
+        sub !== "cancel"
       )
         return fail(
           "invalid_request",
-          "plan needs open, submit, show or assign",
+          "plan needs open, submit, show, assign or cancel",
         );
       const config = deps.config;
       if (config === undefined || !config.architect.enabled)
@@ -998,6 +1005,39 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             planId: plan.planId,
             tier: plan.tier,
             state: plan.state,
+          });
+        }
+        if (sub === "cancel") {
+          if (call.identity.role !== "operator")
+            return fail("forbidden", "only the operator may cancel a plan");
+          const [planId, packageId, ...extra] = rest;
+          if (
+            planId === undefined ||
+            extra.length > 0 ||
+            ![planId, packageId ?? planId].every((id) => SAFE_AGENT_ID.test(id))
+          )
+            return fail(
+              "invalid_request",
+              "plan cancel needs a plan id and optionally a package id",
+            );
+          log("plan_cancel_requested", { planId, packageId });
+          const cancelled = core.cancelPlan(context(call.credential), {
+            planId,
+            ...(packageId === undefined ? {} : { packageId }),
+          });
+          if (cancelled.reviewerAgentId !== null && deps.launcher !== undefined)
+            releaseReviewerLater(
+              { launcher: deps.launcher, log },
+              {
+                reviewId: cancelled.reviewId!,
+                reviewerAgentId: cancelled.reviewerAgentId,
+              },
+            );
+          return ok({
+            planId: cancelled.planId,
+            packageId: cancelled.packageId,
+            cancelledPackages: cancelled.cancelledPackages,
+            notified: cancelled.notified,
           });
         }
         if (sub === "assign") {
@@ -1165,6 +1205,23 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           (rest[0] !== undefined && !SAFE_AGENT_ID.test(rest[0]))
         )
           return fail("invalid_request", "plan show takes an optional plan id");
+        const links = core.externalLinks(call.credential);
+        const linkFields = (
+          refKind: "plan" | "package",
+          refId: string,
+        ): Record<string, unknown> => {
+          const link = links.find(
+            (l) => l.refKind === refKind && l.refId === refId,
+          );
+          return link === undefined
+            ? {}
+            : {
+                externalId: link.externalId,
+                syncedState: link.syncedState,
+                wanted: link.wanted,
+                drift: link.drift,
+              };
+        };
         if (rest[0] === undefined)
           return ok({
             plans: core.listPlans(call.credential).map((p) => ({
@@ -1172,6 +1229,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               tier: p.tier,
               state: p.state,
               title: p.title,
+              ...linkFields("plan", p.planId),
             })),
           });
         const detail = core.planRecord(call.credential, rest[0]);
@@ -1188,7 +1246,13 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
                   authorAgentId: detail.revision.authorAgentId,
                   body: JSON.parse(detail.revision.bodyJson) as unknown,
                 },
-          packages: detail.packages,
+          ...(links.some((l) => l.refKind === "plan" && l.refId === rest[0])
+            ? { nexora: linkFields("plan", rest[0]) }
+            : {}),
+          packages: detail.packages.map((pkg) => ({
+            ...pkg,
+            ...linkFields("package", `${rest[0]}/${pkg.packageId}`),
+          })),
           signoffs: detail.signoffs,
         });
       } catch (error) {
@@ -1196,6 +1260,78 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           return fail("rejected", `plan_refused: ${error.message}`);
         if (error instanceof GitCheckError)
           return fail("error", "the controller could not run git just now");
+        return mapError(error);
+      }
+    },
+
+    link(call) {
+      const requestedBy = workerManager(call.identity);
+      if (requestedBy === undefined)
+        return fail("forbidden", "only the PM or the operator may link");
+      try {
+        const [first, ...rest] = call.args;
+        if (first === "bind") {
+          const [refId, agentId, ...extra] = rest;
+          if (
+            refId === undefined ||
+            agentId === undefined ||
+            extra.length > 0 ||
+            !SAFE_AGENT_ID.test(refId) ||
+            !SAFE_AGENT_ID.test(agentId)
+          )
+            return fail(
+              "invalid_request",
+              "link bind needs a requirement ref id and an agent id",
+            );
+          log("link_bind_requested", { requestedBy, refId, agentId });
+          const link = core.bindRequirement(context(call.credential), {
+            refId,
+            agentId,
+          });
+          return ok({
+            refKind: link.refKind,
+            refId: link.refId,
+            boundAgentId: link.boundAgentId,
+            boundAt: link.boundAt,
+          });
+        }
+        const [refId, externalId, syncedState, ...extra] = rest;
+        if (
+          first === undefined ||
+          !(EXTERNAL_REF_KINDS as readonly string[]).includes(first) ||
+          refId === undefined ||
+          externalId === undefined ||
+          extra.length > 0
+        )
+          return fail(
+            "invalid_request",
+            "link needs requirement|plan|package, a ref id, a Nexora id and optionally a state, or link bind <requirement-ref-id> <agent-id>",
+          );
+        if (syncedState !== undefined && !isNexoraState(syncedState))
+          return fail(
+            "invalid_request",
+            `the state must be one of ${NEXORA_STATES.join(", ")}`,
+          );
+        log("link_requested", { requestedBy, kind: first, refId });
+        const link = core.linkExternal(context(call.credential), {
+          refKind: first as ExternalRefKind,
+          refId,
+          externalId,
+          ...(syncedState === undefined ? {} : { syncedState }),
+        });
+        return ok({
+          refKind: link.refKind,
+          refId: link.refId,
+          externalId: link.externalId,
+          syncedState: link.syncedState,
+          wanted: link.wanted,
+          drift: link.drift,
+        });
+      } catch (error) {
+        if (error instanceof ControllerError)
+          return fail("rejected", `link_refused: ${error.message}`);
+        if (error instanceof TypeError)
+          return fail("invalid_request", error.message);
         return mapError(error);
       }
     },
@@ -1408,6 +1544,14 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             result.orphanPanes = launcherStatus.orphanPanes;
           }
         }
+        if (agentOf(call.identity)?.kind === "PM")
+          result.nexoraDrift = core.syncDrift(call.credential).map((l) => ({
+            refKind: l.refKind,
+            refId: l.refId,
+            externalId: l.externalId,
+            syncedState: l.syncedState,
+            wanted: l.wanted,
+          }));
         return ok(result);
       } catch (error) {
         return mapError(error);
