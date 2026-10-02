@@ -5764,6 +5764,71 @@ export class ControllerCore {
     );
   }
 
+  /**
+   * Tells the PM about stuck worker messages that have no notice yet: those that
+   * went wrong while no PM was active, and any that were stuck before the
+   * notices existed. Nothing is written while there is none.
+   */
+  queueMissingDeliveryNotices(context: MutationContext): {
+    readonly queued: number;
+  } {
+    this.#authorize(context.credential, "controller:reconcile");
+    const missing = (): MessageRow[] =>
+      (
+        this.#database
+          .prepare(
+            `SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
+             WHERE m.project_id = ? AND a.state = 'active' AND a.kind <> 'PM'
+               AND m.state IN ('unacked', 'expired', 'failed')
+               AND NOT EXISTS (SELECT 1 FROM pm_notices n WHERE n.project_id = m.project_id AND n.kind = 'delivery'
+                               AND n.subject = m.message_id AND n.episode = m.state || '#' || m.send_attempts)
+               AND NOT EXISTS (SELECT 1 FROM supervision_checks c WHERE c.project_id = m.project_id AND c.message_id = m.message_id)
+             ORDER BY m.sequence`,
+          )
+          .all(this.#projectId) as MessageRow[]
+      ).slice(0, 20);
+    if (this.#noticeParties() === undefined || missing().length === 0)
+      return { queued: 0 };
+    return this.#mutate(
+      context,
+      "pm.delivery_notices",
+      "controller:reconcile",
+      {},
+      () => {
+        const now = this.#now();
+        let queued = 0;
+        for (const row of missing()) {
+          const before = this.#database
+            .prepare(
+              "SELECT COUNT(*) AS n FROM pm_notices WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { n: number };
+          this.#queueDeliveryNotice(
+            row,
+            row.state as "unacked" | "expired" | "failed",
+            now,
+            row.state === "failed" ? row.state_reason : null,
+          );
+          const after = this.#database
+            .prepare(
+              "SELECT COUNT(*) AS n FROM pm_notices WHERE project_id = ?",
+            )
+            .get(this.#projectId) as { n: number };
+          if (after.n > before.n) queued += 1;
+        }
+        return {
+          value: { queued },
+          event: {
+            entityType: "pm_notice",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { queued, backfill: true },
+          },
+        };
+      },
+    );
+  }
+
   /** Tells the PM, once per episode, of workers that have been stalled (working without activity) or blocked at a dialog for the stall time. */
   queueAttentionNotices(
     context: MutationContext,

@@ -327,3 +327,47 @@ test("a message retried after a delivery problem tells the PM again when it goes
     await close(w.h);
   }
 });
+
+test("a stuck worker message with no notice (the PM was away, or it predates the notices) is told once the PM is there, and never twice", async () => {
+  const w = await world();
+  try {
+    const owner = () => ctx(w.h.core, w.h.owner);
+    const dev = w.h.developer.agentId;
+    w.h.core.endAgent(owner(), w.h.pm.agentId);
+    const id = w.h.core.enqueueMessage(owner(), {
+      recipientAgentId: dev,
+      body: "went wrong while no PM was active",
+    }).messageId;
+    w.h.core.recordSent(owner(), id);
+    w.advance(TIMERS.workerAckTimeoutSeconds + 1);
+    w.h.core.advanceMessaging(owner(), TIMERS);
+    assert.equal(w.h.core.message(id)!.state, "unacked");
+    assert.deepEqual(
+      w.h.core.queueMissingDeliveryNotices(owner()),
+      { queued: 0 },
+      "no PM yet",
+    );
+    const pm = w.h.addMember("pm2", "PM");
+    const version = w.h.core.stateVersion;
+    assert.deepEqual(w.h.core.queueMissingDeliveryNotices(owner()), {
+      queued: 1,
+    });
+    const told = messagesOf(w, pm.agentId).filter((m) =>
+      m.body.startsWith("Delivery problem"),
+    );
+    assert.equal(told.length, 1);
+    assert.match(told[0]!.body, new RegExp(id));
+    const after = w.h.core.stateVersion;
+    assert.ok(after > version);
+    assert.deepEqual(w.h.core.queueMissingDeliveryNotices(owner()), {
+      queued: 0,
+    });
+    assert.equal(
+      w.h.core.stateVersion,
+      after,
+      "nothing is written when nothing is missing",
+    );
+  } finally {
+    await close(w.h);
+  }
+});

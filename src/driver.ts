@@ -358,6 +358,11 @@ export class DeliveryDriver {
     this.#stalled = advance.stalledAgentIds;
     for (const agentId of advance.stalledAgentIds)
       this.#logOnce(`${agentId}|agent_stalled`, "agent_stalled", { agentId });
+    try {
+      this.#core.queueMissingDeliveryNotices(this.#context());
+    } catch (error) {
+      this.#log("delivery_notice_failed", { error: String(error) });
+    }
     if (advance.attention.length > 0) {
       try {
         this.#core.queueAttentionNotices(this.#context(), advance.attention);
