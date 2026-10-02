@@ -7410,7 +7410,8 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 20, name: "0020_agent_findings.sql" },
           { version: 21, name: "0021_oversight.sql" },
           { version: 22, name: "0022_plans.sql" },
-          { version: 23, name: "0023_developer_review_request.sql" },
+          { version: 23, name: "0023_plan_reviews.sql" },
+          { version: 24, name: "0024_developer_review_request.sql" },
         ],
       );
       assert.equal(

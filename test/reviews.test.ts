@@ -231,7 +231,7 @@ test("a Verifier author can never review their own report, in code and in the le
         () =>
           db
             .prepare(
-              `INSERT INTO reviews SELECT project_id, 'forged', 99, 9, subject_report_id, NULL, commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, author_agent_id, author_actor_id, 'started', NULL, NULL, NULL, created_at, NULL FROM reviews`,
+              `INSERT INTO reviews SELECT project_id, 'forged', 99, 9, subject_report_id, NULL, NULL, NULL, commit_sha, base_sha, author_agent_id, author_actor_id, requested_by_actor_id, reviewer_role, author_agent_id, author_actor_id, 'started', NULL, NULL, NULL, created_at, NULL FROM reviews`,
             )
             .run(),
         /CHECK constraint/,

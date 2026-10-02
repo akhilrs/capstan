@@ -158,9 +158,14 @@ const migrations: Readonly<
   },
   23: {
     version: 23,
-    name: "0023_developer_review_request.sql",
+    name: "0023_plan_reviews.sql",
+    url: new URL("../../migrations/0023_plan_reviews.sql", import.meta.url),
+  },
+  24: {
+    version: 24,
+    name: "0024_developer_review_request.sql",
     url: new URL(
-      "../../migrations/0023_developer_review_request.sql",
+      "../../migrations/0024_developer_review_request.sql",
       import.meta.url,
     ),
   },
