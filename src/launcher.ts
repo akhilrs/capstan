@@ -1355,9 +1355,10 @@ export class Launcher {
           timeoutMs: START_TIMEOUT_MS,
         });
         this.#agentsStarted += 1;
+        // The worker's workspace is gone once its pane is placed, and the PM's and the watch workspace already carry the project token.
         await this.#describe({
           paneId,
-          workspaceId: tree.workspaceId,
+          workspaceId: null,
           agentId: agent.agentId,
           roleName: role.name,
         });
@@ -1718,10 +1719,10 @@ export class Launcher {
           workspaceId: row.workspaceId,
           agentId: row.agentId,
           roleName: agent.roleName,
-          label: workspaceLabel(
-            this.#project,
-            agent.kind === "PM" ? agent.roleName : row.agentId,
-          ),
+          // A worker placed as a tab or pane shares the PM's workspace, so only the PM's own workspace is relabelled here.
+          ...(agent.kind === "PM"
+            ? { label: workspaceLabel(this.#project, agent.roleName) }
+            : {}),
         });
       } catch (error) {
         if (error instanceof PaneGone || error instanceof AgentPaneMismatch) {

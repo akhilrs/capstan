@@ -2640,11 +2640,10 @@ test("workspaces are labelled with the project and every started pane reports pr
       role: "developer",
       agent: "developer-1",
     });
-    assert.ok(
-      w.adapter.metadata.some(
-        (m) => m.tokens.project === project && m.tokens.agent === undefined,
-      ),
-      "workspaces carry the project token",
+    assert.equal(
+      w.adapter.metadata.filter((m) => m.tokens.agent === undefined).length,
+      2,
+      "the PM's and the watch workspace carry the project token; a worker adds none",
     );
   } finally {
     w.cleanup();
@@ -2679,10 +2678,10 @@ test("a restart renames the workspace of an adopted agent to its project label a
       .agentPanes(w.owner)
       .find((r) => r.agentId === "developer-1")!;
     assert.ok(
-      w.adapter.labels.includes(
-        `${worker.workspaceId}:${project} · developer-1`,
-      ),
+      !w.adapter.labels.some((l) => l.endsWith("developer-1")),
+      "a worker's workspace may be the PM's, so it is never relabelled",
     );
+    assert.ok(worker.workspaceId !== null);
     const pm = w.core.agentPanes(w.owner).find((r) => r.agentId === "pm-1")!;
     assert.ok(w.adapter.labels.includes(`${pm.workspaceId}:${project} · pm`));
     assert.ok(w.adapter.metadata.some((m) => m.tokens.agent === "developer-1"));
