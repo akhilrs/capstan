@@ -48,6 +48,46 @@ function branchFor(integrationId: string): string {
   return `capstan/integration/${integrationId}`;
 }
 
+const SUBJECT_MAX = 72;
+const COMMIT_TYPES = "feat|fix|refactor|docs|test|chore|style|perf|ci";
+const LEADING_TYPE = new RegExp(`^(${COMMIT_TYPES})(?:\\([^)]+\\))?!?:`);
+
+function firstLine(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .find((line) => line.trim() !== "")
+      ?.trim() ?? ""
+  );
+}
+
+/** The squash commit message: `<type>: <title>` and one line per report. */
+export function squashMessage(info: {
+  readonly planTitle: string | null;
+  readonly reports: readonly {
+    readonly reportId: string;
+    readonly agentId: string;
+    readonly summary: string;
+  }[];
+}): { subject: string; body: string } {
+  const first = firstLine(info.reports[0]?.summary ?? "");
+  const type = LEADING_TYPE.exec(first)?.[1] ?? "chore";
+  const title =
+    (info.planTitle ?? first).replace(/\s+/g, " ").trim() ||
+    "integrate reports";
+  const prefix = `${type}: `;
+  const room = SUBJECT_MAX - prefix.length;
+  const subject =
+    prefix + (title.length > room ? `${title.slice(0, room - 3)}...` : title);
+  const body = info.reports
+    .map(
+      (r) =>
+        `Report ${r.reportId} (${r.agentId}): ${firstLine(r.summary).replace(/\s+/g, " ")}`,
+    )
+    .join("\n");
+  return { subject, body };
+}
+
 /** Merges the reports in order and returns the recorded outcome. A refusal throws before anything is created. */
 export async function integrate(
   deps: IntegrationDeps,
@@ -82,10 +122,10 @@ export async function integrate(
           ? await deps.git.merge({
               baseSha,
               branch,
+              ...squashMessage(deps.core.integrationCommitInfo(integrationId)),
               merges: begun.reports.map((report) => ({
                 reportId: report.reportId,
                 sha: report.commitSha,
-                message: `Merge report ${report.reportId} (${report.agentId})`,
               })),
             })
           : {
