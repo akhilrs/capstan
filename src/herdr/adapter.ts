@@ -518,6 +518,8 @@ export class HerdrAdapter {
     tabId: string;
     targetPaneId: string;
     direction: "right" | "down";
+    /** The fraction of the target pane the target keeps. */
+    keep: number;
     worktreePath: string;
   }): Promise<{ paneId: string; workspaceId: string }> {
     requireMatch(input.paneId, PANE_PATTERN, "pane id");
@@ -527,6 +529,8 @@ export class HerdrAdapter {
       throw new InvalidArgumentError("worktree path must be absolute");
     if (input.direction !== "right" && input.direction !== "down")
       throw new InvalidArgumentError("split direction is not acceptable");
+    if (!(input.keep >= 0.1 && input.keep <= 0.9))
+      throw new InvalidArgumentError("split ratio is not acceptable");
     const entry = this.#panes.get(input.paneId);
     if (entry === undefined)
       throw new UnknownPaneError("pane is not registered");
@@ -545,6 +549,8 @@ export class HerdrAdapter {
         input.direction,
         "--target-pane",
         input.targetPaneId,
+        "--ratio",
+        String(input.keep),
         "--no-focus",
       ]);
       const pane = this.#record(
@@ -588,7 +594,7 @@ export class HerdrAdapter {
     cwd: string;
     label: string;
     role: PaneRole;
-  }): Promise<{ workspaceId: string; paneId: string }> {
+  }): Promise<{ workspaceId: string; paneId: string; tabId: string }> {
     if (!path.isAbsolute(input.cwd))
       throw new InvalidArgumentError("workspace directory must be absolute");
     requireLabel(input.label);
@@ -609,13 +615,53 @@ export class HerdrAdapter {
       WORKSPACE_PATTERN,
       "workspace id",
     );
+    const tabId = requireMatch(
+      this.#record(result.tab, "tab").tab_id,
+      TAB_PATTERN,
+      "tab id",
+    );
     this.#panes.set(paneId, {
       role: input.role,
       phase: "fresh",
       kind: "shell",
       workspaceId,
     });
-    return { workspaceId, paneId };
+    return { workspaceId, paneId, tabId };
+  }
+
+  /** A new tab with its own root pane inside an existing workspace. */
+  async createTab(input: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    role: PaneRole;
+  }): Promise<{ tabId: string; paneId: string }> {
+    requireMatch(input.workspaceId, WORKSPACE_PATTERN, "workspace id");
+    if (!path.isAbsolute(input.cwd))
+      throw new InvalidArgumentError("tab directory must be absolute");
+    requireLabel(input.label);
+    const result = await runJson(this.#run, [
+      "tab",
+      "create",
+      "--workspace",
+      input.workspaceId,
+      "--cwd",
+      input.cwd,
+      "--label",
+      input.label,
+      "--no-focus",
+    ]);
+    const pane = this.#record(result.root_pane, "root_pane");
+    const tab = this.#record(result.tab, "tab");
+    const paneId = requireMatch(pane.pane_id, PANE_PATTERN, "pane id");
+    const tabId = requireMatch(tab.tab_id, TAB_PATTERN, "tab id");
+    this.#panes.set(paneId, {
+      role: input.role,
+      phase: "fresh",
+      kind: "shell",
+      workspaceId: input.workspaceId,
+    });
+    return { tabId, paneId };
   }
 
   async removeWorktree(
@@ -655,6 +701,12 @@ export class HerdrAdapter {
       args.push("--token", `${name}=${requireLabel(value)}`);
     }
     await this.#runChecked(args);
+  }
+
+  /** Names a tab; display only. */
+  async renameTab(tabId: string, label: string): Promise<void> {
+    requireMatch(tabId, TAB_PATTERN, "tab id");
+    await this.#runChecked(["tab", "rename", tabId, requireLabel(label)]);
   }
 
   /** Gives an existing workspace its current label (an upgraded project still holds the old one). */

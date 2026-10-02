@@ -157,7 +157,8 @@ test("the starter configuration written by init is valid and gives the PM worker
     );
     assert.equal(config.limits.maxWorkers, 3);
     assert.equal(config.layout.spawn, "pane");
-    assert.equal(config.layout.split, "auto");
+    assert.equal(config.layout.pmWidthPercent, 60);
+    assert.deepEqual(config.warnings, []);
     for (const role of config.roles.filter(
       (r) =>
         r.kind !== "PM" && r.name !== "reviewer" && r.name !== "supervisor",
@@ -274,7 +275,7 @@ test("the layout table defaults to tabs, accepts the documented values and refus
     withConfig(text, (directory) => loadCapstanConfig(directory).layout);
   const defaults = {
     spawn: "tab",
-    split: "auto",
+    pmWidthPercent: 60,
     minPaneColumns: 60,
     minPaneRows: 12,
   };
@@ -282,9 +283,9 @@ test("the layout table defaults to tabs, accepts the documented values and refus
   assert.deepEqual(load(`${VALID}\n[layout]\n`), defaults);
   assert.deepEqual(
     load(
-      `${VALID}\n[layout]\nspawn = "pane"\nsplit = "down"\nmin_pane_columns = 80\nmin_pane_rows = 20\n`,
+      `${VALID}\n[layout]\nspawn = "pane"\npm_width_percent = 70\nmin_pane_columns = 80\nmin_pane_rows = 20\n`,
     ),
-    { spawn: "pane", split: "down", minPaneColumns: 80, minPaneRows: 20 },
+    { spawn: "pane", pmWidthPercent: 70, minPaneColumns: 80, minPaneRows: 20 },
   );
   for (const bad of [
     'spawn = "Pane"',
@@ -295,6 +296,10 @@ test("the layout table defaults to tabs, accepts the documented values and refus
     'split = "vertical"',
     'split = "Right"',
     "split = true",
+    "pm_width_percent = 29",
+    "pm_width_percent = 81",
+    "pm_width_percent = 60.5",
+    'pm_width_percent = "60"',
     "min_pane_columns = 0",
     "min_pane_columns = 501",
     "min_pane_columns = 60.0",
@@ -1199,4 +1204,15 @@ test("a role name longer than 16 characters is refused because the project-prefi
       );
     },
   );
+});
+
+test("layout.split is still accepted but ignored, and the loader and cstan config check say so", () => {
+  withConfig(`${VALID}\n[layout]\nsplit = "down"\n`, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.equal(config.warnings.length, 1);
+    assert.match(config.warnings[0]!, /layout\.split is ignored/);
+    assert.equal(config.layout.pmWidthPercent, 60);
+  });
+  assert.ok(STARTER_CONFIG.includes("pm_width_percent = 60"));
+  assert.ok(!STARTER_CONFIG.includes("split ="));
 });

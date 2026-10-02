@@ -47,6 +47,7 @@ export type LauncherAdapter = Pick<
   HerdrAdapter,
   | "createWorkspace"
   | "createWorktree"
+  | "createTab"
   | "paneLayout"
   | "placePane"
   | "panesAtPath"
@@ -58,6 +59,7 @@ export type LauncherAdapter = Pick<
   | "adoptShellPane"
   | "reportMetadata"
   | "renameWorkspace"
+  | "renameTab"
   | "forgetPane"
   | "runInPane"
   | "writePromptFile"
@@ -201,6 +203,13 @@ export interface LauncherOptions {
   readonly log?: (event: string, details: Record<string, unknown>) => void;
   /** Brings the configured roles into the ledger; the launcher calls it once more when a role is missing or out of date. */
   readonly syncRoles?: () => void;
+}
+
+interface Hub {
+  readonly status: NonNullable<LaunchResult["hub"]>;
+  readonly workspaceId: string | null;
+  /** The root pane of a hub made in this call; the first PM takes it. */
+  readonly freePmPane: string | null;
 }
 
 interface Budget {
@@ -751,6 +760,7 @@ export class Launcher {
     role: ResolvedRole,
     agent: { agentId: string; credential: string },
     budget: Budget,
+    hub: Hub,
     summary?: PmRestartSummary,
   ): Promise<LaunchResult> {
     budget.check("the PM prompt");
@@ -764,11 +774,26 @@ export class Launcher {
       ...(summary === undefined ? {} : { restartSummary: summary }),
     });
     const promptFile = this.#adapter.writePromptFile(promptText);
-    const workspace = await this.#adapter.createWorkspace({
-      cwd: this.#root,
-      label: workspaceLabel(this.#project, role.name),
-      role: "PM",
-    });
+    if (hub.workspaceId === null)
+      throw new LauncherError(
+        "hub_failed",
+        "the project workspace is not open, so the PM has nowhere to start",
+      );
+    // The hub's root pane is free for the PM only in the call that made the hub; a later start gets a tab of its own.
+    const workspace =
+      hub.freePmPane !== null
+        ? { workspaceId: hub.workspaceId, paneId: hub.freePmPane }
+        : {
+            workspaceId: hub.workspaceId,
+            paneId: (
+              await this.#adapter.createTab({
+                workspaceId: hub.workspaceId,
+                cwd: this.#root,
+                label: "pm",
+                role: "PM",
+              })
+            ).paneId,
+          };
     try {
       budget.check("starting the PM");
       const started = await this.#adapter.startAgent({
@@ -815,14 +840,11 @@ export class Launcher {
     }
   }
 
-  /** The watch workspace carries the project's name, so the worker worktrees under it read as one group; display only. */
+  /** The project workspace carries the project's name, so its PM and the worker worktrees under it read as one group; display only. */
   async #labelHub(workspaceId: string | null): Promise<void> {
     if (workspaceId === null) return;
     try {
-      await this.#adapter.renameWorkspace(
-        workspaceId,
-        workspaceLabel(this.#project, "watch"),
-      );
+      await this.#adapter.renameWorkspace(workspaceId, this.#project);
       await this.#adapter.reportMetadata(
         { workspaceId },
         { project: this.#project },
@@ -832,48 +854,145 @@ export class Launcher {
     }
   }
 
-  async #ensureHub(budget: Budget): Promise<NonNullable<LaunchResult["hub"]>> {
+  /** The watch shell in a tab of the project workspace; it stays the recorded fallback pane. */
+  async #openWatchTab(workspaceId: string): Promise<string> {
+    const tab = await this.#adapter.createTab({
+      workspaceId,
+      cwd: this.#root,
+      label: "watch",
+      role: "worker",
+    });
+    try {
+      await this.#adapter.prepareShell({
+        paneId: tab.paneId,
+        environment: this.#environment(null),
+      });
+      await this.#adapter.runInPane(
+        tab.paneId,
+        `cd ${shellQuote(this.#root)} && exec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} status --watch`,
+      );
+      this.#core.recordFallbackPane(this.#context(), {
+        workspaceId,
+        paneId: tab.paneId,
+      });
+    } catch (error) {
+      // A tab with no recorded watch pane would be made again at every check.
+      try {
+        await this.#close(tab.paneId);
+      } catch (closeError) {
+        this.#log("pane_not_closed", {
+          paneId: tab.paneId,
+          error: String(closeError),
+        });
+      }
+      throw error;
+    }
+    return tab.paneId;
+  }
+
+  async #ensureHubWithoutPm(
+    budget: Budget,
+  ): Promise<NonNullable<LaunchResult["hub"]>> {
+    const hub = await this.#ensureHub(budget);
+    await this.#dropUnusedRoot(hub);
+    return hub.status;
+  }
+
+  /** A hub made while a PM is already running has an empty root pane no PM will take; it goes, and the workspace keeps its watch tab. */
+  async #dropUnusedRoot(hub: Hub): Promise<void> {
+    if (hub.freePmPane === null) return;
+    try {
+      await this.#close(hub.freePmPane);
+    } catch (error) {
+      this.#log("pane_not_closed", {
+        paneId: hub.freePmPane,
+        error: String(error),
+      });
+    }
+  }
+
+  /** The project workspace: tab 1 is the PM's, a `watch` tab keeps the workspace open when a PM pane is replaced, and worker worktrees hang under it. */
+  async #ensureHub(budget: Budget): Promise<Hub> {
     const row = this.#core.fallbackPane(this.#credential);
     if (row !== undefined) {
-      if (this.#adapter.paneEntry(row.paneId) !== undefined) return "present";
+      if (this.#adapter.paneEntry(row.paneId) !== undefined)
+        return {
+          status: "present",
+          workspaceId: row.workspaceId,
+          freePmPane: null,
+        };
       // Re-adopt before opening another hub: a second one would hide the
       // worktrees that hang under the first.
       try {
         await this.#adapter.adoptShellPane(row.paneId, row.workspaceId);
         await this.#labelHub(row.workspaceId);
-        return "present";
+        return {
+          status: "present",
+          workspaceId: row.workspaceId,
+          freePmPane: null,
+        };
       } catch (error) {
         if (!(error instanceof PaneGone)) {
           this.#log("hub_adopt_failed", { error: String(error) });
-          return "failed";
+          return { status: "failed", workspaceId: null, freePmPane: null };
         }
-        this.#core.clearFallbackPane(this.#context());
       }
+      // The watch pane is gone; its workspace may not be, and closing a PM pane in a workspace with worktree children needs another tab there. Only a workspace that Herdr says is gone is replaced: any other failure leaves the row alone, so no second hub hides the worktrees under the first.
+      if (row.workspaceId !== null) {
+        try {
+          budget.check("opening the watch tab");
+          await this.#openWatchTab(row.workspaceId);
+          return {
+            status: "opened",
+            workspaceId: row.workspaceId,
+            freePmPane: null,
+          };
+        } catch (error) {
+          this.#log("watch_tab_failed", { error: String(error) });
+          if (
+            !(error instanceof HerdrError) ||
+            error.code !== "workspace_not_found"
+          )
+            return { status: "failed", workspaceId: null, freePmPane: null };
+        }
+      }
+      this.#core.clearFallbackPane(this.#context());
     }
+    let workspace:
+      { workspaceId: string; paneId: string; tabId: string } | undefined;
     try {
-      budget.check("opening the watch pane");
-      const workspace = await this.#adapter.createWorkspace({
+      budget.check("opening the project workspace");
+      workspace = await this.#adapter.createWorkspace({
         cwd: this.#root,
-        label: workspaceLabel(this.#project, "watch"),
-        role: "worker",
+        label: this.#project,
+        role: "PM",
       });
       await this.#labelHub(workspace.workspaceId);
-      await this.#adapter.prepareShell({
-        paneId: workspace.paneId,
-        environment: this.#environment(null),
-      });
-      await this.#adapter.runInPane(
-        workspace.paneId,
-        `cd ${shellQuote(this.#root)} && exec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} status --watch`,
-      );
-      this.#core.recordFallbackPane(this.#context(), {
+      try {
+        await this.#adapter.renameTab(workspace.tabId, "pm");
+      } catch (error) {
+        this.#log("describe_failed", { agentId: "pm", error: String(error) });
+      }
+      await this.#openWatchTab(workspace.workspaceId);
+      return {
+        status: "opened",
         workspaceId: workspace.workspaceId,
-        paneId: workspace.paneId,
-      });
-      return "opened";
+        freePmPane: workspace.paneId,
+      };
     } catch (error) {
       this.#log("fallback_pane_failed", { error: String(error) });
-      return "failed";
+      if (workspace !== undefined)
+        try {
+          await this.#close(workspace.paneId);
+        } catch (closeError) {
+          this.#log("pane_not_closed", {
+            paneId: workspace.paneId,
+            error: String(closeError),
+          });
+        }
+      // A configuration fault (a colon in the project path, say) must reach the operator as itself, not as an unopened workspace.
+      if (error instanceof LauncherError) throw error;
+      return { status: "failed", workspaceId: null, freePmPane: null };
     }
   }
 
@@ -916,15 +1035,31 @@ export class Launcher {
           agentId: existing.agentId,
           paneId,
           generation: existing.generation,
-          hub: await this.#ensureHub(budget),
+          hub: await this.#ensureHubWithoutPm(budget),
         };
       }
       const agent = this.#createAgent(role);
       let result: LaunchResult;
+      let hubStatus: NonNullable<LaunchResult["hub"]> = "failed";
+      let madeHub: Hub | undefined;
       try {
-        result = await this.#startPm(role, agent, budget);
+        const hub = await this.#ensureHub(budget);
+        madeHub = hub;
+        hubStatus = hub.status;
+        if (hub.status === "failed")
+          throw new LauncherError(
+            "hub_unavailable",
+            "the project workspace could not be opened; check the Herdr session named in capstan.toml",
+          );
+        result = await this.#startPm(role, agent, budget, hub);
       } catch (error) {
         await this.#cleanupAgent(agent.agentId, {});
+        // A start that failed before it took the new workspace's root pane leaves it empty.
+        if (
+          madeHub?.freePmPane != null &&
+          this.#adapter.paneEntry(madeHub.freePmPane) !== undefined
+        )
+          await this.#dropUnusedRoot(madeHub);
         return {
           state: "failed",
           agentId: agent.agentId,
@@ -932,7 +1067,7 @@ export class Launcher {
           step: "start",
         };
       }
-      return { ...result, hub: await this.#ensureHub(budget) };
+      return { ...result, hub: hubStatus };
     });
   }
 
@@ -1112,6 +1247,13 @@ export class Launcher {
           "unknown_role",
           `the configuration has no role ${agent.roleName}`,
         );
+      // The project workspace must exist, with its watch tab, before the old PM pane is closed: Herdr refuses to close the last pane of a workspace that has worktree children.
+      const hub = await this.#ensureHub(budget);
+      if (hub.status === "failed")
+        throw new LauncherError(
+          "hub_unavailable",
+          "the project workspace could not be opened",
+        );
       const replaced = this.#core.restartAgentGeneration(
         this.#context(),
         agent.agentId,
@@ -1152,6 +1294,7 @@ export class Launcher {
           role,
           { agentId: agent.agentId, credential: replaced.credential },
           budget,
+          hub,
           replaced.summary,
         );
         const latest = this.#core
@@ -1166,7 +1309,7 @@ export class Launcher {
         return {
           ...started,
           generation: replaced.generation,
-          hub: await this.#ensureHub(budget),
+          hub: hub.status,
         };
       } catch (error) {
         return {
@@ -1239,7 +1382,7 @@ export class Launcher {
         );
       // Herdr refuses to close a pane whose workspace has worktree children, so
       // worktrees hang under the long-lived hub workspace, never under the PM's.
-      if ((await this.#ensureHub(budget)) === "failed")
+      if ((await this.#ensureHubWithoutPm(budget)) === "failed")
         throw new LauncherError(
           "hub_unavailable",
           "the hub workspace could not be opened",
@@ -1429,8 +1572,8 @@ export class Launcher {
       const candidates: LayoutPane[] = layout.panes.filter((pane) =>
         live.has(pane.paneId),
       );
-      const choice = choosePlacement(candidates, {
-        split: layoutConfig.split,
+      const choice = choosePlacement(candidates, pmPaneId, {
+        pmWidthPercent: layoutConfig.pmWidthPercent,
         minColumns: layoutConfig.minPaneColumns,
         minRows: layoutConfig.minPaneRows,
       });
@@ -1443,6 +1586,7 @@ export class Launcher {
         tabId: layout.tabId,
         targetPaneId: choice.targetPaneId,
         direction: choice.direction,
+        keep: choice.keep,
         worktreePath,
       });
       return { placed };
@@ -1719,8 +1863,10 @@ export class Launcher {
           workspaceId: row.workspaceId,
           agentId: row.agentId,
           roleName: agent.roleName,
-          // A worker placed as a tab or pane shares the PM's workspace, so only the PM's own workspace is relabelled here.
-          ...(agent.kind === "PM"
+          // A worker placed as a tab or pane shares the PM's workspace, and a PM in the project workspace shares the hub's name, so only a PM's own old workspace is relabelled here.
+          ...(agent.kind === "PM" &&
+          row.workspaceId !==
+            this.#core.fallbackPane(this.#credential)?.workspaceId
             ? { label: workspaceLabel(this.#project, agent.roleName) }
             : {}),
         });
@@ -1766,9 +1912,11 @@ export class Launcher {
           fallback.paneId,
           fallback.workspaceId,
         );
+        await this.#labelHub(fallback.workspaceId);
       } catch (error) {
+        // A gone watch pane keeps its row: the workspace id in it lets the next hub check make the watch tab again in the same workspace.
         if (error instanceof PaneGone)
-          this.#core.clearFallbackPane(this.#context());
+          this.#log("fallback_pane_gone", { paneId: fallback.paneId });
         else this.#log("fallback_adopt_failed", { error: String(error) });
       }
     }

@@ -920,6 +920,8 @@ async function runCli(argv: string[]): Promise<number> {
     const roleConfig = loadRoleConfig(cwd);
     if (subcommand === "check") {
       process.stdout.write(`${JSON.stringify(roleConfig, null, 2)}\n`);
+      for (const warning of roleConfig.warnings)
+        process.stderr.write(`warning: ${warning}\n`);
       for (const role of roleConfig.roles) {
         const host = roleConfig.hosts.find((h) => h.name === role.host);
         if (host !== undefined && host.kind !== "claude")
@@ -998,6 +1000,10 @@ async function runCli(argv: string[]): Promise<number> {
                 `${JSON.stringify({ ts: stamp(), command: `notifier:${event}`, detail })}\n`,
               ),
           });
+    for (const warning of capstan?.warnings ?? [])
+      process.stdout.write(
+        `${JSON.stringify({ ts: stamp(), command: "daemon:config_warning", detail: warning })}\n`,
+      );
     try {
       await runDaemon({
         stateDirectory: config.stateDirectory,

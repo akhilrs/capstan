@@ -25,11 +25,15 @@ export class StubAdapter implements LauncherAdapter {
   }
 
   readonly calls: string[] = [];
+  readonly keeps: number[] = [];
   readonly created: string[] = [];
   readonly metadata: Array<{ target: string; tokens: Record<string, string> }> =
     [];
   readonly labels: string[] = [];
   metadataError: Error | undefined;
+  /** Workspaces whose tabs cannot be made, as when the workspace is gone. */
+  readonly tabErrors = new Set<string>();
+  tabFailure: Error | undefined;
   readonly starts: StartCall[] = [];
   readonly entries = new Map<string, { agent?: string }>();
   readonly agentPanes = new Map<string, string>();
@@ -76,8 +80,10 @@ export class StubAdapter implements LauncherAdapter {
     tabId: string;
     targetPaneId: string;
     direction: "right" | "down";
+    keep: number;
     worktreePath: string;
   }) {
+    this.keeps.push(input.keep);
     this.calls.push(
       `place:${input.paneId}:${input.targetPaneId}:${input.direction}`,
     );
@@ -91,13 +97,13 @@ export class StubAdapter implements LauncherAdapter {
     const workspace = this.pmWorkspace!;
     this.placed += 1;
     const paneId = `${workspace}:p${this.placed}`;
-    const half = (n: number) => Math.floor(n / 2);
+    const kept = (n: number) => Math.floor(n * input.keep);
     const next =
       input.direction === "right"
-        ? { width: half(target.width), height: target.height }
-        : { width: target.width, height: half(target.height) };
-    if (input.direction === "right") target.width = half(target.width);
-    else target.height = half(target.height);
+        ? { width: target.width - kept(target.width), height: target.height }
+        : { width: target.width, height: target.height - kept(target.height) };
+    if (input.direction === "right") target.width = kept(target.width);
+    else target.height = kept(target.height);
     this.tabPanes.push({ paneId, ...next });
     this.entries.delete(input.paneId);
     this.entries.set(paneId, {});
@@ -122,7 +128,28 @@ export class StubAdapter implements LauncherAdapter {
       this.pmWorkspace = `w${this.counter}`;
       this.tabPanes = [{ paneId, ...this.layoutSize }];
     }
-    return { workspaceId: `w${this.counter}`, paneId };
+    return {
+      workspaceId: `w${this.counter}`,
+      paneId,
+      tabId: `w${this.counter}:t1`,
+    };
+  }
+
+  async createTab(input: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    role: "PM" | "worker";
+  }) {
+    if (this.tabFailure) throw this.tabFailure;
+    if (this.tabErrors.has(input.workspaceId))
+      throw new HerdrError("workspace_not_found", "no such workspace");
+    this.counter += 1;
+    const paneId = `${input.workspaceId}:p${this.counter + 100}`;
+    this.calls.push(`tab:${input.workspaceId}:${input.label}:${input.role}`);
+    this.entries.set(paneId, {});
+    if (input.role === "PM") this.tabPanes = [{ paneId, ...this.layoutSize }];
+    return { tabId: `${input.workspaceId}:t${this.counter}`, paneId };
   }
 
   async createWorktree(input: {
@@ -215,6 +242,10 @@ export class StubAdapter implements LauncherAdapter {
     });
   }
 
+  async renameTab(tabId: string, label: string) {
+    this.labels.push(`${tabId}:${label}`);
+  }
+
   async renameWorkspace(workspaceId: string, label: string) {
     this.labels.push(`${workspaceId}:${label}`);
   }
@@ -257,7 +288,9 @@ export class StubAdapter implements LauncherAdapter {
     this.calls.push(`run:${paneId}:${command}`);
   }
 
+  promptError: Error | undefined;
   writePromptFile(text: string): string {
+    if (this.promptError) throw this.promptError;
     this.prompts.push(text);
     const file = path.join(this.dir, `prompt-${this.prompts.length}.md`);
     writeFileSync(file, text, { mode: 0o600 });

@@ -179,6 +179,7 @@ class FakeHerdr {
       return this.json({
         root_pane: { pane_id: pane.paneId },
         workspace: { workspace_id: pane.workspaceId },
+        tab: { tab_id: `${pane.workspaceId}:t1` },
       });
     }
     if (command === "worktree" && sub === "remove")
@@ -310,6 +311,13 @@ class FakeHerdr {
     if (command === "pane" && sub === "close") return this.json({});
     if (command === "notification" && sub === "show")
       return this.json(this.notification);
+    if (command === "tab" && sub === "create") {
+      const pane = this.add("worker", SHELL_READY);
+      return this.json({
+        tab: { tab_id: `${pane.workspaceId}:t9` },
+        root_pane: { pane_id: pane.paneId },
+      });
+    }
     if (command === "agent" && sub === "rename") {
       const state = [...this.agentStates.entries()].find(
         ([, value]) => value.paneId === args[2],
@@ -320,6 +328,7 @@ class FakeHerdr {
       return this.json({});
     }
     if (command === "workspace" && sub === "rename") return this.json({});
+    if (command === "tab" && sub === "rename") return this.json({});
     if (
       (command === "pane" || command === "workspace") &&
       sub === "report-metadata"
@@ -2957,6 +2966,7 @@ test("placePane moves a worker pane, follows its new id in the registry and chec
       tabId: "w9:t1",
       targetPaneId: "w9:p1",
       direction: "right",
+      keep: 0.6,
       worktreePath: tree.path,
     });
     assert.equal(placed.workspaceId, "w9");
@@ -2971,6 +2981,8 @@ test("placePane moves a worker pane, follows its new id in the registry and chec
       "right",
       "--target-pane",
       "w9:p1",
+      "--ratio",
+      "0.6",
       "--no-focus",
     ]);
     assert.equal(h.adapter.paneEntry(tree.paneId), undefined);
@@ -2988,6 +3000,7 @@ test("placePane moves a worker pane, follows its new id in the registry and chec
         h.adapter.placePane({
           paneId: placed.paneId,
           targetPaneId: "w9:p1",
+          keep: 0.6,
           worktreePath: tree.path,
           ...bad,
         }),
@@ -2999,6 +3012,7 @@ test("placePane moves a worker pane, follows its new id in the registry and chec
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "down",
+        keep: 0.6,
         worktreePath: tree.path,
       }),
       UnknownPaneError,
@@ -3028,6 +3042,7 @@ test("placePane refuses a pane that is not a worker", async () => {
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "right",
+        keep: 0.6,
         worktreePath: h.fake.root,
       }),
       PhaseError,
@@ -3057,6 +3072,7 @@ test("a move that errors is resolved by looking again: nothing moved, moved, los
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "down",
+        keep: 0.6,
         worktreePath: tree.path,
       });
       if (expect === "rethrow") {
@@ -3121,6 +3137,7 @@ test("an old pane that Herdr lists without a usable directory still counts as ex
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "right",
+        keep: 0.6,
         worktreePath: tree.path,
       }),
       HerdrError,
@@ -3169,6 +3186,7 @@ test("panes the adapter cannot read are skipped, so they neither break a placeme
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "right",
+        keep: 0.6,
         worktreePath: "relative",
       }),
       InvalidArgumentError,
@@ -3181,6 +3199,7 @@ test("panes the adapter cannot read are skipped, so they neither break a placeme
         tabId: "w9:t1",
         targetPaneId: "w9:p1",
         direction: "right",
+        keep: 0.6,
         worktreePath: tree.path,
       }),
       HerdrError,
@@ -3568,6 +3587,27 @@ test("metadata and workspace renames go to Herdr with the capstan source and che
     );
     await assert.rejects(
       h.adapter.renameWorkspace("w9", "x".repeat(65)),
+      InvalidArgumentError,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a tab is renamed with checked text, and a new workspace reports its first tab", async () => {
+  const h = harness();
+  try {
+    await h.adapter.renameTab("w9:t1", "pm");
+    assert.deepEqual(h.fake.callsTo("tab", "rename")[0], [
+      "tab",
+      "rename",
+      "w9:t1",
+      "pm",
+    ]);
+    await assert.rejects(h.adapter.renameTab("w9", "pm"), InvalidArgumentError);
+    await assert.rejects(
+      h.adapter.renameTab("w9:t1", "bad\nname"),
       InvalidArgumentError,
     );
   } finally {

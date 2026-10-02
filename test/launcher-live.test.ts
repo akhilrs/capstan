@@ -62,8 +62,8 @@ function configFor(spawn: "tab" | "pane" = "tab"): CapstanConfig {
     limits: { maxWorkers: 1 },
     layout: {
       spawn,
-      split: "auto",
-      minPaneColumns: 60,
+      pmWidthPercent: 60,
+      minPaneColumns: 40,
       minPaneRows: 12,
     },
     env: { pass: [] },

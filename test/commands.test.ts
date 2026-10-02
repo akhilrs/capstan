@@ -29,7 +29,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
     limits: { maxWorkers: 3 },
     layout: {
       spawn: "tab",
-      split: "auto",
+      pmWidthPercent: 60,
       minPaneColumns: 60,
       minPaneRows: 12,
     },
@@ -43,6 +43,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
         waitTimeoutSeconds: waitSeconds,
       },
     ],
+    warnings: [],
     roles: [
       {
         name: "pm",
