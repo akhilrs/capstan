@@ -120,6 +120,32 @@ function config(
   } as unknown as CapstanConfig;
 }
 
+function withArchitect(
+  base: CapstanConfig,
+  architect: { readonly counts: boolean } | undefined,
+): CapstanConfig {
+  if (architect === undefined) return base;
+  const developer = base.roles.find((r) => r.name === "developer")!;
+  const role = Object.defineProperty(
+    { ...developer, name: "architect", configHash: hashOf("architect") },
+    "promptText",
+    { value: null, enumerable: false },
+  );
+  return {
+    ...base,
+    roles: [...base.roles, role],
+    architect: {
+      enabled: true,
+      role: "architect",
+      planReview: "high_risk",
+      reviewerRole: null,
+      maxPackages: 8,
+      countTowardWorkerLimit: architect.counts,
+      highRiskTriggers: ["schema or migrations"],
+    },
+  } as CapstanConfig;
+}
+
 interface World {
   core: ControllerCore;
   owner: string;
@@ -141,6 +167,8 @@ async function world(
     readonly pass?: readonly string[];
     readonly base?: Readonly<Record<string, string>>;
     readonly hostOf?: Readonly<Record<string, "codex" | "omp">>;
+    /** Enables the Architect role in the configuration; `counts` is count_toward_worker_limit. */
+    readonly architect?: { readonly counts: boolean };
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -156,6 +184,7 @@ async function world(
         "pm2:PM",
         "developer:Developer",
         "developer2:Developer",
+        "architect:Developer",
         "supervisor:Supervisor",
       ].map((entry) => {
         const [name, kind] = entry.split(":") as [
@@ -177,12 +206,15 @@ async function world(
     new Launcher({
       core,
       adapter,
-      config: config(
-        fallback,
-        maxWorkers,
-        layout,
-        environment.pass,
-        environment.hostOf,
+      config: withArchitect(
+        config(
+          fallback,
+          maxWorkers,
+          layout,
+          environment.pass,
+          environment.hostOf,
+        ),
+        environment.architect,
       ),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
@@ -2898,6 +2930,72 @@ test("the Supervisor does not take a worker's place: it starts when every worker
         /1 of 1 workers are active \(developer-1\)/.test(e.message),
       "the Supervisor is not listed or counted among the workers",
     );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("the Architect takes no worker place unless count_toward_worker_limit is true, and its prompt differs from a developer's", async () => {
+  const exempt = await world(
+    true,
+    true,
+    1,
+    {},
+    { architect: { counts: false } },
+  );
+  try {
+    await launched(exempt);
+    const architect = await exempt.launcher.spawn("architect");
+    assert.equal(architect.state, "started");
+    const dev = await exempt.launcher.spawn("developer");
+    assert.equal(dev.state, "started", "the developer still has its place");
+    await assert.rejects(
+      exempt.launcher.spawn("developer2"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "worker_limit" &&
+        /1 of 1 workers are active \(developer-1\)/.test(e.message),
+    );
+    const prompts = exempt.adapter.prompts;
+    assert.ok(prompts.some((t) => t.includes("You are the architect")));
+    assert.ok(
+      prompts.some((t) => t.includes("the architect named in it can answer")),
+    );
+    assert.ok(
+      prompts.some((t) => t.includes("Planned work")),
+      "the PM prompt carries the plan section",
+    );
+  } finally {
+    exempt.cleanup();
+  }
+  const counted = await world(
+    true,
+    true,
+    1,
+    {},
+    { architect: { counts: true } },
+  );
+  try {
+    await launched(counted);
+    await counted.launcher.spawn("architect");
+    await assert.rejects(
+      counted.launcher.spawn("developer"),
+      (e: unknown) => e instanceof LauncherError && e.code === "worker_limit",
+    );
+  } finally {
+    counted.cleanup();
+  }
+});
+
+test("without the Architect no prompt mentions plans", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    for (const text of w.adapter.prompts) {
+      assert.ok(!/architect/i.test(text), "no architect text");
+      assert.ok(!text.includes("cstan plan"), "no plan commands");
+    }
   } finally {
     w.cleanup();
   }
