@@ -12956,6 +12956,23 @@ export class ControllerCore {
     );
   }
 
+  /** Why supervision is degraded: the reason of the newest degraded event, or null when healthy or when that event carried none. */
+  supervisionReason(credential: string): string | null {
+    this.#assertOpen();
+    this.#authorize(credential, "controller:reconcile");
+    const row = this.#database
+      .prepare(
+        `SELECT json_extract(e.payload_json, '$.details.reason') AS reason
+         FROM supervision_control c
+         LEFT JOIN controller_events e ON e.project_id = c.project_id
+           AND e.sequence = (SELECT MAX(sequence) FROM controller_events
+             WHERE project_id = c.project_id AND entity_type = 'run_control' AND to_state = 'degraded')
+         WHERE c.project_id = ? AND c.health = 'degraded'`,
+      )
+      .get(this.#projectId) as { reason: unknown } | undefined;
+    return typeof row?.reason === "string" ? row.reason : null;
+  }
+
   statusSnapshot(): ControllerStatus {
     this.#assertOpen();
     const run = this.#database

@@ -91,6 +91,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   review: { access: "agent" },
   finding: { access: "agent" },
   observe: { access: "agent" },
+  peek: { access: "operator" },
   assign: { access: "operator", stub: STUB_STAGE },
   cancel: { access: "operator" },
   send: { access: "any" },

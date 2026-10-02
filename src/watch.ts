@@ -28,7 +28,7 @@ interface WatchedFinding {
 const BELL = "\u0007";
 
 /** Everything from the daemon is shown without control or format characters. */
-function clean(value: unknown): string {
+export function clean(value: unknown): string {
   if (value === undefined || value === null) return "";
   return String(value).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ");
 }

@@ -38,6 +38,7 @@ import { projectDisplayName, projectSlug } from "./herdr/naming.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
 import { watchStatus } from "./watch.js";
+import { NOT_A_TERMINAL_MESSAGE, hasTerminal } from "./dash/terminal.js";
 import {
   CONFIG_FILE_NAME,
   ConfigError,
@@ -614,6 +615,7 @@ const ROUTED_COMMANDS: ReadonlySet<string> = new Set(
         "ping",
         "shutdown",
         "cancel",
+        "peek",
         "pm-restart",
         "launch",
       ].includes(name),
@@ -815,8 +817,28 @@ rows = [["state_icon", "workspace"], ["$project", "branch", "git_status"]]
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan review pass|findings <text> | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan review pass|findings <text> | cstan pm restart",
   );
+}
+
+/** Removes `name` from `flags`; true when it was there. */
+function takeFlag(flags: string[], name: string): boolean {
+  const at = flags.indexOf(name);
+  if (at < 0) return false;
+  flags.splice(at, 1);
+  return true;
+}
+
+/** Removes `--interval N` from `flags` and returns N; 2 when absent. */
+function takeIntervalSeconds(flags: string[]): number {
+  const at = flags.indexOf("--interval");
+  if (at < 0) return 2;
+  const value = flags[at + 1];
+  const seconds = Number(value);
+  if (value === undefined || !/^[1-9][0-9]?$/.test(value) || seconds > 60)
+    throw new InvalidInputError("--interval must be an integer from 1 to 60");
+  flags.splice(at, 2);
+  return seconds;
 }
 
 async function runCli(argv: string[]): Promise<number> {
@@ -1141,21 +1163,7 @@ async function runCli(argv: string[]): Promise<number> {
   if (command === "status" && beforeSeparator.includes("--watch")) {
     const flags = [...rest];
     flags.splice(flags.indexOf("--watch"), 1);
-    let intervalSeconds = 2;
-    const at = flags.indexOf("--interval");
-    if (at >= 0) {
-      const value = flags[at + 1];
-      intervalSeconds = Number(value);
-      if (
-        value === undefined ||
-        !/^[1-9][0-9]?$/.test(value) ||
-        intervalSeconds > 60
-      )
-        throw new InvalidInputError(
-          "--interval must be an integer from 1 to 60",
-        );
-      flags.splice(at, 2);
-    }
+    const intervalSeconds = takeIntervalSeconds(flags);
     if (flags.length !== 0) usage();
     const operator = await ensureRunning(cwd);
     await watchStatus({
@@ -1172,6 +1180,40 @@ async function runCli(argv: string[]): Promise<number> {
       write: (text) => void process.stdout.write(text),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     });
+    return EXIT.ok;
+  }
+  if (command === "dash") {
+    const flags = [...rest];
+    const intervalSeconds = takeIntervalSeconds(flags);
+    const noColor = takeFlag(flags, "--no-color");
+    const reducedMotion =
+      takeFlag(flags, "--reduced-motion") ||
+      (process.env.CSTAN_REDUCED_MOTION ?? "") === "1";
+    if (flags.length !== 0) usage();
+    if (!hasTerminal()) {
+      process.stderr.write(`cstan: ${NOT_A_TERMINAL_MESSAGE}\n`);
+      return EXIT.usage;
+    }
+    if (agentEnvironment())
+      throw new InvalidInputError(
+        "dash is an operator tool; run it without CAPSTAN_TOKEN and CAPSTAN_SOCKET",
+      );
+    const operator = await ensureRunning(cwd);
+    let workerLimit: number | null = null;
+    try {
+      workerLimit = loadCapstanConfig(cwd).limits.maxWorkers;
+    } catch {
+      // Without a readable capstan.toml the header shows the worker count alone.
+    }
+    const { runDash } = await import("./dash/run.js");
+    await runDash(
+      { intervalSeconds, noColor, reducedMotion },
+      {
+        socketPath: operator.socketPath,
+        credential: operator.credential,
+        workerLimit,
+      },
+    );
     return EXIT.ok;
   }
   if (command === "status" && agentEnvironment()) {
