@@ -457,3 +457,42 @@ test("an enabled prompt of each kind stays under the prompt limit", () => {
       Buffer.byteLength(buildRolePrompt(input), "utf8") < MAX_PROMPT_BYTES,
     );
 });
+
+test("the restart summary lists open plans and merged integrations only when there are some", () => {
+  const without = buildRolePrompt({ ...base, restartSummary: summary });
+  assert.ok(!without.includes("Plans that are not finished"));
+  assert.ok(!without.includes("Integrations still merged"));
+  const withBoth = buildRolePrompt({
+    ...base,
+    restartSummary: {
+      ...summary,
+      plans: [
+        {
+          planId: "plan-1",
+          title: "Split it",
+          tier: "normal",
+          state: "approved",
+          packages: 2,
+          signedOff: ["int-1"],
+        },
+      ],
+      integrations: [
+        {
+          integrationId: "int-1",
+          branch: "capstan/integration/int-1",
+          headSha: "d".repeat(40),
+        },
+      ],
+    },
+  });
+  assert.ok(
+    withBoth.includes(
+      '- plan-1 [approved, normal] "Split it" (2 packages, signed off for int-1)',
+    ),
+  );
+  assert.ok(
+    withBoth.includes(
+      `- int-1 on branch capstan/integration/int-1 at ${"d".repeat(40)}`,
+    ),
+  );
+});

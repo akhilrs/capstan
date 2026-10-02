@@ -164,6 +164,23 @@ function render(summary: PmRestartSummary): string {
     lines.push(
       `- ${message.messageId} from ${message.from} [${message.state}]: ${quoted(message.body)}`,
     );
+  if ((summary.plans ?? []).length > 0) {
+    lines.push("", "Plans that are not finished:");
+    for (const plan of summary.plans!)
+      lines.push(
+        `- ${plan.planId} [${plan.state}, ${plan.tier}] ${quoted(plan.title)} (${plan.packages} packages${plan.signedOff.length > 0 ? `, signed off for ${plan.signedOff.join(", ")}` : ""})`,
+      );
+  }
+  if ((summary.integrations ?? []).length > 0) {
+    lines.push(
+      "",
+      "Integrations still merged and not confirmed (run `cstan integrate confirm <integration-id>` once the merge into HEAD is done):",
+    );
+    for (const integration of summary.integrations!)
+      lines.push(
+        `- ${integration.integrationId} on branch ${integration.branch} at ${integration.headSha ?? "unknown"}`,
+      );
+  }
   if (summary.truncated)
     lines.push(
       "",

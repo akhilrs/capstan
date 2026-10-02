@@ -951,11 +951,12 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         sub !== "open" &&
         sub !== "submit" &&
         sub !== "show" &&
-        sub !== "assign"
+        sub !== "assign" &&
+        sub !== "signoff"
       )
         return fail(
           "invalid_request",
-          "plan needs open, submit, show or assign",
+          "plan needs open, submit, show, assign or signoff",
         );
       const config = deps.config;
       if (config === undefined || !config.architect.enabled)
@@ -1040,6 +1041,45 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             packageId: assigned.packageId,
             agentId,
             messageId: assigned.assignmentMessageId,
+          });
+        }
+        if (sub === "signoff") {
+          const caller = agentOf(call.identity);
+          if (
+            caller?.kind !== "Developer" ||
+            caller.state !== "active" ||
+            caller.roleName !== config.architect.role
+          )
+            return fail(
+              "forbidden",
+              "not_architect: only the designated architect may sign off a plan",
+            );
+          const [planId, integrationId, summary, ...extra] = rest;
+          if (
+            planId === undefined ||
+            integrationId === undefined ||
+            summary === undefined ||
+            extra.length > 0 ||
+            ![planId, integrationId].every((id) => SAFE_AGENT_ID.test(id))
+          )
+            return fail(
+              "invalid_request",
+              "plan signoff needs a plan id, an integration id and a summary",
+            );
+          log("plan_signoff_requested", {
+            requestedBy: caller.agentId,
+            planId,
+            integrationId,
+          });
+          const signed = core.recordSignoff(context(call.credential), {
+            planId,
+            integrationId,
+            summary,
+          });
+          return ok({
+            planId,
+            integrationId: signed.integrationId,
+            signedAt: signed.createdAt,
           });
         }
         if (sub === "submit") {
@@ -1186,6 +1226,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
                   revision: detail.revision.revision,
                   baseSha: detail.revision.baseSha,
                   authorAgentId: detail.revision.authorAgentId,
+                  createdAt: detail.revision.createdAt,
                   body: JSON.parse(detail.revision.bodyJson) as unknown,
                 },
           packages: detail.packages,

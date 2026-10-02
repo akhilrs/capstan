@@ -436,6 +436,21 @@ function planNeedsAttentionNotice(planId: string): string {
   return `Plan ${planId} needs attention: it used ${MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.`;
 }
 
+/** The notice the PM receives when the architect signs off an integration: the user merges the branch, the PM confirms afterwards. */
+function planSignedOffNotice(
+  planId: string,
+  integrationId: string,
+  branch: string,
+  headSha: string | null,
+  summary: string,
+): string {
+  return [
+    `Plan ${planId} signed off. Integration ${integrationId} is on branch ${branch} at commit ${headSha ?? "unknown"}.`,
+    `Tell the user that branch and that the user merges it into the project's HEAD. Do not merge it yourself. When the user says the merge is done, run cstan integrate confirm ${integrationId}.`,
+    `The architect's summary, not verified: ${JSON.stringify(summary)}`,
+  ].join("\n");
+}
+
 const PLAN_NOTICE_BUDGET_BYTES = 12 * 1024;
 
 /** The notice the PM receives when a plan is approved: the packages, their dependencies and the order, cut to fit one message. */
@@ -569,6 +584,23 @@ export interface PlanSignoffRecord {
 }
 
 /** A plan with its approved revision (or the current one while it is not approved), its packages and its sign-offs. */
+export interface PlanStatusEntry {
+  readonly planId: string;
+  readonly title: string;
+  readonly tier: PlanTier;
+  readonly state: PlanState;
+  readonly cancelled: boolean;
+  readonly architectAgentId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** Package counts by derived progress; cancelled packages are counted under `cancelled` only. */
+  readonly packages: Readonly<Record<string, number>>;
+  readonly signoffs: readonly {
+    readonly integrationId: string;
+    readonly createdAt: string;
+  }[];
+}
+
 export interface PlanDetail {
   readonly plan: PlanRecord;
   readonly revision: PlanRevisionRecord | null;
@@ -957,6 +989,21 @@ export interface PmRestartSummary {
     readonly body: string;
     readonly state: string;
   }[];
+  /** Plans that are not finished, cancelled or superseded. Absent in summaries recorded before plans existed. */
+  readonly plans?: readonly {
+    readonly planId: string;
+    readonly title: string;
+    readonly tier: string;
+    readonly state: string;
+    readonly packages: number;
+    readonly signedOff: readonly string[];
+  }[];
+  /** Integrations still in the merged state: the PM runs `integrate confirm` when the user has merged them. */
+  readonly integrations?: readonly {
+    readonly integrationId: string;
+    readonly branch: string;
+    readonly headSha: string | null;
+  }[];
   readonly truncated: boolean;
   readonly summarizedGeneration: number;
   readonly generatedAt: string;
@@ -1278,6 +1325,7 @@ export interface ControllerStatus {
     readonly blockers: readonly string[];
     readonly nextLegalActions: readonly string[];
   }[];
+  readonly plans: readonly PlanStatusEntry[];
   readonly findings: readonly {
     readonly findingId: string;
     readonly affectedWorkItemId: string;
@@ -2592,6 +2640,8 @@ export class ControllerCore {
       objective: unknown;
       openWork: PmRestartSummary["openWork"][number][];
       messages: PmRestartSummary["messages"][number][];
+      plans: NonNullable<PmRestartSummary["plans"]>[number][];
+      integrations: NonNullable<PmRestartSummary["integrations"]>[number][];
       truncated: boolean;
       summarizedGeneration: number;
       generatedAt: string;
@@ -2606,6 +2656,8 @@ export class ControllerCore {
         blockers: item.blockers,
       })),
       messages: bounded,
+      plans: this.#openPlansForSummary(),
+      integrations: this.#mergedIntegrationsForSummary(),
       truncated,
       summarizedGeneration: generation,
       generatedAt: this.#now(),
@@ -2614,10 +2666,15 @@ export class ControllerCore {
     // work items, from the end until its JSON is small enough.
     while (
       Buffer.byteLength(JSON.stringify(summary), "utf8") > MAX_SUMMARY_BYTES &&
-      (summary.messages.length > 0 || summary.openWork.length > 0)
+      (summary.messages.length > 0 ||
+        summary.openWork.length > 0 ||
+        summary.plans.length > 0 ||
+        summary.integrations.length > 0)
     ) {
       if (summary.messages.length > 0) summary.messages.pop();
-      else summary.openWork.pop();
+      else if (summary.openWork.length > 0) summary.openWork.pop();
+      else if (summary.plans.length > 0) summary.plans.pop();
+      else summary.integrations.pop();
       summary.truncated = true;
     }
     return summary;
@@ -4965,10 +5022,11 @@ export class ControllerCore {
           );
         const integration = this.#database
           .prepare(
-            "SELECT state FROM integrations WHERE project_id = ? AND integration_id = ?",
+            "SELECT state, branch, head_sha FROM integrations WHERE project_id = ? AND integration_id = ?",
           )
           .get(this.#projectId, input.integrationId) as
-          { state: string } | undefined;
+          | { state: string; branch: string; head_sha: string | null }
+          | undefined;
         if (integration === undefined)
           throw new ControllerError(
             `integration ${input.integrationId} does not exist`,
@@ -5036,6 +5094,16 @@ export class ControllerCore {
             summary,
             now,
           );
+        this.#noticeToPm(
+          planSignedOffNotice(
+            input.planId,
+            input.integrationId,
+            integration.branch,
+            integration.head_sha,
+            summary,
+          ),
+          now,
+        );
         return {
           value: {
             integrationId: input.integrationId,
@@ -14838,6 +14906,94 @@ export class ControllerCore {
     return typeof row?.reason === "string" ? row.reason : null;
   }
 
+  #planStatusEntries(): PlanStatusEntry[] {
+    return (
+      this.#database
+        .prepare("SELECT * FROM plans WHERE project_id = ? ORDER BY sequence")
+        .all(this.#projectId) as PlanRow[]
+    ).map((row) => {
+      const packages: Record<string, number> = {};
+      for (const entry of this.#planPackages(row.plan_id)) {
+        const key = entry.cancelledAt === null ? entry.progress : "cancelled";
+        packages[key] = (packages[key] ?? 0) + 1;
+      }
+      return {
+        planId: row.plan_id,
+        title: row.title,
+        tier: row.tier,
+        state: row.state,
+        cancelled: row.cancelled_at !== null,
+        architectAgentId: row.architect_agent_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        packages,
+        signoffs: (
+          this.#database
+            .prepare(
+              "SELECT integration_id, created_at FROM plan_signoffs WHERE project_id = ? AND plan_id = ? ORDER BY created_at, integration_id",
+            )
+            .all(this.#projectId, row.plan_id) as {
+            integration_id: string;
+            created_at: string;
+          }[]
+        ).map((signoff) => ({
+          integrationId: signoff.integration_id,
+          createdAt: signoff.created_at,
+        })),
+      };
+    });
+  }
+
+  /** Plans a restarted PM still has to follow: not cancelled, not superseded, and not signed off for an integration that is confirmed. */
+  #openPlansForSummary(): NonNullable<PmRestartSummary["plans"]>[number][] {
+    return (
+      this.#database
+        .prepare(
+          `SELECT p.* FROM plans p WHERE p.project_id = ? AND p.cancelled_at IS NULL
+           AND p.state IN ('draft', 'in_review', 'approved')
+           AND NOT EXISTS (
+             SELECT 1 FROM plan_signoffs s JOIN integrations i
+               ON i.project_id = s.project_id AND i.integration_id = s.integration_id
+             WHERE s.project_id = p.project_id AND s.plan_id = p.plan_id AND i.state = 'confirmed')
+           ORDER BY p.sequence`,
+        )
+        .all(this.#projectId) as PlanRow[]
+    ).map((row) => ({
+      planId: row.plan_id,
+      title: row.title,
+      tier: row.tier,
+      state: row.state,
+      packages: this.#planPackages(row.plan_id).length,
+      signedOff: (
+        this.#database
+          .prepare(
+            "SELECT integration_id FROM plan_signoffs WHERE project_id = ? AND plan_id = ? ORDER BY created_at, integration_id",
+          )
+          .all(this.#projectId, row.plan_id) as { integration_id: string }[]
+      ).map((signoff) => signoff.integration_id),
+    }));
+  }
+
+  #mergedIntegrationsForSummary(): NonNullable<
+    PmRestartSummary["integrations"]
+  >[number][] {
+    return (
+      this.#database
+        .prepare(
+          "SELECT integration_id, branch, head_sha FROM integrations WHERE project_id = ? AND state = 'merged' ORDER BY sequence",
+        )
+        .all(this.#projectId) as {
+        integration_id: string;
+        branch: string;
+        head_sha: string | null;
+      }[]
+    ).map((row) => ({
+      integrationId: row.integration_id,
+      branch: row.branch,
+      headSha: row.head_sha,
+    }));
+  }
+
   statusSnapshot(): ControllerStatus {
     this.#assertOpen();
     const run = this.#database
@@ -15068,6 +15224,7 @@ export class ControllerCore {
         sessionState: null,
         assignmentId: row.assignment_id,
       })),
+      plans: this.#planStatusEntries(),
       work: work.map((row) => {
         const blockers = JSON.parse(row.blockers) as string[];
         const actionable =
