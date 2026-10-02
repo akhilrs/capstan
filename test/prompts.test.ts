@@ -371,7 +371,7 @@ test("with the Architect disabled every prompt is byte-identical to the one befo
   const { createHash } = await import("node:crypto");
   const golden = {
     PM: "29a9ad84d6ff5b35",
-    Developer: "b46b5989e238846b",
+    Developer: "1bb9754a48ea7114",
     Verifier: "f7bfe2d19eee2f46",
     Supervisor: "1032fc5dd4233bda",
   } as const;
@@ -629,5 +629,24 @@ test("the restart summary renders links and marks drift", () => {
     !buildRolePrompt({ ...base, restartSummary: summary }).includes(
       "Nexora links",
     ),
+  );
+});
+
+test("only the non-architect Developer prompt carries the amend rule", () => {
+  const amend =
+    "fix review findings or follow-up edits with `git commit --amend`";
+  const dev = buildRolePrompt(goldenInput("Developer"));
+  assert.ok(dev.includes(amend));
+  assert.ok(dev.includes("never push and never merge"));
+  assert.ok(dev.includes("do not amend that commit"));
+  assert.ok(!buildRolePrompt(goldenInput("Verifier")).includes(amend));
+  const architectPrompt = buildRolePrompt({
+    ...goldenInput("Developer"),
+    architect,
+    isArchitect: true,
+  });
+  assert.ok(!architectPrompt.includes(amend));
+  assert.ok(
+    buildRolePrompt({ ...goldenInput("Developer"), architect }).includes(amend),
   );
 });

@@ -94,6 +94,8 @@ Rules: never answer a permission prompt for another agent, never type into anoth
 
 const WORKER_FINISH_RULES = `Work only inside your own working directory. Commit your work on your own branch; never push and never merge. When you finish, report the commit with \`cstan report <commit> "<summary>"\`: the commit is the full 40-character id of a commit you made on your branch (get it with \`git rev-parse HEAD\`) and the summary is one line saying what you changed and what you could not verify. The controller checks the commit against your branch and rejects a commit that is missing, older than your branch's start or not on your branch; use \`cstan send @pm "<text>"\` for anything that is not a finished commit.`;
 
+const DEVELOPER_FINISH_RULES = `${WORKER_FINISH_RULES} Make one commit per package (or per task) and fix review findings or follow-up edits with \`git commit --amend\`, never a new fix commit, then report the new full commit id with \`cstan report\`; this is safe because worker branches are never pushed. An amend replaces the commit id: a report that names an amended-away id is rejected as not on the branch, the earlier reviewed commit stays in the ledger as an earlier report, and the new report needs a new review. After a verified report or a passed review, do not amend that commit; make further changes only when the PM sends findings, then amend and report the new full commit id.`;
+
 const ARCHITECT_FINISH_RULES =
   'Work only inside your own working directory, which you read and never change. You make no commits and send no reports; use `cstan send @pm "<text>"` for anything the PM must know.';
 
@@ -263,7 +265,9 @@ export function buildRolePrompt(input: PromptInput): string {
             input.isArchitect === true &&
             input.architect !== undefined
           ? WORKER_REFERENCE(input, ARCHITECT_FINISH_RULES)
-          : WORKER_REFERENCE(input),
+          : input.kind === "Developer"
+            ? WORKER_REFERENCE(input, DEVELOPER_FINISH_RULES)
+            : WORKER_REFERENCE(input),
   ];
   if (input.kind === "Verifier") parts.push(VERIFIER_REFERENCE);
   if (input.kind === "PM" && input.architect !== undefined)
