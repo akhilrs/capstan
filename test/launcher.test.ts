@@ -3398,3 +3398,35 @@ setup_timeout_seconds = 42
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("setup runs with the agents' filtered environment: no daemon-only variable, the [env] pass variables present, no agent token", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "capstan-setup-env-"));
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: { setup: "env > setup-env.txt", setupTimeoutSeconds: 10 },
+      pass: ["PASSED_VALUE"],
+      base: { PASSED_VALUE: "yes", DAEMON_ONLY: "leak" },
+    },
+  );
+  try {
+    mkdirSync(path.join(base, "developer-1"));
+    w.adapter.worktreeBase = base;
+    await launched(w);
+    const result = await w.launcher.spawn("developer");
+    const text = readFileSync(
+      path.join(result.worktreePath, "setup-env.txt"),
+      "utf8",
+    );
+    assert.match(text, /^PASSED_VALUE=yes$/m);
+    assert.match(text, /^HOME=\/home\/x$/m);
+    assert.doesNotMatch(text, /DAEMON_ONLY|SECRET/);
+    assert.doesNotMatch(text, /CAPSTAN_TOKEN/);
+  } finally {
+    w.cleanup();
+    rmSync(base, { recursive: true, force: true });
+  }
+});

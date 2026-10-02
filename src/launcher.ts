@@ -464,7 +464,12 @@ export class Launcher {
     this.#runSetup =
       options.runSetup ??
       ((command, cwd, timeoutMs) =>
-        runSetupCommand(command, cwd, timeoutMs, this.#baseEnvironment));
+        runSetupCommand(
+          command,
+          cwd,
+          timeoutMs,
+          this.#environment(null, true),
+        ));
   }
 
   status(): LauncherStatus {
@@ -805,7 +810,10 @@ export class Launcher {
   }
 
   /** The one environment every agent starts with: the allowlist, its token and socket, and `cstan` first on PATH. */
-  #environment(token: string | null): Record<string, string> {
+  #environment(
+    token: string | null,
+    includePass = token !== null,
+  ): Record<string, string> {
     if (this.#root.includes(":"))
       throw new LauncherError(
         "unsupported_root",
@@ -824,7 +832,7 @@ export class Launcher {
     return buildAgentEnvironment(
       this.#baseEnvironment,
       extras,
-      token === null ? [] : this.#config.env.pass,
+      includePass ? this.#config.env.pass : [],
     );
   }
 
