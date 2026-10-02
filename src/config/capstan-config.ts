@@ -24,6 +24,23 @@ pm_width_percent = 60
 enabled = true
 check_seconds = 300
 
+# The model and permission mode a role gets when it sets none of its own, by role kind
+# (PM, Supervisor, Developer, Verifier). [defaults] itself applies to every kind. A role's own
+# model or permission_mode always wins. permission_mode = "auto" lets Claude Code's auto mode
+# approve routine actions, so agents stall at permission prompts less often.
+[defaults.PM]
+model = "claude-opus-5-5"
+
+[defaults.Supervisor]
+model = "claude-opus-5-5"
+
+[defaults.Developer]
+model = "claude-sonnet-5-5"
+# permission_mode = "auto"
+
+[defaults.Verifier]
+model = "claude-sonnet-5-5"
+
 # Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
 # from the environment where \`cstan start\` runs, never from your interactive shell file alone.
 # Name them here (one-line values only); a name that is not set where the daemon starts is reported
@@ -375,6 +392,7 @@ export function parseCapstanConfig(
       "notifications",
       "timers",
       "supervision",
+      "defaults",
       "limits",
       "layout",
       "env",
@@ -531,6 +549,7 @@ export function parseCapstanConfig(
     requiredTable(root.roles, "roles"),
     hostsByName,
     projectRoot,
+    resolveDefaults(optionalTable(root.defaults, "defaults")),
   );
   if (roles.filter((role) => role.kind === "PM").length !== 1)
     throw new ConfigError("exactly one role must have kind PM");
@@ -624,14 +643,76 @@ function rejectUnenforceable(
     );
   if (permissionMode !== "acceptEdits" && permissionMode !== "auto")
     throw new ConfigError(
-      `${at}.permission_mode must be acceptEdits or auto on host ${host.name} (${host.kind}), which runs unattended with full access`,
+      `${at}.permission_mode must be acceptEdits or auto on host ${host.name} (${host.kind}), which runs unattended with full access (set it on the role or in [defaults])`,
     );
+}
+
+type RoleDefaults = {
+  readonly model: string | null;
+  readonly permissionMode: PermissionMode | null;
+};
+
+type ResolvedDefaults = {
+  readonly all: RoleDefaults;
+  readonly byKind: Readonly<Record<RoleKind, RoleDefaults>>;
+};
+
+function parseModel(value: unknown, at: string): string | null {
+  const model = optionalString(value, at, 100);
+  if (model !== null) {
+    guardCredentialShape(model, at);
+    if (model.startsWith("-"))
+      throw new ConfigError(`${at} must not start with a dash`);
+  }
+  return model;
+}
+
+function parsePermissionMode(
+  value: unknown,
+  at: string,
+): PermissionMode | null {
+  return value === undefined ? null : enumValue(value, at, PERMISSION_MODES);
+}
+
+/** `[defaults]` and `[defaults.<kind>]`: the model and permission mode a role takes when it sets none of its own. */
+function resolveDefaults(table: Table): ResolvedDefaults {
+  rejectUnknownKeys(
+    table,
+    ["model", "permission_mode", ...ROLE_KINDS],
+    "defaults",
+  );
+  const read = (source: Table, at: string): RoleDefaults => {
+    rejectUnknownKeys(source, ["model", "permission_mode"], at);
+    return {
+      model: parseModel(source.model, `${at}.model`),
+      permissionMode: parsePermissionMode(
+        source.permission_mode,
+        `${at}.permission_mode`,
+      ),
+    };
+  };
+  const all = read(
+    Object.fromEntries(
+      Object.entries(table).filter(
+        ([key]) => !ROLE_KINDS.includes(key as RoleKind),
+      ),
+    ),
+    "defaults",
+  );
+  const byKind = Object.fromEntries(
+    ROLE_KINDS.map((kind) => [
+      kind,
+      read(optionalTable(table[kind], `defaults.${kind}`), `defaults.${kind}`),
+    ]),
+  ) as Record<RoleKind, RoleDefaults>;
+  return { all, byKind };
 }
 
 function resolveRoles(
   table: Table,
   hosts: ReadonlyMap<string, ResolvedHost>,
   projectRoot: string,
+  defaults: ResolvedDefaults,
 ): ResolvedRole[] {
   const names = validatedNames(table, "roles", "role");
   if (names.length === 0)
@@ -663,20 +744,20 @@ function resolveRoles(
     const host = hosts.get(hostName);
     if (!host)
       throw new ConfigError(`${at}.host does not name a configured host`);
-    const model = optionalString(role.model, `${at}.model`, 100);
-    if (model !== null) {
-      guardCredentialShape(model, `${at}.model`);
-      if (model.startsWith("-"))
-        throw new ConfigError(`${at}.model must not start with a dash`);
-    }
-    const permissionMode =
+    const kindDefaults = defaults.byKind[kind];
+    const model =
+      role.model === undefined
+        ? (kindDefaults.model ?? defaults.all.model)
+        : parseModel(role.model, `${at}.model`);
+    const permissionMode: PermissionMode =
       role.permission_mode === undefined
-        ? "default"
-        : enumValue(
+        ? (kindDefaults.permissionMode ??
+          defaults.all.permissionMode ??
+          "default")
+        : (parsePermissionMode(
             role.permission_mode,
             `${at}.permission_mode`,
-            PERMISSION_MODES,
-          );
+          ) as PermissionMode);
     const allow = stringList(role.allow, `${at}.allow`);
     const deny =
       role.deny === undefined && kind === "PM"
