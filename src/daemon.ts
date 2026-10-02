@@ -151,9 +151,6 @@ export interface DaemonServer {
   close(): Promise<void>;
 }
 
-const LEGACY_FOREGROUND_ONLY =
-  "pause, resume and cancel require the foreground cstan run controller";
-
 function respond(
   socket: net.Socket,
   response: CommandResponse | Record<string, unknown>,
@@ -406,7 +403,7 @@ export async function startDaemonServer(options: {
     const done = (body: Record<string, unknown>, code: string): void => {
       send(socket, body);
       log({
-        command: `legacy:${action}`,
+        command: `control:${action}`,
         actorId: identity?.actorId ?? null,
         role: identity?.role ?? null,
         code,
@@ -437,8 +434,6 @@ export async function startDaemonServer(options: {
         );
       }
     }
-    if (["pause", "resume", "cancel"].includes(action))
-      return done({ error: LEGACY_FOREGROUND_ONLY }, "not_supported");
     return done({ error: "invalid control request" }, "invalid_request");
   };
 

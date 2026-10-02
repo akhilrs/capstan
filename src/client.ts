@@ -12,15 +12,16 @@ const START_TIMEOUT_MS = 10_000;
 const POLL_MS = 100;
 const LOST_RACE_GRACE_MS = 3_000;
 
-export type WireResult =
-  | { readonly kind: "response"; readonly response: CommandResponse }
-  | { readonly kind: "legacy"; readonly body: Record<string, unknown> };
+export type WireResult = {
+  readonly kind: "response";
+  readonly response: CommandResponse;
+};
 
 export class ControllerUnavailableError extends Error {
   override readonly name = "ControllerUnavailableError";
   constructor(
     readonly reason:
-      "legacy" | "refused" | "unreachable" | "start_timeout" | "start_failed",
+      "refused" | "unreachable" | "start_timeout" | "start_failed",
     message: string,
   ) {
     super(message);
@@ -69,15 +70,12 @@ export async function callDaemon(
         if (typeof body !== "object" || body === null || Array.isArray(body))
           throw new Error("malformed reply");
         const record = body as Record<string, unknown>;
+        if (!("ok" in record)) throw new Error("malformed reply");
         settle(() =>
-          resolve(
-            "ok" in record
-              ? {
-                  kind: "response",
-                  response: record as unknown as CommandResponse,
-                }
-              : { kind: "legacy", body: record },
-          ),
+          resolve({
+            kind: "response",
+            response: record as unknown as CommandResponse,
+          }),
         );
       } catch {
         settle(() => reject(withCode("malformed reply", "EBADMSG")));
@@ -95,7 +93,6 @@ export async function callDaemon(
 
 export type PingOutcome =
   | { readonly outcome: "running"; readonly pid: number }
-  | { readonly outcome: "legacy" }
   | { readonly outcome: "refused"; readonly code: string }
   | { readonly outcome: "down" }
   | { readonly outcome: "unreachable"; readonly reason: string };
@@ -113,7 +110,6 @@ export async function pingDaemon(
       [],
       timeoutMs,
     );
-    if (result.kind === "legacy") return { outcome: "legacy" };
     if (result.response.ok) {
       const value = result.response.result as { pid?: unknown };
       return {
@@ -188,11 +184,6 @@ export interface EnsureOptions {
 function unavailable(
   outcome: PingOutcome,
 ): ControllerUnavailableError | undefined {
-  if (outcome.outcome === "legacy")
-    return new ControllerUnavailableError(
-      "legacy",
-      "a foreground cstan run controller owns this project; stop it before using the daemon",
-    );
   if (outcome.outcome === "refused")
     return new ControllerUnavailableError(
       "refused",

@@ -609,8 +609,8 @@ test("a reply above the size limit becomes an error reply, and a long legacy act
       action: "a".repeat(60_000),
     });
     await rawExchange(socketPath, Buffer.from(`${long}\n`));
-    const legacy = log.find((entry) => entry.command.startsWith("legacy:"))!;
-    assert.ok(legacy.command.length <= "legacy:".length + 32);
+    const legacy = log.find((entry) => entry.command.startsWith("control:"))!;
+    assert.ok(legacy.command.length <= "control:".length + 32);
   } finally {
     await server.close();
     core.close();
@@ -786,8 +786,7 @@ test("the legacy status and inspect requests work for the operator token and not
     });
     for (const action of ["pause", "resume", "cancel"])
       assert.deepEqual(await legacy({ token: h.owner, action }), {
-        error:
-          "pause, resume and cancel require the foreground cstan run controller",
+        error: "invalid control request",
       });
     assert.deepEqual(await legacy({ token: h.owner, action: "bogus" }), {
       error: "invalid control request",
@@ -803,7 +802,7 @@ test("the legacy status and inspect requests work for the operator token and not
   }
 });
 
-test("pingDaemon tells a running daemon, a legacy controller, a refusal, no daemon and a silent one apart", async () => {
+test("pingDaemon tells a running daemon, a refusal, no daemon, a reply that is not a daemon frame and a silent one apart", async () => {
   const h = await harness();
   const directory = mkdtempSync(path.join(tmpdir(), "capstan-ping-"));
   const servers: net.Server[] = [];
@@ -828,10 +827,10 @@ test("pingDaemon tells a running daemon, a legacy controller, a refusal, no daem
       await new Promise<void>((resolve) => server.listen(socketPath, resolve));
       return socketPath;
     };
-    const legacy = await serve("legacy.sock", (socket) => {
+    const notDaemon = await serve("not-daemon.sock", (socket) => {
       socket.once("data", () => socket.end('{"error":"unauthorized"}\n'));
     });
-    assert.deepEqual(await pingDaemon(legacy, h.owner), { outcome: "legacy" });
+    assert.equal((await pingDaemon(notDaemon, h.owner)).outcome, "unreachable");
     const silent = await serve("silent.sock", () => {});
     assert.equal(
       (await pingDaemon(silent, h.owner, 300)).outcome,
