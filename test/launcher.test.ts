@@ -75,7 +75,7 @@ function config(
     limits: { maxWorkers },
     layout: {
       spawn: "tab",
-      split: "auto",
+      pmWidthPercent: 60,
       minPaneColumns: 60,
       minPaneRows: 12,
       ...layout,
@@ -772,27 +772,32 @@ test("pane mode splits the worker into the PM's tab, records the new pane id and
     assert.equal(row.paneId, first.paneId, "the ledger holds the new pane id");
     assert.equal(row.workspaceId, w.adapter.pmWorkspace);
     assert.equal(w.adapter.starts.at(-1)!.paneId, first.paneId);
-    const second = await w.launcher.spawn("developer");
+    const second = await w.launcher.spawn("developer2");
     assert.equal(second.placement, "pane");
     assert.ok(
-      w.adapter.calls.some((c) => c.endsWith(`:${pmPane.paneId}:down`)),
-      "the PM pane is now too narrow for another right split, so the next worker stacks below it",
+      w.adapter.calls.some((c) => c.endsWith(`:${first.paneId}:down`)),
+      "the next worker stacks below the first worker, in the column on the PM's right",
     );
+    assert.ok(
+      !w.adapter.calls.some((c) => c.endsWith(`:${pmPane.paneId}:down`)),
+      "the PM pane is never split down",
+    );
+    const layout = w.adapter.tabPanes.find((p) => p.paneId === pmPane.paneId)!;
+    assert.equal(layout.height, 50, "the PM pane keeps the full height");
+    assert.equal(layout.width, 120, "the PM pane keeps 60% of the width");
   } finally {
     w.cleanup();
   }
 });
 
-test("a fixed split direction is used as configured", async () => {
-  const w = await world(true, true, 3, { spawn: "pane", split: "down" });
+test("the PM keeps pm_width_percent of its tab when the first worker is placed", async () => {
+  const w = await world(true, true, 3, { spawn: "pane", pmWidthPercent: 70 });
   try {
     await launched(w);
     await w.launcher.spawn("developer");
-    assert.ok(
-      w.adapter.calls.some(
-        (c) => c.startsWith("place:") && c.endsWith(":down"),
-      ),
-    );
+    assert.deepEqual(w.adapter.keeps, [0.7]);
+    await w.launcher.spawn("developer2");
+    assert.deepEqual(w.adapter.keeps, [0.7, 0.5]);
   } finally {
     w.cleanup();
   }
@@ -1586,7 +1591,7 @@ test("after a daemon restart the recorded panes are re-registered, lost ones are
   }
 });
 
-test("adoption sweeps stale rows, crashed spawns with and without a row, and a vanished fallback pane", async () => {
+test("adoption sweeps stale rows and crashed spawns with and without a row, and keeps the row of a vanished watch pane", async () => {
   const w = await world();
   try {
     await launched(w);
@@ -1638,7 +1643,12 @@ test("adoption sweeps stale rows, crashed spawns with and without a row, and a v
       "ended",
       "a crashed spawn with no row is ended",
     );
-    assert.equal(w.core.fallbackPane(w.owner), undefined);
+    assert.deepEqual(
+      w.core.fallbackPane(w.owner),
+      fallback,
+      "a gone watch pane keeps its row so the project workspace can get a new watch tab",
+    );
+    assert.ok(eventNames(w).includes("fallback_pane_gone"));
     assert.ok(eventNames(w).includes("crashed_spawn"));
   } finally {
     w.cleanup();
@@ -1690,22 +1700,26 @@ test("a crashed spawn with an intent row removes its worktree found by branch an
   }
 });
 
-test("a hub that fails to open is reported as failed, the PM still starts, and spawn refuses with hub_unavailable", async () => {
+test("a project workspace that fails to open fails the PM start and leaves no agent, row or pane, and spawn needs a launched PM", async () => {
   const w = await world();
   try {
     w.adapter.runError = new Error("cannot run");
     const result = await w.launcher.launchPm();
-    assert.equal(result.state, "started");
-    assert.equal(result.hub, "failed");
+    assert.equal(result.state, "failed");
+    assert.match(result.reason!, /project workspace could not be opened/);
     assert.equal(w.core.fallbackPane(w.owner), undefined);
+    assert.equal(
+      w.core.listAgents().filter((a) => a.state === "active").length,
+      0,
+    );
+    assert.ok(
+      w.adapter.calls.some((c) => c.startsWith("close:")),
+      "the workspace made for the PM is closed again",
+    );
     await assert.rejects(
       w.launcher.spawn("developer"),
       (e: unknown) =>
-        e instanceof LauncherError && e.code === "hub_unavailable",
-    );
-    assert.equal(
-      w.core.listAgents().some((a) => a.roleName === "developer"),
-      false,
+        e instanceof LauncherError && e.code === "pm_not_launched",
     );
   } finally {
     w.cleanup();
@@ -1837,7 +1851,7 @@ test("a restart closes the recorded old pane even when adoption did not register
   }
 });
 
-test("a hub that cannot be re-adopted for a transient reason is not replaced by a second hub; a vanished hub is", async () => {
+test("a hub that cannot be re-adopted for a transient reason is not replaced by a second hub; a vanished watch pane is made again in the same workspace", async () => {
   const w = await world();
   try {
     await launched(w);
@@ -1873,14 +1887,23 @@ test("a hub that cannot be re-adopted for a transient reason is not replaced by 
       "the recorded hub is untouched",
     );
     assert.ok(
-      !fresh.calls.some((c) => c.startsWith("workspace:capstan-watch")),
+      !fresh.calls.some((c) => c.startsWith("workspace:")),
       "no second hub",
     );
 
     fresh.adoptErrors.set(hub.paneId, new PaneGone("gone"));
     const result = await launcher.spawn("developer");
     assert.equal(result.state, "started");
-    assert.notDeepEqual(w.core.fallbackPane(w.owner), hub);
+    const remade = w.core.fallbackPane(w.owner)!;
+    assert.equal(
+      remade.workspaceId,
+      hub.workspaceId,
+      "a vanished watch pane is made again in the same project workspace",
+    );
+    assert.ok(
+      fresh.calls.some((c) => c === `tab:${hub.workspaceId}:watch:worker`),
+    );
+    assert.ok(!fresh.calls.some((c) => c.startsWith("workspace:")));
   } finally {
     w.cleanup();
   }
@@ -2619,13 +2642,23 @@ test("workspaces are labelled with the project and every started pane reports pr
     await launched(w);
     const spawned = await w.launcher.spawn("developer");
     assert.equal(spawned.state, "started");
-    assert.ok(w.adapter.calls.includes(`workspace:${project} · pm:PM`));
-    assert.ok(w.adapter.calls.includes(`workspace:${project} · watch:worker`));
-    assert.ok(w.adapter.created.includes(`${project} · developer-1`));
-    assert.ok(
-      w.adapter.labels.some((l) => l.endsWith(`:${project} · watch`)) ||
-        w.adapter.metadata.some((m) => m.tokens.project === project),
+    assert.deepEqual(
+      w.adapter.calls.filter((c) => c.startsWith("workspace:")),
+      [`workspace:${project}:PM`],
+      "one workspace per project, named after it, whose root pane is the PM's",
     );
+    const hub = w.core.fallbackPane(w.owner)!;
+    assert.ok(
+      w.adapter.calls.includes(`tab:${hub.workspaceId}:watch:worker`),
+      "the watch shell is a tab of that workspace",
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === "pm-1")!.workspaceId,
+      hub.workspaceId,
+      "the PM lives in the project workspace",
+    );
+    assert.ok(w.adapter.created.includes(`${project} · developer-1`));
+    assert.ok(w.adapter.labels.includes(`${hub.workspaceId}:${project}`));
     const pm = w.adapter.metadata.find((m) => m.tokens.agent === "pm-1")!;
     assert.deepEqual(pm.tokens, {
       project,
@@ -2662,7 +2695,7 @@ test("a failure to report metadata is logged and never fails a start", async () 
   }
 });
 
-test("a restart renames the workspace of an adopted agent to its project label and reports its metadata again", async () => {
+test("an adopted PM keeps the project workspace name, an old PM workspace gets its project label, and metadata is reported again", async () => {
   const w = await world();
   try {
     const project = path.basename(w.root);
@@ -2683,8 +2716,28 @@ test("a restart renames the workspace of an adopted agent to its project label a
     );
     assert.ok(worker.workspaceId !== null);
     const pm = w.core.agentPanes(w.owner).find((r) => r.agentId === "pm-1")!;
-    assert.ok(w.adapter.labels.includes(`${pm.workspaceId}:${project} · pm`));
+    const hub = w.core.fallbackPane(w.owner)!;
+    assert.equal(pm.workspaceId, hub.workspaceId);
+    assert.ok(
+      !w.adapter.labels.includes(`${pm.workspaceId}:${project} · pm`),
+      "a PM in the project workspace never renames it to a pm label",
+    );
     assert.ok(w.adapter.metadata.some((m) => m.tokens.agent === "developer-1"));
+
+    // A PM started before the project workspace existed still has a workspace of its own.
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: "pm-1",
+      workspaceId: "w77",
+      paneId: pm.paneId,
+      worktreePath: null,
+      branch: null,
+      baseSha: null,
+    });
+    w.adapter.entries.clear();
+    w.adapter.agentPanes.clear();
+    w.adapter.labels.length = 0;
+    await w.reopen().adoptAll();
+    assert.ok(w.adapter.labels.includes(`w77:${project} · pm`));
   } finally {
     w.cleanup();
   }

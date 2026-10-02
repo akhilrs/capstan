@@ -25,6 +25,7 @@ export class StubAdapter implements LauncherAdapter {
   }
 
   readonly calls: string[] = [];
+  readonly keeps: number[] = [];
   readonly created: string[] = [];
   readonly metadata: Array<{ target: string; tokens: Record<string, string> }> =
     [];
@@ -76,8 +77,10 @@ export class StubAdapter implements LauncherAdapter {
     tabId: string;
     targetPaneId: string;
     direction: "right" | "down";
+    keep: number;
     worktreePath: string;
   }) {
+    this.keeps.push(input.keep);
     this.calls.push(
       `place:${input.paneId}:${input.targetPaneId}:${input.direction}`,
     );
@@ -91,13 +94,13 @@ export class StubAdapter implements LauncherAdapter {
     const workspace = this.pmWorkspace!;
     this.placed += 1;
     const paneId = `${workspace}:p${this.placed}`;
-    const half = (n: number) => Math.floor(n / 2);
+    const kept = (n: number) => Math.floor(n * input.keep);
     const next =
       input.direction === "right"
-        ? { width: half(target.width), height: target.height }
-        : { width: target.width, height: half(target.height) };
-    if (input.direction === "right") target.width = half(target.width);
-    else target.height = half(target.height);
+        ? { width: target.width - kept(target.width), height: target.height }
+        : { width: target.width, height: target.height - kept(target.height) };
+    if (input.direction === "right") target.width = kept(target.width);
+    else target.height = kept(target.height);
     this.tabPanes.push({ paneId, ...next });
     this.entries.delete(input.paneId);
     this.entries.set(paneId, {});
@@ -123,6 +126,20 @@ export class StubAdapter implements LauncherAdapter {
       this.tabPanes = [{ paneId, ...this.layoutSize }];
     }
     return { workspaceId: `w${this.counter}`, paneId };
+  }
+
+  async createTab(input: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    role: "PM" | "worker";
+  }) {
+    this.counter += 1;
+    const paneId = `${input.workspaceId}:p${this.counter + 100}`;
+    this.calls.push(`tab:${input.workspaceId}:${input.label}:${input.role}`);
+    this.entries.set(paneId, {});
+    if (input.role === "PM") this.tabPanes = [{ paneId, ...this.layoutSize }];
+    return { tabId: `${input.workspaceId}:t${this.counter}`, paneId };
   }
 
   async createWorktree(input: {

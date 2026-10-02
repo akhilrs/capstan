@@ -16,7 +16,7 @@ max_workers = 3
 
 [layout]
 spawn = "pane"
-split = "auto"
+pm_width_percent = 60
 
 # Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
 # from the environment where \`cstan start\` runs, never from your interactive shell file alone.
@@ -218,15 +218,15 @@ export const SUPERVISOR_DEFAULT_DENY: readonly string[] = [
 ];
 
 export const SPAWN_LAYOUTS = ["tab", "pane"] as const;
-export const SPLIT_DIRECTIONS = ["auto", "right", "down"] as const;
+export const DEFAULT_PM_WIDTH_PERCENT = 60;
 export const DEFAULT_MIN_PANE_COLUMNS = 60;
 export const DEFAULT_MIN_PANE_ROWS = 12;
 
 export type ResolvedLayout = {
   /** "tab": each worker gets its own Herdr workspace; "pane": it is split into the PM's tab. */
   readonly spawn: (typeof SPAWN_LAYOUTS)[number];
-  /** "right" puts panes side by side, "down" stacks them; "auto" picks by the target's size. */
-  readonly split: (typeof SPLIT_DIRECTIONS)[number];
+  /** How much of the PM's tab width the PM pane keeps when the first worker pane is placed; workers stack in the column on its right. */
+  readonly pmWidthPercent: number;
   readonly minPaneColumns: number;
   readonly minPaneRows: number;
 };
@@ -239,6 +239,8 @@ export type CapstanConfig = {
   readonly timers: ResolvedTimers;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
+  /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
+  readonly warnings: readonly string[];
   readonly env: ResolvedEnvironment;
   readonly hosts: readonly ResolvedHost[];
   readonly roles: readonly ResolvedRole[];
@@ -427,18 +429,32 @@ export function parseCapstanConfig(
   const layoutTable = optionalTable(root.layout, "layout");
   rejectUnknownKeys(
     layoutTable,
-    ["spawn", "split", "min_pane_columns", "min_pane_rows"],
+    ["spawn", "split", "pm_width_percent", "min_pane_columns", "min_pane_rows"],
     "layout",
   );
+  const warnings: string[] = [];
+  if (layoutTable.split !== undefined) {
+    enumValue(layoutTable.split, "layout.split", [
+      "auto",
+      "right",
+      "down",
+    ] as const);
+    warnings.push(
+      "layout.split is ignored: the PM pane keeps the left layout.pm_width_percent of its tab and worker panes stack in the column on its right",
+    );
+  }
   const layout: ResolvedLayout = {
     spawn:
       layoutTable.spawn === undefined
         ? "tab"
         : enumValue(layoutTable.spawn, "layout.spawn", SPAWN_LAYOUTS),
-    split:
-      layoutTable.split === undefined
-        ? "auto"
-        : enumValue(layoutTable.split, "layout.split", SPLIT_DIRECTIONS),
+    pmWidthPercent: optionalInteger(
+      layoutTable.pm_width_percent,
+      "layout.pm_width_percent",
+      30,
+      80,
+      DEFAULT_PM_WIDTH_PERCENT,
+    ),
     minPaneColumns: optionalInteger(
       layoutTable.min_pane_columns,
       "layout.min_pane_columns",
@@ -482,6 +498,7 @@ export function parseCapstanConfig(
     env,
     hosts,
     roles,
+    warnings,
   };
 }
 
