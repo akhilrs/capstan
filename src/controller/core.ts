@@ -487,6 +487,8 @@ export interface ExternalLinkRecord {
   readonly externalId: string;
   readonly syncedState: NexoraState;
   readonly boundAgentId: string | null;
+  /** When the agent was bound; only reports accepted at or after it count for the requirement. */
+  readonly boundAt: string | null;
   readonly linkedBy: string;
   readonly linkedAt: string;
   readonly syncedAt: string;
@@ -502,6 +504,7 @@ interface ExternalLinkRow {
   readonly external_id: string;
   readonly synced_state: NexoraState;
   readonly bound_agent_id: string | null;
+  readonly bound_at: string | null;
   readonly linked_by: string;
   readonly linked_at: string;
   readonly synced_at: string;
@@ -4903,16 +4906,41 @@ export class ControllerCore {
   #wantedState(
     refKind: ExternalRefKind,
     refId: string,
-    link: { syncedState: NexoraState; boundAgentId: string | null } | undefined,
+    link:
+      | {
+          syncedState: NexoraState;
+          boundAgentId: string | null;
+          boundAt: string | null;
+        }
+      | undefined,
   ): NexoraState | null {
     if (refKind === "requirement") {
-      if (link === undefined || link.boundAgentId === null) return null;
+      if (
+        link === undefined ||
+        link.boundAgentId === null ||
+        link.boundAt === null
+      )
+        return null;
+      // The bound agent and the agents it replaced count, but only reports made since the binding.
       const report = this.#database
         .prepare(
-          "SELECT report_id FROM agent_reports WHERE project_id = ? AND agent_id = ? AND state = 'accepted' ORDER BY sequence DESC LIMIT 1",
+          `WITH RECURSIVE chain(agent_id) AS (
+             SELECT ?
+             UNION
+             SELECT e.entity_id FROM controller_events e JOIN chain c
+               ON json_extract(e.payload_json, '$.details.successorId') = c.agent_id
+             WHERE e.project_id = ? AND e.entity_type = 'agent' AND e.to_state = 'replaced')
+           SELECT r.report_id FROM agent_reports r
+           WHERE r.project_id = ? AND r.agent_id IN (SELECT agent_id FROM chain)
+             AND r.state = 'accepted' AND r.created_at >= ?
+           ORDER BY r.sequence DESC LIMIT 1`,
         )
-        .get(this.#projectId, link.boundAgentId) as
-        { report_id: string } | undefined;
+        .get(
+          link.boundAgentId,
+          this.#projectId,
+          this.#projectId,
+          link.boundAt,
+        ) as { report_id: string } | undefined;
       const verdict =
         report === undefined
           ? undefined
@@ -4957,6 +4985,7 @@ export class ControllerCore {
     const wanted = this.#wantedState(row.ref_kind, row.ref_id, {
       syncedState: row.synced_state,
       boundAgentId: row.bound_agent_id,
+      boundAt: row.bound_at,
     });
     return {
       refKind: row.ref_kind,
@@ -4965,6 +4994,7 @@ export class ControllerCore {
       externalId: row.external_id,
       syncedState: row.synced_state,
       boundAgentId: row.bound_agent_id,
+      boundAt: row.bound_at,
       linkedBy: row.linked_by,
       linkedAt: row.linked_at,
       syncedAt: row.synced_at,
@@ -5119,9 +5149,9 @@ export class ControllerCore {
           );
         this.#database
           .prepare(
-            "UPDATE external_links SET bound_agent_id = ? WHERE project_id = ? AND ref_kind = 'requirement' AND ref_id = ? AND system = 'nexora'",
+            "UPDATE external_links SET bound_agent_id = ?, bound_at = ? WHERE project_id = ? AND ref_kind = 'requirement' AND ref_id = ? AND system = 'nexora'",
           )
-          .run(agent.agent_id, this.#projectId, input.refId);
+          .run(agent.agent_id, this.#now(), this.#projectId, input.refId);
         return {
           value: this.#linkRecord(this.#linkRow("requirement", input.refId)!),
           event: {
@@ -5169,6 +5199,7 @@ export class ControllerCore {
         : {
             syncedState: link.synced_state,
             boundAgentId: link.bound_agent_id,
+            boundAt: link.bound_at,
           },
     );
   }
@@ -5307,6 +5338,26 @@ export class ControllerCore {
           `${subject} by the operator.`,
           now,
         );
+        const held = this.#planPackageRows(input.planId).filter((row) =>
+          cancelledPackages.includes(row.package_id),
+        );
+        for (const row of held) {
+          const developer =
+            row.assignee_agent_id === null
+              ? undefined
+              : this.#agentRow(row.assignee_agent_id);
+          if (developer?.state !== "active") continue;
+          const body = `Stop work on package ${row.package_id} of plan ${input.planId}: it was cancelled by the operator. Do not report it.`;
+          this.#insertQueuedMessage(
+            this.#controllerActorId(),
+            developer,
+            body,
+            sha256(body),
+            now,
+          );
+          if (!notified.includes(developer.agent_id))
+            notified.push(developer.agent_id);
+        }
         return {
           value: {
             planId: input.planId,

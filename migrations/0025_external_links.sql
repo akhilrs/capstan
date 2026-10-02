@@ -8,13 +8,15 @@ CREATE TABLE external_links (
   external_id TEXT NOT NULL CHECK (trim(external_id) <> ''),
   synced_state TEXT NOT NULL CHECK (synced_state IN ('backlog', 'todo', 'in_progress', 'in_review', 'completed', 'wont_do')),
   bound_agent_id TEXT,
+  bound_at TEXT,
   linked_by TEXT NOT NULL,
   linked_at TEXT NOT NULL,
   synced_at TEXT NOT NULL,
   PRIMARY KEY (project_id, ref_kind, ref_id, system),
   FOREIGN KEY (project_id, bound_agent_id) REFERENCES agents(project_id, agent_id),
   FOREIGN KEY (project_id, linked_by) REFERENCES actors(project_id, actor_id),
-  CHECK (bound_agent_id IS NULL OR ref_kind = 'requirement')
+  CHECK (bound_agent_id IS NULL OR ref_kind = 'requirement'),
+  CHECK ((bound_agent_id IS NULL) = (bound_at IS NULL))
 ) STRICT, WITHOUT ROWID;
 
 CREATE TRIGGER external_links_identity BEFORE UPDATE OF project_id, ref_kind, ref_id, system, external_id, linked_by, linked_at ON external_links

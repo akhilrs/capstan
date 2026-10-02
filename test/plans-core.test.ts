@@ -2174,3 +2174,140 @@ test("migration 0025 adds the link table and the cancellation columns to a ledge
     await close(t.h);
   }
 });
+
+function tickingClock(): () => Date {
+  let seconds = 0;
+  return () => new Date(Date.UTC(2026, 9, 2, 0, 0, seconds++));
+}
+
+test("cancelling a package or a plan tells the developers who hold cancelled work to stop", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const dev3 = member(h, "dev-three", "Developer", "developer");
+    const planId = approved(t, "wp1", "wp2", "wp3", "wp4");
+    assign(t, planId, "wp1", t.dev1);
+    assign(t, planId, "wp2", t.dev2);
+    assign(t, planId, "wp3", dev3);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+
+    const single = h.core.cancelPlan(ctx(h.core, h.owner), {
+      planId,
+      packageId: "wp2",
+    });
+    assert.deepEqual(single.notified, ["pm-agent", "architect", "dev-two"]);
+    const whole = h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    assert.deepEqual(
+      whole.notified,
+      ["pm-agent", "architect", "dev-three"],
+      "the confirmed holder, the unassigned package and the already cancelled holder are not told again",
+    );
+    const stops = raw(
+      h,
+      (db) =>
+        db
+          .prepare(
+            "SELECT recipient_agent_id AS who, body FROM messages WHERE body LIKE 'Stop work%' ORDER BY sequence",
+          )
+          .all() as { who: string; body: string }[],
+    );
+    assert.deepEqual(stops, [
+      {
+        who: "dev-two",
+        body: `Stop work on package wp2 of plan ${planId}: it was cancelled by the operator. Do not report it.`,
+      },
+      {
+        who: "dev-three",
+        body: `Stop work on package wp3 of plan ${planId}: it was cancelled by the operator. Do not report it.`,
+      },
+    ]);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a requirement counts only reports accepted since it was bound", async () => {
+  const t = await team(tickingClock());
+  try {
+    const { h } = t;
+    const old = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, old, "pass");
+    const integrationId = await integrateReports(h, [old]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    link(t, "requirement", "req-1", "PM-20", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    assert.equal(h.core.externalLinks(h.owner)[0]!.boundAt === null, false);
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "earlier confirmed work does not complete it",
+    );
+    const fresh = reportBy(h, t.dev1, "2".repeat(40));
+    assert.equal(wanted(t, "requirement", "req-1"), "in_progress");
+    review(h, fresh, "pass");
+    assert.equal(wanted(t, "requirement", "req-1"), "in_review");
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a requirement keeps the work of the developers a replacement carried forward", async () => {
+  const t = await team(tickingClock());
+  try {
+    const { h } = t;
+    link(t, "requirement", "req-1", "PM-20", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-1",
+      agentId: t.dev1.agentId,
+    });
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    assert.equal(wanted(t, "requirement", "req-1"), "completed");
+    const second = member(h, "dev-three", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: t.dev1.agentId,
+      successorId: second.agentId,
+    });
+    assert.equal(wanted(t, "requirement", "req-1"), "completed");
+    const third = member(h, "dev-four", "Developer", "developer");
+    h.core.recordAgentReplaced(ctx(h.core, h.owner), {
+      predecessorId: second.agentId,
+      successorId: third.agentId,
+    });
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "completed",
+      "the whole predecessor chain counts",
+    );
+    assert.equal(h.core.externalLinks(h.owner)[0]!.boundAgentId, "dev-four");
+    reportBy(h, third, "3".repeat(40));
+    assert.equal(
+      wanted(t, "requirement", "req-1"),
+      "in_progress",
+      "a newer report of the successor restarts the rows",
+    );
+    link(t, "requirement", "req-2", "PM-21", "in_progress");
+    h.core.bindRequirement(ctx(h.core, h.pm.credential), {
+      refId: "req-2",
+      agentId: t.dev2.agentId,
+    });
+    assert.equal(
+      wanted(t, "requirement", "req-2"),
+      "in_progress",
+      "an unrelated agent's reports are not in the chain",
+    );
+  } finally {
+    await close(t.h);
+  }
+});
