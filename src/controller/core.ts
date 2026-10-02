@@ -591,7 +591,6 @@ export interface PlanSignoffRecord {
   readonly createdAt: string;
 }
 
-/** A plan with its approved revision (or the current one while it is not approved), its packages and its sign-offs. */
 export interface PlanStatusEntry {
   readonly planId: string;
   readonly title: string;
@@ -609,6 +608,7 @@ export interface PlanStatusEntry {
   }[];
 }
 
+/** A plan with its approved revision (or the current one while it is not approved), its packages and its sign-offs. */
 export interface PlanDetail {
   readonly plan: PlanRecord;
   readonly revision: PlanRevisionRecord | null;
