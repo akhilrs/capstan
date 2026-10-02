@@ -28,6 +28,7 @@ function data(overrides: Partial<AgentSeedData> = {}): AgentSeedData {
     lastAcceptedCommit: null,
     findingsOmitted: 0,
     findings: [],
+    packages: [],
     ...overrides,
   };
 }
@@ -211,4 +212,47 @@ test("omitted counts from the ledger read are shown", () => {
     text,
     /Accepted reports of the predecessor \(3 older ones are not shown\)/,
   );
+});
+
+test("a seed lists the work packages the predecessor held and names the architect, and an empty list adds nothing", () => {
+  const base = { sha: SHA_B, source: "head" } as const;
+  assert.ok(
+    !buildSeed(data(), base, null).includes("Work packages the predecessor"),
+  );
+  const text = buildSeed(
+    data({
+      packages: [
+        {
+          planId: "plan-1",
+          packageId: "wp1",
+          architectAgentId: "architect-1",
+          view: {
+            title: "parser",
+            owns: ["src/a.ts", "src/b.ts"],
+            interfaces: [],
+            dependsOn: [],
+            estimateHours: 2,
+            acceptance: ["one", "two"],
+            risks: [],
+          },
+        },
+        {
+          planId: "plan-1",
+          packageId: "wp2",
+          architectAgentId: "architect-1",
+          view: null,
+        },
+      ],
+    }),
+    base,
+    null,
+  );
+  assert.ok(
+    text.includes(
+      'plan-1/wp1: "parser"; owns "src/a.ts, src/b.ts"; acceptance "one | two"',
+    ),
+    text,
+  );
+  assert.ok(text.includes("\n- plan-1/wp2\n"));
+  assert.ok(text.includes("go to the architect (architect-1)"));
 });

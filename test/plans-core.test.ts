@@ -558,7 +558,11 @@ test("a package is assigned once, to an active developer that is not the archite
     const bound = assign(t, planId, "wp1", t.dev1);
     assert.equal(bound.assigneeAgentId, "developer-agent");
     assert.equal(bound.progress, "assigned");
-    assert.equal(bound.assignmentMessageId, null);
+    assert.ok(bound.assignmentMessageId !== null);
+    assert.equal(
+      h.core.message(bound.assignmentMessageId)!.recipientAgentId,
+      "developer-agent",
+    );
     assert.throws(
       () => assign(t, planId, "wp1", t.dev2),
       /already assigned to developer-agent/,
@@ -797,9 +801,13 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
         "plans",
       ])
         db.exec(`DROP TABLE ${table}`);
-      db.exec("DELETE FROM capability_grants WHERE capability LIKE 'plan:%'");
-      db.exec("DELETE FROM role_capabilities WHERE capability LIKE 'plan:%'");
-      db.exec("DELETE FROM schema_migrations WHERE version = 22");
+      db.exec(
+        "DELETE FROM capability_grants WHERE capability LIKE 'plan:%' OR (capability = 'review:request' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'Developer'))",
+      );
+      db.exec(
+        "DELETE FROM role_capabilities WHERE capability LIKE 'plan:%' OR (role = 'Developer' AND capability = 'review:request')",
+      );
+      db.exec("DELETE FROM schema_migrations WHERE version >= 22");
     } finally {
       db.close();
     }

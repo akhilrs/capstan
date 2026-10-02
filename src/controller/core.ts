@@ -45,6 +45,11 @@ import {
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import { stripTerminalSequences } from "../observe.js";
 import { normalizeText, oneLine } from "../text.js";
+import {
+  packageOfBody,
+  workPackageMessage,
+  type PackageView,
+} from "../plans.js";
 import type {
   AgentInput,
   AgentRecord,
@@ -790,6 +795,13 @@ export interface AgentSeedData {
     readonly severity: string;
     readonly requestedCorrection: string;
     readonly interventions: number;
+  }[];
+  /** Work packages the agent holds; a replacement takes them over. */
+  readonly packages: readonly {
+    readonly planId: string;
+    readonly packageId: string;
+    readonly architectAgentId: string | null;
+    readonly view: PackageView | null;
   }[];
 }
 
@@ -3054,7 +3066,31 @@ export class ControllerCore {
     );
   }
 
-  /** Queues the PM notice for an accepted report that has none yet; false when there is no active PM or no controller actor. The caller owns the transaction. */
+  /**
+   * The package a worker's reports belong to (its latest assignment in an approved plan) and that plan's architect while the
+   * architect is active; undefined when there is none, so the notice falls back to the PM.
+   */
+  #packageRoute(
+    agentId: string,
+  ): { architect: AgentRow; planId: string; packageId: string } | undefined {
+    const row = this.#database
+      .prepare(
+        `SELECT p.plan_id, p.package_id, pl.architect_agent_id FROM plan_packages p
+         JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
+         WHERE p.project_id = ? AND p.assignee_agent_id = ? AND pl.state = 'approved' AND pl.architect_agent_id IS NOT NULL
+         ORDER BY p.assigned_at DESC, pl.sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId, agentId) as
+      | { plan_id: string; package_id: string; architect_agent_id: string }
+      | undefined;
+    if (row === undefined) return undefined;
+    const architect = this.#agentRow(row.architect_agent_id);
+    return architect?.state === "active"
+      ? { architect, planId: row.plan_id, packageId: row.package_id }
+      : undefined;
+  }
+
+  /** Queues the notice for an accepted report that has none yet, to the plan's architect for a package report and to the PM otherwise; false when no recipient is active or there is no controller actor. The caller owns the transaction. */
   #announceReport(reportId: string, roleName: string, now: string): boolean {
     const row = this.#database
       .prepare(
@@ -3062,21 +3098,30 @@ export class ControllerCore {
       )
       .get(this.#projectId, reportId) as AgentReportRow | undefined;
     if (row === undefined) return false;
-    const pms = this.#database
-      .prepare(
-        "SELECT * FROM agents WHERE project_id = ? AND kind = 'PM' AND state = 'active'",
-      )
-      .all(this.#projectId) as AgentRow[];
     const controller = this.#database
       .prepare(
         "SELECT actor_id FROM actors WHERE project_id = ? AND is_internal = 1 AND role = 'controller' AND active = 1 AND revoked_at IS NULL",
       )
       .get(this.#projectId) as { actor_id: string } | undefined;
-    if (pms.length !== 1 || controller === undefined) return false;
-    const body = reportNotice(row, roleName);
+    if (controller === undefined) return false;
+    const route = this.#packageRoute(row.agent_id);
+    let recipient: AgentRow | undefined = route?.architect;
+    if (recipient === undefined) {
+      const pms = this.#database
+        .prepare(
+          "SELECT * FROM agents WHERE project_id = ? AND kind = 'PM' AND state = 'active'",
+        )
+        .all(this.#projectId) as AgentRow[];
+      if (pms.length !== 1) return false;
+      recipient = pms[0]!;
+    }
+    const body =
+      route === undefined || recipient !== route.architect
+        ? reportNotice(row, roleName)
+        : `${reportNotice(row, roleName)}\nWork package: ${route.planId}/${route.packageId}`;
     const messageId = this.#insertQueuedMessage(
       controller.actor_id,
-      pms[0]!,
+      recipient,
       body,
       sha256(body),
       now,
@@ -3505,7 +3550,7 @@ export class ControllerCore {
         );
   }
 
-  /** Queues the PM notice for a finished review that has none; false when no PM is the sole active one. The caller owns the transaction. */
+  /** Queues the notice for a finished review that has none, to the agent that requested it (the architect) and to the PM when the requester is the PM, the operator or no longer active; false when no PM is the sole active one. The caller owns the transaction. */
   #announceReview(reviewId: string, now: string): boolean {
     const row = this.#database
       .prepare(
@@ -3513,12 +3558,17 @@ export class ControllerCore {
       )
       .get(this.#projectId, reviewId) as ReviewRow | undefined;
     if (row === undefined) return false;
+    const requester = this.#agentByActor(row.requested_by_actor_id);
     const parties = this.#noticeParties();
-    if (parties === undefined) return false;
+    const recipient =
+      requester?.state === "active" && requester.kind === "Developer"
+        ? requester
+        : parties?.pm;
+    if (recipient === undefined) return false;
     const body = reviewNotice(row, this.#reviewAuthorIds(row));
     const messageId = this.#insertQueuedMessage(
-      parties.controllerActorId,
-      parties.pm,
+      parties?.controllerActorId ?? this.#controllerActorId(),
+      recipient,
       body,
       sha256(body),
       now,
@@ -4353,14 +4403,46 @@ export class ControllerCore {
           throw new ControllerError(
             `${agent.agent_id} already holds package ${holding.package_id} of this plan`,
           );
+        const revision = this.#database
+          .prepare(
+            "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+          )
+          .get(this.#projectId, input.planId, plan.approved_revision) as
+          { body_json: string } | undefined;
+        const view =
+          revision === undefined
+            ? undefined
+            : packageOfBody(revision.body_json, input.packageId);
+        if (view === undefined || plan.architect_agent_id === null)
+          throw new ControllerError(
+            `plan ${input.planId} has no readable text for package ${input.packageId}`,
+          );
+        const task = workPackageMessage(
+          input.planId,
+          input.packageId,
+          plan.architect_agent_id,
+          view,
+        );
+        if (Buffer.byteLength(task, "utf8") > MAX_MESSAGE_BYTES)
+          throw new ControllerError(
+            `package ${input.packageId} is too large to send as one message`,
+          );
         const now = this.#now();
+        const messageId = this.#insertQueuedMessage(
+          this.#controllerActorId(),
+          agent,
+          task,
+          sha256(task),
+          now,
+        );
         this.#database
           .prepare(
-            "UPDATE plan_packages SET assignee_agent_id = ?, assigned_at = ?, assignment_message_id = NULL WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+            "UPDATE plan_packages SET assignee_agent_id = ?, assigned_at = ?, assignment_message_id = ? WHERE project_id = ? AND plan_id = ? AND package_id = ?",
           )
           .run(
             agent.agent_id,
             now,
+            messageId,
             this.#projectId,
             input.planId,
             input.packageId,
@@ -4716,6 +4798,11 @@ export class ControllerCore {
           );
         if (this.isAgentReplaced(input.predecessorId))
           throw new ControllerError("the agent was already replaced");
+        const rebound = this.#database
+          .prepare(
+            "UPDATE plan_packages SET assignee_agent_id = ? WHERE project_id = ? AND assignee_agent_id = ?",
+          )
+          .run(input.successorId, this.#projectId, input.predecessorId).changes;
         return {
           value: { recorded: true },
           event: {
@@ -4724,7 +4811,10 @@ export class ControllerCore {
             stateVersion: predecessor.generation,
             fromState: predecessor.state,
             toState: "replaced",
-            details: { successorId: input.successorId },
+            details: {
+              successorId: input.successorId,
+              packagesRebound: rebound,
+            },
           },
         };
       },
@@ -4801,6 +4891,29 @@ export class ControllerCore {
         severity: f.severity,
         requestedCorrection: f.requested_correction,
         interventions: f.interventions,
+      })),
+      packages: (
+        this.#database
+          .prepare(
+            `SELECT p.plan_id, p.package_id, pl.architect_agent_id, r.body_json FROM plan_packages p
+             JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
+             LEFT JOIN plan_revisions r ON r.project_id = pl.project_id AND r.plan_id = pl.plan_id AND r.revision = pl.approved_revision
+             WHERE p.project_id = ? AND p.assignee_agent_id = ? ORDER BY pl.sequence, p.package_id`,
+          )
+          .all(this.#projectId, agentId) as {
+          plan_id: string;
+          package_id: string;
+          architect_agent_id: string | null;
+          body_json: string | null;
+        }[]
+      ).map((row) => ({
+        planId: row.plan_id,
+        packageId: row.package_id,
+        architectAgentId: row.architect_agent_id,
+        view:
+          row.body_json === null
+            ? null
+            : (packageOfBody(row.body_json, row.package_id) ?? null),
       })),
     };
   }

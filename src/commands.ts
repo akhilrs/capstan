@@ -316,6 +316,22 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       : undefined;
   };
 
+  /** The designated architect: an agent of the architect role, while `[architect]` is enabled. */
+  const isArchitect = (agent: AgentRecord | undefined): boolean =>
+    deps.config?.architect.enabled === true &&
+    agent?.kind === "Developer" &&
+    agent.roleName === deps.config.architect.role;
+
+  /** Who may run a review request or an integration for a report: the PM, the operator or the active architect. */
+  const reviewIntegrator = (identity: Identity): string | undefined => {
+    const manager = workerManager(identity);
+    if (manager !== undefined) return manager;
+    const agent = agentOf(identity);
+    return agent?.state === "active" && isArchitect(agent)
+      ? agent.agentId
+      : undefined;
+  };
+
   /** The shared body of observe and peek: validate, authorize, rate-limit, then read the pane. `watcherId` keys the rate limit and blocks self-observation. */
   const observeAgent = async (
     args: readonly string[],
@@ -476,10 +492,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         if (caller !== undefined) {
           if (caller.agentId === recipient.agentId)
             return fail("self_send", "an agent cannot send to itself");
-          if (caller.kind !== "PM" && recipient.kind !== "PM")
+          if (
+            caller.kind !== "PM" &&
+            recipient.kind !== "PM" &&
+            !(caller.kind === "Developer" && isArchitect(recipient)) &&
+            !(isArchitect(caller) && recipient.kind === "Developer")
+          )
             return fail(
               "recipient_not_allowed",
-              "an agent other than the PM may send only to the PM",
+              "an agent other than the PM may send only to the PM, a developer to the architect, or the architect to a developer",
             );
         }
         if (recipient.kind !== "PM" && !isAgentName(recipient.agentId))
@@ -764,8 +785,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
 
     async "request-review"(call) {
       const caller = agentOf(call.identity);
-      if (caller?.kind !== "PM" || caller.state !== "active")
-        return fail("forbidden", "only the PM can request a review");
+      if (
+        caller === undefined ||
+        caller.state !== "active" ||
+        (caller.kind !== "PM" && !isArchitect(caller))
+      )
+        return fail(
+          "forbidden",
+          "only the PM or the architect can request a review",
+        );
       if (call.args.length < 1 || call.args.length > 2)
         return fail(
           "invalid_request",
@@ -830,11 +858,19 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
     },
 
     async integrate(call) {
-      const requestedBy = workerManager(call.identity);
+      const requestedBy = reviewIntegrator(call.identity);
       if (requestedBy === undefined)
         return fail(
           "forbidden",
-          "only the PM or the operator may integrate reports",
+          "only the PM, the operator or the architect may integrate reports",
+        );
+      if (
+        call.args[0] === "confirm" &&
+        workerManager(call.identity) === undefined
+      )
+        return fail(
+          "forbidden",
+          "only the PM or the operator may confirm an integration",
         );
       if (call.args.length < 1)
         return fail(
@@ -910,8 +946,16 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
 
     async plan(call) {
       const [sub, ...rest] = call.args;
-      if (sub !== "open" && sub !== "submit" && sub !== "show")
-        return fail("invalid_request", "plan needs open, submit or show");
+      if (
+        sub !== "open" &&
+        sub !== "submit" &&
+        sub !== "show" &&
+        sub !== "assign"
+      )
+        return fail(
+          "invalid_request",
+          "plan needs open, submit, show or assign",
+        );
       const config = deps.config;
       if (config === undefined || !config.architect.enabled)
         return fail(
@@ -953,6 +997,48 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             planId: plan.planId,
             tier: plan.tier,
             state: plan.state,
+          });
+        }
+        if (sub === "assign") {
+          const requestedBy = workerManager(call.identity);
+          if (requestedBy === undefined)
+            return fail(
+              "forbidden",
+              "only the PM or the operator may assign a package",
+            );
+          const [planId, packageId, agentId, ...extra] = rest;
+          if (
+            planId === undefined ||
+            packageId === undefined ||
+            agentId === undefined ||
+            extra.length > 0 ||
+            ![planId, packageId, agentId].every((id) => SAFE_AGENT_ID.test(id))
+          )
+            return fail(
+              "invalid_request",
+              "plan assign needs a plan id, a package id and an agent id",
+            );
+          if (!isAgentName(agentId))
+            return fail(
+              "recipient_not_deliverable",
+              "this agent id cannot be used as a Herdr agent name",
+            );
+          log("plan_assign_requested", {
+            requestedBy,
+            planId,
+            packageId,
+            agentId,
+          });
+          const assigned = core.assignPackage(context(call.credential), {
+            planId,
+            packageId,
+            agentId,
+          });
+          return ok({
+            planId,
+            packageId: assigned.packageId,
+            agentId,
+            messageId: assigned.assignmentMessageId,
           });
         }
         if (sub === "submit") {

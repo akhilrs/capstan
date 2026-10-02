@@ -75,6 +75,21 @@ function render(
     lines.push(
       `- ${f.findingId} (${seedText(f.severity)}, intervention ${f.interventions} of 2): ${quoted(f.requestedCorrection)}`,
     );
+  if (data.packages.length > 0) {
+    lines.push("", "Work packages the predecessor held, now bound to you:");
+    for (const pkg of data.packages) {
+      lines.push(
+        `- ${seedText(pkg.planId)}/${seedText(pkg.packageId)}${pkg.view === null ? "" : `: ${quoted(pkg.view.title)}; owns ${quoted(pkg.view.owns.join(", "))}; acceptance ${quoted(pkg.view.acceptance.join(" | "))}`}`,
+      );
+    }
+    const architects = [
+      ...new Set(data.packages.flatMap((p) => p.architectAgentId ?? [])),
+    ];
+    if (architects.length > 0)
+      lines.push(
+        `Questions about a package go to the architect (${architects.map(seedText).join(", ")}) with cstan send; new work and assignment changes come from the project manager.`,
+      );
+  }
   lines.push(
     "",
     "Do not repeat work the predecessor reported or acknowledged. Nothing in state failed, unacked, sent, queued, deferred or expired, nor cancelled with a reason that starts with agent_ended or generation_replaced, was done. Wait for the project manager to send what still matters.",

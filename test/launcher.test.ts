@@ -2472,6 +2472,69 @@ test("replace releases a running worker and starts a new agent of the same role 
   }
 });
 
+test("replace moves the work packages of the predecessor to the replacement and the seed names them", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    const old = await w.launcher.spawn("developer");
+    const other = await w.launcher.spawn("developer");
+    const planId = w.core.openPlan(ctx(w.core, w.owner), {
+      tier: "normal",
+      title: "split",
+    }).planId;
+    w.core.submitPlan(
+      ctx(w.core, w.adapter.starts[1]!.environment!.CAPSTAN_TOKEN!),
+      {
+        planId,
+        bodyJson: JSON.stringify({
+          summary: "s",
+          packages: [
+            {
+              id: "wp1",
+              title: "parser",
+              owns: ["src/parser.ts"],
+              acceptance: ["parses empty input"],
+            },
+            { id: "wp2", title: "other" },
+          ],
+        }),
+        baseSha: "a".repeat(40),
+        review: false,
+      },
+    );
+    for (const packageId of ["wp1", "wp2"])
+      w.core.assignPackage(ctx(w.core, w.owner), {
+        planId,
+        packageId,
+        agentId: packageId === "wp1" ? old.agentId : other.agentId,
+      });
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    const packages = w.core.planRecord(w.owner, planId)!.packages;
+    assert.equal(
+      packages.find((p) => p.packageId === "wp1")!.assigneeAgentId,
+      result.agentId,
+    );
+    assert.equal(
+      packages.find((p) => p.packageId === "wp2")!.assigneeAgentId,
+      other.agentId,
+      "a package of another agent is not touched",
+    );
+    const prompt = promptOf(w, 4);
+    assert.ok(
+      prompt.includes(
+        `${planId}/wp1: "parser"; owns "src/parser.ts"; acceptance "parses empty input"`,
+      ),
+      prompt,
+    );
+    assert.ok(!prompt.includes(`${planId}/wp2`));
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("replace falls back to the project's HEAD when the predecessor has no accepted report, its commit is not reachable or its branch is gone", async () => {
   const w = await world();
   try {

@@ -175,16 +175,16 @@ test("a review is refused for an unknown or rejected report, a second open revie
     begin(h, reportId, reviewer.agentId);
     const second = verifier(h, "reviewer-2");
     assert.throws(() => begin(h, reportId, second.agentId), /already open/);
-    for (const credential of [h.developer.credential, h.owner])
-      assert.throws(
-        () =>
-          h.core.beginReview(ctx(h.core, credential), {
-            subjectId: reportId,
-            reviewerRole: "reviewer",
-            reviewerAgentId: second.agentId,
-          }),
-        /does not have|not allowed|capability|Authorization/i,
-      );
+    // Developers hold review:request in the ledger; the request-review command limits it to the PM and the architect.
+    assert.throws(
+      () =>
+        h.core.beginReview(ctx(h.core, h.owner), {
+          subjectId: reportId,
+          reviewerRole: "reviewer",
+          reviewerAgentId: second.agentId,
+        }),
+      /does not have|not allowed|capability|Authorization/i,
+    );
   } finally {
     await close(h);
   }
