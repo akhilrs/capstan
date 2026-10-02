@@ -1639,6 +1639,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "external_links",
       "plan_signoffs",
       "plan_packages",
       "plan_revisions",

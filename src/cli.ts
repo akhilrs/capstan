@@ -784,6 +784,7 @@ async function runRouted(
             ? 3 * LAUNCHER_CLIENT_TIMEOUT_MS
             : command === "spawn" ||
                 command === "request-review" ||
+                command === "plan" ||
                 command === "integrate" ||
                 command === "release" ||
                 command === "pm-restart"
@@ -817,7 +818,7 @@ rows = [["state_icon", "workspace"], ["$project", "branch", "git_status"]]
 
 function usage(): never {
   fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan review pass|findings <text> | cstan pm restart",
+    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan review pass|findings <text> | cstan pm restart",
   );
 }
 

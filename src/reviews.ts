@@ -133,7 +133,7 @@ export const REVIEWER_RELEASE_DELAY_MS = 750;
 /** Releases the reviewer of a finished review shortly after the reply, so the pane is not closed under the call that is still printing. */
 export function releaseReviewerLater(
   deps: Pick<ReviewDeps, "launcher" | "log">,
-  review: ReviewRecord,
+  review: Pick<ReviewRecord, "reviewId" | "reviewerAgentId">,
 ): void {
   setTimeout(() => {
     deps.launcher
