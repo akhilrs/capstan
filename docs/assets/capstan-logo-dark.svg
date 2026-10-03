@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 540 170" width="540" height="170" role="img" aria-labelledby="title">
+  <title id="title">Capstan</title>
+  <!-- A pencil sketch of a ship's capstan with the Capstan wordmark. Hand-authored; the rough
+       line comes from two displacement filters applied to the same strokes. -->
+  <defs>
+    <filter id="rough" x="-5%" y="-10%" width="110%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="ghost" x="-5%" y="-10%" width="110%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="2" seed="11" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="G" yChannelSelector="R"/>
+    </filter>
+
+    <!-- The capstan: deck plate, base flange, waisted barrel, drumhead and bars. -->
+    <g id="capstan" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <!-- deck plate -->
+      <path d="M32,151 C40,141 160,139 170,150 C176,160 40,164 32,151 Z"/>
+      <path d="M20,160 L44,160 M150,162 L184,160 M60,165 L92,166"/>
+      <!-- base flange -->
+      <path d="M58,132 A42,8 0 0 0 142,132 M58,131 L58,144 M142,131 L142,144 M58,144 A42,8 0 0 0 142,144"/>
+      <!-- barrel -->
+      <path d="M68,134 Q80,98 70,64 M132,134 Q120,98 130,64"/>
+      <!-- whelps (ribs), broken where the rope passes -->
+      <path d="M87,66 Q90,78 89,90 M100,68 L100,90 M113,66 Q110,78 111,90"/>
+      <path d="M89,117 Q90,128 87,138 M100,117 L100,140 M111,117 Q110,128 113,138"/>
+      <!-- drumhead -->
+      <path d="M56,44 A44,9 0 0 1 144,44 A44,9 0 0 1 56,44 Z"/>
+      <path d="M56,44 L56,62 M144,44 L144,62 M56,62 A44,9 0 0 0 144,62"/>
+      <!-- bar sockets on the drumhead -->
+      <path d="M76,50 L76,60 L84,61 L84,51 M116,51 L116,61 L124,60 L124,50"/>
+      <!-- spindle cap -->
+      <path d="M90,43 C90,35 110,35 110,43 M90,43 A10,3 0 0 0 110,43"/>
+      <!-- capstan bars, left and right -->
+      <path d="M56,51 L10,45 L9,51 L56,57"/>
+      <path d="M144,51 L190,45 L191,51 L144,57"/>
+      <!-- bars behind, rising above the drumhead -->
+      <path d="M76,36 L50,14 L46,18 L70,38"/>
+      <path d="M124,36 L150,14 L154,18 L130,38"/>
+    </g>
+
+    <!-- Hatching: shade on the right of the barrel and under the drumhead. -->
+    <g id="hatch" fill="none" stroke-linecap="round">
+      <path d="M120,72 L126,66 M120,80 L127,73 M121,88 L126,83 M118,121 L125,114 M118,129 L127,120 M121,135 L129,127"/>
+      <path d="M62,66 L68,68 M136,68 L142,66 M70,71 L76,72"/>
+      <path d="M138,136 L141,140 M126,139 L130,143 M114,141 L118,145"/>
+      <path d="M150,148 L158,144 M158,151 L166,147"/>
+    </g>
+
+    <!-- Rope: three wraps round the waist and a tail lying on the deck. -->
+    <g id="rope" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M74,92 Q100,102 126,90 M74,98 Q100,108 126,96"/>
+      <path d="M74,101 Q100,111 126,99 M74,107 Q100,117 126,105"/>
+      <path d="M74,110 Q100,120 126,108 M74,116 Q100,126 126,114"/>
+      <path d="M126,108 C150,108 170,118 178,136 C182,146 172,152 160,150 M126,114 C146,115 164,124 172,138 C176,146 168,147 160,145"/>
+      <path d="M160,145 L152,146 M160,150 L151,152 M160,147.5 L150,149"/>
+    </g>
+    <g id="twist" fill="none" stroke-linecap="round">
+      <path d="M80,94 L84,100 M88,96 L92,102 M96,97 L100,103 M104,97 L108,103 M112,96 L116,102 M120,93 L123,99"/>
+      <path d="M80,103 L84,109 M88,105 L92,111 M96,106 L100,112 M104,106 L108,112 M112,105 L116,111 M120,102 L123,108"/>
+      <path d="M80,112 L84,118 M88,114 L92,120 M96,115 L100,121 M104,115 L108,121 M112,114 L116,120 M120,111 L123,117"/>
+      <path d="M134,109 L135,116 M144,111 L144,118 M154,115 L152,121 M163,121 L160,127 M170,129 L165,133 M175,138 L169,140"/>
+    </g>
+
+    <!-- Wordmark, lettered as single strokes on a baseline at y=110. -->
+    <g id="wordmark" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M271,69 C259,55 231,58 228,85 C226,107 249,117 271,104"/>
+      <path d="M314,83 C306,72 287,74 287,94 C287,112 306,112 314,98 M314,76 L314,108 Q315,112 320,109"/>
+      <path d="M333,77 L333,131 M333,87 C339,72 362,74 362,93 C362,112 341,114 333,102"/>
+      <path d="M397,81 C391,72 375,74 375,84 C375,94 398,92 398,102 C398,113 379,114 372,105"/>
+      <path d="M418,62 L418,103 Q419,112 429,109 M408,78 L431,77"/>
+      <path d="M467,83 C459,72 440,74 440,94 C440,112 459,112 467,98 M467,76 L467,108 Q468,112 473,109"/>
+      <path d="M489,76 L489,110 M489,93 C491,76 516,72 518,90 L518,110"/>
+    </g>
+    <!-- A short length of rope under the wordmark. -->
+    <g id="underline" fill="none" stroke-linecap="round">
+      <path d="M352,142 C400,136 460,146 520,138 M352,147 C400,141 460,151 520,143"/>
+      <path d="M360,140 L364,147 M376,139 L380,146 M392,138 L396,145 M408,139 L412,146 M424,140 L428,147 M440,141 L444,148 M456,141 L460,148 M472,141 L476,148 M488,140 L492,147 M504,139 L508,146"/>
+    </g>
+  </defs>
+
+  <!-- watercolour wash on the barrel, painted a little off the line -->
+  <path d="M72,68 Q83,98 72,132 L130,132 Q118,98 128,68 Z M58,46 L58,62 Q100,74 142,62 L142,46 Q100,56 58,46 Z" fill="#7fb3cc" fill-opacity="0.22" transform="translate(3,2)"/>
+
+  <g stroke="#e4ded0">
+    <use xlink:href="#capstan" href="#capstan" stroke-width="2.4" filter="url(#rough)"/>
+    <use xlink:href="#capstan" href="#capstan" stroke-width="1" stroke-opacity="0.45" filter="url(#ghost)"/>
+    <use xlink:href="#hatch" href="#hatch" stroke-width="1.2" stroke-opacity="0.6" filter="url(#rough)"/>
+    <use xlink:href="#wordmark" href="#wordmark" stroke-width="5.5" filter="url(#rough)"/>
+    <use xlink:href="#wordmark" href="#wordmark" stroke-width="1.2" stroke-opacity="0.4" filter="url(#ghost)"/>
+  </g>
+  <g stroke="#e0a45e">
+    <use xlink:href="#rope" href="#rope" stroke-width="2.2" filter="url(#rough)"/>
+    <use xlink:href="#rope" href="#rope" stroke-width="1" stroke-opacity="0.5" filter="url(#ghost)"/>
+    <use xlink:href="#twist" href="#twist" stroke-width="1.4" filter="url(#rough)"/>
+    <use xlink:href="#underline" href="#underline" stroke-width="1.8" filter="url(#rough)"/>
+  </g>
+</svg>

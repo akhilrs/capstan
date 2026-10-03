@@ -4409,10 +4409,13 @@ test("a failed setup, a replace and a config without teardown: teardown runs for
   }
 });
 
-test("the README codebase-memory teardown removes exactly the index files of its own worktree", () => {
-  const readme = readFileSync("README.md", "utf8");
-  const match = /^teardown = '(.+)'$/m.exec(readme);
-  assert.ok(match !== null, "README has a one-line teardown example");
+test("the documented codebase-memory teardown removes exactly the index files of its own worktree", () => {
+  const reference = readFileSync("docs/reference/configuration.md", "utf8");
+  const match = /^teardown = '(.+)'$/m.exec(reference);
+  assert.ok(
+    match !== null,
+    "the configuration reference has a one-line teardown example",
+  );
   const command = match[1]!;
   const home = mkdtempSync(path.join(tmpdir(), "capstan-teardown-home-"));
   try {

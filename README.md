@@ -1,474 +1,341 @@
-# Capstan
+<div align="center">
 
-Capstan is a controller for a small team of AI coding agents. You talk to one agent, the **PM**. The PM spawns **worker agents** (developers, designers, reviewers, testers), hands them tasks and reports back to you. Every agent is an interactive session (Claude Code first; `codex` and `omp` hosts are accepted by the configuration loader) that runs in a Herdr pane inside its own git worktree. A separate **controller daemon** carries all messages between agents and records every workflow fact in a SQLite ledger. You merge the result yourself.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/capstan-logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/capstan-logo-light.svg">
+  <img alt="Capstan" src="docs/assets/capstan-logo-light.svg" width="460">
+</picture>
 
-Everything is driven through one command, `cstan`.
+**A controller for a small team of AI coding agents. You talk to one PM; it runs the crew.**
 
-> Trust model: Capstan runs on one VM that you trust, as your user, with full network access. A worktree isolates changes; it is not a security boundary. See `decisions/DEC-005-capstan-v2-direction.md` for the accepted risks.
+![Node.js 24](https://img.shields.io/badge/node-24.x-3c873a?logo=node.js&logoColor=white)
+![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)
+![Version 0.1.1](https://img.shields.io/badge/version-0.1.1-5f8fa8)
+![Status: pre-release](https://img.shields.io/badge/status-pre--release-a3672a)
 
-## Contents
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Configuration](#configuration) · [Commands](#command-reference) · [Safety](#safety-model) · [Docs](docs/reference/)
 
-- [Concepts](#concepts)
-- [Install and build](#install-and-build)
-- [Start a project](#start-a-project)
-- [Configuration: `capstan.toml`](#configuration-capstantoml)
-- [The delivery flow](#the-delivery-flow)
-- [Messaging](#messaging)
-- [Worker lifecycle](#worker-lifecycle)
-- [Supervisor findings](#supervisor-findings)
-- [Operator (remote actions)](#operator-remote-actions)
-- [Researcher (web research)](#researcher-web-research)
-- [Status, observe and the dashboard](#status-observe-and-the-dashboard)
-- [`cstan` command reference](#cstan-command-reference)
-- [Controller messages](#controller-messages)
-- [Exit codes](#exit-codes)
-- [Development](#development)
-- [Further reading](#further-reading)
+</div>
 
-## Concepts
+## What is Capstan
 
-### Roles and seats
+Capstan turns a handful of interactive coding agents into a delivery team. You describe what you want to one agent, the **PM**. The PM spawns workers (developers, designers, reviewers, testers), hands them tasks, collects verified reports, requests independent reviews and tells you which branch to merge.
 
-A role has a free name (for example `developer`, `designer`, `reviewer`, `tester`) and one of four **kinds**. The kind decides what the agent may do:
+Every agent is a real interactive session (Claude Code first; Codex and OMP for workers) running in its own Herdr pane and its own git worktree. A separate **controller daemon** carries every message between agents and records every workflow fact in a SQLite ledger. Completion is never guessed from terminal text, and nothing reaches your main branch unless you merge it.
 
-| Kind         | Purpose                                                                                                                                                            | What it may run                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `PM`         | Talks to you, plans, spawns and releases workers, sends tasks, reads reports, requests reviews, integrates, resolves delivery problems. Never edits project files. | `spawn`, `release`, `replace`, `send`, `inbox`, `wait`, `ack`, `request-review`, `integrate`, `observe`, `status` |
-| `Developer`  | Implements or designs changes in its own worktree and branch (`developer` and `designer` in the starter config).                                                   | `ack`, `inbox`, `send @pm`, `report`, `status`                                                                    |
-| `Verifier`   | Reviews one commit (`reviewer`) or runs tests (`tester`). A reviewer answers a review request once and is then ended by the controller.                            | `ack`, `inbox`, `send @pm`, `report`, `review`, `status`                                                          |
-| `Supervisor` | Watches the other agents and raises findings. Read and report only.                                                                                                | `status`, `observe`, `finding`, `inbox`, `ack`                                                                    |
+Everything is driven through one command: `cstan`.
 
-`resolve` and `cancel` are registered as operator-only in `ROUTES` (`src/daemon.ts`), although the PM prompt (`src/prompts.ts`) tells the PM to run the `cstan resolve` a delivery notice names. Run them yourself from the project directory; an agent token is refused with `forbidden`.
+## Features
 
-A **seat** is one running agent of a role. Agents get ids such as `developer-1`; a replacement gets a new id and a higher generation (`g1`, `g2`, ...). The PM seat is created at `cstan start`; worker seats are created by `cstan spawn`. At most `limits.max_workers` workers (every agent except the PM) may be active at once.
+| Feature | What you get |
+| --- | --- |
+| **PM and worker roles** | One PM talks to you. Workers are free-named roles of four kinds: PM, Developer, Verifier, Supervisor. |
+| **A worktree per agent** | Each worker gets its own pane, worktree and branch (`capstan/<agent-id>-g<n>`), cut from your HEAD. |
+| **Delivered, acknowledged messages** | One FIFO per recipient. Messages wait while a worker is busy and stay blocked until acknowledged; problems reach the PM with the exact `cstan resolve` to run. |
+| **Verified reports** | A report names a full commit id; the controller checks it lies on that worker's branch before the PM hears about it. |
+| **Independent reviews** | `request-review` starts a fresh Verifier at the reported commit. It answers once, pass or findings, and is ended. |
+| **Integrate, confirm, discard** | Reviewed reports are squashed onto `capstan/integration/<id>` without a checkout. You merge; the controller confirms it is in HEAD. |
+| **Planned work tiers** | An optional Architect splits normal and high-risk work into packages with owned files, dependencies and acceptance criteria. High-risk plans get their own review. |
+| **Supervisor and findings** | A Supervisor watches active workers and raises findings with evidence, a requested correction and a done-when; unresolved ones escalate. |
+| **Operator** | An optional role that proposes shell commands or a controller restart. Nothing runs without a hash-bound PM approval, a session grant or time-boxed full auto. |
+| **Prompt relay** | When a worker stops at a permission prompt, the PM shows you the exact prompt and types only the answer you pick. |
+| **Researcher with MCP servers** | An optional web-research role with WebSearch, read-only curl and a headless Playwright browser, writing one sourced report. |
+| **Replace and lost agents** | Lost panes are detected and reported. `cstan replace` starts a successor seeded from the ledger on a branch at its last accepted report. |
+| **Defaults per role kind** | Set a model and permission mode once per kind; a role's own value wins. |
+| **Env pass-through and worktree hooks** | Name extra variables for agents; run a `setup` command in each new worktree and a `teardown` before removal. |
+| **Nexora tracking** | The PM can mirror requirements and packages into Nexora; the ledger keeps the links and shows drift. |
+| **Dashboard** | `cstan dash` is a read-only terminal dashboard of agents, pipeline, queue and findings. |
 
-### Controller and ledger
+## How it works
 
-The **controller** is a long-running daemon (`cstan daemon`, started for you by `cstan start` and by any operator command). It holds a single-instance lock on the project, listens on a Unix socket in `.capstan/state/` and owns:
-
-- **The ledger**, a SQLite database (`.capstan/state/controller.sqlite`, schema in `migrations/`) with agents, messages, reports, reviews, integrations, findings and the history of each.
-- **All agent-to-agent messaging.** Only the controller types into worker panes, starts and closes agents in Herdr. The PM's pane is never typed into except for a one-line `Run cstan inbox` wake-up when it is idle.
-- **Integration history.** An integration branch is the project's HEAD plus one squash commit (subject `<type>: <title>`, body listing the reports and agents); per-report commits stay only on worker branches. This describes integrations created after this change, not earlier ones.
-- **Verification of reports.** Completion is never inferred from terminal text: it is recorded when an agent runs a `cstan` command, and the controller checks what it can (for a report: that the commit exists on that worker's branch after the branch started).
-
-Agents authenticate to the daemon with a per-agent token (`CAPSTAN_TOKEN`) and socket path (`CAPSTAN_SOCKET`) in their environment. The operator (you) authenticates with the credential file `.capstan/operator.key`, which only works from the project directory.
-
-## Install and build
-
-Requirements: Node.js 24 (`engines`: `>=24 <25`), git, and a Herdr installation for launching agents. Claude Code is the host used by the starter configuration.
-
-```sh
-npm install
-npm run build        # compiles to dist/ and copies migrations
-npm link             # or put dist/src/cli.js on your PATH as `cstan`
+```mermaid
+flowchart TB
+    you(["You"]) <-->|"tasks · answers"| PM["PM agent"]
+    PM <-->|"cstan commands · notices"| C{{"Controller daemon<br/>SQLite ledger"}}
+    C <-->|"plan"| A["Architect<br/>plans packages"]
+    C <-->|"task · report"| D["Developers · Designers<br/>own pane, worktree, branch"]
+    C <-->|"review request · verdict"| R["Reviewers · Testers<br/>fresh per review"]
+    C <-->|"check · finding"| S["Supervisor<br/>watches workers"]
+    C -->|"integrate"| I[("integration branch")]
+    I -->|"you merge"| H[("your HEAD")]
 ```
 
-`package.json` declares the `cstan` binary as `dist/src/cli.js`. Without `capstan.toml`, or with `CAPSTAN_LAUNCH=off` in the environment, the daemon runs without Herdr and launches no agents (the test suite uses this).
+1. **You ask the PM.** It picks a tier. Small work goes straight to a developer; normal and high-risk work goes to the Architect first, which submits a plan of work packages (high-risk plans are reviewed before they are final).
+2. **Workers build.** Each commits on its own branch, never pushes or merges, and runs `cstan report <commit> "<summary>"`. The controller verifies the commit before anyone is told.
+3. **Reviews are independent.** A fresh reviewer is spawned at the reported commit. Findings go back to the developer, who amends and reports again.
+4. **Integration is mechanical.** Reviewed reports are squashed onto an integration branch without touching your checkout. A conflict leaves nothing behind and becomes a new task.
+5. **You merge.** After the integration passes its own review you merge it, and `cstan integrate confirm` tells the controller to clean up.
 
-## Start a project
+Meanwhile the Supervisor watches for stuck workers, and the controller reports stalled, blocked and lost agents to the PM. The full step-by-step behaviour is in [How Capstan works](docs/reference/workflow.md).
 
-Run these in the root of your project's git repository.
+## Quick start
+
+**Requirements:** Node.js 24 (`>=24 <25`), git, Herdr for the panes, and Claude Code (the host the starter config uses).
+
+```sh
+git clone <this repository> capstan && cd capstan
+npm install
+npm run build        # compiles to dist/ and copies migrations
+npm link             # puts the cstan binary (dist/src/cli.js) on your PATH
+```
+
+Then, in the root of the git repository you want the team to work on:
 
 ```sh
 cstan init            # creates .capstan/ and a starter capstan.toml
-cstan config check    # validate capstan.toml; prints the resolved config
-cstan start           # start the controller and launch the PM in Herdr
-cstan dash            # watch the team (optional)
+cstan config check    # validates capstan.toml and prints the resolved config
+cstan start           # starts the controller and launches the PM in Herdr
+cstan dash            # optional: watch the team
 ```
 
-- `cstan init` creates `.capstan/` (mode `0700`) with `project.json`, the operator key `operator.key` (`0600`) and the `state/` directory, and writes a starter `capstan.toml` unless one exists. In a git repository it adds `/.capstan/` to the repository's local `info/exclude`. The project name is the directory name. It refuses to run if `.capstan/` already exists.
-- `cstan herdr-config` prints an optional snippet for Herdr's `config.toml` (sidebar rows that show the project). Capstan never edits Herdr's config.
-- `cstan start` starts the daemon (if it is not running) and, when `capstan.toml` exists, launches the PM. It prints `running`, the daemon `pid`, whether it was `started` now, and a `launch` result; it exits `4` if the launch failed. A daemon started before `capstan.toml` existed reads it only at start: run `cstan stop` and `cstan start`.
-- `cstan stop` shuts the daemon down.
-- After starting, switch to the PM's Herdr pane and tell the PM what you want built.
-- `cstan config sync` writes the role definitions from `capstan.toml` into the ledger while the daemon is stopped (the running daemon also syncs them at start).
+Switch to the PM's Herdr pane and tell it what you want built. `cstan stop` shuts the controller down.
 
-## Configuration: `capstan.toml`
+> [!NOTE]
+> `cstan init` adds `/.capstan/` to the repository's local git exclude. The folder holds the ledger and the operator key (`0600`); keep it out of commits.
 
-`cstan init` writes this file. Keys are checked strictly: an unknown key is an error (`cstan config check` shows errors and warnings). The authoritative schema is `src/config/capstan-config.ts`.
+## Configuration
 
-| Table                                                                   | Keys                                                                                                                                                                                                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| top level                                                               | `schema_version` (1), `herdr_session`                                                                                                                                                                                                                                  | Herdr session name; default `default`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `[project]`                                                             | `name`                                                                                                                                                                                                                                                                 | Must match the initialized project name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `[limits]`                                                              | `max_workers`                                                                                                                                                                                                                                                          | Default 3, at most 16.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `[layout]`                                                              | `spawn` (`tab` or `pane`), `split` (`auto`, `right`, `down`), `pm_width_percent`, `min_pane_columns`, `min_pane_rows`                                                                                                                                                  | Starter file sets `spawn = "pane"`, `pm_width_percent = 60`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `[worktree]`                                                            | `setup`, `setup_timeout_seconds`, `teardown`, `teardown_timeout_seconds`                                                                                                                                                                                               | Optional. `setup` is a shell command run once per new worktree with `sh -c`, the worktree as the working directory, e.g. `setup = "npm install"`. It applies to workers, replacements and the architect, not the PM. `setup_timeout_seconds` is 1 to 3600, default 600, and is refused without `setup`. A failing or timed-out setup aborts the spawn. The setup command runs with the same filtered environment as agents (the default allowlist plus `[env] pass`), not the daemon's full environment. `setup` is trusted project config, like the other commands in `capstan.toml`: anyone who can edit the file can run commands. See [Worktree teardown](#worktree-teardown) for `teardown`. |
-| `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `[defaults]`, `[defaults.PM]`, `.Supervisor`, `.Developer`, `.Verifier` | `model`, `permission_mode`                                                                                                                                                                                                                                             | Used when a role sets none. `permission_mode` is one of `default`, `acceptEdits`, `plan`, `auto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `[env]`                                                                 | `pass`                                                                                                                                                                                                                                                                 | Extra environment variable names copied from where the daemon started into every agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `[hosts.<name>]`                                                        | `kind` (`claude`, `codex`, `omp`), `command`, `shell_command_timeout_seconds`, `wait_timeout_seconds`                                                                                                                                                                  | `codex` and `omp` hosts run unattended with full access; `cstan config check` warns about it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `[roles.<name>]`                                                        | `kind` (`PM`, `Developer`, `Verifier`, `Supervisor`), `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks` (`off` or `inherit`), `prompt` or `prompt_file`                                                                                                     | Role names match `^[a-z][a-z0-9-]{0,31}$`. A PM may not edit files or start subagents by default, and a Supervisor may not edit or push, unless the role sets `deny` itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `[notifications]`                                                       | `herdr`, `fallback`                                                                                                                                                                                                                                                    | At least one must be true.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `[timers]`                                                              | `max_deferral_seconds`, `max_busy_deferral_seconds`, `pm_ack_timeout_seconds`, `pm_notify_after_seconds`, `notify_interval_seconds`, `stall_after_seconds`, `worker_ack_timeout_seconds`, `finding_check_seconds`, `pm_wake_after_seconds`, `pm_wake_interval_seconds` | Defaults and ranges are in `TIMER_DEFAULTS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-
-The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`src/prompts.ts`) followed by the role's own `prompt`.
-
-`[researcher]` (`enabled`, `role`, `output_dir`, `user_agent`) turns on the web-research role; `[mcp_servers.<name>]` (`command`, optional `args`) defines an MCP server and `roles.<name>.mcp` lists the servers a `claude`-host role may use. See [Researcher (web research)](#researcher-web-research).
-
-### Running a worker on Codex or OMP
-
-A Developer or Verifier role can run on a Codex or OMP host instead of Claude Code. Checked against Codex 0.160.0 and OMP 18.3.1.
-
-1. Declare the host (uncomment the examples in the starter file): `[hosts.codex]` with `kind = "codex"`, or `[hosts.omp]` with `kind = "omp"`.
-2. Point a role at it. The role must set its own `model` (the `[defaults.<kind>]` model is a Claude model, so a Codex or OMP role that inherits it gets a model name that host does not offer), a `permission_mode` of `acceptEdits` or `auto`, and no `allow` or `deny`:
-
-   ```toml
-   [roles.codex-developer]
-   kind = "Developer"
-   host = "codex"
-   model = "<a model name your codex CLI accepts>"
-   permission_mode = "acceptEdits"
-   prompt = "..."
-   ```
-
-3. Run `cstan config check`. It prints a warning for each unsandboxed role.
-
-**Allowed:** `Developer` and `Verifier` roles without `allow`/`deny`, with `permission_mode` `acceptEdits` or `auto`.
-**Refused by the configuration loader:** `PM` and `Supervisor` roles, any `allow` or `deny` (they are Claude Code tool rules), and other permission modes. The Architect and Operator roles must be on a `claude` host, so they stay on Claude.
-
-**These workers are unsandboxed.** Codex runs with `--sandbox danger-full-access --ask-for-approval never` (its sandbox blocks the daemon socket) and OMP with `--approval-mode yolo`. Nothing blocks a `git push` or an edit outside the worktree; the role prompt asks, the controller does not enforce. Capstan trusts the worktree for Codex with a run-time override, so `~/.codex/config.toml` is not changed.
-
-### Worktree teardown
-
-`teardown` is an optional shell command that runs with `sh -c` just before Capstan removes an agent's worktree: on release, when a spawn fails after its worktree was made, and when an agent is replaced. It does not need `setup`. `teardown_timeout_seconds` is 1 to 3600, default 60, and is refused without `teardown`.
-
-- It runs in the project root, not in the worktree.
-- Its environment is the same filtered environment as `setup` (the default allowlist plus `[env] pass`), plus `CAPSTAN_WORKTREE_PATH` (the worktree about to be removed) and `CAPSTAN_AGENT_ID`. It gets no `CAPSTAN_TOKEN` and no `CAPSTAN_SOCKET`.
-- It does not run while the agent's pane is still open, because the worktree is kept then.
-- A failing or timed-out teardown (the process group is killed) is written to the daemon log as `teardown_failed` and never blocks the removal. A start is logged as `teardown_started`.
-- If the removal is refused (for example the worktree is dirty) and retried later, the teardown runs again. Write it so it is idempotent.
-- It is trusted project config, like `setup`.
-
-Example: remove the codebase-memory-mcp index of each worktree. The index files in `~/.cache/codebase-memory-mcp/` are named after the worktree path with `/` replaced by `-` and the leading `/` dropped, for example `home-me-.herdr-worktrees-proj-proj-developer-3-g1.db`, with `.db-shm`, `.db-wal` and `.db.stage.*` (and `.lock`) siblings. The command names each file exactly, so it cannot match another agent's index (`developer-3` never matches `developer-33`):
+`cstan init` writes a commented starter `capstan.toml`. Keys are checked strictly: an unknown key is an error. A trimmed example:
 
 ```toml
-[worktree]
-teardown = 'd="$HOME/.cache/codebase-memory-mcp"; n=$(printf %s "${CAPSTAN_WORKTREE_PATH#/}" | tr / -); [ -n "$n" ] && rm -f -- "$d/$n.db" "$d/$n.db-shm" "$d/$n.db-wal" "$d/$n".db.stage.*'
-```
+schema_version = 1
 
-Indexes left behind by worktrees removed before you set `teardown` are not cleaned up automatically. To remove them once by hand, list the files in `~/.cache/codebase-memory-mcp/` whose name starts with your worktree base path and whose worktree no longer exists (`git worktree list`), check the list, then delete those files.
+[limits]
+max_workers = 3                 # workers active at once (PM excluded), at most 16
 
-Per-project controller files live in `.capstan/`: `project.json` (limits `maxSlices`, `maxRunMs`, `maxDispatches` shown by `cstan status`), `operator.key`, `daemon.log`, and `state/` (`controller.sqlite`, `control.sock`, `notifications.jsonl`).
+[layout]
+spawn = "pane"                  # or "tab"
+pm_width_percent = 60
 
-## The delivery flow
-
-The PM runs these steps on your behalf. You do the last one.
-
-```text
- you ──task──▶ PM
-                │ 1. cstan spawn <role>            controller: new pane + worktree + branch
-                │ 2. cstan send <agent> "<task>"   controller queues, types it when worker idle
-                ▼
-             worker ── works, commits on its own branch (never pushes or merges)
-                │ 3. cstan report <sha> "<summary>"
-                ▼
-        controller verifies commit ──▶ message "Verified report ..." to PM
-                │
-                │ 4. cstan request-review <report-id> [role]
-                ▼
-        controller spawns reviewer at that commit ── cstan review pass|findings "<text>"
-                │                                          (reviewer ended by controller)
-                ▼
-        message "Review ..." to PM
-          ├─ findings ─▶ PM sends them to the developer ─▶ new verified report ─▶ new review
-          └─ pass
-                │ 5. cstan integrate <report-id>...
-                ▼
-        controller merges the reports onto  capstan/integration/<id>  (no checkout)
-          ├─ conflicted ─▶ nothing left behind; PM assigns a developer to resolve, then report/review again
-          └─ merged
-                │ 6. cstan request-review <integration-id> [role]
-                ▼
-        review of the integration  ── pass
-                │ 7. YOU merge the integration branch into the project's HEAD
-                │ 8. cstan integrate confirm <integration-id>   (or: integrate discard <id>)
-                ▼
-        controller removes the integration branch;  PM: cstan release <agent-id>
-```
-
-Step by step, as the code behaves (`src/commands.ts`, `src/controller/core.ts`, `src/launcher.ts`, `src/reviews.ts`, `src/integration.ts`):
-
-1. **Spawn.** `cstan spawn <role>` creates an agent of that role in a new Herdr pane and git worktree on a branch named `capstan/<agent-id>-g<generation>`, cut from the project's HEAD. It is refused with `worker_limit` when `limits.max_workers` workers are active.
-2. **Send the task.** `cstan send <agent-id> "<text>"` queues a message. See [Messaging](#messaging). The task should state the acceptance criteria and that the worker commits on its own branch and never pushes or merges.
-3. **Report.** When finished, the worker runs `cstan report <40-char-commit> "<one-line summary>"`. The controller checks that the commit exists on the worker's branch, is not older than the branch's start, and is on that branch; otherwise the report is recorded as `rejected` and the command fails. An accepted report is announced to the PM as a message from `controller` starting with `Verified report`. This is a fact the controller checked, not a review. A repeat report of the same commit writes nothing new. Reports are rate-limited to 10 a minute per agent.
-4. **Request review.** Only the PM runs `cstan request-review <report-id> [role]`. The report must be accepted. The controller spawns a fresh Verifier (the named role, or the configured one) at that commit and sends it a `Review request`. The reviewer answers exactly once with `cstan review pass "<text>"` or `cstan review findings "<text>"`, after which the controller ends it. The PM gets the verdict as a `Review` message from `controller`. On findings the PM sends them to the developer, which amends its commit, reports the new full commit id and gets a new review round. An amend replaces the commit id: a report naming an amended-away id is rejected as not on the branch, the earlier reviewed commit stays in the ledger as an earlier report, and the new report needs a new review. After a passed review the developer amends only when findings arrive, and always reports again.
-5. **Integrate.** `cstan integrate <report-id>...` (PM or operator) merges reports that each have a passing latest review, in the order given, onto a new branch `capstan/integration/<integration-id>` cut from the project's HEAD, without checking anything out. The branch is the project's HEAD plus one squash commit (subject `<type>: <title>`, body listing the reports and agents); the per-report commits stay only on the worker branches. The answer is `merged` (branch and head commit), `conflicted` (the report and files) or `failed`. The controller never resolves a conflict and leaves nothing behind: the PM assigns a developer to resolve it as a new candidate, then report, review and integrate again.
-6. **Review the integration.** A merged result needs its own review: `cstan request-review <integration-id> [role]`.
-7. **You merge.** After a passing review, merge the integration branch into the project's HEAD yourself. Capstan never pushes or merges your branch.
-8. **Confirm or discard.** `cstan integrate confirm <integration-id>` is accepted only when the integration is `merged`, no review of it is open, its latest review passed, and its branch is already in the project's HEAD (otherwise `not_in_head`); after you fast-forward the branch, this checks that the squash commit is in HEAD; the controller then removes the branch. `cstan integrate discard <integration-id>` drops a merged integration you will not use.
-9. **Release.** `cstan release <agent-id>` ends a worker and frees its pane and worktree. The branch is kept when it holds commits.
-
-**Reports a confirmed integration covers.** When an integration is confirmed (and again at every controller start), the controller also marks reports it did not merge but whose work it holds, so a package is not left open. A report is covered `how`: `ancestor` (its commit is in the head's history), `tree` (every path it changed is untouched since), `merge` (`git merge-tree --write-tree` of the head and the report adds nothing, or conflicts only because a later commit edited the same lines and kept every word of the report's added lines; needs git 2.38, else the rule is off and logged), or `integration` (the report belonged to an earlier integration of any final state with a stored head, and that head is an ancestor of a report commit this integration merged). Limitation: `integration` means "built upon", not "still present": a later revert inside the confirmed integration is not detected, and `merge` on conflicts is a line heuristic.
-
-States recorded in the ledger: reports `accepted` or `rejected`; reviews `started`, `passed`, `findings`, `failed`, `cancelled`; integrations `running`, `merged`, `conflicted`, `failed`, `confirmed`, `discarded`.
-
-## Messaging
-
-All agent-to-agent text goes through the controller, one strict FIFO per recipient.
-
-- **Send.** `cstan send <agent-id|@pm> "<text>"`. Plain text only (a message may not start with `/`, `!`, `#`, `?` or `@`), size-limited, and may not contain a line that imitates a Capstan message frame. A worker (Developer or Verifier) may send only to the PM. Sending to yourself is refused.
-- **Delivery to a worker.** The controller types the message into the worker's pane as `[capstan message <message-id> from <sender>]` followed by the text. It waits while the worker is busy, blocked at a prompt, or has text in its input line (deferral reasons `agent_busy`, `agent_blocked`, `input_not_empty`). After `timers.max_deferral_seconds` it reads and logs the typed text, clears the input line and sends. A message that waits longer than `timers.max_busy_deferral_seconds` expires and the PM is told.
-- **Delivery to the PM.** Nothing is typed into the PM's pane. The PM reads with `cstan inbox` (the next message plus any read but unacknowledged) or `cstan wait` (blocks up to the host's wait timeout, default 90 s, and prints unacknowledged messages). When the PM is idle and unread mail has waited `timers.pm_wake_after_seconds`, the controller types `Run cstan inbox`.
-- **Acknowledge.** `cstan ack <message-id>`. Reading does not acknowledge; the next message to that agent is delivered only after the current one is acknowledged.
-- **Message states:** `queued`, `deferred`, `sent`, `acked`, `acked_late`, `unacked`, `expired`, `cancelled`, `failed`.
-- **Delivery problems.** When a message to a worker becomes `unacked`, `expired` or `failed`, that worker's queue is blocked behind it and the PM gets a `Delivery problem` notice naming the command to run:
-  `cstan resolve <message-id> retry|skip|cancel ["<note>"]` — `retry` types it once more (the recipient may already have received it), `skip` counts it handled, `cancel` drops it. `cstan cancel <message-id>` is the same as `resolve ... cancel`.
-- Operators can read an agent's mailbox with `cstan inbox <agent-id>`.
-
-## Worker lifecycle
-
-- **Spawn:** see step 1 above. `cstan spawn` and `cstan release` can take minutes; run them with a long timeout, and after any timeout run `cstan status` before retrying (the worker may already exist and counts against the limit).
-- **Release:** `cstan release <agent-id>` removes the pane and the worktree. The answer reports `paneClosed` and `worktreeRemoved`; `false` means that cleanup is still pending and the next spawn or release finishes it (`cstan status` shows `cleanupFailed` and `orphanPanes`). `agent_not_active` means the worker is already gone. Reviewers are released by the controller after they answer.
-- **Replace:** `cstan replace <agent-id>` replaces a lost or stuck worker. The controller releases it (when still running) and starts a new agent of the same role with a new id, a new branch that starts at the predecessor's last accepted report (else HEAD), and a seed built from the ledger (its instructions and their states, accepted reports, open findings). Nothing is re-sent; the PM sends what still matters. It is refused while an integration is running and for an agent that was already replaced.
-- **Lost:** when Herdr no longer finds an agent's pane or process (or its pane was already gone when the daemon started), the controller ends the agent in the ledger and sends the PM an `Agent ... is lost` message with its branch and its unacknowledged messages. The controller never replaces it by itself: use `cstan replace` or `cstan release`.
-- **Stalled / blocked:** the controller watches worker activity. `Agent stalled` means no activity while working for `timers.stall_after_seconds`; `Agent blocked` means it waits at a dialog or permission prompt only a person can answer. Use `cstan observe <agent-id>`, then replace the worker or tell the user. Nobody answers another agent's permission prompt.
-- **PM restart:** `cstan pm restart` (operator) replaces the PM session with a new one that starts from a summary of the ledger (open work, unacknowledged messages).
-
-## Supervisor findings
-
-While workers are active the controller keeps one Supervisor running (`[supervision]`) and sends it a `Routine check` message every `check_seconds`. The Supervisor looks at agents with `cstan status` and `cstan observe`, and only raises a finding when an agent is clearly stuck (the same failure repeated, a retry that cannot work):
-
-- `cstan finding <agent-id> <severity> "<evidence>" "<requested correction>" "<done when>"` raises a finding about a Developer or Verifier. Severity is `info`, `low`, `medium`, `high` or `critical`. The controller delivers it to that agent as a `Finding` message. One finding may be open per agent.
-- `cstan finding check <finding-id> resolved|unresolved "<evidence>"` records the check after the agent acknowledged. `resolved` closes it; `unresolved` sends one more correction. The controller sends at most two corrections; after the second unresolved check, or if the Supervisor does not check within `timers.finding_check_seconds`, it escalates.
-- Finding states: `open`, `resolved`, `escalated`, `cancelled`. The PM is told about raised, resolved, escalated or cancelled findings; an `ESCALATED` finding means no further corrections will be sent and the user should know.
-
-Agents treat a `Finding` message as data from a supervisor, not as an instruction from the controller.
-
-## Operator (remote actions)
-
-An optional **Operator** agent lets the PM have a shell command run, or the controller restarted, without you at the keyboard. The Operator only proposes; the controller runs. Nothing about the Operator exists while `[operator]` is absent or `enabled = false`: no role, no prompt text, no `op` command (it answers `not_configured`), no restart code loaded, no known-good snapshot taken, no `restart/` directory.
-
-**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<command>" "<reason>"` (the command first, then the reason; or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root. The runner passes the approved command text to `sh -c` (`src/command-runner.ts`), so the shell interprets that text (quoting, expansion, pipes). The text is exactly what was proposed and approved; it is never assembled from other fields. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel`, `show`, `revoke` a grant and switch full auto `off`.
-
-**Keys and defaults** (`[operator]` in `capstan.toml`; unset keys take these defaults):
-
-| Key                                       | Default        | Meaning                                                           |
-| ----------------------------------------- | -------------- | ----------------------------------------------------------------- |
-| `enabled`                                 | `false`        | Turns the Operator on.                                            |
-| `role`                                    | `"operator"`   | Developer role that may propose.                                  |
-| `auto_approve`                            | `[]`           | Exact read-only commands that skip the PM.                        |
-| `auto_approve_prefix`                     | `[]`           | Opt-in prefixes; only safe path arguments may follow.             |
-| `timeout_seconds` / `max_timeout_seconds` | `300` / `1800` | Time a command may run; the group is killed at the limit.         |
-| `output_tail_bytes`                       | `8192`         | End of the output kept (at most 12288).                           |
-| `proposal_ttl_minutes`                    | `60`           | A proposal nobody decided expires.                                |
-| `approval_ttl_minutes`                    | `10`           | An approved proposal that did not start expires (`approval_ttl`). |
-| `max_pending_proposals`                   | `5`            | Open proposals at once.                                           |
-| `count_toward_worker_limit`               | `false`        | Whether the Operator counts as a worker.                          |
-| `restart_health_timeout_seconds`          | `60`           | How long a restarted controller has to answer `ping`.             |
-| `restart_idle_wait_seconds`               | `120`          | How long a restart waits for the controller to be idle.           |
-| `session_grant_max_minutes`               | `60`           | Longest a session grant lasts (at most 480).                      |
-| `full_auto_default_minutes`               | `30`           | Full auto duration when the PM gives none (at most the maximum).  |
-| `full_auto_max_minutes`                   | `120`          | Longest full auto period (at most 480).                           |
-
-**Auto allowlist.** Only exact commands that match `OPERATOR_AUTO_ALLOWLIST` in `src/operator-policy.ts` and are listed in `auto_approve` (or match an `auto_approve_prefix`) run without the PM: `ls` with `-l -a -la -h` and plain path arguments, `pwd`, `whoami`, `date`, `uname -a`, `df -h`, `cstan ping`, `cstan status`, `git rev-parse` (`--abbrev-ref`, `--short`, `HEAD`) and `git ls-files`. `git status`, `git diff` and `git show` are deliberately not on it: they can run project-configured helpers (`diff.external`, textconv, pagers), so they can execute project code. A restart is never auto-approved, even if you list it.
-
-**Denylist.** A second layer, not the guard: a command containing words such as `push`, `rm`, `reset`, `checkout`, `merge`, `sudo`, `curl`, `ssh`, `sh`, `bash`, `eval`, `xargs`, `find`, `npm`, `node`, `python`, `make`, `docker`, or the short options `-f -d -D -x -r -R -o -O -e -c`, always needs the PM, whatever the rules say. The full list is `OPERATOR_ALWAYS_APPROVAL` in `src/operator-policy.ts`.
-
-**PM approval.** The PM sees the exact command, the reason and the hash, shows you the command and decides. Approval is bound to the text, the kind and the force flag: a changed text has another hash. An approved proposal runs once; no approval is taken while a run is in progress. Command text and reason are printable ASCII only.
-
-**Working directory and environment.** Commands run in the project root. The child gets no `CAPSTAN_` variable and no `cstan` wrapper on its `PATH`.
-
-**Output sanitisation, and its limits.** The output tail has terminal sequences removed and anything that looks like a credential (values of `TOKEN`, `SECRET`, `KEY`, `PASSWORD` variables, bearer headers, provider key prefixes, JWTs, private keys, long mixed letter-digit runs) replaced by `[redacted]`. It is a best effort. `cat .env` prints a file whose values do not look like credentials, so the PM and the Operator receive them. Do not approve commands that print secrets. Output is shown to agents as untrusted data.
-
-**Limits you must accept.** An approved command runs with your full authority. A process of the same user that outlives its run (`setsid`, `nohup`) can reach the control socket or read tokens from `/proc`. Nothing proves a human approved a command beyond the PM prompt: the PM agent is the approver, and a PM that approves without asking you has bypassed the control. Read what the PM shows you.
-
-**Audit.** Every proposal, decision, run, result and expiry is a ledger event. `cstan op show <id>` prints a proposal with its run and output tail; the ledger keeps them (tables `operator_proposals` and `operator_runs`).
-
-### Session grants
-
-Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds `--session exact` or `--session prefix="<words>"` to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`.
-
-- **Exact.** An identical command (same text, same kind) from the Operator runs with no new approval; the proposal records `auto_rule` `session:<grant-id>`. Any changed text needs approval again.
-- **Prefix.** The grant stores the words verbatim; the PM notice, `cstan op show` and `cstan op grants` print them. A later command matches only when it starts with those whole words (`ls -l` matches `ls -l docs`, not `ls -la` and not `lsx -l`). The rest of the command goes through the same check as any command: if it has a metacharacter, a second line or any word from the denylist (`push`, `rm`, `-f`, ...), it needs approval. The controller refuses a prefix that contains a denylist word, that is empty, that is not a simple one-line command, or that is only `git` or `cstan` with no subcommand.
-- **End.** A grant ends when the Operator agent is released or replaced, when the controller restarts, when `session_grant_max_minutes` has passed (the cap is measured with the system clock, because grants are stored), or when the PM or you run `cstan op revoke <grant-id>`. A command proposed after that needs approval. `cstan op grants` lists the grants in force. Each grant is created, used, revoked or expired as a ledger event.
-
-A prefix widens what a later command can do, up to the denylist. Read the prefix the PM shows you before you agree.
-
-### Full auto
-
-Full auto switches off every guard for a limited time. While it is on, each Operator proposal is approved at the moment it is proposed (`auto_rule` `full-auto`) and runs: no allowlist, no denylist, no PM decision. Pushes and deletes are included, and so are restarts (a restart still waits for the idle check and still needs the rollback target). Every run row and event is marked `full_auto`.
-
-- `cstan op full-auto on [<minutes>] --asked-user "<what the user said>"` — the PM only. The minutes default to `full_auto_default_minutes` and may not exceed `full_auto_max_minutes`. The PM and the Operator agent get a notice when it goes on, off or expires.
-- `cstan op full-auto off` — the PM or the operator CLI (you). It takes effect at once. An approved proposal that has not started when full auto goes off is not run: it ends, the PM is told, and the Operator must propose again.
-- `cstan op full-auto status` — shows the minutes left. `cstan status --watch` and `cstan dash` show the time left and the grants in force.
-- The operator CLI cannot switch full auto on: you switch it off, the PM switches it on after it asked you.
-- Full auto is kept in the controller's memory only. After a restart (including an Operator restart) it is off, a startup event records that, and the restart notice says so. The time box uses a monotonic clock, so a change of the system clock cannot lengthen it.
-
-**The risk, stated plainly.** Full auto removes every guard by your decision. A PM that turns it on without asking you has bypassed you, and the controller cannot tell: the `--asked-user` text is only recorded. What remains is the ledger audit (the text, the time, every proposal and run marked `full_auto`) and the time box. There is no denylist, no hard floor and no confirmation in full auto, and pushes and deletes are included. Leave `[operator]` out, or `enabled = false`, if you never want this.
-
-### Restart and rollback
-
-`cstan op propose --restart [--force] "<reason>"` asks the controller to restart itself so a new build of `dist/` takes effect. There is one flag name: `--force` on `propose` (there is no `--force-restart` and no flag on `decide`); the hash covers it.
-
-1. **Refused without a rollback target.** The controller keeps a known-good copy of the build it is running in `.capstan/state/known-good/` (`dist/` plus `manifest.json` with `createdAt`, `controllerVersion`, `maxMigration` and the sha256 of `package.json`, `package-lock.json` and `node_modules/.package-lock.json`). It saves the copy 60 seconds after start, and only when `dist/` on disk still equals the build the controller loaded: a build run in that window never becomes known-good. Until the copy exists, `op propose --restart` is refused with `no_known_good`, and the check is repeated when the restart runs. A restart never starts without a rollback target. Restart proposals are also refused with `no_schema_probe` when Node has no `node:sqlite` (the helper reads the ledger schema with it; Node 22.5 or newer).
-2. **Idle check.** Unless `--force` was proposed, the restart waits up to `restart_idle_wait_seconds` until no spawn, release or replace is in flight, no review is `started`, no integration is running or merged but unsettled and no delivery is sent but unacknowledged (Operator runs are not counted). Otherwise it fails with the list of what was busy and the PM is told. Re-propose with `--force` to restart anyway; the PM approves the hash that covers it.
-3. **Detached helper.** The controller copies `restart-helper.js` to `.capstan/state/restart/<id>/helper.mjs`, writes `plan.json`, starts the helper detached in its own process group, and stops itself with the same graceful stop as the `shutdown` command. The helper waits for the socket and pid file to go (SIGTERM, then SIGKILL after 10 seconds, for a stuck old controller), copies the ledger and its `-wal` and `-shm` files into `restart/<id>/ledger.bak/`, starts the new controller and pings it over the control socket every second until `restart_health_timeout_seconds`. Success writes `result.json` with outcome `ok`.
-4. **Rollback.** If the new controller exits or does not answer, the helper stops it, renames `dist/` to `dist.failed-<id>`, restores `known-good/dist` (copied beside it, then renamed into place, so it is never half-copied) and starts it again (at most twice). If the stored ledger schema is newer than `manifest.maxMigration`, the helper first restores the ledger from `ledger.bak`; writes made only by the failed new controller are lost, and the PM notice says `LEDGER RESTORED`. The result is `rolled_back` with the reason. If the old build does not start either, the result is `down` with the manual recovery steps. If the handoff fails, the result is `rolled_back` only when the old controller still answers ping; otherwise it is `down` and says the controller is not running. An unreadable operator key or a corrupt plan also ends as `down`, and the controller refuses a restart whose key file it cannot read.
-5. **Dependency changes.** If `package.json`, `package-lock.json` or `node_modules/.package-lock.json` differ from the manifest when you propose, the PM notice says `dependencies changed since the known-good build: rollback may not start`. Rollback is still tried; a failure ends as `down` and names the change.
-6. **After the restart.** At every controller start the controller first ingests any `result.json`, tells the PM and the Operator and finishes the run (`finished`, `failed` for a rollback, `error` for `down`); only then does it abandon runs that were running when the last controller stopped. A restart whose helper is still working is left running and its result is ingested when it appears; a restart with no result and no live helper becomes `abandoned`. Agents' panes are re-adopted by the normal startup (`adoptAll`).
-
-**Manual recovery** when the outcome is `down` or the controller is not running after a restart (the PM notice and `result.json` name the paths). From the project root:
-
-```sh
-rm -rf dist && cp -a .capstan/state/known-good/dist dist   # or inspect dist.failed-<id> first
-# if the controller refuses the ledger: copy .capstan/state/restart/<id>/ledger.bak/* over .capstan/state/ (keep the file names)
-cstan start
-```
-
-The known-good copy is not refreshed during a restart. The helper never deletes anything it did not create; `restart/<id>/`, `ledger.bak/` and `dist.failed-<id>` stay until you remove them.
-
-## Researcher (web research)
-
-An optional **Researcher** agent looks things up on the web for the PM and writes the result as a report in your repository. Nothing about it exists while `[researcher]` is absent or `enabled = false`: no role, no prompt text, no browser server.
-
-**What it is for.** Questions that need public sources: what people report about a tool, a comparison, a source check. The PM spawns it with `cstan spawn <role>`, sends the question and later gets a report on the Researcher's branch. The Researcher is a Developer-kind role: it writes exactly one file, `<output_dir>/<slug>.md`, with the sections Executive summary, Method, Findings (consensus kept apart from isolated opinion), Conflicts and disagreements, Sources (with dates) and Could not verify. It commits the file on its own branch and reports it with `cstan report`. You review and merge it like any other report.
-
-**Enable it.**
-
-1. In `capstan.toml`, uncomment the three blocks the starter file carries (the wording of the comments may differ; the keys are fixed):
-
-```toml
-[researcher]
+[supervision]
 enabled = true
-role = "researcher"
-output_dir = "docs/research"
-user_agent = "capstan-researcher/1.0 (research bot; contact: project owner)"
+check_seconds = 300
 
-[mcp_servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp@<pinned version>", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
+[worktree]
+setup = "npm install"           # runs once in each new worktree
+# teardown = "..."              # runs before a worktree is removed
 
-[roles.researcher]
+[defaults.Developer]            # per role kind; a role's own value wins
+model = "claude-sonnet-5-5"
+permission_mode = "acceptEdits"
+
+[env]
+pass = ["NEXORA_API_KEY"]       # extra variables copied into every agent
+
+[hosts.claude]
+kind = "claude"
+
+[roles.pm]
+kind = "PM"
+host = "claude"
+
+[roles.developer]
 kind = "Developer"
 host = "claude"
-permission_mode = "default"
-mcp = ["playwright"]
-allow = ["WebSearch", "WebFetch", "Bash(curl *)", "Bash(jq *)", "Write(docs/research/**)", "Edit(docs/research/**)", "Bash(git add *)", "Bash(git commit *)", "mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot"] # abbreviated
-deny = ["Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git * --output*)", "Bash(curl * -d*)", "Bash(curl -d*)", "Bash(curl * -o*)", "Bash(curl -X*)"] # abbreviated
-prompt = "..."
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Bash(git push)", "Bash(git push *)"]
+prompt = "You implement code changes. Work only in your own worktree ..."
+
+# Optional tables, off until enabled: [architect], [operator], [prompt_relay],
+# [researcher] with [mcp_servers.<name>], and [nexora].
 ```
 
-The `allow` and `deny` lists above are abbreviated; the full required lists are in `src/researcher-policy.ts`, which is the source of truth. The example is abbreviated and cannot be pasted as is: copy the full deny list from the starter file. `output_dir` is repo-relative without `..` (default `docs/research`), `user_agent` is one line without quotes, and a server name matches `^[a-z][a-z0-9_-]{0,31}$` and becomes the `mcp__<name>__` tool prefix.
+<details>
+<summary><b>All tables at a glance</b></summary>
 
-2. Install a browser once: `npx playwright install chromium`. The `--output-dir` argument (supported by `@playwright/mcp` 0.0.83) keeps the browser's snapshot and console files out of the researcher's worktree; without it a `.playwright-mcp/` directory appears there.
-3. Make Node and `npx` available on the daemon's `PATH` (the browser server is started with `npx`).
+| Table | What it sets |
+| --- | --- |
+| top level | `schema_version`, `herdr_session` |
+| `[project]` | `name` (must match the initialized project) |
+| `[limits]` | `max_workers` |
+| `[layout]` | `spawn`, `split`, `pm_width_percent`, `min_pane_columns`, `min_pane_rows` |
+| `[worktree]` | `setup`, `setup_timeout_seconds`, `teardown`, `teardown_timeout_seconds` |
+| `[supervision]` | `enabled`, `check_seconds` |
+| `[defaults]`, `[defaults.<Kind>]` | `model`, `permission_mode` (`default`, `acceptEdits`, `plan`, `auto`) |
+| `[env]` | `pass` |
+| `[hosts.<name>]` | `kind` (`claude`, `codex`, `omp`), `command`, timeouts |
+| `[roles.<name>]` | `kind`, `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks`, `mcp`, `prompt` or `prompt_file` |
+| `[architect]` | `enabled`, `role`, `plan_review`, `reviewer_role`, `max_packages`, `count_toward_worker_limit`, `high_risk_triggers` |
+| `[operator]` | `enabled`, `role`, `auto_approve`, `auto_approve_prefix`, timeouts, grant and full-auto limits |
+| `[prompt_relay]` | `enabled`, `capture_ttl_seconds` |
+| `[researcher]`, `[mcp_servers.<name>]` | `enabled`, `role`, `output_dir`, `user_agent`; `command`, `args` |
+| `[nexora]` | `track`, `default_action` |
+| `[notifications]`, `[timers]` | notification channels; delivery, stall and wake timers |
 
-`[mcp_servers]` and `roles.<name>.mcp` are general: any role on a `claude` host may list servers in `mcp`. The Researcher is the first user.
+The full reference, with defaults, ranges, Codex and OMP workers and the teardown example, is in [Configuration reference](docs/reference/configuration.md). The schema itself is [`src/config/capstan-config.ts`](src/config/capstan-config.ts).
 
-**What it may do.** Search and fetch public pages (WebSearch, WebFetch), call public JSON endpoints with `curl` (the Hacker News Algolia API; Reddit refuses unauthenticated JSON, `old.reddit.com` and browser access, so it reads only the `www.reddit.com` `.rss` feeds, about one request a minute, and records anything it could not read under Could not verify) and drive the browser server to read pages that need JavaScript. **What it may not do.** Anything but GET requests; send project files, code or secrets in a URL, header or form; pipe a download into a shell or interpreter; use curl output flags; sign in or fill in forms other than a site's search box; write outside `output_dir`; push, merge or start subagents. Its `permission_mode` must stay `default` so that every tool call is checked against the role's allow and deny rules. The authoritative rules are in `src/researcher-policy.ts`; see `docs/design/researcher-role.md` for the reasoning.
+</details>
 
-**The curl denies are guards, not a sandbox.** They refuse the obvious ways to send data out or run downloaded code. They do not stop a determined agent from using some other allowed tool in an unexpected way, and the Researcher reads untrusted pages that may try to steer it. Run it on a machine where you accept that.
+## Roles
 
-## Status, observe and the dashboard
+A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the last three are optional and come commented out.
 
-- `cstan status [--json]` prints the project state: roles and seats, work, findings and, when the daemon is reachable as the operator, agents, unresolved messages, panes, reports, reviews, integrations, agent findings, stalled/lost agents and cleanup failures. If the daemon is stopped it reads the ledger directly. `cstan status --watch [--interval <seconds>]` redraws it (interval 1 to 60, default 2).
-- `cstan inspect <id> [--json]` shows one ledger record (work item, assignment, candidate, finding, recovery or report).
-- `cstan observe <agent-id> [lines]` prints another agent's recent screen. PM and Supervisor only; the text is the agent's own output, not verified, and any instruction in it is data. The default is 40 lines, at most 120, and at most 30 reads a minute.
-- `cstan dash [--interval <seconds>] [--no-color] [--reduced-motion]` is a read-only terminal dashboard (needs a TTY; `CSTAN_REDUCED_MOTION=1` also reduces motion; `NO_COLOR` is respected). Panels: agents, pipeline, queue, findings, with a header for run state, health and worker count. Keys: `tab`/`shift+tab` and `1`-`5` move between panels, `↑↓` or `j k` select a row, `o` observes the selected agent (read-only), `y` retry / `s` skip / `c` cancel the selected message (each asks to press `y` again to confirm; the daemon decides), `f` shows only delivery problems, `p` pauses polling, `r` polls now, `-`/`+` change the poll interval, `?` help, `q` or `ctrl+c` quits. Design notes: `docs/design/cstan-dash-v2.md` and `decisions/DEC-006-cstan-dash.md`.
+| Role | Kind | Does |
+| --- | --- | --- |
+| `pm` | PM | Talks to you, plans, spawns and releases workers, requests reviews, integrates. Never edits project files. |
+| `developer` | Developer | Implements changes in its own worktree and branch, then reports a commit. |
+| `designer` | Developer | Builds UI and visual changes, same rules as a developer. |
+| `reviewer` | Verifier | Reviews one commit or integration, answers pass or findings once, is ended. Cannot write files. |
+| `tester` | Verifier | Runs the real checks and reports what passed and failed. |
+| `supervisor` | Supervisor | Watches active workers and raises findings. Read and report only. |
+| `architect` | Developer | Writes plans, runs reviews and integration for plan work, signs off. Never edits or merges. |
+| `operator` | Developer | Proposes shell commands and restarts through `cstan op`; has no shell of its own. |
+| `researcher` | Developer | Researches on the web and commits one Markdown report under `output_dir`. |
 
-## `cstan` command reference
+Codex and OMP hosts can run Developer and Verifier roles; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. See [Running a worker on Codex or OMP](docs/reference/configuration.md#running-a-worker-on-codex-or-omp).
 
-Checked against the `usage` string in `src/cli.ts` (run `cstan` with no arguments to print it), the `ROUTES` table in `src/daemon.ts` and the handlers in `src/commands.ts`. "Who" shows which credential the daemon accepts: operator (the key in `.capstan/`), agent (an agent's environment token), or either. Every routed command accepts `--json`.
+## Command reference
 
-### Project and daemon (operator)
+Run `cstan` with no arguments for the usage line. Every routed command accepts `--json`. Long text belongs in a quoted heredoc: `cstan send developer-1 "$(cat <<'EOF' ... EOF)"`.
 
-| Command                                                     | Purpose                                                                     |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `cstan init`                                                | Create `.capstan/` and a starter `capstan.toml`.                            |
-| `cstan start`                                               | Start the daemon and launch the PM.                                         |
-| `cstan stop`                                                | Stop the daemon.                                                            |
-| `cstan ping`                                                | Check that the daemon answers.                                              |
-| `cstan config check`                                        | Validate `capstan.toml` and print the resolved config (warnings on stderr). |
-| `cstan config sync`                                         | Write role definitions into the ledger (daemon stopped).                    |
-| `cstan herdr-config`                                        | Print an optional Herdr `config.toml` snippet.                              |
-| `cstan pm restart`                                          | Replace the PM session, seeded from the ledger.                             |
-| `cstan resolve <message-id> retry\|skip\|cancel ["<note>"]` | Settle a blocked message.                                                   |
-| `cstan cancel <message-id>`                                 | Cancel a message.                                                           |
+<details>
+<summary><b>Project and daemon</b> (you, from the project directory)</summary>
 
-`cstan daemon` is the internal command that `cstan start` runs in the background; you do not need to run it. `cstan assign` and `cstan ask` are listed in the usage string but answer `not_implemented` in this version.
+| Command | Purpose |
+| --- | --- |
+| `cstan init` | Create `.capstan/` and a starter `capstan.toml`. |
+| `cstan start` / `cstan stop` | Start the controller and launch the PM / stop the controller. |
+| `cstan ping` | Check that the controller answers. |
+| `cstan config check` / `config sync` | Validate the config / write role definitions into the ledger. |
+| `cstan herdr-config` | Print an optional Herdr `config.toml` snippet. |
+| `cstan pm restart` | Replace the PM session, seeded from the ledger. |
+| `cstan resolve <message-id> retry\|skip\|cancel` | Settle a blocked message. |
+| `cstan cancel <message-id>` | Cancel a message. |
 
-### Look and read
+</details>
 
-| Command                                                     | Who            | Purpose                                                                  |
-| ----------------------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
-| `cstan status [--json]` / `--watch [--interval N]`          | either         | Project state.                                                           |
-| `cstan inspect <id> [--json]`                               | operator       | One ledger record.                                                       |
-| `cstan dash [--interval N] [--no-color] [--reduced-motion]` | operator       | Dashboard.                                                               |
-| `cstan inbox [<agent-id>]`                                  | either         | Agent: own pending messages. Operator: an agent's mailbox (id required). |
-| `cstan observe <agent-id> [lines]`                          | PM, Supervisor | Another agent's recent screen.                                           |
+<details>
+<summary><b>Look and read</b></summary>
 
-### Messaging and workers
+| Command | Purpose |
+| --- | --- |
+| `cstan status [--json]` / `--watch` | Project state. |
+| `cstan inspect <id>` | One ledger record. |
+| `cstan dash` | Read-only terminal dashboard. |
+| `cstan inbox [<agent-id>]` | Own pending messages, or an agent's mailbox (operator). |
+| `cstan observe <agent-id> [lines]` | Another agent's recent screen (PM and Supervisor). |
 
-| Command                               | Who    | Purpose                                   |
-| ------------------------------------- | ------ | ----------------------------------------- |
-| `cstan send <agent-id\|@pm> "<text>"` | either | Queue a message.                          |
-| `cstan wait`                          | PM     | Block for new messages.                   |
-| `cstan ack <message-id>`              | agent  | Acknowledge a message.                    |
-| `cstan spawn <role>`                  | either | Start a worker.                           |
-| `cstan release <agent-id>`            | either | End a worker, free its pane and worktree. |
-| `cstan replace <agent-id>`            | either | Replace a lost or stuck worker.           |
+</details>
 
-### Delivery flow
+<details>
+<summary><b>Messaging and workers</b></summary>
 
-| Command                                                   | Who                 | Purpose                                            |
-| --------------------------------------------------------- | ------------------- | -------------------------------------------------- |
-| `cstan report <commit> "<summary>"`                       | Developer, Verifier | Report a finished commit (full 40-character id).   |
-| `cstan request-review <report-id\|integration-id> [role]` | PM                  | Start an independent review.                       |
-| `cstan review pass\|findings "<text>"`                    | Verifier            | Answer a review request once.                      |
-| `cstan integrate <report-id>...`                          | PM or operator      | Merge reviewed reports onto an integration branch. |
-| `cstan integrate confirm\|discard <integration-id>`       | PM or operator      | Settle a merged integration.                       |
+| Command | Purpose |
+| --- | --- |
+| `cstan send <agent-id\|@pm> "<text>"` | Queue a message. |
+| `cstan wait` | PM: block for new messages. |
+| `cstan ack <message-id>` | Acknowledge a message. |
+| `cstan spawn <role>` | Start a worker. |
+| `cstan release <agent-id>` | End a worker, free its pane and worktree. |
+| `cstan replace <agent-id>` | Replace a lost or stuck worker. |
 
-### Supervision
+</details>
 
-| Command                                                                         | Who        | Purpose          |
-| ------------------------------------------------------------------------------- | ---------- | ---------------- |
-| `cstan finding <agent-id> <severity> "<evidence>" "<correction>" "<done-when>"` | Supervisor | Raise a finding. |
-| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"`            | Supervisor | Check a finding. |
+<details>
+<summary><b>Delivery: report, review, integrate</b></summary>
 
-Arguments may not be empty and may not contain invalid UTF-8. Put long text in a quoted heredoc so the shell does not expand it:
+| Command | Purpose |
+| --- | --- |
+| `cstan report <commit> "<summary>"` | Report a finished commit (full 40-character id). |
+| `cstan request-review <report-or-integration-id> [role]` | Start an independent review. |
+| `cstan review pass\|findings "<text>"` | Reviewer: answer once. |
+| `cstan integrate <report-id>...` | Squash reviewed reports onto an integration branch. |
+| `cstan integrate confirm\|discard <integration-id>` | Settle a merged integration. |
 
-```sh
-cstan send developer-1 "$(cat <<'EOF'
-Task text here.
-EOF
-)"
+</details>
+
+<details>
+<summary><b>Plans, supervision, Nexora, prompt relay and Operator</b></summary>
+
+| Command | Purpose |
+| --- | --- |
+| `cstan plan open\|submit\|show\|assign\|signoff\|cancel ...` | Planned work with the Architect. |
+| `cstan finding <agent-id> <severity> "<evidence>" "<correction>" "<done-when>"` | Supervisor: raise a finding. |
+| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"` | Supervisor: check a finding. |
+| `cstan link requirement\|plan\|package <ref-id> <nexora-id> [<state>]` | Record a Nexora link. |
+| `cstan link bind <requirement-ref-id> <agent-id>` | Tie a requirement to its developer. |
+| `cstan prompt show <agent-id>` / `prompt answer <relay-id> --hash <h> ...` | Relay a worker's permission prompt. |
+| `cstan op propose\|decide\|show\|cancel\|grants\|revoke\|full-auto ...` | Operator proposals, grants and full auto. |
+
+</details>
+
+Who may run each command, the controller's message prefixes and the exit codes are in the [command reference](docs/reference/commands.md).
+
+## Safety model
+
+> [!IMPORTANT]
+> Capstan runs on one machine you trust, as your user, with full network access. A worktree isolates changes; **it is not a security boundary**. The controls below are guards that stop mistakes and obvious misuse, not a sandbox. See [`decisions/DEC-005-capstan-v2-direction.md`](decisions/DEC-005-capstan-v2-direction.md) for the accepted risks.
+
+| Guard | What it protects |
+| --- | --- |
+| **You merge** | Capstan never pushes and never merges into your branch. `integrate confirm` is refused until the integration is in HEAD. |
+| **Controller-checked facts** | Reports, reviews and integrations are recorded only when an agent runs a `cstan` command and the controller checks what it can. Agents authenticate with a per-agent token; you with `.capstan/operator.key`. |
+| **Role deny lists** | Claude Code tool rules per role: developers deny `git push`, reviewers and the Supervisor deny file writes. They are tool rules, not enforcement at the OS level. |
+| **Operator** | The Operator only proposes. A command runs once, after a PM approval bound to a hash of its exact text, unless it is on a short read-only allowlist or covered by a session grant. A denylist (`push`, `rm`, `sudo`, `curl`, ...) always forces approval, except in full auto, which you switch on for a limited time and which removes every guard. |
+| **Prompt relay** | Nobody answers another agent's permission prompt on their own. The PM types only the option you chose, against a hash of the prompt it showed you. |
+| **Researcher** | `permission_mode = "default"`, a strict allow list and curl deny lists: GET only, no uploads, no output files, writes only under `output_dir`. Guards, not a sandbox; it reads untrusted pages. |
+| **Codex and OMP workers** | Run unsandboxed (`danger-full-access`, `yolo`); `cstan config check` warns about every such role. |
+
+Details: [Operator reference](docs/reference/operator.md), [Researcher reference](docs/reference/researcher.md).
+
+## Nexora tracking
+
+With `[nexora] track = "ask"` or `"always"`, the PM mirrors each requirement into Nexora as an epic and each work package as a story, and records the ids and states it wrote with `cstan link`. The controller never calls Nexora; it only keeps the links and shows a `Nexora drift` section in `cstan status` when what was written differs from what the ledger now wants. Connection details stay in `.nexora.toml`, which Capstan never reads. `track = "never"` removes every Nexora instruction from the PM.
+
+## Project layout
+
+```text
+src/
+  cli.ts                 cstan entry point and usage
+  daemon.ts              controller daemon, socket routes
+  commands.ts            command handlers
+  controller/            ledger, messaging, auth, core workflow
+  config/                capstan.toml schema and starter file
+  herdr/                 Herdr adapter, host parsers, prompt relay
+  dash/                  terminal dashboard (Ink)
+  launcher.ts            spawn, release, replace, worktrees
+  reviews.ts             review requests
+  integration.ts         squash integration branches
+  plans.ts               plan bodies and validation
+  operator*.ts           Operator policy and runs
+  researcher-policy.ts   Researcher tool rules
+  prompts.ts             built-in prompts per role kind
+migrations/              SQLite schema migrations
+test/                    node:test suites
+docs/                    reference, design notes and assets
+decisions/               design decisions (DEC-001 to DEC-006)
 ```
-
-## Controller messages
-
-Messages whose sender is `controller` start with one of these prefixes (`src/controller/core.ts`, `src/prompts.ts`):
-
-| Prefix                            | Meaning                                                                                      |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `Verified report`                 | A report was accepted: the commit exists on that worker's branch. Not a review.              |
-| `Review request`                  | To a reviewer: the commit (or integration) to review.                                        |
-| `Review`                          | To the PM: the reviewer's verdict as recorded. The text inside is the reviewer's opinion.    |
-| `Finding`                         | A supervisor raised, resolved, escalated or cancelled a finding.                             |
-| `Delivery problem`                | A message to a worker is `unacked`, `expired` or `failed`; run the `cstan resolve` it names. |
-| `Agent stalled` / `Agent blocked` | A worker made no progress / waits at a prompt.                                               |
-| `Agent ... is lost`               | Herdr no longer finds the agent's pane or process.                                           |
-| `Routine check`                   | To the Supervisor: do one watch pass.                                                        |
-
-## Exit codes
-
-From `EXIT` in `src/cli.ts`: `0` ok, `2` usage error, `3` invalid input or configuration, `4` blocked (the controller refused the request, for example `worker_limit`, or `cstan start` failed to launch), `5` runtime error.
 
 ## Development
 
 ```sh
-npm run build        # tsc + copy migrations
-npm test             # build, then node --test dist/test/*.test.js
-npm run lint         # eslint src test
-npm run format:check # prettier
-npm run check        # lint + format:check + test
+npm run build          # tsc, copy migrations
+npm test               # build, then node --test dist/test/*.test.js
+npm run lint           # eslint src test
+npm run format:check   # prettier
+npm run check          # lint + format:check + test
 ```
 
-Tests never touch a real Herdr session (`CAPSTAN_LAUNCH=off`).
+Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
+
+## Contributing
+
+Issues and pull requests are welcome. Before you open one:
+
+- run `npm run check` and keep it green;
+- describe behaviour as the code has it, and update the [reference docs](docs/reference/) with any change to commands, config keys or messages;
+- for design changes, read the relevant note in [`docs/design/`](docs/design/) and [`decisions/`](decisions/) first.
+
+## License
+
+No license file has been added yet. Add one before publishing the repository.
 
 ## Further reading
 
-- `decisions/DEC-005-capstan-v2-direction.md` — the current design direction and trust model; `MVP_PLAN_V2.md` — the plan it follows.
-- `decisions/DEC-006-cstan-dash.md` and `docs/design/cstan-dash-v2.md` — the dashboard.
-- `docs/spike-herdr-agents.md` — evidence for running interactive agents in Herdr.
-- `GATES.md` and the `STAGE*_GATE_RESULTS.md` files — stage gate evidence. `MVP_PLAN.md` and `decisions/DEC-001` to `DEC-004` are earlier, partly superseded history (Docker-based design).
+- [How Capstan works](docs/reference/workflow.md): concepts, delivery flow, messaging, worker lifecycle, findings, plans, prompt relay
+- [Configuration reference](docs/reference/configuration.md) · [Command reference](docs/reference/commands.md) · [Operator](docs/reference/operator.md) · [Researcher](docs/reference/researcher.md)
+- [`docs/design/architect-role.md`](docs/design/architect-role.md), [`docs/design/researcher-role.md`](docs/design/researcher-role.md), [`docs/design/cstan-dash-v2.md`](docs/design/cstan-dash-v2.md)
+- [`decisions/DEC-005-capstan-v2-direction.md`](decisions/DEC-005-capstan-v2-direction.md): the current direction and trust model; [`MVP_PLAN_V2.md`](MVP_PLAN_V2.md): the plan it follows
+- [`docs/spike-herdr-agents.md`](docs/spike-herdr-agents.md): evidence for running interactive agents in Herdr
+- [`GATES.md`](GATES.md) and the `STAGE*_GATE_RESULTS.md` files: stage gate evidence
