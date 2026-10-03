@@ -25,38 +25,39 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Look and read
 
-| Command                                                     | Who            | Purpose                                                                  |
-| ----------------------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
-| `cstan status [--json]` / `--watch [--interval N]`          | either         | Project state.                                                           |
-| `cstan inspect <id> [--json]`                               | operator       | One ledger record.                                                       |
-| `cstan dash [--interval N] [--no-color] [--reduced-motion]` | operator       | Dashboard.                                                               |
-| `cstan inbox [<agent-id>]`                                  | either         | Agent: own pending messages. Operator: an agent's mailbox (id required). |
-| `cstan observe <agent-id> [lines]`                          | PM, Supervisor | Another agent's recent screen.                                           |
+| Command                                                     | Who            | Purpose                                                                                                                                                                                  |
+| ----------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cstan status [--json]` / `--watch [--interval N]`          | either         | Project state.                                                                                                                                                                           |
+| `cstan inspect <id> [--json]`                               | operator       | One ledger record.                                                                                                                                                                       |
+| `cstan dash [--interval N] [--no-color] [--reduced-motion]` | operator       | Dashboard.                                                                                                                                                                               |
+| `cstan inbox [<agent-id>]`                                  | either         | Agent: own pending messages; a worker delivers and prints all its waiting mail, oldest first. Operator: an agent's mailbox (id required).                                                |
+| `cstan inbox --hook`                                        | agent          | Read-only, silent when nothing waits. Used by the Claude PostToolUse hook; prints hook JSON when mail waits, and always exits 0 (silent too when the `CAPSTAN_*` variables are missing). |
+| `cstan observe <agent-id> [lines]`                          | PM, Supervisor | Another agent's recent screen.                                                                                                                                                           |
 
 ### Messaging and workers
 
-| Command                                                    | Who    | Purpose                                   |
-| ---------------------------------------------------------- | ------ | ----------------------------------------- |
-| `cstan send <agent-id\|@pm> "<text>"`                      | either | Queue a message.                          |
-| `cstan wait`                                               | PM     | Block for new messages.                   |
-| `cstan ack <message-id>`                                   | agent  | Acknowledge a message.                    |
-| `cstan spawn <role>`                                       | either | Start a worker.                           |
-| `cstan release <agent-id>`                                 | either | End a worker, free its pane and worktree. |
-| `cstan replace <agent-id>`                                 | either | Replace a lost or stuck worker.           |
-| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]` | either | Hold one agent, or the whole run.         |
-| `cstan resume [<agent-id>] --reason "<text>"`              | either | Release a pause.                          |
+| Command                                                    | Who    | Purpose                                                                                                                                                              |
+| ---------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cstan send <agent-id\|@pm> "<text>"`                      | either | Queue a message.                                                                                                                                                     |
+| `cstan wait`                                               | agent  | Block for new messages (up to the host wait timeout). The PM reads its next message; a worker delivers and prints all its mail. A worker uses it instead of polling. |
+| `cstan ack <message-id>`                                   | agent  | Acknowledge a message.                                                                                                                                               |
+| `cstan spawn <role>`                                       | either | Start a worker.                                                                                                                                                      |
+| `cstan release <agent-id>`                                 | either | End a worker, free its pane and worktree.                                                                                                                            |
+| `cstan replace <agent-id>`                                 | either | Replace a lost or stuck worker.                                                                                                                                      |
+| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]` | either | Hold one agent, or the whole run.                                                                                                                                    |
+| `cstan resume [<agent-id>] --reason "<text>"`              | either | Release a pause.                                                                                                                                                     |
 
 `cstan pause` and `cstan resume` are for the operator and the active PM; a worker gets `forbidden`. `--reason "<text>"` (1 to 500 characters) is required. Without an agent id they act on the whole run, with one on that agent (which must be active; a PM may not pause itself). A double pause or a resume of something not paused is refused. `--interrupt` (pause only) also sends exactly one `Esc` to each worker Herdr shows working (never the PM) and needs `[prompt_relay] enabled = true`; without it nothing is paused and the command answers `not_configured`. The answer lists the agents that got the Esc. See [Pause and resume](workflow.md#pause-and-resume).
 
 ### Delivery flow
 
-| Command                                                   | Who                 | Purpose                                            |
-| --------------------------------------------------------- | ------------------- | -------------------------------------------------- |
-| `cstan report <commit> "<summary>"`                       | Developer, Verifier | Report a finished commit (full 40-character id).   |
-| `cstan request-review <report-id\|integration-id> [role]` | PM                  | Start an independent review.                       |
-| `cstan review pass\|findings "<text>"`                    | Verifier            | Answer a review request once.                      |
-| `cstan integrate <report-id>...`                          | PM or operator      | Merge reviewed reports onto an integration branch. |
-| `cstan integrate confirm\|discard <integration-id>`       | PM or operator      | Settle a merged integration.                       |
+| Command                                                   | Who                 | Purpose                                                                                                                                                                             |
+| --------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cstan report <commit> "<summary>"`                       | Developer, Verifier | Report a finished commit (full 40-character id). Refused with `unread_messages` while a message queued before the commit is not acknowledged; run `cstan inbox`, ack, report again. |
+| `cstan request-review <report-id\|integration-id> [role]` | PM                  | Start an independent review.                                                                                                                                                        |
+| `cstan review pass\|findings "<text>"`                    | Verifier            | Answer a review request once.                                                                                                                                                       |
+| `cstan integrate <report-id>...`                          | PM or operator      | Merge reviewed reports onto an integration branch.                                                                                                                                  |
+| `cstan integrate confirm\|discard <integration-id>`       | PM or operator      | Settle a merged integration.                                                                                                                                                        |
 
 ### Supervision
 

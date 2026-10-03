@@ -743,12 +743,68 @@ function renderMessages(result: unknown): string {
     return value.timedOut === true
       ? "no messages (the wait timed out)"
       : "no messages";
-  return messages
-    .map(
-      (m) =>
-        `message ${m.messageId ?? ""} [${m.state ?? ""}] from ${m.from ?? ""}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId ?? ""})`}\n${m.body ?? ""}`,
+  const heading =
+    typeof (value as { count?: unknown }).count === "number"
+      ? `${messages.length} message(s) to act on; ack each one with cstan ack <message-id>\n\n`
+      : "";
+  return (
+    heading +
+    messages
+      .map(
+        (m) =>
+          `message ${m.messageId ?? ""} [${m.state ?? ""}] from ${m.from ?? ""}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId ?? ""})`}\n${m.body ?? ""}`,
+      )
+      .join("\n\n")
+  );
+}
+
+const HOOK_TIMEOUT_MS = 2_000;
+
+/** `cstan inbox --hook`: the Claude Code PostToolUse hook. Read-only and silent; it exits 0 whatever happens so a tool call never fails because of it. */
+async function runInboxHook(): Promise<number> {
+  try {
+    const token = process.env.CAPSTAN_TOKEN;
+    const socketPath = process.env.CAPSTAN_SOCKET;
+    if (
+      !token ||
+      !socketPath ||
+      !process.env.CAPSTAN_AGENT_ID ||
+      !path.isAbsolute(socketPath)
     )
-    .join("\n\n");
+      return EXIT.ok;
+    const { response } = await callDaemon(
+      socketPath,
+      token,
+      "inbox",
+      ["--hook"],
+      HOOK_TIMEOUT_MS,
+    );
+    if (!response.ok) return EXIT.ok;
+    const summary = response.result as {
+      count?: unknown;
+      oldestQueuedAt?: unknown;
+    };
+    const count = summary?.count;
+    if (typeof count !== "number" || count <= 0) return EXIT.ok;
+    process.stdout.write(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext: `${count} Capstan message(s) are waiting for you (oldest ${oldestMinutes(summary.oldestQueuedAt)} min). Run cstan inbox now and ack each one before you continue or report.`,
+        },
+      })}\n`,
+    );
+  } catch {
+    // Silent on purpose: an unreachable daemon must not disturb the tool call.
+  }
+  return EXIT.ok;
+}
+
+function oldestMinutes(queuedAt: unknown): number {
+  const queued = typeof queuedAt === "string" ? Date.parse(queuedAt) : NaN;
+  return Number.isNaN(queued)
+    ? 0
+    : Math.max(0, Math.floor((Date.now() - queued) / 60_000));
 }
 
 function handleWire(result: WireResult, json: boolean, command = ""): number {
@@ -762,6 +818,15 @@ function handleWire(result: WireResult, json: boolean, command = ""): number {
           process.stdout.write(`${line}\n`);
       output(response.result, json);
     }
+    const unread = (
+      response.result as {
+        unread?: { count?: unknown; oldestQueuedAt?: unknown };
+      } | null
+    )?.unread;
+    if (!json && typeof unread?.count === "number")
+      process.stderr.write(
+        `notice: ${unread.count} message(s) wait for you (oldest ${oldestMinutes(unread.oldestQueuedAt)} min): run cstan inbox\n`,
+      );
     const warning = (response.result as { warning?: unknown } | null)?.warning;
     if (typeof warning === "string")
       process.stderr.write(`warning: ${warning}\n`);
@@ -1195,6 +1260,8 @@ async function runCli(argv: string[]): Promise<number> {
     }
     return EXIT.ok;
   }
+  if (command === "inbox" && rest.length === 1 && rest[0] === "--hook")
+    return await runInboxHook();
   if (
     command === "ping" ||
     (command !== undefined && ROUTED_COMMANDS.has(command)) ||

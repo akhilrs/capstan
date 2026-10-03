@@ -24,6 +24,8 @@ export interface CommitInspection {
   readonly branchTip: string | null;
   readonly isAncestorOfTip: boolean;
   readonly isAncestorOfBase: boolean;
+  /** The commit's committer time as an ISO string; null when the commit does not exist. */
+  readonly committedAt?: string | null;
 }
 
 /** Only what git needs; every inherited GIT_* variable, the user's and the system's git configuration are left out. */
@@ -141,8 +143,22 @@ export async function inspectCommit(
   if (exists.code !== 0 && exists.code !== 1)
     throw new GitCheckError("git could not look the commit up");
   const commitExists = exists.code === 0;
+  let committedAt: string | null = null;
+  if (commitExists) {
+    const stamp = await runGit(repoRoot, [
+      "show",
+      "-s",
+      "--format=%ct",
+      `${input.sha}^{commit}`,
+    ]);
+    const seconds = Number(stamp.stdout.trim());
+    if (stamp.code !== 0 || !Number.isInteger(seconds))
+      throw new GitCheckError("git could not read the commit time");
+    committedAt = new Date(seconds * 1000).toISOString();
+  }
   return {
     commitExists,
+    committedAt,
     branchTip: tip,
     isAncestorOfTip:
       commitExists && tip !== null

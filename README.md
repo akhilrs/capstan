@@ -67,7 +67,7 @@ flowchart TB
 4. **Integration is mechanical.** Reviewed reports are squashed onto an integration branch without touching your checkout. A conflict leaves nothing behind and becomes a new task.
 5. **You merge.** After the integration passes its own review you merge it, and `cstan integrate confirm` tells the controller to clean up.
 
-Meanwhile the Supervisor watches for stuck workers, and the controller reports stalled, blocked and lost agents to the PM. The full step-by-step behaviour is in [How Capstan works](docs/reference/workflow.md).
+Meanwhile the Supervisor watches for stuck workers, and the controller reports stalled, blocked and lost agents to the PM (a worker whose test or build is still using CPU is not reported as stalled). Workers read their mail with `cstan inbox`, are told when mail waits, and cannot report with unacknowledged mail. The full step-by-step behaviour is in [How Capstan works](docs/reference/workflow.md).
 
 ## Quick start
 
@@ -132,7 +132,7 @@ enabled = true
 check_seconds = 300
 
 [worktree]
-setup = "npm install"           # runs once in each new worktree
+setup = "npm ci"                # runs once in each new worktree
 # teardown = "..."              # runs before a worktree is removed
 
 [defaults.Developer]            # per role kind; a role's own value wins
@@ -160,6 +160,8 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 # Optional tables, off until enabled: [architect], [operator], [prompt_relay],
 # [researcher] with [mcp_servers.<name>], and [nexora].
 ```
+
+`npm ci` installs from `package-lock.json` without rewriting it, so new worktrees stay clean and the release dirty-lock guard passes.
 
 <details>
 <summary><b>All tables at a glance</b></summary>
@@ -228,13 +230,13 @@ Run `cstan` with no arguments for the usage line. Every routed command accepts `
 <details>
 <summary><b>Look and read</b></summary>
 
-| Command                             | Purpose                                                 |
-| ----------------------------------- | ------------------------------------------------------- |
-| `cstan status [--json]` / `--watch` | Project state.                                          |
-| `cstan inspect <id>`                | One ledger record.                                      |
-| `cstan dash`                        | Read-only terminal dashboard.                           |
-| `cstan inbox [<agent-id>]`          | Own pending messages, or an agent's mailbox (operator). |
-| `cstan observe <agent-id> [lines]`  | Another agent's recent screen (PM and Supervisor).      |
+| Command                             | Purpose                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------- |
+| `cstan status [--json]` / `--watch` | Project state.                                                                        |
+| `cstan inspect <id>`                | One ledger record.                                                                    |
+| `cstan dash`                        | Read-only terminal dashboard.                                                         |
+| `cstan inbox [<agent-id>]`          | Own pending messages (a worker pulls all its mail), or an agent's mailbox (operator). |
+| `cstan observe <agent-id> [lines]`  | Another agent's recent screen (PM and Supervisor).                                    |
 
 </details>
 
@@ -244,7 +246,7 @@ Run `cstan` with no arguments for the usage line. Every routed command accepts `
 | Command                                                    | Purpose                                          |
 | ---------------------------------------------------------- | ------------------------------------------------ |
 | `cstan send <agent-id\|@pm> "<text>"`                      | Queue a message.                                 |
-| `cstan wait`                                               | PM: block for new messages.                      |
+| `cstan wait`                                               | Block for new messages (PM and workers).         |
 | `cstan ack <message-id>`                                   | Acknowledge a message.                           |
 | `cstan spawn <role>`                                       | Start a worker.                                  |
 | `cstan release <agent-id>`                                 | End a worker, free its pane and worktree.        |

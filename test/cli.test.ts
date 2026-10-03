@@ -19,6 +19,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -2417,3 +2418,93 @@ test("the usage line lists the plan subcommands", () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("inbox --hook prints nothing and exits 0 without the agent environment, with an unreachable daemon, and at count 0; it prints PostToolUse JSON at count>0", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "capstan-hook-"));
+  const socketPath = path.join(dir, "hook.sock");
+  let reply = {
+    ok: true,
+    result: { count: 0, oldestQueuedAt: null, messageIds: [] },
+  } as unknown;
+  const requests: string[] = [];
+  const server = net.createServer((socket) => {
+    socket.on("data", (chunk) => {
+      requests.push(chunk.toString("utf8"));
+      socket.end(`${JSON.stringify(reply)}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    const bare = invokeWithEnv(dir, {}, "inbox", "--hook");
+    assert.equal(bare.status, 0, bare.stderr);
+    assert.equal(bare.stdout, "");
+    const env = {
+      CAPSTAN_TOKEN: "token-1",
+      CAPSTAN_SOCKET: socketPath,
+      CAPSTAN_AGENT_ID: "developer-1",
+    };
+    for (const missing of Object.keys(env)) {
+      const partial: NodeJS.ProcessEnv = { ...env, [missing]: undefined };
+      const run = await invokeAsyncWithEnv(dir, partial, "inbox", "--hook");
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "", `${missing} missing`);
+    }
+    assert.equal(requests.length, 0, "no call without the full environment");
+    const empty = await invokeAsyncWithEnv(dir, env, "inbox", "--hook");
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.equal(empty.stdout, "");
+    assert.match(requests[0]!, /"command":"inbox","args":\["--hook"\]/);
+    reply = {
+      ok: true,
+      result: {
+        count: 2,
+        oldestQueuedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        messageIds: ["a", "b"],
+      },
+    };
+    const waiting = await invokeAsyncWithEnv(dir, env, "inbox", "--hook");
+    assert.equal(waiting.status, 0, waiting.stderr);
+    const hook = JSON.parse(waiting.stdout) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    assert.equal(hook.hookSpecificOutput.hookEventName, "PostToolUse");
+    assert.equal(
+      hook.hookSpecificOutput.additionalContext,
+      "2 Capstan message(s) are waiting for you (oldest 5 min). Run cstan inbox now and ack each one before you continue or report.",
+    );
+  } finally {
+    server.close();
+    const gone = invokeWithEnv(
+      dir,
+      {
+        CAPSTAN_TOKEN: "token-1",
+        CAPSTAN_SOCKET: path.join(dir, "none.sock"),
+        CAPSTAN_AGENT_ID: "developer-1",
+      },
+      "inbox",
+      "--hook",
+    );
+    assert.equal(gone.status, 0, "an unreachable daemon exits 0");
+    assert.equal(gone.stdout, "");
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function invokeAsyncWithEnv(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  ...args: string[]
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd,
+      env: { ...process.env, ...env },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+    child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}

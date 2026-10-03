@@ -7670,6 +7670,110 @@ export class ControllerCore {
     );
   }
 
+  /**
+   * A worker reads its mail: every queued or deferred message becomes sent, in
+   * sequence order, one ledger event each. It stops at the first expired or
+   * failed message, which is the PM's to resolve, and pulls nothing while the
+   * agent's delivery is paused. A message already sent or unacked is kept.
+   */
+  pullPending(credential: string): readonly MessageRecord[] {
+    this.#authorize(credential, "message:receive");
+    const actor = authenticateActor(
+      this.#database,
+      this.#projectId,
+      credential,
+    );
+    const agent = this.#agentByActor(actor.actorId);
+    if (agent === undefined || agent.kind === "PM") return [];
+    if (this.isDeliveryPaused(agent.agent_id)) return [];
+    const pulled: MessageRecord[] = [];
+    for (const row of this.#messageRowsFor(agent.agent_id)) {
+      if (isFinalState(row.state) || row.state === "sent") continue;
+      if (row.state === "unacked") continue;
+      if (row.state !== "queued" && row.state !== "deferred") break;
+      const id = randomUUID();
+      const record = this.#messageMutation<MessageRecord>(
+        {
+          credential,
+          requestId: `req-${id}`,
+          idempotencyKey: `idem-${id}`,
+          expectedVersion: this.stateVersion,
+          inputRevision: this.inputRevision,
+        },
+        "message.pull",
+        "message:receive",
+        { messageId: row.message_id },
+        (caller) => {
+          const current = this.#messageRow(row.message_id);
+          if (current?.state !== "queued" && current?.state !== "deferred")
+            return this.#reject(caller, "message.pull", {
+              messageId: row.message_id,
+              code: "nothing_to_pull",
+              message: "the message is no longer waiting to be sent",
+              fromState: current?.state,
+            });
+          const now = this.#now();
+          const version = this.#updateMessage(
+            current,
+            "sent",
+            {
+              sent_at: now,
+              send_attempts: current.send_attempts + 1,
+            },
+            now,
+          );
+          if (pulled.length === 0) this.#touchAgent(agent.agent_id, now);
+          return {
+            value: messageRecord(this.#messageRow(row.message_id)!),
+            event: {
+              entityType: "message",
+              entityId: row.message_id,
+              stateVersion: version,
+              fromState: current.state,
+              toState: "sent",
+            },
+          };
+        },
+      );
+      pulled.push(record);
+    }
+    return pulled;
+  }
+
+  /** What waits for the caller: its queued, deferred, sent and unacked messages. Read-only; nothing is written. */
+  unreadSummary(credential: string): {
+    readonly count: number;
+    readonly oldestQueuedAt: string | null;
+    readonly messageIds: readonly string[];
+  } {
+    this.#assertOpen();
+    const actor = authenticateActor(
+      this.#database,
+      this.#projectId,
+      credential,
+    );
+    const agent =
+      actor.role === "operator" ? undefined : this.#agentByActor(actor.actorId);
+    const waiting =
+      agent === undefined
+        ? []
+        : this.#messageRowsFor(agent.agent_id).filter(
+            (row) =>
+              row.state === "queued" ||
+              row.state === "deferred" ||
+              row.state === "sent" ||
+              row.state === "unacked",
+          );
+    let oldest: string | null = null;
+    for (const row of waiting)
+      if (oldest === null || row.queued_at < oldest) oldest = row.queued_at;
+    return {
+      count: waiting.length,
+      oldestQueuedAt: oldest,
+      messageIds: waiting.map((row) => row.message_id),
+    };
+  }
+
   recordDeferral(
     context: MutationContext,
     messageId: string,

@@ -7,9 +7,16 @@ import Database from "better-sqlite3";
 import {
   DeliveryDriver,
   FAILURE_LIMIT,
+  PROCESS_SAMPLE_MS,
   STUCK_AFTER_TICKS,
   type DriverAdapter,
 } from "../src/driver.js";
+import {
+  HerdrProcessProbe,
+  parseProcStat,
+  type ProcessActivityProbe,
+  type ProcessSample,
+} from "../src/herdr/process-activity.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { MAX_INPUT_CLEAR_BYTES } from "../src/controller/core.js";
 import type { HerdrState } from "../src/controller/messaging.js";
@@ -176,7 +183,10 @@ interface World {
   eventNames(): string[];
 }
 
-async function world(timers: MessagingTimers = TIMERS): Promise<World> {
+async function world(
+  timers: MessagingTimers = TIMERS,
+  processProbe?: ProcessActivityProbe,
+): Promise<World> {
   const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
   const h = await harness({ clock: () => new Date(clock.now) });
   const adapter = new StubAdapter();
@@ -191,6 +201,7 @@ async function world(timers: MessagingTimers = TIMERS): Promise<World> {
     credential: h.owner,
     now: () => clock.now,
     log: (event, details) => events.push({ event, details }),
+    ...(processProbe === undefined ? {} : { processProbe }),
   });
   return {
     h,
@@ -1214,5 +1225,184 @@ test("a readable non-empty input closes the episode so a later unreadable head w
     );
   } finally {
     await close(w.h);
+  }
+});
+
+class StubProbe implements ProcessActivityProbe {
+  calls: string[] = [];
+  cpuMs = 0;
+  present = true;
+  failure: Error | undefined;
+  async sample(paneId: string): Promise<ProcessSample> {
+    this.calls.push(paneId);
+    if (this.failure) throw this.failure;
+    return {
+      processes: this.present
+        ? [
+            {
+              pid: 7,
+              ppid: 6,
+              comm: "npm test",
+              cpuMs: this.cpuMs,
+              startKey: "k",
+            },
+          ]
+        : [],
+    };
+  }
+}
+
+const stalledNotices = (w: World) =>
+  w.h.core
+    .messagesFor(w.h.pm.agentId)
+    .filter((m) => m.body.startsWith("Agent stalled"));
+
+/** Ticks every sample interval for `ms`, adding CPU to the stub child each time. */
+async function run(w: World, probe: StubProbe, ms: number, cpuPerStep: number) {
+  for (let spent = 0; spent < ms; spent += PROCESS_SAMPLE_MS) {
+    w.advance(PROCESS_SAMPLE_MS);
+    probe.cpuMs += cpuPerStep;
+    await w.tick();
+  }
+}
+
+test("a working agent whose child keeps using CPU is not reported stalled", async () => {
+  const probe = new StubProbe();
+  const w = await world(TIMERS, probe);
+  try {
+    w.adapter.states.set(w.h.developer.agentId, "working");
+    await w.tick();
+    await run(w, probe, (TIMERS.stallAfterSeconds + 120) * 1000, 500);
+    assert.deepEqual(w.driver.snapshot().stalledAgentIds, []);
+    assert.equal(stalledNotices(w).length, 0);
+    assert.equal(
+      w.events.filter((e) => e.event === "stall_suppressed").length,
+      1,
+    );
+    assert.equal(w.eventNames().includes("agent_stalled"), false);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a hung child is reported stalled, measured from its last CPU activity", async () => {
+  const probe = new StubProbe();
+  const w = await world(TIMERS, probe);
+  try {
+    w.adapter.states.set(w.h.developer.agentId, "working");
+    await w.tick();
+    const busyMs = 600 * 1000;
+    await run(w, probe, busyMs, 500);
+    const lastBusy = w.clock.now;
+    // Hung: the CPU total stays flat.
+    await run(w, probe, (TIMERS.stallAfterSeconds - 60) * 1000, 0);
+    assert.deepEqual(w.driver.snapshot().stalledAgentIds, []);
+    await run(w, probe, 120 * 1000, 0);
+    assert.deepEqual(w.driver.snapshot().stalledAgentIds, [
+      w.h.developer.agentId,
+    ]);
+    assert.ok(w.clock.now - lastBusy >= TIMERS.stallAfterSeconds * 1000);
+    assert.equal(stalledNotices(w).length, 1);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("with no child, or a probe that throws, a real stall is still reported", async () => {
+  for (const mode of ["none", "throws"] as const) {
+    const probe = new StubProbe();
+    if (mode === "none") probe.present = false;
+    else probe.failure = new Error("boom");
+    const w = await world(TIMERS, probe);
+    try {
+      w.adapter.states.set(w.h.developer.agentId, "working");
+      await w.tick();
+      await run(w, probe, (TIMERS.stallAfterSeconds + 30) * 1000, 0);
+      assert.deepEqual(w.driver.snapshot().stalledAgentIds, [
+        w.h.developer.agentId,
+      ]);
+      assert.equal(stalledNotices(w).length, 1);
+      assert.equal(
+        w.events.filter((e) => e.event === "process_probe_failed").length,
+        mode === "throws" ? 1 : 0,
+        "a failure is logged once",
+      );
+    } finally {
+      await close(w.h);
+    }
+  }
+});
+
+test("an idle or paused agent is never sampled and sampling is throttled", async () => {
+  const probe = new StubProbe();
+  const w = await world(TIMERS, probe);
+  try {
+    await w.tick();
+    await w.tick();
+    assert.equal(probe.calls.length, 0, "idle");
+    w.adapter.states.set(w.h.developer.agentId, "working");
+    await w.tick();
+    await w.tick();
+    assert.equal(probe.calls.length, 1, "at most one sample per interval");
+    w.advance(PROCESS_SAMPLE_MS);
+    await w.tick();
+    assert.equal(probe.calls.length, 2);
+    w.h.core.pauseAgent(ctx(w.h.core, w.h.owner), {
+      agentId: w.h.developer.agentId,
+      reason: "hold",
+    });
+    w.advance(PROCESS_SAMPLE_MS * 2);
+    await w.tick();
+    assert.equal(probe.calls.length, 2, "paused");
+  } finally {
+    await close(w.h);
+  }
+});
+
+/** A probe over a stubbed /proc whose test runner parent is flat while its exited children's CPU (cutime, cstime) may grow. */
+function procProbe(childTicks: () => number): ProcessActivityProbe {
+  const stat = (pid: number, ppid: number, comm: string, children = 0) =>
+    parseProcStat(
+      pid,
+      `${pid} (${comm}) S ${ppid} ${pid} ${pid} 0 -1 0 0 0 0 0 10 5 ${children} 0 20 0 1 0 ${pid} 1000 10`,
+    )!;
+  return new HerdrProcessProbe(
+    async () => ({
+      code: 0,
+      stdout: '{"result":{"process_info":{"shell_pid":1}}}',
+      stderr: "",
+    }),
+    async () => [
+      stat(1, 0, "bash"),
+      stat(2, 1, "claude"),
+      stat(3, 2, "zsh"),
+      stat(4, 3, "node", childTicks()),
+    ],
+  );
+}
+
+test("an idle test-runner parent whose exited children keep using CPU is not reported stalled, and flat child totals are", async () => {
+  for (const growing of [true, false]) {
+    let ticks = 0;
+    const w = await world(
+      TIMERS,
+      procProbe(() => ticks),
+    );
+    try {
+      w.adapter.states.set(w.h.developer.agentId, "working");
+      await w.tick();
+      for (
+        let spent = 0;
+        spent < (TIMERS.stallAfterSeconds + 120) * 1000;
+        spent += PROCESS_SAMPLE_MS
+      ) {
+        w.advance(PROCESS_SAMPLE_MS);
+        if (growing) ticks += 50;
+        await w.tick();
+      }
+      assert.equal(w.driver.snapshot().stalledAgentIds.length, growing ? 0 : 1);
+    } finally {
+      await close(w.h);
+    }
   }
 });

@@ -470,6 +470,12 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
   const pull = (credential: string): boolean =>
     core.pullMessage(context(credential)).message !== null;
 
+  /** What `inbox` and `wait` do to read: the PM pulls its head, a worker pulls all its mail. True when a message was pulled. */
+  const pullFor = (agent: AgentRecord, credential: string): boolean =>
+    agent.kind === "PM"
+      ? pull(credential)
+      : core.pullPending(credential).length > 0;
+
   const agentOf = (identity: Identity): AgentRecord | undefined =>
     identity.agent ?? undefined;
 
@@ -687,13 +693,27 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             messages: core.agentInbox(call.credential, agentId).map(describe),
           });
         }
+        const agent = agentOf(identity);
+        if (call.args.length === 1 && call.args[0] === "--hook") {
+          // Read-only: the hook runs after every tool call and never pulls or prints a body.
+          if (agent === undefined)
+            return fail("forbidden", "the caller is not an agent");
+          const { count, oldestQueuedAt, messageIds } = core.unreadSummary(
+            call.credential,
+          );
+          return ok({ count, oldestQueuedAt, messageIds });
+        }
         if (call.args.length !== 0)
           return fail("invalid_request", "inbox takes no arguments");
-        const agent = agentOf(identity);
         if (agent === undefined)
           return fail("forbidden", "the caller is not an agent");
-        if (agent.kind === "PM") pull(call.credential);
-        return ok({ messages: delivered(call.credential) });
+        if (agent.kind === "PM") {
+          pull(call.credential);
+          return ok({ messages: delivered(call.credential) });
+        }
+        core.pullPending(call.credential);
+        const messages = delivered(call.credential);
+        return ok({ messages, count: messages.length });
       } catch (error) {
         return mapError(error);
       }
@@ -1024,6 +1044,24 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
                 isAncestorOfBase: false,
               }
             : await deps.inspectCommit({ branch, baseSha, sha });
+        if (inspection.committedAt != null) {
+          const committed = Date.parse(inspection.committedAt);
+          const unread = core
+            .messagesFor(caller.agentId)
+            .filter(
+              (message) =>
+                (message.state === "queued" ||
+                  message.state === "deferred" ||
+                  message.state === "sent" ||
+                  message.state === "unacked") &&
+                Date.parse(message.queuedAt) <= committed,
+            );
+          if (unread.length > 0)
+            return fail(
+              "rejected",
+              `unread_messages: ${unread.length} message(s) to you are not acknowledged (${unread.map((message) => message.messageId).join(", ")}); run cstan inbox, act on and ack them, then report again`,
+            );
+        }
         const evidence: ReportEvidence = {
           generation: caller.generation,
           branch: branch ?? "",
@@ -2394,8 +2432,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
 
     async wait(call) {
       const agent = agentOf(call.identity);
-      if (agent === undefined || agent.kind !== "PM")
-        return fail("forbidden", "only the PM waits");
+      if (agent === undefined) return fail("forbidden", "only an agent waits");
       if (call.args.length !== 0)
         return fail("invalid_request", "wait takes no arguments");
       const deadline =
@@ -2426,7 +2463,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           ]);
         }
         if (local.signal.aborted) return abortReply(local.signal);
-        let pulled = pull(call.credential);
+        let pulled = pullFor(agent, call.credential);
         if (!pulled && now() < deadline) {
           const { waitId } = core.beginWait(context(call.credential));
           try {
@@ -2436,15 +2473,20 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
                 local.signal,
               );
               if (local.signal.aborted) break;
-              pulled = pull(call.credential);
+              pulled = pullFor(agent, call.credential);
             }
           } finally {
             endWait(call.credential, waitId);
           }
         }
         if (local.signal.aborted) return abortReply(local.signal);
-        if (!pulled) pulled = pull(call.credential);
-        return ok({ messages: delivered(call.credential), timedOut: !pulled });
+        if (!pulled) pulled = pullFor(agent, call.credential);
+        const messages = delivered(call.credential);
+        return ok({
+          messages,
+          timedOut: !pulled,
+          ...(agent.kind === "PM" ? {} : { count: messages.length }),
+        });
       } catch (error) {
         if (local.signal.aborted) return abortReply(local.signal);
         log("wait_failed", { agentId: agent.agentId, error: String(error) });
@@ -2457,8 +2499,42 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
     },
   };
 
+  /** A worker's command other than inbox and wait (and the operator agent's op, whose answers are exact) also tells the caller when mail waits for it; the PM reads its mail by inbox and wait. */
+  const withNotice =
+    (handler: CommandHandler): CommandHandler =>
+    async (call) => {
+      const response = await handler(call);
+      if (
+        response === null ||
+        !response.ok ||
+        call.identity.agent == null ||
+        call.identity.agent.kind === "PM" ||
+        typeof response.result !== "object" ||
+        response.result === null ||
+        Array.isArray(response.result)
+      )
+        return response;
+      try {
+        const { count, oldestQueuedAt } = core.unreadSummary(call.credential);
+        if (count === 0) return response;
+        return {
+          ok: true,
+          result: { ...response.result, unread: { count, oldestQueuedAt } },
+        };
+      } catch (error) {
+        log("unread_notice_failed", { error: String(error) });
+        return response;
+      }
+    };
+  const served: Record<string, CommandHandler> = {};
+  for (const [name, handler] of Object.entries(handlers))
+    served[name] =
+      name === "inbox" || name === "wait" || name === "op"
+        ? handler
+        : withNotice(handler);
+
   return {
-    handlers,
+    handlers: served,
     limitMs(command, identity) {
       if (command === "wait") return hostWaitSeconds(agentOf(identity)) * 1000;
       if (

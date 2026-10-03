@@ -16,6 +16,7 @@ import {
   type DeferralReason,
   type HerdrState,
   type MessagingAction,
+  suppressActiveStalls,
   type MessagingTimers,
 } from "./controller/messaging.js";
 import type { AgentRecord, MessageRecord } from "./controller/types.js";
@@ -35,6 +36,10 @@ import {
   type KeyLogger,
   type SendOutcome,
 } from "./herdr/adapter.js";
+import {
+  ProcessActivityTracker,
+  type ProcessActivityProbe,
+} from "./herdr/process-activity.js";
 import { HerdrError } from "./herdr/runner.js";
 import type { DriverSnapshot } from "./commands.js";
 import type { Notifier, NotificationRequest } from "./notifier.js";
@@ -47,6 +52,8 @@ export const LOSS_LIMIT = 3;
 /** Ticks in a row in which every observed agent is not found (a Herdr restart?) that the counters are held before they start again from zero. */
 export const SUPPRESS_LIMIT = 10;
 export const STUCK_AFTER_TICKS = 10;
+/** The least time between two process samples of one working agent. */
+export const PROCESS_SAMPLE_MS = 15_000;
 const TRUNCATION_MARKER = "[truncated]";
 
 /** The part of the Herdr adapter the driver uses; tests stub it. */
@@ -94,6 +101,8 @@ export interface DriverOptions {
   readonly now?: () => number;
   readonly log?: DriverLog;
   readonly tickMs?: number;
+  /** Tells whether a tool process under a working agent uses CPU; such an agent is not reported as stalled. */
+  readonly processProbe?: ProcessActivityProbe;
 }
 
 /** Thrown from a callback that must stop the physical action because the ledger moved on. */
@@ -166,6 +175,10 @@ export class DeliveryDriver {
   #suppressedTicks = 0;
   /** After the hold limit, an all-not-found tick counts again until some agent answers. */
   #suppressionSpent = false;
+  readonly #processProbe: ProcessActivityProbe | undefined;
+  readonly #activity = new ProcessActivityTracker();
+  readonly #lastSampleMs = new Map<string, number>();
+  readonly #probeFailed = new Set<string>();
 
   constructor(options: DriverOptions) {
     this.#core = options.core;
@@ -176,6 +189,7 @@ export class DeliveryDriver {
     this.#now = options.now ?? Date.now;
     this.#log = options.log ?? (() => undefined);
     this.#tickMs = Math.max(options.tickMs ?? DEFAULT_TICK_MS, MIN_TICK_MS);
+    this.#processProbe = options.processProbe;
   }
 
   snapshot(): DriverSnapshot {
@@ -240,6 +254,7 @@ export class DeliveryDriver {
     const outcomes = new Map<string, Outcome>();
     for (const agent of agents) await this.#observe(agent, outcomes);
     this.#judgeLoss(agents, outcomes);
+    this.#forgetProcesses(agents);
     await this.#advance();
     for (const agent of agents)
       if (
@@ -266,6 +281,7 @@ export class DeliveryDriver {
       const state = await this.#adapter.agentObservation(agent.agentId);
       this.#core.recordAgentObservation(this.#context(), agent.agentId, state);
       outcomes.set(agent.agentId, "ok");
+      if (state === "working") await this.#sampleProcesses(agent);
     } catch (error) {
       outcomes.set(
         agent.agentId,
@@ -280,6 +296,46 @@ export class DeliveryDriver {
         error: error instanceof Error ? error.name : "error",
       });
     }
+  }
+
+  /** Samples the tool processes under a working, unpaused agent, at most once per PROCESS_SAMPLE_MS. A failing probe suppresses nothing. */
+  async #sampleProcesses(agent: AgentRecord): Promise<void> {
+    const probe = this.#processProbe;
+    if (probe === undefined || this.#core.isDeliveryPaused(agent.agentId))
+      return;
+    const paneId = this.#adapter.paneForAgent(agent.agentId);
+    if (paneId === undefined) return;
+    const now = this.#now();
+    const last = this.#lastSampleMs.get(agent.agentId);
+    if (last !== undefined && now - last < PROCESS_SAMPLE_MS) return;
+    this.#lastSampleMs.set(agent.agentId, now);
+    try {
+      this.#activity.record(
+        agent.agentId,
+        await probe.sample(paneId),
+        this.#now(),
+      );
+    } catch (error) {
+      if (this.#probeFailed.has(agent.agentId)) return;
+      this.#probeFailed.add(agent.agentId);
+      this.#log("process_probe_failed", {
+        agentId: agent.agentId,
+        error: String(error),
+      });
+    }
+  }
+
+  /** Drops the process state of agents that are no longer active or are recorded lost. */
+  #forgetProcesses(agents: readonly AgentRecord[]): void {
+    const live = new Set(
+      agents.map((a) => a.agentId).filter((id) => !this.#lost.has(id)),
+    );
+    for (const id of [...this.#lastSampleMs.keys()])
+      if (!live.has(id)) {
+        this.#lastSampleMs.delete(id);
+        this.#probeFailed.delete(id);
+        this.#activity.forget(id);
+      }
   }
 
   /**
@@ -384,6 +440,18 @@ export class DeliveryDriver {
       this.#log("advance_failed", { error: String(error) });
       return;
     }
+    const reported = advance.stalledAgentIds;
+    advance = suppressActiveStalls(
+      advance,
+      this.#activity.activity(),
+      this.#now(),
+      this.#timers,
+    );
+    for (const agentId of reported)
+      if (!advance.stalledAgentIds.includes(agentId))
+        this.#logOnce(`${agentId}|stall_suppressed`, "stall_suppressed", {
+          agentId,
+        });
     this.#stalled = advance.stalledAgentIds;
     for (const agentId of advance.stalledAgentIds)
       this.#logOnce(`${agentId}|agent_stalled`, "agent_stalled", { agentId });

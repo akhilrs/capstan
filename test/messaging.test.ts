@@ -9,9 +9,11 @@ import {
   isUnresolvedState,
   queueHead,
   resolutionTarget,
+  suppressActiveStalls,
   type AgentFacts,
   type MessageFacts,
   type MessageState,
+  type MessagingEvaluation,
   type MessagingTimers,
 } from "../src/controller/messaging.js";
 
@@ -439,4 +441,34 @@ test("evaluation never yields a send or a resend at any time", () => {
       for (const transition of result.transitions)
         assert.ok(["unacked", "expired"].includes(transition.to));
     }
+});
+
+test("suppressActiveStalls drops a stalled agent with recent child activity, keeps an older one and never drops blocked attention", () => {
+  const evaluation: MessagingEvaluation = {
+    transitions: [{ messageId: "m1", to: "unacked" }],
+    actions: [{ kind: "wake_pm", messageId: "m2" }],
+    stalledAgentIds: ["dev-1", "dev-2", "dev-3"],
+    attention: [
+      { agentId: "dev-1", kind: "stalled", episodeMs: 1 },
+      { agentId: "dev-2", kind: "stalled", episodeMs: 1 },
+      { agentId: "dev-1", kind: "blocked", episodeMs: 1 },
+    ],
+  };
+  const now = 10_000 * SECOND;
+  const result = suppressActiveStalls(
+    evaluation,
+    new Map([
+      ["dev-1", now - 899 * SECOND],
+      ["dev-2", now - 900 * SECOND],
+    ]),
+    now,
+    timers,
+  );
+  assert.deepEqual(result.stalledAgentIds, ["dev-2", "dev-3"]);
+  assert.deepEqual(result.attention, [
+    { agentId: "dev-2", kind: "stalled", episodeMs: 1 },
+    { agentId: "dev-1", kind: "blocked", episodeMs: 1 },
+  ]);
+  assert.equal(result.transitions, evaluation.transitions);
+  assert.equal(result.actions, evaluation.actions);
 });

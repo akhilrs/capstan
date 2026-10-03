@@ -411,3 +411,29 @@ export function evaluateMessaging(
   }
   return { transitions, actions, stalledAgentIds, attention };
 }
+
+/**
+ * Removes the agents whose tool processes used CPU within the stall window from
+ * the stalled list and the stalled attention; blocked attention, transitions
+ * and actions are unchanged.
+ */
+export function suppressActiveStalls<
+  T extends Pick<MessagingEvaluation, "stalledAgentIds" | "attention">,
+>(
+  evaluation: T,
+  lastChildActivity: ReadonlyMap<string, number>,
+  nowMs: number,
+  timers: MessagingTimers,
+): T {
+  const active = (agentId: string): boolean => {
+    const last = lastChildActivity.get(agentId);
+    return last !== undefined && nowMs - last < timers.stallAfterSeconds * 1000;
+  };
+  return {
+    ...evaluation,
+    stalledAgentIds: evaluation.stalledAgentIds.filter((id) => !active(id)),
+    attention: evaluation.attention.filter(
+      (item) => !(item.kind === "stalled" && active(item.agentId)),
+    ),
+  };
+}

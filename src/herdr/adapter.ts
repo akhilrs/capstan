@@ -306,6 +306,9 @@ export function buildAgentEnvironment(
   return environment;
 }
 
+/** Read-only and silent when nothing waits; Claude Code runs it after every tool call. */
+export const INBOX_HOOK_COMMAND = "cstan inbox --hook";
+
 export type ClaudeRoleSettings = Pick<
   ResolvedRole,
   "model" | "permissionMode" | "allow" | "deny" | "hooks"
@@ -344,6 +347,22 @@ export function claudeArguments(
       "--strict-mcp-config",
     );
   if (role.hooks === "off") args.push("--settings", '{"disableAllHooks":true}');
+  else
+    args.push(
+      "--settings",
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: "*",
+              hooks: [
+                { type: "command", command: INBOX_HOOK_COMMAND, timeout: 5 },
+              ],
+            },
+          ],
+        },
+      }),
+    );
   if (promptFile !== undefined)
     args.push("--append-system-prompt-file", promptFile);
   for (const arg of args)

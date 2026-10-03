@@ -73,7 +73,24 @@ test("a worker prompt shows the pushed frame, the ack and reply commands, and ap
   assert.ok(text.includes("cstan ack <message-id>"));
   assert.ok(text.includes('cstan send @pm "<text>"'));
   assert.ok(text.endsWith("Write small commits.\n"));
-  assert.ok(!text.includes("cstan wait"));
+  assert.ok(text.includes("cstan wait"));
+});
+
+test("the worker prompt tells the worker to read mail before reporting, to ack right away and to use cstan wait instead of polling", () => {
+  const text = buildRolePrompt({
+    ...base,
+    roleName: "developer",
+    kind: "Developer",
+    agentId: "developer-1",
+  });
+  assert.match(text, /`cstan inbox` delivers and prints every message waiting/);
+  assert.match(
+    text,
+    /Run `cstan inbox` and acknowledge every message before each `cstan report`/,
+  );
+  assert.match(text, /Never poll for messages with a shell loop/);
+  assert.match(text, /use `cstan wait`/);
+  assert.match(text, /right after you read it/);
 });
 
 test("a restart summary is fenced as data, carries open work and messages with JSON-escaped text, and notes truncation", () => {
@@ -335,7 +352,7 @@ test("the PM prompt describes the delivery problem, stall and wake messages and 
   assert.match(pm, /starts with `Delivery problem`/);
   assert.match(pm, /cstan resolve` command it names/);
   assert.match(pm, /`Agent stalled` and `Agent blocked`/);
-  assert.match(pm, /A message to a worker that is busy simply waits/);
+  assert.match(pm, /A message to a worker that is busy waits in its queue/);
   assert.match(pm, /types `Run cstan inbox` into your pane: do it/);
   assert.match(pm, /A Supervisor is started and checked by the controller/);
   const supervisor = buildRolePrompt({
@@ -372,10 +389,10 @@ const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
 test("with the Architect disabled every prompt is byte-identical to the one before the Architect existed", async () => {
   const { createHash } = await import("node:crypto");
   const golden = {
-    PM: "11a87b86c244ccdf",
-    Developer: "47514021ccf50174",
-    Verifier: "f7bfe2d19eee2f46",
-    Supervisor: "1032fc5dd4233bda",
+    PM: "a30c87ce94c0de3c",
+    Developer: "81941770d1df82a2",
+    Verifier: "003f83eefe674a13",
+    Supervisor: "a6f0ae0e24514359",
   } as const;
   for (const [kind, prefix] of Object.entries(golden)) {
     const text = buildRolePrompt(goldenInput(kind as keyof typeof golden));
@@ -960,4 +977,30 @@ test("the researcher prompt stays under the size limit with a 4000-char role pro
     researcher,
   });
   assert.ok(Buffer.byteLength(text, "utf8") < MAX_PROMPT_BYTES);
+});
+
+test("every worker kind and the supervisor carry the mail rules, and the PM line about busy workers matches", () => {
+  const kinds = [
+    { kind: "Developer", roleName: "developer" },
+    { kind: "Verifier", roleName: "reviewer" },
+    { kind: "Supervisor", roleName: "supervisor" },
+  ] as const;
+  for (const k of kinds) {
+    const text = buildRolePrompt({ ...base, ...k, agentId: "x-1" });
+    for (const needle of [
+      "at the start of each step, before every report and between long steps",
+      "as soon as you have read it (any order is accepted)",
+      "never poll in a shell loop, use `cstan wait`",
+      "`unread_messages` means read, act, ack, then report again",
+      "a notice that messages are waiting means run `cstan inbox` now",
+    ])
+      assert.ok(text.includes(needle), `${k.kind}: ${needle}`);
+  }
+  const pm = buildRolePrompt({
+    ...base,
+    kind: "PM",
+    roleName: "pm",
+    agentId: "pm-1",
+  });
+  assert.match(pm, /waits in its queue until the worker runs `cstan inbox`/);
 });

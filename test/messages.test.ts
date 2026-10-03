@@ -1972,3 +1972,169 @@ test("the deferral clock restarts when the reason changes, so a long wait for a 
     close(w);
   }
 });
+
+test("a worker pull sends every queued or deferred message in sequence order, one event each, and a second pull changes nothing", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const first = send(w, developer, "one");
+    const second = send(w, developer, "two");
+    const third = send(w, developer, "three");
+    core.recordDeferral(w.ctx(), first, "agent_busy");
+    const before = events(w, "message").length;
+    const pulled = core.pullPending(developer.credential);
+    assert.deepEqual(
+      pulled.map((m) => [m.messageId, m.state]),
+      [
+        [first, "sent"],
+        [second, "sent"],
+        [third, "sent"],
+      ],
+    );
+    assert.equal(events(w, "message").length, before + 3);
+    assert.deepEqual(
+      events(w, "message")
+        .slice(-3)
+        .map((e) => [e.entity_id, e.from_state, e.to_state]),
+      [
+        [first, "deferred", "sent"],
+        [second, "queued", "sent"],
+        [third, "queued", "sent"],
+      ],
+    );
+    assert.deepEqual(core.pullPending(developer.credential), []);
+    assert.equal(events(w, "message").length, before + 3);
+    assert.deepEqual(core.unreadSummary(developer.credential).messageIds, [
+      first,
+      second,
+      third,
+    ]);
+  } finally {
+    close(w);
+  }
+});
+
+test("a worker pull stops at an expired message, pulls nothing while paused, and the PM pull is untouched", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const expiring = send(w, developer, "one");
+    const behind = send(w, developer, "two");
+    core.recordDeferral(w.ctx(), expiring, "agent_blocked");
+    w.advance(121);
+    core.advanceMessaging(w.ctx(), timers);
+    assert.equal(stateOf(w, expiring), "expired");
+    assert.deepEqual(core.pullPending(developer.credential), []);
+    assert.equal(stateOf(w, behind), "queued");
+    core.resolveMessage(w.ctx(), expiring, "skip");
+
+    core.pauseAgent(w.ctx(), { agentId: developer.agentId, reason: "stop" });
+    assert.deepEqual(core.pullPending(developer.credential), []);
+    assert.equal(stateOf(w, behind), "queued");
+    core.resumeAgent(w.ctx(), { agentId: developer.agentId, reason: "go" });
+    assert.deepEqual(
+      core.pullPending(developer.credential).map((m) => m.messageId),
+      [behind],
+    );
+    assert.deepEqual(core.pullPending(w.pm.credential), []);
+  } finally {
+    close(w);
+  }
+});
+
+test("after a pull the driver's recordSent is refused, so a pulled message is never typed", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const first = send(w, developer, "one");
+    const second = send(w, developer, "two");
+    core.pullPending(developer.credential);
+    assertRejected(w, "illegal_transition", () =>
+      core.recordSent(w.ctx(), first),
+    );
+    assertRejected(w, "illegal_transition", () =>
+      core.recordSent(w.ctx(), second),
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("a pull keeps order when the head was already typed, pulled messages ack in any order, and each ack timer counts from its own sent_at", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const first = send(w, developer, "one");
+    const second = send(w, developer, "two");
+    const third = send(w, developer, "three");
+    core.recordSent(w.ctx(), first);
+    w.advance(100);
+    assert.deepEqual(
+      core.pullPending(developer.credential).map((m) => m.messageId),
+      [second, third],
+    );
+    assert.equal(stateOf(w, first), "sent");
+    core.ackMessage(w.ctx(developer.credential), second);
+    core.ackMessage(w.ctx(developer.credential), first);
+    assert.equal(stateOf(w, second), "acked");
+    assert.equal(stateOf(w, first), "acked");
+    core.ackMessage(w.ctx(developer.credential), third);
+    assert.equal(stateOf(w, third), "acked");
+  } finally {
+    close(w);
+  }
+});
+
+test("with three pulled messages each moves to unacked only after workerAckTimeoutSeconds from its own sent_at", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    const first = send(w, developer, "one");
+    core.pullPending(developer.credential);
+    w.advance(300);
+    const second = send(w, developer, "two");
+    const third = send(w, developer, "three");
+    core.pullPending(developer.credential);
+    w.advance(301);
+    core.advanceMessaging(w.ctx(), timers);
+    assert.equal(stateOf(w, first), "unacked");
+    assert.equal(stateOf(w, second), "sent");
+    assert.equal(stateOf(w, third), "sent");
+    core.ackMessage(w.ctx(developer.credential), second);
+    w.advance(300);
+    core.advanceMessaging(w.ctx(), timers);
+    assert.equal(
+      stateOf(w, third),
+      "unacked",
+      "acking the second left the third's timer alone",
+    );
+    assert.equal(stateOf(w, second), "acked");
+  } finally {
+    close(w);
+  }
+});
+
+test("unreadSummary counts the caller's waiting messages without writing anything", async () => {
+  const w = await world();
+  try {
+    const { core, developer } = w;
+    assert.deepEqual(core.unreadSummary(developer.credential), {
+      count: 0,
+      oldestQueuedAt: null,
+      messageIds: [],
+    });
+    const first = send(w, developer, "one");
+    w.advance(60);
+    const second = send(w, developer, "two");
+    const before = events(w, "message").length;
+    const summary = core.unreadSummary(developer.credential);
+    assert.equal(summary.count, 2);
+    assert.equal(summary.oldestQueuedAt, "2026-01-01T00:00:00.000Z");
+    assert.deepEqual(summary.messageIds, [first, second]);
+    assert.equal(events(w, "message").length, before);
+    assert.equal(stateOf(w, first), "queued");
+    assert.equal(core.unreadSummary(w.owner).count, 0);
+  } finally {
+    close(w);
+  }
+});

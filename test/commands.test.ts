@@ -92,6 +92,19 @@ function waitConfig(waitSeconds: number): CapstanConfig {
         promptText: null,
         configHash: "a".repeat(64),
       },
+      {
+        name: "developer",
+        kind: "Developer",
+        host: "claude",
+        model: null,
+        permissionMode: "default",
+        allow: [],
+        deny: [],
+        hooks: "off",
+        prompt: { source: "none", path: null, hash: null },
+        promptText: null,
+        configHash: "b".repeat(64),
+      },
     ],
   };
 }
@@ -217,15 +230,19 @@ test("inbox moves the queue head to sent, re-prints it, and only an explicit ack
   }
 });
 
-test("a worker inbox is read-only and never lists an undelivered head; the operator's peek changes nothing", async () => {
+test("a worker inbox pulls its mail; the operator's peek changes nothing", async () => {
   const h = await harness();
   try {
     const id = messageId(await send(h, h.pm.credential, h.developer.agentId));
     assert.deepEqual(
-      messagesOf(await call(h, h.developer.credential, "inbox")),
-      [],
-      "queued is not delivered yet",
+      messagesOf(await call(h, h.developer.credential, "inbox")).map((m) => [
+        m.messageId,
+        m.state,
+      ]),
+      [[id, "sent"]],
+      "a worker's inbox pulls the queued message",
     );
+    h.core.resolveMessage(ctx(h.core, h.owner), id, "retry");
     const peek = messagesOf(
       await call(h, h.owner, "inbox", [h.developer.agentId]),
     );
@@ -435,15 +452,20 @@ test("a new wait begins only after the older handler has ended its row, even whe
   }
 });
 
-test("only the PM waits; a wait takes no arguments", async () => {
+test("only an agent waits; a wait takes no arguments", async () => {
   const h = await harness({ commands: commandOptions(1) });
   try {
     assert.equal(
-      codeOf(await call(h, h.developer.credential, "wait")),
+      codeOf(await call(h, h.owner, "wait")),
       "forbidden",
+      "the operator has no agent access to wait",
     );
     assert.equal(
       codeOf(await call(h, h.pm.credential, "wait", ["1"])),
+      "invalid_request",
+    );
+    assert.equal(
+      codeOf(await call(h, h.developer.credential, "wait", ["1"])),
       "invalid_request",
     );
     assert.equal(openRows(h), 0);
@@ -1334,6 +1356,209 @@ test("plan commands are refused while [architect] is disabled", async () => {
         codeOf(await call(h, h.pm.credential, "plan", args)),
         "not_configured",
       );
+  } finally {
+    await close(h);
+  }
+});
+
+test("a worker inbox pulls every waiting message in sequence order and prints all bodies; a second inbox adds no ledger events", async () => {
+  const h = await harness();
+  try {
+    const ids = [
+      messageId(await send(h, h.pm.credential, h.developer.agentId, "one")),
+      messageId(await send(h, h.pm.credential, h.developer.agentId, "two")),
+      messageId(await send(h, h.pm.credential, h.developer.agentId, "three")),
+    ];
+    h.core.recordDeferral(ctx(h.core, h.owner), ids[0]!, "agent_busy");
+    const first = bodyOf(await call(h, h.developer.credential, "inbox"));
+    const printed = first.messages as Delivered[];
+    assert.deepEqual(
+      printed.map((m) => [m.messageId, m.state, m.body]),
+      [
+        [ids[0], "sent", "one"],
+        [ids[1], "sent", "two"],
+        [ids[2], "sent", "three"],
+      ],
+    );
+    assert.equal(first.count, 3);
+    assert.equal(first.unread, undefined, "inbox carries no notice");
+    const versions = ids.map((id) => h.core.message(id)!.stateVersion);
+    const again = messagesOf(await call(h, h.developer.credential, "inbox"));
+    assert.deepEqual(
+      again.map((m) => m.messageId),
+      ids,
+    );
+    assert.deepEqual(
+      ids.map((id) => h.core.message(id)!.stateVersion),
+      versions,
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("inbox --hook reads the summary only: nothing at zero is a count of 0, and a waiting message is counted but never pulled", async () => {
+  const h = await harness();
+  try {
+    assert.equal(
+      bodyOf(await call(h, h.developer.credential, "inbox", ["--hook"])).count,
+      0,
+    );
+    const id = messageId(await send(h, h.pm.credential, h.developer.agentId));
+    const hook = bodyOf(
+      await call(h, h.developer.credential, "inbox", ["--hook"]),
+    );
+    assert.equal(hook.count, 1);
+    assert.deepEqual(hook.messageIds, [id]);
+    assert.equal(stateOf(h, id), "queued", "the hook never pulls");
+    assert.equal("messages" in hook, false, "the hook never prints a body");
+  } finally {
+    await close(h);
+  }
+});
+
+test("send, ack and status by a worker with mail waiting carry unread; inbox and wait results do not", async () => {
+  const h = await harness({ commands: commandOptions(1) });
+  try {
+    const id = messageId(await send(h, h.pm.credential, h.developer.agentId));
+    const sent = bodyOf(await send(h, h.developer.credential, "@pm", "hi"));
+    const unread = sent.unread as { count: number; oldestQueuedAt: string };
+    assert.equal(unread.count, 1);
+    assert.match(unread.oldestQueuedAt, /^\d{4}-\d\d-\d\dT/);
+    assert.equal(
+      (
+        bodyOf(await call(h, h.developer.credential, "status")).unread as {
+          count: number;
+        }
+      ).count,
+      1,
+    );
+    const inbox = bodyOf(await call(h, h.developer.credential, "inbox"));
+    assert.equal(inbox.unread, undefined);
+    const acked = bodyOf(await call(h, h.developer.credential, "ack", [id]));
+    assert.equal(acked.unread, undefined, "nothing waits after the ack");
+    const second = messageId(
+      await send(h, h.pm.credential, h.developer.agentId, "again"),
+    );
+    const waited = bodyOf(await call(h, h.developer.credential, "wait"));
+    assert.equal(waited.unread, undefined);
+    assert.deepEqual(
+      (waited.messages as Delivered[]).map((m) => m.messageId),
+      [second],
+    );
+    assert.equal(
+      bodyOf(await send(h, h.pm.credential, h.developer.agentId, "x")).unread,
+      undefined,
+      "the PM gets no notice",
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("a worker wait registers an agent wait, returns the mail that arrives and ends the wait", async () => {
+  const h = await harness({ commands: commandOptions(2) });
+  try {
+    const waiter = call(h, h.developer.credential, "wait");
+    await until("the wait row", () => openRows(h) === 1);
+    const id = messageId(
+      await send(h, h.pm.credential, h.developer.agentId, "wake up"),
+    );
+    const answer = bodyOf(await waiter);
+    assert.deepEqual(
+      (answer.messages as Delivered[]).map((m) => [m.messageId, m.state]),
+      [[id, "sent"]],
+    );
+    assert.equal(answer.timedOut, false);
+    assert.equal(openRows(h), 0);
+    const quiet = bodyOf(await call(h, h.developer.credential, "wait"));
+    assert.equal(quiet.timedOut, true);
+    assert.equal(
+      (quiet.messages as Delivered[]).length,
+      1,
+      "the unacked one is re-printed",
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+const REPORT_BASE = "a".repeat(40);
+const REPORT_COMMIT = "b".repeat(40);
+const REPORT_BRANCH = "capstan/developer-1-g1";
+
+function reportHarness(committedAt: string): Promise<Harness> {
+  return harness({
+    commands: {
+      inspectCommit: async () => ({
+        commitExists: true,
+        committedAt,
+        branchTip: REPORT_COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+    },
+  }).then((h) => {
+    h.core.recordAgentPane(ctx(h.core, h.owner), {
+      agentId: h.developer.agentId,
+      workspaceId: null,
+      paneId: null,
+      worktreePath: null,
+      branch: REPORT_BRANCH,
+      baseSha: REPORT_BASE,
+    });
+    return h;
+  });
+}
+
+test("a report is refused while a message queued before the commit is unread, writes no row, and is accepted after the ack", async () => {
+  const h = await reportHarness(new Date(Date.now() + 60_000).toISOString());
+  try {
+    const id = messageId(await send(h, h.pm.credential, h.developer.agentId));
+    const refused = await call(h, h.developer.credential, "report", [
+      REPORT_COMMIT,
+      "done",
+    ]);
+    assert.ok(!refused.ok);
+    assert.equal(refused.code, "rejected");
+    assert.match(refused.message, /^unread_messages: 1 message\(s\)/);
+    assert.ok(refused.message.includes(id));
+    assert.match(
+      refused.message,
+      /run cstan inbox, act on and ack them, then report again/,
+    );
+    assert.deepEqual(
+      (bodyOf(await call(h, h.owner, "status")).reports as unknown[]) ?? [],
+      [],
+      "no report row is written",
+    );
+    await call(h, h.developer.credential, "inbox");
+    const stillRefused = await call(h, h.developer.credential, "report", [
+      REPORT_COMMIT,
+      "done",
+    ]);
+    assert.ok(!stillRefused.ok, "read but not acked is still unread");
+    await call(h, h.developer.credential, "ack", [id]);
+    const accepted = await call(h, h.developer.credential, "report", [
+      REPORT_COMMIT,
+      "done",
+    ]);
+    assert.ok(accepted.ok, JSON.stringify(accepted));
+    assert.equal(bodyOf(accepted).state, "accepted");
+  } finally {
+    await close(h);
+  }
+});
+
+test("a message queued after the commit does not block the report and only adds the notice", async () => {
+  const h = await reportHarness(new Date(Date.now() - 60_000).toISOString());
+  try {
+    await send(h, h.pm.credential, h.developer.agentId);
+    const accepted = bodyOf(
+      await call(h, h.developer.credential, "report", [REPORT_COMMIT, "done"]),
+    );
+    assert.equal(accepted.state, "accepted");
+    assert.equal((accepted.unread as { count: number }).count, 1);
   } finally {
     await close(h);
   }

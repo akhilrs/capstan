@@ -1967,7 +1967,24 @@ test("claudeArguments builds the per-role list and refuses control characters", 
     deny: [],
     hooks: "inherit",
   } as const;
-  assert.deepEqual(claudeArguments(base), ["--permission-mode", "default"]);
+  const inherited = claudeArguments(base);
+  assert.deepEqual(inherited.slice(0, 2), ["--permission-mode", "default"]);
+  assert.equal(inherited.filter((arg) => arg === "--settings").length, 1);
+  assert.deepEqual(
+    JSON.parse(inherited[inherited.indexOf("--settings") + 1]!),
+    {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "*",
+            hooks: [
+              { type: "command", command: "cstan inbox --hook", timeout: 5 },
+            ],
+          },
+        ],
+      },
+    },
+  );
   assert.deepEqual(
     claudeArguments(
       {

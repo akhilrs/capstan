@@ -36,6 +36,11 @@ import type {
   ResolvedOperator,
 } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
+import { createHerdrRunner } from "./herdr/runner.js";
+import {
+  createProcessProbe,
+  type ProcessActivityProbe,
+} from "./herdr/process-activity.js";
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
 import { Launcher, type LauncherAdapter } from "./launcher.js";
 import { createOperatorService, type OperatorService } from "./operator.js";
@@ -684,6 +689,8 @@ export interface DaemonOptions {
   readonly adapter?: DriverAdapter & LauncherAdapter;
   readonly notifier?: Notifier;
   readonly tickMs?: number;
+  /** Replaces the process probe built from the configured Herdr session; a test uses it. */
+  readonly processProbe?: ProcessActivityProbe;
   /** How often the supervision tick looks; a test makes it short. */
   readonly supervisionTickMs?: number;
   /** Absolute path of the CLI entry the launched agents' `cstan` wrapper runs. */
@@ -776,6 +783,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         notifier: options.notifier,
         credential,
         log: detailLog,
+        processProbe:
+          options.processProbe ??
+          createProcessProbe(
+            createHerdrRunner({ session: options.capstan.herdrSession }),
+          ),
         ...(options.tickMs === undefined ? {} : { tickMs: options.tickMs }),
       });
     if (

@@ -54,8 +54,15 @@ test("a commit made on the branch is on it, and the base and main-only commits a
   try {
     const input = { branch: r.branch, baseSha: r.base };
     const mine = await inspectCommit(r.root, { ...input, sha: r.onBranch });
+    assert.equal(
+      mine.committedAt,
+      new Date(
+        Number(git(r.root, "show", "-s", "--format=%ct", r.onBranch)) * 1000,
+      ).toISOString(),
+    );
     assert.deepEqual(mine, {
       commitExists: true,
+      committedAt: mine.committedAt,
       branchTip: r.onBranch,
       isAncestorOfTip: true,
       isAncestorOfBase: false,
@@ -76,6 +83,7 @@ test("a commit made on the branch is on it, and the base and main-only commits a
     });
     assert.equal(missing.commitExists, false);
     assert.equal(missing.isAncestorOfTip, false);
+    assert.equal(missing.committedAt, null);
     const tree = git(r.root, "rev-parse", `${r.onBranch}^{tree}`);
     assert.equal(
       (await inspectCommit(r.root, { ...input, sha: tree })).commitExists,

@@ -33,6 +33,7 @@ import {
 import {
   MAX_FRAME_BYTES,
   ROUTES,
+  runDaemon,
   defaultVerificationHooks,
   removeStaleSocket,
   startDaemonServer,
@@ -49,6 +50,9 @@ import {
   rawExchange,
 } from "./harness.js";
 import { ControllerCore } from "../src/controller/core.js";
+import type { CapstanConfig } from "../src/config/capstan-config.js";
+import type { Notifier } from "../src/notifier.js";
+import { StubAdapter } from "./launcher-stubs.js";
 
 const READ = Object.keys(ROUTES).filter(
   (name) => ROUTES[name]!.access === "read",
@@ -898,5 +902,119 @@ test("the daemon log file must be a private regular file and the spawn environme
     void openSync;
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the daemon passes a process probe to the driver, so a working agent's pane is sampled", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-daemon-probe-"));
+  const stateDirectory = path.join(root, "state");
+  const info = projectInfo();
+  const seed = await ControllerCore.open({ stateDirectory, project: info });
+  seed.syncRoleDefinitions(ctx(seed, info.ownerCredential), [
+    { name: "pm", kind: "PM", host: "claude", configHash: "a".repeat(64) },
+  ]);
+  seed.close();
+  const pm = Object.defineProperty(
+    {
+      name: "pm",
+      kind: "PM",
+      host: "claude",
+      model: null,
+      permissionMode: "default",
+      allow: [],
+      deny: [],
+      hooks: "off",
+      prompt: { source: "none", path: null, hash: null },
+      configHash: "a".repeat(64),
+    },
+    "promptText",
+    { value: null, enumerable: false },
+  );
+  const capstan = {
+    schemaVersion: 1,
+    projectName: null,
+    herdrSession: "unused",
+    notifications: { herdr: false, fallback: true },
+    timers: {
+      maxDeferralSeconds: 120,
+      maxBusyDeferralSeconds: 120,
+      pmAckTimeoutSeconds: 600,
+      pmNotifyAfterSeconds: 300,
+      notifyIntervalSeconds: 600,
+      stallAfterSeconds: 900,
+      workerAckTimeoutSeconds: 600,
+      pmWakeAfterSeconds: 0,
+      pmWakeIntervalSeconds: 120,
+      findingCheckSeconds: 1800,
+    },
+    limits: { maxWorkers: 3 },
+    layout: {
+      spawn: "tab",
+      split: "auto",
+      minPaneColumns: 60,
+      minPaneRows: 12,
+    },
+    env: { pass: [] },
+    hosts: [
+      {
+        name: "claude",
+        kind: "claude",
+        command: "claude",
+        shellCommandTimeoutSeconds: 120,
+        waitTimeoutSeconds: 45,
+      },
+    ],
+    roles: [pm],
+  } as unknown as CapstanConfig;
+  const notifier: Notifier = {
+    send: async () => [{ channel: "fallback", ok: true }],
+    write: () => undefined,
+  };
+  const socket = path.join(stateDirectory, "control.sock");
+  const adapter = new StubAdapter();
+  adapter.observation = "working";
+  const sampled: string[] = [];
+  let ready!: () => void;
+  const up = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const done = runDaemon({
+    stateDirectory,
+    project: info,
+    workspaceRoot: root,
+    log: () => undefined,
+    announce: (event) => {
+      if (event.event === "ready") ready();
+    },
+    capstan,
+    adapter,
+    notifier,
+    cliPath: "/opt/capstan/cli.js",
+    tickMs: 500,
+    processProbe: {
+      sample: async (paneId) => {
+        sampled.push(paneId);
+        return { processes: [] };
+      },
+    },
+  });
+  try {
+    await up;
+    const launched = await callDaemon(
+      socket,
+      info.ownerCredential,
+      "launch",
+      [],
+      30_000,
+    );
+    assert.equal(launched.kind, "response");
+    const deadline = Date.now() + 5000;
+    while (sampled.length === 0 && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(sampled.length > 0, "the driver sampled through the probe");
+  } finally {
+    await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
+    await done;
+    rmSync(root, { recursive: true, force: true });
   }
 });
