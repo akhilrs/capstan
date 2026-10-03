@@ -816,10 +816,23 @@ rows = [["state_icon", "$project", "workspace"], ["agent"]]
 rows = [["state_icon", "workspace"], ["$project", "branch", "git_status"]]
 `;
 
+const USAGE =
+  "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart";
+
 function usage(): never {
-  fail(
-    "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart",
+  fail(USAGE);
+}
+
+/** Version from the package.json two levels above dist/src/cli.js. */
+function packageVersion(): string {
+  const file = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "package.json",
   );
+  return (JSON.parse(fs.readFileSync(file, "utf8")) as { version: string })
+    .version;
 }
 
 /** Removes `name` from `flags`; true when it was there. */
@@ -844,6 +857,15 @@ function takeIntervalSeconds(flags: string[]): number {
 
 async function runCli(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
+  if (command === "--version" || command === "-V" || command === "version") {
+    if (rest.length !== 0) usage();
+    process.stdout.write(`cstan ${packageVersion()}\n`);
+    return EXIT.ok;
+  }
+  if (command === "--help" || command === "-h" || command === "help") {
+    process.stdout.write(`${USAGE}\n`);
+    return EXIT.ok;
+  }
   const cwd = process.cwd();
   if (command === "init") {
     if (rest.length !== 0) usage();

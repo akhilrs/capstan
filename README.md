@@ -70,14 +70,33 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Node.js 24 (`>=24 <25`), git, Herdr for the panes, and Claude Code (the host the starter config uses).
+**Requirements:** Linux or macOS; Node.js 24 (`>=24 <25`) with npm; a C/C++ toolchain (`make` and `g++`/`clang++`) and `python3` for the native `fs-ext` build; `curl` or `wget`; git; Herdr for the panes; and Claude Code (the host the starter config uses). On Debian/Ubuntu: `sudo apt install build-essential python3`; on macOS: `xcode-select --install`.
+
+Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
 ```sh
-git clone <this repository> capstan && cd capstan
-npm install
-npm run build        # compiles to dist/ and copies migrations
-npm link             # puts the cstan binary (dist/src/cli.js) on your PATH
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh
 ```
+
+Or install the release tarball with npm directly:
+
+```sh
+npm install --global https://github.com/akhilrs/capstan/releases/download/v0.1.1/capstan-controller-0.1.1.tgz
+```
+
+Pin a version, or uninstall:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --version 0.1.1
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
+```
+
+Bun is not supported yet: a plain `bun install -g` gives a broken `cstan` (see [docs/reference/install.md](docs/reference/install.md#bun)).
+
+Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
+
+> [!NOTE]
+> The installer downloads a GitHub release. Until `v0.1.1` is published, install from a local tarball (see the install reference) or from source (see [Development](#development)).
 
 Then, in the root of the git repository you want the team to work on:
 
@@ -309,6 +328,17 @@ decisions/               design decisions (DEC-001 to DEC-006)
 
 ## Development
 
+Run from source instead of installing a release:
+
+```sh
+git clone <this repository> capstan && cd capstan
+npm install
+npm run build          # compiles to dist/ and copies migrations
+npm link               # puts the cstan binary (dist/src/cli.js) on your PATH
+```
+
+Day to day:
+
 ```sh
 npm run build          # tsc, copy migrations
 npm test               # build, then node --test dist/test/*.test.js
@@ -334,7 +364,7 @@ No license file has been added yet. Add one before publishing the repository.
 ## Further reading
 
 - [How Capstan works](docs/reference/workflow.md): concepts, delivery flow, messaging, worker lifecycle, findings, plans, prompt relay
-- [Configuration reference](docs/reference/configuration.md) · [Command reference](docs/reference/commands.md) · [Operator](docs/reference/operator.md) · [Researcher](docs/reference/researcher.md)
+- [Install reference](docs/reference/install.md) · [Configuration reference](docs/reference/configuration.md) · [Command reference](docs/reference/commands.md) · [Operator](docs/reference/operator.md) · [Researcher](docs/reference/researcher.md)
 - [`docs/design/architect-role.md`](docs/design/architect-role.md), [`docs/design/researcher-role.md`](docs/design/researcher-role.md), [`docs/design/cstan-dash-v2.md`](docs/design/cstan-dash-v2.md)
 - [`decisions/DEC-005-capstan-v2-direction.md`](decisions/DEC-005-capstan-v2-direction.md): the current direction and trust model; [`MVP_PLAN_V2.md`](MVP_PLAN_V2.md): the plan it follows
 - [`docs/spike-herdr-agents.md`](docs/spike-herdr-agents.md): evidence for running interactive agents in Herdr

@@ -6,18 +6,20 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Project and daemon (operator)
 
-| Command                                                     | Purpose                                                                     |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `cstan init`                                                | Create `.capstan/` and a starter `capstan.toml`.                            |
-| `cstan start`                                               | Start the daemon and launch the PM.                                         |
-| `cstan stop`                                                | Stop the daemon.                                                            |
-| `cstan ping`                                                | Check that the daemon answers.                                              |
-| `cstan config check`                                        | Validate `capstan.toml` and print the resolved config (warnings on stderr). |
-| `cstan config sync`                                         | Write role definitions into the ledger (daemon stopped).                    |
-| `cstan herdr-config`                                        | Print an optional Herdr `config.toml` snippet.                              |
-| `cstan pm restart`                                          | Replace the PM session, seeded from the ledger.                             |
-| `cstan resolve <message-id> retry\|skip\|cancel ["<note>"]` | Settle a blocked message.                                                   |
-| `cstan cancel <message-id>`                                 | Cancel a message.                                                           |
+| Command                                                     | Purpose                                                                       |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `cstan --version`, `-V`, `version`                          | Print `cstan <version>` and exit 0. Needs no daemon, `.capstan/` or git repo. |
+| `cstan --help`, `-h`, `help`                                | Print the usage text to stdout and exit 0.                                    |
+| `cstan init`                                                | Create `.capstan/` and a starter `capstan.toml`.                              |
+| `cstan start`                                               | Start the daemon and launch the PM.                                           |
+| `cstan stop`                                                | Stop the daemon.                                                              |
+| `cstan ping`                                                | Check that the daemon answers.                                                |
+| `cstan config check`                                        | Validate `capstan.toml` and print the resolved config (warnings on stderr).   |
+| `cstan config sync`                                         | Write role definitions into the ledger (daemon stopped).                      |
+| `cstan herdr-config`                                        | Print an optional Herdr `config.toml` snippet.                                |
+| `cstan pm restart`                                          | Replace the PM session, seeded from the ledger.                               |
+| `cstan resolve <message-id> retry\|skip\|cancel ["<note>"]` | Settle a blocked message.                                                     |
+| `cstan cancel <message-id>`                                 | Cancel a message.                                                             |
 
 `cstan daemon` is the internal command that `cstan start` runs in the background; you do not need to run it. `cstan assign` and `cstan ask` are listed in the usage string but answer `not_implemented` in this version.
 
