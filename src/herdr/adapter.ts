@@ -21,8 +21,21 @@ import {
 import { herdrAgentName } from "./naming.js";
 import { HerdrError, failureOf, runJson, type HerdrRunner } from "./runner.js";
 import {
+  checkAnswer,
+  promptHash,
+  relayTextProblem,
+  type CaptureOutcome,
+  type CapturedPrompt,
+  type PromptAnswer,
+  type RelayOutcome,
+  type RelayRefusal,
+} from "./prompt-relay.js";
+import {
   extractInputLine,
   freshPromptReady,
+  parseHostPrompt,
+  promptFooter,
+  TEXT_FIELD_WORDING,
   parseTrustDialogOf,
   trustTexts,
   stripAnsi,
@@ -107,6 +120,14 @@ export class SendAfterRecordError extends AdapterError {
 }
 export class InvalidArgumentError extends AdapterError {
   override readonly name = "InvalidArgumentError";
+}
+
+interface PromptRead {
+  readonly prompt: CapturedPrompt;
+  readonly selectedIndex: number;
+  readonly options: CapturedPrompt["options"];
+  readonly promptText: string;
+  readonly footer: string | undefined;
 }
 
 export interface KeyLogEntry {
@@ -1395,6 +1416,233 @@ export class HerdrAdapter {
     throw new DialogStillOpen(
       "the trust dialog is still open after the answer",
     );
+  }
+
+  /**
+   * Reads the blocking permission prompt of a started worker pane. Only a
+   * blocked claude agent at its own pane whose screen is a fixture-proven
+   * dialog is captured; nothing is typed.
+   */
+  async capturePrompt(paneId: string): Promise<CaptureOutcome> {
+    const entry = this.#assertTypable(paneId, "dialog");
+    if (entry.agent === undefined)
+      throw new PhaseError("the pane has no agent");
+    const refusal = await this.#relayPreflight(entry, paneId);
+    if (refusal !== undefined) return { captured: false, reason: refusal };
+    const prompt = await this.#readPrompt(entry.agent, paneId, entry.kind);
+    return prompt === undefined
+      ? { captured: false, reason: "prompt_unrecognized" }
+      : { captured: true, prompt: prompt.prompt };
+  }
+
+  /**
+   * Types an answer to a captured prompt. The screen is read again and must
+   * hash to `promptSha` before the first key and before each Enter; arrows
+   * are sent one at a time and the Enter only after a read shows the target
+   * option selected. `beforeType` runs once, after every check that precedes
+   * the first key and before it.
+   */
+  async answerPrompt(input: {
+    paneId: string;
+    promptSha: string;
+    answer: PromptAnswer;
+    beforeType: () => void | Promise<void>;
+    log: KeyLogger;
+  }): Promise<RelayOutcome> {
+    const { paneId } = input;
+    const entry = this.#assertTypable(paneId, "dialog");
+    const agent = entry.agent;
+    if (agent === undefined) throw new PhaseError("the pane has no agent");
+    const keys: string[] = [];
+    const refuse = (reason: RelayRefusal): RelayOutcome => ({
+      typed: false,
+      reason,
+      keys: [...keys],
+    });
+    const preflight = await this.#relayPreflight(entry, paneId);
+    if (preflight !== undefined) return refuse(preflight);
+    const first = await this.#readPrompt(agent, paneId, entry.kind);
+    if (first === undefined) return refuse("prompt_unrecognized");
+    if (first.prompt.promptSha !== input.promptSha)
+      return refuse("prompt_changed");
+    const answer = input.answer;
+    const problem = checkAnswer(first.prompt, answer);
+    if (problem !== undefined) return refuse(problem);
+    if (answer.kind === "text" && relayTextProblem(answer.text) !== undefined)
+      return refuse("text_refused");
+
+    let announced = false;
+    const press = async (key: string, reason: string): Promise<void> => {
+      if (!announced) {
+        announced = true;
+        await input.beforeType();
+      }
+      await this.#sendKey(paneId, key, reason, input.log);
+      keys.push(key);
+    };
+    const stillBlocked = (): Promise<boolean> => this.#isBlocked(agent, paneId);
+
+    if (answer.kind === "esc") {
+      if (!(await stillBlocked())) return refuse("not_blocked");
+      await press("esc", "dismiss the worker's permission prompt");
+      return { typed: true, keys };
+    }
+
+    const target = answer.number - 1;
+    const steps = target - first.selectedIndex;
+    for (let step = 0; step < Math.abs(steps); step += 1)
+      await press(
+        steps > 0 ? "down" : "up",
+        "move the prompt selection to the answer",
+      );
+    // The screen redraws a moment after a key, so the selection is polled for
+    // a short while; the Enter below is still sent only after a read shows it.
+    const settled = await this.#awaitPrompt(
+      agent,
+      paneId,
+      entry.kind,
+      (read) => read.selectedIndex === target,
+      input.promptSha,
+    );
+    if (!settled.ok) return refuse(settled.reason);
+    if (!(await stillBlocked())) return refuse("not_blocked");
+
+    if (answer.kind === "option") {
+      await press("enter", "confirm the selected answer");
+      return { typed: true, keys };
+    }
+
+    const original = settled.read.options[target]!.text;
+    const fieldWording = TEXT_FIELD_WORDING[original];
+    if (fieldWording === undefined) return refuse("no_text_option");
+    // Only the target option may differ from the prompt as it was captured.
+    const sameExceptTarget = (read: PromptRead, expected: string): boolean =>
+      read.selectedIndex === target &&
+      read.promptText === settled.read.promptText &&
+      read.options.length === settled.read.options.length &&
+      read.options[target]!.text === expected &&
+      read.options.every(
+        (entry, index) =>
+          index === target || entry.text === settled.read.options[index]!.text,
+      );
+    await press("tab", "open the option's text field");
+    // Esc would cancel the whole prompt, so a field that is not as expected is left as it is.
+    const opened = await this.#awaitPrompt(
+      agent,
+      paneId,
+      entry.kind,
+      (read) => read.options[target]?.text !== original,
+      undefined,
+    );
+    if (
+      !opened.ok ||
+      !sameExceptTarget(opened.read, fieldWording) ||
+      opened.read.footer !== "Esc to cancel"
+    )
+      return refuse("text_field_not_open");
+    if (!(await stillBlocked())) return refuse("not_blocked");
+    await input.log({
+      kind: "key",
+      pane: paneId,
+      key: "text",
+      reason: `type ${Buffer.byteLength(answer.text, "utf8")} bytes into the open text field`,
+    });
+    await this.#runChecked(["pane", "send-text", paneId, answer.text]);
+    keys.push("text");
+    const typed = await this.#awaitPrompt(
+      agent,
+      paneId,
+      entry.kind,
+      (read) => sameExceptTarget(read, `${original}, ${answer.text.trimEnd()}`),
+      undefined,
+    );
+    if (!typed.ok) return refuse("text_field_not_open");
+    if (!(await stillBlocked())) return refuse("not_blocked");
+    await press("enter", "submit the typed answer");
+    return { typed: true, keys };
+  }
+
+  /** Why a prompt may not be read at all: another kind of host, or an agent that is not blocked. */
+  async #relayPreflight(
+    entry: PaneEntry,
+    paneId: string,
+  ): Promise<RelayRefusal | undefined> {
+    if (entry.kind !== "claude") return "unsupported_host";
+    return (await this.#isBlocked(entry.agent!, paneId))
+      ? undefined
+      : "not_blocked";
+  }
+
+  /** True only when Herdr shows the agent blocked at this very pane; a name that points at another pane is not blocked here. */
+  async #isBlocked(agent: string, paneId: string): Promise<boolean> {
+    try {
+      return (await this.#stateFor(agent, paneId)) === "blocked";
+    } catch (error) {
+      if (error instanceof AgentPaneMismatch) return false;
+      throw error;
+    }
+  }
+
+  async #readPrompt(
+    agent: string,
+    paneId: string,
+    kind: string,
+  ): Promise<PromptRead | undefined> {
+    const screen = await this.readScreen(paneId, { ansi: true });
+    const parsed = parseHostPrompt(kind, screen);
+    if (parsed === undefined) return undefined;
+    const hashed = {
+      agentId: agent,
+      paneId,
+      hostKind: kind,
+      text: parsed.text,
+      options: parsed.options,
+    };
+    return {
+      prompt: { ...hashed, promptSha: promptHash(hashed) },
+      selectedIndex: parsed.selectedIndex,
+      options: parsed.options,
+      promptText: parsed.text,
+      footer: promptFooter(screen),
+    };
+  }
+
+  /**
+   * Polls the prompt until `done` holds for it. A read that does not parse or
+   * does not satisfy `done` is waited out for a short while; a read whose hash
+   * differs from `sha` stops the answer at once.
+   */
+  async #awaitPrompt(
+    agent: string,
+    paneId: string,
+    kind: string,
+    done: (read: PromptRead) => boolean,
+    sha: string | undefined,
+  ): Promise<
+    | {
+        ok: true;
+        read: PromptRead;
+      }
+    | { ok: false; reason: RelayRefusal }
+  > {
+    const deadline = this.#now() + SELECTION_REDRAW_MS;
+    for (;;) {
+      const read = await this.#readPrompt(agent, paneId, kind);
+      if (read !== undefined) {
+        if (sha !== undefined && read.prompt.promptSha !== sha)
+          return { ok: false, reason: "prompt_changed" };
+        if (done(read)) return { ok: true, read };
+      }
+      if (this.#now() >= deadline)
+        return {
+          ok: false,
+          reason:
+            read === undefined
+              ? "prompt_unrecognized"
+              : "selection_not_reached",
+        };
+      await this.#sleep(this.#pollMs);
+    }
   }
 
   /** For commands that print nothing on success: a non-zero exit or a JSON error is a failure. */

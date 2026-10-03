@@ -1,3 +1,5 @@
+import { RELAY_PROMPT_MAX_BYTES, type RelayOption } from "./prompt-relay.js";
+
 const LEFTOVER_CONTROL =
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 const ESCAPE_SEQUENCE =
@@ -332,5 +334,120 @@ export function parseCodexTrustDialog(
     selectedIndex:
       selectedIndexes.length === 1 ? selectedIndexes[0] : undefined,
     confirmIsLastLine: lastNonEmpty === confirm,
+  };
+}
+
+/** Option wording a recorded Claude Code 2.1.288 capture shows, with what it does. */
+const PROVEN_SAFE_OPTIONS: ReadonlySet<string> = new Set([
+  "Yes",
+  "No",
+  "No, and tell Claude what to do differently",
+  "Yes, and tell Claude what to do next",
+]);
+const PROVEN_WIDENING_PREFIXES: readonly string[] = [
+  "Yes, and always allow access to ",
+  "Yes, and switch to auto mode",
+  "Yes, and switch to accept edits",
+];
+/**
+ * Only for option wording no fixture proves: wording that adds a persistent
+ * rule or changes the permission mode counts as widening. Proven wording never
+ * reaches this check.
+ */
+const WIDENING_HEURISTIC =
+  /\b(?:always allow|don'?t ask again|do not ask again|switch to|auto mode|accept edits|for this session|from this project|permanently|allow all)\b/i;
+
+/** What each text-capable option reads as once Tab has opened its field, as recorded. */
+export const TEXT_FIELD_WORDING: Readonly<Record<string, string>> = {
+  No: "No, and tell Claude what to do differently",
+  Yes: "Yes, and tell Claude what to do next",
+};
+
+/** The footer line of a Claude permission dialog, trimmed, or undefined when the last line is something else. */
+export function promptFooter(ansiScreen: string): string | undefined {
+  const lines = splitLines(ansiScreen).map(stripAnsi);
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last]!.trim() === "") last -= 1;
+  const footer = last < 0 ? "" : lines[last]!.trim();
+  return footer.startsWith("Esc to cancel") ? footer : undefined;
+}
+
+function widensPermissions(text: string): boolean {
+  if (PROVEN_SAFE_OPTIONS.has(text)) return false;
+  if (PROVEN_WIDENING_PREFIXES.some((prefix) => text.startsWith(prefix)))
+    return true;
+  return WIDENING_HEURISTIC.test(text);
+}
+
+/** A Tab opens an inline text field only on these proven option wordings: the Bash prompt's `No` and the Write prompt's `Yes`. */
+function acceptsText(header: string, question: string, text: string): boolean {
+  if (header === "Bash command" && question === "Do you want to proceed?")
+    return text === "No";
+  if (/^Do you want to create .+\?$/.test(question)) return text === "Yes";
+  return false;
+}
+
+const OPTION_LINE = /^ (❯| ) (\d+)\. (\S.*)$/u;
+
+/**
+ * Claude Code's permission dialog on a read of the pane: a rule line, the
+ * header and detail, the question, numbered options with one `❯` marker and an
+ * `Esc to cancel` footer that is the last line. Any other layout (a dialog
+ * that is not last, two markers, wrapped options, control characters, text
+ * over the size limit) is undefined, as is every host but claude.
+ */
+export function parseHostPrompt(
+  kind: string,
+  ansiScreen: string,
+): { text: string; options: RelayOption[]; selectedIndex: number } | undefined {
+  if (kind !== "claude") return undefined;
+  const lines = splitLines(ansiScreen).map(stripAnsi);
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last]!.trim() === "") last -= 1;
+  if (last < 0) return undefined;
+  if (lines.some((line) => LEFTOVER_CONTROL.test(line))) return undefined;
+  if (!/^ Esc to cancel(?: · Tab to amend)?$/u.test(lines[last]!.trimEnd()))
+    return undefined;
+  let cursor = last - 1;
+  if (cursor >= 0 && lines[cursor]!.trim() === "") cursor -= 1;
+  const rows: Array<{ marked: boolean; number: number; text: string }> = [];
+  while (cursor >= 0) {
+    const match = OPTION_LINE.exec(lines[cursor]!.trimEnd());
+    if (!match) break;
+    rows.unshift({
+      marked: match[1] === "❯",
+      number: Number(match[2]),
+      text: match[3]!,
+    });
+    cursor -= 1;
+  }
+  if (rows.length < 2) return undefined;
+  if (rows.some((row, index) => row.number !== index + 1)) return undefined;
+  const markers = rows.flatMap((row, index) => (row.marked ? [index] : []));
+  if (markers.length !== 1) return undefined;
+  const question = lines[cursor]?.trim() ?? "";
+  if (!question.endsWith("?")) return undefined;
+  let rule = cursor - 1;
+  while (rule >= 0 && !RULE_LINE.test(lines[rule]!.trim())) {
+    if (lines[rule]!.trim() === "" && lines[rule + 1]?.trim() === "")
+      return undefined;
+    rule -= 1;
+  }
+  if (rule < 0) return undefined;
+  const body = lines.slice(rule + 1, cursor + 1).map((line) => line.trimEnd());
+  const header = body[0]?.trim() ?? "";
+  if (header === "") return undefined;
+  const text = body.join("\n");
+  if (Buffer.byteLength(text, "utf8") > RELAY_PROMPT_MAX_BYTES)
+    return undefined;
+  return {
+    text,
+    selectedIndex: markers[0]!,
+    options: rows.map((row) => ({
+      number: row.number,
+      text: row.text,
+      acceptsText: acceptsText(header, question, row.text),
+      widensPermissions: widensPermissions(row.text),
+    })),
   };
 }

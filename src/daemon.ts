@@ -100,6 +100,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   review: { access: "agent" },
   finding: { access: "agent" },
   observe: { access: "agent" },
+  prompt: { access: "agent" },
   peek: { access: "operator" },
   assign: { access: "operator", stub: STUB_STAGE },
   cancel: { access: "operator" },
@@ -738,6 +739,22 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         detail,
       });
     closeStaleWaits(core, credential, detailLog);
+    const promptRelayConfig = options.capstan?.promptRelay;
+    if (promptRelayConfig !== undefined)
+      core.configurePromptRelay({
+        enabled: promptRelayConfig.enabled,
+        captureTtlSeconds: promptRelayConfig.captureTtlSeconds,
+      });
+    try {
+      // A row left typing by a daemon that stopped may have had keys sent; it is failed, never retried.
+      const interrupted = core.failInterruptedPromptRelays(
+        newContext(core, credential),
+      );
+      if (interrupted.length > 0)
+        detailLog("prompt_relay_interrupted", { relays: interrupted });
+    } catch (error) {
+      detailLog("prompt_relay_reconcile_failed", { error: String(error) });
+    }
     try {
       options.syncRoles?.(core);
     } catch (error) {

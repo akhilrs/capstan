@@ -1814,3 +1814,67 @@ test("the starter config shows Codex and OMP hosts and a Codex worker role only 
     assert.deepEqual([role?.allow, role?.deny], [[], []]);
   });
 });
+
+test("[prompt_relay] is off by default, reads enabled and capture_ttl_seconds, and bounds the ttl to 60..3600", () => {
+  withConfig(VALID, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).promptRelay, {
+      present: false,
+      enabled: false,
+      captureTtlSeconds: 600,
+    });
+  });
+  withConfig(`${VALID}\n[prompt_relay]\n`, (directory) => {
+    assert.deepEqual(loadCapstanConfig(directory).promptRelay, {
+      present: true,
+      enabled: false,
+      captureTtlSeconds: 600,
+    });
+  });
+  withConfig(
+    `${VALID}\n[prompt_relay]\nenabled = true\ncapture_ttl_seconds = 60\n`,
+    (directory) => {
+      assert.deepEqual(loadCapstanConfig(directory).promptRelay, {
+        present: true,
+        enabled: true,
+        captureTtlSeconds: 60,
+      });
+    },
+  );
+  withConfig(
+    `${VALID}\n[prompt_relay]\ncapture_ttl_seconds = 3600\n`,
+    (directory) => {
+      assert.equal(
+        loadCapstanConfig(directory).promptRelay.captureTtlSeconds,
+        3600,
+      );
+    },
+  );
+  for (const bad of ["59", "3601", '"600"', "1.5"])
+    assertRejected(
+      `${VALID}\n[prompt_relay]\ncapture_ttl_seconds = ${bad}\n`,
+      /prompt_relay\.capture_ttl_seconds/,
+    );
+  assertRejected(
+    `${VALID}\n[prompt_relay]\nenabled = "yes"\n`,
+    /prompt_relay\.enabled/,
+  );
+  assertRejected(`${VALID}\n[prompt_relay]\nextra = 1\n`, /unknown key/);
+});
+
+test("the starter configuration carries a commented [prompt_relay] example that stays off until uncommented", () => {
+  assert.match(STARTER_CONFIG, /^# \[prompt_relay\]$/m);
+  assert.match(STARTER_CONFIG, /^# capture_ttl_seconds = 600/m);
+  withConfig(STARTER_CONFIG, (directory) => {
+    assert.equal(loadCapstanConfig(directory).promptRelay.present, false);
+  });
+  const lines = STARTER_CONFIG.split("\n");
+  const start = lines.indexOf("# [prompt_relay]");
+  const table = lines
+    .slice(start, start + 3)
+    .map((line) => line.replace(/^# /, ""));
+  withConfig(`${STARTER_CONFIG}\n${table.join("\n")}\n`, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.equal(config.promptRelay.enabled, true);
+    assert.equal(config.promptRelay.captureTtlSeconds, 600);
+  });
+});

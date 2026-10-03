@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PaneLost } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
+import type {
+  CaptureOutcome,
+  PromptAnswer,
+  RelayOutcome,
+} from "../src/herdr/prompt-relay.js";
 import type { GitRunner, LauncherAdapter } from "../src/launcher.js";
 
 export const SHA = "b".repeat(40);
@@ -215,6 +220,52 @@ export class StubAdapter implements LauncherAdapter {
     this.agentPanes.set(input.name, input.paneId);
     this.calls.push(`start:${input.name}`);
     return { status: this.startStatus };
+  }
+
+  captureOutcome: CaptureOutcome = {
+    captured: false,
+    reason: "prompt_unrecognized",
+  };
+  answerOutcome: RelayOutcome = { typed: true, keys: ["enter"] };
+  readonly answered: Array<{
+    paneId: string;
+    promptSha: string;
+    answer: PromptAnswer;
+  }> = [];
+
+  async capturePrompt(paneId: string): Promise<CaptureOutcome> {
+    this.calls.push(`capture:${paneId}`);
+    return this.captureOutcome;
+  }
+
+  async answerPrompt(input: {
+    paneId: string;
+    promptSha: string;
+    answer: PromptAnswer;
+    beforeType: () => void | Promise<void>;
+    log: (entry: {
+      kind: "key";
+      pane: string;
+      key: string;
+      reason: string;
+    }) => void | Promise<void>;
+  }): Promise<RelayOutcome> {
+    this.calls.push(`answer:${input.paneId}`);
+    this.answered.push({
+      paneId: input.paneId,
+      promptSha: input.promptSha,
+      answer: input.answer,
+    });
+    if (this.answerOutcome.typed) {
+      await input.beforeType();
+      await input.log({
+        kind: "key",
+        pane: input.paneId,
+        key: "enter",
+        reason: "stub",
+      });
+    }
+    return this.answerOutcome;
   }
 
   async answerTrustDialog(input: {

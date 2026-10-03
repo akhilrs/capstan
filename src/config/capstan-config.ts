@@ -61,6 +61,13 @@ check_seconds = 300
 # full_auto_default_minutes = 30    # full auto: the PM may switch off every guard for this long, only after asking you
 # full_auto_max_minutes = 120       # the longest full auto period; at most 480
 
+# An optional prompt relay lets the PM show you a blocked worker's permission prompt and type the answer
+# you pick. While enabled = false (the default), nothing about it reaches an agent and both
+# cstan prompt subcommands are unavailable. To use it, remove the leading # from this table.
+# [prompt_relay]
+# enabled = true
+# capture_ttl_seconds = 600     # how long a shown prompt can be answered; 60 to 3600
+
 # Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
 # which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
 # without asking, "never" removes every Nexora instruction from the PM prompt.
@@ -437,6 +444,14 @@ export type ResolvedLayout = {
   readonly minPaneRows: number;
 };
 
+export type ResolvedPromptRelay = {
+  /** True only when `[prompt_relay]` is present in the file. */
+  readonly present: boolean;
+  /** Off: no prompt-relay text reaches any prompt, notice or status view. */
+  readonly enabled: boolean;
+  readonly captureTtlSeconds: number;
+};
+
 export type CapstanConfig = {
   readonly schemaVersion: 1;
   readonly projectName: string | null;
@@ -446,6 +461,7 @@ export type CapstanConfig = {
   readonly supervision: ResolvedSupervision;
   readonly architect: ResolvedArchitect;
   readonly operator: ResolvedOperator;
+  readonly promptRelay: ResolvedPromptRelay;
   readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
   readonly layout: ResolvedLayout;
@@ -571,6 +587,7 @@ export function parseCapstanConfig(
       "supervision",
       "architect",
       "operator",
+      "prompt_relay",
       "nexora",
       "defaults",
       "limits",
@@ -748,6 +765,10 @@ export function parseCapstanConfig(
     hostsByName,
     architect,
   );
+  const promptRelay = resolvePromptRelay(
+    optionalTable(root.prompt_relay, "prompt_relay"),
+    root.prompt_relay !== undefined,
+  );
   const nexora = resolveNexora(optionalTable(root.nexora, "nexora"));
   if (
     nexora.track !== "never" &&
@@ -766,6 +787,7 @@ export function parseCapstanConfig(
     supervision,
     architect,
     operator,
+    promptRelay,
     nexora,
     limits,
     layout,
@@ -958,6 +980,24 @@ function operatorRules(value: unknown, at: string): string[] {
     if (problem !== null) throw new ConfigError(`${at}[${index}] ${problem}`);
   });
   return rules;
+}
+
+function resolvePromptRelay(
+  table: Table,
+  present: boolean,
+): ResolvedPromptRelay {
+  rejectUnknownKeys(table, ["enabled", "capture_ttl_seconds"], "prompt_relay");
+  return {
+    present,
+    enabled: optionalBoolean(table.enabled, "prompt_relay.enabled", false),
+    captureTtlSeconds: optionalInteger(
+      table.capture_ttl_seconds,
+      "prompt_relay.capture_ttl_seconds",
+      60,
+      3600,
+      600,
+    ),
+  };
 }
 
 function resolveOperator(

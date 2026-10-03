@@ -40,7 +40,18 @@ import {
   type KeyLogEntry,
 } from "../src/herdr/adapter.js";
 import { HerdrError, type HerdrResult } from "../src/herdr/runner.js";
-import { TRUST_NO, TRUST_YES, stripAnsi } from "../src/herdr/screen.js";
+import {
+  TEXT_FIELD_WORDING,
+  TRUST_NO,
+  TRUST_YES,
+  parseHostPrompt,
+  stripAnsi,
+} from "../src/herdr/screen.js";
+import {
+  promptHash,
+  type CapturedPrompt,
+  type PromptAnswer,
+} from "../src/herdr/prompt-relay.js";
 
 const RULE = "─".repeat(40);
 const NBSP = " ";
@@ -107,6 +118,9 @@ class FakeHerdr {
   zoomed = false;
   private moved = 20;
   onKey: ((pane: FakePane, key: string) => void) | undefined;
+  onText: ((pane: FakePane, text: string) => void) | undefined;
+  /** Screens `pane read` returns once each, in order, before the pane's own screen. */
+  readQueue: string[] = [];
   onRun: ((pane: FakePane, command: string) => void) | undefined = (
     pane,
     command,
@@ -214,7 +228,17 @@ class FakeHerdr {
     if (command === "pane" && sub === "read") {
       const pane = this.panes.get(args[2]!);
       if (!pane) return this.failure("pane_not_found", "no such pane");
-      return { code: 0, stdout: pane.screen, stderr: "" };
+      return {
+        code: 0,
+        stdout: this.readQueue.shift() ?? pane.screen,
+        stderr: "",
+      };
+    }
+    if (command === "pane" && sub === "send-text") {
+      const pane = this.panes.get(args[2]!)!;
+      this.events.push(`text:${args[3]}`);
+      this.onText?.(pane, args[3]!);
+      return { code: 0, stdout: "", stderr: "" };
     }
     if (command === "pane" && sub === "send-keys") {
       const pane = this.panes.get(args[2]!)!;
@@ -469,6 +493,15 @@ test("no input method makes a Herdr call for an unregistered pane, a PM pane pas
           log: noop,
         }),
       dialog: () => h.adapter.answerTrustDialog({ paneId, log: noop }),
+      capture: () => h.adapter.capturePrompt(paneId),
+      answer: () =>
+        h.adapter.answerPrompt({
+          paneId,
+          promptSha: "a".repeat(64),
+          answer: { kind: "esc" },
+          beforeType: noop,
+          log: noop,
+        }),
       prepare: () =>
         h.adapter.prepareShell({
           paneId,
@@ -499,7 +532,13 @@ test("no input method makes a Herdr call for an unregistered pane, a PM pane pas
       })
     ).paneId;
     const workerAt = before();
-    for (const name of ["send", "clear", "dialog"] as const)
+    for (const name of [
+      "send",
+      "clear",
+      "dialog",
+      "capture",
+      "answer",
+    ] as const)
       await assert.rejects(attempts(worker)[name], PhaseError);
     assert.equal(before(), workerAt, "a fresh worker pane accepts no messages");
 
@@ -509,7 +548,13 @@ test("no input method makes a Herdr call for an unregistered pane, a PM pane pas
       role: "PM",
     });
     const pmAt = before();
-    for (const name of ["send", "clear", "dialog"] as const)
+    for (const name of [
+      "send",
+      "clear",
+      "dialog",
+      "capture",
+      "answer",
+    ] as const)
       await assert.rejects(attempts(pm.paneId)[name], PmPaneError);
     assert.equal(
       before(),
@@ -3731,5 +3776,628 @@ test("a state that changes between the two checks stops the wake before the keys
   } finally {
     h.adapter.close();
     h.fake.cleanup();
+  }
+});
+
+// ---- permission prompt relay ------------------------------------------------
+
+const promptFixture = (name: string): string =>
+  readFileSync(path.resolve("test/fixtures/prompts", name), "utf8");
+
+/** A Claude permission prompt that reacts to keys like the real one: arrows move, Tab opens the field of a text option, typed text lands in it, Enter and Esc end the prompt. */
+class PromptScript {
+  selected = 0;
+  field: string | undefined;
+  readonly base = parseHostPrompt(
+    "claude",
+    promptFixture("claude-bash-permission.ansi"),
+  )!;
+  readonly texts = this.base.options.map((option) => option.text);
+  ended: "enter" | "esc" | undefined;
+  /** Set to make Tab leave the screen as it was. */
+  tabDoesNothing = false;
+  /** Set to make a down key leave the selection where it was. */
+  arrowsStuck = false;
+  constructor(readonly pane: FakePane) {}
+
+  render(): string {
+    const rows = this.texts.map((text, index) => {
+      const shown =
+        index === this.selected && this.field !== undefined ? this.field : text;
+      return ` ${index === this.selected ? "❯" : " "} ${index + 1}. ${shown}`;
+    });
+    return [
+      "earlier output",
+      "─".repeat(100),
+      ...this.base.text.split("\n"),
+      ...rows,
+      "",
+      this.field === undefined
+        ? " Esc to cancel · Tab to amend"
+        : " Esc to cancel",
+    ].join("\r\n");
+  }
+
+  attach(h: Harness): void {
+    this.pane.screen = this.render();
+    h.fake.onKey = (pane, key) => {
+      if (pane !== this.pane) return;
+      if (key === "down" && !this.arrowsStuck)
+        this.selected = Math.min(this.selected + 1, this.texts.length - 1);
+      if (key === "up") this.selected = Math.max(this.selected - 1, 0);
+      if (key === "tab" && !this.tabDoesNothing) {
+        const wording = TEXT_FIELD_WORDING[this.texts[this.selected]!];
+        if (wording !== undefined) this.field = wording;
+      }
+      if (key === "enter" || key === "esc") {
+        this.ended = key;
+        pane.status = "idle";
+        pane.screen = idleScreen();
+        return;
+      }
+      pane.screen = this.render();
+    };
+    h.fake.onText = (pane, text) => {
+      if (pane !== this.pane || this.field === undefined) return;
+      this.field = `${this.texts[this.selected]}, ${text}`;
+      pane.screen = this.render();
+    };
+  }
+}
+
+async function promptWorker(
+  h: Harness,
+  kind: "claude" | "codex" | "omp" = "claude",
+) {
+  const worker = await startedWorker(h, idleScreen(), ["blocked"], kind);
+  worker.pane.status = "blocked";
+  const script = new PromptScript(worker.pane);
+  script.attach(h);
+  return { ...worker, script };
+}
+
+async function captured(h: Harness, paneId: string): Promise<CapturedPrompt> {
+  const outcome = await h.adapter.capturePrompt(paneId);
+  assert.ok(outcome.captured, JSON.stringify(outcome));
+  return outcome.prompt;
+}
+
+interface Answered {
+  readonly outcome: Awaited<ReturnType<HerdrAdapter["answerPrompt"]>>;
+  readonly before: number;
+  readonly logged: string[];
+}
+
+async function answer(
+  h: Harness,
+  paneId: string,
+  promptSha: string,
+  reply: PromptAnswer,
+): Promise<Answered> {
+  const logged: string[] = [];
+  let before = 0;
+  const outcome = await h.adapter.answerPrompt({
+    paneId,
+    promptSha,
+    answer: reply,
+    beforeType: () => {
+      before += 1;
+      logged.push("before");
+    },
+    log: (entry) => {
+      logged.push(entry.key);
+    },
+  });
+  return { outcome, before, logged };
+}
+
+const sentKeys = (h: Harness): string[] =>
+  h.fake.events.filter((event) => /^(key|text):/.test(event));
+
+test("capturePrompt reads the blocked Claude prompt and hashes it with the agent, pane and host", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    assert.equal(prompt.agentId, "dev");
+    assert.equal(prompt.paneId, w.paneId);
+    assert.equal(prompt.hostKind, "claude");
+    assert.deepEqual(
+      prompt.options.map((option) => option.number),
+      [1, 2, 3, 4],
+    );
+    assert.equal(
+      prompt.promptSha,
+      promptHash({
+        agentId: "dev",
+        paneId: w.paneId,
+        hostKind: "claude",
+        text: prompt.text,
+        options: prompt.options,
+      }),
+    );
+    assert.deepEqual(sentKeys(h), []);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("capturePrompt refuses an agent that is not blocked, one the name places elsewhere, another host and a screen that is not a proven dialog", async () => {
+  for (const status of ["idle", "working", "done"]) {
+    const h = harness();
+    try {
+      const w = await promptWorker(h);
+      h.fake.agentStates.set("dev", { paneId: w.paneId, statuses: [status] });
+      assert.deepEqual(await h.adapter.capturePrompt(w.paneId), {
+        captured: false,
+        reason: "not_blocked",
+      });
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  const elsewhere = harness();
+  try {
+    const w = await promptWorker(elsewhere);
+    elsewhere.fake.agentStates.set("dev", {
+      paneId: "w77:p1",
+      statuses: ["blocked"],
+    });
+    assert.deepEqual(await elsewhere.adapter.capturePrompt(w.paneId), {
+      captured: false,
+      reason: "not_blocked",
+    });
+  } finally {
+    elsewhere.adapter.close();
+    elsewhere.fake.cleanup();
+  }
+  for (const kind of ["codex", "omp"] as const) {
+    const h = harness();
+    try {
+      const w = await promptWorker(h, kind);
+      assert.deepEqual(await h.adapter.capturePrompt(w.paneId), {
+        captured: false,
+        reason: "unsupported_host",
+      });
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  for (const name of [
+    "synthetic-dialog-not-last.ansi",
+    "synthetic-fake-above-input.ansi",
+    "synthetic-two-selected.ansi",
+  ]) {
+    const h = harness();
+    try {
+      const w = await promptWorker(h);
+      w.pane.screen = promptFixture(name);
+      assert.deepEqual(await h.adapter.capturePrompt(w.paneId), {
+        captured: false,
+        reason: "prompt_unrecognized",
+      });
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+});
+
+test("an option answer sends only arrow keys, then Enter after a read shows the target selected; beforeType runs once before the first key", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 4,
+    });
+    assert.deepEqual(result.outcome, {
+      typed: true,
+      keys: ["down", "down", "down", "enter"],
+    });
+    assert.equal(result.before, 1);
+    assert.deepEqual(result.logged, [
+      "before",
+      "down",
+      "down",
+      "down",
+      "enter",
+    ]);
+    assert.deepEqual(sentKeys(h), [
+      "key:down",
+      "key:down",
+      "key:down",
+      "key:enter",
+    ]);
+    assert.equal(w.script.ended, "enter");
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("an option that widens permissions is typed like any other option, and an already selected option needs only Enter", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    assert.equal(prompt.options[2]!.widensPermissions, true);
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 3,
+    });
+    assert.deepEqual(result.outcome, {
+      typed: true,
+      keys: ["down", "down", "enter"],
+    });
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+  const again = harness();
+  try {
+    const w = await promptWorker(again);
+    const prompt = await captured(again, w.paneId);
+    again.fake.events.length = 0;
+    const result = await answer(again, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 1,
+    });
+    assert.deepEqual(result.outcome, { typed: true, keys: ["enter"] });
+    assert.equal(result.before, 1);
+  } finally {
+    again.adapter.close();
+    again.fake.cleanup();
+  }
+});
+
+test("esc sends exactly one escape key", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "esc",
+    });
+    assert.deepEqual(result.outcome, { typed: true, keys: ["esc"] });
+    assert.deepEqual(sentKeys(h), ["key:esc"]);
+    assert.equal(result.before, 1);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a stale hash returns prompt_changed with no key or text sent and beforeType not called", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    for (const reply of [
+      { kind: "option", number: 2 },
+      { kind: "esc" },
+      { kind: "text", number: 4, text: "no" },
+    ] as const) {
+      const result = await answer(h, w.paneId, "0".repeat(64), reply);
+      assert.deepEqual(result.outcome, {
+        typed: false,
+        reason: "prompt_changed",
+        keys: [],
+      });
+      assert.equal(result.before, 0);
+    }
+    assert.deepEqual(sentKeys(h), []);
+    assert.equal(h.fake.callsTo("pane", "send-keys").length, 0);
+    assert.equal(h.fake.callsTo("pane", "send-text").length, 0);
+    void prompt;
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a screen that changes between the first read and the Enter returns prompt_changed and sends no Enter", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    // The first read is the real prompt; the next read shows a different one.
+    const changed = parseHostPrompt(
+      "claude",
+      promptFixture("claude-write-permission.ansi"),
+    )!;
+    const other = new PromptScript(w.pane);
+    other.texts.splice(
+      0,
+      other.texts.length,
+      ...changed.options.map((o) => o.text),
+    );
+    h.fake.readQueue.push(w.pane.screen, other.render());
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 1,
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "prompt_changed",
+      keys: [],
+    });
+    assert.equal(result.before, 0);
+    assert.deepEqual(sentKeys(h), []);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a prompt that changes after the arrow keys stops before Enter and reports the keys already sent", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    const original = h.fake.onKey!;
+    h.fake.onKey = (pane, key) => {
+      original(pane, key);
+      w.script.texts[0] = "Yes, and delete everything";
+      pane.screen = w.script.render();
+    };
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 2,
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "prompt_changed",
+      keys: ["down"],
+    });
+    assert.deepEqual(sentKeys(h), ["key:down"]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a selection that never reaches the target returns selection_not_reached and sends no Enter", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    w.script.arrowsStuck = true;
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "option",
+      number: 2,
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "selection_not_reached",
+      keys: ["down"],
+    });
+    assert.deepEqual(sentKeys(h), ["key:down"]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("answerPrompt refuses with not_blocked and sends nothing when Herdr reports idle, working or done, or the name points at another pane", async () => {
+  for (const status of ["idle", "working", "done"]) {
+    const h = harness();
+    try {
+      const w = await promptWorker(h);
+      const prompt = await captured(h, w.paneId);
+      h.fake.agentStates.set("dev", { paneId: w.paneId, statuses: [status] });
+      h.fake.events.length = 0;
+      const result = await answer(h, w.paneId, prompt.promptSha, {
+        kind: "option",
+        number: 2,
+      });
+      assert.deepEqual(result.outcome, {
+        typed: false,
+        reason: "not_blocked",
+        keys: [],
+      });
+      assert.equal(result.before, 0);
+      assert.deepEqual(sentKeys(h), []);
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.agentStates.set("dev", { paneId: "w77:p1", statuses: ["blocked"] });
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "esc",
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "not_blocked",
+      keys: [],
+    });
+    assert.deepEqual(sentKeys(h), []);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("an answer to an option that does not exist, a text answer to an option without a field, and a refused text are refused with nothing sent", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    const cases: Array<[PromptAnswer, string]> = [
+      [{ kind: "option", number: 5 }, "no_such_option"],
+      [{ kind: "option", number: 0 }, "no_such_option"],
+      [{ kind: "text", number: 9, text: "x" }, "no_such_option"],
+      [{ kind: "text", number: 1, text: "fine" }, "no_text_option"],
+      [{ kind: "text", number: 2, text: "fine" }, "no_text_option"],
+      [{ kind: "text", number: 4, text: "two\nlines" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "bell\u0007" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "zero\u200bwidth" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "\ttab" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "/clear" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "!ls" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "#x" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "?x" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "@x" }, "text_refused"],
+      [{ kind: "text", number: 4, text: "a".repeat(1001) }, "text_refused"],
+      [{ kind: "text", number: 4, text: "lone\ud800" }, "text_refused"],
+    ];
+    for (const [reply, reason] of cases) {
+      const result = await answer(h, w.paneId, prompt.promptSha, reply);
+      assert.deepEqual(
+        result.outcome,
+        { typed: false, reason, keys: [] },
+        JSON.stringify(reply),
+      );
+      assert.equal(result.before, 0);
+    }
+    assert.deepEqual(sentKeys(h), []);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a text answer moves to the option, opens its field with Tab, types the literal text and presses Enter only after the field shows exactly that text", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "text",
+      number: 4,
+      text: "do not touch files",
+    });
+    assert.deepEqual(result.outcome, {
+      typed: true,
+      keys: ["down", "down", "down", "tab", "text", "enter"],
+    });
+    assert.equal(result.before, 1);
+    assert.deepEqual(sentKeys(h), [
+      "key:down",
+      "key:down",
+      "key:down",
+      "key:tab",
+      "text:do not touch files",
+      "key:enter",
+    ]);
+    assert.equal(h.fake.callsTo("pane", "send-text").length, 1);
+    assert.deepEqual(h.fake.callsTo("pane", "send-text")[0], [
+      "pane",
+      "send-text",
+      w.paneId,
+      "do not touch files",
+    ]);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a field that does not open stops after Tab without text, Enter or Esc", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    w.script.tabDoesNothing = true;
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "text",
+      number: 4,
+      text: "hello",
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "text_field_not_open",
+      keys: ["down", "down", "down", "tab"],
+    });
+    assert.deepEqual(sentKeys(h), [
+      "key:down",
+      "key:down",
+      "key:down",
+      "key:tab",
+    ]);
+    assert.equal(w.script.ended, undefined);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("text that the field does not show exactly is not submitted: no Enter and no Esc follow", async () => {
+  const h = harness();
+  try {
+    const w = await promptWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.onText = (pane) => {
+      w.script.field = "No, something else";
+      pane.screen = w.script.render();
+    };
+    h.fake.events.length = 0;
+    const result = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "text",
+      number: 4,
+      text: "hello",
+    });
+    assert.deepEqual(result.outcome, {
+      typed: false,
+      reason: "text_field_not_open",
+      keys: ["down", "down", "down", "tab", "text"],
+    });
+    assert.equal(
+      sentKeys(h).some((event) => /enter|esc/.test(event)),
+      false,
+    );
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("the real open-field screens satisfy the structural check: same text, other options unchanged, only the target option and the footer differ", () => {
+  for (const [closed, open] of [
+    ["claude-bash-permission.ansi", "claude-bash-permission-no-textfield.ansi"],
+    [
+      "claude-write-permission.ansi",
+      "claude-write-permission-yes-textfield.ansi",
+    ],
+  ] as const) {
+    const before = parseHostPrompt("claude", promptFixture(closed))!;
+    const after = parseHostPrompt("claude", promptFixture(open))!;
+    const target = after.selectedIndex;
+    assert.equal(after.text, before.text);
+    assert.equal(
+      after.options[target]!.text,
+      TEXT_FIELD_WORDING[before.options[target]!.text],
+    );
+    assert.deepEqual(
+      after.options.filter((_, index) => index !== target),
+      before.options.filter((_, index) => index !== target),
+    );
+  }
+  for (const [typed, expected] of [
+    ["claude-bash-permission-no-typed.ansi", "No, do not touch files"],
+    ["claude-write-permission-yes-typed.ansi", "Yes, go ahead"],
+  ] as const) {
+    const parsed = parseHostPrompt("claude", promptFixture(typed))!;
+    assert.equal(parsed.options[parsed.selectedIndex]!.text, expected);
   }
 });

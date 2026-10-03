@@ -1639,6 +1639,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const databasePath = path.join(stateDirectory, "controller.sqlite");
     const db = new Database(databasePath);
     const newTables = [
+      "prompt_relays",
       "operator_grants",
       "operator_runs",
       "operator_proposals",
@@ -1698,7 +1699,8 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
                 !row.includes('"operator:') &&
                 !row.includes('"finding:raise') &&
                 !row.includes('"finding:check') &&
-                !row.includes('"agent:observe'),
+                !row.includes('"agent:observe') &&
+                !row.includes('"prompt:relay'),
             )
             .sort(),
         ]),
@@ -1721,10 +1723,10 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       for (const table of newTables) db.exec(`DROP TABLE ${table}`);
       db.pragma("foreign_keys = ON");
       db.exec(
-        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM capability_grants WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe', 'prompt:relay')",
       );
       db.exec(
-        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe')",
+        "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe', 'prompt:relay')",
       );
       db.exec("DELETE FROM schema_migrations WHERE version >= 15");
       before = snapshot(db);

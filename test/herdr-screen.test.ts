@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  RELAY_PROMPT_MAX_BYTES,
+  promptHash,
+  relayTextProblem,
+  type RelayOption,
+} from "../src/herdr/prompt-relay.js";
+import {
   TRUST_NO,
   TRUST_YES,
   CODEX_TRUST_NO,
@@ -10,6 +16,7 @@ import {
   extractInputLine,
   freshPromptReady,
   parseCodexTrustDialog,
+  parseHostPrompt,
   parseTrustDialog,
   parseTrustDialogOf,
   trustTexts,
@@ -506,4 +513,209 @@ test("the Codex 0.160.0 trust dialog is parsed, and no 0.160.0 idle screen is ta
       undefined,
       name,
     );
+});
+
+const prompt = (name: string): string =>
+  readFileSync(path.resolve("test/fixtures/prompts", name), "utf8");
+
+const option = (
+  number: number,
+  text: string,
+  acceptsText = false,
+  widensPermissions = false,
+): RelayOption => ({ number, text, acceptsText, widensPermissions });
+
+test("the real Claude Bash permission prompt parses to its exact text and numbered options; only wording a fixture proves opens a text field or widens permissions", () => {
+  const parsed = parseHostPrompt(
+    "claude",
+    prompt("claude-bash-permission.ansi"),
+  )!;
+  assert.equal(parsed.selectedIndex, 0);
+  assert.equal(
+    parsed.text,
+    [
+      " Bash command",
+      ' Tip: auto mode handles these prompts for you — choose "switch to auto mode" below',
+      " Create empty file spike-a.txt",
+      "╌".repeat(parsed.text.split("\n")[3]!.length),
+      " touch spike-a.txt",
+      "╌".repeat(parsed.text.split("\n")[3]!.length),
+      " Do you want to proceed?",
+    ].join("\n"),
+  );
+  assert.deepEqual(parsed.options, [
+    option(1, "Yes"),
+    option(
+      2,
+      "Yes, and always allow access to /tmp/cph-spike/repo from this project",
+      false,
+      true,
+    ),
+    option(
+      3,
+      "Yes, and switch to auto mode · auto mode handles these prompts for you",
+      false,
+      true,
+    ),
+    option(4, "No", true),
+  ]);
+});
+
+test("the real Claude Write permission prompt parses; its Yes opens a text field and switching to accept edits widens permissions", () => {
+  const parsed = parseHostPrompt(
+    "claude",
+    prompt("claude-write-permission.ansi"),
+  )!;
+  assert.equal(parsed.selectedIndex, 0);
+  assert.ok(parsed.text.startsWith(" Create file\n spike-b.txt\n"));
+  assert.ok(parsed.text.endsWith(" Do you want to create spike-b.txt?"));
+  assert.deepEqual(parsed.options, [
+    option(1, "Yes", true),
+    option(
+      2,
+      "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)",
+      false,
+      true,
+    ),
+    option(3, "No"),
+  ]);
+});
+
+test("the real screens with an open text field parse with the field's wording and the selection kept", () => {
+  const bash = parseHostPrompt(
+    "claude",
+    prompt("claude-bash-permission-no-textfield.ansi"),
+  )!;
+  assert.equal(bash.selectedIndex, 3);
+  assert.equal(
+    bash.options[3]!.text,
+    "No, and tell Claude what to do differently",
+  );
+  const write = parseHostPrompt(
+    "claude",
+    prompt("claude-write-permission-yes-textfield.ansi"),
+  )!;
+  assert.equal(write.selectedIndex, 0);
+  assert.equal(write.options[0]!.text, "Yes, and tell Claude what to do next");
+  assert.equal(
+    bash.text,
+    parseHostPrompt("claude", prompt("claude-bash-permission.ansi"))!.text,
+  );
+});
+
+test("wording no fixture proves is flagged by the heuristic only when it adds a rule or switches the mode", () => {
+  const screen = prompt("claude-bash-permission.ansi")
+    .replace(
+      "4. \u001b[0mNo",
+      "4. \u001b[0mYes, and don't ask again for touch commands",
+    )
+    .replace(
+      "1. \u001b[0m\u001b[38;2;177;185;249mYes",
+      "1. \u001b[0m\u001b[38;2;177;185;249mYes, once",
+    );
+  const parsed = parseHostPrompt("claude", screen)!;
+  assert.deepEqual(
+    parsed.options.map((entry) => [
+      entry.text.slice(0, 23),
+      entry.widensPermissions,
+    ]),
+    [
+      ["Yes, once", false],
+      ["Yes, and always allow a", true],
+      ["Yes, and switch to auto", true],
+      ["Yes, and don't ask agai", true],
+    ],
+  );
+  assert.equal(
+    parsed.options.some((entry) => entry.acceptsText),
+    false,
+  );
+});
+
+test("parseHostPrompt returns undefined for dialogs that are not proven: not last, fake above an input line, two markers, control characters, oversized text, wrapped options", () => {
+  for (const name of [
+    "synthetic-dialog-not-last.ansi",
+    "synthetic-fake-above-input.ansi",
+    "synthetic-two-selected.ansi",
+    "synthetic-control-char.ansi",
+    "synthetic-oversized.ansi",
+    "synthetic-wrapped-option.ansi",
+  ])
+    assert.equal(parseHostPrompt("claude", prompt(name)), undefined, name);
+  assert.ok(
+    Buffer.byteLength(prompt("synthetic-oversized.ansi")) >
+      RELAY_PROMPT_MAX_BYTES,
+  );
+});
+
+test("parseHostPrompt returns undefined for every other host and for ordinary screens", () => {
+  const real = prompt("claude-bash-permission.ansi");
+  for (const kind of ["codex", "omp", "shell", "unknown"])
+    assert.equal(parseHostPrompt(kind, real), undefined, kind);
+  for (const name of [
+    "codex-0160-trust-dialog.ansi",
+    "codex-trust-dialog.ansi",
+    "codex-0160-idle-typed.ansi",
+    "omp-1831-idle-empty.ansi",
+    "omp-idle-typed.ansi",
+    "claude-idle-empty.ansi",
+    "claude-idle-typed.ansi",
+  ])
+    for (const kind of ["claude", "codex", "omp"])
+      assert.equal(parseHostPrompt(kind, fixture(name)), undefined, name);
+  assert.equal(
+    parseHostPrompt("claude", fixture("claude-trust-dialog.txt")),
+    undefined,
+  );
+});
+
+test("promptHash is 64 lowercase hex, stable, and changes with the agent, pane, host, text, an option's text or the option order", () => {
+  const base = {
+    agentId: "dev-g1",
+    paneId: "w1:p1",
+    hostKind: "claude",
+    text: "Do you want to proceed?",
+    options: [option(1, "Yes"), option(2, "No", true)],
+  };
+  const reference = promptHash(base);
+  assert.match(reference, /^[0-9a-f]{64}$/);
+  assert.equal(promptHash({ ...base, options: [...base.options] }), reference);
+  const variants = [
+    { ...base, agentId: "dev-g2" },
+    { ...base, paneId: "w1:p2" },
+    { ...base, hostKind: "codex" },
+    { ...base, text: "Do you want to proceed!" },
+    { ...base, options: [option(1, "Yes!"), option(2, "No", true)] },
+    { ...base, options: [option(1, "No", true), option(2, "Yes")] },
+    { ...base, options: [option(1, "Yes"), option(2, "No", false)] },
+    {
+      ...base,
+      options: [option(1, "Yes", false, true), option(2, "No", true)],
+    },
+  ];
+  for (const variant of variants)
+    assert.notEqual(promptHash(variant), reference);
+});
+
+test("relayTextProblem accepts plain text and refuses newlines, control or format characters, a leading tab or command character, over 1000 bytes and ill-formed UTF-16", () => {
+  for (const ok of ["use ls instead", "do not touch files ✓", "a".repeat(1000)])
+    assert.equal(relayTextProblem(ok), undefined, ok);
+  for (const bad of [
+    "",
+    "   ",
+    "two\nlines",
+    "bell\u0007",
+    "zero\u200bwidth",
+    "\ttab",
+    "/clear",
+    "!ls",
+    "#note",
+    "?help",
+    "@file",
+    " /clear",
+    "a".repeat(1001),
+    "é".repeat(501),
+    "lone\ud800surrogate",
+  ])
+    assert.notEqual(relayTextProblem(bad), undefined, JSON.stringify(bad));
 });

@@ -34,6 +34,11 @@ import { codexArguments, ompArguments } from "./herdr/hosts.js";
 import { projectDisplayName, workspaceLabel } from "./herdr/naming.js";
 import { HerdrError } from "./herdr/runner.js";
 import { sanitizeScreen } from "./observe.js";
+import type {
+  CaptureOutcome,
+  PromptAnswer,
+  RelayOutcome,
+} from "./herdr/prompt-relay.js";
 import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
 import {
   buildRolePrompt,
@@ -81,6 +86,8 @@ export type LauncherAdapter = Pick<
   | "paneEntry"
   | "agentObservation"
   | "readScreen"
+  | "capturePrompt"
+  | "answerPrompt"
 >;
 
 export interface GitRunner {
@@ -779,6 +786,46 @@ export class Launcher {
     return directory;
   }
 
+  /** The pane of an active agent, or a LauncherError. */
+  #activePane(agentId: string): string {
+    const agent = this.#core.agentRecord(agentId);
+    if (agent === undefined || agent.state !== "active")
+      throw new LauncherError("agent_not_active", "the agent is not active");
+    const paneId =
+      this.#adapter.paneForAgent(agentId) ??
+      this.#core
+        .agentPanes(this.#credential)
+        .find((row) => row.agentId === agentId)?.paneId ??
+      undefined;
+    if (paneId === undefined || paneId === null)
+      throw new LauncherError("no_pane", "the agent has no pane recorded");
+    return paneId;
+  }
+
+  /** Reads the blocking permission prompt of an active worker; nothing is typed. */
+  async capturePrompt(agentId: string): Promise<CaptureOutcome> {
+    return await this.#adapter.capturePrompt(this.#activePane(agentId));
+  }
+
+  /** Types an answer to the worker's prompt when the screen still hashes to `promptSha`; every key sent is logged. */
+  async answerPrompt(
+    agentId: string,
+    input: {
+      promptSha: string;
+      answer: PromptAnswer;
+      beforeType: () => void | Promise<void>;
+    },
+  ): Promise<RelayOutcome> {
+    const paneId = this.#activePane(agentId);
+    return await this.#adapter.answerPrompt({
+      paneId,
+      promptSha: input.promptSha,
+      answer: input.answer,
+      beforeType: input.beforeType,
+      log: (entry) => this.#log("prompt_relay_key", { agentId, ...entry }),
+    });
+  }
+
   /** The recent screen of an active agent. A read: it does not wait for other launcher operations. */
   async observe(agentId: string, lines: number): Promise<ObserveResult> {
     const agent = this.#core.agentRecord(agentId);
@@ -992,6 +1039,9 @@ export class Launcher {
       ...(this.#operatorPrompt() === undefined
         ? {}
         : { operator: this.#operatorPrompt()! }),
+      ...(this.#config.promptRelay?.enabled === true
+        ? { promptRelay: { enabled: true as const } }
+        : {}),
       ...this.#nexoraPrompt(),
       ...(summary === undefined ? {} : { restartSummary: summary }),
     });

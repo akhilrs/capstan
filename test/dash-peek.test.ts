@@ -28,6 +28,8 @@ function launcherStub(seen: Array<[string, number]>): Launcher {
         text: "screen text",
       };
     },
+    capturePrompt: unused,
+    answerPrompt: unused,
     status: () => ({ cleanupFailed: [], orphanPanes: [] }),
   };
 }

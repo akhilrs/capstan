@@ -2460,6 +2460,56 @@ test("observe reads the recorded pane of an active agent, sanitizes the text and
   }
 });
 
+test("capturePrompt and answerPrompt resolve the active agent's pane, pass the hash and answer through, log the keys, and refuse an agent that is not active", async () => {
+  const w = await world();
+  try {
+    await w.launcher.launchPm();
+    const spawned = await w.launcher.spawn("developer");
+    const paneId = w.core
+      .agentPanes(w.owner)
+      .find((row) => row.agentId === spawned.agentId)!.paneId!;
+    assert.deepEqual(await w.launcher.capturePrompt(spawned.agentId), {
+      captured: false,
+      reason: "prompt_unrecognized",
+    });
+    assert.ok(w.adapter.calls.includes(`capture:${paneId}`));
+    let before = 0;
+    const outcome = await w.launcher.answerPrompt(spawned.agentId, {
+      promptSha: "a".repeat(64),
+      answer: { kind: "option", number: 1 },
+      beforeType: () => {
+        before += 1;
+      },
+    });
+    assert.deepEqual(outcome, { typed: true, keys: ["enter"] });
+    assert.equal(before, 1);
+    assert.deepEqual(w.adapter.answered, [
+      {
+        paneId,
+        promptSha: "a".repeat(64),
+        answer: { kind: "option", number: 1 },
+      },
+    ]);
+    for (const call of [
+      () => w.launcher.capturePrompt("nobody"),
+      () =>
+        w.launcher.answerPrompt("nobody", {
+          promptSha: "a".repeat(64),
+          answer: { kind: "esc" },
+          beforeType: () => undefined,
+        }),
+    ])
+      await assert.rejects(
+        call(),
+        (error: Error) =>
+          error instanceof LauncherError && error.code === "agent_not_active",
+      );
+    assert.equal(w.adapter.answered.length, 1);
+  } finally {
+    w.cleanup();
+  }
+});
+
 /** An accepted report by the worker, using the token it was started with. */
 function reportAs(
   w: World,

@@ -75,6 +75,15 @@ async function withHarness(
         spawn: async () => ({ state: "started", agentId: "x" }),
         release: async () => ({ state: "released" }),
         status: () => ({}),
+        capturePrompt: async () => ({
+          captured: false as const,
+          reason: "not_blocked" as const,
+        }),
+        answerPrompt: async () => ({
+          typed: false as const,
+          reason: "not_blocked" as const,
+          keys: [],
+        }),
         observe: async (agentId: string, lines: number) => {
           seen.push({ agentId, lines });
           if (agentId === "gone-agent")

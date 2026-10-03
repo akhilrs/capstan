@@ -197,6 +197,11 @@ const migrations: Readonly<
     name: "0029_coverage_merge.sql",
     url: new URL("../../migrations/0029_coverage_merge.sql", import.meta.url),
   },
+  30: {
+    version: 30,
+    name: "0030_prompt_relay.sql",
+    url: new URL("../../migrations/0030_prompt_relay.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

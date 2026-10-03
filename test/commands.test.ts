@@ -39,6 +39,7 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       countTowardWorkerLimit: false,
       highRiskTriggers: [],
     },
+    promptRelay: { present: false, enabled: false, captureTtlSeconds: 600 },
     operator: {
       configured: false,
       enabled: false,
@@ -782,6 +783,15 @@ function stubLauncher(): {
         state: "active",
         agentStatus: "idle",
         text: "",
+      }),
+      capturePrompt: async () => ({
+        captured: false as const,
+        reason: "not_blocked" as const,
+      }),
+      answerPrompt: async () => ({
+        typed: false as const,
+        reason: "not_blocked" as const,
+        keys: [],
       }),
       release: async (agentId: string) => {
         calls.push(`release:${agentId}`);

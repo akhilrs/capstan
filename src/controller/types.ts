@@ -1,3 +1,4 @@
+import type { RelayOption } from "../herdr/prompt-relay.js";
 import type {
   DeferralReason,
   MessageState,
@@ -68,6 +69,7 @@ export type Capability =
   | "operator:propose"
   | "operator:decide"
   | "operator:read"
+  | "prompt:relay"
   | "finding:raise"
   | "finding:check"
   | "agent:observe"
@@ -350,4 +352,34 @@ export interface OperatorProposalRecord {
   readonly run: OperatorRunRecord | null;
   /** The session grant this proposal's approval created, if any. */
   readonly sessionGrant: OperatorGrantRecord | null;
+}
+
+export type PromptRelayState =
+  "captured" | "typing" | "answered" | "refused" | "failed" | "expired";
+
+export interface PromptRelayRecord {
+  readonly relayId: string;
+  readonly sequence: number;
+  readonly agentId: string;
+  readonly paneId: string;
+  readonly hostKind: string;
+  readonly promptText: string;
+  readonly options: readonly RelayOption[];
+  readonly promptSha: string;
+  /** The first 12 hex characters of `promptSha`: what the PM shows and passes back. */
+  readonly hash12: string;
+  readonly capturedByActorId: string;
+  readonly capturedAt: string;
+  readonly expiresAt: string;
+  readonly state: PromptRelayState;
+  readonly answer: {
+    readonly kind: "option" | "esc" | "text";
+    readonly option: number | null;
+    readonly widensPermissions: boolean;
+    readonly text: string | null;
+  } | null;
+  readonly answeredByActorId: string | null;
+  readonly answeredAt: string | null;
+  readonly outcomeReason: string | null;
+  readonly keys: readonly string[] | null;
 }
