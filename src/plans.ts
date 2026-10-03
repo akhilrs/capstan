@@ -400,6 +400,7 @@ export function workPackageMessage(
   packageId: string,
   architectAgentId: string,
   pkg: PackageView,
+  unmet: readonly string[] = [],
 ): string {
   const quoted = (items: readonly string[]): string =>
     items.length === 0
@@ -412,6 +413,11 @@ export function workPackageMessage(
     `Owns (change only these files and areas): ${quoted(pkg.owns)}`,
     `Interfaces to keep or add: ${quoted(pkg.interfaces)}`,
     `Depends on packages: ${pkg.dependsOn.length === 0 ? "none" : pkg.dependsOn.join(", ")}`,
+    ...(unmet.length === 0
+      ? []
+      : [
+          `Note: the dependencies ${unmet.join(", ")} are not yet reviewed. Build against the interfaces the plan states; this package cannot be integrated before them.`,
+        ]),
     ...(pkg.estimateHours === null
       ? []
       : [`Estimate: ${pkg.estimateHours} hours`]),

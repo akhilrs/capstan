@@ -40,6 +40,7 @@ Everything is driven through one command: `cstan`.
 | **Operator**                            | An optional role that proposes shell commands or a controller restart. Nothing runs without a hash-bound PM approval, a session grant or time-boxed full auto.            |
 | **Prompt relay**                        | When a worker stops at a permission prompt, the PM shows you the exact prompt and types only the answer you pick. An unrecognised blocking dialog is relayed as Esc only. |
 | **Researcher with MCP servers**         | An optional web-research role with WebSearch, read-only curl and a headless Playwright browser, writing one sourced report.                                               |
+| **Pause and resume**                    | You or the PM hold one agent or the whole run with a reason: messages stay queued, spawn, plan assign, review and integrate are refused, `--interrupt` adds one Esc.      |
 | **Replace and lost agents**             | Lost panes are detected and reported. `cstan replace` starts a successor seeded from the ledger on a branch at its last accepted report.                                  |
 | **Defaults per role kind**              | Set a model and permission mode once per kind; a role's own value wins.                                                                                                   |
 | **Env pass-through and worktree hooks** | Name extra variables for agents; run a `setup` command in each new worktree and a `teardown` before removal.                                                              |
@@ -240,14 +241,16 @@ Run `cstan` with no arguments for the usage line. Every routed command accepts `
 <details>
 <summary><b>Messaging and workers</b></summary>
 
-| Command                               | Purpose                                   |
-| ------------------------------------- | ----------------------------------------- |
-| `cstan send <agent-id\|@pm> "<text>"` | Queue a message.                          |
-| `cstan wait`                          | PM: block for new messages.               |
-| `cstan ack <message-id>`              | Acknowledge a message.                    |
-| `cstan spawn <role>`                  | Start a worker.                           |
-| `cstan release <agent-id>`            | End a worker, free its pane and worktree. |
-| `cstan replace <agent-id>`            | Replace a lost or stuck worker.           |
+| Command                                                    | Purpose                                          |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `cstan send <agent-id\|@pm> "<text>"`                      | Queue a message.                                 |
+| `cstan wait`                                               | PM: block for new messages.                      |
+| `cstan ack <message-id>`                                   | Acknowledge a message.                           |
+| `cstan spawn <role>`                                       | Start a worker.                                  |
+| `cstan release <agent-id>`                                 | End a worker, free its pane and worktree.        |
+| `cstan replace <agent-id>`                                 | Replace a lost or stuck worker.                  |
+| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]` | Hold one agent or the whole run (you or the PM). |
+| `cstan resume [<agent-id>] --reason "<text>"`              | Release a pause.                                 |
 
 </details>
 
@@ -267,15 +270,15 @@ Run `cstan` with no arguments for the usage line. Every routed command accepts `
 <details>
 <summary><b>Plans, supervision, Nexora, prompt relay and Operator</b></summary>
 
-| Command                                                                         | Purpose                                                                             |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `cstan plan open\|submit\|show\|assign\|signoff\|cancel ...`                    | Planned work with the Architect.                                                    |
-| `cstan finding <agent-id> <severity> "<evidence>" "<correction>" "<done-when>"` | Supervisor: raise a finding.                                                        |
-| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"`            | Supervisor: check a finding.                                                        |
-| `cstan link requirement\|plan\|package <ref-id> <nexora-id> [<state>]`          | Record a Nexora link.                                                               |
-| `cstan link bind <requirement-ref-id> <agent-id>`                               | Tie a requirement to its developer.                                                 |
-| `cstan prompt show <agent-id>` / `prompt answer <relay-id> --hash <h> ...`      | Relay a worker's permission prompt, or an unrecognised blocking dialog as Esc only. |
-| `cstan op propose\|decide\|show\|cancel\|grants\|revoke\|full-auto ...`         | Operator proposals, grants and full auto.                                           |
+| Command                                                                         | Purpose                                                                                                                                    |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cstan plan open\|submit\|show\|assign\|signoff\|cancel ...`                    | Planned work with the Architect. `assign` waits for reviewed dependencies unless `--early "<reason>"`; `integrate` keeps dependency order. |
+| `cstan finding <agent-id> <severity> "<evidence>" "<correction>" "<done-when>"` | Supervisor: raise a finding.                                                                                                               |
+| `cstan finding check <finding-id> resolved\|unresolved "<evidence>"`            | Supervisor: check a finding.                                                                                                               |
+| `cstan link requirement\|plan\|package <ref-id> <nexora-id> [<state>]`          | Record a Nexora link.                                                                                                                      |
+| `cstan link bind <requirement-ref-id> <agent-id>`                               | Tie a requirement to its developer.                                                                                                        |
+| `cstan prompt show <agent-id>` / `prompt answer <relay-id> --hash <h> ...`      | Relay a worker's permission prompt, or an unrecognised blocking dialog as Esc only.                                                        |
+| `cstan op propose\|decide\|show\|cancel\|grants\|revoke\|full-auto ...`         | Operator proposals, grants and full auto.                                                                                                  |
 
 </details>
 

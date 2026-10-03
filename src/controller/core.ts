@@ -109,6 +109,7 @@ import type {
   OperatorProposalRecord,
   OperatorProposalState,
   OperatorRunStatus,
+  PauseRecord,
   ProjectInput,
   PromptRelayRecord,
   PromptRelayState,
@@ -189,6 +190,10 @@ function safeId(value: unknown, label: string): string {
   if (typeof value !== "string" || !SAFE_ID_PATTERN.test(value))
     throw new TypeError(`${label} must be 1-128 safe ASCII characters`);
   return value;
+}
+
+function pauseReasonText(value: unknown): string {
+  return safeText(value, "the reason", 500, false);
 }
 
 function safeText(
@@ -1025,9 +1030,10 @@ function lostNotice(
   reason: "pane_gone" | "found_dead_at_start",
   branch: string | null,
   unacknowledgedMessageIds: readonly string[],
+  paused: boolean,
 ): string {
   return [
-    `Agent ${agent.agent_id} (role ${agent.role_name}, ${agent.kind}) is lost: ${
+    `Agent ${agent.agent_id} (role ${agent.role_name}, ${agent.kind})${paused ? " (paused)" : ""} is lost: ${
       reason === "pane_gone"
         ? "Herdr no longer finds its pane or process"
         : "its pane was gone when the daemon started, so the controller ended it"
@@ -1093,6 +1099,11 @@ export class ControllerError extends Error {
 
 export class MutationConflictError extends ControllerError {
   override readonly name: string = "MutationConflictError";
+}
+
+/** A step that waits for resume: the message says the run (or the target) is paused and gives the reason. */
+export class RunPausedError extends MutationConflictError {
+  override readonly name = "RunPausedError";
 }
 
 export class IdempotencyConflictError extends MutationConflictError {
@@ -1227,10 +1238,15 @@ interface OperatorGrantRow {
   readonly ended_reason: OperatorGrantEndReason | null;
 }
 
-export type OperatorClaimRefusal = "not_approved" | "expired" | "busy";
+export type OperatorClaimRefusal =
+  "not_approved" | "expired" | "busy" | "run_paused";
 export type OperatorClaim =
   | { readonly claimed: true; readonly proposal: OperatorProposalRecord }
-  | { readonly claimed: false; readonly reason: OperatorClaimRefusal };
+  | {
+      readonly claimed: false;
+      readonly reason: OperatorClaimRefusal;
+      readonly detail?: string;
+    };
 
 interface MessageRow {
   readonly message_id: string;
@@ -1458,6 +1474,10 @@ export interface FindingInput {
 export interface ControllerStatus {
   readonly projectId: string;
   readonly run: { readonly state: string; readonly stateVersion: number };
+  readonly pause: {
+    readonly run: PauseRecord | null;
+    readonly agents: readonly PauseRecord[];
+  };
   readonly stateVersion: number;
   readonly inputRevision: number;
   readonly supervision: {
@@ -2587,6 +2607,29 @@ export class ControllerCore {
             "UPDATE agents SET state = 'ended', ended_at = ? WHERE project_id = ? AND agent_id = ?",
           )
           .run(now, this.#projectId, agentId);
+        // An agent that is no longer active cannot stay paused: close its pause in the same transaction.
+        const openPause = this.#pauseRows().find(
+          (pause) => pause.scope === "agent" && pause.agentId === agentId,
+        );
+        if (openPause !== undefined) {
+          const reason = "agent ended";
+          this.#closePause(
+            "agent",
+            agentId,
+            reason,
+            this.#internalPrincipal().actorId,
+            now,
+          );
+          this.#appendEvent(actor, context, {
+            entityType: "agent",
+            entityId: agentId,
+            from: "paused",
+            to: "active",
+            action: "agent.resume",
+            stateVersion: agent.generation,
+            details: { reason, scope: "agent", pausedReason: openPause.reason },
+          });
+        }
         const endedPlanReviews = this.#database
           .prepare(
             "SELECT subject_plan_id FROM reviews WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started' AND subject_plan_id IS NOT NULL",
@@ -4258,6 +4301,7 @@ export class ControllerCore {
               `report ${id} is already in the unsettled integration ${elsewhere.integration_id}; confirm or discard that one first`,
             );
         }
+        this.#checkIntegrationOrder(input.reportIds);
         const now = this.#now();
         const sequence = (
           this.#database
@@ -4988,6 +5032,85 @@ export class ControllerCore {
       ) as { report_id: string } | undefined;
   }
 
+  /**
+   * A plan package's report may only be integrated after the reports of its depends_on packages: those must already be
+   * in a merged or confirmed integration, or come earlier in this list. Reports outside plans are not checked. Only
+   * approved, uncancelled plans count, cancelled packages are not checked, and a cancelled dependency is skipped: this
+   * check asks whether anything must merge first, and for it nothing will. A dependency that is not cancelled but has no
+   * report yet (unassigned, or assigned and unreported) is refused, since it may still need to merge first. (The assign
+   * gate asks a different question, whether the interface will exist, so there a cancelled dependency stays unmet.)
+   */
+  #checkIntegrationOrder(reportIds: readonly string[]): void {
+    const position = new Map(reportIds.map((id, index) => [id, index]));
+    const plans = this.#database
+      .prepare(
+        "SELECT plan_id, approved_revision FROM plans WHERE project_id = ? AND state = 'approved' AND cancelled_at IS NULL AND approved_revision IS NOT NULL",
+      )
+      .all(this.#projectId) as { plan_id: string; approved_revision: number }[];
+    for (const plan of plans) {
+      const rows = this.#database
+        .prepare(
+          "SELECT package_id, assignee_agent_id, assigned_at, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ?",
+        )
+        .all(this.#projectId, plan.plan_id) as {
+        package_id: string;
+        assignee_agent_id: string | null;
+        assigned_at: string | null;
+        cancelled_at: string | null;
+      }[];
+      const cancelled = new Set(
+        rows.filter((r) => r.cancelled_at !== null).map((r) => r.package_id),
+      );
+      const reports = new Map(
+        rows.map((row) => [
+          row.package_id,
+          this.#packageReport(
+            plan.plan_id,
+            row.package_id,
+            row.assignee_agent_id,
+            row.assigned_at,
+          )?.report_id,
+        ]),
+      );
+      for (const [packageId, reportId] of reports) {
+        const at = reportId === undefined ? undefined : position.get(reportId);
+        if (reportId === undefined || at === undefined) continue;
+        if (cancelled.has(packageId)) continue;
+        const revision = this.#database
+          .prepare(
+            "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+          )
+          .get(this.#projectId, plan.plan_id, plan.approved_revision) as
+          { body_json: string } | undefined;
+        const view =
+          revision === undefined
+            ? undefined
+            : packageOfBody(revision.body_json, packageId);
+        for (const dep of view?.dependsOn ?? []) {
+          if (cancelled.has(dep)) continue;
+          const depReport = reports.get(dep);
+          if (depReport === undefined)
+            throw new ControllerError(
+              `integration_order: report ${reportId} (package ${packageId}) needs ${dep}, which has no report yet`,
+            );
+          const earlier = position.get(depReport);
+          if (earlier !== undefined && earlier < at) continue;
+          const settled = this.#database
+            .prepare(
+              `SELECT 1 AS present FROM integration_reports ir
+               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+               WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('merged', 'confirmed')`,
+            )
+            .get(this.#projectId, depReport);
+          if (settled) continue;
+          throw new ControllerError(
+            `integration_order: report ${reportId} (package ${packageId}) needs ${dep} integrated first or earlier in this list`,
+          );
+        }
+      }
+    }
+  }
+
   #packageProgress(
     planId: string,
     packageId: string,
@@ -5123,144 +5246,186 @@ export class ControllerCore {
       readonly planId: string;
       readonly packageId: string;
       readonly agentId: string;
+      readonly early?: string;
     },
-  ): PlanPackageRecord {
+  ): PlanPackageRecord & { readonly unmet: readonly string[] } {
     safeId(input.planId, "plan id");
     safeId(input.packageId, "package id");
     safeId(input.agentId, "agent id");
-    return this.#mutate<PlanPackageRecord>(
-      context,
-      "plan.assign",
-      "plan:write",
-      { ...input },
-      (actor) => {
-        if (actor.role !== "PM" && actor.role !== "operator")
-          throw new ControllerError(
-            "only the PM or the operator assigns a package",
-          );
-        const plan = this.#planRow(input.planId);
-        if (plan === undefined)
-          throw new ControllerError(`plan ${input.planId} does not exist`);
-        if (plan.cancelled_at !== null)
-          throw new ControllerError(
-            `plan_cancelled: plan ${input.planId} was cancelled`,
-          );
-        if (plan.state !== "approved")
-          throw new ControllerError(
-            `plan ${input.planId} is ${plan.state}; packages are assigned once it is approved`,
-          );
-        const pkg = this.#database
-          .prepare(
-            "SELECT assignee_agent_id, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
-          )
-          .get(this.#projectId, input.planId, input.packageId) as
-          | { assignee_agent_id: string | null; cancelled_at: string | null }
-          | undefined;
-        if (pkg === undefined)
-          throw new ControllerError(
-            `plan ${input.planId} has no package ${input.packageId}`,
-          );
-        if (pkg.cancelled_at !== null)
-          throw new ControllerError(
-            `package_cancelled: package ${input.packageId} of plan ${input.planId} was cancelled`,
-          );
-        const agent = this.#agentRow(input.agentId);
-        if (
-          agent === undefined ||
-          agent.state !== "active" ||
-          agent.kind !== "Developer"
+    const early =
+      input.early === undefined
+        ? undefined
+        : safeText(input.early, "early reason", 500, false);
+    return this.#mutate<
+      PlanPackageRecord & { readonly unmet: readonly string[] }
+    >(context, "plan.assign", "plan:write", { ...input }, (actor) => {
+      this.assertRunNotPaused("plan assign");
+      if (actor.role !== "PM" && actor.role !== "operator")
+        throw new ControllerError(
+          "only the PM or the operator assigns a package",
+        );
+      const pausedTarget = this.pauseState().agents.find(
+        (pause) => pause.agentId === input.agentId,
+      );
+      if (pausedTarget !== undefined)
+        throw new RunPausedError(
+          `agent_paused: ${input.agentId} is paused and cannot be assigned a package: ${pausedTarget.reason}`,
+        );
+      const plan = this.#planRow(input.planId);
+      if (plan === undefined)
+        throw new ControllerError(`plan ${input.planId} does not exist`);
+      if (plan.cancelled_at !== null)
+        throw new ControllerError(
+          `plan_cancelled: plan ${input.planId} was cancelled`,
+        );
+      if (plan.state !== "approved")
+        throw new ControllerError(
+          `plan ${input.planId} is ${plan.state}; packages are assigned once it is approved`,
+        );
+      const pkg = this.#database
+        .prepare(
+          "SELECT assignee_agent_id, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
         )
+        .get(this.#projectId, input.planId, input.packageId) as
+        | { assignee_agent_id: string | null; cancelled_at: string | null }
+        | undefined;
+      if (pkg === undefined)
+        throw new ControllerError(
+          `plan ${input.planId} has no package ${input.packageId}`,
+        );
+      if (pkg.cancelled_at !== null)
+        throw new ControllerError(
+          `package_cancelled: package ${input.packageId} of plan ${input.planId} was cancelled`,
+        );
+      const agent = this.#agentRow(input.agentId);
+      if (
+        agent === undefined ||
+        agent.state !== "active" ||
+        agent.kind !== "Developer"
+      )
+        throw new ControllerError(
+          `${input.agentId} is not an active developer-kind agent`,
+        );
+      if (agent.agent_id === plan.architect_agent_id)
+        throw new ControllerError("the architect cannot hold a package");
+      if (pkg.assignee_agent_id !== null) {
+        const current = this.#agentRow(pkg.assignee_agent_id);
+        if (current?.state === "active")
           throw new ControllerError(
-            `${input.agentId} is not an active developer-kind agent`,
+            `package ${input.packageId} is already assigned to ${pkg.assignee_agent_id}`,
           );
-        if (agent.agent_id === plan.architect_agent_id)
-          throw new ControllerError("the architect cannot hold a package");
-        if (pkg.assignee_agent_id !== null) {
-          const current = this.#agentRow(pkg.assignee_agent_id);
-          if (current?.state === "active")
-            throw new ControllerError(
-              `package ${input.packageId} is already assigned to ${pkg.assignee_agent_id}`,
-            );
-        }
-        const holding = this.#database
+      }
+      const holding = this.#database
+        .prepare(
+          "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? AND package_id <> ? AND cancelled_at IS NULL",
+        )
+        .get(this.#projectId, input.planId, agent.agent_id, input.packageId) as
+        { package_id: string } | undefined;
+      if (holding !== undefined)
+        throw new ControllerError(
+          `${agent.agent_id} already holds package ${holding.package_id} of this plan`,
+        );
+      const revision = this.#database
+        .prepare(
+          "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        )
+        .get(this.#projectId, input.planId, plan.approved_revision) as
+        { body_json: string } | undefined;
+      const view =
+        revision === undefined
+          ? undefined
+          : packageOfBody(revision.body_json, input.packageId);
+      if (view === undefined || plan.architect_agent_id === null)
+        throw new ControllerError(
+          `plan ${input.planId} has no readable text for package ${input.packageId}`,
+        );
+      // The gate asks whether the interface to build against will exist: a cancelled dependency stays unmet, so the PM
+      // decides with --early. (Integration order asks whether anything must merge first; nothing will for a cancelled one.)
+      const unmet = view.dependsOn.flatMap((dep) => {
+        const row = this.#database
           .prepare(
-            "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? AND package_id <> ? AND cancelled_at IS NULL",
+            "SELECT assignee_agent_id, assigned_at, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
           )
-          .get(
-            this.#projectId,
-            input.planId,
-            agent.agent_id,
-            input.packageId,
-          ) as { package_id: string } | undefined;
-        if (holding !== undefined)
-          throw new ControllerError(
-            `${agent.agent_id} already holds package ${holding.package_id} of this plan`,
-          );
-        const revision = this.#database
-          .prepare(
-            "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
-          )
-          .get(this.#projectId, input.planId, plan.approved_revision) as
-          { body_json: string } | undefined;
-        const view =
-          revision === undefined
-            ? undefined
-            : packageOfBody(revision.body_json, input.packageId);
-        if (view === undefined || plan.architect_agent_id === null)
-          throw new ControllerError(
-            `plan ${input.planId} has no readable text for package ${input.packageId}`,
-          );
-        const task = workPackageMessage(
+          .get(this.#projectId, input.planId, dep) as
+          | {
+              assignee_agent_id: string | null;
+              assigned_at: string | null;
+              cancelled_at: string | null;
+            }
+          | undefined;
+        if (row === undefined) return [`${dep} (unknown)`];
+        if (row.cancelled_at !== null) return [`${dep} (cancelled)`];
+        const state = this.#packageProgress(
+          input.planId,
+          dep,
+          row.assignee_agent_id,
+          row.assigned_at,
+        );
+        return state === "reviewed" || state === "integrated"
+          ? []
+          : [`${dep} (${state})`];
+      });
+      if (unmet.length > 0 && early === undefined)
+        throw new ControllerError(
+          `dependencies_unmet: package ${input.packageId} depends on ${unmet.join(", ")}; assign them first, or pass --early "<reason>" to assign anyway`,
+        );
+      const task = workPackageMessage(
+        input.planId,
+        input.packageId,
+        plan.architect_agent_id,
+        view,
+        unmet,
+      );
+      if (Buffer.byteLength(task, "utf8") > MAX_MESSAGE_BYTES)
+        throw new ControllerError(
+          `package ${input.packageId} is too large to send as one message`,
+        );
+      const now = this.#now();
+      const messageId = this.#insertQueuedMessage(
+        this.#controllerActorId(),
+        agent,
+        task,
+        sha256(task),
+        now,
+      );
+      this.#database
+        .prepare(
+          "UPDATE plan_packages SET assignee_agent_id = ?, assigned_at = ?, assignment_message_id = ? WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+        )
+        .run(
+          agent.agent_id,
+          now,
+          messageId,
+          this.#projectId,
           input.planId,
           input.packageId,
-          plan.architect_agent_id,
-          view,
         );
-        if (Buffer.byteLength(task, "utf8") > MAX_MESSAGE_BYTES)
-          throw new ControllerError(
-            `package ${input.packageId} is too large to send as one message`,
-          );
-        const now = this.#now();
-        const messageId = this.#insertQueuedMessage(
-          this.#controllerActorId(),
-          agent,
-          task,
-          sha256(task),
-          now,
-        );
-        this.#database
-          .prepare(
-            "UPDATE plan_packages SET assignee_agent_id = ?, assigned_at = ?, assignment_message_id = ? WHERE project_id = ? AND plan_id = ? AND package_id = ?",
-          )
-          .run(
-            agent.agent_id,
-            now,
-            messageId,
-            this.#projectId,
-            input.planId,
-            input.packageId,
-          );
-        this.#database
-          .prepare(
-            "UPDATE plans SET updated_at = ? WHERE project_id = ? AND plan_id = ?",
-          )
-          .run(now, this.#projectId, input.planId);
-        return {
-          value: this.#planPackages(input.planId).find(
+      this.#database
+        .prepare(
+          "UPDATE plans SET updated_at = ? WHERE project_id = ? AND plan_id = ?",
+        )
+        .run(now, this.#projectId, input.planId);
+      return {
+        value: {
+          ...this.#planPackages(input.planId).find(
             (p) => p.packageId === input.packageId,
           )!,
-          event: {
-            entityType: "plan",
-            entityId: input.planId,
-            stateVersion: 0,
-            details: {
-              packageId: input.packageId,
-              agentId: agent.agent_id,
-            },
+          unmet: early === undefined ? [] : unmet,
+        },
+        event: {
+          entityType: "plan",
+          entityId: input.planId,
+          stateVersion: 0,
+          details: {
+            packageId: input.packageId,
+            agentId: agent.agent_id,
+            ...(early !== undefined && unmet.length > 0
+              ? { early, unmet }
+              : {}),
           },
-        };
-      },
-    );
+        },
+      };
+    });
   }
 
   /**
@@ -6223,7 +6388,13 @@ export class ControllerCore {
     });
     const parties = this.#noticeParties();
     if (parties !== undefined && parties.pm.agent_id !== agent.agent_id) {
-      const body = lostNotice(agent, reason, branch, unacknowledgedMessageIds);
+      const body = lostNotice(
+        agent,
+        reason,
+        branch,
+        unacknowledgedMessageIds,
+        this.isDeliveryPaused(agent.agent_id),
+      );
       this.#insertQueuedMessage(
         parties.controllerActorId,
         parties.pm,
@@ -6614,6 +6785,10 @@ export class ControllerCore {
         if (target.kind !== "Developer" && target.kind !== "Verifier")
           throw new ControllerError(
             "a finding can only be raised about a Developer or Verifier agent",
+          );
+        if (this.isDeliveryPaused(target.agent_id))
+          throw new RunPausedError(
+            `target is paused: ${target.agent_id} is held, so a finding cannot be raised about it`,
           );
         if (target.agent_id === caller.agent_id)
           throw new ControllerError(
@@ -7098,7 +7273,7 @@ export class ControllerCore {
   #dueFindingIds(deadlineSeconds: number): readonly string[] {
     const rows = this.#database
       .prepare(
-        `SELECT f.finding_id, d.created_at AS delivered_at, m.queued_at, m.sent_at, m.acked_at
+        `SELECT f.finding_id, f.target_agent_id, d.created_at AS delivered_at, m.queued_at, m.sent_at, m.acked_at
          FROM agent_findings f
          JOIN agent_finding_deliveries d ON d.project_id = f.project_id AND d.finding_id = f.finding_id AND d.attempt = f.interventions
          JOIN messages m ON m.project_id = d.project_id AND m.message_id = d.message_id
@@ -7106,6 +7281,7 @@ export class ControllerCore {
       )
       .all(this.#projectId) as Array<{
       finding_id: string;
+      target_agent_id: string;
       delivered_at: string;
       queued_at: string;
       sent_at: string | null;
@@ -7114,7 +7290,9 @@ export class ControllerCore {
     const nowMs = Date.parse(this.#now());
     return rows
       .filter((row) => {
+        if (this.isDeliveryPaused(row.target_agent_id)) return false;
         const anchor = Math.max(
+          this.#resumedMsFor(row.target_agent_id),
           ...[row.delivered_at, row.queued_at, row.sent_at, row.acked_at]
             .filter((value): value is string => value !== null)
             .map((value) => Date.parse(value)),
@@ -7439,6 +7617,7 @@ export class ControllerCore {
     if (agent?.kind === "PM" && !this.#hasStoredRequest(context)) {
       const head = queueHead(this.#messageRowsFor(agent.agent_id));
       if (head?.state !== "queued") return { message: null };
+      if (this.isDeliveryPaused(agent.agent_id)) return { message: null };
     }
     return this.#messageMutation(
       context,
@@ -7458,7 +7637,10 @@ export class ControllerCore {
             message: "only the PM pulls messages; workers receive pushes",
           });
         const head = queueHead(this.#messageRowsFor(recipient.agent_id));
-        if (head?.state !== "queued")
+        if (
+          head?.state !== "queued" ||
+          this.isDeliveryPaused(recipient.agent_id)
+        )
           return this.#reject(caller, "message.pull", {
             code: "nothing_to_pull",
             message: "the queue head is not waiting to be sent",
@@ -8524,9 +8706,18 @@ export class ControllerCore {
       recipientAgentId: row.recipient_agent_id,
       state: row.state,
       sequence: row.sequence,
-      queuedMs: Date.parse(row.queued_at),
+      queuedMs: Math.max(
+        Date.parse(row.queued_at),
+        this.#resumedMsFor(row.recipient_agent_id),
+      ),
       sentMs: row.sent_at === null ? null : Date.parse(row.sent_at),
-      deferredMs: row.deferred_at === null ? null : Date.parse(row.deferred_at),
+      deferredMs:
+        row.deferred_at === null
+          ? null
+          : Math.max(
+              Date.parse(row.deferred_at),
+              this.#resumedMsFor(row.recipient_agent_id),
+            ),
       deferredReason: row.deferred_reason,
       inputClearRecorded: row.input_clear_recorded === 1,
       lastNotifiedMs:
@@ -8541,8 +8732,14 @@ export class ControllerCore {
       kind: AgentFacts["kind"];
       last_activity_at: string;
     }>;
+    const pauseState = this.pauseState();
     const agents: AgentFacts[] = agentRows.map((row) => {
-      const lastActivityMs = Date.parse(row.last_activity_at);
+      // A pause covers the time up to its resume: timers start again from there, so a held message does not expire or stall the moment it is released.
+      const resumedMs = this.#resumedMsFor(row.agent_id);
+      const lastActivityMs = Math.max(
+        Date.parse(row.last_activity_at),
+        resumedMs,
+      );
       // No timer looks further back than the agent's last activity or its
       // oldest open message, so older history cannot change any result.
       const cutoffMs = Math.min(
@@ -8580,6 +8777,9 @@ export class ControllerCore {
       return {
         agentId: row.agent_id,
         kind: row.kind,
+        paused:
+          pauseState.agents.some((pause) => pause.agentId === row.agent_id) ||
+          (pauseState.run !== null && row.kind !== "PM"),
         lastActivityMs,
         observations: (before === undefined
           ? entries
@@ -13638,7 +13838,14 @@ export class ControllerCore {
   transitionRun(
     context: MutationContext,
     toState: RunState,
+    reason?: string,
   ): { readonly state: RunState } {
+    const pauseReason =
+      reason === undefined
+        ? toState === "paused"
+          ? "no reason given"
+          : `run ${toState}`
+        : pauseReasonText(reason);
     const apply = (actor: AuthenticatedActor, caller: AuthenticatedActor) => {
       const run = this.#database
         .prepare(
@@ -13647,6 +13854,12 @@ export class ControllerCore {
         .get(this.#projectId) as
         { state: string; state_version: number } | undefined;
       if (!run) throw new ControllerError("run control record is missing");
+      if (toState === "paused" && run.state === "paused")
+        throw new MutationConflictError(
+          `run is already paused: ${this.#openRunPause()?.reason ?? "no reason recorded"}`,
+        );
+      if (toState === "active" && run.state === "active")
+        throw new MutationConflictError("run is not paused");
       if (toState === "completed") {
         const unresolvedFinding = this.#database
           .prepare(
@@ -13710,10 +13923,32 @@ export class ControllerCore {
             caller.actorId,
             context.requestId,
             context.inputRevision,
-            canonicalJson({ from: run.state, to: toState }),
+            canonicalJson(
+              reason === undefined
+                ? { from: run.state, to: toState }
+                : { from: run.state, to: toState, reason: pauseReason },
+            ),
             now,
           );
       }
+      if (toState === "paused")
+        this.#openPause("run", null, pauseReason, caller.actorId, now);
+      else if (run.state === "paused")
+        this.#closePause("run", null, pauseReason, caller.actorId, now);
+      if (caller.role === "operator" && toState === "paused")
+        this.#noticeToPm(
+          `The operator paused the run: ${pauseReason}. Workers are held and spawn, plan assign, request-review and integrate are refused until \`cstan resume --reason "<text>"\`. You keep receiving messages.`,
+          now,
+        );
+      else if (
+        caller.role === "operator" &&
+        run.state === "paused" &&
+        toState === "active"
+      )
+        this.#noticeToPm(
+          `The operator resumed the run: ${pauseReason}. Held messages are delivered in order.`,
+          now,
+        );
       return {
         value: { state: toState },
         event: {
@@ -13722,6 +13957,7 @@ export class ControllerCore {
           stateVersion: run.state_version + 1,
           fromState: run.state,
           toState,
+          ...(reason === undefined ? {} : { details: { reason: pauseReason } }),
         },
       };
     };
@@ -13744,6 +13980,209 @@ export class ControllerCore {
       "run:control",
       { toState },
       (actor) => apply(actor, actor),
+    );
+  }
+
+  /** The open pause row of the run, or undefined. */
+  #openRunPause(): PauseRecord | undefined {
+    return this.#pauseRows().find((pause) => pause.scope === "run");
+  }
+
+  #pauseRows(): PauseRecord[] {
+    return (
+      this.#database
+        .prepare(
+          "SELECT scope, agent_id, reason, actor_id, paused_at FROM pauses WHERE project_id = ? AND resumed_at IS NULL ORDER BY paused_at, pause_id",
+        )
+        .all(this.#projectId) as Array<{
+        scope: "run" | "agent";
+        agent_id: string | null;
+        reason: string;
+        actor_id: string;
+        paused_at: string;
+      }>
+    ).map((row) => ({
+      scope: row.scope,
+      agentId: row.agent_id,
+      reason: row.reason,
+      actorId: row.actor_id,
+      pausedAt: row.paused_at,
+    }));
+  }
+
+  #openPause(
+    scope: "run" | "agent",
+    agentId: string | null,
+    reason: string,
+    actorId: string,
+    now: string,
+  ): void {
+    this.#database
+      .prepare(
+        "INSERT INTO pauses(project_id, pause_id, scope, agent_id, reason, actor_id, paused_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(this.#projectId, randomUUID(), scope, agentId, reason, actorId, now);
+  }
+
+  #closePause(
+    scope: "run" | "agent",
+    agentId: string | null,
+    reason: string,
+    actorId: string,
+    now: string,
+  ): void {
+    this.#database
+      .prepare(
+        `UPDATE pauses SET resumed_at = ?, resume_reason = ?, resumed_by = ?
+         WHERE project_id = ? AND scope = ? AND COALESCE(agent_id, '') = ? AND resumed_at IS NULL`,
+      )
+      .run(now, reason, actorId, this.#projectId, scope, agentId ?? "");
+  }
+
+  /** What is paused now: the run (while its state is paused) and each paused agent. */
+  pauseState(): {
+    readonly run: PauseRecord | null;
+    readonly agents: readonly PauseRecord[];
+  } {
+    this.#assertOpen();
+    const rows = this.#pauseRows();
+    const runState = (
+      this.#database
+        .prepare("SELECT state FROM run_controls WHERE project_id = ?")
+        .get(this.#projectId) as { state: string } | undefined
+    )?.state;
+    return {
+      run:
+        runState === "paused"
+          ? (rows.find((pause) => pause.scope === "run") ?? null)
+          : null,
+      agents: rows.filter((pause) => pause.scope === "agent"),
+    };
+  }
+
+  /** True when messages to the agent are held: it is paused, or the run is paused and the agent is not the PM (which coordinates and must see notices). */
+  isDeliveryPaused(agentId: string): boolean {
+    this.#assertOpen();
+    const state = this.pauseState();
+    if (state.agents.some((pause) => pause.agentId === agentId)) return true;
+    if (state.run === null) return false;
+    return this.#agentRow(agentId)?.kind !== "PM";
+  }
+
+  /** Refuses a step that must not start while the run is paused. */
+  assertRunNotPaused(action: string): void {
+    this.#assertOpen();
+    const run = this.pauseState().run;
+    if (run !== null)
+      throw new RunPausedError(
+        `run_paused: ${action} is refused while the run is paused: ${run.reason}`,
+      );
+  }
+
+  /** The latest time a pause that covers the agent ended, in ms; 0 when none did. Timers restart from here. */
+  #resumedMsFor(agentId: string): number {
+    const row = this.#database
+      .prepare(
+        "SELECT MAX(resumed_at) AS at FROM pauses WHERE project_id = ? AND resumed_at IS NOT NULL AND (scope = 'run' OR agent_id = ?)",
+      )
+      .get(this.#projectId, agentId) as { at: string | null };
+    return row.at === null ? 0 : Date.parse(row.at);
+  }
+
+  pauseAgent(
+    context: MutationContext,
+    input: { readonly agentId: string; readonly reason: string },
+  ): PauseRecord {
+    return this.#agentPauseChange(context, input, true);
+  }
+
+  resumeAgent(
+    context: MutationContext,
+    input: { readonly agentId: string; readonly reason: string },
+  ): PauseRecord {
+    return this.#agentPauseChange(context, input, false);
+  }
+
+  #agentPauseChange(
+    context: MutationContext,
+    input: { readonly agentId: string; readonly reason: string },
+    pausing: boolean,
+  ): PauseRecord {
+    safeId(input.agentId, "agent id");
+    const reason = pauseReasonText(input.reason);
+    return this.#mutate<PauseRecord>(
+      context,
+      pausing ? "agent.pause" : "agent.resume",
+      "run:control",
+      { agentId: input.agentId, reason },
+      (actor) => {
+        const caller = this.#agentByActor(actor.actorId);
+        if (actor.role !== "operator" && caller?.kind !== "PM")
+          throw new ControllerError(
+            "only the operator or the active PM pauses or resumes an agent",
+          );
+        const target = this.#agentRow(input.agentId);
+        if (target?.state !== "active")
+          throw new ControllerError("the agent is not active");
+        if (
+          pausing &&
+          caller !== undefined &&
+          caller.agent_id === target.agent_id
+        )
+          throw new ControllerError("an agent cannot pause itself");
+        const open = this.#pauseRows().find(
+          (pause) =>
+            pause.scope === "agent" && pause.agentId === target.agent_id,
+        );
+        const now = this.#now();
+        if (pausing) {
+          if (open !== undefined)
+            throw new MutationConflictError(
+              `agent ${target.agent_id} is already paused: ${open.reason}`,
+            );
+          this.#openPause("agent", target.agent_id, reason, actor.actorId, now);
+          if (actor.role === "operator")
+            this.#noticeToPm(
+              `The operator paused ${target.agent_id}: ${reason}. Its messages are held until \`cstan resume ${target.agent_id} --reason "<text>"\`.`,
+              now,
+            );
+        } else {
+          if (open === undefined)
+            throw new MutationConflictError(
+              `agent ${target.agent_id} is not paused`,
+            );
+          this.#closePause(
+            "agent",
+            target.agent_id,
+            reason,
+            actor.actorId,
+            now,
+          );
+          if (actor.role === "operator")
+            this.#noticeToPm(
+              `The operator resumed ${target.agent_id}: ${reason}. Its held messages are delivered in order.`,
+              now,
+            );
+        }
+        const record: PauseRecord = open ?? {
+          scope: "agent",
+          agentId: target.agent_id,
+          reason,
+          actorId: actor.actorId,
+          pausedAt: now,
+        };
+        return {
+          value: record,
+          event: {
+            entityType: "agent",
+            entityId: target.agent_id,
+            stateVersion: target.generation,
+            fromState: pausing ? "active" : "paused",
+            toState: pausing ? "paused" : "active",
+            details: { reason, scope: "agent" },
+          },
+        };
+      },
     );
   }
 
@@ -15703,6 +16142,7 @@ export class ControllerCore {
     return {
       projectId: this.#projectId,
       run: { state: run.state, stateVersion: run.state_version },
+      pause: this.pauseState(),
       stateVersion: this.stateVersion,
       inputRevision: this.inputRevision,
       supervision: {
@@ -17873,6 +18313,30 @@ export class ControllerCore {
         if (row === undefined || row.state !== "approved")
           return refuse("not_approved");
         const now = this.#now();
+        // A one-off decision of the PM still runs while the run is paused; a run approved by an
+        // auto rule, a session-grant match or full auto does not, and the refusal is recorded.
+        const paused = this.pauseState().run;
+        if (paused !== null && row.auto_rule !== null) {
+          const detail = `run_paused: running ${row.proposal_id} is refused while the run is paused: ${paused.reason}`;
+          this.#setOperatorState(row, "cancelled", now);
+          this.#noticeToPm(
+            `Operator proposal ${row.proposal_id} was approved automatically but not run: the run is paused (${paused.reason}). It is cancelled; the Operator may propose it again after resume.`,
+            now,
+          );
+          return {
+            value: { claimed: false, reason: "run_paused", detail },
+            event: this.#operatorEvent(
+              row.proposal_id,
+              "approved",
+              "cancelled",
+              {
+                claimed: false,
+                reason: "run_paused",
+                error: detail,
+              },
+            ),
+          };
+        }
         if (this.#operatorIsStale(row, input, now)) {
           this.#expireOperatorRow(row, now);
           return refuse("expired");

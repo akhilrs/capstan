@@ -372,7 +372,7 @@ const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
 test("with the Architect disabled every prompt is byte-identical to the one before the Architect existed", async () => {
   const { createHash } = await import("node:crypto");
   const golden = {
-    PM: "29a9ad84d6ff5b35",
+    PM: "11a87b86c244ccdf",
     Developer: "47514021ccf50174",
     Verifier: "f7bfe2d19eee2f46",
     Supervisor: "1032fc5dd4233bda",

@@ -35,14 +35,18 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Messaging and workers
 
-| Command                               | Who    | Purpose                                   |
-| ------------------------------------- | ------ | ----------------------------------------- |
-| `cstan send <agent-id\|@pm> "<text>"` | either | Queue a message.                          |
-| `cstan wait`                          | PM     | Block for new messages.                   |
-| `cstan ack <message-id>`              | agent  | Acknowledge a message.                    |
-| `cstan spawn <role>`                  | either | Start a worker.                           |
-| `cstan release <agent-id>`            | either | End a worker, free its pane and worktree. |
-| `cstan replace <agent-id>`            | either | Replace a lost or stuck worker.           |
+| Command                                                    | Who    | Purpose                                   |
+| ---------------------------------------------------------- | ------ | ----------------------------------------- |
+| `cstan send <agent-id\|@pm> "<text>"`                      | either | Queue a message.                          |
+| `cstan wait`                                               | PM     | Block for new messages.                   |
+| `cstan ack <message-id>`                                   | agent  | Acknowledge a message.                    |
+| `cstan spawn <role>`                                       | either | Start a worker.                           |
+| `cstan release <agent-id>`                                 | either | End a worker, free its pane and worktree. |
+| `cstan replace <agent-id>`                                 | either | Replace a lost or stuck worker.           |
+| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]` | either | Hold one agent, or the whole run.         |
+| `cstan resume [<agent-id>] --reason "<text>"`              | either | Release a pause.                          |
+
+`cstan pause` and `cstan resume` are for the operator and the active PM; a worker gets `forbidden`. `--reason "<text>"` (1 to 500 characters) is required. Without an agent id they act on the whole run, with one on that agent (which must be active; a PM may not pause itself). A double pause or a resume of something not paused is refused. `--interrupt` (pause only) also sends exactly one `Esc` to each worker Herdr shows working (never the PM) and needs `[prompt_relay] enabled = true`; without it nothing is paused and the command answers `not_configured`. The answer lists the agents that got the Esc. See [Pause and resume](workflow.md#pause-and-resume).
 
 ### Delivery flow
 
@@ -63,14 +67,14 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Planned work (with `[architect] enabled = true`)
 
-| Command                                                         | Who            | Purpose                                                                        |
-| --------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------ |
-| `cstan plan open normal\|high-risk "<title>" [<superseded-id>]` | PM or operator | Open a draft plan; a trailing plan id supersedes an approved plan.             |
-| `cstan plan submit <plan-id> "<json>"`                          | Architect      | Submit the plan body (packages, owned areas, dependencies, acceptance, risks). |
-| `cstan plan show [<plan-id>]`                                   | any            | List plans, or one plan with its packages, assignees and progress.             |
-| `cstan plan assign <plan-id> <package-id> <agent-id>`           | PM or operator | Assign a package; the controller sends the package text to the developer.      |
-| `cstan plan signoff <plan-id> <integration-id> "<summary>"`     | Architect      | Sign off a reviewed integration; the PM is told the branch to hand to you.     |
-| `cstan plan cancel <plan-id> [<package-id>]`                    | operator       | Cancel a plan or one package.                                                  |
+| Command                                                                    | Who            | Purpose                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cstan plan open normal\|high-risk "<title>" [<superseded-id>]`            | PM or operator | Open a draft plan; a trailing plan id supersedes an approved plan.                                                                                                                                          |
+| `cstan plan submit <plan-id> "<json>"`                                     | Architect      | Submit the plan body (packages, owned areas, dependencies, acceptance, risks).                                                                                                                              |
+| `cstan plan show [<plan-id>]`                                              | any            | List plans, or one plan with its packages, assignees and progress.                                                                                                                                          |
+| `cstan plan assign <plan-id> <package-id> <agent-id> [--early "<reason>"]` | PM or operator | Assign a package once its dependencies are reviewed or integrated; `--early` assigns past unmet ones and records the reason. `integrate` refuses a dependent before its dependencies (`integration_order`). |
+| `cstan plan signoff <plan-id> <integration-id> "<summary>"`                | Architect      | Sign off a reviewed integration; the PM is told the branch to hand to you.                                                                                                                                  |
+| `cstan plan cancel <plan-id> [<package-id>]`                               | operator       | Cancel a plan or one package.                                                                                                                                                                               |
 
 ### Nexora links
 
@@ -114,20 +118,21 @@ EOF
 
 Messages whose sender is `controller` start with one of these prefixes (`src/controller/core.ts`, `src/prompts.ts`):
 
-| Prefix                            | Meaning                                                                                      |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `Verified report`                 | A report was accepted: the commit exists on that worker's branch. Not a review.              |
-| `Review request`                  | To a reviewer: the commit (or integration) to review.                                        |
-| `Review`                          | To the PM: the reviewer's verdict as recorded. The text inside is the reviewer's opinion.    |
-| `Finding`                         | A supervisor raised, resolved, escalated or cancelled a finding.                             |
-| `Delivery problem`                | A message to a worker is `unacked`, `expired` or `failed`; run the `cstan resolve` it names. |
-| `Agent stalled` / `Agent blocked` | A worker made no progress / waits at a prompt.                                               |
-| `Agent ... is lost`               | Herdr no longer finds the agent's pane or process.                                           |
-| `Plan <plan-id> approved`         | To the PM: the plan's packages, dependencies and order.                                      |
-| `Plan <plan-id> needs attention`  | To the PM: the plan did not pass review, or the Architect was lost.                          |
-| `Plan <plan-id> signed off`       | To the PM: the integration branch and commit the Architect signed off.                       |
-| `Operator run <id> finished`      | A proposed command ran; the output tail is untrusted data.                                   |
-| `Routine check`                   | To the Supervisor: do one watch pass.                                                        |
+| Prefix                            | Meaning                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `Verified report`                 | A report was accepted: the commit exists on that worker's branch. Not a review.                |
+| `Review request`                  | To a reviewer: the commit (or integration) to review.                                          |
+| `Review`                          | To the PM: the reviewer's verdict as recorded. The text inside is the reviewer's opinion.      |
+| `Finding`                         | A supervisor raised, resolved, escalated or cancelled a finding.                               |
+| `Delivery problem`                | A message to a worker is `unacked`, `expired` or `failed`; run the `cstan resolve` it names.   |
+| `Agent stalled` / `Agent blocked` | A worker made no progress / waits at a prompt.                                                 |
+| `Agent ... is lost`               | Herdr no longer finds the agent's pane or process (`(paused)` after the id when it is paused). |
+| `The operator paused` / `resumed` | The operator paused or resumed the run or an agent; held messages follow the pause.            |
+| `Plan <plan-id> approved`         | To the PM: the plan's packages, dependencies and order.                                        |
+| `Plan <plan-id> needs attention`  | To the PM: the plan did not pass review, or the Architect was lost.                            |
+| `Plan <plan-id> signed off`       | To the PM: the integration branch and commit the Architect signed off.                         |
+| `Operator run <id> finished`      | A proposed command ran; the output tail is untrusted data.                                     |
+| `Routine check`                   | To the Supervisor: do one watch pass.                                                          |
 
 ## Exit codes
 

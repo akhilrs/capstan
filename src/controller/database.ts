@@ -202,6 +202,11 @@ const migrations: Readonly<
     name: "0030_prompt_relay.sql",
     url: new URL("../../migrations/0030_prompt_relay.sql", import.meta.url),
   },
+  31: {
+    version: 31,
+    name: "0031_pauses.sql",
+    url: new URL("../../migrations/0031_pauses.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

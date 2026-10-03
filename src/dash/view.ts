@@ -1,7 +1,7 @@
 /** The dashboard as a pure function: model and view state in, a fixed-size grid of styled lines out. Ink only paints it. */
 import { availableDecisions, type DashAction } from "./actions.js";
 import { bottomBorder, thumbRange, topBorder, type Tab } from "./border.js";
-import { ageDetail, cellWidth, durationText, truncate } from "./format.js";
+import { age, ageDetail, cellWidth, durationText, truncate } from "./format.js";
 import { glyphsFor, type Glyphs } from "./glyphs.js";
 import {
   areaGraph,
@@ -299,9 +299,15 @@ function stateSpan(ctx: Ctx, text: string, state = text): Span {
 
 // ---------------------------------------------------------------- agents
 
-function agentState(a: AgentRow): { word: string; role: ColorRole } {
+function agentState(
+  a: AgentRow,
+  nowMs: number,
+): { word: string; role: ColorRole } {
   if (a.state !== "active") return { word: a.state, role: "dim" };
-  if (a.lost) return { word: "LOST", role: "bad" };
+  if (a.lost)
+    return { word: a.pausedAt === null ? "LOST" : "LOST+paused", role: "bad" };
+  if (a.pausedAt !== null)
+    return { word: `paused ${age(a.pausedAt, nowMs)}`, role: "warn" };
   if (a.stalled) return { word: "STALLED", role: "bad" };
   if (a.blocked) return { word: "BLOCKED", role: "bad" };
   if (a.working) return { word: "working", role: "ok" };
@@ -344,7 +350,11 @@ function agentsPanel(ctx: Ctx): Line[] {
       { key: "agent", title: "AGENT", width: nameWidth, flex: true },
       ...(kept.has("role") ? [{ key: "role", title: "ROLE", width: 10 }] : []),
       { key: "gen", title: "GEN", width: 3 },
-      { key: "state", title: "STATE", width: 7 },
+      {
+        key: "state",
+        title: "STATE",
+        width: agents.some((a) => a.pausedAt !== null) ? 11 : 7,
+      },
       ...(kept.has("activity")
         ? [{ key: "activity", title: "ACTIVITY", width: 8 }]
         : []),
@@ -365,7 +375,7 @@ function agentsPanel(ctx: Ctx): Line[] {
     cols = build(drop);
   const win = windowOf(agents.length, view.selected.agents, sec.rows);
   const rowOf = (a: AgentRow, isSelected: boolean): Line => {
-    const st = agentState(a);
+    const st = agentState(a, view.nowMs);
     const spinner = g.spinner[view.tick % g.spinner.length] ?? g.working;
     const glyph =
       a.state !== "active"
@@ -1003,6 +1013,14 @@ function headerLines(
       leftTabs: [
         { text: h.projectId, color: color("fg") },
         { text: `run ${h.runState}`, color: color("fg") },
+        ...(h.runPause === null
+          ? []
+          : [
+              {
+                text: `PAUSED ${age(h.runPause.pausedAt, view.nowMs)}: ${h.runPause.reason}`,
+                color: color("warn"),
+              },
+            ]),
         ...(h.fullAutoMinutes === undefined
           ? []
           : [{ text: `FULL AUTO ${h.fullAutoMinutes}m`, color: color("bad") }]),

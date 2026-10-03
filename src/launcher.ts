@@ -88,6 +88,7 @@ export type LauncherAdapter = Pick<
   | "readScreen"
   | "capturePrompt"
   | "answerPrompt"
+  | "interruptWorking"
 >;
 
 export interface GitRunner {
@@ -845,6 +846,25 @@ export class Launcher {
       beforeType: input.beforeType,
       log: (entry) => this.#log("prompt_relay_key", { agentId, ...entry }),
     });
+  }
+
+  /**
+   * Sends one Esc to a worker that Herdr shows working, so a pause takes hold
+   * at once. Needs `[prompt_relay]`, whose key log it shares. True when the Esc
+   * was sent.
+   */
+  async interrupt(agentId: string): Promise<boolean> {
+    if (this.#config.promptRelay?.enabled !== true)
+      throw new LauncherError(
+        "not_configured",
+        "--interrupt needs [prompt_relay] enabled = true in capstan.toml",
+      );
+    const paneId = this.#activePane(agentId);
+    const outcome = await this.#adapter.interruptWorking({
+      paneId,
+      log: (entry) => this.#log("prompt_relay_key", { agentId, ...entry }),
+    });
+    return outcome.sent;
   }
 
   /** The recent screen of an active agent. A read: it does not wait for other launcher operations. */
@@ -1625,6 +1645,11 @@ export class Launcher {
     roleName: string,
     options: { readonly baseSha?: string; readonly seed?: string } = {},
   ): Promise<SpawnResult> {
+    try {
+      this.#core.assertRunNotPaused("spawn");
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (
       options.baseSha !== undefined &&
       !/^[0-9a-f]{40}$/.test(options.baseSha)

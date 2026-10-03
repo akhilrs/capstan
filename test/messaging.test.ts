@@ -172,6 +172,7 @@ function pm(overrides: Partial<AgentFacts> = {}): AgentFacts {
     lastActivityMs: 0,
     observations: [{ state: "idle", atMs: 0 }],
     waits: [],
+    paused: false,
     ...overrides,
   };
 }

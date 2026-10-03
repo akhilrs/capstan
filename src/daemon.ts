@@ -107,6 +107,8 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   send: { access: "any" },
   "pm-restart": { access: "operator" },
   launch: { access: "operator" },
+  pause: { access: "any" },
+  resume: { access: "any" },
   spawn: { access: "any" },
   release: { access: "any" },
   replace: { access: "any" },

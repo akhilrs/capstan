@@ -25,6 +25,7 @@ test("the header carries run state, health with its reason, supervision and work
   assert.deepEqual(ok.header, {
     projectId: "p1",
     runState: "active",
+    runPause: null,
     supervisionEnabled: true,
     health: "healthy",
     healthReason: null,

@@ -385,3 +385,12 @@ export interface PromptRelayRecord {
   readonly outcomeReason: string | null;
   readonly keys: readonly string[] | null;
 }
+
+/** One open pause: of the whole run (scope "run", no agent) or of one agent. */
+export interface PauseRecord {
+  readonly scope: "run" | "agent";
+  readonly agentId: string | null;
+  readonly reason: string;
+  readonly actorId: string;
+  readonly pausedAt: string;
+}

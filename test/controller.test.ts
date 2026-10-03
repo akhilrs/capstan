@@ -7314,7 +7314,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'prompt_relays', 'operator_grants', 'operator_runs', 'operator_proposals', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_covered_reports', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'pauses', 'prompt_relays', 'operator_grants', 'operator_runs', 'operator_proposals', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_covered_reports', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -7335,7 +7335,8 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
                 !row.includes('"finding:raise') &&
                 !row.includes('"finding:check') &&
                 !row.includes('"agent:observe') &&
-                !row.includes('"prompt:relay'),
+                !row.includes('"prompt:relay') &&
+                !row.includes('"capability":"run:control"'),
             )
             .sort(),
         ]),
@@ -7345,6 +7346,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "pauses",
         "prompt_relays",
         "operator_grants",
         "operator_runs",
@@ -7387,6 +7389,9 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       db.exec(
         "DELETE FROM role_capabilities WHERE capability LIKE 'message:%' OR capability LIKE 'plan:%' OR capability LIKE 'report:%' OR capability LIKE 'review:%' OR capability LIKE 'operator:%' OR capability IN ('finding:raise', 'finding:check', 'agent:observe', 'prompt:relay')",
       );
+      db.exec(
+        "DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control'; DELETE FROM capability_grants WHERE capability = 'run:control' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM'); DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control'",
+      );
       db.prepare("DELETE FROM schema_migrations WHERE version >= 14").run();
       before = snapshot(db);
     } finally {
@@ -7426,6 +7431,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 28, name: "0028_operator_grants.sql" },
           { version: 29, name: "0029_coverage_merge.sql" },
           { version: 30, name: "0030_prompt_relay.sql" },
+          { version: 31, name: "0031_pauses.sql" },
         ],
       );
       assert.equal(

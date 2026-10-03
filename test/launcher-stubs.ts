@@ -233,6 +233,31 @@ export class StubAdapter implements LauncherAdapter {
     answer: PromptAnswer;
   }> = [];
 
+  /** Pane ids that are working: an interrupt sends one Esc to these only. */
+  readonly workingPanes = new Set<string>();
+  readonly interrupts: string[] = [];
+
+  async interruptWorking(input: {
+    paneId: string;
+    log: (entry: {
+      kind: "key";
+      pane: string;
+      key: string;
+      reason: string;
+    }) => void | Promise<void>;
+  }): Promise<{ readonly sent: boolean }> {
+    this.calls.push(`interrupt:${input.paneId}`);
+    if (!this.workingPanes.has(input.paneId)) return { sent: false };
+    this.interrupts.push("esc");
+    await input.log({
+      kind: "key",
+      pane: input.paneId,
+      key: "esc",
+      reason: "interrupt a paused worker",
+    });
+    return { sent: true };
+  }
+
   async capturePrompt(paneId: string): Promise<CaptureOutcome> {
     this.calls.push(`capture:${paneId}`);
     return this.captureOutcome;

@@ -1939,11 +1939,7 @@ test("cancel with one id is a routed command; the legacy forms keep their usage 
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-cancel-"));
   try {
     assert.equal(invoke(cwd, "init").status, 0);
-    for (const args of [
-      ["cancel", "a", "b"],
-      ["pause", "x"],
-      ["resume", "x"],
-    ]) {
+    for (const args of [["cancel", "a", "b"]]) {
       const result = invoke(cwd, ...args);
       assert.equal(result.status, 2, args.join(" "));
       assert.match(result.stderr, /usage: cstan init \| cstan start/);

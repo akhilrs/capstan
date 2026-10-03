@@ -1640,6 +1640,28 @@ export class HerdrAdapter {
   }
 
   /**
+   * Interrupts a working agent with exactly one Esc. Nothing is sent when Herdr
+   * does not show the agent working, and no second key is ever sent.
+   */
+  async interruptWorking(input: {
+    paneId: string;
+    log: KeyLogger;
+  }): Promise<{ readonly sent: boolean }> {
+    const entry = this.#assertTypable(input.paneId, "dialog");
+    if (entry.agent === undefined)
+      throw new PhaseError("the pane has no agent");
+    if ((await this.#stateFor(entry.agent, input.paneId)) !== "working")
+      return { sent: false };
+    await this.#sendKey(
+      input.paneId,
+      "esc",
+      "interrupt a paused worker",
+      input.log,
+    );
+    return { sent: true };
+  }
+
+  /**
    * Answers an Esc-only dialog relay: the hash must match the screen just
    * read, the agent must not be working, and exactly one Esc is sent. Then the
    * input line is polled for a short while; no second key is ever sent.

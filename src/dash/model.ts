@@ -21,6 +21,8 @@ export interface AgentRow {
   readonly stalled: boolean;
   readonly lost: boolean;
   readonly blocked: boolean;
+  /** When delivery to the agent was paused (its own pause, or the run's for a non-PM agent), or null. */
+  readonly pausedAt: string | null;
   readonly paneId: string | null;
   readonly queueDepth: number;
   readonly fingerprint: string;
@@ -86,6 +88,12 @@ export interface DashModel {
   readonly header: {
     readonly projectId: string;
     readonly runState: string;
+    /** The open run pause, or null. */
+    readonly runPause: {
+      readonly pausedAt: string;
+      readonly reason: string;
+      readonly actorId: string;
+    } | null;
     readonly supervisionEnabled: boolean;
     readonly health: Health;
     readonly healthReason: string | null;
@@ -234,6 +242,11 @@ export function buildDashModel(
   const lost = new Set(
     (Array.isArray(status.lostAgentIds) ? status.lostAgentIds : []).map(text),
   );
+  const pause = (status.pause ?? {}) as Rec;
+  const runPauseRecord = (pause.run ?? null) as Rec | null;
+  const pausedAtOf = new Map<string, string>();
+  for (const entry of list(pause.agents))
+    pausedAtOf.set(text(entry.agentId), text(entry.pausedAt));
   const paneOf = new Map<string, string>();
   for (const pane of list(status.panes))
     if (pane.paneId) paneOf.set(text(pane.agentId), text(pane.paneId));
@@ -281,6 +294,11 @@ export function buildDashModel(
       stalled: stalled.has(agentId),
       lost: lost.has(agentId),
       blocked: stuckRecipients.has(agentId) || escalatedTargets.has(agentId),
+      pausedAt:
+        pausedAtOf.get(agentId) ??
+        (runPauseRecord !== null && text(a.kind) !== "PM"
+          ? text(runPauseRecord.pausedAt)
+          : null),
       paneId: paneOf.get(agentId) ?? null,
       queueDepth: depth.get(agentId) ?? 0,
     };
@@ -293,6 +311,7 @@ export function buildDashModel(
         row.stalled,
         row.lost,
         row.blocked,
+        row.pausedAt !== null,
         row.queueDepth,
       ].join("|"),
     };
@@ -416,6 +435,14 @@ export function buildDashModel(
     header: {
       projectId: text(status.projectId),
       runState: text(run.state),
+      runPause:
+        runPauseRecord === null
+          ? null
+          : {
+              pausedAt: text(runPauseRecord.pausedAt),
+              reason: text(runPauseRecord.reason),
+              actorId: text(runPauseRecord.actorId),
+            },
       supervisionEnabled: supervision.enabled === true,
       health,
       healthReason: textOrNull(status.supervisionReason),

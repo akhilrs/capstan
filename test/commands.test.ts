@@ -757,6 +757,10 @@ function stubLauncher(): {
   return {
     calls,
     api: {
+      interrupt: async (agentId: string) => {
+        calls.push(`interrupt:${agentId}`);
+        return true;
+      },
       launchPm: async () => {
         calls.push("launch");
         return { state: "started", agentId: "pm-1" };

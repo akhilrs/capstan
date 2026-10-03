@@ -204,6 +204,8 @@ export interface AgentFacts {
   readonly lastActivityMs: number;
   readonly observations: readonly StateObservation[];
   readonly waits: readonly WaitInterval[];
+  /** Paused agents (and workers of a paused run) are held: no expiry, clear, wake, notify or attention for them. */
+  readonly paused: boolean;
 }
 
 export interface MessageFacts {
@@ -305,7 +307,11 @@ export function evaluateMessaging(
           transitions.push({ messageId: message.messageId, to: "unacked" });
       }
     }
-    if (head?.state === "deferred" && head.deferredMs !== null) {
+    if (
+      !agent.paused &&
+      head?.state === "deferred" &&
+      head.deferredMs !== null
+    ) {
       // Time spent waiting for a busy or blocked worker is not a delivery failure for minutes: it gets its own, much longer limit. A line with text on it is cleared after the shorter one.
       if (head.deferredReason === "input_not_empty") {
         if (nowMs - head.deferredMs >= timers.maxDeferralSeconds * 1000)
@@ -321,6 +327,7 @@ export function evaluateMessaging(
         transitions.push({ messageId: head.messageId, to: "expired" });
     }
     if (
+      !agent.paused &&
       agent.kind === "PM" &&
       head !== undefined &&
       (head.state === "queued" ||
@@ -353,6 +360,7 @@ export function evaluateMessaging(
       }
     }
     if (
+      !agent.paused &&
       agent.kind === "PM" &&
       timers.pmWakeAfterSeconds > 0 &&
       head?.state === "queued" &&
@@ -365,6 +373,7 @@ export function evaluateMessaging(
       if (state === "idle" || state === "done")
         actions.push({ kind: "wake_pm", messageId: head.messageId });
     }
+    if (agent.paused) continue;
     if (
       agent.kind !== "PM" &&
       agent.kind !== "Supervisor" &&

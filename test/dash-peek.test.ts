@@ -30,6 +30,7 @@ function launcherStub(seen: Array<[string, number]>): Launcher {
     },
     capturePrompt: unused,
     answerPrompt: unused,
+    interrupt: unused,
     status: () => ({ cleanupFailed: [], orphanPanes: [] }),
   };
 }

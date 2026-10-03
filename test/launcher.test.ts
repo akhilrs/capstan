@@ -276,6 +276,8 @@ async function world(
     readonly runSetup?: SetupRunner;
     readonly runTeardown?: TeardownRunner;
     readonly git?: GitRunner;
+    /** Sets `[prompt_relay] enabled`. */
+    readonly promptRelay?: boolean;
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -336,6 +338,15 @@ async function world(
         ...(environment.worktree === undefined
           ? {}
           : { worktree: environment.worktree }),
+        ...(environment.promptRelay === undefined
+          ? {}
+          : {
+              promptRelay: {
+                present: true,
+                enabled: environment.promptRelay,
+                captureTtlSeconds: 300,
+              },
+            }),
       },
       ...(environment.runSetup === undefined
         ? {}
@@ -4491,6 +4502,52 @@ test("teardown time is not charged to the cleanup budget", async () => {
       [released.paneClosed, released.worktreeRemoved, released.branchKept],
       [true, true, false],
     );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("interrupt sends exactly one Esc to a working agent, nothing to an idle one, and is refused without prompt_relay", async () => {
+  const off = await world();
+  try {
+    await off.launcher.launchPm();
+    const spawned = await off.launcher.spawn("developer");
+    await assert.rejects(
+      off.launcher.interrupt(spawned.agentId),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "not_configured",
+    );
+    assert.deepEqual(off.adapter.interrupts, []);
+  } finally {
+    off.cleanup();
+  }
+  const w = await world(true, true, 3, {}, { promptRelay: true });
+  try {
+    await w.launcher.launchPm();
+    const spawned = await w.launcher.spawn("developer");
+    const paneId = w.core
+      .agentPanes(w.owner)
+      .find((row) => row.agentId === spawned.agentId)!.paneId!;
+    assert.equal(await w.launcher.interrupt(spawned.agentId), false);
+    assert.deepEqual(w.adapter.interrupts, [], "an idle agent gets no key");
+    w.adapter.workingPanes.add(paneId);
+    assert.equal(await w.launcher.interrupt(spawned.agentId), true);
+    assert.deepEqual(w.adapter.interrupts, ["esc"]);
+    assert.ok(
+      w.events.some(
+        (e) =>
+          e.event === "prompt_relay_key" &&
+          e.details.key === "esc" &&
+          e.details.agentId === spawned.agentId,
+      ),
+      "the key is logged",
+    );
+    await assert.rejects(
+      w.launcher.interrupt("nobody"),
+      (error: Error) =>
+        error instanceof LauncherError && error.code === "agent_not_active",
+    );
+    assert.deepEqual(w.adapter.interrupts, ["esc"]);
   } finally {
     w.cleanup();
   }

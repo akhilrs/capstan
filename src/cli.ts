@@ -39,6 +39,7 @@ import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
 import { watchStatus } from "./watch.js";
 import { NOT_A_TERMINAL_MESSAGE, hasTerminal } from "./dash/terminal.js";
+import { age } from "./dash/format.js";
 import {
   CONFIG_FILE_NAME,
   ConfigError,
@@ -458,6 +459,32 @@ function render(value: unknown): string {
   return String(value);
 }
 
+/** `PAUSED (<age>): <reason> by <actor>` for the run and per paused agent, from a status result; empty when nothing is paused. */
+export function pauseLines(status: unknown, nowMs: number): string[] {
+  const pause = (status as { pause?: unknown } | null)?.pause as
+    | {
+        run?: PauseLike | null;
+        agents?: PauseLike[];
+      }
+    | undefined;
+  if (!pause) return [];
+  const line = (entry: PauseLike, subject: string): string =>
+    `PAUSED (${age(entry.pausedAt, nowMs)})${subject}: ${entry.reason} by ${entry.actorId}`;
+  return [
+    ...(pause.run ? [line(pause.run, "")] : []),
+    ...(pause.agents ?? []).map((entry) =>
+      line(entry, ` ${entry.agentId ?? ""}`),
+    ),
+  ];
+}
+
+interface PauseLike {
+  readonly agentId?: string | null;
+  readonly reason: string;
+  readonly actorId: string;
+  readonly pausedAt: string;
+}
+
 function parseOptions(args: string[]): { positional: string[]; json: boolean } {
   const separator = args.indexOf("--");
   const options = separator < 0 ? args : args.slice(0, separator);
@@ -729,7 +756,12 @@ function handleWire(result: WireResult, json: boolean, command = ""): number {
   if (response.ok) {
     if (!json && (command === "inbox" || command === "wait"))
       process.stdout.write(`${renderMessages(response.result)}\n`);
-    else output(response.result, json);
+    else {
+      if (!json && command === "status")
+        for (const line of pauseLines(response.result, Date.now()))
+          process.stdout.write(`${line}\n`);
+      output(response.result, json);
+    }
     const warning = (response.result as { warning?: unknown } | null)?.warning;
     if (typeof warning === "string")
       process.stderr.write(`warning: ${warning}\n`);
@@ -817,7 +849,7 @@ rows = [["state_icon", "workspace"], ["$project", "branch", "git_status"]]
 `;
 
 const USAGE =
-  "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart";
+  "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan pause [<agent-id>] --reason <text> [--interrupt] | cstan resume [<agent-id>] --reason <text> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart";
 
 function usage(): never {
   fail(USAGE);
@@ -1279,6 +1311,9 @@ async function runCli(argv: string[]): Promise<number> {
       },
       nextLegalActions,
     };
+    if (!parsed.json)
+      for (const line of pauseLines(statusOutput, Date.now()))
+        process.stdout.write(`${line}\n`);
     output(statusOutput, parsed.json);
     return EXIT.ok;
   }

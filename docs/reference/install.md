@@ -6,13 +6,13 @@ Capstan installs as the `cstan` command. [`install.sh`](../../install.sh) is a P
 
 ## Requirements
 
-| Need                                                       | Why                                                                                    | Fix if missing                                                         |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Linux or macOS                                             | Other systems are not supported                                                        | —                                                                      |
-| Node.js 24 (`>=24 <25`) and npm                            | The `engines` range; `fs-ext` is compiled for this Node                                | `nvm install 24 && nvm use 24`, or `fnm use 24`                        |
-| `make`, a C++ compiler (`c++`, `g++` or `clang++`), `python3` | node-gyp builds the native `fs-ext` module at install time                             | Debian/Ubuntu: `sudo apt install build-essential python3`; macOS: `xcode-select --install` |
-| `curl` or `wget`                                           | Downloads (not needed for a local-path `--tarball`)                                    | Install either                                                         |
-| `sha256sum` or `shasum`                                    | Checksum verification                                                                  | Part of coreutils / macOS                                              |
+| Need                                                          | Why                                                        | Fix if missing                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Linux or macOS                                                | Other systems are not supported                            | —                                                                                          |
+| Node.js 24 (`>=24 <25`) and npm                               | The `engines` range; `fs-ext` is compiled for this Node    | `nvm install 24 && nvm use 24`, or `fnm use 24`                                            |
+| `make`, a C++ compiler (`c++`, `g++` or `clang++`), `python3` | node-gyp builds the native `fs-ext` module at install time | Debian/Ubuntu: `sudo apt install build-essential python3`; macOS: `xcode-select --install` |
+| `curl` or `wget`                                              | Downloads (not needed for a local-path `--tarball`)        | Install either                                                                             |
+| `sha256sum` or `shasum`                                       | Checksum verification                                      | Part of coreutils / macOS                                                                  |
 
 `curl` is required when the release base or tarball is a `file://` URL (wget cannot fetch those; the installer says so). With only `wget`, the latest-release lookup reads the `Location` header of the `releases/latest` redirect (`wget --max-redirect=0 -S`); pin `--version` if that fails.
 
@@ -29,16 +29,16 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 ### Options and environment variables
 
-| Option                 | Environment                  | Meaning                                                                                                              |
-| ---------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `--version <x.y.z>`    | `CAPSTAN_VERSION`            | Release to install. Default: the latest, read from the redirect of `https://github.com/akhilrs/capstan/releases/latest` (no API call). |
-| `--tarball <path\|url>` | `CAPSTAN_TARBALL`            | Install this tarball instead of a release. Skips the release lookup. For local testing.                              |
-| `--sha256 <hex>`       | `CAPSTAN_SHA256`             | Expected checksum. With `--tarball` it is the only verification; with a release it must also match `SHA256SUMS`.     |
-| `--home <dir>`         | `CAPSTAN_HOME`               | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                              |
-| `--bin-dir <dir>`      | `CAPSTAN_BIN_DIR`            | Where the `cstan` symlink goes. Default `$HOME/.local/bin`. Must be absolute.                                        |
-| `--uninstall`          | —                            | Remove the install and the bin symlink.                                                                              |
-| `--help`               | —                            | Print the options.                                                                                                   |
-| —                      | `CAPSTAN_RELEASE_BASE`       | Replaces `https://github.com/akhilrs/capstan/releases`. For tests.                                                   |
+| Option                  | Environment            | Meaning                                                                                                                                |
+| ----------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--version <x.y.z>`     | `CAPSTAN_VERSION`      | Release to install. Default: the latest, read from the redirect of `https://github.com/akhilrs/capstan/releases/latest` (no API call). |
+| `--tarball <path\|url>` | `CAPSTAN_TARBALL`      | Install this tarball instead of a release. Skips the release lookup. For local testing.                                                |
+| `--sha256 <hex>`        | `CAPSTAN_SHA256`       | Expected checksum. With `--tarball` it is the only verification; with a release it must also match `SHA256SUMS`.                       |
+| `--home <dir>`          | `CAPSTAN_HOME`         | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                                                |
+| `--bin-dir <dir>`       | `CAPSTAN_BIN_DIR`      | Where the `cstan` symlink goes. Default `$HOME/.local/bin`. Must be absolute.                                                          |
+| `--uninstall`           | —                      | Remove the install and the bin symlink.                                                                                                |
+| `--help`                | —                      | Print the options.                                                                                                                     |
+| —                       | `CAPSTAN_RELEASE_BASE` | Replaces `https://github.com/akhilrs/capstan/releases`. For tests.                                                                     |
 
 Options win over environment variables.
 

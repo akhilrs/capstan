@@ -1269,7 +1269,18 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
 
 // ---------------------------------------------------------------- Nexora wanted state and cancellation
 
+function undoMigration0031(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE pauses;
+    DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';
+    DELETE FROM capability_grants WHERE capability = 'run:control'
+      AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM');
+    DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control';
+  `);
+}
+
 function undoMigration0030(db: Database.Database): void {
+  undoMigration0031(db);
   db.exec(`
     DROP TABLE prompt_relays;
     DELETE FROM capability_grants WHERE capability = 'prompt:relay';

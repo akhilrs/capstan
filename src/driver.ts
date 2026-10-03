@@ -242,7 +242,12 @@ export class DeliveryDriver {
     this.#judgeLoss(agents, outcomes);
     await this.#advance();
     for (const agent of agents)
-      if (agent.kind !== "PM" && !this.#skippedAgents.has(agent.agentId))
+      if (
+        agent.kind !== "PM" &&
+        !this.#skippedAgents.has(agent.agentId) &&
+        // A paused agent's head stays queued or deferred: no send, no new deferral.
+        !this.#core.isDeliveryPaused(agent.agentId)
+      )
         await this.#deliver(agent);
     await this.#updateStuck();
     this.#forget();

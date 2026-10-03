@@ -292,6 +292,8 @@ export interface LauncherApi {
       beforeType: () => void | Promise<void>;
     },
   ): Promise<RelayOutcome>;
+  /** Sends one Esc to a worker Herdr shows working; true when sent. Refused without `[prompt_relay]`. */
+  interrupt(agentId: string): Promise<boolean>;
   status(): unknown;
 }
 
@@ -579,6 +581,96 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
     }
   };
 
+  /** The shared body of pause and resume: `[<agent-id>] --reason "<text>" [--interrupt]`. */
+  const changePause = async (
+    call: Parameters<CommandHandler>[0],
+    pausing: boolean,
+  ): Promise<CommandResponse> => {
+    const name = pausing ? "pause" : "resume";
+    const manager = workerManager(call.identity);
+    if (manager === undefined)
+      return fail("forbidden", `only the PM or the operator may ${name}`);
+    const usage = `${name} needs [<agent-id>] --reason "<text>"${pausing ? " and may add --interrupt" : ""}`;
+    let reason: string | undefined;
+    let interrupt = false;
+    const positional: string[] = [];
+    for (let index = 0; index < call.args.length; index += 1) {
+      const arg = call.args[index]!;
+      if (arg === "--reason") {
+        if (reason !== undefined || index + 1 >= call.args.length)
+          return fail("invalid_request", usage);
+        reason = call.args[(index += 1)]!;
+      } else if (arg === "--interrupt" && pausing) {
+        if (interrupt) return fail("invalid_request", usage);
+        interrupt = true;
+      } else if (arg.startsWith("-")) return fail("invalid_request", usage);
+      else positional.push(arg);
+    }
+    if (reason === undefined || positional.length > 1)
+      return fail("invalid_request", usage);
+    const agentId = positional[0];
+    if (agentId !== undefined && !SAFE_AGENT_ID.test(agentId))
+      return fail("invalid_request", "the agent id is not valid");
+    if (agentId !== undefined && core.agentRecord(agentId) === undefined)
+      return fail("unknown_agent", "no agent has this id");
+    if (
+      interrupt &&
+      (deps.launcher === undefined ||
+        deps.config?.promptRelay?.enabled !== true)
+    )
+      return fail(
+        "not_configured",
+        "--interrupt needs [prompt_relay] enabled = true in capstan.toml; nothing was paused",
+      );
+    try {
+      const ctx = context(call.credential);
+      if (agentId === undefined)
+        core.transitionRun(ctx, pausing ? "paused" : "active", reason);
+      else if (pausing) core.pauseAgent(ctx, { agentId, reason });
+      else core.resumeAgent(ctx, { agentId, reason });
+    } catch (error) {
+      if (
+        error instanceof ControllerError &&
+        !(error instanceof MutationConflictError)
+      )
+        return fail("rejected", error.message);
+      return mapError(error);
+    }
+    log(pausing ? "paused" : "resumed", {
+      by: manager,
+      agentId: agentId ?? "run",
+    });
+    const result: Record<string, unknown> = {
+      scope: agentId === undefined ? "run" : "agent",
+      ...(agentId === undefined ? {} : { agentId }),
+      state: pausing ? "paused" : "active",
+      reason,
+    };
+    if (interrupt && deps.launcher !== undefined) {
+      const targets =
+        agentId === undefined
+          ? core
+              .listAgents()
+              .filter(
+                (agent) => agent.state === "active" && agent.kind !== "PM",
+              )
+              .map((agent) => agent.agentId)
+          : core.agentRecord(agentId)?.kind === "PM"
+            ? []
+            : [agentId];
+      const interrupted: string[] = [];
+      for (const target of targets) {
+        try {
+          if (await deps.launcher.interrupt(target)) interrupted.push(target);
+        } catch (error) {
+          log("interrupt_failed", { agentId: target, error: String(error) });
+        }
+      }
+      result.interrupted = interrupted;
+    }
+    return ok(result);
+  };
+
   const handlers: Record<string, CommandHandler> = {
     inbox(call) {
       try {
@@ -750,7 +842,20 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       }
     },
 
+    async pause(call) {
+      return await changePause(call, true);
+    },
+
+    async resume(call) {
+      return await changePause(call, false);
+    },
+
     async launch(call) {
+      try {
+        core.assertRunNotPaused("launch");
+      } catch (error) {
+        return mapError(error);
+      }
       if (deps.launcher === undefined)
         return fail(
           "not_configured",
@@ -776,6 +881,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         return fail("invalid_request", "spawn needs one role name");
       if (!NAME_PATTERN.test(call.args[0]!))
         return fail("invalid_request", "the role name is not valid");
+      try {
+        core.assertRunNotPaused("spawn");
+      } catch (error) {
+        return mapError(error);
+      }
       if (deps.launcher === undefined)
         return fail(
           "not_configured",
@@ -985,6 +1095,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       const role = call.args[1];
       if (role !== undefined && !NAME_PATTERN.test(role))
         return fail("invalid_request", "the reviewer role name is not valid");
+      try {
+        core.assertRunNotPaused("request-review");
+      } catch (error) {
+        return mapError(error);
+      }
       if (
         deps.launcher === undefined ||
         deps.config === undefined ||
@@ -1054,6 +1169,11 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           "invalid_request",
           "integrate needs report ids, or confirm|discard and an integration id",
         );
+      try {
+        core.assertRunNotPaused("integrate");
+      } catch (error) {
+        return mapError(error);
+      }
       if (deps.integrationGit === undefined)
         return fail("not_configured", "integration needs a git repository");
       const integrationDeps: IntegrationDeps = {
@@ -1218,17 +1338,21 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               "forbidden",
               "only the PM or the operator may assign a package",
             );
-          const [planId, packageId, agentId, ...extra] = rest;
+          const [planId, packageId, agentId, ...tail] = rest;
+          const withEarly = tail[0] === "--early";
+          const early = withEarly ? tail[1] : undefined;
+          const extra = withEarly ? tail.slice(2) : tail;
           if (
             planId === undefined ||
             packageId === undefined ||
             agentId === undefined ||
             extra.length > 0 ||
+            (withEarly && early === undefined) ||
             ![planId, packageId, agentId].every((id) => SAFE_AGENT_ID.test(id))
           )
             return fail(
               "invalid_request",
-              "plan assign needs a plan id, a package id and an agent id",
+              'plan assign needs a plan id, a package id and an agent id, and takes --early only with a reason: --early "<reason>"',
             );
           if (!isAgentName(agentId))
             return fail(
@@ -1245,12 +1369,15 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             planId,
             packageId,
             agentId,
+            ...(early === undefined ? {} : { early }),
           });
           return ok({
             planId,
             packageId: assigned.packageId,
             agentId,
             messageId: assigned.assignmentMessageId,
+            early: assigned.unmet.length > 0,
+            unmet: assigned.unmet,
           });
         }
         if (sub === "signoff") {
