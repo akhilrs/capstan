@@ -389,6 +389,17 @@ test("every curl flag is denied both first and mid-command", () => {
     "--config*",
     "-u*",
     "--user*",
+    "-c*",
+    "--cookie-jar*",
+    "-D*",
+    "--dump-header*",
+    "--trace*",
+    "--stderr*",
+    "--create-dirs*",
+    "--libcurl*",
+    "--hsts*",
+    "--alt-svc*",
+    "--etag-save*",
     "file:*",
     "@*",
   ];
@@ -424,8 +435,25 @@ test("short curl flags with an attached value are denied, and a plain GET is not
     "curl -d x https://httpbin.org/post",
     "curl -ofile https://example.com",
     "curl https://example.com -uuser:pw",
+    "curl -c jar https://example.com",
+    "curl -Djar https://example.com",
+    "curl --trace-ascii f https://example.com",
+    "curl https://example.com --cookie-jar f",
+    "curl --hsts f https://example.com",
+    "curl https://example.com --alt-svc f",
+    "curl --etag-save f https://example.com",
+    "curl -w '%output{f}x' https://example.com",
+    'curl https://example.com --write-out "%output{f}"',
   ])
     assert.ok(denied(command), command);
+  assert.ok(!denied("curl -sS -w '%{http_code}' https://example.com"));
+  // Known limit, documented in docs/design/researcher-role.md: bundled short flags are not caught.
+  for (const command of [
+    "curl -sc jar https://example.com",
+    "curl -sD f https://example.com",
+    "curl -so f https://example.com",
+  ])
+    assert.ok(!denied(command), command);
   assert.ok(
     !denied(
       "curl -sS -A 'capstan-researcher/1.0' 'https://old.reddit.com/r/x/search.json?q=a&limit=3'",
@@ -446,4 +474,27 @@ test("a package runner argument with no version is warned about", () => {
   assert.ok(warn('["-y", "playwright-mcp", "--headless"]'));
   assert.ok(!warn('["-y", "@playwright/mcp@0.0.83"]'));
   assert.ok(!warn('["-y", "playwright-mcp@1.2.3"]'));
+});
+
+test("a deny list may hold 128 entries and no more, while allow stays capped at 64", () => {
+  const filler = (count: number): string[] =>
+    Array.from({ length: count }, (_, i) => `Bash(filler${i})`);
+  const deny = (total: number): string[] => [
+    ...RESEARCHER_REQUIRED_DENY,
+    ...filler(total - RESEARCHER_REQUIRED_DENY.length),
+  ];
+  assert.equal(
+    load(researcher({ deny: deny(128) })).roles.find(
+      (r) => r.name === "researcher",
+    )?.deny.length,
+    128,
+  );
+  rejects(
+    researcher({ deny: deny(129) }),
+    /roles\.researcher\.deny exceeds 128 entries/,
+  );
+  rejects(
+    researcher({ allow: [...ALLOW, ...filler(65 - ALLOW.length)] }),
+    /roles\.researcher\.allow exceeds 64 entries/,
+  );
 });

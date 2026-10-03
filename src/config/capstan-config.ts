@@ -206,7 +206,7 @@ prompt = "You watch the other agents and raise findings when one is stuck. You o
 # permission_mode = "default"
 # mcp = ["playwright"]
 # allow = ["WebSearch", "WebFetch", "Bash(curl *)", "Bash(jq *)", "Bash(date*)", "Write(docs/research/**)", "Edit(docs/research/**)", "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show *)", "Bash(git rev-parse *)", "Bash(git add *)", "Bash(git commit *)", "mcp__playwright__browser_navigate", "mcp__playwright__browser_navigate_back", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_click", "mcp__playwright__browser_type", "mcp__playwright__browser_press_key", "mcp__playwright__browser_wait_for", "mcp__playwright__browser_tabs", "mcp__playwright__browser_close"]
-# deny = ["Agent", "Task", "NotebookEdit", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)", "Bash(git rebase *)", "Bash(git reset *)", "Bash(git remote *)", "Bash(git config *)", "Bash(git checkout *)", "Bash(git switch *)", "Bash(curl * -d*)", "Bash(curl * --data*)", "Bash(curl * -F*)", "Bash(curl * --form*)", "Bash(curl * -T*)", "Bash(curl * --upload-file*)", "Bash(curl * -X*)", "Bash(curl * --request*)", "Bash(curl * --json*)", "Bash(curl * -o*)", "Bash(curl * --output*)", "Bash(curl * -O*)", "Bash(curl * --remote-name*)", "Bash(curl * -K*)", "Bash(curl * --config*)", "Bash(curl * -u*)", "Bash(curl * --user*)", "Bash(curl * file:*)", "Bash(curl * @*)", "Bash(curl -d*)", "Bash(curl --data*)", "Bash(curl -F*)", "Bash(curl --form*)", "Bash(curl -T*)", "Bash(curl --upload-file*)", "Bash(curl -X*)", "Bash(curl --request*)", "Bash(curl --json*)", "Bash(curl -o*)", "Bash(curl --output*)", "Bash(curl -O*)", "Bash(curl --remote-name*)", "Bash(curl -K*)", "Bash(curl --config*)", "Bash(curl -u*)", "Bash(curl --user*)", "Bash(curl file:*)", "Bash(curl @*)", "Bash(git * --output*)"]
+# deny = ["Agent", "Task", "NotebookEdit", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)", "Bash(git rebase *)", "Bash(git reset *)", "Bash(git remote *)", "Bash(git config *)", "Bash(git checkout *)", "Bash(git switch *)", "Bash(curl * -d*)", "Bash(curl * --data*)", "Bash(curl * -F*)", "Bash(curl * --form*)", "Bash(curl * -T*)", "Bash(curl * --upload-file*)", "Bash(curl * -X*)", "Bash(curl * --request*)", "Bash(curl * --json*)", "Bash(curl * -o*)", "Bash(curl * --output*)", "Bash(curl * -O*)", "Bash(curl * --remote-name*)", "Bash(curl * -K*)", "Bash(curl * --config*)", "Bash(curl * -u*)", "Bash(curl * --user*)", "Bash(curl * -c*)", "Bash(curl * --cookie-jar*)", "Bash(curl * -D*)", "Bash(curl * --dump-header*)", "Bash(curl * --trace*)", "Bash(curl * --stderr*)", "Bash(curl * --create-dirs*)", "Bash(curl * --libcurl*)", "Bash(curl * --hsts*)", "Bash(curl * --alt-svc*)", "Bash(curl * --etag-save*)", "Bash(curl * file:*)", "Bash(curl * @*)", "Bash(curl -d*)", "Bash(curl --data*)", "Bash(curl -F*)", "Bash(curl --form*)", "Bash(curl -T*)", "Bash(curl --upload-file*)", "Bash(curl -X*)", "Bash(curl --request*)", "Bash(curl --json*)", "Bash(curl -o*)", "Bash(curl --output*)", "Bash(curl -O*)", "Bash(curl --remote-name*)", "Bash(curl -K*)", "Bash(curl --config*)", "Bash(curl -u*)", "Bash(curl --user*)", "Bash(curl -c*)", "Bash(curl --cookie-jar*)", "Bash(curl -D*)", "Bash(curl --dump-header*)", "Bash(curl --trace*)", "Bash(curl --stderr*)", "Bash(curl --create-dirs*)", "Bash(curl --libcurl*)", "Bash(curl --hsts*)", "Bash(curl --alt-svc*)", "Bash(curl --etag-save*)", "Bash(curl *%output{*)", "Bash(curl file:*)", "Bash(curl @*)", "Bash(git * --output*)"]
 # prompt = "You research questions on the web and write sourced findings as files under docs/research, then commit them on your own branch. Never push and never merge."
 `;
 export const ROLE_KINDS = [
@@ -537,6 +537,7 @@ export type CapstanConfig = {
 const MAX_FILE_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = MAX_FILE_BYTES;
 const MAX_LIST_ENTRIES = 64;
+const MAX_DENY_ENTRIES = 128;
 const MAX_ENTRY_CHARS = 200;
 export const NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 const SESSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -1600,7 +1601,7 @@ function resolveRoles(
         ? [...PM_DEFAULT_DENY]
         : role.deny === undefined && kind === "Supervisor"
           ? [...SUPERVISOR_DEFAULT_DENY]
-          : stringList(role.deny, `${at}.deny`);
+          : stringList(role.deny, `${at}.deny`, MAX_DENY_ENTRIES);
     const hooks =
       role.hooks === undefined
         ? "off"
@@ -1865,12 +1866,16 @@ function passedEnvironmentNames(value: unknown): string[] {
   });
 }
 
-function stringList(value: unknown, at: string): string[] {
+function stringList(
+  value: unknown,
+  at: string,
+  maxEntries = MAX_LIST_ENTRIES,
+): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value))
     throw new ConfigError(`${at} must be an array of strings`);
-  if (value.length > MAX_LIST_ENTRIES)
-    throw new ConfigError(`${at} exceeds ${MAX_LIST_ENTRIES} entries`);
+  if (value.length > maxEntries)
+    throw new ConfigError(`${at} exceeds ${maxEntries} entries`);
   return value.map((entry, index) => {
     const text = requiredString(entry, `${at}[${index}]`, MAX_ENTRY_CHARS);
     guardCredentialShape(text, `${at}[${index}]`);
