@@ -7422,6 +7422,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 26, name: "0026_operator.sql" },
           { version: 27, name: "0027_integration_coverage.sql" },
           { version: 28, name: "0028_operator_grants.sql" },
+          { version: 29, name: "0029_coverage_merge.sql" },
         ],
       );
       assert.equal(

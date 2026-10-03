@@ -35,7 +35,7 @@ const config = {
 interface Stub {
   inHead: boolean;
   /** Commits the stubbed git reports as already held by an integration head. */
-  covered: Map<string, "ancestor" | "tree">;
+  covered: Map<string, "ancestor" | "tree" | "merge">;
 }
 
 function member(
@@ -571,7 +571,7 @@ interface PlanShown {
 
 async function wantedAfterConfirm(
   t: Team,
-  coverA: "ancestor" | "tree" | undefined,
+  coverA: "ancestor" | "tree" | "merge" | undefined,
 ): Promise<{ plan: string; packages: Record<string, string> }> {
   const { h, stub } = t;
   const planId = await approvedPlan(t, "wp1", "wp2");
@@ -629,6 +629,15 @@ test("a package whose report an integrated report builds on counts as completed,
 test("an amended report whose changes are in the head counts as completed too", async () => {
   await withTeam(async (t) => {
     assert.deepEqual(await wantedAfterConfirm(t, "tree"), {
+      plan: "completed",
+      packages: { wp1: "completed", wp2: "completed" },
+    });
+  });
+});
+
+test("a report whose merge into the head adds nothing counts as completed too", async () => {
+  await withTeam(async (t) => {
+    assert.deepEqual(await wantedAfterConfirm(t, "merge"), {
       plan: "completed",
       packages: { wp1: "completed", wp2: "completed" },
     });

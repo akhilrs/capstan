@@ -282,13 +282,13 @@ test("with a busy worker the restart does not run: after the idle wait it fails 
 test("a restart that becomes idle inside the wait proceeds without --force", async () => {
   const s = await setup({ idleWaitSeconds: 10 });
   try {
-    s.busy.value = ["1 integration(s) not yet terminal"];
+    s.busy.value = ["1 integration(s) not yet settled"];
     let polls = 0;
     const original = s.busy;
     Object.defineProperty(original, "value", {
       get() {
         polls += 1;
-        return polls > 3 ? [] : ["1 integration(s) not yet terminal"];
+        return polls > 3 ? [] : ["1 integration(s) not yet settled"];
       },
     });
     const result = await s.runRestart();
@@ -833,6 +833,70 @@ test("a helper that cannot be spawned is a clean refusal: no plan left, run fail
     );
     // let the async spawn error fire: it must not be an uncaught exception
     await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("idle check: conflicted, discarded and confirmed integrations are settled; a running or a merged one is not yet settled", async () => {
+  const s = await setup();
+  try {
+    const projectId = s.world.raw(
+      (db) =>
+        (
+          db.prepare("SELECT project_id FROM projects").get() as {
+            project_id: string;
+          }
+        ).project_id,
+    );
+    const sha = (c: string): string => c.repeat(40);
+    let sequence = 0;
+    const insert = (state: string): string => {
+      sequence += 1;
+      const id = `int-${sequence}`;
+      const withHead = ["merged", "confirmed", "discarded"].includes(state);
+      s.world.raw((db) =>
+        db
+          .prepare(
+            `INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, head_sha,
+               conflict_report_id, conflict_files_json, conflict_files_omitted, created_at, completed_at)
+             VALUES (?, ?, ?, ?, ?, 'operator', ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            projectId,
+            id,
+            sequence,
+            sha("a"),
+            `capstan/integration/${id}`,
+            state,
+            withHead ? sha("b") : null,
+            state === "conflicted" ? "r-1" : null,
+            state === "conflicted" ? '["f"]' : null,
+            state === "conflicted" ? 0 : null,
+            "2026-01-01T00:00:00.000Z",
+            state === "running" ? null : "2026-01-01T00:00:01.000Z",
+          ),
+      );
+      return id;
+    };
+    const busy = () => busySnapshot(s.world.h.core, undefined);
+    for (const state of ["conflicted", "discarded", "confirmed"]) insert(state);
+    assert.equal(s.world.h.core.busyIndicators().nonTerminalIntegrations, 0);
+    assert.deepEqual(busy(), []);
+    const merged = insert("merged");
+    assert.equal(s.world.h.core.busyIndicators().nonTerminalIntegrations, 1);
+    assert.match(busy().join(";"), /1 integration\(s\) not yet settled/);
+    s.world.raw((db) =>
+      db
+        .prepare(
+          "UPDATE integrations SET state = 'discarded' WHERE integration_id = ?",
+        )
+        .run(merged),
+    );
+    assert.deepEqual(busy(), []);
+    insert("running");
+    assert.equal(s.world.h.core.busyIndicators().nonTerminalIntegrations, 1);
+    assert.match(busy().join(";"), /not yet settled/);
   } finally {
     await s.cleanup();
   }

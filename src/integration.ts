@@ -41,6 +41,7 @@ export interface IntegrationGit {
     reports: readonly {
       readonly reportId: string;
       readonly commitSha: string;
+      readonly integrationHeads?: readonly string[];
     }[],
     options?: CoveredReportsOptions,
   ): Promise<CoveredReport[]>;

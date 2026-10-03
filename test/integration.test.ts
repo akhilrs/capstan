@@ -1000,3 +1000,85 @@ test("a skipped report is logged by the git layer and left uncovered", async () 
     await close(h);
   }
 });
+
+test("a confirmed integration whose coverage lacked a report gets its merge row at the next start, once", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    c.git.coveredReports = async () => [];
+    await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "confirmed",
+    });
+    assert.deepEqual(candidateIds(c), [c.covering, c.other]);
+    c.git.coveredReports = async (_head, reports) =>
+      reports.map((r) => ({ reportId: r.reportId, how: "merge" as const }));
+    await recoverIntegrations(c.deps, "all");
+    assert.deepEqual(candidateIds(c), []);
+    await recoverIntegrations(c.deps, "all");
+    assert.deepEqual(candidateIds(c), []);
+  } finally {
+    await close(h);
+  }
+});
+
+test("coverage candidates name the heads of other integrations that held the report, and skip one without a head", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    const { default: Database } = await import("better-sqlite3");
+    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    try {
+      const projectId = (
+        db.prepare("SELECT project_id FROM projects").get() as {
+          project_id: string;
+        }
+      ).project_id;
+      const add = (
+        id: string,
+        sequence: number,
+        final: "discarded" | "failed",
+      ) => {
+        db.prepare(
+          `INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, created_at)
+           VALUES (?, ?, ?, ?, ?, 'operator', 'running', '2026-01-01T00:00:00.000Z')`,
+        ).run(
+          projectId,
+          id,
+          sequence,
+          "a".repeat(40),
+          `capstan/integration/${id}`,
+        );
+        db.prepare(
+          "INSERT INTO integration_reports(project_id, integration_id, position, report_id) VALUES (?, ?, 1, ?)",
+        ).run(projectId, id, c.other);
+        if (final === "failed")
+          db.prepare(
+            "UPDATE integrations SET state = 'failed', failure_reason = 'x', completed_at = '2026-01-01T00:00:01.000Z' WHERE integration_id = ?",
+          ).run(id);
+        else {
+          db.prepare(
+            "UPDATE integrations SET state = 'merged', head_sha = ?, completed_at = '2026-01-01T00:00:01.000Z' WHERE integration_id = ?",
+          ).run("b".repeat(40), id);
+          db.prepare(
+            "UPDATE integrations SET state = 'discarded' WHERE integration_id = ?",
+          ).run(id);
+        }
+      };
+      add("earlier-failed", 90, "failed");
+      add("earlier-discarded", 91, "discarded");
+    } finally {
+      db.close();
+    }
+    await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "confirmed",
+    });
+    const other = h.core
+      .coverageCandidates(h.owner, c.integrationId)
+      ?.reports.find((r) => r.reportId === c.other);
+    assert.deepEqual(other?.integrationHeads, ["b".repeat(40)]);
+  } finally {
+    await close(h);
+  }
+});

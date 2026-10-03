@@ -224,7 +224,7 @@ export function busySnapshot(
     busy.push(`${indicators.startedReviews} review(s) in state started`);
   if (indicators.nonTerminalIntegrations > 0)
     busy.push(
-      `${indicators.nonTerminalIntegrations} integration(s) not yet terminal`,
+      `${indicators.nonTerminalIntegrations} integration(s) not yet settled`,
     );
   if (indicators.unackedDeliveries > 0)
     busy.push(

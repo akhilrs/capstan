@@ -12,6 +12,7 @@ import {
   isInHead,
   mergeIntoBranch,
   printablePath,
+  resetMergeTreeSupport,
 } from "../src/git.js";
 
 const IDENTITY = {
@@ -540,5 +541,201 @@ test("a report whose commit object is missing is skipped with a reason and does 
     assert.deepEqual(skipped, [["r-gone", "its commit does not exist"]]);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+// Coverage by merge. Why ancestry and the tree rule cannot cover the shape below: the report R is not an
+// ancestor of the integration head, because the earlier integration was a squash of R on the base (a new
+// commit with R's tree), not a merge of it; and the tree rule fails because a later commit O edited a file R
+// changed. Ancestry of branch tips cannot work, so content is compared: merging R into the head adds nothing.
+interface SquashWorld {
+  readonly root: string;
+  readonly base: string;
+  readonly report: string;
+}
+
+const lines = (...edits: Record<number, string>[]): string => {
+  const out = Array.from(
+    { length: 10 },
+    (_, i) => `line ${i + 1} original text`,
+  );
+  for (const edit of edits)
+    for (const [at, text] of Object.entries(edit)) out[Number(at) - 1] = text;
+  return `${out.join("\n")}\n`;
+};
+
+function squashWorld(): SquashWorld & {
+  commitOnBase(f1: string, f2: string, message: string): string;
+} {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-merge-cov-"));
+  git(root, "init", "-q", "-b", "main");
+  const write = (f1: string, f2: string, message: string): string => {
+    writeFileSync(path.join(root, "f1.txt"), f1);
+    writeFileSync(path.join(root, "f2.txt"), f2);
+    git(root, "add", "f1.txt", "f2.txt");
+    git(root, "commit", "-q", "-m", message);
+    return git(root, "rev-parse", "HEAD");
+  };
+  const base = write(lines(), lines(), "base");
+  git(root, "checkout", "-q", "-b", "report");
+  const report = write(
+    lines({ 3: "line 3 changed by the report" }),
+    lines({ 3: "line 3 changed by the report" }),
+    "report",
+  );
+  git(root, "checkout", "-q", "main");
+  return {
+    root,
+    base,
+    report,
+    commitOnBase(f1, f2, message) {
+      git(root, "checkout", "-q", "-b", message.replace(/\W/g, "-"), base);
+      const sha = write(f1, f2, message);
+      git(root, "checkout", "-q", "main");
+      return sha;
+    },
+  };
+}
+
+const R_F = lines({ 3: "line 3 changed by the report" });
+
+test("a squash of the report plus a later edit of the same file is covered by merge, not by ancestor or tree", async () => {
+  const w = squashWorld();
+  try {
+    const head = w.commitOnBase(
+      lines({ 3: "line 3 changed by the report", 8: "line 8 edited later" }),
+      R_F,
+      "squash of operator",
+    );
+    const asked = [{ reportId: "r", commitSha: w.report }];
+    assert.deepEqual(await coveredReports(w.root, head, asked), [
+      { reportId: "r", how: "merge" },
+    ]);
+    assert.throws(() =>
+      git(w.root, "merge-base", "--is-ancestor", w.report, head),
+    );
+  } finally {
+    rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test("merge coverage: a later edit of the same line that keeps its words conflicts in git but is still covered", async () => {
+  const w = squashWorld();
+  try {
+    const head = w.commitOnBase(
+      lines({
+        3: "line 3 changed by the report and then extended by the operator",
+      }),
+      R_F,
+      "squash extended",
+    );
+    assert.deepEqual(
+      await coveredReports(w.root, head, [
+        { reportId: "r", commitSha: w.report },
+      ]),
+      [{ reportId: "r", how: "merge" }],
+    );
+  } finally {
+    rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test("merge coverage: a report whose change was reverted later is not covered, and a real conflict is not covered and does not throw", async () => {
+  const w = squashWorld();
+  try {
+    const reverted = w.commitOnBase(lines(), R_F, "reverted f1");
+    assert.deepEqual(
+      await coveredReports(w.root, reverted, [
+        { reportId: "r", commitSha: w.report },
+      ]),
+      [],
+    );
+    const conflicting = w.commitOnBase(
+      lines({ 3: "something else entirely" }),
+      R_F,
+      "conflicting f1",
+    );
+    assert.deepEqual(
+      await coveredReports(w.root, conflicting, [
+        { reportId: "r", commitSha: w.report },
+      ]),
+      [],
+    );
+  } finally {
+    rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test("merge coverage: a git without merge-tree --write-tree leaves the rule off, says so, and covers nothing by merge", async () => {
+  const w = squashWorld();
+  const bin = mkdtempSync(path.join(tmpdir(), "capstan-fakegit-"));
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  writeFileSync(
+    path.join(bin, "git"),
+    `#!/bin/sh\ncase "$*" in *--version*) echo "git version 2.30.0";; *) exec ${realGit} "$@";; esac\n`,
+    { mode: 0o755 },
+  );
+  const oldPath = process.env.PATH;
+  try {
+    const head = w.commitOnBase(
+      lines({ 3: "line 3 changed by the report", 8: "line 8 edited later" }),
+      R_F,
+      "squash of operator",
+    );
+    process.env.PATH = `${bin}:${oldPath ?? ""}`;
+    resetMergeTreeSupport();
+    const skipped: string[] = [];
+    const covered = await coveredReports(
+      w.root,
+      head,
+      [{ reportId: "r", commitSha: w.report }],
+      { onSkipped: (_id, reason) => skipped.push(reason) },
+    );
+    assert.deepEqual(covered, []);
+    assert.equal(skipped.length, 1);
+    assert.match(skipped[0]!, /older than 2\.38/);
+  } finally {
+    process.env.PATH = oldPath;
+    resetMergeTreeSupport();
+    rmSync(w.root, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test("via-integration coverage: a report held by an earlier integration whose head a member commit builds on is covered, and not without that link", async () => {
+  const w = squashWorld();
+  try {
+    // H1 is the earlier integration's head (a squash of the report); M builds on H1; the final head is a squash of M on the base.
+    const h1 = w.commitOnBase(R_F, R_F, "earlier integration head");
+    git(w.root, "checkout", "-q", "-b", "member", h1);
+    writeFileSync(
+      path.join(w.root, "f1.txt"),
+      lines({ 3: "member rewrote line 3 entirely" }),
+    );
+    git(w.root, "commit", "-q", "-am", "member");
+    const member = git(w.root, "rev-parse", "HEAD");
+    git(w.root, "checkout", "-q", "main");
+    const head = w.commitOnBase(
+      lines({ 3: "member rewrote line 3 entirely" }),
+      lines(),
+      "final head",
+    );
+    const asked = (heads: string[]) => [
+      { reportId: "r", commitSha: w.report, integrationHeads: heads },
+    ];
+    const options = { memberCommits: [member] };
+    assert.deepEqual(await coveredReports(w.root, head, asked([h1]), options), [
+      { reportId: "r", how: "integration" },
+    ]);
+    assert.deepEqual(
+      await coveredReports(w.root, head, asked([]), options),
+      [],
+    );
+    assert.deepEqual(
+      await coveredReports(w.root, head, asked([head]), options),
+      [],
+    );
+  } finally {
+    rmSync(w.root, { recursive: true, force: true });
   }
 });

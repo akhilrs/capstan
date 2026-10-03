@@ -746,6 +746,8 @@ export const PATH_CUT_MARK_CHARS = 16;
 export interface CoverageCandidate {
   readonly reportId: string;
   readonly commitSha: string;
+  /** Heads of the other integrations (any state) that held this report. */
+  readonly integrationHeads: readonly string[];
 }
 
 export type IntegrationState =
@@ -6078,6 +6080,18 @@ export class ControllerCore {
       reports: rows.map((row) => ({
         reportId: row.report_id,
         commitSha: row.commit_sha,
+        integrationHeads: (
+          this.#database
+            .prepare(
+              `SELECT i.head_sha FROM integration_reports ir
+               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+               WHERE ir.project_id = ? AND ir.report_id = ? AND i.integration_id <> ? AND i.head_sha IS NOT NULL
+               ORDER BY i.sequence`,
+            )
+            .all(this.#projectId, row.report_id, integrationId) as {
+            head_sha: string;
+          }[]
+        ).map((head) => head.head_sha),
       })),
     };
   }
@@ -6088,7 +6102,7 @@ export class ControllerCore {
     integrationId: string,
     covered: readonly {
       readonly reportId: string;
-      readonly how: "ancestor" | "tree";
+      readonly how: "ancestor" | "tree" | "merge" | "integration";
     }[],
   ): void {
     this.#authorize(credential, "controller:reconcile");
@@ -16856,7 +16870,7 @@ export class ControllerCore {
         "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND state = 'started'",
       ),
       nonTerminalIntegrations: count(
-        "SELECT COUNT(*) AS n FROM integrations WHERE project_id = ? AND state IN ('running', 'merged', 'conflicted')",
+        "SELECT COUNT(*) AS n FROM integrations WHERE project_id = ? AND state IN ('running', 'merged')",
       ),
       unackedDeliveries: count(
         "SELECT COUNT(*) AS n FROM messages WHERE project_id = ? AND state IN ('sent', 'unacked')",

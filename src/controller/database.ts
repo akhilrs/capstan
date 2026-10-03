@@ -192,6 +192,11 @@ const migrations: Readonly<
     name: "0028_operator_grants.sql",
     url: new URL("../../migrations/0028_operator_grants.sql", import.meta.url),
   },
+  29: {
+    version: 29,
+    name: "0029_coverage_merge.sql",
+    url: new URL("../../migrations/0029_coverage_merge.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

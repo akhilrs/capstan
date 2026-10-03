@@ -449,7 +449,7 @@ export async function isInHead(
 
 export interface CoveredReport {
   readonly reportId: string;
-  readonly how: "ancestor" | "tree";
+  readonly how: "ancestor" | "tree" | "merge" | "integration";
 }
 
 export interface CoveredReportsOptions {
@@ -487,10 +487,176 @@ async function changedPaths(
  * of those paths makes the report not covered; that is the safe direction. A
  * report whose commit is missing, or that git cannot judge, is skipped.
  */
+let mergeTreeSupported: Promise<boolean> | undefined;
+
+/** `git merge-tree --write-tree` needs git 2.38; an older git leaves the merge rule off, and the first report that needed it is logged. */
+function supportsMergeTree(repoRoot: string): Promise<boolean> {
+  mergeTreeSupported ??= runGit(repoRoot, ["--version"]).then((outcome) => {
+    const match = /(\d+)\.(\d+)/.exec(outcome.stdout);
+    return (
+      outcome.code === 0 &&
+      match !== null &&
+      (Number(match[1]) > 2 ||
+        (Number(match[1]) === 2 && Number(match[2]) >= 38))
+    );
+  });
+  return mergeTreeSupported;
+}
+
+/** Test hook: forget the cached git version check. */
+export function resetMergeTreeSupport(): void {
+  mergeTreeSupported = undefined;
+}
+
+const BIG_GIT = {
+  timeoutMs: INTEGRATION_TIMEOUT_MS,
+  maxBuffer: INTEGRATION_BUFFER,
+};
+
+type MergeOutcome = "same" | "different" | "conflict" | "off";
+
+/** Merging the report into the head: `same` means the clean merge equals the head, so the report adds nothing. */
+async function mergeOutcome(
+  repoRoot: string,
+  integrationHead: string,
+  reportCommit: string,
+  options: CoveredReportsOptions,
+): Promise<MergeOutcome> {
+  if (!(await supportsMergeTree(repoRoot))) {
+    options.onSkipped?.(
+      reportCommit,
+      "git is older than 2.38, so the merge rule is off",
+    );
+    return "off";
+  }
+  const merged = await runGit(
+    repoRoot,
+    ["merge-tree", "--write-tree", integrationHead, reportCommit],
+    BIG_GIT,
+  );
+  if (merged.code === 1) return "conflict";
+  if (merged.code !== 0) return "off";
+  const tree = await runGit(
+    repoRoot,
+    ["rev-parse", `${integrationHead}^{tree}`],
+    BIG_GIT,
+  );
+  return tree.code === 0 &&
+    merged.stdout.split("\n")[0]!.trim() === tree.stdout.trim()
+    ? "same"
+    : "different";
+}
+
+const SHORT_LINE = 3;
+
+/** Lines that say something: blank and one- or two-character lines (braces) are ignored. */
+function meaningfulLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length >= SHORT_LINE);
+}
+
+const MIN_EXTENDED_TOKENS = 4;
+
+function lineTokens(line: string): Set<string> {
+  return new Set(line.split(/[^A-Za-z0-9_]+/).filter((token) => token !== ""));
+}
+
+/** The head has the line, or a line that extends it: a later commit edited the same line and kept every word of it. */
+function headHolds(headLines: ReadonlySet<string>, line: string): boolean {
+  if (headLines.has(line)) return true;
+  const wanted = lineTokens(line);
+  if (wanted.size < MIN_EXTENDED_TOKENS) return false;
+  for (const headLine of headLines) {
+    if (headLine.length <= line.length) continue;
+    const have = lineTokens(headLine);
+    if ([...wanted].every((token) => have.has(token))) return true;
+  }
+  return false;
+}
+
+/**
+ * Fallback for a merge that conflicts only because the head changed next to the report's edit: every path
+ * the report changed must hold the same blob in the head, or the head must contain every line the report
+ * added and none it deleted. A heuristic on lines, used only after a conflict.
+ */
+async function reportContainedLineWise(
+  repoRoot: string,
+  integrationHead: string,
+  reportCommit: string,
+): Promise<boolean> {
+  const base = await runGit(
+    repoRoot,
+    ["merge-base", reportCommit, integrationHead],
+    BIG_GIT,
+  );
+  const baseSha = base.stdout.trim();
+  if (base.code !== 0 || !FULL_SHA.test(baseSha)) return false;
+  const own = await changedPaths(repoRoot, baseSha, reportCommit);
+  if (own.size === 0) return false;
+  for (const path of own) {
+    const inReport = await runGit(
+      repoRoot,
+      ["rev-parse", `${reportCommit}:${path}`],
+      BIG_GIT,
+    );
+    const inHead = await runGit(
+      repoRoot,
+      ["rev-parse", `${integrationHead}:${path}`],
+      BIG_GIT,
+    );
+    if (inReport.code === 0 && inReport.stdout === inHead.stdout) continue;
+    if (inHead.code !== 0 || inReport.code !== 0) return false;
+    const diff = await runGit(
+      repoRoot,
+      [
+        "diff",
+        "--unified=0",
+        "--no-color",
+        "--no-ext-diff",
+        baseSha,
+        reportCommit,
+        "--",
+        path,
+      ],
+      BIG_GIT,
+    );
+    const headText = await runGit(
+      repoRoot,
+      ["show", `${integrationHead}:${path}`],
+      BIG_GIT,
+    );
+    if (diff.code !== 0 || headText.code !== 0) return false;
+    const headLines = new Set(meaningfulLines(headText.stdout));
+    const lines = diff.stdout.split("\n");
+    const added = meaningfulLines(
+      lines
+        .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+        .map((l) => l.slice(1))
+        .join("\n"),
+    );
+    const deleted = meaningfulLines(
+      lines
+        .filter((l) => l.startsWith("-") && !l.startsWith("---"))
+        .map((l) => l.slice(1))
+        .join("\n"),
+    );
+    if (!added.every((l) => headHolds(headLines, l))) return false;
+    if (deleted.some((l) => headLines.has(l))) return false;
+  }
+  return true;
+}
+
 export async function coveredReports(
   repoRoot: string,
   integrationHead: string,
-  reports: readonly { readonly reportId: string; readonly commitSha: string }[],
+  reports: readonly {
+    readonly reportId: string;
+    readonly commitSha: string;
+    /** Heads of other integrations that held the report. */
+    readonly integrationHeads?: readonly string[];
+  }[],
   options: CoveredReportsOptions = {},
 ): Promise<CoveredReport[]> {
   if (!(await commitExists(repoRoot, integrationHead)))
@@ -531,6 +697,35 @@ export async function coveredReports(
           );
           if ([...own].every((path) => !drift.has(path))) how = "tree";
         }
+      }
+      if (how === undefined) {
+        const merge = await mergeOutcome(
+          repoRoot,
+          integrationHead,
+          report.commitSha,
+          options,
+        );
+        if (
+          merge === "same" ||
+          (merge === "conflict" &&
+            (await reportContainedLineWise(
+              repoRoot,
+              integrationHead,
+              report.commitSha,
+            )))
+        )
+          how = "merge";
+      }
+      // Chain: an earlier integration that held the report has a head that a member commit of this one
+      // builds on, so the member carries the report's content forward.
+      for (const earlier of report.integrationHeads ?? []) {
+        if (how !== undefined) break;
+        if (!(await commitExists(repoRoot, earlier))) continue;
+        for (const tip of options.memberCommits ?? [])
+          if (await isAncestor(repoRoot, earlier, tip)) {
+            how = "integration";
+            break;
+          }
       }
       if (how !== undefined) covered.push({ reportId: report.reportId, how });
     } catch (error) {
