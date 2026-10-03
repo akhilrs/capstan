@@ -294,7 +294,8 @@ export function buildAgentEnvironment(
 export type ClaudeRoleSettings = Pick<
   ResolvedRole,
   "model" | "permissionMode" | "allow" | "deny" | "hooks"
->;
+> &
+  Partial<Pick<ResolvedRole, "mcp">>;
 
 /** The arguments Claude Code gets for a role. Herdr quotes each argument safely, so none is quoted here; a newline is refused because Herdr refuses it. */
 export function claudeArguments(
@@ -306,6 +307,27 @@ export function claudeArguments(
   args.push("--permission-mode", role.permissionMode);
   if (role.allow.length > 0) args.push("--allowedTools", ...role.allow);
   if (role.deny.length > 0) args.push("--disallowedTools", ...role.deny);
+  const mcp = role.mcp ?? [];
+  // JSON.stringify escapes control characters, so the check below cannot see them inside the config.
+  for (const server of mcp)
+    for (const text of [server.name, server.command, ...server.args])
+      if (!text.isWellFormed() || CONTROL_CHARACTERS.test(text))
+        throw new InvalidArgumentError(
+          "an mcp server name, command or argument has control characters",
+        );
+  if (mcp.length > 0)
+    args.push(
+      "--mcp-config",
+      JSON.stringify({
+        mcpServers: Object.fromEntries(
+          mcp.map((server) => [
+            server.name,
+            { type: "stdio", command: server.command, args: server.args },
+          ]),
+        ),
+      }),
+      "--strict-mcp-config",
+    );
   if (role.hooks === "off") args.push("--settings", '{"disableAllHooks":true}');
   if (promptFile !== undefined)
     args.push("--append-system-prompt-file", promptFile);
@@ -323,10 +345,11 @@ export function claudeArguments(
     ...(role.model === null ? [] : [role.model]),
     ...role.allow,
     ...role.deny,
+    ...mcp.flatMap((server) => [server.command]),
   ];
   if (values.some((value) => value.startsWith("-")))
     throw new InvalidArgumentError(
-      "a model, allow or deny value must not start with a dash",
+      "a model, allow, deny or mcp command value must not start with a dash",
     );
   return args;
 }

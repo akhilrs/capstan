@@ -4,6 +4,7 @@ import path from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { digestJson, sha256 } from "../controller/canonical.js";
 import { autoApproveRuleProblem } from "../operator-policy.js";
+import { researcherRuleProblems } from "../researcher-policy.js";
 
 export const CONFIG_FILE_NAME = "capstan.toml";
 export const DEFAULT_WAIT_TIMEOUT_SECONDS = 90;
@@ -68,6 +69,25 @@ check_seconds = 300
 # enabled = true
 # capture_ttl_seconds = 600     # how long a shown prompt can be answered; 60 to 3600
 
+# An optional Researcher reads the web and writes findings under output_dir. It is a Developer role
+# on a claude host that must use permission_mode "default", a strict allow list and the deny list in
+# src/researcher-policy.ts; its MCP servers come from [mcp_servers.<name>] and the role's mcp key.
+# The curl denies are guards, not a sandbox: permission_mode "default" plus the strict allow list is
+# the real control. While enabled = false, nothing about a Researcher reaches an agent. To use it,
+# remove the leading # from this table, from [mcp_servers.playwright] and from [roles.researcher]
+# below. The role must differ from the architect and operator roles.
+# [researcher]
+# enabled = true
+# role = "researcher"
+# output_dir = "docs/research"  # repo-relative; the only place the role may write
+# user_agent = "capstan-researcher/1.0 (research bot; contact: project owner)"
+
+# An MCP server a role may use (roles.<name>.mcp lists server names). The name becomes the
+# mcp__<name>__ tool prefix. Pin the package version; an unpinned package (@latest or no @version) is warned about.
+# [mcp_servers.playwright]
+# command = "npx"
+# args = ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
+
 # Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
 # which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
 # without asking, "never" removes every Nexora instruction from the PM prompt.
@@ -104,7 +124,7 @@ kind = "claude"
 
 # Optional Codex and OMP hosts for Developer and Verifier roles. Both run unattended with full access
 # and without a sandbox: nothing stops a push or an edit outside the worktree, and \`cstan config check\`
-# warns about every such role. PM, Supervisor, architect and operator roles stay on a claude host.
+# warns about every such role. PM, Supervisor, architect, operator and researcher roles stay on a claude host.
 # [hosts.codex]
 # kind = "codex"
 # [hosts.omp]
@@ -177,6 +197,17 @@ prompt = "You watch the other agents and raise findings when one is stuck. You o
 # allow = ["Bash(cstan *)"]
 # deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]
 # prompt = "You run shell commands for the PM through cstan op propose, and nothing else."
+
+# The Researcher role: web search and fetch, read-only curl, a headless browser through the
+# playwright MCP server, and writes only under the researcher output_dir. See [researcher] above.
+# [roles.researcher]
+# kind = "Developer"
+# host = "claude"
+# permission_mode = "default"
+# mcp = ["playwright"]
+# allow = ["WebSearch", "WebFetch", "Bash(curl *)", "Bash(jq *)", "Bash(date*)", "Write(docs/research/**)", "Edit(docs/research/**)", "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show *)", "Bash(git rev-parse *)", "Bash(git add *)", "Bash(git commit *)", "mcp__playwright__browser_navigate", "mcp__playwright__browser_navigate_back", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_click", "mcp__playwright__browser_type", "mcp__playwright__browser_press_key", "mcp__playwright__browser_wait_for", "mcp__playwright__browser_tabs", "mcp__playwright__browser_close"]
+# deny = ["Agent", "Task", "NotebookEdit", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)", "Bash(git rebase *)", "Bash(git reset *)", "Bash(git remote *)", "Bash(git config *)", "Bash(git checkout *)", "Bash(git switch *)", "Bash(curl * -d*)", "Bash(curl * --data*)", "Bash(curl * -F*)", "Bash(curl * --form*)", "Bash(curl * -T*)", "Bash(curl * --upload-file*)", "Bash(curl * -X*)", "Bash(curl * --request*)", "Bash(curl * --json*)", "Bash(curl * -o*)", "Bash(curl * --output*)", "Bash(curl * -O*)", "Bash(curl * --remote-name*)", "Bash(curl * -K*)", "Bash(curl * --config*)", "Bash(curl * -u*)", "Bash(curl * --user*)", "Bash(curl * file:*)", "Bash(curl * @*)", "Bash(curl -d*)", "Bash(curl --data*)", "Bash(curl -F*)", "Bash(curl --form*)", "Bash(curl -T*)", "Bash(curl --upload-file*)", "Bash(curl -X*)", "Bash(curl --request*)", "Bash(curl --json*)", "Bash(curl -o*)", "Bash(curl --output*)", "Bash(curl -O*)", "Bash(curl --remote-name*)", "Bash(curl -K*)", "Bash(curl --config*)", "Bash(curl -u*)", "Bash(curl --user*)", "Bash(curl file:*)", "Bash(curl @*)", "Bash(git * --output*)"]
+# prompt = "You research questions on the web and write sourced findings as files under docs/research, then commit them on your own branch. Never push and never merge."
 `;
 export const ROLE_KINDS = [
   "PM",
@@ -300,6 +331,30 @@ export type ResolvedOperator = {
   readonly fullAutoMaxMinutes: number;
 };
 
+export const DEFAULT_RESEARCHER_ROLE = "researcher";
+export const DEFAULT_RESEARCHER_OUTPUT_DIR = "docs/research";
+export const DEFAULT_RESEARCHER_USER_AGENT =
+  "capstan-researcher/1.0 (research bot; contact: project owner)";
+
+export type ResolvedResearcher = {
+  /** True only when `[researcher]` is present in the file; an absent table leaves every role an ordinary role, even one named "researcher". */
+  readonly configured: boolean;
+  /** Off: no researcher check runs and nothing about a Researcher reaches an agent. */
+  readonly enabled: boolean;
+  readonly role: string;
+  /** Repo-relative directory the role may write to, with no `..` and no leading slash. */
+  readonly outputDir: string;
+  readonly userAgent: string;
+};
+
+export type ResolvedMcpServer = {
+  readonly name: string;
+  readonly command: string;
+  readonly args: readonly string[];
+};
+
+export const MCP_SERVER_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
+
 export type ResolvedHost = {
   readonly name: string;
   readonly kind: HostKind;
@@ -317,6 +372,8 @@ export type ResolvedRole = {
   readonly allow: readonly string[];
   readonly deny: readonly string[];
   readonly hooks: "off" | "inherit";
+  /** MCP servers the role gets; the resolver always sets it ([] when absent). Optional so literals that predate it still compile. */
+  readonly mcp?: readonly ResolvedMcpServer[];
   readonly prompt: {
     readonly source: "inline" | "file" | "none";
     readonly path: string | null;
@@ -461,6 +518,9 @@ export type CapstanConfig = {
   readonly supervision: ResolvedSupervision;
   readonly architect: ResolvedArchitect;
   readonly operator: ResolvedOperator;
+  /** The loader always sets it; optional so config literals that predate it still compile. */
+  readonly researcher?: ResolvedResearcher;
+  readonly mcpServers?: readonly ResolvedMcpServer[];
   readonly promptRelay: ResolvedPromptRelay;
   readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
@@ -587,6 +647,8 @@ export function parseCapstanConfig(
       "supervision",
       "architect",
       "operator",
+      "researcher",
+      "mcp_servers",
       "prompt_relay",
       "nexora",
       "defaults",
@@ -745,11 +807,16 @@ export function parseCapstanConfig(
 
   const hosts = resolveHosts(requiredTable(root.hosts, "hosts"));
   const hostsByName = new Map(hosts.map((host) => [host.name, host]));
+  const mcpServers = resolveMcpServers(
+    optionalTable(root.mcp_servers, "mcp_servers"),
+    warnings,
+  );
   const roles = resolveRoles(
     requiredTable(root.roles, "roles"),
     hostsByName,
     projectRoot,
     resolveDefaults(optionalTable(root.defaults, "defaults")),
+    mcpServers,
   );
   if (roles.filter((role) => role.kind === "PM").length !== 1)
     throw new ConfigError("exactly one role must have kind PM");
@@ -764,6 +831,14 @@ export function parseCapstanConfig(
     roles,
     hostsByName,
     architect,
+  );
+  const researcher = resolveResearcher(
+    optionalTable(root.researcher, "researcher"),
+    root.researcher !== undefined,
+    roles,
+    hostsByName,
+    architect,
+    operator,
   );
   const promptRelay = resolvePromptRelay(
     optionalTable(root.prompt_relay, "prompt_relay"),
@@ -787,6 +862,8 @@ export function parseCapstanConfig(
     supervision,
     architect,
     operator,
+    researcher,
+    mcpServers,
     promptRelay,
     nexora,
     limits,
@@ -1167,6 +1244,161 @@ function resolveOperator(
   return operator;
 }
 
+const MAX_MCP_SERVERS = 16;
+const PRINTABLE_LINE = /^[\x20-\x7e]*$/;
+
+/** `[mcp_servers.<name>]`: a stdio MCP server a role may use. The name becomes the mcp__<name>__ tool prefix. */
+function resolveMcpServers(
+  table: Table,
+  warnings: string[],
+): ResolvedMcpServer[] {
+  const names = Object.keys(table);
+  if (names.length > MAX_MCP_SERVERS)
+    throw new ConfigError(`mcp_servers exceeds ${MAX_MCP_SERVERS} servers`);
+  return names.map((name) => {
+    if (!MCP_SERVER_NAME_PATTERN.test(name))
+      throw new ConfigError(
+        `mcp_servers has a server name that does not match ${MCP_SERVER_NAME_PATTERN.source}`,
+      );
+    const at = `mcp_servers.${name}`;
+    const server = requiredTable(table[name], at);
+    rejectUnknownKeys(server, ["command", "args"], at);
+    const command = requiredString(server.command, `${at}.command`, 200);
+    if (command.startsWith("-"))
+      throw new ConfigError(`${at}.command must not start with a dash`);
+    if (!PRINTABLE_LINE.test(command))
+      throw new ConfigError(
+        `${at}.command must be one line of printable ASCII text`,
+      );
+    guardCredentialShape(command, `${at}.command`);
+    let args: string[] = [];
+    if (server.args !== undefined) {
+      if (!Array.isArray(server.args))
+        throw new ConfigError(`${at}.args must be an array of strings`);
+      if (server.args.length > MAX_LIST_ENTRIES)
+        throw new ConfigError(`${at}.args exceeds ${MAX_LIST_ENTRIES} entries`);
+      args = server.args.map((entry, index) => {
+        const text = requiredString(
+          entry,
+          `${at}.args[${index}]`,
+          MAX_ENTRY_CHARS,
+        );
+        guardCredentialShape(text, `${at}.args[${index}]`);
+        return text;
+      });
+    }
+    args.forEach((arg) => {
+      if (arg.endsWith("@latest"))
+        warnings.push(
+          `${at}.args names ${arg}, an unpinned package; pin an exact version`,
+        );
+    });
+    // The first non-flag argument of a package runner is the package; it needs an @version.
+    if (/^(?:.*\/)?(?:npx|bunx|pnpx)$/.test(command)) {
+      const pkg = args.find((arg) => !arg.startsWith("-"));
+      if (
+        pkg !== undefined &&
+        !pkg.endsWith("@latest") &&
+        !/.@[^@/]+$/.test(pkg)
+      )
+        warnings.push(
+          `${at}.args names ${pkg}, a package with no @version; pin an exact version`,
+        );
+    }
+    return { name, command, args };
+  });
+}
+
+function resolveRoleMcp(
+  value: unknown,
+  at: string,
+  servers: readonly ResolvedMcpServer[],
+): ResolvedMcpServer[] {
+  const names = stringList(value, at);
+  const seen = new Set<string>();
+  return names.map((name, index) => {
+    const server = servers.find((candidate) => candidate.name === name);
+    if (server === undefined)
+      throw new ConfigError(
+        `${at}[${index}] does not name a configured [mcp_servers] table`,
+      );
+    if (seen.has(name))
+      throw new ConfigError(`${at}[${index}] repeats ${name}`);
+    seen.add(name);
+    return server;
+  });
+}
+
+const OUTPUT_DIR_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
+
+function resolveResearcher(
+  table: Table,
+  configured: boolean,
+  roles: readonly ResolvedRole[],
+  hosts: ReadonlyMap<string, ResolvedHost>,
+  architect: ResolvedArchitect,
+  operator: ResolvedOperator,
+): ResolvedResearcher {
+  rejectUnknownKeys(
+    table,
+    ["enabled", "role", "output_dir", "user_agent"],
+    "researcher",
+  );
+  const role =
+    optionalString(table.role, "researcher.role", 32) ??
+    DEFAULT_RESEARCHER_ROLE;
+  if (!NAME_PATTERN.test(role))
+    throw new ConfigError(`researcher.role must match ${NAME_PATTERN.source}`);
+  const outputDir =
+    optionalString(table.output_dir, "researcher.output_dir", 200) ??
+    DEFAULT_RESEARCHER_OUTPUT_DIR;
+  if (
+    !OUTPUT_DIR_PATTERN.test(outputDir) ||
+    outputDir.split("/").some((part) => part === "." || part === "..")
+  )
+    throw new ConfigError(
+      "researcher.output_dir must be a repo-relative directory with no '..', no leading '/' and only letters, digits, '.', '_', '-' and '/'",
+    );
+  const userAgent =
+    optionalString(table.user_agent, "researcher.user_agent", 200) ??
+    DEFAULT_RESEARCHER_USER_AGENT;
+  if (!PRINTABLE_LINE.test(userAgent) || /["'`]/.test(userAgent))
+    throw new ConfigError(
+      "researcher.user_agent must be one printable line with no quote characters",
+    );
+  guardCredentialShape(userAgent, "researcher.user_agent");
+  const researcher: ResolvedResearcher = {
+    configured,
+    enabled: optionalBoolean(table.enabled, "researcher.enabled", false),
+    role,
+    outputDir,
+    userAgent,
+  };
+  if (!researcher.enabled) return researcher;
+
+  if (architect.enabled && role === architect.role)
+    throw new ConfigError(
+      `researcher.role "${role}" must differ from architect.role`,
+    );
+  if (operator.configured && role === operator.role)
+    throw new ConfigError(
+      `researcher.role "${role}" must differ from operator.role`,
+    );
+  const researcherRole = roles.find((candidate) => candidate.name === role);
+  if (researcherRole === undefined)
+    throw new ConfigError(
+      `researcher.role "${role}" does not name a configured role`,
+    );
+  const host = hosts.get(researcherRole.host);
+  if (host?.kind !== "claude")
+    throw new ConfigError(
+      `roles.${role}: the researcher role needs a claude host so its allow and deny rules are enforced; host ${researcherRole.host} is ${host?.kind ?? "unknown"}`,
+    );
+  const [problem] = researcherRuleProblems(researcherRole, researcher);
+  if (problem !== undefined) throw new ConfigError(problem);
+  return researcher;
+}
+
 function resolveHosts(table: Table): ResolvedHost[] {
   const names = validatedNames(table, "hosts", "host");
   if (names.length === 0)
@@ -1229,10 +1461,15 @@ function rejectUnenforceable(
   permissionMode: PermissionMode,
   allow: readonly string[],
   deny: readonly string[],
+  mcp: readonly ResolvedMcpServer[],
 ): void {
   if (kind === "PM" || kind === "Supervisor")
     throw new ConfigError(
       `${at}: a ${kind} role is read-only by design and only a claude host can enforce that; host ${host.name} is ${host.kind}`,
+    );
+  if (mcp.length > 0)
+    throw new ConfigError(
+      `${at}.mcp is a Claude Code option and host ${host.name} (${host.kind}) cannot enforce it`,
     );
   if (allow.length > 0 || deny.length > 0)
     throw new ConfigError(
@@ -1310,6 +1547,7 @@ function resolveRoles(
   hosts: ReadonlyMap<string, ResolvedHost>,
   projectRoot: string,
   defaults: ResolvedDefaults,
+  mcpServers: readonly ResolvedMcpServer[],
 ): ResolvedRole[] {
   const names = validatedNames(table, "roles", "role");
   if (names.length === 0)
@@ -1327,6 +1565,7 @@ function resolveRoles(
         "allow",
         "deny",
         "hooks",
+        "mcp",
         "prompt",
         "prompt_file",
       ],
@@ -1366,9 +1605,10 @@ function resolveRoles(
       role.hooks === undefined
         ? "off"
         : enumValue(role.hooks, `${at}.hooks`, ["off", "inherit"] as const);
+    const mcp = resolveRoleMcp(role.mcp, `${at}.mcp`, mcpServers);
     const { prompt, text: promptText } = resolvePrompt(role, at, projectRoot);
     if (host.kind !== "claude")
-      rejectUnenforceable(at, host, kind, permissionMode, allow, deny);
+      rejectUnenforceable(at, host, kind, permissionMode, allow, deny, mcp);
     const resolved = {
       name,
       kind,
@@ -1378,11 +1618,13 @@ function resolveRoles(
       allow,
       deny,
       hooks,
+      ...(mcp.length === 0 ? {} : { mcp }),
       prompt,
     };
     const { source, hash } = prompt;
     const result = {
       ...resolved,
+      mcp,
       configHash: digestJson({
         role: { ...resolved, prompt: { source, hash } },
         host,

@@ -877,3 +877,84 @@ test("with the prompt relay on the PM rule is replaced by the relay procedure", 
   );
   assert.ok(Buffer.byteLength(text, "utf8") < MAX_PROMPT_BYTES);
 });
+
+const researcher = {
+  role: "researcher",
+  outputDir: "research",
+  userAgent: "capstan-research/1.0 (test)",
+};
+
+test("without the Researcher every prompt is byte-identical", () => {
+  for (const kind of ["PM", "Developer", "Verifier", "Supervisor"] as const) {
+    assert.equal(
+      buildRolePrompt({ ...goldenInput(kind), isResearcher: true }),
+      buildRolePrompt(goldenInput(kind)),
+      kind,
+    );
+    if (kind !== "PM")
+      assert.equal(
+        buildRolePrompt({ ...goldenInput(kind), researcher }),
+        buildRolePrompt(goldenInput(kind)),
+        kind,
+      );
+  }
+  assert.ok(!/Researcher|researcher/.test(buildRolePrompt(goldenInput("PM"))));
+});
+
+test("the PM prompt has the research section only when the Researcher is enabled", () => {
+  const on = buildRolePrompt({ ...goldenInput("PM"), researcher });
+  for (const needle of [
+    "the Researcher role is researcher",
+    "cstan spawn researcher",
+    "research/",
+    "untrusted data",
+  ])
+    assert.ok(on.includes(needle), needle);
+});
+
+test("the researcher prompt carries the output contract, tool guidance and rules", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("Developer"),
+    isResearcher: true,
+    researcher,
+  });
+  for (const needle of [
+    "research/<slug>.md",
+    "Executive summary",
+    "Method",
+    "consensus",
+    "isolated opinion",
+    "Conflicts and disagreements",
+    "Sources",
+    "date you accessed",
+    "Could not verify",
+    "www.reddit.com/r/<sub>/search.rss",
+    "www.reddit.com/r/<sub>/new/.rss",
+    "www.reddit.com/search.rss?q=",
+    "/comments/<id>/.rss",
+    "A 302 to /login or a 403 means unauthenticated access is closed",
+    "Reddit was not reachable and that only search snippets can be cited",
+    "WebSearch with site:reddit.com as the last resort",
+    "`git add research/<slug>.md`",
+    "never `git add -A` or `git add .`",
+    "hn.algolia.com/api/v1/search",
+    "capstan-research/1.0 (test)",
+    "GET requests only",
+    "Never pipe a download into a shell",
+    "Use no subagents",
+    "cstan report",
+  ])
+    assert.ok(text.includes(needle), needle);
+  assert.ok(!text.includes("architect named in it"));
+  assert.ok(!text.includes("old.reddit.com/r/<sub>/search.json"));
+});
+
+test("the researcher prompt stays under the size limit with a 4000-char role prompt", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("Developer"),
+    rolePrompt: "x".repeat(4000),
+    isResearcher: true,
+    researcher,
+  });
+  assert.ok(Buffer.byteLength(text, "utf8") < MAX_PROMPT_BYTES);
+});

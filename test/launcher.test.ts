@@ -20,6 +20,8 @@ import {
   CONFIG_FILE_NAME,
   loadCapstanConfig,
   type CapstanConfig,
+  type ResolvedResearcher,
+  type ResolvedRole,
   type ResolvedWorktree,
 } from "../src/config/capstan-config.js";
 import { ControllerCore } from "../src/controller/core.js";
@@ -33,6 +35,10 @@ import {
   type TeardownRunner,
 } from "../src/launcher.js";
 import { CSTAN_ALLOW_RULE } from "../src/prompts.js";
+import {
+  RESEARCHER_REQUIRED_DENY,
+  researcherRuleProblems,
+} from "../src/researcher-policy.js";
 import {
   AgentPaneMismatch,
   PaneGone,
@@ -161,6 +167,42 @@ function withArchitect(
   } as CapstanConfig;
 }
 
+function withResearcher(
+  base: CapstanConfig,
+  researcher: { readonly enabled: boolean } | undefined,
+): CapstanConfig {
+  if (researcher === undefined) return base;
+  const developer = base.roles.find((r) => r.name === "developer")!;
+  const role = Object.defineProperty(
+    {
+      ...developer,
+      name: "researcher",
+      configHash: hashOf("researcher"),
+      allow: ["WebSearch", "Bash(jq *)", "mcp__playwright__browser_navigate"],
+      mcp: [
+        {
+          name: "playwright",
+          command: "npx",
+          args: ["-y", "@playwright/mcp@latest", "--headless"],
+        },
+      ],
+    },
+    "promptText",
+    { value: null, enumerable: false },
+  );
+  return {
+    ...base,
+    roles: [...base.roles, role],
+    researcher: {
+      configured: true,
+      enabled: researcher.enabled,
+      role: "researcher",
+      outputDir: "docs/research",
+      userAgent: "capstan-researcher/1.0 (test)",
+    },
+  } as unknown as CapstanConfig;
+}
+
 function withOperator(
   base: CapstanConfig,
   operator:
@@ -228,6 +270,8 @@ async function world(
       readonly enabled: boolean;
       readonly table?: boolean;
     };
+    /** Adds the Researcher role and a [researcher] table, enabled or not. */
+    readonly researcher?: { readonly enabled: boolean };
     readonly worktree?: ResolvedWorktree;
     readonly runSetup?: SetupRunner;
     readonly runTeardown?: TeardownRunner;
@@ -249,6 +293,7 @@ async function world(
         "developer2:Developer",
         "architect:Developer",
         "operator:Developer",
+        "researcher:Developer",
         "supervisor:Supervisor",
       ].map((entry) => {
         const [name, kind] = entry.split(":") as [
@@ -272,18 +317,21 @@ async function world(
       core,
       adapter,
       config: {
-        ...withOperator(
-          withArchitect(
-            config(
-              fallback,
-              maxWorkers,
-              layout,
-              environment.pass,
-              environment.hostOf,
+        ...withResearcher(
+          withOperator(
+            withArchitect(
+              config(
+                fallback,
+                maxWorkers,
+                layout,
+                environment.pass,
+                environment.hostOf,
+              ),
+              environment.architect,
             ),
-            environment.architect,
+            environment.operator,
           ),
-          environment.operator,
+          environment.researcher,
         ),
         ...(environment.worktree === undefined
           ? {}
@@ -3217,6 +3265,88 @@ test("without the Architect no prompt mentions plans", async () => {
       assert.ok(!/architect/i.test(text), "no architect text");
       assert.ok(!text.includes("cstan plan"), "no plan commands");
     }
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("an enabled Researcher gets the researcher prompt and the MCP arguments, and the PM prompt gains the research section", async () => {
+  const w = await world(true, true, 3, {}, { researcher: { enabled: true } });
+  try {
+    await launched(w);
+    const researcher = await w.launcher.spawn("researcher");
+    assert.equal(researcher.state, "started");
+    const start = w.adapter.starts.at(-1)!;
+    assert.ok(start.args.includes("--mcp-config"));
+    assert.ok(start.args.includes("--strict-mcp-config"));
+    assert.ok(start.args.includes(CSTAN_ALLOW_RULE));
+    const prompt = promptOf(w, w.adapter.starts.length - 1);
+    assert.match(prompt, /You are the researcher of a Capstan delivery team/);
+    assert.match(prompt, /docs\/research\//);
+    assert.match(prompt, /capstan-researcher\/1\.0 \(test\)/);
+    const pm = promptOf(w, 0);
+    assert.match(pm, /Web research \(the Researcher is enabled/);
+    await w.launcher.spawn("developer");
+    const dev = promptOf(w, w.adapter.starts.length - 1);
+    assert.ok(!dev.includes("You are the researcher"));
+    assert.ok(!dev.includes("Web research"));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("the cstan allow rule the launcher appends passes the researcher rule check", () => {
+  const role = {
+    name: "researcher",
+    kind: "Developer",
+    permissionMode: "default",
+    allow: [CSTAN_ALLOW_RULE],
+    deny: [...RESEARCHER_REQUIRED_DENY],
+  } as unknown as ResolvedRole;
+  assert.deepEqual(
+    researcherRuleProblems(role, {
+      enabled: true,
+      role: "researcher",
+      outputDir: "docs/research",
+    } as unknown as ResolvedResearcher),
+    [],
+  );
+});
+
+test("with [researcher] disabled a role named researcher gets the plain developer prompt and the PM has no research section", async () => {
+  const w = await world(true, true, 3, {}, { researcher: { enabled: false } });
+  try {
+    await launched(w);
+    await w.launcher.spawn("researcher");
+    const prompt = promptOf(w, w.adapter.starts.length - 1);
+    assert.ok(!prompt.includes("You are the researcher"));
+    assert.ok(!prompt.includes("Output contract"));
+    assert.ok(!/Web research/.test(promptOf(w, 0)));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace and PM restart rebuild the researcher prompt and the research section", async () => {
+  const w = await world(true, true, 3, {}, { researcher: { enabled: true } });
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("researcher");
+    const first = promptOf(w, w.adapter.starts.length - 1);
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    const start = w.adapter.starts.at(-1)!;
+    assert.ok(start.args.includes("--mcp-config"));
+    const replaced = promptOf(w, w.adapter.starts.length - 1);
+    assert.match(replaced, /You are the researcher of a Capstan delivery team/);
+    assert.match(replaced, /docs\/research\//);
+    assert.ok(first.includes("Output contract"));
+    assert.ok(replaced.includes("Output contract"));
+    await w.launcher.restartPm();
+    assert.match(
+      promptOf(w, w.adapter.starts.length - 1),
+      /Web research \(the Researcher is enabled/,
+    );
   } finally {
     w.cleanup();
   }

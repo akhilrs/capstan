@@ -1539,7 +1539,7 @@ test("the starter config names the architect table only as comments", () => {
   const uncommented = STARTER_CONFIG.split("\n")
     .map((line) =>
       line.replace(
-        /^# (?=\[|enabled|role =|plan_review|reviewer_role|max_packages|count_toward|high_risk|kind =|host =|permission_mode|allow =|deny =|prompt =)/,
+        /^# (?=\[|enabled|role =|plan_review|reviewer_role|max_packages|count_toward|high_risk|kind =|host =|permission_mode|allow =|deny =|prompt =|mcp =|command =|args =|output_dir|user_agent)/,
         "",
       ),
     )

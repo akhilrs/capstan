@@ -622,6 +622,18 @@ export class Launcher {
       : undefined;
   }
 
+  /** The researcher settings a prompt needs; undefined while the Researcher is disabled, so no prompt changes. */
+  #researcherPrompt(): PromptInput["researcher"] {
+    const researcher = this.#config.researcher;
+    return researcher?.enabled === true
+      ? {
+          role: researcher.role,
+          outputDir: researcher.outputDir,
+          userAgent: researcher.userAgent,
+        }
+      : undefined;
+  }
+
   /** The operator settings a prompt needs; undefined while the Operator is disabled, so no prompt changes. */
   #operatorPrompt(): PromptInput["operator"] {
     const operator = this.#config.operator;
@@ -654,6 +666,15 @@ export class Launcher {
       architect?.enabled === true &&
       kind === "Developer" &&
       name === architect.role
+    );
+  }
+
+  #isResearcherRole(name: string, kind: string): boolean {
+    const researcher = this.#config.researcher;
+    return (
+      researcher?.enabled === true &&
+      kind === "Developer" &&
+      name === researcher.role
     );
   }
 
@@ -1039,6 +1060,9 @@ export class Launcher {
       ...(this.#operatorPrompt() === undefined
         ? {}
         : { operator: this.#operatorPrompt()! }),
+      ...(this.#researcherPrompt() === undefined
+        ? {}
+        : { researcher: this.#researcherPrompt()! }),
       ...(this.#config.promptRelay?.enabled === true
         ? { promptRelay: { enabled: true as const } }
         : {}),
@@ -1796,6 +1820,12 @@ export class Launcher {
             : {
                 operator: this.#operatorPrompt()!,
                 isOperator: this.#isOperatorRole(role.name, role.kind),
+              }),
+          ...(this.#researcherPrompt() === undefined
+            ? {}
+            : {
+                researcher: this.#researcherPrompt()!,
+                isResearcher: this.#isResearcherRole(role.name, role.kind),
               }),
           ...this.#nexoraPrompt(),
           ...(options.seed === undefined

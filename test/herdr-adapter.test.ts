@@ -1897,6 +1897,68 @@ test("starting in a fresh pane needs a bare prompt and a prepared pane needs an 
   }
 });
 
+test("claudeArguments puts --mcp-config and --strict-mcp-config before --settings and the prompt file", () => {
+  const base = {
+    model: null,
+    permissionMode: "default",
+    allow: ["WebSearch"],
+    deny: ["Agent"],
+    hooks: "off",
+  } as const;
+  const mcp = [
+    {
+      name: "playwright",
+      command: "npx",
+      args: ["-y", "@playwright/mcp@0.0.83", "--headless"],
+    },
+  ];
+  const args = claudeArguments({ ...base, mcp }, "/tmp/p.md");
+  const at = args.indexOf("--mcp-config");
+  assert.deepEqual(args.slice(0, at), [
+    "--permission-mode",
+    "default",
+    "--allowedTools",
+    "WebSearch",
+    "--disallowedTools",
+    "Agent",
+  ]);
+  assert.deepEqual(args.slice(at + 2), [
+    "--strict-mcp-config",
+    "--settings",
+    '{"disableAllHooks":true}',
+    "--append-system-prompt-file",
+    "/tmp/p.md",
+  ]);
+  assert.deepEqual(JSON.parse(args[at + 1] as string), {
+    mcpServers: {
+      playwright: {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@playwright/mcp@0.0.83", "--headless"],
+      },
+    },
+  });
+  assert.deepEqual(
+    claudeArguments({ ...base, mcp: [] }, "/tmp/p.md"),
+    claudeArguments(base, "/tmp/p.md"),
+  );
+  assert.ok(!claudeArguments(base).includes("--mcp-config"));
+  for (const command of ["bad\ncommand", "-x"])
+    assert.throws(
+      () =>
+        claudeArguments({ ...base, mcp: [{ name: "p", command, args: [] }] }),
+      InvalidArgumentError,
+    );
+  assert.throws(
+    () =>
+      claudeArguments({
+        ...base,
+        mcp: [{ name: "p", command: "npx", args: ["a\nb"] }],
+      }),
+    InvalidArgumentError,
+  );
+});
+
 test("claudeArguments builds the per-role list and refuses control characters", () => {
   const base = {
     model: null,
