@@ -492,6 +492,25 @@ export function buildDashModel(
 }
 
 /** Rows that changed since the previous poll keep their highlight for `HIGHLIGHT_POLLS` polls. */
+/** How many of the most recently ended agents the panel shows unless "show all ended" is on. */
+export const RECENT_ENDED_SHOWN = 5;
+
+/**
+ * The agents the panel lists: every active agent, any ended agent that is still flagged lost,
+ * stalled or blocked, and the most recently ended few (the model keeps ended agents newest first).
+ */
+export function visibleAgents(
+  agents: readonly AgentRow[],
+  showAllEnded: boolean,
+): readonly AgentRow[] {
+  if (showAllEnded) return agents;
+  let recent = 0;
+  return agents.filter((a) => {
+    if (a.state === "active" || a.lost || a.stalled || a.blocked) return true;
+    return recent++ < RECENT_ENDED_SHOWN;
+  });
+}
+
 export type ChangeState = {
   readonly fingerprints: ReadonlyMap<string, string>;
   readonly highlight: ReadonlyMap<string, number>;

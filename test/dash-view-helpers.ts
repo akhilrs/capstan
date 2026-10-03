@@ -19,6 +19,7 @@ export function viewOf(
     focus: "queue",
     selected: { agents: 0, pipeline: 0, queue: 0, findings: 0, work: 0 },
     problemsOnly: false,
+    showAllEnded: false,
     paused: false,
     link: "ok",
     linkAge: "1s",

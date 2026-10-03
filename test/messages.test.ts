@@ -1741,6 +1741,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     const reopened = await ControllerCore.open({
       stateDirectory,
       project: info,
+      keepMigrationBackups: 50,
     });
     try {
       reopened.close();

@@ -735,6 +735,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       stateDirectory: options.stateDirectory,
       project: options.project,
       workspaceRoot: options.workspaceRoot,
+      ...(options.capstan === undefined
+        ? {}
+        : {
+            keepMigrationBackups: options.capstan.ledger.keepMigrationBackups,
+          }),
     });
     if (stopping) return;
     const credential = options.project.ownerCredential;

@@ -75,6 +75,7 @@ function configFor(): CapstanConfig {
       findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 1 },
+    ledger: { keepMigrationBackups: 3 },
     layout: {
       spawn: "tab" as const,
       pmWidthPercent: 60,

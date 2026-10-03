@@ -59,6 +59,7 @@ function configFor(operatorEnabled: boolean): CapstanConfig {
       findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 3 },
+    ledger: { keepMigrationBackups: 3 },
     layout: {
       spawn: "tab",
       split: "auto",

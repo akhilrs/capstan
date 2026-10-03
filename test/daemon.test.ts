@@ -948,6 +948,7 @@ test("the daemon passes a process probe to the driver, so a working agent's pane
       findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 3 },
+    ledger: { keepMigrationBackups: 3 },
     layout: {
       spawn: "tab",
       split: "auto",

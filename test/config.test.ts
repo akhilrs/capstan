@@ -225,6 +225,27 @@ test("limits.max_workers defaults to 3, accepts 1 to 16 and refuses anything els
   assertRejected(`${VALID}\n[limits]\nmax_worker = 2\n`, /limits/);
 });
 
+test("ledger.keep_migration_backups defaults to 3, accepts 1 to 50 and refuses anything else", () => {
+  withConfig(VALID, (directory) =>
+    assert.equal(loadCapstanConfig(directory).ledger.keepMigrationBackups, 3),
+  );
+  for (const value of ["1", "50"])
+    withConfig(
+      `${VALID}\n[ledger]\nkeep_migration_backups = ${value}\n`,
+      (directory) =>
+        assert.equal(
+          loadCapstanConfig(directory).ledger.keepMigrationBackups,
+          Number(value),
+        ),
+    );
+  for (const value of ["0", "51", "-1", "3.5", "true", '"3"'])
+    assertRejected(
+      `${VALID}\n[ledger]\nkeep_migration_backups = ${value}\n`,
+      /ledger\.keep_migration_backups/,
+    );
+  assertRejected(`${VALID}\n[ledger]\nkeep = 2\n`, /ledger/);
+});
+
 test("env.pass lists the variable names to pass to agents and refuses anything that is not a plain name", () => {
   const load = (text: string) =>
     withConfig(text, (directory) => loadCapstanConfig(directory).env.pass);

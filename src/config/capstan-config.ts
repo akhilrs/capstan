@@ -394,6 +394,14 @@ export type ResolvedLimits = {
   readonly maxWorkers: number;
 };
 
+export type ResolvedLedger = {
+  /** Pre-migration ledger backups kept in the state directory; older ones are deleted. */
+  readonly keepMigrationBackups: number;
+};
+
+export const DEFAULT_KEEP_MIGRATION_BACKUPS = 3;
+export const MAX_KEEP_MIGRATION_BACKUPS = 50;
+
 export const DEFAULT_MAX_WORKERS = 3;
 
 export const DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS = 600;
@@ -524,6 +532,7 @@ export type CapstanConfig = {
   readonly promptRelay: ResolvedPromptRelay;
   readonly nexora: ResolvedNexora;
   readonly limits: ResolvedLimits;
+  readonly ledger: ResolvedLedger;
   readonly layout: ResolvedLayout;
   /** Absent when `[worktree]` sets no `setup`. */
   readonly worktree?: ResolvedWorktree;
@@ -654,6 +663,7 @@ export function parseCapstanConfig(
       "nexora",
       "defaults",
       "limits",
+      "ledger",
       "layout",
       "worktree",
       "env",
@@ -750,6 +760,18 @@ export function parseCapstanConfig(
       1,
       MAX_MAX_WORKERS,
       DEFAULT_MAX_WORKERS,
+    ),
+  };
+
+  const ledgerTable = optionalTable(root.ledger, "ledger");
+  rejectUnknownKeys(ledgerTable, ["keep_migration_backups"], "ledger");
+  const ledger: ResolvedLedger = {
+    keepMigrationBackups: optionalInteger(
+      ledgerTable.keep_migration_backups,
+      "ledger.keep_migration_backups",
+      1,
+      MAX_KEEP_MIGRATION_BACKUPS,
+      DEFAULT_KEEP_MIGRATION_BACKUPS,
     ),
   };
 
@@ -868,6 +890,7 @@ export function parseCapstanConfig(
     promptRelay,
     nexora,
     limits,
+    ledger,
     layout,
     ...(worktree === undefined ? {} : { worktree }),
     env,

@@ -17,6 +17,7 @@ import {
   pipelineItems,
   queueRows,
   trackChanges,
+  visibleAgents,
   type ChangeState,
   type DashModel,
 } from "./model.js";
@@ -102,9 +103,10 @@ const EMPTY_SELECTION: Selection = {
 export function rowIds(
   model: DashModel,
   problemsOnly: boolean,
+  showAllEnded = false,
 ): Record<PanelId, readonly string[]> {
   return {
-    agents: model.agents.map((a) => a.id),
+    agents: visibleAgents(model.agents, showAllEnded).map((a) => a.id),
     pipeline: pipelineItems(model).map((i) => i.id),
     queue: queueRows(model, problemsOnly).map((m) => m.id),
     findings: model.findings.map((f) => f.id),
@@ -145,6 +147,7 @@ export function App({ deps }: { deps: AppDeps }) {
   const [focus, setFocus] = useState<PanelId>("queue");
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [problemsOnly, setProblemsOnly] = useState(false);
+  const [showAllEnded, setShowAllEnded] = useState(false);
   const [intervalSeconds, setIntervalSeconds] = useState(deps.intervalSeconds);
   const [paused, setPaused] = useState(false);
   const [help, setHelp] = useState(false);
@@ -230,8 +233,8 @@ export function App({ deps }: { deps: AppDeps }) {
   }, [model, prompt]);
 
   const ids = useMemo(
-    () => (model === null ? null : rowIds(model, problemsOnly)),
-    [model, problemsOnly],
+    () => (model === null ? null : rowIds(model, problemsOnly, showAllEnded)),
+    [model, problemsOnly, showAllEnded],
   );
   const indexOf = (panel: PanelId): number =>
     ids === null ? 0 : resolveSelection(ids[panel], selection[panel]);
@@ -331,9 +334,14 @@ export function App({ deps }: { deps: AppDeps }) {
     if (input === "f" && focus === "queue") {
       return setProblemsOnly((on) => !on);
     }
+    if (input === "e" && focus === "agents") {
+      return setShowAllEnded((on) => !on);
+    }
     if (model === null || !canAct) return;
     if (input === "o" && focus === "agents") {
-      const agent = model.agents[indexOf("agents")];
+      const agent = visibleAgents(model.agents, showAllEnded)[
+        indexOf("agents")
+      ];
       const action = agent === undefined ? undefined : observeAction(agent);
       if (agent !== undefined && action === undefined)
         return setNotice(
@@ -392,6 +400,7 @@ export function App({ deps }: { deps: AppDeps }) {
       work: indexOf("work"),
     },
     problemsOnly,
+    showAllEnded,
     paused,
     link,
     linkAge:

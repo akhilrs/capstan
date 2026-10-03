@@ -98,6 +98,7 @@ export function helpOverlay(
     text(theme, "  y retry   s skip   c cancel   the selected message"),
     text(theme, "      then press y again to confirm"),
     text(theme, "  f   queue: show only delivery problems"),
+    text(theme, "  e   agents: show all ended (default: the 5 latest)"),
     text(theme, ""),
     head("VIEW"),
     text(theme, "  p   pause / resume polling      r   poll now"),

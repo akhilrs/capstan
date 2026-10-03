@@ -101,6 +101,7 @@ function config(
       findingCheckSeconds: 1800,
     },
     limits: { maxWorkers },
+    ledger: { keepMigrationBackups: 3 },
     layout: {
       spawn: "tab",
       pmWidthPercent: 60,

@@ -494,7 +494,8 @@ test("the ids of the rows shown follow the problems filter", () => {
     "pm-agent",
   ]);
   const crowdedModel = buildDashModel(crowded(), NOW, 3);
-  assert.equal(rowIds(crowdedModel, false).agents.length, 10);
+  assert.equal(rowIds(crowdedModel, false).agents.length, 7);
+  assert.equal(rowIds(crowdedModel, false, true).agents.length, 10);
   assert.equal(rowIds(crowdedModel, false).agents[0], "pm-1");
 });
 
@@ -513,6 +514,8 @@ test("j, k and the arrows move through every row of the agents panel, ended agen
   });
   const app = await open(f);
   app.stdin.write("1");
+  await settle();
+  app.stdin.write("e");
   await settle();
   assert.match(app.lastFrame()!, /┤ 1\/10 ├/);
   for (const key of ["j", "j", "j"]) {
@@ -540,6 +543,31 @@ test("j, k and the arrows move through every row of the agents panel, ended agen
     app.lastFrame()!.includes("supervisor-1"),
     "the oldest is reachable",
   );
+  app.unmount();
+});
+
+test("e toggles between the recent ended agents and all of them, and selection stays valid", async () => {
+  const f = fixture(crowded(), {
+    size: { columns: 118, rows: 34 },
+    noColor: true,
+  });
+  const app = await open(f);
+  app.stdin.write("1");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 1\/7 ├/);
+  for (let i = 0; i < 12; i++) app.stdin.write("j");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 7\/7 ├/);
+  assert.ok(!/supervisor-1 +Supervisor/.test(app.lastFrame()!));
+  app.stdin.write("e");
+  await settle();
+  assert.match(app.lastFrame()!, /\/10 ├/);
+  for (let i = 0; i < 12; i++) app.stdin.write("j");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 10\/10 ├/);
+  app.stdin.write("e");
+  await settle();
+  assert.match(app.lastFrame()!, /┤ 7\/7 ├/);
   app.unmount();
 });
 
@@ -599,7 +627,7 @@ test("an unfocused panel shows no cursor counter unless rows are hidden", async 
   const app = await open(f);
   const frame = app.lastFrame()!;
   assert.ok(!/┤ \d+\/10 ├/.test(frame), "agents has no cursor while unfocused");
-  assert.match(frame, /┤ 1-7\/12 ├/, "the pipeline hides rows");
+  assert.match(frame, /┤ 1-\d+\/12 ├/, "the pipeline hides rows");
   app.unmount();
 });
 

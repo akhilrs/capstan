@@ -209,8 +209,66 @@ const migrations: Readonly<
   },
 };
 
+export const DEFAULT_KEEP_MIGRATION_BACKUPS = 3;
+
+export interface OpenDatabaseOptions {
+  /** How many pre-migration backups to keep after a successful migration; default 3. */
+  readonly keepMigrationBackups?: number;
+  /** Called when an old backup cannot be listed or deleted; the default writes to stderr. */
+  readonly onPruneError?: (message: string) => void;
+}
+
+const BACKUP_NAME = /^controller\.sqlite\.pre-v(\d+)-(\d+)\.sqlite$/;
+
+/**
+ * Deletes all but the newest `keep` `controller.sqlite.pre-v<N>-<timestamp>.sqlite` files in the
+ * database's directory (newest by schema version, then timestamp). Nothing else is touched, and a
+ * failure is reported through `onError`, never thrown. Returns the deleted file names.
+ */
+export function pruneMigrationBackups(
+  databasePath: string,
+  keep: number,
+  onError: (message: string) => void = defaultPruneError,
+): string[] {
+  const directory = path.dirname(databasePath);
+  const deleted: string[] = [];
+  try {
+    const backups = fs
+      .readdirSync(directory)
+      .flatMap((name) => {
+        const match = BACKUP_NAME.exec(name);
+        return match === null
+          ? []
+          : [{ name, version: Number(match[1]), at: Number(match[2]) }];
+      })
+      .sort((a, b) => b.version - a.version || b.at - a.at);
+    for (const backup of backups.slice(Math.max(0, keep))) {
+      const file = path.join(directory, backup.name);
+      try {
+        if (!fs.lstatSync(file).isFile()) continue;
+        fs.unlinkSync(file);
+        deleted.push(backup.name);
+      } catch (error) {
+        onError(
+          `could not delete old migration backup ${file}: ${String(error)}`,
+        );
+      }
+    }
+  } catch (error) {
+    onError(
+      `could not prune migration backups in ${directory}: ${String(error)}`,
+    );
+  }
+  return deleted;
+}
+
+function defaultPruneError(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
 export async function openDatabase(
   databasePath: string,
+  options: OpenDatabaseOptions = {},
 ): Promise<Database.Database> {
   const database = new Database(databasePath, { timeout: 5_000 });
   try {
@@ -218,7 +276,13 @@ export async function openDatabase(
     database.pragma("journal_mode = WAL");
     database.pragma("synchronous = FULL");
     database.pragma("busy_timeout = 5000");
-    await migrate(database, databasePath);
+    const migrated = await migrate(database, databasePath);
+    if (migrated)
+      pruneMigrationBackups(
+        databasePath,
+        options.keepMigrationBackups ?? DEFAULT_KEEP_MIGRATION_BACKUPS,
+        options.onPruneError,
+      );
     return database;
   } catch (error) {
     database.close();
@@ -237,7 +301,7 @@ export function openDatabaseReadOnly(databasePath: string): Database.Database {
 async function migrate(
   database: Database.Database,
   databasePath: string,
-): Promise<void> {
+): Promise<boolean> {
   const hasLedger = database
     .prepare(
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
@@ -292,6 +356,7 @@ async function migrate(
   }
 
   let currentVersion = applied.at(-1)?.version ?? 0;
+  let migrated = false;
   for (const migration of Object.values(migrations)) {
     if (migration.version <= currentVersion) continue;
     if (migration.version !== currentVersion + 1)
@@ -333,7 +398,9 @@ async function migrate(
       throw error;
     }
     currentVersion = migration.version;
+    migrated = true;
   }
+  return migrated;
 }
 
 export function resolveDatabasePath(stateDirectory: string): string {

@@ -44,6 +44,7 @@ import {
   PIPELINE_ITEMS,
   pipelineItems,
   queueRows,
+  visibleAgents,
   type AgentRow,
   type DashModel,
   type FindingRow,
@@ -70,6 +71,8 @@ export interface ViewState {
   /** Selected row index per panel, already resolved against the visible rows. */
   readonly selected: Readonly<Record<PanelId, number>>;
   readonly problemsOnly: boolean;
+  /** Agents panel: list every ended agent, not just the most recent few. */
+  readonly showAllEnded: boolean;
   readonly paused: boolean;
   readonly link: Link;
   /** Time since the last good poll, for example `1s`. */
@@ -321,8 +324,8 @@ const AGENT_NAME_MAX = 20;
 function agentsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
-  const agents = model.agents;
-  const active = agents.filter((a) => a.state === "active").length;
+  const agents = visibleAgents(model.agents, view.showAllEnded);
+  const active = model.agents.filter((a) => a.state === "active").length;
   const sec = agentSections(bodyOf(ctx), agents.length);
   const nameWidth = Math.min(
     AGENT_NAME_MAX,
@@ -449,7 +452,7 @@ function agentsPanel(ctx: Ctx): Line[] {
       theme,
     ).forEach((spans) => body.push(indent(spans, ctx.w - 2)));
   }
-  const ended = agents.length - active;
+  const ended = model.agents.length - active;
   const tabs: Tab[] = [
     { text: `${active} active`, color: theme.color("fg") },
     ...(ended > 0
@@ -892,7 +895,10 @@ function wishFor(id: PanelId, model: DashModel, view: ViewState): PanelWish {
       return {
         id,
         min: 3,
-        want: CHROME_ROWS + 1 + count(model.agents.length),
+        want:
+          CHROME_ROWS +
+          1 +
+          count(visibleAgents(model.agents, view.showAllEnded).length),
         weight: 4,
         stretch: true,
       };
@@ -1153,7 +1159,10 @@ export function footerHints(focus: PanelId, g: Glyphs): readonly Hint[] {
       { key: "f", label: "problems", priority: 6 },
     );
   if (focus === "agents")
-    hints.push({ key: "o", label: "observe", priority: 8 });
+    hints.push(
+      { key: "o", label: "observe", priority: 8 },
+      { key: "e", label: "all ended", priority: 6 },
+    );
   hints.push(
     { key: "tab", label: "focus", priority: 4 },
     { key: "-/+", label: "interval", priority: 2 },

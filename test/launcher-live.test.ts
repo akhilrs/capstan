@@ -63,6 +63,7 @@ function configFor(spawn: "tab" | "pane" = "tab"): CapstanConfig {
       findingCheckSeconds: 1800,
     },
     limits: { maxWorkers: 1 },
+    ledger: { keepMigrationBackups: 3 },
     layout: {
       spawn,
       pmWidthPercent: 60,

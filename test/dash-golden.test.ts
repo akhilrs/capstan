@@ -325,7 +325,7 @@ test("ended agents are listed after the active ones, newest first, with a count 
   const small = plainLines(
     buildFrame(modelOf(crowded(), 3), viewOf(80, 24), theme).lines,
   ).join("\n");
-  assert.match(small, /1-\d+\/10/, "hidden rows are shown as a range");
+  assert.match(small, /1-\d+\/7/, "hidden rows are shown as a range");
 });
 
 test("state, severity and reviewer words are never cut", () => {

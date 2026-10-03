@@ -1639,7 +1639,12 @@ export class ControllerCore {
         )
           throw error;
       }
-      database = await openDatabase(databasePath);
+      database = await openDatabase(
+        databasePath,
+        options.keepMigrationBackups === undefined
+          ? {}
+          : { keepMigrationBackups: options.keepMigrationBackups },
+      );
       fs.chmodSync(databasePath, 0o600);
       const projectRow = database
         .prepare("SELECT name FROM projects WHERE project_id = ?")

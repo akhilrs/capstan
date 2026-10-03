@@ -7400,6 +7400,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     const reopened = await ControllerCore.open({
       stateDirectory: value.stateDirectory,
       project: info,
+      keepMigrationBackups: 50,
     });
     reopened.close();
     const check = new Database(databasePath);

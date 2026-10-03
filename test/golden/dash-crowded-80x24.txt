@@ -8,7 +8,7 @@
 ┃ ○ reviewer-6                 Reviewer   g1  ended             5m00s  0 -     █
 ┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃
 ┃ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃
-┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/10 ├━┛
+┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/7 ├━┛
 ╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
 │ reported 3  ──►  review 6  ──►  integrated 3                                 │
 │ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
@@ -21,4 +21,4 @@
 ╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
 │ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 (target ended) no progress after… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- ↑↓ select  o observe  tab focus  p pause  r refresh  ? help  q quit            
+ ↑↓ select  o observe  e all ended  tab focus  r refresh  ? help  q quit        

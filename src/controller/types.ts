@@ -201,6 +201,8 @@ export interface ControllerOptions {
   readonly workspaceRoot?: string;
   readonly runtimeWorkspacePath?: string;
   readonly clock?: () => Date;
+  /** Pre-migration backups to keep after a migration; default 3. */
+  readonly keepMigrationBackups?: number;
 }
 
 export type AgentKind = Exclude<Role, "operator" | "controller">;

@@ -4,18 +4,18 @@
 ╭─¹agents──────────────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├━┓
 │   AGENT        ROLE       GEN STATE   ACTIVITY    AGE  Q │┃     SEQ TO           STATE       AGE N DETAIL            ┃
 │ ▲ developer-2  Developer  g1  STALLED ░░░░░░░░  3m41s  2 │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledge… ┃
-│ ● pm-1         PM         g1  idle    ░░░░░░░░  1m35s  1 │┃ ●   #42 developer-2  queued    3m10s · deferred: recipi… ┃
-│ ● supervisor-1 Supervisor g┏━help━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓     8s ●                   ┃
-│ * developer-1  Developer  g┃ NAVIGATE                                                   ┃     2s ●                   ┃
-│ * designer-1   Designer   g┃   tab / shift+tab   next / previous panel                  ┃     1s ·                   ┃
-│ ○ developer-0  Developer  g┃   1-5               jump to a panel                        ┃─────────────────────────── ┃
-╰─┤ working: inferred ├──────┃   ↑ ↓  or  j k      move the selected row                  ┃queued 3m41s ago            ┃
-╭─²pipeline─────────────┤ rep┃                                                            ┃otified                     ┃
-│ reported 6  ──►  review 5  ┃ ACT   (always asks first; the daemon decides)              ┃attempts   can: retry, ski… ┃
-│ reports      ████████████▒▒┃   o   observe the selected agent (read-only)               ┃ max 6 ─ since dash start   ┃
-│                            ┃   y retry   s skip   c cancel   the selected message       ┃                       ⢸    ┃
-│ reviews      ████████▓▓▓▒▒▒┃       then press y again to confirm                        ┃   ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
-│                            ┃   f   queue: show only delivery problems                   ┃⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ ● pm-1         PM         g┏━help━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  3m10s · deferred: recipi… ┃
+│ ● supervisor-1 Supervisor g┃ NAVIGATE                                                   ┃     8s ●                   ┃
+│ * developer-1  Developer  g┃   tab / shift+tab   next / previous panel                  ┃     2s ●                   ┃
+│ * designer-1   Designer   g┃   1-5               jump to a panel                        ┃     1s ·                   ┃
+│ ○ developer-0  Developer  g┃   ↑ ↓  or  j k      move the selected row                  ┃─────────────────────────── ┃
+╰─┤ working: inferred ├──────┃                                                            ┃queued 3m41s ago            ┃
+╭─²pipeline─────────────┤ rep┃ ACT   (always asks first; the daemon decides)              ┃otified                     ┃
+│ reported 6  ──►  review 5  ┃   o   observe the selected agent (read-only)               ┃attempts   can: retry, ski… ┃
+│ reports      ████████████▒▒┃   y retry   s skip   c cancel   the selected message       ┃ max 6 ─ since dash start   ┃
+│                            ┃       then press y again to confirm                        ┃                       ⢸    ┃
+│ reviews      ████████▓▓▓▒▒▒┃   f   queue: show only delivery problems                   ┃   ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
+│                            ┃   e   agents: show all ended (default: the 5 latest)       ┃⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
 │ integrations █████████▓▓▓▓▓┃                                                            ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
 │ STAGE       STATE      WHO ┃ VIEW                                                       ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
 │ integration running    7c1e┃   p   pause / resume polling      r   poll now             ┃⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
