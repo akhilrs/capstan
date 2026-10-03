@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   branchTip,
+  coveredReports,
   deleteBranchAt,
   headCommit,
   isInHead,
@@ -433,6 +434,110 @@ test("overlapping files in different hunks squash to the reference tree", async 
       git(repo.root, "rev-parse", `${result.headSha}^{tree}`),
       referenceTree(moved, [top, bottom]),
     );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+async function headOf(
+  repo: Repo,
+  reports: [string, string][],
+): Promise<string> {
+  const result = await mergeIntoBranch(
+    repo.root,
+    input(repo, "capstan/integration/cover", reports),
+  );
+  assert.equal(result.kind, "merged");
+  return (result as { headSha: string }).headSha;
+}
+
+function commitOnBranch(
+  repo: Repo,
+  name: string,
+  from: string,
+  file: string,
+  text: string,
+): string {
+  git(repo.root, "checkout", "-q", "-b", name, from);
+  writeFileSync(path.join(repo.root, file), text);
+  git(repo.root, "add", file);
+  git(repo.root, "commit", "-q", "-m", name);
+  const sha = git(repo.root, "rev-parse", "HEAD");
+  git(repo.root, "checkout", "-q", "main");
+  return sha;
+}
+
+test("a report that is an ancestor of an integrated commit is covered as ancestor", async () => {
+  const repo = makeRepo();
+  try {
+    const aThenB = commitOnBranch(repo, "ab", repo.c, "more.txt", "more\n");
+    const head = await headOf(repo, [["r-ab", aThenB]]);
+    const covered = await coveredReports(
+      repo.root,
+      head,
+      [{ reportId: "r-c", commitSha: repo.c }],
+      { memberCommits: [aThenB] },
+    );
+    assert.deepEqual(covered, [{ reportId: "r-c", how: "ancestor" }]);
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("an amended report whose changes are all in the head is covered by tree; an overwritten one is not", async () => {
+  const repo = makeRepo();
+  try {
+    git(repo.root, "checkout", "-q", "-b", "amended", repo.c);
+    git(repo.root, "commit", "-q", "--amend", "-m", "amended c");
+    const amended = git(repo.root, "rev-parse", "HEAD");
+    git(repo.root, "checkout", "-q", "main");
+    assert.notEqual(amended, repo.c);
+    const overwriter = commitOnBranch(
+      repo,
+      "overwrite",
+      repo.base,
+      "own.txt",
+      "someone else\n",
+    );
+    const head = await headOf(repo, [["r-amended", amended]]);
+    assert.deepEqual(
+      await coveredReports(repo.root, head, [
+        { reportId: "r-c", commitSha: repo.c },
+      ]),
+      [{ reportId: "r-c", how: "tree" }],
+    );
+    const otherHead = (await mergeIntoBranch(
+      repo.root,
+      input(repo, "capstan/integration/overwrite", [["r-o", overwriter]]),
+    )) as { headSha: string };
+    assert.deepEqual(
+      await coveredReports(repo.root, otherHead.headSha, [
+        { reportId: "r-c", commitSha: repo.c },
+        { reportId: "r-a", commitSha: repo.a },
+      ]),
+      [],
+    );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("a report whose commit object is missing is skipped with a reason and does not throw", async () => {
+  const repo = makeRepo();
+  try {
+    const head = await headOf(repo, [["r-a", repo.a]]);
+    const skipped: [string, string][] = [];
+    const covered = await coveredReports(
+      repo.root,
+      head,
+      [
+        { reportId: "r-gone", commitSha: "e".repeat(40) },
+        { reportId: "r-a2", commitSha: repo.a },
+      ],
+      { onSkipped: (id, reason) => skipped.push([id, reason]) },
+    );
+    assert.deepEqual(covered, [{ reportId: "r-a2", how: "tree" }]);
+    assert.deepEqual(skipped, [["r-gone", "its commit does not exist"]]);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
   }

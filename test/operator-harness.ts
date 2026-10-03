@@ -36,6 +36,9 @@ export function operatorConfig(
     countTowardWorkerLimit: false,
     restartHealthTimeoutSeconds: 60,
     restartIdleWaitSeconds: 120,
+    sessionGrantMaxMinutes: 60,
+    fullAutoDefaultMinutes: 30,
+    fullAutoMaxMinutes: 120,
     ...overrides,
   };
 }
@@ -135,6 +138,7 @@ export async function operatorWorld(
     controllerCredential: h.owner,
     projectRoot,
     environment: () => ({ PATH: process.env.PATH ?? "/usr/bin:/bin" }),
+    monotonicNow: () => clock.now().getTime(),
     runCommand:
       options.runCommand ??
       (async (run) => {

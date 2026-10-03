@@ -224,6 +224,49 @@ test("a high-risk submit spawns one reviewer, sets in_review, and a pass approve
   });
 });
 
+test("the review request of a large plan points at plan show, stays under the message limit, and the reviewer can read the body", async () => {
+  await withPlans("high_risk", async (h, _stub, architect, reviewers) => {
+    const planId = await open(h, "high-risk");
+    const large = JSON.stringify({
+      summary: "s".repeat(30 * 1024),
+      packages: [
+        {
+          id: "wp1",
+          title: "first",
+          owns: ["src/a/"],
+          acceptance: ["a works"],
+          estimate_hours: 2,
+        },
+      ],
+      risks: ["none known"],
+    });
+    assert.ok(Buffer.byteLength(large, "utf8") > 30 * 1024);
+    const answer = await call(h, architect.credential, "plan", [
+      "submit",
+      planId,
+      large,
+    ]);
+    assert.ok(answer.ok, JSON.stringify(answer));
+    const reviewer = reviewers[0]!;
+    const request = bodies(h, reviewer.agentId).find((b) =>
+      b.startsWith("Review request "),
+    )!;
+    assert.ok(Buffer.byteLength(request, "utf8") < 16 * 1024);
+    assert.ok(request.includes(`cstan plan show ${planId}`));
+    assert.match(request, /revision 1/);
+    const shown = await call(h, reviewer.credential, "plan", ["show", planId]);
+    assert.ok(shown.ok, JSON.stringify(shown));
+    const result = (
+      shown as { result: { revision: { revision: number; body: unknown } } }
+    ).result;
+    assert.equal(result.revision.revision, 1);
+    assert.equal(
+      (result.revision.body as { summary: string }).summary.length,
+      30 * 1024,
+    );
+  });
+});
+
 test("plan_review = always reviews a normal plan too", async () => {
   await withPlans("always", async (h, stub, architect) => {
     const planId = await open(h, "normal");

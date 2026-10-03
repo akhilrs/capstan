@@ -179,6 +179,19 @@ const migrations: Readonly<
     name: "0026_operator.sql",
     url: new URL("../../migrations/0026_operator.sql", import.meta.url),
   },
+  27: {
+    version: 27,
+    name: "0027_integration_coverage.sql",
+    url: new URL(
+      "../../migrations/0027_integration_coverage.sql",
+      import.meta.url,
+    ),
+  },
+  28: {
+    version: 28,
+    name: "0028_operator_grants.sql",
+    url: new URL("../../migrations/0028_operator_grants.sql", import.meta.url),
+  },
 };
 
 export async function openDatabase(

@@ -22,6 +22,9 @@ import {
   AgentPaneMismatch,
   PaneGone,
   PaneLost,
+  PhaseError,
+  PromptUnrecognized,
+  ShellNotReady,
   buildAgentEnvironment,
   shellQuote,
   claudeArguments,
@@ -45,6 +48,8 @@ export const CLEANUP_BUDGET_MS = 30_000;
 export const ADOPT_BUDGET_MS = 20_000;
 export const MAX_WAITING_OPERATIONS = 1;
 const START_TIMEOUT_MS = 30_000;
+const START_ATTEMPTS = 3;
+const START_RETRY_DELAY_MS = 1_500;
 const DIALOG_TIMEOUT_MS = 10_000;
 const ID_ATTEMPTS = 3;
 
@@ -77,8 +82,13 @@ export type LauncherAdapter = Pick<
 
 export interface GitRunner {
   headSha(): string;
-  /** Removes a worktree without forcing; false when git refuses (for example untracked files). */
-  worktreeRemove(worktreePath: string): boolean;
+  /** Removes a worktree. Only a worktree of a `capstan/` branch is forced (it may hold untracked files such as installed dependencies); any other is removed without force. `stderr` is git's message when it refuses. */
+  worktreeRemove(worktreePath: string): {
+    readonly removed: boolean;
+    readonly stderr: string;
+  };
+  /** How many files are untracked or modified in the worktree; null when git cannot tell. */
+  worktreeDirtyCount(worktreePath: string): number | null;
   /** Atomic compare-and-delete: only when the branch still points at `sha`. */
   deleteBranchIf(branch: string, sha: string): boolean;
   worktreeByBranch(branch: string): string | undefined;
@@ -211,6 +221,8 @@ export interface LauncherOptions {
   readonly syncRoles?: () => void;
   /** Runs the worktree setup command; tests stub it. */
   readonly runSetup?: SetupRunner;
+  /** Waits between attempts to start a worker; tests stub it. */
+  readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
 interface Hub {
@@ -274,6 +286,30 @@ function oneLine(text: string, maxLength: number): string {
 const MAX_SYNC_REASON_CHARS = 200;
 const MAX_NOTE_LENGTH = 200;
 
+/** Whether git lists `worktreePath` as a worktree checked out on a `capstan/` branch, which only Capstan creates. */
+function isCapstanWorktree(
+  git: (args: string[]) => ReturnType<typeof spawnSync>,
+  worktreePath: string,
+): boolean {
+  const result = git(["worktree", "list", "--porcelain", "-z"]);
+  if (result.status !== 0 || typeof result.stdout !== "string") return false;
+  const real = (value: string): string => {
+    try {
+      return fs.realpathSync(value);
+    } catch {
+      return path.resolve(value);
+    }
+  };
+  const wanted = real(worktreePath);
+  let current: string | undefined;
+  for (const line of result.stdout.split("\0")) {
+    if (line.startsWith("worktree ")) current = line.slice("worktree ".length);
+    if (line.startsWith("branch refs/heads/capstan/") && current !== undefined)
+      if (real(current) === wanted) return true;
+  }
+  return false;
+}
+
 export function defaultGit(projectRoot: string): GitRunner {
   const git = (args: string[]) =>
     spawnSync("git", args, {
@@ -297,8 +333,27 @@ export function defaultGit(projectRoot: string): GitRunner {
         );
       return sha;
     },
-    worktreeRemove: (worktreePath) =>
-      git(["worktree", "remove", worktreePath]).status === 0,
+    worktreeRemove(worktreePath) {
+      const args = ["worktree", "remove"];
+      if (isCapstanWorktree(git, worktreePath)) args.push("--force");
+      const result = git([...args, worktreePath]);
+      return {
+        removed: result.status === 0,
+        stderr: oneLine(
+          typeof result.stderr === "string" ? result.stderr : "",
+          MAX_NOTE_LENGTH,
+        ),
+      };
+    },
+    worktreeDirtyCount(worktreePath) {
+      const result = spawnSync(
+        "git",
+        ["-C", worktreePath, "status", "--porcelain", "-z"],
+        { encoding: "utf8", timeout: 30_000 },
+      );
+      if (result.status !== 0 || typeof result.stdout !== "string") return null;
+      return result.stdout.split("\0").filter((entry) => entry !== "").length;
+    },
     branchTip(branch) {
       const result = git([
         "rev-parse",
@@ -401,6 +456,7 @@ export class Launcher {
   readonly #log: (event: string, details: Record<string, unknown>) => void;
   readonly #syncRoles: (() => void) | undefined;
   readonly #runSetup: SetupRunner;
+  readonly #sleep: (milliseconds: number) => Promise<void>;
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
   #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
@@ -423,6 +479,10 @@ export class Launcher {
     this.#now = options.now ?? Date.now;
     this.#log = options.log ?? (() => undefined);
     this.#syncRoles = options.syncRoles;
+    this.#sleep =
+      options.sleep ??
+      ((milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.#runSetup =
       options.runSetup ??
       ((command, cwd, timeoutMs) =>
@@ -445,7 +505,7 @@ export class Launcher {
         reason:
           row.worktreePath === null
             ? "a record of an ended agent is waiting to be cleaned up"
-            : "the worktree could not be removed without force",
+            : "git could not remove the worktree",
         ...(row.worktreePath === null
           ? {}
           : { worktreePath: row.worktreePath }),
@@ -1572,6 +1632,7 @@ export class Launcher {
         baseSha?: string;
         moveMayHaveHappened?: boolean;
       } = { branch };
+      let step = "worktree";
       try {
         if (!this.#git.branchNameValid(branch))
           throw new LauncherError(
@@ -1605,17 +1666,20 @@ export class Launcher {
           branch,
           baseSha,
         });
-        if (this.#config.worktree !== undefined)
+        if (this.#config.worktree !== undefined) {
+          step = "setup";
           await this.#setupWorktree(
             this.#config.worktree,
             agent.agentId,
             tree.path,
             budget,
           );
+        }
         let paneId = tree.paneId;
         let placement: SpawnResult["placement"] = "tab";
         let placementNote: string | undefined;
         if (this.#config.layout.spawn === "pane") {
+          step = "place";
           budget.check("placing the worker pane");
           info.moveMayHaveHappened = true;
           const outcome =
@@ -1648,6 +1712,7 @@ export class Launcher {
           placement,
           ...(placementNote === undefined ? {} : { placementNote }),
         };
+        step = "start";
         budget.check("starting the worker");
         const promptText = buildRolePrompt({
           roleName: role.name,
@@ -1673,7 +1738,7 @@ export class Launcher {
             : { replacementSeed: options.seed }),
         });
         const promptFile = this.#adapter.writePromptFile(promptText);
-        const started = await this.#adapter.startAgent({
+        const started = await this.#startWithRetry(agent.agentId, {
           name: agent.agentId,
           kind: this.#hostKind(role),
           paneId,
@@ -1702,6 +1767,7 @@ export class Launcher {
             branch,
             ...where,
           };
+        step = "trust";
         const answered = await this.#adapter.answerTrustDialog({
           paneId,
           timeoutMs: DIALOG_TIMEOUT_MS,
@@ -1721,10 +1787,62 @@ export class Launcher {
               }),
         };
       } catch (error) {
+        const failure = this.#spawnFailure(error, step);
+        this.#log("spawn_failed", {
+          agentId: agent.agentId,
+          step,
+          error: oneLine(failure.message, MAX_NOTE_LENGTH),
+        });
         await this.#cleanupAgent(agent.agentId, info);
-        throw error;
+        throw failure;
       }
     });
+  }
+
+  /** A LauncherError passes unchanged; anything else names the failing step, with the adapter's own code when it has one. */
+  #spawnFailure(error: unknown, step: string): Error {
+    if (error instanceof LauncherError) return error;
+    const message = oneLine(
+      error instanceof Error ? error.message : String(error),
+      MAX_NOTE_LENGTH,
+    );
+    const code =
+      error instanceof HerdrError && /^[a-z0-9_]+$/.test(error.code)
+        ? error.code
+        : "spawn_failed";
+    return new LauncherError(code, `step ${step}: ${message}`);
+  }
+
+  /**
+   * Starts a worker's agent. A pane whose shell was not ready yet may be ready a
+   * moment later, so those two failures are tried again; the agent is not
+   * running when they are thrown. Every other error is final.
+   */
+  async #startWithRetry(
+    agentId: string,
+    input: Parameters<LauncherAdapter["startAgent"]>[0],
+  ): ReturnType<LauncherAdapter["startAgent"]> {
+    let earlier: unknown;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.#adapter.startAgent(input);
+      } catch (error) {
+        // A pane the failed attempt tainted refuses the next one; the first failure is the real one.
+        if (error instanceof PhaseError && earlier !== undefined) throw earlier;
+        const retryable =
+          (error instanceof PromptUnrecognized ||
+            error instanceof ShellNotReady) &&
+          this.#adapter.paneEntry(input.paneId)?.agent === undefined;
+        if (!retryable || attempt >= START_ATTEMPTS) throw error;
+        earlier = error;
+        this.#log("start_retry", {
+          agentId,
+          attempt,
+          error: oneLine(String(error), MAX_NOTE_LENGTH),
+        });
+        await this.#sleep(START_RETRY_DELAY_MS);
+      }
+    }
   }
 
   /** Runs the configured setup command in a new worktree. Its time is not taken from the operation's budget; a failure or timeout throws, so the caller's cleanup removes the agent. */
@@ -1826,7 +1944,7 @@ export class Launcher {
 
   // ------------------------------------------------------------- cleanup
 
-  /** endAgent, pane, worktree (never forced), branch (compare-and-delete), row; in that order. */
+  /** endAgent, pane, worktree (forced only when it is a Capstan one), branch (compare-and-delete), row; in that order. */
   async #cleanupAgent(
     agentId: string,
     info: {
@@ -1875,8 +1993,8 @@ export class Launcher {
   }
 
   /**
-   * Everything an ended agent still holds: its pane, its worktree (never
-   * forced) and its branch (only at the base commit). The pane row goes last
+   * Everything an ended agent still holds: its pane, its worktree (forced
+   * only when it is a Capstan one) and its branch (only at the base commit). The pane row goes last
    * and only when the worktree is gone, so a refused removal stays in the
    * ledger and the next start retries it.
    */
@@ -1938,9 +2056,18 @@ export class Launcher {
     }
     let worktreeRemoved: boolean | null = null;
     if (worktreePath !== undefined) {
-      worktreeRemoved = this.#git.worktreeRemove(worktreePath);
+      this.#log("worktree_removing", {
+        agentId,
+        dirty: this.#git.worktreeDirtyCount(worktreePath),
+      });
+      const removal = this.#git.worktreeRemove(worktreePath);
+      worktreeRemoved = removal.removed;
       if (!worktreeRemoved) {
-        this.#log("worktree_kept", { agentId, worktreePath });
+        this.#log("worktree_kept", {
+          agentId,
+          worktreePath,
+          stderr: removal.stderr,
+        });
         return {
           paneClosed,
           worktreeRemoved,

@@ -1003,6 +1003,12 @@ function headerLines(
       leftTabs: [
         { text: h.projectId, color: color("fg") },
         { text: `run ${h.runState}`, color: color("fg") },
+        ...(h.fullAutoMinutes === undefined
+          ? []
+          : [{ text: `FULL AUTO ${h.fullAutoMinutes}m`, color: color("bad") }]),
+        ...(h.grants === undefined
+          ? []
+          : [{ text: `grants ${h.grants}`, color: color("warn") }]),
       ],
       tabs: rightTabs,
       focused: false,

@@ -234,7 +234,7 @@ export type CommandClassification = {
   readonly alwaysApproval: readonly string[];
 };
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text.split(/\s+/).filter((token) => token !== "");
 }
 
@@ -408,4 +408,92 @@ export function autoDecision(
   if (kind === "restart")
     return { auto: false, reason: "a restart always needs a human decision" };
   return matchesAutoApprove(text, exactRules, prefixRules);
+}
+
+export type GrantKind = "exact" | "prefix";
+
+/** The `auto_rule` of a proposal approved under full auto. */
+export const FULL_AUTO_RULE = "full-auto";
+const SESSION_RULE_LEAD = "session:";
+
+export function sessionRule(grantId: string): string {
+  return `${SESSION_RULE_LEAD}${grantId}`;
+}
+
+/** The grant id inside a `session:<grant>` rule; undefined for any other rule. */
+export function sessionRuleGrantId(rule: string | null): string | undefined {
+  return rule?.startsWith(SESSION_RULE_LEAD) === true
+    ? rule.slice(SESSION_RULE_LEAD.length)
+    : undefined;
+}
+
+/** A prefix of only these words names a family of commands too wide to grant; a subcommand must follow. */
+const PREFIX_NEEDS_SUBCOMMAND: readonly string[] = ["git", "cstan"];
+
+/** Null when `prefix` may be stored as a session grant; otherwise why not. The prefix is kept verbatim, so it must already be in the single-spaced form the match uses. */
+export function prefixGrantProblem(prefix: string): string | null {
+  const normalized = normalizeCommand(prefix);
+  if (!normalized.ok) return `is not a usable prefix (${normalized.code})`;
+  const classification = classifyCommand(prefix);
+  if (!classification.simple)
+    return "must be one line of letters, digits, space and _ . / : = @ % + , - only";
+  if (classification.alwaysApproval.length > 0)
+    return `contains ${classification.alwaysApproval.map((word) => `"${word}"`).join(", ")}, which always needs a human decision`;
+  if (prefix !== prefix.trim() || /  /.test(prefix))
+    return "must have single spaces and no leading or trailing space";
+  const tokens = words(prefix);
+  if (tokens[0]!.includes("="))
+    return "must not start with a variable assignment";
+  if (tokens.length === 1 && PREFIX_NEEDS_SUBCOMMAND.includes(tokens[0]!))
+    return `is only "${tokens[0]!}"; name the subcommand too`;
+  return null;
+}
+
+export type GrantVerdict =
+  | { readonly matched: true; readonly grantId: string }
+  | { readonly matched: false; readonly reason: string };
+
+/** Whether an active session grant lets `command` run without a new approval. An exact grant matches the whole text; a prefix grant matches whole leading tokens, and the rest of the command is classified like any other: a denylist hit, a metacharacter or a second line needs a human. */
+export function matchSessionGrant(
+  kind: OperatorProposalKind,
+  command: string,
+  grants: readonly {
+    readonly grantId: string;
+    readonly kind: GrantKind;
+    readonly text: string;
+  }[],
+): GrantVerdict {
+  if (kind !== "command")
+    return {
+      matched: false,
+      reason: "a restart always needs a human decision",
+    };
+  if (grants.length === 0)
+    return { matched: false, reason: "no session grant is active" };
+  const exact = grants.find(
+    (grant) => grant.kind === "exact" && grant.text === command,
+  );
+  if (exact !== undefined) return { matched: true, grantId: exact.grantId };
+  const classification = classifyCommand(command);
+  if (!classification.simple)
+    return {
+      matched: false,
+      reason: "the command is not a simple command line",
+    };
+  if (classification.alwaysApproval.length > 0)
+    return {
+      matched: false,
+      reason: `the command contains ${classification.alwaysApproval.join(", ")}, which always needs a human decision`,
+    };
+  const tokens = words(command);
+  if (tokens.length === 0 || tokens[0]!.includes("="))
+    return { matched: false, reason: "the command starts with an assignment" };
+  for (const grant of grants) {
+    if (grant.kind !== "prefix") continue;
+    const head = words(grant.text);
+    if (tokens.length < head.length) continue;
+    if (head.every((token, index) => tokens[index] === token))
+      return { matched: true, grantId: grant.grantId };
+  }
+  return { matched: false, reason: "no session grant matches" };
 }

@@ -11,7 +11,12 @@ import type {
   IntegrationRecord,
 } from "./controller/core.js";
 import type { MutationContext } from "./controller/types.js";
-import type { IntegrationMergeInput, MergeResult } from "./git.js";
+import type {
+  CoveredReport,
+  CoveredReportsOptions,
+  IntegrationMergeInput,
+  MergeResult,
+} from "./git.js";
 
 export class IntegrationError extends Error {
   override readonly name = "IntegrationError";
@@ -30,6 +35,15 @@ export interface IntegrationGit {
   branchTip(branch: string): Promise<string | null>;
   isInHead(sha: string): Promise<boolean>;
   deleteBranch(branch: string, sha: string): Promise<boolean>;
+  /** Left out by a git that cannot judge coverage; no report is then covered. */
+  coveredReports?(
+    integrationHead: string,
+    reports: readonly {
+      readonly reportId: string;
+      readonly commitSha: string;
+    }[],
+    options?: CoveredReportsOptions,
+  ): Promise<CoveredReport[]>;
 }
 
 export interface IntegrationDeps {
@@ -52,6 +66,19 @@ const SUBJECT_MAX = 72;
 const COMMIT_TYPES = "feat|fix|refactor|docs|test|chore|style|perf|ci";
 const LEADING_TYPE = new RegExp(`^(${COMMIT_TYPES})(?:\\([^)]+\\))?!?:`);
 
+const DEFAULT_COMMIT_TYPE = "feat";
+
+/** At most `room` characters, ending on a whole word; a first word longer than `room` is cut hard. */
+function cutAtWord(text: string, room: number): string {
+  if (text.length <= room) return text;
+  const head = text.slice(0, room);
+  const wordEnd = /\s/.test(text.charAt(room))
+    ? head.length
+    : head.search(/\s\S*$/);
+  const cut = wordEnd > 0 ? head.slice(0, wordEnd) : head;
+  return cut.replace(/[\s,;:\-–]+$/, "");
+}
+
 function firstLine(text: string): string {
   return (
     text
@@ -71,14 +98,16 @@ export function squashMessage(info: {
   }[];
 }): { subject: string; body: string } {
   const first = firstLine(info.reports[0]?.summary ?? "");
-  const type = LEADING_TYPE.exec(first)?.[1] ?? "chore";
+  const planTitle = (info.planTitle ?? "").replace(/\s+/g, " ").trim();
+  const type =
+    LEADING_TYPE.exec(planTitle)?.[1] ??
+    LEADING_TYPE.exec(first)?.[1] ??
+    DEFAULT_COMMIT_TYPE;
   const title =
-    (info.planTitle ?? first).replace(/\s+/g, " ").trim() ||
+    (planTitle !== "" ? planTitle : first).replace(/\s+/g, " ").trim() ||
     "integrate reports";
   const prefix = `${type}: `;
-  const room = SUBJECT_MAX - prefix.length;
-  const subject =
-    prefix + (title.length > room ? `${title.slice(0, room - 3)}...` : title);
+  const subject = prefix + cutAtWord(title, SUBJECT_MAX - prefix.length);
   const body = info.reports
     .map(
       (r) =>
@@ -202,6 +231,8 @@ export async function settleIntegration(
     deps.context(deps.credential),
     input,
   );
+  if (input.outcome === "confirmed")
+    await recordCoverage(deps, input.integrationId);
   const branchRemoved = await deps.git
     .deleteBranch(before.branch, before.headSha)
     .catch(() => false);
@@ -213,6 +244,46 @@ export async function settleIntegration(
     });
   }
   return { record, branchRemoved };
+}
+
+/** Stores the reports a confirmed integration covers without having merged them. A failure is logged and retried at the next daemon start; it never blocks the confirm. */
+async function recordCoverage(
+  deps: IntegrationDeps,
+  integrationId: string,
+): Promise<void> {
+  try {
+    const coveredReports = deps.git.coveredReports?.bind(deps.git);
+    if (coveredReports === undefined) return;
+    const candidates = deps.core.coverageCandidates(
+      deps.credential,
+      integrationId,
+    );
+    if (candidates === undefined || candidates.reports.length === 0) return;
+    const covered = await coveredReports(
+      candidates.headSha,
+      candidates.reports,
+      {
+        memberCommits: candidates.memberCommits,
+        onSkipped: (reportId, reason) =>
+          deps.log("integration_coverage_report_skipped", {
+            integrationId,
+            reportId,
+            reason,
+          }),
+      },
+    );
+    if (covered.length === 0) return;
+    deps.core.recordCoveredReports(deps.credential, integrationId, covered);
+    deps.log("integration_coverage_recorded", {
+      integrationId,
+      covered: covered.map((c) => c.reportId),
+    });
+  } catch (error) {
+    deps.log("integration_coverage_failed", {
+      integrationId,
+      error: String(error),
+    });
+  }
 }
 
 /** Settled integrations whose branch could not be deleted in this process; the next integration retries them, and the daemon start looks at all settled rows. */
@@ -256,6 +327,10 @@ export async function recoverIntegrations(
   scope: "pending" | "all" = "all",
 ): Promise<void> {
   await sweepSettledBranches(deps, scope);
+  if (scope === "all")
+    for (const row of deps.core.settledIntegrations(deps.credential))
+      if (row.state === "confirmed")
+        await recordCoverage(deps, row.integrationId);
   for (const row of deps.core.runningIntegrations(deps.credential)) {
     if (inFlight.has(row.integrationId)) continue;
     try {

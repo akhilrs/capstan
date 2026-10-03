@@ -63,11 +63,15 @@ import {
 import { LauncherError } from "./launcher.js";
 import {
   OperatorError,
+  type FullAutoStatus,
   frameOutput,
   type OperatorService,
 } from "./operator.js";
 import { hashPrefix } from "./operator-policy.js";
-import type { OperatorProposalRecord } from "./controller/types.js";
+import type {
+  OperatorGrantRecord,
+  OperatorProposalRecord,
+} from "./controller/types.js";
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
@@ -126,6 +130,29 @@ export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
 const MAX_STATUS_PROPOSALS = 20;
 
+/** What `op` answers for a session grant; the text is printed verbatim. */
+function describeGrantRecord(grant: OperatorGrantRecord) {
+  return {
+    grantId: grant.grantId,
+    kind: grant.kind,
+    text: grant.text,
+    sourceProposalId: grant.sourceProposalId,
+    createdAt: grant.createdAt,
+    expiresAt: grant.expiresAt,
+    endedReason: grant.endedReason,
+  };
+}
+
+function describeFullAuto(status: FullAutoStatus) {
+  return status.on
+    ? {
+        on: true,
+        minutes: status.minutes,
+        remainingSeconds: status.remainingSeconds,
+      }
+    : { on: false };
+}
+
 /** What `op` answers for a proposal; the output tail is framed as untrusted data. */
 function describeProposal(proposal: OperatorProposalRecord) {
   return {
@@ -138,6 +165,9 @@ function describeProposal(proposal: OperatorProposalRecord) {
     command: proposal.command,
     reason: proposal.reason,
     autoRule: proposal.autoRule,
+    ...(proposal.sessionGrant === null
+      ? {}
+      : { sessionGrant: describeGrantRecord(proposal.sessionGrant) }),
     decidedByActorId: proposal.decidedByActorId,
     decidedAt: proposal.decidedAt,
     decisionNote: proposal.decisionNote,
@@ -1585,6 +1615,13 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             call.credential,
             MAX_STATUS_CLEARS,
           );
+          const operatorConfig: ResolvedOperator | undefined =
+            deps.config?.operator;
+          if (operatorConfig?.enabled === true && deps.operator !== undefined)
+            result.operator = {
+              fullAuto: describeFullAuto(deps.operator.fullAutoStatus()),
+              grants: deps.operator.grants().map(describeGrantRecord),
+            };
           result.panes = core.agentPanes(call.credential);
           result.reviews = core
             .reviews(call.credential, MAX_STATUS_REPORTS)
@@ -1673,11 +1710,14 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         sub !== "propose" &&
         sub !== "decide" &&
         sub !== "show" &&
-        sub !== "cancel"
+        sub !== "cancel" &&
+        sub !== "grants" &&
+        sub !== "revoke" &&
+        sub !== "full-auto"
       )
         return fail(
           "invalid_request",
-          "op needs propose, decide, show or cancel",
+          "op needs propose, decide, show, cancel, grants, revoke or full-auto",
         );
       const caller = agentOf(call.identity);
       const refuse = (error: unknown): CommandResponse => {
@@ -1758,17 +1798,32 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               );
             if (!isActivePm)
               return fail("forbidden", "only an active PM approves a proposal");
-            if (tail.length !== 2 || tail[0] !== "--hash")
-              return fail(
-                "invalid_request",
-                "op decide approve needs --hash <hash12> and takes no --force; the force value is part of the proposal",
-              );
+            const usage =
+              'op decide approve needs --hash <hash12> and may add --session exact or --session prefix="<words>"; it takes no --force, the force value is part of the proposal';
+            if (tail[0] !== "--hash" || tail[1] === undefined)
+              return fail("invalid_request", usage);
+            let session:
+              { kind: "exact" | "prefix"; text?: string } | undefined;
+            if (tail.length > 2) {
+              const wanted = tail[3];
+              if (
+                tail.length !== 4 ||
+                tail[2] !== "--session" ||
+                wanted === undefined
+              )
+                return fail("invalid_request", usage);
+              if (wanted === "exact") session = { kind: "exact" };
+              else if (wanted.startsWith("prefix="))
+                session = { kind: "prefix", text: wanted.slice(7) };
+              else return fail("invalid_request", usage);
+            }
             return ok(
               describeProposal(
                 service.decide(call.credential, {
                   proposalId,
                   decision,
-                  hash: tail[1]!,
+                  hash: tail[1],
+                  ...(session === undefined ? {} : { session }),
                 }),
               ),
             );
@@ -1788,6 +1843,89 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
                 ...(tail[0] === undefined ? {} : { note: tail[0] }),
               }),
             ),
+          );
+        }
+        if (sub === "grants") {
+          if (!isCli && !isActivePm)
+            return fail(
+              "forbidden",
+              "only the PM or the operator lists grants",
+            );
+          if (rest.length !== 0)
+            return fail("invalid_request", "op grants takes no argument");
+          return ok({ grants: service.grants().map(describeGrantRecord) });
+        }
+        if (sub === "revoke") {
+          if (!isCli && !isActivePm)
+            return fail("forbidden", "only the PM or the operator revokes");
+          if (rest.length !== 1 || !SAFE_AGENT_ID.test(rest[0]!))
+            return fail("invalid_request", "op revoke needs one grant id");
+          return ok(
+            describeGrantRecord(service.revokeGrant(call.credential, rest[0]!)),
+          );
+        }
+        if (sub === "full-auto") {
+          const [action, ...args] = rest;
+          if (action === "status") {
+            if (!isCli && !isActivePm && !isOperatorAgent)
+              return fail("forbidden", "the caller may not read full auto");
+            if (args.length !== 0)
+              return fail(
+                "invalid_request",
+                "op full-auto status takes no argument",
+              );
+            return ok(describeFullAuto(service.fullAutoStatus()));
+          }
+          if (action === "off") {
+            if (!isCli && !isActivePm)
+              return fail(
+                "forbidden",
+                "only the PM or the operator switches full auto off",
+              );
+            if (args.length !== 0)
+              return fail(
+                "invalid_request",
+                "op full-auto off takes no argument",
+              );
+            return ok(describeFullAuto(service.fullAutoOff(call.credential)));
+          }
+          if (action === "on") {
+            if (isCli)
+              return fail(
+                "rejected",
+                "full_auto_requires_pm: the user switches full auto off; only the PM switches it on, after asking the user",
+              );
+            if (!isActivePm)
+              return fail(
+                "forbidden",
+                "only an active PM switches full auto on",
+              );
+            const minutesText = /^\d+$/.test(args[0] ?? "")
+              ? args.shift()
+              : undefined;
+            if (
+              args.length !== 2 ||
+              args[0] !== "--asked-user" ||
+              args[1]!.trim() === ""
+            )
+              return fail(
+                "invalid_request",
+                'op full-auto on [<minutes>] --asked-user "<what the user said>"',
+              );
+            return ok(
+              describeFullAuto(
+                service.fullAutoOn(call.credential, {
+                  ...(minutesText === undefined
+                    ? {}
+                    : { minutes: Number(minutesText) }),
+                  askedUser: args[1]!,
+                }),
+              ),
+            );
+          }
+          return fail(
+            "invalid_request",
+            "op full-auto needs on, off or status",
           );
         }
         if (sub === "cancel") {

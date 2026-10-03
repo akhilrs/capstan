@@ -45,19 +45,26 @@ import {
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
 import { stripTerminalSequences } from "../observe.js";
 import {
+  FULL_AUTO_RULE,
   HASH_PREFIX_CHARS,
   MAX_OPERATOR_COMMAND_BYTES,
   MAX_OPERATOR_REASON_BYTES,
   commandHash,
   normalizeCommand,
   normalizeReason,
+  prefixGrantProblem,
+  sessionRuleGrantId,
+  words,
 } from "../operator-policy.js";
 import {
   decisionNotice,
   endedWithoutRunNotice,
   expiredNotice,
+  fullAutoNotice,
+  grantEndedNotice,
   proposalNoticeToPm,
   runResultNotice,
+  type FullAutoChange,
 } from "../operator.js";
 import { normalizeText, oneLine } from "../text.js";
 import {
@@ -94,6 +101,9 @@ import type {
   MessageRejectionRecord,
   MessagingAdvance,
   MutationContext,
+  OperatorGrantEndReason,
+  OperatorGrantKind,
+  OperatorGrantRecord,
   OperatorProposalKind,
   OperatorProposalRecord,
   OperatorProposalState,
@@ -404,13 +414,12 @@ function reviewRecord(row: ReviewRow): ReviewRecord {
 function reviewTask(
   row: ReviewRow,
   authors: readonly { report: AgentReportRow }[],
-  planBody?: string,
 ): string {
   if (row.subject_plan_id !== null) {
     return [
       `Review request ${row.review_id} (round ${row.round}) for plan ${row.subject_plan_id} revision ${row.subject_plan_revision}`,
       `The plan was written against commit ${row.base_sha}. Read the code at that commit in your worktree.`,
-      `The plan body, written by the Architect and not verified: ${JSON.stringify(planBody)}`,
+      `Read the plan body, written by the Architect and not verified, with: cstan plan show ${row.subject_plan_id}   (revision ${row.subject_plan_revision})`,
       "Check the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.",
       'Review only that plan. Do not edit any file. Answer exactly once with cstan review pass "<text>" or cstan review findings "<text>". Findings must say what is wrong and in which package.',
     ].join("\n");
@@ -733,6 +742,11 @@ export const MAX_CONFLICT_FILES = 50;
 export const MAX_CONFLICT_PATH_CHARS = 200;
 /** Room for the cut marker: `...#` and twelve hex digits. */
 export const PATH_CUT_MARK_CHARS = 16;
+
+export interface CoverageCandidate {
+  readonly reportId: string;
+  readonly commitSha: string;
+}
 
 export type IntegrationState =
   "running" | "merged" | "conflicted" | "failed" | "confirmed" | "discarded";
@@ -1158,6 +1172,21 @@ interface OperatorRunRow {
   readonly pgid: number | null;
   readonly leader_start: string | null;
   readonly orphan_cleared_at: string | null;
+  readonly full_auto: number;
+}
+
+interface OperatorGrantRow {
+  readonly grant_id: string;
+  readonly sequence: number;
+  readonly kind: OperatorGrantKind;
+  readonly text: string;
+  readonly command_sha: string;
+  readonly created_by: string;
+  readonly source_proposal_id: string;
+  readonly created_at: string;
+  readonly expires_at: string;
+  readonly revoked_at: string | null;
+  readonly ended_reason: OperatorGrantEndReason | null;
 }
 
 export type OperatorClaimRefusal = "not_approved" | "expired" | "busy";
@@ -1333,6 +1362,8 @@ interface MutationEvent {
 interface MutationOutput<T> {
   readonly value: T;
   readonly event: MutationEvent;
+  /** Further events of the same mutation, written after `event` with the same state version. */
+  readonly extraEvents?: readonly MutationEvent[];
 }
 
 export interface ActorInput {
@@ -2550,6 +2581,7 @@ export class ControllerCore {
             now,
           );
         this.#cancelUnstartedOperatorProposalsOf(agentId, now);
+        this.#endOperatorGrantsOf(agentId);
         const unacknowledged = this.#messageRowsFor(agentId)
           .filter((row) => !isFinalState(row.state))
           .map((row) => row.message_id);
@@ -2640,6 +2672,7 @@ export class ControllerCore {
       .run(actorId, generation, now, this.#projectId, agentId);
     this.#closeWaits(agentId, now);
     this.#cancelUnstartedOperatorProposalsOf(agentId, now);
+    this.#endOperatorGrantsOf(agentId);
     this.#database
       .prepare(
         "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
@@ -3814,7 +3847,6 @@ export class ControllerCore {
         const task = reviewTask(
           row,
           checked.authors.map((report) => ({ report })),
-          checked.plan?.bodyJson,
         );
         this.#insertQueuedMessage(
           controller.actor_id,
@@ -5368,6 +5400,13 @@ export class ControllerCore {
            JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
            WHERE ir.project_id = ? AND ir.report_id = ? AND i.state = 'confirmed'`,
         )
+        .get(this.#projectId, reportId) !== undefined ||
+      this.#database
+        .prepare(
+          `SELECT 1 AS present FROM integration_covered_reports c
+           JOIN integrations i ON i.project_id = c.project_id AND i.integration_id = c.integration_id
+           WHERE c.project_id = ? AND c.report_id = ? AND i.state = 'confirmed'`,
+        )
         .get(this.#projectId, reportId) !== undefined
     );
   }
@@ -5988,6 +6027,79 @@ export class ControllerCore {
         )
         .all(this.#projectId, limit) as { integration_id: string }[]
     ).map((r) => this.#integrationRecord(r.integration_id));
+  }
+
+  /**
+   * Reports a confirmed integration may cover without having merged them: the latest accepted report of each agent
+   * generation that existed when the integration began, is not a member of any confirmed integration and has no
+   * coverage row for this integration yet. Empty for an integration that is not confirmed.
+   */
+  coverageCandidates(
+    credential: string,
+    integrationId: string,
+  ):
+    | {
+        readonly headSha: string;
+        readonly memberCommits: readonly string[];
+        readonly reports: readonly CoverageCandidate[];
+      }
+    | undefined {
+    this.#authorize(credential, "controller:reconcile");
+    safeId(integrationId, "integration id");
+    const integration = this.#integrationRow(integrationId);
+    if (integration.state !== "confirmed" || integration.head_sha === null)
+      return undefined;
+    const rows = this.#database
+      .prepare(
+        `SELECT r.report_id, r.commit_sha FROM agent_reports r
+         WHERE r.project_id = ? AND r.state = 'accepted' AND r.created_at <= ?
+           AND NOT EXISTS (
+             SELECT 1 FROM agent_reports later
+             WHERE later.project_id = r.project_id AND later.agent_id = r.agent_id
+               AND later.generation = r.generation AND later.state = 'accepted' AND later.sequence > r.sequence)
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_reports ir
+             JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+             WHERE ir.project_id = r.project_id AND ir.report_id = r.report_id AND i.state = 'confirmed')
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_covered_reports c
+             WHERE c.project_id = r.project_id AND c.integration_id = ? AND c.report_id = r.report_id)
+         ORDER BY r.sequence`,
+      )
+      .all(this.#projectId, integration.created_at, integrationId) as {
+      report_id: string;
+      commit_sha: string;
+    }[];
+    return {
+      headSha: integration.head_sha,
+      memberCommits: this.#integrationAuthors(integrationId).map(
+        (r) => r.commit_sha,
+      ),
+      reports: rows.map((row) => ({
+        reportId: row.report_id,
+        commitSha: row.commit_sha,
+      })),
+    };
+  }
+
+  /** Stores which reports a confirmed integration covers; storing the same row again changes nothing. */
+  recordCoveredReports(
+    credential: string,
+    integrationId: string,
+    covered: readonly {
+      readonly reportId: string;
+      readonly how: "ancestor" | "tree";
+    }[],
+  ): void {
+    this.#authorize(credential, "controller:reconcile");
+    safeId(integrationId, "integration id");
+    const insert = this.#database.prepare(
+      "INSERT OR IGNORE INTO integration_covered_reports(project_id, integration_id, report_id, how) VALUES (?, ?, ?, ?)",
+    );
+    this.#database.transaction(() => {
+      for (const row of covered)
+        insert.run(this.#projectId, integrationId, row.reportId, row.how);
+    })();
   }
 
   /** Integrations still marked running: the daemon stopped while one was merging. */
@@ -16571,8 +16683,70 @@ export class ControllerCore {
               pgid: run.pgid,
               leaderStart: run.leader_start,
               orphanClearedAt: run.orphan_cleared_at,
+              fullAuto: run.full_auto === 1,
             },
+      sessionGrant: this.#grantOfProposal(row.proposal_id),
     };
+  }
+
+  #grantRecord(row: OperatorGrantRow): OperatorGrantRecord {
+    return {
+      grantId: row.grant_id,
+      sequence: row.sequence,
+      kind: row.kind,
+      text: row.text,
+      commandSha: row.command_sha,
+      createdBy: row.created_by,
+      sourceProposalId: row.source_proposal_id,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      revokedAt: row.revoked_at,
+      endedReason: row.ended_reason,
+    };
+  }
+
+  #grantOfProposal(proposalId: string): OperatorGrantRecord | null {
+    const row = this.#database
+      .prepare(
+        "SELECT * FROM operator_grants WHERE project_id = ? AND source_proposal_id = ?",
+      )
+      .get(this.#projectId, proposalId) as OperatorGrantRow | undefined;
+    return row === undefined ? null : this.#grantRecord(row);
+  }
+
+  #grantRow(grantId: string): OperatorGrantRow | undefined {
+    return this.#database
+      .prepare(
+        "SELECT * FROM operator_grants WHERE project_id = ? AND grant_id = ?",
+      )
+      .get(this.#projectId, grantId) as OperatorGrantRow | undefined;
+  }
+
+  /** Grants that have not ended and have not passed their time cap. */
+  activeOperatorGrants(): readonly OperatorGrantRecord[] {
+    this.#assertOpen();
+    const now = this.#now();
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM operator_grants WHERE project_id = ? AND ended_reason IS NULL ORDER BY sequence",
+        )
+        .all(this.#projectId) as OperatorGrantRow[]
+    )
+      .filter((row) => Date.parse(row.expires_at) > Date.parse(now))
+      .map((row) => this.#grantRecord(row));
+  }
+
+  /** Grants newest first, ended ones included; `limit` bounds the list. */
+  listOperatorGrants(limit = 50): readonly OperatorGrantRecord[] {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM operator_grants WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        )
+        .all(this.#projectId, limit) as OperatorGrantRow[]
+    ).map((row) => this.#grantRecord(row));
   }
 
   operatorProposal(proposalId: string): OperatorProposalRecord | undefined {
@@ -16761,8 +16935,14 @@ export class ControllerCore {
     if (forceRestart && input.kind !== "restart")
       throw new TypeError("only a restart proposal can carry force");
     const autoRule = input.autoRule ?? null;
-    if (autoRule !== null && input.kind !== "command")
-      throw new TypeError("only a command can be auto-approved");
+    if (
+      autoRule !== null &&
+      input.kind !== "command" &&
+      autoRule !== FULL_AUTO_RULE
+    )
+      throw new TypeError(
+        "only a command, or any proposal under full auto, can be auto-approved",
+      );
     if (!Number.isInteger(input.maxPending) || input.maxPending < 1)
       throw new TypeError("the pending limit must be a positive integer");
     const commandText =
@@ -16782,6 +16962,7 @@ export class ControllerCore {
       command: command.text,
       forceRestart,
     });
+    const requestedGrantId = sessionRuleGrantId(autoRule);
     return this.#mutate<OperatorProposalRecord>(
       context,
       "operator.propose",
@@ -16793,13 +16974,24 @@ export class ControllerCore {
         autoRule,
       },
       (actor) => {
+        // A session grant that ended between the match and this write no longer approves anything.
+        const grant =
+          requestedGrantId === undefined
+            ? undefined
+            : this.activeOperatorGrants().find(
+                (candidate) => candidate.grantId === requestedGrantId,
+              );
+        const effectiveRule =
+          requestedGrantId !== undefined && grant === undefined
+            ? null
+            : (input.autoRule ?? null);
         const agent = this.#agentByActor(actor.actorId);
         if (agent?.kind !== "Developer")
           throw new ControllerError(
             "only an active developer-kind agent proposes an operator action",
           );
         const parties = this.#noticeParties();
-        if (parties === undefined && autoRule === null)
+        if (parties === undefined && effectiveRule === null)
           throw new ControllerError(
             "no_pm: no PM is active to decide this proposal",
           );
@@ -16835,21 +17027,40 @@ export class ControllerCore {
             forceRestart ? 1 : 0,
             agent.agent_id,
             actor.actorId,
-            autoRule === null ? "proposed" : "approved",
-            autoRule,
-            autoRule === null ? null : now,
+            effectiveRule === null ? "proposed" : "approved",
+            effectiveRule,
+            effectiveRule === null ? null : now,
             now,
             now,
           );
         const record = this.#operatorRecord(this.#operatorRow(proposalId)!);
         this.#noticeToPm(proposalNoticeToPm(record), now);
+        const fullAuto = effectiveRule === FULL_AUTO_RULE;
         return {
           value: record,
           event: this.#operatorEvent(proposalId, undefined, record.state, {
             kind: input.kind,
-            autoRule,
+            autoRule: effectiveRule,
             agentId: agent.agent_id,
+            ...(fullAuto ? { fullAuto: true } : {}),
           }),
+          ...(grant === undefined
+            ? {}
+            : {
+                extraEvents: [
+                  {
+                    entityType: "operator_grant",
+                    entityId: grant.grantId,
+                    stateVersion: 0,
+                    toState: "used",
+                    details: {
+                      event: "operator.grant_used",
+                      proposalId,
+                      commandSha: sha,
+                    },
+                  },
+                ],
+              }),
         };
       },
     );
@@ -16869,11 +17080,19 @@ export class ControllerCore {
       readonly hash?: string;
       readonly note?: string;
       readonly proposalTtlMinutes: number;
+      /** Approve and allow the same text, or the same leading words, again until the grant ends. */
+      readonly session?: {
+        readonly kind: OperatorGrantKind;
+        readonly text?: string;
+        readonly maxMinutes: number;
+      };
     },
   ): OperatorProposalRecord {
     safeId(input.proposalId, "proposal id");
     if (input.decision !== "approve" && input.decision !== "deny")
       throw new TypeError("the decision must be approve or deny");
+    if (input.session !== undefined && input.decision !== "approve")
+      throw new TypeError("a session grant comes only with an approval");
     const note =
       input.note === undefined || input.note === ""
         ? null
@@ -16889,6 +17108,7 @@ export class ControllerCore {
         decision: input.decision,
         hash: input.hash ?? null,
         note,
+        session: input.session ?? null,
       },
       (actor) => {
         const agent = this.#agentByActor(actor.actorId);
@@ -16944,6 +17164,61 @@ export class ControllerCore {
         }
         const state: OperatorProposalState =
           input.decision === "approve" ? "approved" : "denied";
+        let grant: OperatorGrantRow | undefined;
+        if (input.session !== undefined) {
+          if (row.kind !== "command")
+            throw new ControllerError(
+              "session_not_for_restart: a restart is never granted for the session",
+            );
+          const text =
+            input.session.kind === "exact" ? row.command : input.session.text;
+          if (text === undefined)
+            throw new ControllerError(
+              "session_prefix_missing: --session prefix needs the leading words",
+            );
+          const problem =
+            input.session.kind === "exact" ? null : prefixGrantProblem(text);
+          if (problem !== null)
+            throw new ControllerError(
+              `session_prefix_refused: the prefix ${problem}`,
+            );
+          const own = words(row.command);
+          if (
+            input.session.kind === "prefix" &&
+            !words(text).every((token, index) => own[index] === token)
+          )
+            throw new ControllerError(
+              "session_prefix_mismatch: the prefix must be the start of the command being approved",
+            );
+          const sequence = (
+            this.#database
+              .prepare(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM operator_grants WHERE project_id = ?",
+              )
+              .get(this.#projectId) as { next: number }
+          ).next;
+          const expiresAt = new Date(
+            Date.parse(now) + input.session.maxMinutes * 60_000,
+          ).toISOString();
+          this.#database
+            .prepare(
+              `INSERT INTO operator_grants(project_id, grant_id, sequence, kind, text, command_sha, created_by, source_proposal_id, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              this.#projectId,
+              `grant-${sequence}`,
+              sequence,
+              input.session.kind,
+              text,
+              sha256(text),
+              actor.actorId,
+              row.proposal_id,
+              now,
+              expiresAt,
+            );
+          grant = this.#grantRow(`grant-${sequence}`);
+        }
         this.#database
           .prepare(
             `UPDATE operator_proposals SET state = ?, decided_by_actor_id = ?, decided_at = ?, decision_note = ?, updated_at = ?
@@ -16971,6 +17246,25 @@ export class ControllerCore {
           event: this.#operatorEvent(row.proposal_id, "proposed", state, {
             decidedBy: actor.actorId,
           }),
+          ...(grant === undefined
+            ? {}
+            : {
+                extraEvents: [
+                  {
+                    entityType: "operator_grant",
+                    entityId: grant.grant_id,
+                    stateVersion: 0,
+                    toState: "created",
+                    details: {
+                      event: "operator.grant_created",
+                      kind: grant.kind,
+                      text: grant.text,
+                      expiresAt: grant.expires_at,
+                      proposalId: row.proposal_id,
+                    },
+                  },
+                ],
+              }),
         };
       },
     );
@@ -17028,6 +17322,309 @@ export class ControllerCore {
       )
       .all(this.#projectId, agentId) as OperatorProposalRow[])
       this.#setOperatorState(row, "cancelled", now);
+  }
+
+  /** The session grants approved for an agent's proposals end when the agent is released or replaced. The caller owns the transaction. */
+  #endOperatorGrantsOf(agentId: string): void {
+    this.#database
+      .prepare(
+        `UPDATE operator_grants SET ended_reason = 'released'
+         WHERE project_id = ? AND ended_reason IS NULL AND source_proposal_id IN
+           (SELECT proposal_id FROM operator_proposals WHERE project_id = ? AND proposer_agent_id = ?)`,
+      )
+      .run(this.#projectId, this.#projectId, agentId);
+  }
+
+  /** Open grants (not ended) whose time cap has passed. Read-only. */
+  dueOperatorGrantExpiries(
+    alsoDue: ReadonlySet<string> = new Set(),
+  ): readonly string[] {
+    this.#assertOpen();
+    const now = Date.parse(this.#now());
+    return (
+      this.#database
+        .prepare(
+          "SELECT * FROM operator_grants WHERE project_id = ? AND ended_reason IS NULL ORDER BY sequence",
+        )
+        .all(this.#projectId) as OperatorGrantRow[]
+    )
+      .filter(
+        (row) => Date.parse(row.expires_at) <= now || alsoDue.has(row.grant_id),
+      )
+      .map((row) => row.grant_id);
+  }
+
+  #endGrantRow(
+    row: OperatorGrantRow,
+    reason: OperatorGrantEndReason,
+    now: string,
+  ): MutationEvent {
+    this.#database
+      .prepare(
+        "UPDATE operator_grants SET ended_reason = ?, revoked_at = ? WHERE project_id = ? AND grant_id = ? AND ended_reason IS NULL",
+      )
+      .run(
+        reason,
+        reason === "revoked" ? now : null,
+        this.#projectId,
+        row.grant_id,
+      );
+    return {
+      entityType: "operator_grant",
+      entityId: row.grant_id,
+      stateVersion: 0,
+      fromState: "active",
+      toState: reason === "revoked" ? "revoked" : "ended",
+      details: {
+        event:
+          reason === "revoked"
+            ? "operator.grant_revoked"
+            : reason === "expired"
+              ? "operator.grant_expired"
+              : "operator.grant_ended",
+        reason,
+      },
+    };
+  }
+
+  #noticeGrantEnded(
+    row: OperatorGrantRow,
+    reason: OperatorGrantEndReason,
+    now: string,
+  ): void {
+    const source = this.#operatorRow(row.source_proposal_id);
+    if (source === undefined) return;
+    this.#noticeToAgent(
+      source.proposer_agent_id,
+      grantEndedNotice(this.#grantRecord(row), reason),
+      now,
+    );
+  }
+
+  /** Ends every grant that is past its cap; the operator tick calls it. */
+  expireOperatorGrants(
+    context: MutationContext,
+    alsoDue: ReadonlySet<string> = new Set(),
+  ): number {
+    return this.#mutate<number>(
+      context,
+      "operator.grant_expire",
+      "controller:reconcile",
+      {},
+      () => {
+        const now = this.#now();
+        const due = new Set(this.dueOperatorGrantExpiries(alsoDue));
+        const events: MutationEvent[] = [];
+        for (const row of this.#database
+          .prepare(
+            "SELECT * FROM operator_grants WHERE project_id = ? AND ended_reason IS NULL ORDER BY sequence",
+          )
+          .all(this.#projectId) as OperatorGrantRow[]) {
+          if (!due.has(row.grant_id)) continue;
+          events.push(this.#endGrantRow(row, "expired", now));
+          this.#noticeGrantEnded(row, "expired", now);
+        }
+        return {
+          value: events.length,
+          event: events[0] ?? {
+            entityType: "operator_grant",
+            entityId: "none",
+            stateVersion: 0,
+            details: { expired: 0 },
+          },
+          extraEvents: events.slice(1),
+        };
+      },
+    );
+  }
+
+  /** At startup no grant survives: a controller restart ends every open grant. */
+  endOperatorGrantsForRestart(context: MutationContext): number {
+    return this.#mutate<number>(
+      context,
+      "operator.grant_restart",
+      "controller:reconcile",
+      {},
+      () => {
+        const now = this.#now();
+        const events: MutationEvent[] = [];
+        for (const row of this.#database
+          .prepare(
+            "SELECT * FROM operator_grants WHERE project_id = ? AND ended_reason IS NULL ORDER BY sequence",
+          )
+          .all(this.#projectId) as OperatorGrantRow[])
+          events.push(this.#endGrantRow(row, "restart", now));
+        return {
+          value: events.length,
+          event: events[0] ?? {
+            entityType: "operator_grant",
+            entityId: "none",
+            stateVersion: 0,
+            details: { ended: 0, reason: "restart" },
+          },
+          extraEvents: events.slice(1),
+        };
+      },
+    );
+  }
+
+  /** The PM or the operator CLI ends one grant at once. */
+  revokeOperatorGrant(
+    context: MutationContext,
+    grantId: string,
+  ): OperatorGrantRecord {
+    safeId(grantId, "grant id");
+    return this.#mutate<OperatorGrantRecord>(
+      context,
+      "operator.grant_revoke",
+      "operator:decide",
+      { grantId },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (actor.role !== "operator" && agent?.kind !== "PM")
+          throw new ControllerError(
+            "only the PM or the operator revokes a grant",
+          );
+        const row = this.#grantRow(grantId);
+        if (row === undefined)
+          throw new ControllerError(
+            `unknown_grant: grant ${grantId} does not exist`,
+          );
+        if (
+          row.ended_reason !== null ||
+          Date.parse(row.expires_at) <= Date.parse(this.#now())
+        )
+          throw new ControllerError(
+            `grant_not_active: grant ${grantId} has already ended`,
+          );
+        const now = this.#now();
+        const event = this.#endGrantRow(row, "revoked", now);
+        this.#noticeGrantEnded(row, "revoked", now);
+        return {
+          value: this.#grantRecord(this.#grantRow(grantId)!),
+          event,
+        };
+      },
+    );
+  }
+
+  /**
+   * Audits a full-auto change and tells the PM and the Operator agent. Full auto itself lives in the
+   * service's memory only; this is the durable record. `on` is the PM's alone and carries what the PM
+   * says it asked the user; `off` is the PM's or the operator CLI's; `expired` and `startup` are the
+   * controller's.
+   */
+  recordOperatorFullAuto(
+    context: MutationContext,
+    input: {
+      readonly change: FullAutoChange;
+      readonly operatorRole: string;
+      readonly minutes?: number;
+      readonly askedUser?: string;
+    },
+  ): null {
+    const byController =
+      input.change === "expired" || input.change === "startup";
+    const askedUser =
+      input.askedUser === undefined
+        ? null
+        : safeText(input.askedUser, "asked-user text", 1024, false);
+    return this.#mutate<null>(
+      context,
+      `operator.full_auto_${input.change}`,
+      byController ? "controller:reconcile" : "operator:decide",
+      {
+        change: input.change,
+        minutes: input.minutes ?? null,
+        askedUser,
+      },
+      (actor) => {
+        const agent = this.#agentByActor(actor.actorId);
+        if (input.change === "on") {
+          if (agent?.kind !== "PM")
+            throw new ControllerError(
+              "only an active PM switches full auto on, and only after asking the user",
+            );
+          if (askedUser === null)
+            throw new ControllerError(
+              "asked_user_missing: full auto on needs the text of what the user said",
+            );
+        } else if (
+          input.change === "off" &&
+          actor.role !== "operator" &&
+          agent?.kind !== "PM"
+        )
+          throw new ControllerError(
+            "only the PM or the operator switches full auto off",
+          );
+        const now = this.#now();
+        if (input.change !== "startup") {
+          const body = fullAutoNotice(input.change, input.minutes ?? null);
+          this.#noticeToPm(body, now);
+          for (const operator of this.#database
+            .prepare(
+              "SELECT * FROM agents WHERE project_id = ? AND role_name = ? AND state = 'active'",
+            )
+            .all(this.#projectId, input.operatorRole) as AgentRow[])
+            this.#noticeToAgent(operator.agent_id, body, now);
+        }
+        return {
+          value: null,
+          event: {
+            entityType: "operator_full_auto",
+            entityId: "full-auto",
+            stateVersion: 0,
+            toState: input.change,
+            details: {
+              event:
+                input.change === "startup"
+                  ? "operator.full_auto_off"
+                  : `operator.full_auto_${input.change}`,
+              ...(input.change === "startup" ? { reason: "startup" } : {}),
+              minutes: input.minutes ?? null,
+              askedUser,
+              by: actor.actorId,
+            },
+          },
+        };
+      },
+    );
+  }
+
+  /** An approved proposal that has not started is ended because full auto went off before it began. */
+  endFullAutoProposal(
+    context: MutationContext,
+    proposalId: string,
+  ): OperatorProposalRecord {
+    safeId(proposalId, "proposal id");
+    return this.#mutate<OperatorProposalRecord>(
+      context,
+      "operator.full_auto_refuse",
+      "controller:reconcile",
+      { proposalId },
+      () => {
+        const row = this.#operatorRow(proposalId);
+        if (row?.state !== "approved" || row.auto_rule !== FULL_AUTO_RULE)
+          throw new ControllerError(
+            `proposal ${proposalId} is not waiting under full auto`,
+          );
+        const now = this.#now();
+        this.#setOperatorState(row, "cancelled", now);
+        const record = this.#operatorRecord(this.#operatorRow(proposalId)!);
+        const body = endedWithoutRunNotice(
+          record,
+          "was not run: full auto ended before it started. Propose it again if it is still needed.",
+        );
+        this.#noticeToAgent(row.proposer_agent_id, body, now);
+        this.#noticeToPm(body, now);
+        return {
+          value: record,
+          event: this.#operatorEvent(proposalId, "approved", "cancelled", {
+            reason: "full_auto_ended",
+          }),
+        };
+      },
+    );
   }
 
   #isOlderThan(createdAt: string, minutes: number, nowIso: string): boolean {
@@ -17159,15 +17756,22 @@ export class ControllerCore {
         this.#setOperatorState(row, "running", now);
         this.#database
           .prepare(
-            "INSERT INTO operator_runs(project_id, proposal_id, started_at, status) VALUES (?, ?, ?, 'running')",
+            "INSERT INTO operator_runs(project_id, proposal_id, started_at, status, full_auto) VALUES (?, ?, ?, 'running', ?)",
           )
-          .run(this.#projectId, row.proposal_id, now);
+          .run(
+            this.#projectId,
+            row.proposal_id,
+            now,
+            row.auto_rule === FULL_AUTO_RULE ? 1 : 0,
+          );
         return {
           value: {
             claimed: true,
             proposal: this.#operatorRecord(this.#operatorRow(row.proposal_id)!),
           },
-          event: this.#operatorEvent(row.proposal_id, "approved", "running"),
+          event: this.#operatorEvent(row.proposal_id, "approved", "running", {
+            ...(row.auto_rule === FULL_AUTO_RULE ? { fullAuto: true } : {}),
+          }),
         };
       },
     );
@@ -17284,6 +17888,7 @@ export class ControllerCore {
           event: this.#operatorEvent(row.proposal_id, "running", state, {
             status: input.status,
             exitCode: input.exitCode,
+            ...(row.auto_rule === FULL_AUTO_RULE ? { fullAuto: true } : {}),
           }),
         };
       },
@@ -17561,29 +18166,29 @@ export class ControllerCore {
         )
         .run(nextVersion, this.#projectId, project.state_version);
       const now = new Date().toISOString();
-      const eventSequence = (
+      let eventSequence = (
         this.#database
           .prepare(
             "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM controller_events WHERE project_id = ?",
           )
           .get(this.#projectId) as { next: number }
       ).next;
-      this.#database
-        .prepare(
-          `
+      const insertEvent = this.#database.prepare(
+        `
         INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
           state_version, actor_id, request_id, input_revision, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-        )
-        .run(
+      );
+      for (const event of [output.event, ...(output.extraEvents ?? [])]) {
+        insertEvent.run(
           this.#projectId,
           eventSequence,
           randomUUID(),
-          output.event.entityType,
-          output.event.entityId,
-          output.event.fromState ?? null,
-          output.event.toState ?? null,
+          event.entityType,
+          event.entityId,
+          event.fromState ?? null,
+          event.toState ?? null,
           nextVersion,
           actor.actorId,
           context.requestId,
@@ -17591,11 +18196,13 @@ export class ControllerCore {
           canonicalJson({
             action,
             payload,
-            entityVersion: output.event.stateVersion,
-            details: output.event.details ?? null,
+            entityVersion: event.stateVersion,
+            details: event.details ?? null,
           }),
           now,
         );
+        eventSequence += 1;
+      }
       this.#database
         .prepare(
           `

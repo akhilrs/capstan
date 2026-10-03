@@ -7314,7 +7314,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       const tables = (
         db
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'operator_runs', 'operator_proposals', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'role_definitions', 'operator_grants', 'operator_runs', 'operator_proposals', 'external_links', 'plans', 'plan_revisions', 'plan_packages', 'plan_signoffs', 'pm_notices', 'pm_wakes', 'supervision_checks', 'agent_finding_notices', 'agent_finding_checks', 'agent_finding_deliveries', 'agent_findings', 'reviews', 'integration_covered_reports', 'integration_reports', 'integrations', 'agent_reports', 'pm_restarts', 'orphan_panes', 'agent_panes', 'fallback_panes', 'message_input_clears', 'message_rejections', 'message_resolutions', 'rounds', 'messages', 'agent_waits', 'agent_state_history', 'agents') ORDER BY name",
           )
           .all() as Array<{ name: string }>
       ).map((table) => table.name);
@@ -7344,6 +7344,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
+        "operator_grants",
         "operator_runs",
         "operator_proposals",
         "external_links",
@@ -7359,6 +7360,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
         "agent_finding_deliveries",
         "agent_findings",
         "reviews",
+        "integration_covered_reports",
         "integration_reports",
         "integrations",
         "agent_reports",
@@ -7418,6 +7420,8 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 24, name: "0024_developer_review_request.sql" },
           { version: 25, name: "0025_external_links.sql" },
           { version: 26, name: "0026_operator.sql" },
+          { version: 27, name: "0027_integration_coverage.sql" },
+          { version: 28, name: "0028_operator_grants.sql" },
         ],
       );
       assert.equal(

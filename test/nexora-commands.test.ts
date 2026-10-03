@@ -34,6 +34,8 @@ const config = {
 
 interface Stub {
   inHead: boolean;
+  /** Commits the stubbed git reports as already held by an integration head. */
+  covered: Map<string, "ancestor" | "tree">;
 }
 
 function member(
@@ -75,7 +77,7 @@ interface Team {
 }
 
 async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
-  const stub: Stub = { inHead: false };
+  const stub: Stub = { inHead: false, covered: new Map() };
   const reviewers: Member[] = [];
   const holder: { h?: Harness } = {};
   const h = await harness({
@@ -89,6 +91,15 @@ async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
         branchTip: async () => null,
         isInHead: async () => stub.inHead,
         deleteBranch: async () => true,
+        coveredReports: async (
+          _head: string,
+          reports: readonly { reportId: string; commitSha: string }[],
+        ) =>
+          reports.flatMap((r) =>
+            stub.covered.has(r.commitSha)
+              ? [{ reportId: r.reportId, how: stub.covered.get(r.commitSha)! }]
+              : [],
+          ),
       },
       launcher: {
         spawn: async () => {
@@ -548,5 +559,87 @@ test("a findings verdict and a cancelled package queue no reviewed notice", asyn
     await call(h, h.owner, "plan", ["cancel", planId, "wp2"]);
     await passReview(t, t.architect, second);
     assert.deepEqual(reviewedNotices(h), []);
+  });
+});
+
+interface PlanShown {
+  result: {
+    nexora: { wanted: string };
+    packages: { packageId: string; wanted: string }[];
+  };
+}
+
+async function wantedAfterConfirm(
+  t: Team,
+  coverA: "ancestor" | "tree" | undefined,
+): Promise<{ plan: string; packages: Record<string, string> }> {
+  const { h, stub } = t;
+  const planId = await approvedPlan(t, "wp1", "wp2");
+  await link(h, h.pm.credential, "plan", planId, "PM-1");
+  await link(h, h.pm.credential, "package", `${planId}/wp1`, "PM-2");
+  await link(h, h.pm.credential, "package", `${planId}/wp2`, "PM-3");
+  for (const [pkg, who] of [
+    ["wp1", t.devA],
+    ["wp2", t.devB],
+  ] as const)
+    await call(h, h.pm.credential, "plan", [
+      "assign",
+      planId,
+      pkg,
+      who.agentId,
+    ]);
+  const commitA = "b".repeat(40);
+  const reportA = reportBy(h, t.devA, commitA);
+  const reportB = reportBy(h, t.devB, "c".repeat(40));
+  await passReview(t, t.architect, reportB);
+  if (coverA !== undefined) stub.covered.set(commitA, coverA);
+  const integrated = await call(h, h.pm.credential, "integrate", [reportB]);
+  assert.ok(integrated.ok, JSON.stringify(integrated));
+  const integrationId = (integrated as { result: { integrationId: string } })
+    .result.integrationId;
+  await passReview(t, h.pm, integrationId);
+  stub.inHead = true;
+  const confirmed = await call(h, h.pm.credential, "integrate", [
+    "confirm",
+    integrationId,
+  ]);
+  assert.ok(confirmed.ok, JSON.stringify(confirmed));
+  assert.ok(reportA);
+  const shown = (await call(h, h.pm.credential, "plan", [
+    "show",
+    planId,
+  ])) as PlanShown;
+  return {
+    plan: shown.result.nexora.wanted,
+    packages: Object.fromEntries(
+      shown.result.packages.map((p) => [p.packageId, p.wanted]),
+    ),
+  };
+}
+
+test("a package whose report an integrated report builds on counts as completed, and the plan completes with it", async () => {
+  await withTeam(async (t) => {
+    assert.deepEqual(await wantedAfterConfirm(t, "ancestor"), {
+      plan: "completed",
+      packages: { wp1: "completed", wp2: "completed" },
+    });
+  });
+});
+
+test("an amended report whose changes are in the head counts as completed too", async () => {
+  await withTeam(async (t) => {
+    assert.deepEqual(await wantedAfterConfirm(t, "tree"), {
+      plan: "completed",
+      packages: { wp1: "completed", wp2: "completed" },
+    });
+  });
+});
+
+test("a report the head does not hold stays unfinished and so does the plan", async () => {
+  await withTeam(async (t) => {
+    assert.deepEqual(await wantedAfterConfirm(t, undefined), {
+      plan: "in_progress",
+      packages: { wp1: "in_progress", wp2: "completed" },
+    });
   });
 });

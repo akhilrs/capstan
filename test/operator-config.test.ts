@@ -95,6 +95,9 @@ test("without an [operator] table the operator is disabled with the defaults", (
     countTowardWorkerLimit: false,
     restartHealthTimeoutSeconds: 60,
     restartIdleWaitSeconds: 120,
+    sessionGrantMaxMinutes: 60,
+    fullAutoDefaultMinutes: 30,
+    fullAutoMaxMinutes: 120,
   });
 });
 
@@ -280,4 +283,31 @@ test("the starter operator tables load once uncommented", () => {
     "git rev-parse --short HEAD",
   ]);
   assert.deepEqual(load(STARTER_CONFIG).operator.enabled, false);
+});
+
+test("the session grant and full auto keys have defaults, bounds and an order", () => {
+  const config = load(`${ENABLED}${operatorRole()}`);
+  assert.equal(config.operator.sessionGrantMaxMinutes, 60);
+  assert.equal(config.operator.fullAutoDefaultMinutes, 30);
+  assert.equal(config.operator.fullAutoMaxMinutes, 120);
+  const custom = load(
+    `${ENABLED}session_grant_max_minutes = 480\nfull_auto_default_minutes = 5\nfull_auto_max_minutes = 480\n${operatorRole()}`,
+  );
+  assert.equal(custom.operator.sessionGrantMaxMinutes, 480);
+  assert.equal(custom.operator.fullAutoDefaultMinutes, 5);
+  assert.equal(custom.operator.fullAutoMaxMinutes, 480);
+  for (const key of [
+    "session_grant_max_minutes",
+    "full_auto_default_minutes",
+    "full_auto_max_minutes",
+  ])
+    for (const value of ["0", "481", '"x"'])
+      rejects(
+        `${ENABLED}${key} = ${value}\n${operatorRole()}`,
+        new RegExp(`operator\\.${key}`),
+      );
+  rejects(
+    `${ENABLED}full_auto_default_minutes = 90\nfull_auto_max_minutes = 60\n${operatorRole()}`,
+    /full_auto_default_minutes \(90\) must not exceed operator\.full_auto_max_minutes \(60\)/,
+  );
 });

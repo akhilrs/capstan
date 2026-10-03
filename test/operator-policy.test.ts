@@ -10,9 +10,11 @@ import {
   classifyCommand,
   commandHash,
   hashPrefix,
+  matchSessionGrant,
   matchesAutoApprove,
   normalizeCommand,
   normalizeReason,
+  prefixGrantProblem,
   tokenize,
 } from "../src/operator-policy.js";
 
@@ -226,4 +228,54 @@ test("command and reason refuse bidi overrides, zero-width characters and homogl
     text: "check\nthe\ttree",
   });
   assert.equal(normalizeReason("").ok, false);
+});
+
+test("prefixGrantProblem accepts a plain leading part and refuses wide, empty and unsafe ones", () => {
+  for (const prefix of ["ls -l", "git status", "cstan status", "pytest -q"])
+    assert.equal(prefixGrantProblem(prefix), null, prefix);
+  for (const prefix of [
+    "",
+    "   ",
+    "git",
+    "cstan",
+    "rm",
+    "git push",
+    "ls -f",
+    "ls | cat",
+    "ls; whoami",
+    "ls\nwhoami",
+    "ls  -l",
+    " ls",
+    "ls ",
+    "A=1 ls",
+    "ls ü",
+  ])
+    assert.notEqual(prefixGrantProblem(prefix), null, JSON.stringify(prefix));
+});
+
+test("matchSessionGrant matches the exact text or whole leading tokens and nothing else", () => {
+  const grants = [
+    { grantId: "grant-1", kind: "exact", text: "git push origin main" },
+    { grantId: "grant-2", kind: "prefix", text: "ls -l" },
+  ] as const;
+  const verdict = (command: string, kind: "command" | "restart" = "command") =>
+    matchSessionGrant(kind, command, grants);
+  assert.deepEqual(verdict("git push origin main"), {
+    matched: true,
+    grantId: "grant-1",
+  });
+  assert.equal(verdict("git push origin main2").matched, false);
+  assert.equal(verdict("git push origin main", "restart").matched, false);
+  assert.deepEqual(verdict("ls -l a b"), { matched: true, grantId: "grant-2" });
+  for (const command of [
+    "ls -la",
+    "lsx -l",
+    "ls",
+    "ls -l rm",
+    "ls -l;ls",
+    "ls -l\nls",
+    "ls -l -f",
+  ])
+    assert.equal(verdict(command).matched, false, command);
+  assert.equal(matchSessionGrant("command", "ls -l", []).matched, false);
 });

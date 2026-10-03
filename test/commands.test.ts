@@ -54,6 +54,9 @@ function waitConfig(waitSeconds: number): CapstanConfig {
       countTowardWorkerLimit: false,
       restartHealthTimeoutSeconds: 60,
       restartIdleWaitSeconds: 120,
+      sessionGrantMaxMinutes: 60,
+      fullAutoDefaultMinutes: 30,
+      fullAutoMaxMinutes: 120,
     },
     limits: { maxWorkers: 3 },
     layout: {

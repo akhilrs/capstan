@@ -94,6 +94,10 @@ export interface DashModel {
     readonly replacementAttempts: number;
     readonly workers: number;
     readonly workerLimit: number | null;
+    /** Whole minutes of full auto left; present only while it is on. */
+    readonly fullAutoMinutes?: number;
+    /** Session grants in force; present only when there are any. */
+    readonly grants?: number;
   };
   /** Active agents first (attention-first), then every ended agent, most recent activity first. */
   readonly agents: readonly AgentRow[];
@@ -186,6 +190,21 @@ function stageOf(
     total: rows.length,
     capped: rows.length >= PIPELINE_ITEMS,
     items,
+  };
+}
+
+/** Full auto and grants from the Operator part of the status; nothing when there is none. */
+function operatorHeader(operator: unknown): {
+  fullAutoMinutes?: number;
+  grants?: number;
+} {
+  const { fullAuto, grants } = (operator ?? {}) as Rec;
+  const full = (fullAuto ?? {}) as Rec;
+  return {
+    ...(full.on === true
+      ? { fullAutoMinutes: Math.ceil(num(full.remainingSeconds) / 60) }
+      : {}),
+    ...(list(grants).length > 0 ? { grants: list(grants).length } : {}),
   };
 }
 
@@ -405,6 +424,7 @@ export function buildDashModel(
       replacementAttempts: num(supervision.replacementAttempts),
       workers: active.filter((a) => isWorkerKind(a.kind)).length,
       workerLimit,
+      ...operatorHeader(status.operator),
     },
     agents: [...active, ...ended],
     pipeline: {

@@ -307,6 +307,27 @@ export interface OperatorRunRecord {
   readonly pgid: number | null;
   readonly leaderStart: string | null;
   readonly orphanClearedAt: string | null;
+  /** True when the run was approved under full auto. */
+  readonly fullAuto: boolean;
+}
+
+export type OperatorGrantKind = "exact" | "prefix";
+export type OperatorGrantEndReason =
+  "released" | "restart" | "expired" | "revoked";
+
+/** A PM-approved permission to run the same command, or a command that starts with the same whole words, again without a new approval until it ends. */
+export interface OperatorGrantRecord {
+  readonly grantId: string;
+  readonly sequence: number;
+  readonly kind: OperatorGrantKind;
+  readonly text: string;
+  readonly commandSha: string;
+  readonly createdBy: string;
+  readonly sourceProposalId: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+  readonly endedReason: OperatorGrantEndReason | null;
 }
 
 export interface OperatorProposalRecord {
@@ -327,4 +348,6 @@ export interface OperatorProposalRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly run: OperatorRunRecord | null;
+  /** The session grant this proposal's approval created, if any. */
+  readonly sessionGrant: OperatorGrantRecord | null;
 }

@@ -45,6 +45,9 @@ export class StubAdapter implements LauncherAdapter {
   private counter = 0;
   startStatus: "started" | "blocked_at_startup" = "started";
   startError: Error | undefined;
+  /** Errors thrown by the next start attempts, one each, before startError applies. */
+  startErrors: Error[] = [];
+  startAttempts = 0;
   startGate: Promise<void> | undefined;
   dialogHandled = true;
   adoptErrors = new Map<string, Error>();
@@ -196,6 +199,9 @@ export class StubAdapter implements LauncherAdapter {
     environment?: Readonly<Record<string, string>>;
   }) {
     await this.startGate;
+    this.startAttempts += 1;
+    const scripted = this.startErrors.shift();
+    if (scripted) throw scripted;
     if (this.startError) throw this.startError;
     this.starts.push({
       name: input.name,
@@ -339,9 +345,16 @@ export class StubGit implements GitRunner {
   headSha() {
     return this.head;
   }
+  /** What worktreeDirtyCount answers; null means git could not tell. */
+  dirty: number | null = 0;
+  /** Git's message when removeOk is false. */
+  removeStderr = "";
+  worktreeDirtyCount() {
+    return this.dirty;
+  }
   worktreeRemove(p: string) {
     this.removed.push(p);
-    return this.removeOk;
+    return { removed: this.removeOk, stderr: this.removeStderr };
   }
   deleteBranchIf(branch: string, sha: string) {
     this.deleted.push([branch, sha]);

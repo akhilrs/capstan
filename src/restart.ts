@@ -563,6 +563,14 @@ export function restartNoticeToPm(
   proposalId: string,
   result: RestartResult,
 ): string {
+  return `${restartOutcomeText(proposalId, result)}${RESTART_ENDS_AUTO}`;
+}
+
+/** Full auto lives in the controller's memory and grants end at startup, so a restart always ends both. */
+const RESTART_ENDS_AUTO =
+  "\nFull auto ended with the restart and is off; session grants ended too. Ask the user again before switching full auto on.";
+
+function restartOutcomeText(proposalId: string, result: RestartResult): string {
   const head = `Operator restart ${proposalId}`;
   if (result.outcome === "ok")
     return `${head} finished: the controller restarted and answers ping.`;

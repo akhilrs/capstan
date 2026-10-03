@@ -54,6 +54,30 @@ export function signalsOf(status: Record<string, unknown>): Set<string> {
   return signals;
 }
 
+/** Full auto and the session grants in force; nothing when the Operator is off. */
+export function operatorLines(operator: unknown): string[] {
+  if (operator === null || typeof operator !== "object") return [];
+  const { fullAuto, grants } = operator as {
+    fullAuto?: { on?: boolean; remainingSeconds?: number };
+    grants?: unknown;
+  };
+  const lines: string[] = [];
+  if (fullAuto?.on === true)
+    lines.push(
+      `FULL AUTO ON: ${clean(Math.ceil((fullAuto.remainingSeconds ?? 0) / 60))} minutes left`,
+    );
+  for (const g of list<{
+    grantId: string;
+    kind: string;
+    text: string;
+    expiresAt: string;
+  }>(grants))
+    lines.push(
+      `grant ${clean(g.grantId)} (${clean(g.kind)}) "${clean(g.text)}" until ${clean(g.expiresAt)}`,
+    );
+  return lines;
+}
+
 export function renderWatch(status: Record<string, unknown>): string {
   const lines: string[] = [];
   const agents = list<{ agentId: string; kind: string; state: string }>(
@@ -81,6 +105,7 @@ export function renderWatch(status: Record<string, unknown>): string {
       lines.push(
         `finding ${clean(f.findingId)} on ${clean(f.targetAgentId)} (${clean(f.severity)}) [${clean(f.state)}, intervention ${clean(f.interventions)} of 2${f.stateReason == null ? "" : `, ${clean(f.stateReason)}`}]${f.state === "escalated" ? " needs the operator" : ""}`,
       );
+  lines.push(...operatorLines(status.operator));
   const lost = list<string>(status.lostAgentIds);
   if (lost.length > 0) lines.push(`lost: ${lost.map(clean).join(", ")}`);
   const stalled = list<string>(status.stalledAgentIds);

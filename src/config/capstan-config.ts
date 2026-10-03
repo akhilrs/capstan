@@ -57,6 +57,9 @@ check_seconds = 300
 # count_toward_worker_limit = false
 # restart_health_timeout_seconds = 60
 # restart_idle_wait_seconds = 120
+# session_grant_max_minutes = 60    # how long "approve and allow again" grants last; at most 480
+# full_auto_default_minutes = 30    # full auto: the PM may switch off every guard for this long, only after asking you
+# full_auto_max_minutes = 120       # the longest full auto period; at most 480
 
 # Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
 # which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
@@ -208,6 +211,7 @@ export const DEFAULT_HIGH_RISK_TRIGGERS: readonly string[] = [
 export const DEFAULT_OPERATOR_ROLE = "operator";
 export const OPERATOR_HARD_MAX_TIMEOUT_SECONDS = 3600;
 export const MAX_OPERATOR_OUTPUT_TAIL_BYTES = 12288;
+export const OPERATOR_HARD_MAX_SESSION_MINUTES = 480;
 /** Tool rules the Operator role must deny so it cannot read the state directory, tokens or the key, or hand work to a subagent. */
 export const OPERATOR_REQUIRED_DENY: readonly string[] = [
   "Write",
@@ -265,6 +269,10 @@ export type ResolvedOperator = {
   readonly countTowardWorkerLimit: boolean;
   readonly restartHealthTimeoutSeconds: number;
   readonly restartIdleWaitSeconds: number;
+  /** The longest a session grant lasts; a grant also ends on release of the Operator agent and on controller restart. */
+  readonly sessionGrantMaxMinutes: number;
+  readonly fullAutoDefaultMinutes: number;
+  readonly fullAutoMaxMinutes: number;
 };
 
 export type ResolvedHost = {
@@ -917,6 +925,9 @@ function resolveOperator(
       "count_toward_worker_limit",
       "restart_health_timeout_seconds",
       "restart_idle_wait_seconds",
+      "session_grant_max_minutes",
+      "full_auto_default_minutes",
+      "full_auto_max_minutes",
     ],
     "operator",
   );
@@ -994,7 +1005,32 @@ function resolveOperator(
       3600,
       120,
     ),
+    sessionGrantMaxMinutes: optionalInteger(
+      table.session_grant_max_minutes,
+      "operator.session_grant_max_minutes",
+      1,
+      OPERATOR_HARD_MAX_SESSION_MINUTES,
+      60,
+    ),
+    fullAutoDefaultMinutes: optionalInteger(
+      table.full_auto_default_minutes,
+      "operator.full_auto_default_minutes",
+      1,
+      OPERATOR_HARD_MAX_SESSION_MINUTES,
+      30,
+    ),
+    fullAutoMaxMinutes: optionalInteger(
+      table.full_auto_max_minutes,
+      "operator.full_auto_max_minutes",
+      1,
+      OPERATOR_HARD_MAX_SESSION_MINUTES,
+      120,
+    ),
   };
+  if (operator.fullAutoDefaultMinutes > operator.fullAutoMaxMinutes)
+    throw new ConfigError(
+      `operator.full_auto_default_minutes (${operator.fullAutoDefaultMinutes}) must not exceed operator.full_auto_max_minutes (${operator.fullAutoMaxMinutes})`,
+    );
   if (operator.timeoutSeconds > operator.maxTimeoutSeconds)
     throw new ConfigError(
       `operator.timeout_seconds (${operator.timeoutSeconds}) must not exceed operator.max_timeout_seconds (${operator.maxTimeoutSeconds})`,

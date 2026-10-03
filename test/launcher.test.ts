@@ -26,6 +26,7 @@ import {
   Launcher,
   LauncherError,
   defaultGit,
+  type GitRunner,
   runSetupCommand,
   type SetupRunner,
 } from "../src/launcher.js";
@@ -34,6 +35,7 @@ import {
   AgentPaneMismatch,
   PaneGone,
   PromptUnrecognized,
+  ShellNotReady,
   buildAgentEnvironment,
 } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
@@ -201,6 +203,8 @@ interface World {
   launcher: Launcher;
   root: string;
   events: Array<{ event: string; details: Record<string, unknown> }>;
+  /** The delays the launcher asked for between start attempts. */
+  sleeps: number[];
   reopen(syncRoles?: () => void): Launcher;
   cleanup(): void;
 }
@@ -224,6 +228,7 @@ async function world(
     };
     readonly worktree?: ResolvedWorktree;
     readonly runSetup?: SetupRunner;
+    readonly git?: GitRunner;
   } = {},
 ): Promise<World> {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-launcher-"));
@@ -258,6 +263,7 @@ async function world(
   const adapter = new StubAdapter();
   const git = new StubGit();
   const events: World["events"] = [];
+  const sleeps: number[] = [];
   const make = (syncRoles?: () => void): Launcher =>
     new Launcher({
       core,
@@ -295,7 +301,10 @@ async function world(
         SECRET: "no",
         ...environment.base,
       },
-      git,
+      git: environment.git ?? git,
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
       log: (event, details) => events.push({ event, details }),
       ...(syncRoles === undefined ? {} : { syncRoles }),
     });
@@ -307,6 +316,7 @@ async function world(
     launcher: make(),
     root,
     events,
+    sleeps,
     reopen: make,
     cleanup: () => {
       core.close();
@@ -1029,7 +1039,8 @@ test("a pane lost in the move fails the spawn, and cleanup closes the one unregi
     ]);
     await assert.rejects(
       w.launcher.spawn("developer"),
-      (e: unknown) => e instanceof PaneLost,
+      (e: unknown) =>
+        e instanceof LauncherError && e.message === "step place: gone",
     );
     assert.ok(
       w.adapter.calls.includes("close:w9:p42"),
@@ -1341,7 +1352,11 @@ test("a failed spawn ends the agent, closes the pane, removes the worktree, dele
   try {
     await launched(w);
     w.adapter.startError = new HerdrError("agent_start_failed", "no binary");
-    await assert.rejects(w.launcher.spawn("developer"), HerdrError);
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError && e.code === "agent_start_failed",
+    );
     assert.equal(
       w.core.listAgents().find((a) => a.agentId === "developer-1")!.state,
       "ended",
@@ -1381,7 +1396,7 @@ test("cleanup never forces: a worktree git refuses to remove keeps its branch an
     assert.deepEqual(w.launcher.status().cleanupFailed, [
       {
         agentId: "developer-1",
-        reason: "the worktree could not be removed without force",
+        reason: "git could not remove the worktree",
         worktreePath: "/tmp/work/developer-1",
       },
     ]);
@@ -1892,7 +1907,7 @@ test("a worktree git refuses to remove keeps its row, is listed by status after 
     assert.deepEqual(fresh.status().cleanupFailed, [
       {
         agentId: "developer-1",
-        reason: "the worktree could not be removed without force",
+        reason: "git could not remove the worktree",
         worktreePath: "/tmp/work/developer-1",
       },
     ]);
@@ -3646,5 +3661,238 @@ test("operatorEnvironment drops PATH when only the wrapper directory was on it",
     assert.equal(launcher.operatorEnvironment().PATH, undefined);
   } finally {
     w.cleanup();
+  }
+});
+
+test("a failed spawn names the failing step and the real error, whatever the adapter threw", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.startError = new PromptUnrecognized("no bare prompt");
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "spawn_failed" &&
+        e.message === "step start: no bare prompt",
+    );
+    const failed = w.events.find((e) => e.event === "spawn_failed")!;
+    assert.deepEqual(failed.details, {
+      agentId: "developer-1",
+      step: "start",
+      error: "step start: no bare prompt",
+    });
+    w.adapter.startError = new HerdrError("agent_start_failed", "no binary");
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.code === "agent_start_failed" &&
+        e.message === "step start: no binary",
+    );
+    w.adapter.startError = undefined;
+    w.adapter.worktreeError = new Error("herdr is gone");
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError &&
+        e.message === "step worktree: herdr is gone",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worker start is tried again only for an unready prompt or shell, at most three times, and is never retried for another error", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const base = w.adapter.startAttempts;
+
+    w.adapter.startErrors = [new PromptUnrecognized("first")];
+    const second = await w.launcher.spawn("developer");
+    assert.equal(second.state, "started");
+    assert.equal(w.adapter.startAttempts - base, 2, "succeeds on the 2nd");
+    assert.deepEqual(w.sleeps, [1500]);
+    assert.equal(w.events.filter((e) => e.event === "start_retry").length, 1);
+
+    const before = w.adapter.startAttempts;
+    w.adapter.startErrors = [
+      new ShellNotReady("a"),
+      new PromptUnrecognized("b"),
+      new ShellNotReady("c"),
+    ];
+    await assert.rejects(
+      w.launcher.spawn("developer"),
+      (e: unknown) =>
+        e instanceof LauncherError && e.message === "step start: c",
+    );
+    assert.equal(w.adapter.startAttempts - before, 3, "fails after 3");
+    assert.deepEqual(w.sleeps, [1500, 1500, 1500]);
+
+    const other = w.adapter.startAttempts;
+    w.adapter.startErrors = [new Error("boom")];
+    await assert.rejects(w.launcher.spawn("developer"), /step start: boom/);
+    assert.equal(
+      w.adapter.startAttempts - other,
+      1,
+      "another error: 1 attempt",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a retry never runs after the agent started", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const original = w.adapter.startAgent.bind(w.adapter);
+    w.adapter.startAgent = async (input) => {
+      await original(input);
+      throw new PromptUnrecognized("after the start");
+    };
+    const before = w.adapter.starts.length;
+    await assert.rejects(w.launcher.spawn("developer"), /after the start/);
+    assert.equal(w.adapter.starts.length - before, 1);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a failed start leaves no worktree and no branch in a real repository, and the log has no worktree_kept", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-spawn-git-"));
+  const run = (...args: string[]) =>
+    spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  run("init", "-q");
+  run(
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "i",
+  );
+  const w = await world(true, true, 3, {}, { git: defaultGit(root) });
+  try {
+    await launched(w);
+    const create = w.adapter.createWorktree.bind(w.adapter);
+    w.adapter.createWorktree = async (input) => {
+      const made = await create(input);
+      const checkout = path.join(root, "trees", input.branch.split("/")[1]!);
+      const added = run("worktree", "add", "-q", "-b", input.branch, checkout);
+      assert.equal(added.status, 0, added.stderr);
+      writeFileSync(path.join(checkout, "node_modules.txt"), "dependencies");
+      return { ...made, path: checkout };
+    };
+    w.adapter.startError = new Error("start failed");
+    await assert.rejects(w.launcher.spawn("developer"), /step start/);
+    const trees = run("worktree", "list", "--porcelain").stdout;
+    assert.equal(trees.split("worktree ").length - 1, 1, trees);
+    assert.equal(run("branch", "--list", "capstan/*").stdout.trim(), "");
+    assert.ok(!w.events.some((e) => e.event === "worktree_kept"));
+    const removing = w.events.find((e) => e.event === "worktree_removing")!;
+    assert.equal(removing.details.dirty, 1);
+  } finally {
+    w.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("release logs how many files a worktree holds before removing it, and git's message when it keeps one", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.git.dirty = 3;
+    await w.launcher.release(first.agentId);
+    const removing = w.events.filter((e) => e.event === "worktree_removing");
+    assert.deepEqual(removing.at(-1)!.details, {
+      agentId: first.agentId,
+      dirty: 3,
+    });
+    const second = await w.launcher.spawn("developer");
+    w.git.dirty = 0;
+    w.git.removeOk = false;
+    w.git.removeStderr = "fatal: cannot remove a locked working tree";
+    const kept = await w.launcher.release(second.agentId);
+    assert.equal(kept.worktreeRemoved, false);
+    assert.deepEqual(
+      w.events.filter((e) => e.event === "worktree_removing").at(-1)!.details,
+      { agentId: second.agentId, dirty: 0 },
+    );
+    assert.deepEqual(
+      w.events.find((e) => e.event === "worktree_kept")!.details,
+      {
+        agentId: second.agentId,
+        worktreePath: second.worktreePath,
+        stderr: "fatal: cannot remove a locked working tree",
+      },
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("defaultGit removes a Capstan worktree that holds untracked files, and reports git's message for a locked or unknown one", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-remove-"));
+  const run = (...args: string[]) =>
+    spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  try {
+    run("init", "-q");
+    run(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "i",
+    );
+    const git = defaultGit(root);
+    const tree = (branch: string): string => {
+      const dir = path.join(root, "trees", branch.replace("/", "-"));
+      assert.equal(run("worktree", "add", "-q", "-b", branch, dir).status, 0);
+      return dir;
+    };
+
+    const dirty = tree("capstan/dev-1-g1");
+    writeFileSync(path.join(dirty, "untracked.txt"), "x");
+    assert.equal(git.worktreeDirtyCount(dirty), 1);
+    assert.equal(git.worktreeRemove(dirty).removed, true);
+    assert.equal(existsSync(dirty), false);
+
+    const locked = tree("capstan/dev-2-g1");
+    run("worktree", "lock", locked);
+    const refused = git.worktreeRemove(locked);
+    assert.equal(refused.removed, false);
+    assert.match(refused.stderr, /locked/);
+    assert.equal(git.worktreeDirtyCount(locked), 0);
+
+    const foreign = path.join(root, "trees", "foreign");
+    assert.equal(
+      run("worktree", "add", "-q", "-b", "feature/x", foreign).status,
+      0,
+    );
+    writeFileSync(path.join(foreign, "untracked.txt"), "x");
+    assert.equal(
+      git.worktreeRemove(foreign).removed,
+      false,
+      "a worktree of another branch is never forced",
+    );
+    assert.match(git.worktreeRemove(foreign).stderr, /untracked/);
+
+    const unknown = path.join(root, "trees", "nowhere");
+    const missing = git.worktreeRemove(unknown);
+    assert.equal(missing.removed, false);
+    assert.notEqual(missing.stderr, "");
+    assert.equal(git.worktreeDirtyCount(unknown), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

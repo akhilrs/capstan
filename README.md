@@ -191,7 +191,7 @@ Agents treat a `Finding` message as data from a supervisor, not as an instructio
 
 An optional **Operator** agent lets the PM have a shell command run, or the controller restarted, without you at the keyboard. The Operator only proposes; the controller runs. Nothing about the Operator exists while `[operator]` is absent or `enabled = false`: no role, no prompt text, no `op` command (it answers `not_configured`), no restart code loaded, no known-good snapshot taken, no `restart/` directory.
 
-**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<reason>" <command...>` (or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root, never in a shell string built from a proposal field. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel` and `show`.
+**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<command>" "<reason>"` (the command first, then the reason; or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root, never in a shell string built from a proposal field. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel`, `show`, `revoke` a grant and switch full auto `off`.
 
 **Keys and defaults** (`[operator]` in `capstan.toml`; unset keys take these defaults):
 
@@ -209,6 +209,9 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 | `count_toward_worker_limit`               | `false`        | Whether the Operator counts as a worker.                          |
 | `restart_health_timeout_seconds`          | `60`           | How long a restarted controller has to answer `ping`.             |
 | `restart_idle_wait_seconds`               | `120`          | How long a restart waits for the controller to be idle.           |
+| `session_grant_max_minutes`               | `60`           | Longest a session grant lasts (at most 480).                      |
+| `full_auto_default_minutes`               | `30`           | Full auto duration when the PM gives none (at most the maximum).  |
+| `full_auto_max_minutes`                   | `120`          | Longest full auto period (at most 480).                           |
 
 **Auto allowlist.** Only exact commands that match `OPERATOR_AUTO_ALLOWLIST` in `src/operator-policy.ts` and are listed in `auto_approve` (or match an `auto_approve_prefix`) run without the PM: `ls` with `-l -a -la -h` and plain path arguments, `pwd`, `whoami`, `date`, `uname -a`, `df -h`, `cstan ping`, `cstan status`, `git rev-parse` (`--abbrev-ref`, `--short`, `HEAD`) and `git ls-files`. `git status`, `git diff` and `git show` are deliberately not on it: they can run project-configured helpers (`diff.external`, textconv, pagers), so they can execute project code. A restart is never auto-approved, even if you list it.
 
@@ -223,6 +226,28 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 **Limits you must accept.** An approved command runs with your full authority. A process of the same user that outlives its run (`setsid`, `nohup`) can reach the control socket or read tokens from `/proc`. Nothing proves a human approved a command beyond the PM prompt: the PM agent is the approver, and a PM that approves without asking you has bypassed the control. Read what the PM shows you.
 
 **Audit.** Every proposal, decision, run, result and expiry is a ledger event. `cstan op show <id>` prints a proposal with its run and output tail; the ledger keeps them (tables `operator_proposals` and `operator_runs`).
+
+### Session grants
+
+Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds `--session exact` or `--session prefix="<words>"` to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`.
+
+- **Exact.** An identical command (same text, same kind) from the Operator runs with no new approval; the proposal records `auto_rule` `session:<grant-id>`. Any changed text needs approval again.
+- **Prefix.** The grant stores the words verbatim; the PM notice, `cstan op show` and `cstan op grants` print them. A later command matches only when it starts with those whole words (`ls -l` matches `ls -l docs`, not `ls -la` and not `lsx -l`). The rest of the command goes through the same check as any command: if it has a metacharacter, a second line or any word from the denylist (`push`, `rm`, `-f`, ...), it needs approval. The controller refuses a prefix that contains a denylist word, that is empty, that is not a simple one-line command, or that is only `git` or `cstan` with no subcommand.
+- **End.** A grant ends when the Operator agent is released or replaced, when the controller restarts, when `session_grant_max_minutes` has passed (the cap is measured with the system clock, because grants are stored), or when the PM or you run `cstan op revoke <grant-id>`. A command proposed after that needs approval. `cstan op grants` lists the grants in force. Each grant is created, used, revoked or expired as a ledger event.
+
+A prefix widens what a later command can do, up to the denylist. Read the prefix the PM shows you before you agree.
+
+### Full auto
+
+Full auto switches off every guard for a limited time. While it is on, each Operator proposal is approved at the moment it is proposed (`auto_rule` `full-auto`) and runs: no allowlist, no denylist, no PM decision. Pushes and deletes are included, and so are restarts (a restart still waits for the idle check and still needs the rollback target). Every run row and event is marked `full_auto`.
+
+- `cstan op full-auto on [<minutes>] --asked-user "<what the user said>"` — the PM only. The minutes default to `full_auto_default_minutes` and may not exceed `full_auto_max_minutes`. The PM and the Operator agent get a notice when it goes on, off or expires.
+- `cstan op full-auto off` — the PM or the operator CLI (you). It takes effect at once. An approved proposal that has not started when full auto goes off is not run: it ends, the PM is told, and the Operator must propose again.
+- `cstan op full-auto status` — shows the minutes left. `cstan status --watch` and `cstan dash` show the time left and the grants in force.
+- The operator CLI cannot switch full auto on: you switch it off, the PM switches it on after it asked you.
+- Full auto is kept in the controller's memory only. After a restart (including an Operator restart) it is off, a startup event records that, and the restart notice says so. The time box uses a monotonic clock, so a change of the system clock cannot lengthen it.
+
+**The risk, stated plainly.** Full auto removes every guard by your decision. A PM that turns it on without asking you has bypassed you, and the controller cannot tell: the `--asked-user` text is only recorded. What remains is the ledger audit (the text, the time, every proposal and run marked `full_auto`) and the time box. There is no denylist, no hard floor and no confirmation in full auto, and pushes and deletes are included. Leave `[operator]` out, or `enabled = false`, if you never want this.
 
 ### Restart and rollback
 

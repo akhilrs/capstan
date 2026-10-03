@@ -371,7 +371,7 @@ test("with the Architect disabled every prompt is byte-identical to the one befo
   const { createHash } = await import("node:crypto");
   const golden = {
     PM: "29a9ad84d6ff5b35",
-    Developer: "1bb9754a48ea7114",
+    Developer: "47514021ccf50174",
     Verifier: "f7bfe2d19eee2f46",
     Supervisor: "1032fc5dd4233bda",
   } as const;
@@ -709,5 +709,55 @@ test("the other prompts are unchanged by the operator and an ordinary developer 
   assert.equal(
     buildRolePrompt({ ...goldenInput("Developer"), operator, architect }),
     buildRolePrompt({ ...goldenInput("Developer"), architect }),
+  );
+});
+
+test("A7: the developer prompt says every wait loop on a background test run has a timeout, with an example", () => {
+  const text = buildRolePrompt(goldenInput("Developer"));
+  assert.ok(
+    text.includes(
+      "Every wait loop on a background test run must have a timeout",
+    ),
+  );
+  assert.ok(
+    text.includes(
+      "for i in $(seq 1 90); do [ -f tests.done ] && break; sleep 10; done",
+    ),
+  );
+});
+
+test("the PM prompt tells the PM to show the prefix, to ask the user before full auto and to record what the user said", () => {
+  const on = buildRolePrompt({ ...goldenInput("PM"), operator });
+  for (const needle of [
+    "Approve and allow this exact command for the session",
+    "Approve and allow commands that start with: <prefix>",
+    "Show the prefix in the option text exactly as you will pass it",
+    "--session exact",
+    '--session prefix="<words>"',
+    "cstan op revoke <grant-id>",
+    "cstan op grants",
+    "Full auto removes every guard. Never switch it on on your own judgement",
+    'cstan op full-auto on <minutes> --asked-user "<what the user said>"',
+    "If you switch it on without asking the user, you have bypassed the user",
+    "cstan op full-auto off",
+    "A controller restart ends full auto",
+  ])
+    assert.ok(on.includes(needle), needle);
+  const off = buildRolePrompt(goldenInput("PM"));
+  assert.ok(!/full auto|--session|op grants/i.test(off));
+});
+
+test("the operator prompt says a granted command or full auto runs at once", () => {
+  const text = buildRolePrompt({
+    ...goldenInput("Developer"),
+    roleName: "operator",
+    agentId: "operator-1",
+    operator,
+    isOperator: true,
+  });
+  assert.ok(
+    text.includes(
+      "A command the user allowed for the session, or any command while full auto is on, runs when you propose it",
+    ),
   );
 });

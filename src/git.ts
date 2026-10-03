@@ -446,3 +446,96 @@ export async function isInHead(
     );
   return isAncestor(repoRoot, sha, "HEAD");
 }
+
+export interface CoveredReport {
+  readonly reportId: string;
+  readonly how: "ancestor" | "tree";
+}
+
+export interface CoveredReportsOptions {
+  /** Commits the integration combined; a report that is an ancestor of one of them is covered as well. */
+  readonly memberCommits?: readonly string[];
+  /** Called for a report that could not be judged (a missing commit or a git failure); it is not covered. */
+  readonly onSkipped?: (reportId: string, reason: string) => void;
+}
+
+/** Paths whose entry differs between two commits. */
+async function changedPaths(
+  repoRoot: string,
+  from: string,
+  to: string,
+): Promise<Set<string>> {
+  const outcome = await runGit(
+    repoRoot,
+    ["diff-tree", "-r", "-z", "--no-renames", "--name-only", from, to],
+    {
+      timeoutMs: INTEGRATION_TIMEOUT_MS,
+      maxBuffer: INTEGRATION_BUFFER,
+      encoding: "latin1",
+    },
+  );
+  if (outcome.code !== 0)
+    throw new GitCheckError("git could not compare the trees");
+  return new Set(outcome.stdout.split("\0").filter((path) => path !== ""));
+}
+
+/**
+ * Which reports an integration head already holds without having merged them.
+ * A report is covered as `ancestor` when its commit is part of the head's or a
+ * member commit's history, and as `tree` when every path it changed against its
+ * merge-base with the head has the same entry in the head. A later change to one
+ * of those paths makes the report not covered; that is the safe direction. A
+ * report whose commit is missing, or that git cannot judge, is skipped.
+ */
+export async function coveredReports(
+  repoRoot: string,
+  integrationHead: string,
+  reports: readonly { readonly reportId: string; readonly commitSha: string }[],
+  options: CoveredReportsOptions = {},
+): Promise<CoveredReport[]> {
+  if (!(await commitExists(repoRoot, integrationHead)))
+    throw new GitCheckError("the integration head does not exist");
+  const covered: CoveredReport[] = [];
+  for (const report of reports) {
+    try {
+      if (
+        !FULL_SHA.test(report.commitSha) ||
+        !(await commitExists(repoRoot, report.commitSha))
+      ) {
+        options.onSkipped?.(report.reportId, "its commit does not exist");
+        continue;
+      }
+      const tips = [integrationHead, ...(options.memberCommits ?? [])];
+      let how: CoveredReport["how"] | undefined;
+      for (const tip of tips)
+        if (await isAncestor(repoRoot, report.commitSha, tip)) {
+          how = "ancestor";
+          break;
+        }
+      if (how === undefined) {
+        const base = await runGit(repoRoot, [
+          "merge-base",
+          report.commitSha,
+          integrationHead,
+        ]);
+        if (base.code === 0 && FULL_SHA.test(base.stdout.trim())) {
+          const own = await changedPaths(
+            repoRoot,
+            base.stdout.trim(),
+            report.commitSha,
+          );
+          const drift = await changedPaths(
+            repoRoot,
+            report.commitSha,
+            integrationHead,
+          );
+          if ([...own].every((path) => !drift.has(path))) how = "tree";
+        }
+      }
+      if (how !== undefined) covered.push({ reportId: report.reportId, how });
+    } catch (error) {
+      options.onSkipped?.(report.reportId, String(error));
+    }
+  }
+  return covered;
+}

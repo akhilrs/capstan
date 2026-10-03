@@ -4,8 +4,10 @@ import type { ReportEvidence } from "../src/controller/core.js";
 import {
   IntegrationError,
   integrate,
+  squashMessage,
   recoverIntegrations,
   settleIntegration,
+  type IntegrationDeps,
   type IntegrationGit,
 } from "../src/integration.js";
 import type { IntegrationMergeInput, MergeResult } from "../src/git.js";
@@ -756,7 +758,7 @@ test("the squash message takes the plan title when the reports are packages of o
   }
 });
 
-test("without one plan the squash subject is the first summary line, typed chore unless it names a type", async () => {
+test("without one plan the squash subject is the first summary line, typed feat unless it names a type", async () => {
   const h = await harness();
   try {
     withRoles(h);
@@ -772,8 +774,7 @@ test("without one plan the squash subject is the first summary line, typed chore
     ];
     for (const id of ids) review(h, id, "pass");
     const two = await squashOf(h, [ids[0]!, ids[1]!]);
-    assert.match(two.subject, /^chore: plain summary x+\.\.\.$/);
-    assert.equal(two.subject.length, 72);
+    assert.equal(two.subject, "feat: plain summary");
     const unplanned = await squashOf(h, [ids[2]!]);
     assert.equal(unplanned.subject, "docs: docs(x): unplanned");
     assert.match(
@@ -806,6 +807,195 @@ test("the integration review task does not claim one merge per report", async ()
       ),
     );
     assert.ok(!task!.body.includes("each as its own merge"));
+  } finally {
+    await close(h);
+  }
+});
+
+const subjectOf = (planTitle: string | null, summary: string) =>
+  squashMessage({
+    planTitle,
+    reports: [{ reportId: "r1", agentId: "developer-1", summary }],
+  }).subject;
+
+test("squash subject: the type comes from the plan title, then the first summary, and defaults to feat", () => {
+  assert.equal(
+    subjectOf("fix: Plan title", "docs: summary"),
+    "fix: fix: Plan title",
+  );
+  assert.equal(subjectOf("Plan title", "docs(x): summary"), "docs: Plan title");
+  // No type anywhere: feat is the documented default.
+  assert.equal(subjectOf("Plan title", "plain summary"), "feat: Plan title");
+  assert.equal(subjectOf(null, "plain summary"), "feat: plain summary");
+});
+
+test("squash subject: a long title is cut at a word boundary within 72 characters, without an ellipsis", () => {
+  const title = Array.from({ length: 20 }, (_, i) => `word${i}x`).join(" ");
+  assert.ok(title.length > 100 - 20);
+  const subject = subjectOf(title, "plain");
+  assert.ok(subject.length <= 72);
+  assert.doesNotMatch(subject, /\.\.\./);
+  assert.ok(title.startsWith(subject.slice("feat: ".length)));
+  assert.match(subject, /word\d+x$/);
+  const rest = title.slice(subject.length - "feat: ".length);
+  assert.match(rest, /^\s/);
+});
+
+test("squash subject: a single word longer than the room is cut hard", () => {
+  const subject = subjectOf("y".repeat(80), "plain");
+  assert.equal(subject, `feat: ${"y".repeat(66)}`);
+  assert.equal(subject.length, 72);
+});
+
+interface CoverageSetup {
+  readonly h: Harness;
+  readonly git: FakeGit;
+  readonly logs: string[];
+  readonly integrationId: string;
+  readonly covering: string;
+  readonly other: string;
+  readonly deps: IntegrationDeps;
+}
+
+/** Report `covering` is held by the head without being merged; `other` is not. The integration holds a third report. */
+async function mergedForCoverage(
+  h: Harness,
+  withCoveredReports: boolean,
+): Promise<CoverageSetup> {
+  withRoles(h);
+  const merged = reportBy(h, h.developer, "1".repeat(40));
+  const covering = reportBy(
+    h,
+    member(h, "developer-2", "Developer", "developer"),
+    "2".repeat(40),
+  );
+  const other = reportBy(
+    h,
+    member(h, "developer-3", "Developer", "developer"),
+    "3".repeat(40),
+  );
+  review(h, merged, "pass");
+  const git = fakeGit();
+  const logs: string[] = [];
+  if (withCoveredReports)
+    git.coveredReports = async (_head, reports) => {
+      git.calls.push(`covered ${reports.map((r) => r.reportId).join(",")}`);
+      return reports.flatMap((r) =>
+        r.reportId === covering
+          ? [{ reportId: r.reportId, how: "tree" as const }]
+          : [],
+      );
+    };
+  const d: IntegrationDeps = {
+    ...deps(h, git),
+    log: (event) => void logs.push(event),
+  };
+  const record = await integrate(d, {
+    reportIds: [merged],
+    requestedBy: "operator",
+  });
+  review(h, record.integrationId, "pass");
+  git.inHead = true;
+  return {
+    h,
+    git,
+    logs,
+    integrationId: record.integrationId,
+    covering,
+    other,
+    deps: d,
+  };
+}
+
+const candidateIds = (c: CoverageSetup): string[] | undefined =>
+  c.h.core
+    .coverageCandidates(c.h.owner, c.integrationId)
+    ?.reports.map((r) => r.reportId);
+
+test("confirming an integration records the reports its head holds, and not the others", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    assert.deepEqual(
+      candidateIds(c),
+      undefined,
+      "a merged integration covers nothing yet",
+    );
+    await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "confirmed",
+    });
+    assert.deepEqual(candidateIds(c), [c.other]);
+    assert.ok(c.logs.includes("integration_coverage_recorded"));
+    // The same judgement again changes nothing.
+    await recoverIntegrations(c.deps, "all");
+    await recoverIntegrations(c.deps, "all");
+    assert.deepEqual(candidateIds(c), [c.other]);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a discarded integration covers nothing", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "discarded",
+    });
+    await recoverIntegrations(c.deps, "all");
+    assert.deepEqual(candidateIds(c), undefined);
+    assert.equal(
+      c.git.calls.some((call) => call.startsWith("covered")),
+      false,
+    );
+  } finally {
+    await close(h);
+  }
+});
+
+test("a git failure at confirm is logged and does not block it; the next start records the coverage", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    const working = c.git.coveredReports!;
+    c.git.coveredReports = async () => {
+      throw new Error("git is down");
+    };
+    const settled = await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "confirmed",
+    });
+    assert.equal(settled.record.state, "confirmed");
+    assert.ok(c.logs.includes("integration_coverage_failed"));
+    assert.deepEqual(candidateIds(c), [c.covering, c.other]);
+    c.git.coveredReports = working;
+    await recoverIntegrations(c.deps, "all");
+    assert.deepEqual(candidateIds(c), [c.other]);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a skipped report is logged by the git layer and left uncovered", async () => {
+  const h = await harness();
+  try {
+    const c = await mergedForCoverage(h, true);
+    c.git.coveredReports = async (_head, reports, options) => {
+      for (const r of reports)
+        options?.onSkipped?.(r.reportId, "its commit does not exist");
+      return [];
+    };
+    await settleIntegration(c.deps, {
+      integrationId: c.integrationId,
+      outcome: "confirmed",
+    });
+    assert.equal(
+      c.logs.filter((e) => e === "integration_coverage_report_skipped").length,
+      2,
+    );
+    assert.deepEqual(candidateIds(c), [c.covering, c.other]);
   } finally {
     await close(h);
   }
