@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import type {
   CapstanConfig,
   ResolvedOperator,
@@ -97,7 +97,7 @@ export interface OperatorWorld {
   /** Commands the fake runner was asked to run. */
   readonly runs: RunOptions[];
   /** Raw access to the ledger for trigger tests. */
-  raw<T>(use: (database: Database.Database) => T): T;
+  raw<T>(use: (database: Database) => T): T;
   /** Proposes as the operator agent and returns the record. */
   propose(
     command: string,
@@ -156,7 +156,7 @@ export async function operatorWorld(
     service,
     runs,
     raw(use) {
-      const database = new Database(
+      const database = openSqlite(
         path.join(h.stateDirectory, "controller.sqlite"),
       );
       try {

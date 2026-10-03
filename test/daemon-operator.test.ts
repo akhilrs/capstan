@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 // No test may reach a real Herdr session: the daemon stays out of it.
 process.env.CAPSTAN_LAUNCH = "off";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
@@ -159,13 +160,9 @@ function seedRunning(
 }
 
 async function states(h: Harness, stateDirectory: string): Promise<string[]> {
-  const { default: Database } = await import("better-sqlite3");
-  const database = new Database(
-    path.join(stateDirectory, "controller.sqlite"),
-    {
-      readonly: true,
-    },
-  );
+  const database = openSqlite(path.join(stateDirectory, "controller.sqlite"), {
+    readOnly: true,
+  });
   try {
     return (
       database

@@ -23,7 +23,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import {
   assertTrackedCheckoutMatchesHead,
   createFindingFingerprint,
@@ -215,7 +215,7 @@ test("unknown-only Supervisor overlap escalates its finding", async () => {
       "unknown-overlap-previous-contained",
     );
     const current = assign("unknown-overlap-current");
-    const db = new Database(
+    const db = openSqlite(
       path.join(config.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -1278,8 +1278,8 @@ async function waitGone(pid: number): Promise<void> {
 }
 
 function tableCounts(cwd: string): Record<string, number> {
-  const db = new Database(path.join(cwd, ".capstan/state/controller.sqlite"), {
-    readonly: true,
+  const db = openSqlite(path.join(cwd, ".capstan/state/controller.sqlite"), {
+    readOnly: true,
   });
   try {
     const tables = (
@@ -1302,8 +1302,8 @@ function tableCounts(cwd: string): Record<string, number> {
 }
 
 function tableRows(cwd: string, table: string): string[] {
-  const db = new Database(path.join(cwd, ".capstan/state/controller.sqlite"), {
-    readonly: true,
+  const db = openSqlite(path.join(cwd, ".capstan/state/controller.sqlite"), {
+    readOnly: true,
   });
   try {
     return (db.prepare(`SELECT * FROM ${table}`).all() as unknown[])
@@ -1527,10 +1527,9 @@ test("after kill -9 the next command restarts the daemon and reconciles without 
       ],
       agentRows,
     );
-    const db = new Database(
-      path.join(cwd, ".capstan/state/controller.sqlite"),
-      { readonly: true },
-    );
+    const db = openSqlite(path.join(cwd, ".capstan/state/controller.sqlite"), {
+      readOnly: true,
+    });
     let versionAfterFirst: number;
     try {
       const assignment = db
@@ -1581,9 +1580,9 @@ test("after kill -9 the next command restarts the daemon and reconciles without 
     };
     assert.notEqual(third.pid, second.pid);
     assert.deepEqual(tableCounts(cwd), afterFirst);
-    const check = new Database(
+    const check = openSqlite(
       path.join(cwd, ".capstan/state/controller.sqlite"),
-      { readonly: true },
+      { readOnly: true },
     );
     try {
       assert.equal(
@@ -2508,3 +2507,24 @@ function invokeAsyncWithEnv(
     child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
+
+test("no ExperimentalWarning from node:sqlite reaches stderr from init or status", () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-no-warning-"));
+  try {
+    const git = spawnSync("git", ["init", "--quiet"], { cwd });
+    assert.equal(git.status, 0);
+    const init = invoke(cwd, "init");
+    assert.equal(init.status, 0, init.stderr);
+    assert.doesNotMatch(
+      init.stderr,
+      /ExperimentalWarning|SQLite is an experimental/,
+    );
+    const status = invoke(cwd, "status");
+    assert.doesNotMatch(
+      status.stderr,
+      /ExperimentalWarning|SQLite is an experimental/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

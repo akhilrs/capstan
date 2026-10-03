@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { pauseLines } from "../src/cli.js";
 import type { CommandResponse } from "../src/daemon.js";
 import { plainLines } from "../src/dash/lines.js";
@@ -135,8 +135,8 @@ function pullUntil(h: Harness, messageId: string): boolean {
 }
 
 function rows<T>(h: Harness, sql: string, ...params: unknown[]): T[] {
-  const db = new Database(path.join(h.stateDirectory, "controller.sqlite"), {
-    readonly: true,
+  const db = openSqlite(path.join(h.stateDirectory, "controller.sqlite"), {
+    readOnly: true,
   });
   try {
     return db.prepare(sql).all(...params) as T[];

@@ -44,14 +44,47 @@ try {
   fs.rmSync(shrinkwrap, { force: true });
 }
 
-const hash = createHash("sha256")
-  .update(fs.readFileSync(path.join(releaseDir, tarball)))
-  .digest("hex");
-fs.writeFileSync(path.join(releaseDir, "SHA256SUMS"), `${hash}  ${tarball}\n`);
+// The standalone binaries. build-binary writes them to <root>/release; copy them to the release directory
+// when that is a different one (CSTAN_RELEASE_DIR) and remove the originals to save disk.
+const targets = ["linux-x64", "linux-arm64"];
+const builtDir = path.join(root, "release");
+const binaries = targets.map((target) => `cstan-${version}-${target}`);
+const build = spawnSync(
+  "npm",
+  [
+    "run",
+    "build:binary",
+    "--",
+    ...targets.flatMap((target) => ["--target", target]),
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+if (build.status !== 0)
+  throw new Error(`npm run build:binary failed (${build.status})`);
+for (const name of binaries) {
+  const built = path.join(builtDir, name);
+  const kept = path.join(releaseDir, name);
+  if (built === kept) continue;
+  fs.copyFileSync(built, kept);
+  fs.chmodSync(kept, 0o755);
+  fs.rmSync(built);
+}
 
-console.log(`tarball:   ${path.join(releaseDir, tarball)}`);
+const assets = [tarball, ...binaries];
+const sums = assets.map((name) => {
+  const hash = createHash("sha256")
+    .update(fs.readFileSync(path.join(releaseDir, name)))
+    .digest("hex");
+  return `${hash}  ${name}\n`;
+});
+fs.writeFileSync(path.join(releaseDir, "SHA256SUMS"), sums.join(""));
+
+const inside = path.relative(root, releaseDir);
+const relative = inside.startsWith("..") ? releaseDir : inside;
+for (const name of assets)
+  console.log(`asset:     ${path.join(releaseDir, name)}`);
 console.log(`checksums: ${path.join(releaseDir, "SHA256SUMS")}`);
-console.log("\nTo publish, run:");
+console.log("\nNothing was published. To publish, run:");
 console.log(
-  `  gh release create v${version} ${path.relative(root, releaseDir)}/${tarball} ${path.relative(root, releaseDir)}/SHA256SUMS --title "v${version}" --generate-notes`,
+  `  gh release create v${version} ${assets.map((name) => `${relative}/${name}`).join(" ")} ${relative}/SHA256SUMS --title "v${version}" --generate-notes`,
 );

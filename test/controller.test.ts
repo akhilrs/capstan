@@ -11,7 +11,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -71,7 +71,7 @@ test("canonical JSON rejects non-enumerable and extra array properties", () => {
   assert.throws(() => canonicalJson(invalidIndex), /extra properties/);
 });
 test("legacy finding target migration binds only one durable delivery target", () => {
-  const db = new Database(":memory:");
+  const db = openSqlite(":memory:");
   try {
     db.exec(`
       CREATE TABLE findings (
@@ -393,8 +393,8 @@ test("project initialization persists the validated criteria snapshot", async ()
   try {
     assert.equal(reads, 1);
     assert.equal(kindReads, 1);
-    const db = new Database(path.join(stateDirectory, "controller.sqlite"), {
-      readonly: true,
+    const db = openSqlite(path.join(stateDirectory, "controller.sqlite"), {
+      readOnly: true,
     });
     try {
       const row = db
@@ -498,9 +498,9 @@ test("actor credentials are issued by the controller and replay exactly", async 
     const actor = core.createActor(request, input);
     assert.equal(actor.credential.length >= 32, true);
     assert.deepEqual(core.createActor(request, input), actor);
-    const db = new Database(
+    const db = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
-      { readonly: true },
+      { readOnly: true },
     );
     try {
       const stored = db
@@ -571,9 +571,7 @@ test("migration ledger gaps reject startup even when later migration checksums m
   const value = await fixture();
   try {
     value.core.close();
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       db.prepare("DELETE FROM schema_migrations WHERE version = 2").run();
     } finally {
@@ -1656,9 +1654,7 @@ test("Supervisor event references retain an older assignment beyond the event wi
         `never-started:${id}`,
       );
     }
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       const latest = db
         .prepare(
@@ -1770,9 +1766,7 @@ test("Supervisor seat overlap is a durable operator finding, not a correction di
       () => core.createFinding(context(core, supervisor.credential), finding),
       /overlapping Supervisor seat/,
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       db.prepare(
         "UPDATE assignments SET authority_state = 'unknown' WHERE project_id = ? AND assignment_id IN (?, ?)",
@@ -2220,9 +2214,7 @@ test("finding correction stays on the affected seat through response and deliver
       "correction-delivery-work",
       pm.seatId,
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       db.prepare(
         "UPDATE assignments SET seat_id = ? WHERE project_id = ? AND assignment_id = ?",
@@ -2521,7 +2513,7 @@ test("PM and Supervisor reports complete through durable role-authorized receipt
         `containment:${suffix}`,
       );
       if (emptyReport) {
-        const database = new Database(
+        const database = openSqlite(
           path.join(value.stateDirectory, "controller.sqlite"),
         );
         try {
@@ -2914,7 +2906,7 @@ test("finding response rejects an active later generation of its affected assign
       resolutionCondition: "Independent Supervisor verification",
       escalationRoute: "operator",
     });
-    const sourceDb = new Database(
+    const sourceDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -2957,9 +2949,7 @@ test("finding response rejects an active later generation of its affected assign
       "reported",
       { report: "PM issue" },
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       db.prepare(
         "UPDATE assignments SET active_generation = ? WHERE project_id = ? AND assignment_id = ?",
@@ -3064,9 +3054,7 @@ test("finding responses persist their reports and require explicit resolution ev
       ),
       { state: "reported" },
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       const report = db
         .prepare(
@@ -3192,7 +3180,7 @@ test("finding responses persist their reports and require explicit resolution ev
       "finding-correction-work",
       correctionAssignment.assignmentId,
     );
-    const resolutionDb = new Database(
+    const resolutionDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     let evidenceEventId: string;
@@ -3315,7 +3303,7 @@ test("finding responses persist their reports and require explicit resolution ev
         ?.reopenedFromFindingId,
       null,
     );
-    const recurrenceDb = new Database(
+    const recurrenceDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -3903,7 +3891,7 @@ for (const originalAlreadyAccepted of [false, true]) {
           (work) => work.workItemId === "developer-correction-original",
         );
       assert.equal(original?.state, "accepted");
-      const originalDb = new Database(
+      const originalDb = openSqlite(
         path.join(value.stateDirectory, "controller.sqlite"),
       );
       try {
@@ -4451,9 +4439,7 @@ test("Verifier correction evidence cannot resolve a finding without fresh Superv
         candidateId: candidate.candidateId,
       },
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       const accepted = db
         .prepare(
@@ -4485,7 +4471,7 @@ test("Verifier correction evidence cannot resolve a finding without fresh Superv
     }
     const acceptedEvent = core.latestAcceptedWorkEvent(correctionWorkItemId);
     assert.ok(acceptedEvent);
-    const acceptedEventDb = new Database(
+    const acceptedEventDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -4848,9 +4834,7 @@ test("legacy reported findings can be explicitly escalated by the operator", asy
       "reported",
       { report: "Historical finding lacks a bound correction target" },
     );
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       db.prepare(
         `UPDATE findings SET affected_work_item_id = NULL, affected_seat_id = NULL,
@@ -5504,7 +5488,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         }),
       CandidateBindingError,
     );
-    const candidateDb = new Database(
+    const candidateDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -5848,7 +5832,7 @@ test("readiness, bridge receipt sequence, containment, candidate binding, and ac
         exitStatus: 0,
       },
     );
-    const legacyDb = new Database(
+    const legacyDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     legacyDb.exec("DROP TRIGGER immutable_candidate_evidence_update");
@@ -6247,10 +6231,10 @@ test("active revocation preserves an already reported completion until containme
       ),
       { assignmentIds: [] },
     );
-    const db = new Database(
+    const db = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
       {
-        readonly: true,
+        readOnly: true,
       },
     );
     try {
@@ -6435,10 +6419,10 @@ test("replacement revokes the old generation before containment and preserves it
       generation: original.generation,
     });
     assert.equal(journal.at(-2)?.sequence, journal.at(-1)?.sequence);
-    const db = new Database(
+    const db = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
       {
-        readonly: true,
+        readOnly: true,
       },
     );
     try {
@@ -6596,7 +6580,7 @@ test("worker replacement limits count consumed recovery records", async () => {
         ),
       MutationConflictError,
     );
-    const recoveryDb = new Database(
+    const recoveryDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -6939,7 +6923,7 @@ test("final Verifier accepts only complete passing evidence for the composed com
       "final-verification-review",
       supervisor.seatId,
     );
-    const database = new Database(
+    const database = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -7102,7 +7086,7 @@ test("evidence batches preserve all failed criteria and require fresh replacemen
       ],
     );
     assert.equal(failedBatch.evidence.length, 2);
-    const evidenceDb = new Database(
+    const evidenceDb = openSqlite(
       path.join(value.stateDirectory, "controller.sqlite"),
     );
     try {
@@ -7277,7 +7261,7 @@ function desiredRoles(
 }
 
 function ledgerCounts(stateDirectory: string, projectId: string) {
-  const db = new Database(path.join(stateDirectory, "controller.sqlite"));
+  const db = openSqlite(path.join(stateDirectory, "controller.sqlite"));
   try {
     const count = (table: string): number =>
       (
@@ -7310,7 +7294,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
     );
     core.close();
     const databasePath = path.join(value.stateDirectory, "controller.sqlite");
-    const snapshot = (db: Database.Database): Record<string, unknown[]> => {
+    const snapshot = (db: Database): Record<string, unknown[]> => {
       const tables = (
         db
           .prepare(
@@ -7342,7 +7326,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
         ]),
       );
     };
-    const db = new Database(databasePath);
+    const db = openSqlite(databasePath);
     let before: Record<string, unknown[]>;
     try {
       for (const table of [
@@ -7403,7 +7387,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       keepMigrationBackups: 50,
     });
     reopened.close();
-    const check = new Database(databasePath);
+    const check = openSqlite(databasePath);
     try {
       assert.deepEqual(snapshot(check), before);
       assert.deepEqual(check.pragma("foreign_key_check"), []);
@@ -7504,9 +7488,7 @@ test("role sync inserts, updates, retires and reactivates with an audited event"
     assert.deepEqual(third.reactivated, ["pm"]);
     assert.equal(core.roleKind("pm"), "PM");
 
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       const events = db
         .prepare(
@@ -7808,9 +7790,7 @@ test("role sync rejects malformed definitions and records only the four known fi
       secret: "must-not-be-stored",
     }));
     core.syncRoleDefinitions(context(core, owner), withExtra);
-    const db = new Database(
-      path.join(value.stateDirectory, "controller.sqlite"),
-    );
+    const db = openSqlite(path.join(value.stateDirectory, "controller.sqlite"));
     try {
       const payload = (
         db

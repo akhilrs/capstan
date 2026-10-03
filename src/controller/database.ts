@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { hasEmbeddedAssets, readAsset } from "../sea.js";
+import { openSqlite, type Database } from "./sqlite.js";
+
+export type { Database } from "./sqlite.js";
 
 export class DatabaseMigrationError extends Error {
   override readonly name = "DatabaseMigrationError";
@@ -209,6 +212,22 @@ const migrations: Readonly<
   },
 };
 
+/** The highest migration version this build knows. */
+export function maxEmbeddedMigration(): number {
+  return Math.max(...Object.keys(migrations).map(Number));
+}
+
+/**
+ * The bytes of one migration file. The migration loop reads every migration through here, so a
+ * packaged build can serve them from embedded assets instead of the file system.
+ */
+export function readMigration(name: string): Buffer {
+  const migration = Object.values(migrations).find((m) => m.name === name);
+  if (!migration) throw new DatabaseMigrationError(`unknown migration ${name}`);
+  if (hasEmbeddedAssets()) return readAsset(`migrations/${migration.name}`);
+  return fs.readFileSync(migration.url);
+}
+
 export const DEFAULT_KEEP_MIGRATION_BACKUPS = 3;
 
 export interface OpenDatabaseOptions {
@@ -269,8 +288,8 @@ function defaultPruneError(message: string): void {
 export async function openDatabase(
   databasePath: string,
   options: OpenDatabaseOptions = {},
-): Promise<Database.Database> {
-  const database = new Database(databasePath, { timeout: 5_000 });
+): Promise<Database> {
+  const database = openSqlite(databasePath, { timeout: 5_000 });
   try {
     database.pragma("foreign_keys = ON");
     database.pragma("journal_mode = WAL");
@@ -290,16 +309,12 @@ export async function openDatabase(
   }
 }
 
-export function openDatabaseReadOnly(databasePath: string): Database.Database {
-  return new Database(databasePath, {
-    readonly: true,
-    fileMustExist: true,
-    timeout: 5_000,
-  });
+export function openDatabaseReadOnly(databasePath: string): Database {
+  return openSqlite(databasePath, { readOnly: true, timeout: 5_000 });
 }
 
 async function migrate(
-  database: Database.Database,
+  database: Database,
   databasePath: string,
 ): Promise<boolean> {
   const hasLedger = database
@@ -347,7 +362,7 @@ async function migrate(
       throw new DatabaseMigrationError(
         `unknown migration record ${row.version}`,
       );
-    const bytes = fs.readFileSync(migration.url);
+    const bytes = readMigration(migration.name);
     const checksum = createHash("sha256").update(bytes).digest("hex");
     if (checksum !== row.checksum)
       throw new DatabaseMigrationError(
@@ -367,7 +382,7 @@ async function migrate(
       const backupPath = `${databasePath}.pre-v${migration.version}-${Date.now()}.sqlite`;
       await database.backup(backupPath);
     }
-    const bytes = fs.readFileSync(migration.url);
+    const bytes = readMigration(migration.name);
     const checksum = createHash("sha256").update(bytes).digest("hex");
     let sql: string;
     try {

@@ -198,3 +198,7 @@ Review note: `callDaemon` already has a 5 s default timeout (`DEFAULT_TIMEOUT_MS
 ## Consequences
 
 If accepted: `cstan dash` ships in one PR with the two small route/field additions, the `src/dash/` tree, four pinned dependencies, the tsconfig `jsx` setting and the tests above. `cstan status`, `cstan status --watch`, `--json` output, the wire contracts of the existing daemon commands and the SQLite schema (no migration) are unchanged. If a later client wants history (sparklines across restarts), it needs a new daemon route over `controller_events`; this plan does not add one.
+
+---
+
+**Note (superseded dependency):** the `better-sqlite3` mentions above describe the runtime at the time of this decision. The controller now uses the built-in `node:sqlite` (pure-JS runtime, no native modules, no `fs-ext`). The safety rule itself still holds: `src/dash/**` must not import the database module or core values; `test/dash-safety.test.ts` enforces it for the current module names. This record is otherwise left as written.

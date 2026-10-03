@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { test } from "node:test";
 import type { CapstanConfig } from "../src/config/capstan-config.js";
 import {
@@ -195,7 +196,6 @@ test("a Verifier author can never review their own report, in code and in the le
   try {
     withRoles(h);
     const author = verifier(h, "reviewer-1");
-    const { default: Database } = await import("better-sqlite3");
     h.core.recordAgentPane(ctx(h.core, h.owner), {
       agentId: author.agentId,
       workspaceId: null,
@@ -221,7 +221,7 @@ test("a Verifier author can never review their own report, in code and in the le
     const ok = begin(h, record.reportId, other.agentId);
     assert.equal(ok.authorAgentId, author.agentId);
     h.core.close();
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       assert.throws(
         () => db.exec(`UPDATE reviews SET reviewer_actor_id = author_actor_id`),
@@ -336,9 +336,8 @@ test("only rounds that ended in a verdict use the budget, a finished review is f
     }
     const extra = verifier(h, "reviewer-x");
     assert.throws(() => begin(h, reportId, extra.agentId), /review limit/);
-    const { default: Database } = await import("better-sqlite3");
     h.core.close();
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       for (const sql of [
         "UPDATE reviews SET verdict_text = 'changed' WHERE state = 'findings'",
@@ -499,10 +498,9 @@ test("a report whose evidence has no usable base commit is refused before a revi
   try {
     withRoles(h);
     const reportId = acceptedReport(h);
-    const { default: Database } = await import("better-sqlite3");
     const path = `${h.stateDirectory}/controller.sqlite`;
     h.core.close();
-    const db = new Database(path);
+    const db = openSqlite(path);
     try {
       db.exec("DROP TRIGGER immutable_agent_reports_content");
       db.prepare(
@@ -521,7 +519,7 @@ test("a report whose evidence has no usable base commit is refused before a revi
         () => reopened.checkReviewRequest(reportId, "reviewer"),
         /no usable base commit/,
       );
-      const db2 = new Database(path);
+      const db2 = openSqlite(path);
       try {
         db2
           .prepare(

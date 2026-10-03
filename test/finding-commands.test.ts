@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { test } from "node:test";
 import { LauncherError } from "../src/launcher.js";
 import {
@@ -341,8 +342,7 @@ test("observing needs the agent:observe grant: a revoked grant stops it", async 
         }
       ).ok,
     );
-    const { default: Database } = await import("better-sqlite3");
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       const changed = db
         .prepare(

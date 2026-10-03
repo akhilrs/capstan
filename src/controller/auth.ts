@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type Database from "better-sqlite3";
+import type { Database } from "./sqlite.js";
 import { roles, type Capability, type Role } from "./types.js";
 
 export class AuthenticationError extends Error {
@@ -49,7 +49,7 @@ export function credentialHash(credential: string): string {
 }
 
 export function authenticateActor(
-  database: Database.Database,
+  database: Database,
   projectId: string,
   credential: string,
 ): AuthenticatedActor {

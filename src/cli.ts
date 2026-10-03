@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { entryPath, isSea } from "./sea.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -700,7 +701,7 @@ async function ensureRunning(
       credential: operator.credential,
       projectRoot: cwd,
       logPath: operator.logPath,
-      cliPath: fileURLToPath(import.meta.url),
+      cliPath: entryPath(),
       env: process.env,
     });
   } catch (error) {
@@ -920,8 +921,12 @@ function usage(): never {
   fail(USAGE);
 }
 
-/** Version from the package.json two levels above dist/src/cli.js. */
+declare const __CAPSTAN_VERSION__: string | undefined;
+
+/** Version from the package.json two levels above dist/src/cli.js; the binary embeds it at build time. */
 function packageVersion(): string {
+  if (isSea() && typeof __CAPSTAN_VERSION__ === "string")
+    return __CAPSTAN_VERSION__;
   const file = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -962,6 +967,12 @@ async function runCli(argv: string[]): Promise<number> {
   if (command === "--help" || command === "-h" || command === "help") {
     process.stdout.write(`${USAGE}\n`);
     return EXIT.ok;
+  }
+  if (command === "__restart-helper") {
+    // Hidden: the detached restart helper of the standalone binary, never typed by a person.
+    const { runHelperAndExit } = await import("./restart-helper.js");
+    runHelperAndExit(rest[0]);
+    await new Promise<never>(() => undefined);
   }
   const cwd = process.cwd();
   if (command === "init") {
@@ -1162,7 +1173,7 @@ async function runCli(argv: string[]): Promise<number> {
         ...(capstan === undefined ? {} : { capstan }),
         ...(adapter === undefined ? {} : { adapter }),
         ...(notifier === undefined ? {} : { notifier }),
-        cliPath: fileURLToPath(import.meta.url),
+        cliPath: entryPath(),
         ...(capstan === undefined
           ? {}
           : {
@@ -1192,7 +1203,7 @@ async function runCli(argv: string[]): Promise<number> {
         credential: operator.credential,
         projectRoot: cwd,
         logPath: operator.logPath,
-        cliPath: fileURLToPath(import.meta.url),
+        cliPath: entryPath(),
         env: process.env,
       });
       let launch: unknown;
@@ -1444,10 +1455,11 @@ function realPathOrSelf(file: string): string {
 }
 
 const isMain =
-  process.argv[1] !== undefined &&
-  process.argv[1] !== "" &&
-  realPathOrSelf(process.argv[1]) ===
-    realPathOrSelf(fileURLToPath(import.meta.url));
+  isSea() ||
+  (process.argv[1] !== undefined &&
+    process.argv[1] !== "" &&
+    realPathOrSelf(process.argv[1]) ===
+      realPathOrSelf(fileURLToPath(import.meta.url)));
 if (isMain) {
   runCli(process.argv.slice(2))
     .then((code) => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import {
   MAX_FINDING_CONDITION_BYTES,
   MAX_FINDING_CORRECTION_BYTES,
@@ -641,7 +641,7 @@ test("the ledger refuses to rewrite, delete or move back a finding, its deliveri
     ack(h, finding.deliveries[0]!.messageId);
     check(h, s, finding.findingId, "unresolved");
     h.core.close();
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       assert.throws(
         () => db.exec("UPDATE agent_findings SET evidence_text = 'x'"),

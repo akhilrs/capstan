@@ -19,7 +19,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import {
   ControllerUnavailableError,
   callDaemon,
@@ -285,8 +285,8 @@ test("tokens are per agent and per generation and never appear in status, the lo
       JSON.stringify((await call(h, pm.credential, "status")) as object),
       JSON.stringify(h.log),
     ];
-    const db = new Database(path.join(h.stateDirectory, "controller.sqlite"), {
-      readonly: true,
+    const db = openSqlite(path.join(h.stateDirectory, "controller.sqlite"), {
+      readOnly: true,
     });
     try {
       const tables = db

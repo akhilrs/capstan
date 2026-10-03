@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { test } from "node:test";
 import type { ReportEvidence } from "../src/controller/core.js";
 import {
@@ -475,9 +476,8 @@ test("the ledger refuses to rewrite an integration or its reports and to move a 
       reportIds: ids,
       requestedBy: "operator",
     });
-    const { default: Database } = await import("better-sqlite3");
     h.core.close();
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       assert.throws(
         () => db.exec(`UPDATE integrations SET base_sha = '${"e".repeat(40)}'`),
@@ -1026,8 +1026,7 @@ test("coverage candidates name the heads of other integrations that held the rep
   const h = await harness();
   try {
     const c = await mergedForCoverage(h, true);
-    const { default: Database } = await import("better-sqlite3");
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       const projectId = (
         db.prepare("SELECT project_id FROM projects").get() as {

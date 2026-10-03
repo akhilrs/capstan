@@ -7,7 +7,9 @@ import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { maxEmbeddedMigration } from "./controller/database.js";
 import { OperatorError } from "./operator.js";
+import { hasEmbeddedAssets } from "./sea.js";
 import type {
   OperatorProposalRecord,
   OperatorRunStatus,
@@ -34,8 +36,29 @@ const MAX_REPORT_CHARS = 6000;
 /** A refusal with a stable code; the service shows `code: message` to the Operator. */
 export class RestartRefusal extends OperatorError {}
 
-/** sha256 over the sorted file tree of a directory: relative path, then content (or link target). */
+/** sha256 of a file, read in chunks so a 130 MB binary is never held in memory. */
+function streamedFileSha(file: string): string {
+  const hash = createHash("sha256");
+  const fd = fs.openSync(file, "r");
+  try {
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    for (;;) {
+      const read = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (read === 0) break;
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * sha256 over the sorted file tree of a directory: relative path, then content (or link target). For a
+ * file (the standalone binary) it is the sha256 of its content.
+ */
 export function distHash(directory: string): string {
+  if (fs.statSync(directory).isFile()) return streamedFileSha(directory);
   const hash = createHash("sha256");
   const walk = (current: string, relative: string): void => {
     const entries = fs
@@ -78,6 +101,7 @@ function dependencyHashes(root: string): Record<string, string | null> {
 
 /** The highest migration number among the SQL files a build ships. */
 export function maxMigrationOf(distDirectory: string): number {
+  if (hasEmbeddedAssets()) return maxEmbeddedMigration();
   let highest = 0;
   try {
     for (const name of fs.readdirSync(path.join(distDirectory, "migrations"))) {
@@ -104,8 +128,24 @@ export interface KnownGoodBuild {
   manifest(): KnownGoodManifest | undefined;
   /** Dependency files whose hash differs from the manifest. Empty when there is no snapshot. */
   changedDependencies(projectRoot: string): readonly string[];
-  /** Copies `distDirectory` next to a manifest and replaces the snapshot with one rename. */
+  /**
+   * Copies `distDirectory` (or, for the standalone binary, the binary file) next to a manifest and
+   * replaces the snapshot with one rename.
+   */
   snapshot(distDirectory: string, projectRoot: string): void;
+}
+
+export interface KnownGoodOptions {
+  /** The build is the standalone binary: the snapshot holds the file `cstan` and no dependency files. */
+  readonly binary?: boolean;
+}
+
+declare const __CAPSTAN_VERSION__: string | undefined;
+
+function embeddedVersion(): string {
+  return typeof __CAPSTAN_VERSION__ === "string"
+    ? __CAPSTAN_VERSION__
+    : "unknown";
 }
 
 function controllerVersion(projectRoot: string): string {
@@ -119,7 +159,11 @@ function controllerVersion(projectRoot: string): string {
   }
 }
 
-export function knownGoodBuild(stateDir: string): KnownGoodBuild {
+export function knownGoodBuild(
+  stateDir: string,
+  knownGoodOptions: KnownGoodOptions = {},
+): KnownGoodBuild {
+  const binary = knownGoodOptions.binary === true;
   const target = path.join(stateDir, KNOWN_GOOD_DIR_NAME);
   const previous = `${target}.previous`;
   /** A crash between the two renames of a replace leaves only the previous copy: put it back. */
@@ -130,7 +174,10 @@ export function knownGoodBuild(stateDir: string): KnownGoodBuild {
   const readManifest = (): KnownGoodManifest | undefined => {
     try {
       recover();
-      if (!fs.statSync(path.join(target, "dist")).isDirectory())
+      const artifact = fs.statSync(
+        path.join(target, binary ? "cstan" : "dist"),
+      );
+      if (binary ? !artifact.isFile() : !artifact.isDirectory())
         return undefined;
       const parsed = JSON.parse(
         fs.readFileSync(path.join(target, "manifest.json"), "utf8"),
@@ -153,7 +200,7 @@ export function knownGoodBuild(stateDir: string): KnownGoodBuild {
     manifest: readManifest,
     changedDependencies(projectRoot) {
       const manifest = readManifest();
-      if (manifest === undefined) return [];
+      if (manifest === undefined || binary) return [];
       const now = dependencyHashes(projectRoot);
       return DEPENDENCY_FILES.filter(
         (name) => (manifest.deps[name] ?? null) !== now[name],
@@ -165,16 +212,23 @@ export function knownGoodBuild(stateDir: string): KnownGoodBuild {
       fs.rmSync(staging, { recursive: true, force: true });
       try {
         fs.mkdirSync(staging, { mode: 0o700 });
-        fs.cpSync(distDirectory, path.join(staging, "dist"), {
-          recursive: true,
-          preserveTimestamps: true,
-          verbatimSymlinks: true,
-        });
+        if (binary) {
+          const copy = path.join(staging, "cstan");
+          fs.copyFileSync(distDirectory, copy);
+          fs.chmodSync(copy, 0o755);
+        } else
+          fs.cpSync(distDirectory, path.join(staging, "dist"), {
+            recursive: true,
+            preserveTimestamps: true,
+            verbatimSymlinks: true,
+          });
         const manifest: KnownGoodManifest = {
           createdAt: new Date().toISOString(),
-          controllerVersion: controllerVersion(projectRoot),
+          controllerVersion: binary
+            ? embeddedVersion()
+            : controllerVersion(projectRoot),
           maxMigration: maxMigrationOf(distDirectory),
-          deps: dependencyHashes(projectRoot),
+          deps: binary ? {} : dependencyHashes(projectRoot),
         };
         fs.writeFileSync(
           path.join(staging, "manifest.json"),
@@ -250,8 +304,13 @@ export interface RestartCoordinatorOptions {
   readonly projectRoot: string;
   /** The dist directory of the build this controller loaded. */
   readonly distDir: string;
-  /** Absolute path of the compiled restart-helper.js to copy. */
+  /** Absolute path of the compiled restart-helper.js to copy. Unused for the standalone binary. */
   readonly helperSource: string;
+  /**
+   * The standalone binary: `distDir` is the binary file, the helper runs as `<known-good binary>
+   * __restart-helper <plan>` and starts the new binary with `argv`.
+   */
+  readonly binary?: boolean;
   /** The controller's own start command: node binary and the arguments after it. */
   readonly node: string;
   readonly argv: readonly string[];
@@ -293,7 +352,9 @@ function noKnownGood(): RestartRefusal {
 export function createRestartCoordinator(
   options: RestartCoordinatorOptions,
 ): RestartCoordinator {
-  const known = knownGoodBuild(options.stateDir);
+  const known = knownGoodBuild(options.stateDir, {
+    binary: options.binary === true,
+  });
   const spawn = options.spawn ?? nodeSpawn;
   const now = options.now ?? Date.now;
   const sleep =
@@ -364,8 +425,13 @@ export function createRestartCoordinator(
       }
       const directory = restartDirectory(options.stateDir, proposal.proposalId);
       fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      // The helper must outlive the build it replaces: a copy of the helper script, or under the standalone
+      // binary the known-good binary, which is a build that already ran and is never replaced mid-restart.
+      const helperCommand =
+        options.binary === true ? path.join(known.path, "cstan") : options.node;
       const helperPath = path.join(directory, "helper.mjs");
-      fs.copyFileSync(options.helperSource, helperPath);
+      if (options.binary !== true)
+        fs.copyFileSync(options.helperSource, helperPath);
       const plan: RestartPlan = {
         id: proposal.proposalId,
         node: options.node,
@@ -376,6 +442,7 @@ export function createRestartCoordinator(
         pidPath: options.pidPath,
         pid: options.pid ?? process.pid,
         distPath: options.distDir,
+        ...(options.binary === true ? { binary: true } : {}),
         knownGoodPath: known.path,
         ledgerPath: path.join(options.stateDir, "controller.sqlite"),
         logPath: options.logPath,
@@ -401,12 +468,18 @@ export function createRestartCoordinator(
       const logFd = fs.openSync(path.join(directory, "helper.log"), "a", 0o600);
       let child: ChildProcess;
       try {
-        child = spawn(options.node, [helperPath, planPath], {
-          cwd: options.projectRoot,
-          detached: true,
-          stdio: ["ignore", logFd, logFd],
-          env: scrubbedEnvironment(process.env),
-        });
+        child = spawn(
+          helperCommand,
+          options.binary === true
+            ? ["__restart-helper", planPath]
+            : [helperPath, planPath],
+          {
+            cwd: options.projectRoot,
+            detached: true,
+            stdio: ["ignore", logFd, logFd],
+            env: scrubbedEnvironment(process.env),
+          },
+        );
       } finally {
         fs.closeSync(logFd);
       }
@@ -672,11 +745,15 @@ export function scheduleKnownGoodSnapshot(options: {
   readonly projectRoot: string;
   readonly distDir: string;
   readonly loadedHash: string;
+  /** `distDir` is the standalone binary file. */
+  readonly binary?: boolean;
   readonly settleMs?: number;
   readonly log?: (event: string, details: Record<string, unknown>) => void;
 }): KnownGoodSchedule {
   const log = options.log ?? (() => undefined);
-  const known = knownGoodBuild(options.stateDir);
+  const known = knownGoodBuild(options.stateDir, {
+    binary: options.binary === true,
+  });
   const timer = setTimeout(() => {
     try {
       if (restartInProgress(options.stateDir)) {

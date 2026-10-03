@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openSqlite } from "../src/controller/sqlite.js";
 import { test } from "node:test";
 import {
   ControllerError,
@@ -277,9 +278,8 @@ test("reports are immutable, announced once, listed newest first and found by in
     );
     const inspected = h.core.inspect(a.reportId) as { kind: string };
     assert.equal(inspected.kind, "report");
-    const { default: Database } = await import("better-sqlite3");
     h.core.close();
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       for (const sql of [
         "UPDATE agent_reports SET summary = 'changed'",
@@ -517,10 +517,9 @@ test("a repeated accepted report and an idle relay write nothing to the ledger",
       }),
     },
   });
-  const { default: Database } = await import("better-sqlite3");
   const writes = (): number => {
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`, {
-      readonly: true,
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`, {
+      readOnly: true,
     });
     try {
       return (

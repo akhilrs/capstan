@@ -25,7 +25,11 @@ test("the dashboard never touches the database or imports core values", () => {
       /^import\s+(type\s+)?[^;]*?from\s+"([^"]+)"/gms,
     )) {
       const [, typeOnly, specifier] = match;
-      assert.doesNotMatch(specifier!, /better-sqlite3/, file);
+      assert.doesNotMatch(
+        specifier!,
+        /better-sqlite3|node:sqlite|controller\/sqlite/,
+        file,
+      );
       assert.doesNotMatch(specifier!, /controller\/database/, file);
       if (/controller\/core/.test(specifier!))
         assert.ok(typeOnly, `${file} imports a value from controller/core`);

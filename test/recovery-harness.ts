@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import { ControllerCore } from "../src/controller/core.js";
 import type {
   HerdrState,
@@ -250,9 +250,9 @@ export async function recoveryWorld(): Promise<RecoveryWorld> {
       now: () => clock.now,
       log: (event, details) => events.push({ event, details }),
     });
-  const raw = <T>(run: (db: Database.Database) => T): T => {
-    const db = new Database(path.join(stateDirectory, "controller.sqlite"), {
-      readonly: true,
+  const raw = <T>(run: (db: Database) => T): T => {
+    const db = openSqlite(path.join(stateDirectory, "controller.sqlite"), {
+      readOnly: true,
     });
     try {
       return run(db);

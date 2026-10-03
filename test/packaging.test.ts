@@ -107,6 +107,11 @@ if [ "$1" = pack ]; then
   if [ -n "$STUB_PACK_OK" ] && [ -d "$3" ]; then printf tarball > "$3/stub-pkg-1.0.0.tgz"; exit 0; fi
   exit 1
 fi
+if [ "$1" = run ] && [ "$2" = build:binary ]; then
+  mkdir -p release
+  for t in linux-x64 linux-arm64; do printf "binary-$t" > "release/cstan-1.0.0-$t"; done
+  exit 0
+fi
 exit 0
 `,
     { mode: 0o755 },
@@ -210,8 +215,18 @@ test("release script creates a missing nested release dir and writes SHA256SUMS"
       path.join(box.dir, "out", "nested", "release", "SHA256SUMS"),
       "utf8",
     );
-    const hash = createHash("sha256").update("tarball").digest("hex");
-    assert.equal(sums, `${hash}  stub-pkg-1.0.0.tgz\n`);
+    const sha = (content: string): string =>
+      createHash("sha256").update(content).digest("hex");
+    assert.equal(
+      sums,
+      `${sha("tarball")}  stub-pkg-1.0.0.tgz\n` +
+        `${sha("binary-linux-x64")}  cstan-1.0.0-linux-x64\n` +
+        `${sha("binary-linux-arm64")}  cstan-1.0.0-linux-arm64\n`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(box.dir, "release", "cstan-1.0.0-linux-x64")),
+      false,
+    );
     assert.equal(
       fs.existsSync(path.join(box.dir, "npm-shrinkwrap.json")),
       false,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import type {
   PackageProgress,
   ReportEvidence,
@@ -211,9 +211,9 @@ function assign(t: Team, planId: string, packageId: string, who: Member) {
   });
 }
 
-function raw<T>(h: Harness, use: (db: Database.Database) => T): T {
+function raw<T>(h: Harness, use: (db: Database) => T): T {
   h.core.close();
-  const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+  const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
   try {
     return use(db);
   } finally {
@@ -804,7 +804,7 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
     assert.ok(planId);
     h.core.close();
     const databasePath = `${h.stateDirectory}/controller.sqlite`;
-    const db = new Database(databasePath);
+    const db = openSqlite(databasePath);
     try {
       undoMigration0025(db);
       for (const table of [
@@ -849,7 +849,7 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
     } finally {
       reopened.core.close();
     }
-    const check = new Database(databasePath);
+    const check = openSqlite(databasePath);
     try {
       assert.deepEqual(check.pragma("foreign_key_check"), []);
       assert.deepEqual(
@@ -878,7 +878,7 @@ test("a sign-off refuses an integration without reports", async () => {
     review(h, report, "pass");
     const integrationId = await integrateReports(h, [report]);
     review(h, integrationId, "pass");
-    const db = new Database(`${h.stateDirectory}/controller.sqlite`);
+    const db = openSqlite(`${h.stateDirectory}/controller.sqlite`);
     try {
       db.exec("DROP TRIGGER immutable_integration_reports_delete");
       db.exec("DELETE FROM integration_reports");
@@ -1063,7 +1063,7 @@ test("the ledger enforces exactly one review subject, a plan in review and a rev
     const second = member(h, "extra-reviewer", "Verifier", "reviewer");
     const reportId = reportBy(h, t.dev1, "e".repeat(40));
     const insert = (
-      db: Database.Database,
+      db: Database,
       columns: {
         report?: string | null;
         plan?: string | null;
@@ -1269,7 +1269,7 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
 
 // ---------------------------------------------------------------- Nexora wanted state and cancellation
 
-function undoMigration0031(db: Database.Database): void {
+function undoMigration0031(db: Database): void {
   db.exec(`
     DROP TABLE pauses;
     DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';
@@ -1279,7 +1279,7 @@ function undoMigration0031(db: Database.Database): void {
   `);
 }
 
-function undoMigration0030(db: Database.Database): void {
+function undoMigration0030(db: Database): void {
   undoMigration0031(db);
   db.exec(`
     DROP TABLE prompt_relays;
@@ -1288,17 +1288,17 @@ function undoMigration0030(db: Database.Database): void {
   `);
 }
 
-function undoMigration0028(db: Database.Database): void {
+function undoMigration0028(db: Database): void {
   undoMigration0030(db);
   db.exec("DROP TABLE operator_grants");
 }
 
-function undoMigration0027(db: Database.Database): void {
+function undoMigration0027(db: Database): void {
   undoMigration0028(db);
   db.exec("DROP TABLE integration_covered_reports");
 }
 
-function undoMigration0026(db: Database.Database): void {
+function undoMigration0026(db: Database): void {
   undoMigration0027(db);
   db.exec(`
     DROP TABLE operator_runs;
@@ -1308,7 +1308,7 @@ function undoMigration0026(db: Database.Database): void {
   `);
 }
 
-function undoMigration0025(db: Database.Database): void {
+function undoMigration0025(db: Database): void {
   undoMigration0026(db);
   db.exec(`
     DROP TABLE external_links;
@@ -2189,7 +2189,7 @@ test("migration 0025 adds the link table and the cancellation columns to a ledge
     assign(t, planId, "wp1", t.dev1);
     h.core.close();
     const databasePath = `${h.stateDirectory}/controller.sqlite`;
-    const db = new Database(databasePath);
+    const db = openSqlite(databasePath);
     try {
       undoMigration0025(db);
       db.exec("DELETE FROM schema_migrations WHERE version >= 25");
@@ -2212,7 +2212,7 @@ test("migration 0025 adds the link table and the cancellation columns to a ledge
     } finally {
       reopened.core.close();
     }
-    const check = new Database(databasePath);
+    const check = openSqlite(databasePath);
     try {
       assert.deepEqual(check.pragma("foreign_key_check"), []);
       assert.deepEqual(

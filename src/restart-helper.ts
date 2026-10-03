@@ -13,6 +13,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import sea from "node:sea";
 import { pathToFileURL } from "node:url";
 
 export interface RestartTiming {
@@ -43,8 +44,11 @@ export interface RestartPlan {
   readonly pidPath: string;
   /** The pid of the controller that asked for the restart. */
   readonly pid: number;
+  /** The dist directory, or under the standalone binary the binary file itself. */
   readonly distPath: string;
   readonly knownGoodPath: string;
+  /** True when `distPath` is the standalone binary and the known-good copy is the file `cstan`. */
+  readonly binary?: boolean;
   readonly ledgerPath: string;
   readonly logPath: string;
   readonly healthTimeoutSeconds: number;
@@ -293,10 +297,10 @@ class Helper {
     this.credential = fs.readFileSync(plan.credentialFile, "utf8").trim();
     this.restartDir = restartDir;
     this.backupDir = path.join(restartDir, "ledger.bak");
-    this.failedDist = path.join(
-      path.dirname(plan.distPath),
-      `dist.failed-${plan.id}`,
-    );
+    this.failedDist =
+      plan.binary === true
+        ? `${plan.distPath}.failed-${plan.id}`
+        : path.join(path.dirname(plan.distPath), `dist.failed-${plan.id}`);
   }
 
   async #socketRefuses(): Promise<boolean> {
@@ -445,16 +449,20 @@ class Helper {
     }
   }
 
-  /** dist -> dist.failed-<id>, then a complete copy of the known-good build renamed into place. */
+  /**
+   * dist -> dist.failed-<id>, then a complete copy of the known-good build renamed into place. For the
+   * standalone binary the copy is a mode 0755 file next to the binary, so the rename is atomic and a
+   * binary that is running is never written to.
+   */
   restoreKnownGood(): string | null {
     const { plan } = this;
-    const source = path.join(plan.knownGoodPath, "dist");
+    const binary = plan.binary === true;
+    const source = path.join(plan.knownGoodPath, binary ? "cstan" : "dist");
     if (!fs.existsSync(source))
       return `the known-good build ${source} is missing`;
-    const staging = path.join(
-      path.dirname(plan.distPath),
-      `dist.restoring-${plan.id}`,
-    );
+    const staging = binary
+      ? `${plan.distPath}.restoring-${plan.id}`
+      : path.join(path.dirname(plan.distPath), `dist.restoring-${plan.id}`);
     let renamedFailed = false;
     try {
       if (fs.existsSync(plan.distPath)) {
@@ -462,11 +470,15 @@ class Helper {
         renamedFailed = true;
       }
       fs.rmSync(staging, { recursive: true, force: true });
-      fs.cpSync(source, staging, {
-        recursive: true,
-        preserveTimestamps: true,
-        verbatimSymlinks: true,
-      });
+      if (binary) {
+        fs.copyFileSync(source, staging);
+        fs.chmodSync(staging, 0o755);
+      } else
+        fs.cpSync(source, staging, {
+          recursive: true,
+          preserveTimestamps: true,
+          verbatimSymlinks: true,
+        });
       fs.renameSync(staging, plan.distPath);
       return null;
     } catch (error) {
@@ -485,7 +497,9 @@ class Helper {
     const { plan } = this;
     return [
       `Run these from the project root (${plan.cwd}):`,
-      `1. Replace dist with the saved build: rm -rf dist && cp -a ${path.join(plan.knownGoodPath, "dist")} dist (the failed build is kept as ${this.failedDist}).`,
+      plan.binary === true
+        ? `1. Put the saved binary back: cp ${path.join(plan.knownGoodPath, "cstan")} ${plan.distPath}.new && chmod 755 ${plan.distPath}.new && mv ${plan.distPath}.new ${plan.distPath} (the failed binary is kept as ${this.failedDist}).`
+        : `1. Replace dist with the saved build: rm -rf dist && cp -a ${path.join(plan.knownGoodPath, "dist")} dist (the failed build is kept as ${this.failedDist}).`,
       `2. If the controller still refuses the ledger, restore the backup in ${this.backupDir} over ${plan.ledgerPath} (with its -wal and -shm files).`,
       "3. Start the controller with: cstan start",
     ].join("\n");
@@ -653,9 +667,8 @@ async function runSteps(
   );
 }
 
-const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
-  const planPath = process.argv[2];
+/** Runs the helper as a process entry point and exits. Used by helper.mjs and `cstan __restart-helper`. */
+export function runHelperAndExit(planPath: string | undefined): void {
   if (planPath === undefined) {
     process.stderr.write("usage: helper.mjs <plan.json>\n");
     process.exit(64);
@@ -667,3 +680,13 @@ if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
       process.exit(EXIT_DOWN);
     });
 }
+
+// Inside the standalone binary this module is bundled into the CLI and must not start on its own;
+// the `__restart-helper` subcommand calls runHelperAndExit.
+const entry = process.argv[1];
+if (
+  !sea.isSea() &&
+  entry !== undefined &&
+  import.meta.url === pathToFileURL(entry).href
+)
+  runHelperAndExit(process.argv[2]);

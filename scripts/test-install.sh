@@ -1,11 +1,11 @@
 #!/bin/sh
-# Smoke test for install.sh. Builds the release tarball (npm run release) and runs
-# every install scenario against temp HOME / CAPSTAN_HOME / CAPSTAN_BIN_DIR dirs.
-# Needs no network beyond npm's dependency fetch, but offline a warm npm cache is
-# not enough: node-gyp also needs cached Node headers (~/.cache/node-gyp or
-# npm_config_nodedir) and a supported python3. Release scenarios use file://, so curl.
-# Set CAPSTAN_TEST_RELEASE_DIR to a dir holding capstan-controller-<v>.tgz and
-# SHA256SUMS to skip the build. Exit code 0 means every scenario passed.
+# Smoke test for install.sh. Builds the release assets (npm run release: the npm tarball and the
+# standalone binaries) and runs every install scenario against temp HOME / CAPSTAN_HOME /
+# CAPSTAN_BIN_DIR dirs, for the npm tarball path (--no-binary / --tarball) and the binary path
+# (--binary, or a release whose SHA256SUMS lists the binary). Release scenarios use file://, so curl.
+# The build needs network for npm's dependency fetch and the Node archives of the binaries.
+# Set CAPSTAN_TEST_RELEASE_DIR to a dir holding the release assets (capstan-controller-<v>.tgz,
+# cstan-<v>-<os>-<arch> and SHA256SUMS) to skip the build. Exit code 0 means every scenario passed.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,12 +42,9 @@ trap 'exit 143' TERM
 
 contains() { grep -q -- "$2" "$1"; }
 
-# Keep npm's cache and node-gyp headers from the real HOME so temp HOMEs stay warm.
+# Keep npm's cache from the real HOME so temp HOMEs stay warm.
 REAL_CACHE="$(npm config get cache 2>/dev/null || true)"
 [ -z "$REAL_CACHE" ] || export npm_config_cache="$REAL_CACHE"
-if [ -d "${HOME:-/nonexistent}/.cache/node-gyp" ]; then
-  export npm_config_devdir="$HOME/.cache/node-gyp"
-fi
 
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/capstan-install-test.XXXXXX")"
 VERSION="$(node -p "require('$ROOT/package.json').version")"
@@ -56,12 +53,12 @@ VERSION="$(node -p "require('$ROOT/package.json').version")"
 if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ]; then
   RELEASE_DIR="$CAPSTAN_TEST_RELEASE_DIR"
 else
-  (cd "$ROOT" && npm run release >"$SANDBOX/release.log" 2>&1) || {
+  RELEASE_DIR="$SANDBOX/release"
+  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release >"$SANDBOX/release.log" 2>&1) || {
     cat "$SANDBOX/release.log"
     echo "npm run release failed" >&2
     exit 1
   }
-  RELEASE_DIR="$ROOT/release"
 fi
 TGZ="$RELEASE_DIR/capstan-controller-$VERSION.tgz"
 SUMS="$RELEASE_DIR/SHA256SUMS"
@@ -104,7 +101,7 @@ fi
 # --- 2. truncation safety ----------------------------------------------------
 new_env trunc
 TOTAL="$(wc -l <"$INSTALLER" | tr -d ' ')"
-for n in 8 25 60 120 200 $((TOTAL - 1)); do
+for n in 8 25 60 120 200 300 400 $((TOTAL - 1)); do
   [ "$n" -lt "$TOTAL" ] || continue
   head -n "$n" "$INSTALLER" | sh >"$E/trunc.out" 2>&1 || true
   if [ ! -e "$CAPSTAN_HOME" ] && [ ! -e "$CAPSTAN_BIN_DIR" ] && ! contains "$E/trunc.out" "Installing\|Downloading\|Uninstalling"; then
@@ -138,6 +135,7 @@ BAD="0000000000000000000000000000000000000000000000000000000000000000"
 check_not "wrong --sha256 exits non-zero" run_install --tarball "$TGZ" --sha256 "$BAD"
 check "previous install still works after failure" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
 check "no staging dir left behind" sh -c '[ -z "$(ls -d "$CAPSTAN_HOME"/staging.* 2>/dev/null)" ]'
+check "tarball path never mentions fs-ext, a compiler or python" sh -c '! grep -qi "fs-ext\|node-gyp\|c++\|python" "$1"' _ "$E/out"
 
 # --- 5. wrong Node, missing tools --------------------------------------------
 new_env node22
@@ -178,7 +176,7 @@ REL="$E/releases/download/v$VERSION"
 mkdir -p "$REL"
 cp "$TGZ" "$SUMS" "$REL/"
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
-if run_install --version "$VERSION" >"$E/out" 2>&1; then
+if run_install --no-binary --version "$VERSION" >"$E/out" 2>&1; then
   pass "release install exits 0"
 else
   fail "release install exits 0"
@@ -193,7 +191,7 @@ mkdir -p "$TREL"
 cp "$TGZ" "$SUMS" "$TREL/"
 printf 'tamper' >>"$TREL/capstan-controller-$VERSION.tgz"
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
-check_not "tampered tarball is refused" run_install --version "$VERSION"
+check_not "tampered tarball is refused" run_install --no-binary --version "$VERSION"
 check_not "nothing installed from a tampered tarball" test -e "$CAPSTAN_HOME/current"
 
 # --- 8. version parsing: wget -S output and bad versions -----------------------
@@ -225,7 +223,7 @@ export CAPSTAN_FETCHER=wget STUB_ROOT="$E/stubroot"
 export CAPSTAN_RELEASE_BASE="http://stub.invalid/releases"
 STUB_LOCATION="https://github.com/akhilrs/capstan/releases/tag/v$VERSION"
 export STUB_LOCATION
-if PATH="$E/stub:$PATH" run_install >"$E/out" 2>&1; then
+if PATH="$E/stub:$PATH" run_install --no-binary >"$E/out" 2>&1; then
   pass "wget -S output with '[following]' resolves the latest version"
 else
   fail "wget -S output with '[following]' resolves the latest version"
@@ -236,7 +234,7 @@ check "no stray text in the resolved version" contains "$E/out" "Installed cstan
 
 new_env badloc
 STUB_LOCATION="https://github.com/akhilrs/capstan/releases/tag/v1.2.3-rc1" PATH="$E/stub:$PATH" \
-  run_install >"$E/out" 2>&1 && fail "pre-release latest tag is refused" || pass "pre-release latest tag is refused"
+  run_install --no-binary >"$E/out" 2>&1 && fail "pre-release latest tag is refused" || pass "pre-release latest tag is refused"
 check_not "nothing installed for a bad latest tag" test -e "$CAPSTAN_HOME/current"
 unset CAPSTAN_FETCHER CAPSTAN_RELEASE_BASE STUB_LOCATION STUB_ROOT
 for bad in "0.1.1 [following]" "1.2" "1.2.3.4" "v1.2.3" "1.2.3-rc1" "1..3" ".1.2" "a.b.c" "1.2.3 "; do
@@ -246,6 +244,104 @@ CAPSTAN_VERSION="1.2.3x"
 export CAPSTAN_VERSION
 check_not "CAPSTAN_VERSION=1.2.3x is rejected" run_install --tarball "$TGZ"
 unset CAPSTAN_VERSION
+
+# --- 9. tarball path: --version pin ------------------------------------------
+new_env pin
+check_not "tarball with a --version that does not match is refused" run_install --version 9.9.9 --tarball "$TGZ"
+check_not "nothing installed for a mismatched pin" test -e "$CAPSTAN_HOME/current"
+check "tarball with the matching --version installs" run_install --version "$VERSION" --tarball "$TGZ"
+
+# --- 10. binary path ---------------------------------------------------------
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) HOST_PLATFORM=linux-x64 ;;
+  Linux-aarch64) HOST_PLATFORM=linux-arm64 ;;
+  *) HOST_PLATFORM="" ;;
+esac
+BINNAME="cstan-$VERSION-$HOST_PLATFORM"
+if [ -z "$HOST_PLATFORM" ] || [ ! -f "$RELEASE_DIR/$BINNAME" ]; then
+  echo "skip binary scenarios: no $BINNAME in $RELEASE_DIR for this machine"
+elif PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
+  echo "skip binary scenarios: node is in /usr/bin, so 'no node on PATH' cannot be shown"
+else
+  BIN="$RELEASE_DIR/$BINNAME"
+  BINSHA="$(awk -v a="$BINNAME" '{ if ($2 == a) print $1 }' "$SUMS")"
+  [ -n "$BINSHA" ] || fail "SHA256SUMS lists $BINNAME"
+  # no_node_env: the install and the installed cstan run with no node on PATH.
+  no_node_env() {
+    new_env "$1"
+    PATH="$CAPSTAN_BIN_DIR:/usr/bin:/bin"
+    export PATH
+  }
+
+  no_node_env binary
+  mkdir -p "$E/local"
+  cp "$BIN" "$E/local/"
+  grep "  $BINNAME\$" "$SUMS" >"$E/local/SHA256SUMS"
+  check "node is not on the binary scenarios' PATH" sh -c '! command -v node'
+  if run_install --binary "$E/local/$BINNAME" >"$E/out" 2>&1; then
+    pass "binary install exits 0"
+  else
+    fail "binary install exits 0"
+    cat "$E/out"
+  fi
+  check "binary install is verified against the SHA256SUMS next to it" contains "$E/out" "verified against SHA256SUMS"
+  check "installed binary prints its version with no node" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  check "binary bin symlink resolves into CAPSTAN_HOME/current" sh -c '
+    real="$(readlink -f "$CAPSTAN_BIN_DIR/cstan")"; case "$real" in "$(readlink -f "$CAPSTAN_HOME")"/current/*) exit 0 ;; esac; exit 1'
+  check "binary install mentions no fs-ext or compiler" sh -c '! grep -qi "fs-ext\|node-gyp\|c++\|python" "$1"' _ "$E/out"
+  check "re-install over the binary install exits 0" run_install --binary "$E/local/$BINNAME"
+  check "exactly one installation after re-install" sh -c '
+    [ "$(ls -A "$CAPSTAN_HOME" | tr "\n" " ")" = "current " ]'
+  check "--sha256 alone verifies the binary" run_install --binary "$BIN" --sha256 "$BINSHA"
+  check "--version matching the binary installs" run_install --binary "$BIN" --version "$VERSION"
+  check_not "--version not matching the binary is refused" run_install --binary "$BIN" --version 9.9.9
+  check_not "wrong --sha256 for the binary is refused" run_install --binary "$BIN" --sha256 "$BAD"
+  check "previous binary install still works after a refusal" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  printf '%s  %s\n' "$BAD" "$BINNAME" >"$E/local/SHA256SUMS"
+  check_not "binary that fails SHA256SUMS is refused" run_install --binary "$E/local/$BINNAME"
+  printf '%s  other-file\n' "$BINSHA" >"$E/local/SHA256SUMS"
+  check_not "SHA256SUMS without an entry for the binary is refused" run_install --binary "$E/local/$BINNAME"
+  check_not "no staging dir left behind" sh -c '[ -n "$(ls -d "$CAPSTAN_HOME"/staging.* 2>/dev/null)" ]'
+  check_not "--binary with --tarball is refused" run_install --binary "$BIN" --tarball "$TGZ"
+  check "--uninstall removes the binary install" run_install --uninstall
+  check_not "uninstall removes the binary symlink" test -e "$CAPSTAN_BIN_DIR/cstan"
+  check_not "uninstall removes current (binary)" test -e "$CAPSTAN_HOME/current"
+
+  # A release whose SHA256SUMS lists the binary installs the binary; --no-binary forces the tarball.
+  no_node_env binrel
+  BREL="$E/releases/download/v$VERSION"
+  mkdir -p "$BREL"
+  cp "$BIN" "$TGZ" "$SUMS" "$BREL/"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release install picks the binary"
+  else
+    fail "release install picks the binary"
+    cat "$E/out"
+  fi
+  check "release install says it installed the binary" contains "$E/out" "standalone binary"
+  check "release-installed binary runs with no node" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  printf 'tamper' >>"$BREL/$BINNAME"
+  check_not "tampered release binary is refused" run_install --version "$VERSION"
+  check "the previous release install survives the refusal" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  check "--uninstall removes the release install" run_install --uninstall
+
+  # A release without a binary for this machine keeps the tarball path (it needs node).
+  new_env nobin
+  NREL="$E/releases/download/v$VERSION"
+  mkdir -p "$NREL"
+  cp "$TGZ" "$NREL/"
+  printf '%s  capstan-controller-%s.tgz\n' "$SHA" "$VERSION" >"$NREL/SHA256SUMS"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release without a binary installs the tarball"
+  else
+    fail "release without a binary installs the tarball"
+    cat "$E/out"
+  fi
+  check "fallback to the tarball is announced" contains "$E/out" "using the npm tarball"
+  unset CAPSTAN_RELEASE_BASE
+fi
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

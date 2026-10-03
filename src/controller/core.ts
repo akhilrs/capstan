@@ -7,7 +7,7 @@ import {
 } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import type { Database } from "./sqlite.js";
 import {
   AuthorizationError,
   authenticateActor,
@@ -1569,7 +1569,7 @@ export interface CompletedWorkReport {
 }
 
 export class ControllerCore {
-  readonly #database: Database.Database;
+  readonly #database: Database;
   readonly #lock: ProjectLock | undefined;
   readonly #readOnly: boolean;
   readonly #projectId: string;
@@ -1580,7 +1580,7 @@ export class ControllerCore {
   #closed = false;
 
   private constructor(
-    database: Database.Database,
+    database: Database,
     lock: ProjectLock | undefined,
     projectId: string,
     internalActorId: string,
@@ -1622,7 +1622,7 @@ export class ControllerCore {
     const lock = ProjectLock.acquire(
       path.join(stateDirectory, "controller.lock"),
     );
-    let database: Database.Database | undefined;
+    let database: Database | undefined;
     try {
       const databasePath = resolveDatabasePath(stateDirectory);
       try {
@@ -1738,7 +1738,7 @@ export class ControllerCore {
       throw new ControllerOwnershipError(
         "controller database path must be a regular file",
       );
-    let database: Database.Database | undefined;
+    let database: Database | undefined;
     try {
       database = openDatabaseReadOnly(databasePath);
       const projectRow = database
@@ -1801,10 +1801,7 @@ export class ControllerCore {
     }
   }
 
-  static #initializeProject(
-    database: Database.Database,
-    project: InitialProject,
-  ): void {
+  static #initializeProject(database: Database, project: InitialProject): void {
     const initialInputs = project.initialInputs.map((input) => ({
       kind: input.kind,
       content: canonicalJson(input.content),

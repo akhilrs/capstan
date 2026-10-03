@@ -44,6 +44,7 @@ import {
 import { DeliveryDriver, type DriverAdapter } from "./driver.js";
 import { Launcher, type LauncherAdapter } from "./launcher.js";
 import { createOperatorService, type OperatorService } from "./operator.js";
+import { isSea } from "./sea.js";
 import type { RestartCoordinatorOptions } from "./restart.js";
 import type { Notifier } from "./notifier.js";
 import type { Identity, InitialProject } from "./controller/types.js";
@@ -820,9 +821,15 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       // The restart code is loaded only when the Operator is on; with [operator] absent none of it runs.
       const restartModule = await import("./restart.js");
       const stateDir = options.stateDirectory;
+      // The standalone binary restarts by replacing itself: its "dist" is the binary file.
+      const binary = isSea();
       const distDir =
         options.restart?.distDir ??
-        path.dirname(path.dirname(options.cliPath ?? process.argv[1] ?? ""));
+        (binary
+          ? process.execPath
+          : path.dirname(
+              path.dirname(options.cliPath ?? process.argv[1] ?? ""),
+            ));
       const notifyPm = (body: string): void => {
         const pm = core!
           .listAgents()
@@ -841,8 +848,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         projectRoot: options.workspaceRoot,
         distDir,
         helperSource: path.join(distDir, "src", "restart-helper.js"),
+        binary,
         node: process.execPath,
-        argv: [...process.execArgv, ...process.argv.slice(1)],
+        argv: binary
+          ? ["daemon"]
+          : [...process.execArgv, ...process.argv.slice(1)],
         socketPath,
         pidPath,
         logPath: path.join(path.dirname(stateDir), "daemon.log"),
@@ -907,6 +917,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           projectRoot: options.workspaceRoot,
           distDir,
           loadedHash: restartModule.distHash(distDir),
+          binary,
           log: detailLog,
           ...(options.restart?.knownGoodSettleMs === undefined
             ? {}

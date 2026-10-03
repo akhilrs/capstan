@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import { close, ctx, harness, type Harness } from "./harness.js";
 
 const SHA = "a".repeat(40);
@@ -18,8 +18,8 @@ function pane(agentId: string, overrides: Record<string, string | null> = {}) {
   };
 }
 
-function writableDatabase(h: Harness): Database.Database {
-  return new Database(path.join(h.stateDirectory, "controller.sqlite"));
+function writableDatabase(h: Harness): Database {
+  return openSqlite(path.join(h.stateDirectory, "controller.sqlite"));
 }
 
 function addWork(h: Harness, id: string, state: string): void {

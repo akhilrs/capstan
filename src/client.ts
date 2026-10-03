@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { selfCommand } from "./sea.js";
 import fs from "node:fs";
 import net from "node:net";
 import {
@@ -211,16 +212,13 @@ export async function ensureDaemon(
   let spawnError: string | undefined;
   let lostRaceAt: number | undefined;
   try {
-    const child = spawn(
-      process.execPath,
-      [...process.execArgv, options.cliPath, "daemon"],
-      {
-        cwd: options.projectRoot,
-        env: scrubEnvironment(options.env),
-        detached: true,
-        stdio: ["ignore", fd, fd],
-      },
-    );
+    const self = selfCommand(["daemon"], options.cliPath);
+    const child = spawn(self.command, self.args, {
+      cwd: options.projectRoot,
+      env: scrubEnvironment(options.env),
+      detached: true,
+      stdio: ["ignore", fd, fd],
+    });
     child.unref();
     child.once("exit", (code) => {
       exitCode = code ?? 1;

@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -193,7 +193,7 @@ function events(
   sequence: number;
   state_version: number;
 }> {
-  const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+  const db = openSqlite(path.join(w.stateDirectory, "controller.sqlite"));
   try {
     return db
       .prepare(
@@ -752,7 +752,7 @@ test("replacing a generation cancels every open message, closes waits and voids 
     const later = send(w, developer, "later");
     core.beginWait(w.ctx(developer.credential));
     const openWaits = (): number => {
-      const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+      const db = openSqlite(path.join(w.stateDirectory, "controller.sqlite"));
       try {
         return (
           db
@@ -1040,7 +1040,7 @@ test("a worker deferred on a non-empty input line logs the text, clears after th
     ]);
     core.recordSent(w.ctx(), message);
     assert.equal(core.message(message)!.sendAttempts, 1);
-    const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+    const db = openSqlite(path.join(w.stateDirectory, "controller.sqlite"));
     try {
       const rows = db
         .prepare("SELECT text, text_hash FROM message_input_clears")
@@ -1257,7 +1257,7 @@ test("enqueue validates the body and needs the send capability; audit payloads n
     });
     const secret = "SECRET-BODY-TEXT";
     send(w, developer, secret);
-    const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+    const db = openSqlite(path.join(w.stateDirectory, "controller.sqlite"));
     try {
       const payloads = (
         db
@@ -1546,7 +1546,7 @@ test("a clock that moves backwards never produces out-of-order history or a wait
     core.endWait(w.ctx(pm.credential), waitId);
     w.advance(-1000);
     core.replaceAgentGeneration(w.ctx(), pm.agentId);
-    const db = new Database(path.join(w.stateDirectory, "controller.sqlite"));
+    const db = openSqlite(path.join(w.stateDirectory, "controller.sqlite"));
     try {
       const history = (
         db
@@ -1637,7 +1637,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
   try {
     core.close();
     const databasePath = path.join(stateDirectory, "controller.sqlite");
-    const db = new Database(databasePath);
+    const db = openSqlite(databasePath);
     const newTables = [
       "pauses",
       "prompt_relays",
@@ -1674,9 +1674,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       "agent_state_history",
       "agents",
     ];
-    const snapshot = (
-      database: Database.Database,
-    ): Record<string, string[]> => {
+    const snapshot = (database: Database): Record<string, string[]> => {
       const tables = (
         database
           .prepare(
@@ -1745,7 +1743,7 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
     });
     try {
       reopened.close();
-      const check = new Database(databasePath);
+      const check = openSqlite(databasePath);
       try {
         assert.deepEqual(snapshot(check), before);
         assert.deepEqual(check.pragma("foreign_key_check"), []);

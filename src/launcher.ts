@@ -4,6 +4,7 @@
  * It runs inside the daemon, which owns the adapter, and does one operation at
  * a time. Every core write builds its own context at the moment of the call.
  */
+import { isSea } from "./sea.js";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -109,6 +110,17 @@ export interface GitRunner {
   branchTip(branch: string): string | null;
   /** Whether `sha` (40 lowercase hex characters) resolves as a commit and is an ancestor of one of the refs. */
   reachableCommit(sha: string, from: readonly string[]): boolean;
+}
+
+/** Shell words that run this CLI: the binary itself under SEA, otherwise node plus the CLI file. */
+export function selfInvocation(node: string, cliPath: string): string {
+  if (isSea()) return shellQuote(process.execPath);
+  return `${shellQuote(node)} ${shellQuote(cliPath)}`;
+}
+
+/** The per-agent `cstan` wrapper script put first on every agent's PATH. */
+export function cstanWrapperScript(node: string, cliPath: string): string {
+  return `#!/bin/sh\nexec ${selfInvocation(node, cliPath)} "$@"\n`;
 }
 
 export class LauncherError extends Error {
@@ -799,11 +811,9 @@ export class Launcher {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     fs.chmodSync(directory, 0o700);
     const temporary = path.join(directory, `cstan.tmp-${randomUUID()}`);
-    fs.writeFileSync(
-      temporary,
-      `#!/bin/sh\nexec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} "$@"\n`,
-      { mode: 0o700 },
-    );
+    fs.writeFileSync(temporary, cstanWrapperScript(this.#node, this.#cliPath), {
+      mode: 0o700,
+    });
     fs.renameSync(temporary, path.join(directory, "cstan"));
     return directory;
   }
@@ -1185,7 +1195,7 @@ export class Launcher {
       });
       await this.#adapter.runInPane(
         tab.paneId,
-        `cd ${shellQuote(this.#root)} && exec ${shellQuote(this.#node)} ${shellQuote(this.#cliPath)} status --watch`,
+        `cd ${shellQuote(this.#root)} && exec ${selfInvocation(this.#node, this.#cliPath)} status --watch`,
       );
       this.#core.recordFallbackPane(this.#context(), {
         workspaceId,

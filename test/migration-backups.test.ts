@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,7 @@ import {
   openDatabase,
   pruneMigrationBackups,
 } from "../src/controller/database.js";
+import { openSqlite } from "../src/controller/sqlite.js";
 
 function withDirectory(run: (directory: string) => void): void {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
@@ -146,6 +148,52 @@ test("migrating prunes the backups it took down to the configured count", async 
     const versions = backups.map((n) => Number(/pre-v(\d+)-/.exec(n)![1]));
     assert.equal(Math.min(...versions) + 1, Math.max(...versions));
     assert.ok(fs.existsSync(databasePath));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("upgrading a v30 ledger writes a pre-v31 backup through the adapter and prunes to the keep count", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
+  try {
+    const databasePath = path.join(directory, "controller.sqlite");
+    const migrationsDirectory = path.resolve(
+      import.meta.dirname,
+      "..",
+      "..",
+      "migrations",
+    );
+    const files = fs
+      .readdirSync(migrationsDirectory)
+      .filter((n) => /^\d{4}_.*\.sql$/.test(n))
+      .sort()
+      .slice(0, 30);
+    assert.equal(files.length, 30);
+    // A ledger at v30, built the way openDatabase builds one: each file, then its ledger row.
+    const old = openSqlite(databasePath);
+    for (const [index, name] of files.entries()) {
+      const bytes = fs.readFileSync(path.join(migrationsDirectory, name));
+      old.exec(bytes.toString("utf8"));
+      old
+        .prepare(
+          "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(
+          index + 1,
+          name,
+          createHash("sha256").update(bytes).digest("hex"),
+          new Date().toISOString(),
+        );
+    }
+    old.close();
+    touch(directory, [backup(1, 1), backup(2, 2), backup(3, 3)]);
+    const database = await openDatabase(databasePath, {
+      keepMigrationBackups: 2,
+    });
+    database.close();
+    const names = listing(directory).filter((n) => n.includes(".pre-v"));
+    assert.equal(names.length, 2);
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v31-")));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

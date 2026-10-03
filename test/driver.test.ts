@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import {
   DeliveryDriver,
   FAILURE_LIMIT,
@@ -561,12 +561,9 @@ test("observations are recorded through the adapter, a mismatch is logged once, 
     w.adapter.states.set(w.h.developer.agentId, "working");
     await w.tick();
     await w.tick();
-    const db = new Database(
-      path.join(w.h.stateDirectory, "controller.sqlite"),
-      {
-        readonly: true,
-      },
-    );
+    const db = openSqlite(path.join(w.h.stateDirectory, "controller.sqlite"), {
+      readOnly: true,
+    });
     try {
       const rows = db
         .prepare(
@@ -721,12 +718,9 @@ test("clear edge cases: an empty line records nothing, stale discards stop the k
       return { cleared: true, text: "é" };
     };
     await w.tick();
-    const db = new Database(
-      path.join(w.h.stateDirectory, "controller.sqlite"),
-      {
-        readonly: true,
-      },
-    );
+    const db = openSqlite(path.join(w.h.stateDirectory, "controller.sqlite"), {
+      readOnly: true,
+    });
     try {
       const row = db
         .prepare("SELECT text FROM message_input_clears WHERE message_id = ?")
@@ -757,12 +751,9 @@ test("pane text with a lone surrogate is recorded well formed, and text the core
       return { cleared: true, text: "a\ud800b" };
     };
     await w.tick();
-    const db = new Database(
-      path.join(w.h.stateDirectory, "controller.sqlite"),
-      {
-        readonly: true,
-      },
-    );
+    const db = openSqlite(path.join(w.h.stateDirectory, "controller.sqlite"), {
+      readOnly: true,
+    });
     try {
       const row = db
         .prepare("SELECT text FROM message_input_clears WHERE message_id = ?")

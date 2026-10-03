@@ -71,7 +71,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux or macOS; Node.js 24 (`>=24 <25`) with npm; a C/C++ toolchain (`make` and `g++`/`clang++`) and `python3` for the native `fs-ext` build; `curl` or `wget`; git; Herdr for the panes; and Claude Code (the host the starter config uses). On Debian/Ubuntu: `sudo apt install build-essential python3`; on macOS: `xcode-select --install`.
+**Requirements:** Linux or macOS; `curl` or `wget`; git; Herdr for the panes; and Claude Code (the host the starter config uses). On Linux x64 and arm64 the installer downloads a standalone binary and needs no Node.js. Where a release has no binary for your machine (or with `--no-binary`) it installs the npm tarball, which needs Node.js 24.6 or newer (`>=24.6 <25`) with npm. Nothing is compiled either way: the runtime uses the built-in `node:sqlite`.
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -85,7 +85,7 @@ Or install the release tarball with npm directly:
 npm install --global https://github.com/akhilrs/capstan/releases/download/v0.1.1/capstan-controller-0.1.1.tgz
 ```
 
-Pin a version, or uninstall:
+Pin a version, force the npm tarball, or uninstall:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --version 0.1.1
@@ -351,6 +351,8 @@ npm run lint           # eslint src test
 npm run format:check   # prettier
 npm run check          # lint + format:check + test
 ```
+
+A standalone Node-free binary (Linux x64 and arm64) comes from `npm run build:binary`; check it with `npm run smoke:binary`. `npm run release` builds the tarball and both binaries with `SHA256SUMS` and prints the publish command without running it. See [docs/binary.md](docs/binary.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
 

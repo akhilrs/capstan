@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import { openDatabase } from "../src/controller/database.js";
 import { promptHash, type CapturedPrompt } from "../src/herdr/prompt-relay.js";
 import { close, ctx, harness, type Harness } from "./harness.js";
@@ -25,15 +25,15 @@ function prompt(agentId: string): CapturedPrompt {
 async function withLedger(
   run: (
     h: Harness,
-    raw: <T>(use: (db: Database.Database) => T) => T,
+    raw: <T>(use: (db: Database) => T) => T,
     clock: { now: number },
   ) => void | Promise<void>,
 ): Promise<void> {
   const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
   const h = await harness({ clock: () => new Date(clock.now) });
   h.core.configurePromptRelay({ enabled: true, captureTtlSeconds: 600 });
-  const raw = <T>(use: (db: Database.Database) => T): T => {
-    const db = new Database(path.join(h.stateDirectory, "controller.sqlite"));
+  const raw = <T>(use: (db: Database) => T): T => {
+    const db = openSqlite(path.join(h.stateDirectory, "controller.sqlite"));
     db.pragma("foreign_keys = ON");
     try {
       return use(db);
@@ -94,16 +94,21 @@ test("an existing ledger that lacks 0030 migrates, keeps its data and backfills 
         [h.pm.actorId],
       );
       assert.equal(
-        database
-          .prepare(
-            "SELECT COUNT(*) AS n FROM role_capabilities WHERE capability = 'prompt:relay' AND role = 'PM'",
-          )
-          .pluck()
-          .get(),
+        (
+          database
+            .prepare(
+              "SELECT COUNT(*) AS n FROM role_capabilities WHERE capability = 'prompt:relay' AND role = 'PM'",
+            )
+            .get() as { n: number }
+        ).n,
         1,
       );
       assert.equal(
-        database.prepare("SELECT COUNT(*) FROM prompt_relays").pluck().get(),
+        (
+          database.prepare("SELECT COUNT(*) AS n FROM prompt_relays").get() as {
+            n: number;
+          }
+        ).n,
         0,
       );
     } finally {

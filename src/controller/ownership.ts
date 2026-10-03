@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { flockSync } from "fs-ext";
+import type { DatabaseSync } from "node:sqlite";
+import { loadNodeSqlite } from "./sqlite.js";
 
 export class ControllerOwnershipError extends Error {
   override readonly name = "ControllerOwnershipError";
@@ -13,24 +15,83 @@ export class ProjectLockHeldError extends ControllerOwnershipError {
   }
 }
 
+const REQUIRED_NODE = "Node 24.6 or newer";
+const SQLITE_BUSY = 5;
+const SQLITE_LOCKED = 6;
+const SQLITE_CORRUPT = 11;
+const SQLITE_NOTADB = 26;
+
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
+function sqliteErrcode(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const code = (error as { errcode?: unknown }).errcode;
+  return typeof code === "number" ? code : undefined;
+}
+
+/** Creates the lock file private to the user, or reports that it already exists. */
+function createIfMissing(lockPath: string): void {
+  try {
+    const fd = fs.openSync(
+      lockPath,
+      fs.constants.O_CREAT |
+        fs.constants.O_EXCL |
+        fs.constants.O_WRONLY |
+        fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      // The umask may have narrowed the mode; SQLite needs to write the file.
+      fs.fchmodSync(fd, 0o600);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (error) {
+    if (!(isSystemError(error) && error.code === "EEXIST")) throw error;
+  }
+}
+
+function checkedLstat(lockPath: string): fs.Stats {
+  const stat = fs.lstatSync(lockPath);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new ControllerOwnershipError(
+      "controller lock path must identify a regular file",
+    );
+  }
+  if (
+    (stat.mode & 0o077) !== 0 ||
+    (process.getuid && stat.uid !== process.getuid())
+  ) {
+    throw new ControllerOwnershipError(
+      "controller lock file must be private to the current user",
+    );
+  }
+  return stat;
+}
+
+/**
+ * The project lock is an exclusive SQLite lock on controller.lock. The
+ * connection stays open for the life of the lock. POSIX drops every fcntl lock
+ * a process holds on a file when it closes any fd on it, so this file is never
+ * opened or read through fs while the lock may be held; identity checks use
+ * lstat by path.
+ */
 export class ProjectLock {
-  readonly #fd: number;
+  readonly #db: DatabaseSync;
   readonly #lockPath: string;
   readonly #device: number;
   readonly #inode: number;
   #closed = false;
 
   private constructor(
-    fd: number,
+    db: DatabaseSync,
     lockPath: string,
     device: number,
     inode: number,
   ) {
-    this.#fd = fd;
+    this.#db = db;
     this.#lockPath = lockPath;
     this.#device = device;
     this.#inode = inode;
@@ -39,52 +100,68 @@ export class ProjectLock {
   static acquire(lockPath: string): ProjectLock {
     if (!path.isAbsolute(lockPath))
       throw new ControllerOwnershipError("lock path must be absolute");
-    const directory = path.dirname(lockPath);
-    const directoryStat = fs.lstatSync(directory);
+    const directoryStat = fs.lstatSync(path.dirname(lockPath));
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
       throw new ControllerOwnershipError(
         "controller state directory must be a real directory",
       );
     }
-
-    const flags =
-      fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW;
-    const fd = fs.openSync(lockPath, flags, 0o600);
+    let sqlite: ReturnType<typeof loadNodeSqlite>;
     try {
-      const fileStat = fs.fstatSync(fd);
-      const pathStat = fs.lstatSync(lockPath);
-      if (
-        !fileStat.isFile() ||
-        pathStat.isSymbolicLink() ||
-        fileStat.dev !== pathStat.dev ||
-        fileStat.ino !== pathStat.ino
-      ) {
-        throw new ControllerOwnershipError(
-          "controller lock path must identify the opened regular file",
-        );
-      }
-      if (
-        (fileStat.mode & 0o077) !== 0 ||
-        (process.getuid && fileStat.uid !== process.getuid())
-      ) {
-        throw new ControllerOwnershipError(
-          "controller lock file must be private to the current user",
-        );
-      }
-      try {
-        flockSync(fd, "exnb");
-      } catch (error) {
-        if (
-          isSystemError(error) &&
-          ["EAGAIN", "EWOULDBLOCK"].includes(error.code ?? "")
-        ) {
-          throw new ProjectLockHeldError();
-        }
-        throw error;
-      }
-      return new ProjectLock(fd, lockPath, fileStat.dev, fileStat.ino);
+      sqlite = loadNodeSqlite();
     } catch (error) {
-      fs.closeSync(fd);
+      if (error instanceof ControllerOwnershipError) throw error;
+      throw new ControllerOwnershipError(
+        `controller lock needs node:sqlite (${REQUIRED_NODE})`,
+      );
+    }
+
+    createIfMissing(lockPath);
+    const before = checkedLstat(lockPath);
+
+    let db: DatabaseSync | undefined;
+    try {
+      db = new sqlite.DatabaseSync(lockPath, { timeout: 0 });
+      db.exec("PRAGMA journal_mode=OFF");
+      db.exec("PRAGMA locking_mode=EXCLUSIVE");
+      db.exec("BEGIN EXCLUSIVE");
+      const after = fs.lstatSync(lockPath);
+      if (
+        after.isSymbolicLink() ||
+        after.dev !== before.dev ||
+        after.ino !== before.ino
+      ) {
+        throw new ControllerOwnershipError(
+          "controller lock path changed while it was being locked",
+        );
+      }
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS owner (pid INTEGER NOT NULL, started_at TEXT NOT NULL, token TEXT NOT NULL)",
+      );
+      db.exec("DELETE FROM owner");
+      db.prepare(
+        "INSERT INTO owner (pid, started_at, token) VALUES (?, ?, ?)",
+      ).run(
+        process.pid,
+        new Date().toISOString(),
+        randomBytes(16).toString("hex"),
+      );
+      db.exec("COMMIT");
+      return new ProjectLock(db, lockPath, before.dev, before.ino);
+    } catch (error) {
+      try {
+        db?.close();
+      } catch {
+        // The original failure is the one to report.
+      }
+      const code = sqliteErrcode(error);
+      if (code === SQLITE_BUSY || code === SQLITE_LOCKED)
+        throw new ProjectLockHeldError();
+      if (code === SQLITE_NOTADB || code === SQLITE_CORRUPT) {
+        throw new ControllerOwnershipError(
+          "controller lock file is not a lock database: remove it with the daemon stopped",
+        );
+      }
       throw error;
     }
   }
@@ -94,7 +171,6 @@ export class ProjectLock {
       throw new ControllerOwnershipError(
         "controller ownership has been released",
       );
-    const fileStat = fs.fstatSync(this.#fd);
     let pathStat: fs.Stats;
     try {
       pathStat = fs.lstatSync(this.#lockPath);
@@ -106,8 +182,6 @@ export class ProjectLock {
     }
     if (
       pathStat.isSymbolicLink() ||
-      fileStat.dev !== this.#device ||
-      fileStat.ino !== this.#inode ||
       pathStat.dev !== this.#device ||
       pathStat.ino !== this.#inode
     ) {
@@ -120,10 +194,6 @@ export class ProjectLock {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    try {
-      flockSync(this.#fd, "un");
-    } finally {
-      fs.closeSync(this.#fd);
-    }
+    this.#db.close();
   }
 }

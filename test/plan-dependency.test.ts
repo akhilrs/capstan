@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/controller/sqlite.js";
 import type { CapstanConfig } from "../src/config/capstan-config.js";
 import type { ReportEvidence } from "../src/controller/core.js";
 import {
@@ -262,8 +262,8 @@ function progressOf(t: Team, planId: string, pkg: string): string {
 }
 
 function events(t: Team): string[] {
-  const db = new Database(`${t.h.stateDirectory}/controller.sqlite`, {
-    readonly: true,
+  const db = openSqlite(`${t.h.stateDirectory}/controller.sqlite`, {
+    readOnly: true,
   });
   try {
     return (
@@ -326,8 +326,8 @@ test("a package whose dependency is not reviewed is refused, naming every unmet 
 });
 
 function latestReport(t: Team): string {
-  const db = new Database(`${t.h.stateDirectory}/controller.sqlite`, {
-    readonly: true,
+  const db = openSqlite(`${t.h.stateDirectory}/controller.sqlite`, {
+    readOnly: true,
   });
   try {
     return (
