@@ -1781,3 +1781,36 @@ test("cstan config check accepts the teardown keys", () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("the starter config shows Codex and OMP hosts and a Codex worker role only as comments", () => {
+  assert.ok(STARTER_CONFIG.includes("# [hosts.codex]"));
+  assert.ok(STARTER_CONFIG.includes("# [hosts.omp]"));
+  assert.ok(STARTER_CONFIG.includes("# [roles.codex-developer]"));
+  withConfig(STARTER_CONFIG, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.equal(
+      config.hosts.some((host) => host.kind !== "claude"),
+      false,
+    );
+  });
+  const uncommented = STARTER_CONFIG.replace(
+    /^# \[hosts\.(codex|omp)\]\n# kind = "\1"$/gm,
+    (block) => block.replace(/^# /gm, ""),
+  ).replace(/^# \[roles\.codex-developer\]\n(?:# .*\n)+/m, (block) =>
+    block.replace(/^# (?=\[|kind|host|model|permission|prompt)/gm, ""),
+  );
+  assert.notEqual(uncommented, STARTER_CONFIG);
+  withConfig(uncommented, (directory) => {
+    const config = loadCapstanConfig(directory);
+    assert.deepEqual(config.hosts.map((host) => host.kind).sort(), [
+      "claude",
+      "codex",
+      "omp",
+    ]);
+    const role = config.roles.find((r) => r.name === "codex-developer");
+    assert.equal(role?.host, "codex");
+    assert.match(role?.model ?? "", /codex CLI/);
+    assert.equal(role?.permissionMode, "acceptEdits");
+    assert.deepEqual([role?.allow, role?.deny], [[], []]);
+  });
+});

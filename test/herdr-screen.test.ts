@@ -449,3 +449,61 @@ test("the Codex trust dialog is not read as typed input, and a background colour
     "hello typed\nsecond",
   );
 });
+
+test("the Codex 0.160.0 screens read as empty, typed text, two typed lines and empty again after Ctrl+U", () => {
+  assert.equal(
+    extractInputLine("codex", fixture("codex-0160-idle-empty.ansi")),
+    "",
+  );
+  assert.equal(
+    extractInputLine("codex", fixture("codex-0160-idle-typed.ansi")),
+    "hello typed",
+  );
+  assert.equal(
+    extractInputLine("codex", fixture("codex-0160-idle-multiline.ansi")),
+    "hello typed\nsecond line",
+  );
+  assert.equal(
+    extractInputLine("codex", fixture("codex-0160-after-ctrl-u.ansi")),
+    "",
+  );
+});
+
+test("the OMP 18.3.1 screens read as empty, typed text and empty again after Ctrl+U", () => {
+  assert.equal(
+    extractInputLine("omp", fixture("omp-1831-idle-empty.ansi")),
+    "",
+  );
+  assert.equal(
+    extractInputLine("omp", fixture("omp-1831-idle-typed.ansi")),
+    "hello typed",
+  );
+  assert.equal(
+    extractInputLine("omp", fixture("omp-1831-after-ctrl-u.ansi")),
+    "",
+  );
+});
+
+test("the Codex 0.160.0 trust dialog is parsed, and no 0.160.0 idle screen is taken for it", () => {
+  const dialog = parseCodexTrustDialog(
+    stripAnsi(fixture("codex-0160-trust-dialog.ansi")),
+  );
+  assert.ok(dialog && dialog.kind === "dialog");
+  assert.match(dialog.path, /^\/tmp\/p65-\w+$/);
+  assert.deepEqual(
+    dialog.options.map((option) => option.text),
+    [CODEX_TRUST_YES, CODEX_TRUST_NO],
+  );
+  assert.equal(dialog.selectedIndex, 0);
+  assert.equal(dialog.confirmIsLastLine, true);
+  assert.equal(
+    extractInputLine("codex", fixture("codex-0160-trust-dialog.ansi")),
+    undefined,
+  );
+  for (const name of ["idle-empty", "idle-typed", "idle-multiline"])
+    assert.equal(
+      parseCodexTrustDialog(stripAnsi(fixture(`codex-0160-${name}.ansi`))),
+      undefined,
+      name,
+    );
+});

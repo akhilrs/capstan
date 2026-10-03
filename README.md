@@ -103,6 +103,29 @@ cstan dash            # watch the team (optional)
 
 The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`src/prompts.ts`) followed by the role's own `prompt`.
 
+### Running a worker on Codex or OMP
+
+A Developer or Verifier role can run on a Codex or OMP host instead of Claude Code. Checked against Codex 0.160.0 and OMP 18.3.1.
+
+1. Declare the host (uncomment the examples in the starter file): `[hosts.codex]` with `kind = "codex"`, or `[hosts.omp]` with `kind = "omp"`.
+2. Point a role at it. The role must set its own `model` (the `[defaults.<kind>]` model is a Claude model, so a Codex or OMP role that inherits it gets a model name that host does not offer), a `permission_mode` of `acceptEdits` or `auto`, and no `allow` or `deny`:
+
+   ```toml
+   [roles.codex-developer]
+   kind = "Developer"
+   host = "codex"
+   model = "<a model name your codex CLI accepts>"
+   permission_mode = "acceptEdits"
+   prompt = "..."
+   ```
+
+3. Run `cstan config check`. It prints a warning for each unsandboxed role.
+
+**Allowed:** `Developer` and `Verifier` roles without `allow`/`deny`, with `permission_mode` `acceptEdits` or `auto`.
+**Refused by the configuration loader:** `PM` and `Supervisor` roles, any `allow` or `deny` (they are Claude Code tool rules), and other permission modes. The Architect and Operator roles must be on a `claude` host, so they stay on Claude.
+
+**These workers are unsandboxed.** Codex runs with `--sandbox danger-full-access --ask-for-approval never` (its sandbox blocks the daemon socket) and OMP with `--approval-mode yolo`. Nothing blocks a `git push` or an edit outside the worktree; the role prompt asks, the controller does not enforce. Capstan trusts the worktree for Codex with a run-time override, so `~/.codex/config.toml` is not changed.
+
 ### Worktree teardown
 
 `teardown` is an optional shell command that runs with `sh -c` just before Capstan removes an agent's worktree: on release, when a spawn fails after its worktree was made, and when an agent is replaced. It does not need `setup`. `teardown_timeout_seconds` is 1 to 3600, default 60, and is refused without `teardown`.
@@ -213,7 +236,7 @@ Agents treat a `Finding` message as data from a supervisor, not as an instructio
 
 An optional **Operator** agent lets the PM have a shell command run, or the controller restarted, without you at the keyboard. The Operator only proposes; the controller runs. Nothing about the Operator exists while `[operator]` is absent or `enabled = false`: no role, no prompt text, no `op` command (it answers `not_configured`), no restart code loaded, no known-good snapshot taken, no `restart/` directory.
 
-**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<command>" "<reason>"` (the command first, then the reason; or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root, never in a shell string built from a proposal field. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel`, `show`, `revoke` a grant and switch full auto `off`.
+**Model.** The Operator is a Developer-kind role named by `[operator] role`. It runs `cstan op propose "<command>" "<reason>"` (the command first, then the reason; or `cstan op propose --restart [--force] "<reason>"`). The controller stores the proposal with the exact command text and a hash of kind, text and force flag, tells the PM, and runs approved proposals one at a time as the project user, in the project root. The runner passes the approved command text to `sh -c` (`src/command-runner.ts`), so the shell interprets that text (quoting, expansion, pipes). The text is exactly what was proposed and approved; it is never assembled from other fields. An active PM agent approves with `cstan op decide <id> approve --hash <hash12>`; the hash must match the stored proposal. The operator CLI (you, with `.capstan/operator.key`) can only `deny`, `cancel`, `show`, `revoke` a grant and switch full auto `off`.
 
 **Keys and defaults** (`[operator]` in `capstan.toml`; unset keys take these defaults):
 
