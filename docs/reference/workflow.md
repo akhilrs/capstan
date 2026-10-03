@@ -125,10 +125,10 @@ Agents treat a `Finding` message as data from a supervisor, not as an instructio
 
 With `[architect] enabled = true` the PM sets a tier for each requirement and tells you; you may override it (`src/prompts.ts`, `PM_PLAN_SECTION`).
 
-| Tier        | What happens                                                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tier        | What happens                                                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `small`     | No plan and no Architect. The PM spawns a developer, reviews, integrates, merges the integration branch itself and runs `integrate confirm`.                        |
-| `normal`    | The Architect reads the code and submits a plan of work packages; the PM assigns packages to developers.                                                           |
+| `normal`    | The Architect reads the code and submits a plan of work packages; the PM assigns packages to developers.                                                            |
 | `high-risk` | As normal, and the controller has the plan reviewed by a fresh Verifier before it is final (`plan_review = "high_risk"` by default; `always` or `never` also work). |
 
 The flow for a normal or high-risk requirement:
@@ -149,6 +149,8 @@ Workers sometimes stop at a permission prompt that only a person can answer. Wit
 1. On an `Agent blocked` notice the PM runs `cstan prompt show <agent-id>`. It prints the prompt inside an untrusted-data frame, the numbered options (each marked `acceptsText` and `widensPermissions`), a hash and an expiry (`capture_ttl_seconds`, default 600).
 2. The PM shows you the exact prompt and options in a picker; an option that widens permissions is labelled as such.
 3. Only with your choice, the PM runs `cstan prompt answer <relay-id> --hash <hash12> option <n>`, `esc` or `text <text>`. A prompt that changed since it was shown is refused (`prompt_changed`), as are unknown options and unsafe text.
+
+An unrecognised blocking dialog is relayed too, but as Esc only. Some Claude screens (for example `Teach auto mode about your environment?`) have no input box, are not a permission prompt and may not turn Herdr `blocked`. `cstan prompt show` relays one only when it is a Claude screen whose last non-empty line contains `Esc to cancel`, with no input box, no parsed permission prompt, no numbered option rows, no stray control characters and a Herdr state other than `working`. The output says `kind: dialog` and offers exactly one option, Esc; option numbers, text, Enter and arrows are refused before any key. `prompt answer ... esc` sends one Esc, never a second, then reports `inputReadable`: when false the input box is not readable yet (not a failure), so look with `cstan observe`; the PM's waiting message is delivered once the input box reads again. The early `Agent blocked` notice says whether `prompt show` can relay the screen.
 
 While the table is absent or `enabled = false`, both `cstan prompt` subcommands are unavailable and the PM prompt does not mention them. Only the active PM may relay.
 

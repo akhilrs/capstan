@@ -371,3 +371,80 @@ test("a stuck worker message with no notice (the PM was away, or it predates the
     await close(w.h);
   }
 });
+
+test("queueInputBlockedNotice dedupes per message and picks its advice from the relay setting and blocker", async () => {
+  const w = await world();
+  try {
+    const dev = w.h.developer.agentId;
+    const owner = () => ctx(w.h.core, w.h.owner);
+    const a = send(w, dev, "a");
+    const b = send(w, dev, "b");
+    const input = (
+      messageId: string,
+      blocker: "dialog" | "permission_prompt" | "unknown",
+    ) => ({
+      agentId: dev,
+      messageId,
+      blocker,
+    });
+    w.h.core.configurePromptRelay({ enabled: true, captureTtlSeconds: 60 });
+    assert.equal(
+      w.h.core.queueInputBlockedNotice(owner(), input(a, "dialog")).queued,
+      true,
+    );
+    assert.equal(
+      w.h.core.queueInputBlockedNotice(owner(), input(a, "dialog")).queued,
+      false,
+    );
+    assert.equal(
+      w.h.core.queueInputBlockedNotice(owner(), input(b, "permission_prompt"))
+        .queued,
+      true,
+    );
+    const [one, two] = notices(w, "Agent blocked");
+    assert.match(
+      one!.body,
+      /prompt show .*: it can relay this dialog with Esc only\./,
+    );
+    assert.match(two!.body, /it can relay this permission prompt\./);
+    w.h.core.configurePromptRelay({ enabled: true, captureTtlSeconds: 60 });
+    const c = send(w, dev, "c");
+    w.h.core.queueInputBlockedNotice(owner(), input(c, "unknown"));
+    assert.match(
+      notices(w, "Agent blocked")[2]!.body,
+      /cannot relay it; look with cstan observe/,
+    );
+    w.h.core.configurePromptRelay({ enabled: false, captureTtlSeconds: 60 });
+    const d = send(w, dev, "d");
+    w.h.core.queueInputBlockedNotice(owner(), input(d, "dialog"));
+    assert.match(
+      notices(w, "Agent blocked")[3]!.body,
+      /cannot relay it; look with cstan observe/,
+    );
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a long blocked episode adds no second notice while an unreadable notice is open, and is unchanged otherwise", async () => {
+  const w = await world();
+  try {
+    const dev = w.h.developer.agentId;
+    const owner = () => ctx(w.h.core, w.h.owner);
+    const id = send(w, dev, "x");
+    w.h.core.recordDeferral(owner(), id, "input_not_empty");
+    w.h.core.queueInputBlockedNotice(owner(), {
+      agentId: dev,
+      messageId: id,
+      blocker: "dialog",
+    });
+    const episode = { agentId: dev, kind: "blocked" as const, episodeMs: 5 };
+    assert.equal(w.h.core.queueAttentionNotices(owner(), [episode]).queued, 0);
+    assert.equal(notices(w, "Agent blocked").length, 1);
+    w.h.core.recordSent(owner(), id);
+    assert.equal(w.h.core.queueAttentionNotices(owner(), [episode]).queued, 1);
+    assert.equal(notices(w, "Agent blocked").length, 2);
+  } finally {
+    await close(w.h);
+  }
+});

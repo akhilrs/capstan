@@ -97,6 +97,7 @@ import type {
   FindingState,
   InputKind,
   MessageInput,
+  InputBlocker,
   MessageRecord,
   MessageRejectionRecord,
   MessagingAdvance,
@@ -8184,6 +8185,71 @@ export class ControllerCore {
     );
   }
 
+  /** True while a notice for an unreadable input of this agent names a head message that is still deferred or queued. */
+  #hasOpenUnreadableNotice(agentId: string): boolean {
+    const row = this.#database
+      .prepare(
+        `SELECT 1 AS present FROM pm_notices n JOIN messages m ON m.project_id = n.project_id AND m.message_id = substr(n.episode, 12)
+         WHERE n.project_id = ? AND n.kind = 'blocked' AND n.subject = ? AND n.episode LIKE 'unreadable:%'
+           AND m.state IN ('deferred', 'queued') LIMIT 1`,
+      )
+      .get(this.#projectId, agentId);
+    return row !== undefined;
+  }
+
+  /** Tells the PM, once per deferred head message, that a dialog covers an agent's input box so messages to it wait. */
+  queueInputBlockedNotice(
+    context: MutationContext,
+    input: {
+      readonly agentId: string;
+      readonly messageId: string;
+      readonly blocker: InputBlocker;
+    },
+  ): { readonly queued: boolean } {
+    this.#authorize(context.credential, "controller:reconcile");
+    safeId(input.agentId, "agent id");
+    safeId(input.messageId, "message id");
+    const episode = `unreadable:${input.messageId}`;
+    const known = this.#database
+      .prepare(
+        "SELECT 1 AS present FROM pm_notices WHERE project_id = ? AND kind = 'blocked' AND subject = ? AND episode = ?",
+      )
+      .get(this.#projectId, input.agentId, episode);
+    if (known || this.#noticeParties() === undefined) return { queued: false };
+    const relay = this.#promptRelay.enabled;
+    const advice =
+      relay && input.blocker === "dialog"
+        ? `Run cstan prompt show ${input.agentId}: it can relay this dialog with Esc only.`
+        : relay && input.blocker === "permission_prompt"
+          ? `Run cstan prompt show ${input.agentId}: it can relay this permission prompt.`
+          : `cstan prompt show cannot relay it; look with cstan observe ${input.agentId} and tell the operator.`;
+    const body = `Agent blocked: ${input.agentId} cannot take messages because a dialog covers its input box; messages to it wait until it is cleared.\n${advice}`;
+    return this.#mutate(
+      context,
+      "pm.input_blocked",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const queued = this.#queuePmNotice(
+          "blocked",
+          input.agentId,
+          episode,
+          body,
+          this.#now(),
+        );
+        return {
+          value: { queued },
+          event: {
+            entityType: "pm_notice",
+            entityId: this.#projectId,
+            stateVersion: 0,
+            details: { queued, blocker: input.blocker },
+          },
+        };
+      },
+    );
+  }
+
   /** Tells the PM, once per episode, of workers that have been stalled (working without activity) or blocked at a dialog for the stall time. */
   queueAttentionNotices(
     context: MutationContext,
@@ -8191,6 +8257,11 @@ export class ControllerCore {
   ): { readonly queued: number } {
     this.#authorize(context.credential, "controller:reconcile");
     const fresh = episodes.filter((episode) => {
+      if (
+        episode.kind === "blocked" &&
+        this.#hasOpenUnreadableNotice(episode.agentId)
+      )
+        return false;
       const known = this.#database
         .prepare(
           "SELECT 1 AS present FROM pm_notices WHERE project_id = ? AND kind = ? AND subject = ? AND episode = ?",

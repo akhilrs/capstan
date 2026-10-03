@@ -451,3 +451,49 @@ export function parseHostPrompt(
     })),
   };
 }
+
+/**
+ * A Claude dialog that is not a permission prompt and shows no input box (for
+ * example a settings or onboarding dialog) but whose last non-empty line is a
+ * footer that offers `Esc to cancel`. Only its text is returned; the only key
+ * that may ever be sent to it is Esc. Anything else is undefined.
+ */
+export function parseBlockingDialog(
+  kind: string,
+  ansiScreen: string,
+): { text: string } | undefined {
+  if (kind !== "claude") return undefined;
+  if (parseHostPrompt(kind, ansiScreen) !== undefined) return undefined;
+  if (extractInputLine(kind, ansiScreen) !== undefined) return undefined;
+  const lines = splitLines(ansiScreen).map(stripAnsi);
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last]!.trim() === "") last -= 1;
+  if (last < 0) return undefined;
+  if (lines.some((line) => LEFTOVER_CONTROL.test(line))) return undefined;
+  if (!lines[last]!.includes("Esc to cancel")) return undefined;
+  // Numbered rows mean a permission prompt that did not parse; it is never relayed as a dialog.
+  if (lines.some((line) => /^\s*(?:❯\s*)?\d+\.\s/u.test(line)))
+    return undefined;
+  let rule = last - 1;
+  while (rule >= 0 && !RULE_LINE.test(lines[rule]!.trim())) rule -= 1;
+  const body = lines.slice(rule + 1, last + 1).map((line) => line.trimEnd());
+  while (body.length > 0 && body[0]!.trim() === "") body.shift();
+  while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
+  const text = body.join("\n");
+  if (Buffer.byteLength(text, "utf8") > RELAY_PROMPT_MAX_BYTES)
+    return undefined;
+  return { text };
+}
+
+export type InputBlocker = "permission_prompt" | "dialog" | "unknown";
+
+/** What keeps an unreadable input line from being read, from one ANSI screen. */
+export function classifyInputBlocker(
+  kind: string,
+  ansiScreen: string,
+): InputBlocker {
+  if (parseHostPrompt(kind, ansiScreen) !== undefined)
+    return "permission_prompt";
+  if (parseBlockingDialog(kind, ansiScreen) !== undefined) return "dialog";
+  return "unknown";
+}

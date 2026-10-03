@@ -16,6 +16,8 @@ import {
   extractInputLine,
   freshPromptReady,
   parseCodexTrustDialog,
+  classifyInputBlocker,
+  parseBlockingDialog,
   parseHostPrompt,
   parseTrustDialog,
   parseTrustDialogOf,
@@ -718,4 +720,115 @@ test("relayTextProblem accepts plain text and refuses newlines, control or forma
     "lone\ud800surrogate",
   ])
     assert.notEqual(relayTextProblem(bad), undefined, JSON.stringify(bad));
+});
+
+const DIALOG = "synthetic-dialog-teach-auto-mode.ansi";
+
+test("the incident dialog parses as a blocking dialog and is not a permission prompt", () => {
+  const screen = prompt(DIALOG);
+  assert.equal(parseHostPrompt("claude", screen), undefined);
+  assert.equal(extractInputLine("claude", screen), undefined);
+  const dialog = parseBlockingDialog("claude", screen);
+  assert.ok(dialog);
+  const lines = dialog.text.split("\n");
+  assert.equal(lines[0], " Teach auto mode about your environment?");
+  for (const row of [
+    "How you use Claude here",
+    "Also scan shell history",
+    "Also scan your other repos",
+    "Continue",
+  ])
+    assert.ok(
+      lines.some((line) => line.includes(row)),
+      row,
+    );
+  assert.equal(
+    lines.at(-1),
+    " ←/→ to change · Enter to continue · Esc to cancel",
+  );
+  assert.equal(classifyInputBlocker("claude", screen), "dialog");
+  assert.equal(parseBlockingDialog("codex", screen), undefined);
+  assert.equal(classifyInputBlocker("codex", screen), "unknown");
+});
+
+test("the dialog text starts after the last rule above the footer and drops edge blank lines", () => {
+  const rule = "─".repeat(40);
+  const screen = [
+    "old output",
+    rule,
+    "",
+    " Title",
+    "  row",
+    "",
+    " Esc to cancel",
+    "",
+  ].join("\r\n");
+  assert.deepEqual(parseBlockingDialog("claude", screen), {
+    text: " Title\n  row\n\n Esc to cancel",
+  });
+  assert.equal(
+    parseBlockingDialog("claude", "Title\r\nEsc to cancel")!.text,
+    "Title\nEsc to cancel",
+  );
+});
+
+test("screens that are not an unrecognised dialog are not blocking dialogs", () => {
+  const rule = "─".repeat(40);
+  const idle = [
+    rule,
+    `❯${NBSP}${RESET}${DIM}Try "x"${RESET}`,
+    rule,
+    "  footer",
+  ].join("\r\n");
+  assert.equal(parseBlockingDialog("claude", idle), undefined);
+  assert.equal(classifyInputBlocker("claude", idle), "unknown");
+  const busy = "Working\r\n  esc to interrupt";
+  assert.equal(parseBlockingDialog("claude", busy), undefined);
+  const dialog = prompt(DIALOG);
+  assert.equal(
+    parseBlockingDialog("claude", `${dialog}\r\n  something after`),
+    undefined,
+    "the footer is not the last non-empty line",
+  );
+  assert.equal(
+    parseBlockingDialog("claude", dialog.replace("Continue", "Con\u0007tinue")),
+    undefined,
+    "leftover control character",
+  );
+  assert.equal(
+    parseBlockingDialog(
+      "claude",
+      `${"x".repeat(RELAY_PROMPT_MAX_BYTES)}\r\n Esc to cancel`,
+    ),
+    undefined,
+    "text over the size limit",
+  );
+});
+
+test("every permission prompt fixture still parses and classifies as a permission prompt; none is a dialog", () => {
+  for (const name of [
+    "claude-bash-permission.ansi",
+    "claude-bash-permission-no-textfield.ansi",
+    "claude-bash-permission-no-typed.ansi",
+    "claude-write-permission.ansi",
+    "claude-write-permission-yes-textfield.ansi",
+    "claude-write-permission-yes-typed.ansi",
+  ]) {
+    assert.ok(parseHostPrompt("claude", prompt(name)), name);
+    assert.equal(
+      classifyInputBlocker("claude", prompt(name)),
+      "permission_prompt",
+      name,
+    );
+    assert.equal(parseBlockingDialog("claude", prompt(name)), undefined, name);
+  }
+  for (const name of [
+    "synthetic-two-selected.ansi",
+    "synthetic-wrapped-option.ansi",
+    "synthetic-dialog-not-last.ansi",
+    "synthetic-fake-above-input.ansi",
+    "synthetic-control-char.ansi",
+    "synthetic-oversized.ansi",
+  ])
+    assert.equal(parseBlockingDialog("claude", prompt(name)), undefined, name);
 });

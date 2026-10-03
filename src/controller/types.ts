@@ -5,6 +5,8 @@ import type {
   AttentionEpisode,
   MessagingAction,
 } from "./messaging.js";
+/** What covers an agent's input box; mirrors the adapter's classification, and `unknown` when it is not known. */
+export type InputBlocker = "permission_prompt" | "dialog" | "unknown";
 export const roles = [
   "operator",
   "controller",

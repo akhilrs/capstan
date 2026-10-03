@@ -2655,6 +2655,7 @@ test("the unreadable-line detail is the exported constant", async () => {
       sent: false,
       reason: "input_not_empty",
       detail: INPUT_UNREADABLE_DETAIL,
+      blocker: "unknown",
     });
   } finally {
     h.adapter.close();
@@ -4461,5 +4462,206 @@ test("the real open-field screens satisfy the structural check: same text, other
   ] as const) {
     const parsed = parseHostPrompt("claude", promptFixture(typed))!;
     assert.equal(parsed.options[parsed.selectedIndex]!.text, expected);
+  }
+});
+
+const DIALOG_SCREEN = promptFixture("synthetic-dialog-teach-auto-mode.ansi");
+
+async function dialogWorker(h: Harness, status = "idle") {
+  const worker = await startedWorker(h, DIALOG_SCREEN, [status]);
+  return worker;
+}
+
+test("capturePrompt captures the incident dialog as an Esc-only relay when Herdr is not working, and refuses it while working", async () => {
+  for (const status of ["idle", "done", "blocked"]) {
+    const h = harness();
+    try {
+      const w = await dialogWorker(h, status);
+      const outcome = await h.adapter.capturePrompt(w.paneId);
+      assert.ok(outcome.captured, status);
+      assert.deepEqual(outcome.prompt.options, []);
+      assert.equal(outcome.prompt.dialog, true);
+      assert.match(outcome.prompt.promptSha, /^[0-9a-f]{64}$/);
+      assert.match(
+        outcome.prompt.text,
+        /Teach auto mode about your environment\?/,
+      );
+      assert.equal(
+        outcome.prompt.promptSha,
+        promptHash({
+          agentId: "dev",
+          paneId: w.paneId,
+          hostKind: "claude",
+          text: outcome.prompt.text,
+          options: [],
+          dialog: true,
+        }),
+      );
+      assert.deepEqual(sentKeys(h), []);
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+  const h = harness();
+  try {
+    const w = await dialogWorker(h, "working");
+    assert.deepEqual(await h.adapter.capturePrompt(w.paneId), {
+      captured: false,
+      reason: "not_blocked",
+    });
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("a permission prompt still needs Herdr blocked and keeps its pinned hash", async () => {
+  const h = harness();
+  try {
+    const w = await startedWorker(
+      h,
+      promptFixture("claude-bash-permission.ansi"),
+      ["blocked"],
+    );
+    const prompt = await captured(h, w.paneId);
+    assert.equal(prompt.dialog, undefined);
+    const pinned = promptHash({
+      agentId: "dev",
+      paneId: "w1:p1",
+      hostKind: "claude",
+      text: prompt.text,
+      options: prompt.options,
+    });
+    assert.equal(
+      pinned,
+      "65b106511d978b69335c9c35afb293d1bbd6f9253bbe94d247b9d8646119cc0b",
+    );
+    assert.equal(prompt.promptSha, pinned);
+    h.fake.agentStates.set("dev", { paneId: w.paneId, statuses: ["idle"] });
+    assert.deepEqual(await h.adapter.capturePrompt(w.paneId), {
+      captured: false,
+      reason: "not_blocked",
+    });
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("esc on a dialog relay sends exactly one esc key and reports whether the input box reads again", async () => {
+  for (const reappears of [true, false]) {
+    const h = harness();
+    try {
+      const w = await dialogWorker(h);
+      const prompt = await captured(h, w.paneId);
+      h.fake.onKey = (pane, key) => {
+        if (key === "esc" && reappears) pane.screen = idleScreen();
+      };
+      h.fake.events.length = 0;
+      const result = await answer(h, w.paneId, prompt.promptSha, {
+        kind: "esc",
+      });
+      assert.deepEqual(result.outcome, {
+        typed: true,
+        keys: ["esc"],
+        inputReadable: reappears,
+      });
+      assert.equal(result.before, 1);
+      assert.deepEqual(result.logged, ["before", "esc"]);
+      assert.deepEqual(sentKeys(h), ["key:esc"]);
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
+  }
+});
+
+test("a dialog relay refuses option and text answers, a changed screen and a screen that is no longer a dialog with no key sent", async () => {
+  const h = harness();
+  try {
+    const w = await dialogWorker(h);
+    const prompt = await captured(h, w.paneId);
+    h.fake.events.length = 0;
+    for (const reply of [
+      { kind: "option", number: 1 },
+      { kind: "text", number: 1, text: "hello" },
+    ] as const)
+      assert.deepEqual(
+        (await answer(h, w.paneId, prompt.promptSha, reply)).outcome,
+        {
+          typed: false,
+          reason: "no_such_option",
+          keys: [],
+        },
+      );
+    w.pane.screen = DIALOG_SCREEN.replace("Continue", "Proceed");
+    const changed = await answer(h, w.paneId, prompt.promptSha, {
+      kind: "esc",
+    });
+    assert.deepEqual(changed.outcome, {
+      typed: false,
+      reason: "prompt_changed",
+      keys: [],
+    });
+    w.pane.screen = idleScreen();
+    assert.deepEqual(
+      (await answer(h, w.paneId, prompt.promptSha, { kind: "esc" })).outcome,
+      { typed: false, reason: "prompt_unrecognized", keys: [] },
+    );
+    w.pane.screen = DIALOG_SCREEN;
+    h.fake.agentStates.set("dev", { paneId: w.paneId, statuses: ["working"] });
+    assert.deepEqual(
+      (await answer(h, w.paneId, prompt.promptSha, { kind: "esc" })).outcome,
+      { typed: false, reason: "not_blocked", keys: [] },
+    );
+    assert.deepEqual(sentKeys(h), []);
+    assert.equal(changed.before, 0);
+  } finally {
+    h.adapter.close();
+    h.fake.cleanup();
+  }
+});
+
+test("guardedSend and clearAfterDeferral name what blocks an unreadable input line", async () => {
+  const cases: Array<[string, string]> = [
+    [DIALOG_SCREEN, "dialog"],
+    [promptFixture("claude-bash-permission.ansi"), "permission_prompt"],
+    ["nothing recognisable", "unknown"],
+  ];
+  for (const [screen, blocker] of cases) {
+    const h = harness();
+    try {
+      const w = await startedWorker(h, screen);
+      assert.deepEqual(
+        await h.adapter.guardedSend({
+          paneId: w.paneId,
+          text: "hi",
+          beforeSend: () => {},
+        }),
+        {
+          sent: false,
+          reason: "input_not_empty",
+          detail: INPUT_UNREADABLE_DETAIL,
+          blocker,
+        },
+        blocker,
+      );
+      await assert.rejects(
+        h.adapter.clearAfterDeferral({
+          paneId: w.paneId,
+          deferredForMs: 100,
+          maxDeferralMs: 100,
+          discard: () => {},
+          log: () => {},
+        }),
+        (error: unknown) =>
+          error instanceof InputUnreadable && error.blocker === blocker,
+        blocker,
+      );
+    } finally {
+      h.adapter.close();
+      h.fake.cleanup();
+    }
   }
 });

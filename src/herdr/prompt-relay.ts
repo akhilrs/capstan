@@ -23,6 +23,8 @@ export interface CapturedPrompt {
   readonly options: readonly RelayOption[];
   /** 64 lowercase hex characters. */
   readonly promptSha: string;
+  /** True only for an Esc-only relay of an unrecognised blocking dialog; its options are []. */
+  readonly dialog?: boolean;
 }
 
 export type PromptAnswer =
@@ -39,14 +41,20 @@ export type RelayRefusal =
   | "no_text_option"
   | "text_refused"
   | "selection_not_reached"
-  | "text_field_not_open";
+  | "text_field_not_open"
+  | "dialog_still_open";
 
 export type CaptureOutcome =
   | { readonly captured: true; readonly prompt: CapturedPrompt }
   | { readonly captured: false; readonly reason: RelayRefusal };
 
 export type RelayOutcome =
-  | { readonly typed: true; readonly keys: readonly string[] }
+  | {
+      readonly typed: true;
+      readonly keys: readonly string[];
+      /** Dialog relays only: the input line reads again after the Esc. */
+      readonly inputReadable?: boolean;
+    }
   | {
       readonly typed: false;
       readonly reason: RelayRefusal;
@@ -68,6 +76,7 @@ export function promptHash(input: {
   hostKind: string;
   text: string;
   options: readonly RelayOption[];
+  dialog?: boolean;
 }): string {
   const canonical = JSON.stringify({
     agentId: input.agentId,
@@ -80,6 +89,7 @@ export function promptHash(input: {
       acceptsText: option.acceptsText,
       widensPermissions: option.widensPermissions,
     })),
+    ...(input.dialog === true ? { dialog: true } : {}),
   });
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }

@@ -34,6 +34,9 @@ import {
   extractInputLine,
   freshPromptReady,
   parseHostPrompt,
+  parseBlockingDialog,
+  classifyInputBlocker,
+  type InputBlocker,
   promptFooter,
   TEXT_FIELD_WORDING,
   parseTrustDialogOf,
@@ -99,6 +102,16 @@ export class NotBlocked extends AdapterError {
 }
 export class InputUnreadable extends AdapterError {
   override readonly name = "InputUnreadable";
+  /** What keeps the input line from being read, from the screen that was read. */
+  readonly blocker: InputBlocker;
+  constructor(
+    message: string,
+    blocker: InputBlocker = "unknown",
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.blocker = blocker;
+  }
 }
 export class ClearFailed extends AdapterError {
   override readonly name = "ClearFailed";
@@ -145,6 +158,8 @@ export type SendOutcome =
       readonly sent: false;
       readonly reason: DeferralReason;
       readonly detail?: string;
+      /** Set with INPUT_UNREADABLE_DETAIL: what is on the screen instead of the input line. */
+      readonly blocker?: InputBlocker;
     };
 
 export type DialogOutcome =
@@ -987,13 +1002,25 @@ export class HerdrAdapter {
   }
 
   async readInput(paneId: string): Promise<string | undefined> {
+    return (await this.#readInputAndBlocker(paneId)).text;
+  }
+
+  /** The input line and, from the same screen read, what blocks it when it is unreadable. */
+  async #readInputAndBlocker(
+    paneId: string,
+  ): Promise<{ text: string | undefined; blocker: InputBlocker }> {
     const entry = this.#panes.get(paneId);
     if (entry === undefined)
       throw new UnknownPaneError("pane is not registered");
-    return extractInputLine(
-      entry.kind,
-      await this.readScreen(paneId, { ansi: true }),
-    );
+    const screen = await this.readScreen(paneId, { ansi: true });
+    const text = extractInputLine(entry.kind, screen);
+    return {
+      text,
+      blocker:
+        text === undefined
+          ? classifyInputBlocker(entry.kind, screen)
+          : "unknown",
+    };
   }
 
   async prepareShell(input: {
@@ -1200,12 +1227,15 @@ export class HerdrAdapter {
     const first = await this.#stateFor(agent, input.paneId);
     const busy = deferralFor(first);
     if (busy !== undefined) return { sent: false, reason: busy };
-    const typed = await this.readInput(input.paneId);
+    const { text: typed, blocker } = await this.#readInputAndBlocker(
+      input.paneId,
+    );
     if (typed === undefined)
       return {
         sent: false,
         reason: "input_not_empty",
         detail: INPUT_UNREADABLE_DETAIL,
+        blocker,
       };
     if (typed !== "") return { sent: false, reason: "input_not_empty" };
     const second = deferralFor(await this.#stateFor(agent, input.paneId));
@@ -1301,10 +1331,11 @@ export class HerdrAdapter {
     const status = await this.#stateFor(entry.agent, input.paneId);
     if (deferralFor(status) !== undefined)
       throw new NotIdle("only an idle agent's input line is cleared");
-    const text = await this.readInput(input.paneId);
+    const { text, blocker } = await this.#readInputAndBlocker(input.paneId);
     if (text === undefined)
       throw new InputUnreadable(
         "the input line cannot be read, so its text cannot be logged",
+        blocker,
       );
     if (text === "") return { cleared: false, text: "" };
     await input.discard(text);
@@ -1321,11 +1352,13 @@ export class HerdrAdapter {
         "clear the input line after the maximum deferral",
         input.log,
       );
-      const remaining = await this.readInput(input.paneId);
+      const { text: remaining, blocker: after } =
+        await this.#readInputAndBlocker(input.paneId);
       if (remaining === "") return { cleared: true, text };
       if (remaining === undefined)
         throw new InputUnreadable(
           "the input line cannot be read after a clear key",
+          after,
         );
       if (!known.includes(remaining)) {
         known += `\n${remaining}`;
@@ -1451,11 +1484,23 @@ export class HerdrAdapter {
     if (entry.agent === undefined)
       throw new PhaseError("the pane has no agent");
     const refusal = await this.#relayPreflight(entry, paneId);
-    if (refusal !== undefined) return { captured: false, reason: refusal };
-    const prompt = await this.#readPrompt(entry.agent, paneId, entry.kind);
-    return prompt === undefined
-      ? { captured: false, reason: "prompt_unrecognized" }
-      : { captured: true, prompt: prompt.prompt };
+    if (refusal === undefined) {
+      const prompt = await this.#readPrompt(entry.agent, paneId, entry.kind);
+      if (prompt !== undefined)
+        return { captured: true, prompt: prompt.prompt };
+    }
+    // A dialog that is not a permission prompt may not set Herdr blocked.
+    if (
+      entry.kind === "claude" &&
+      (await this.#notWorking(entry.agent, paneId))
+    ) {
+      const dialog = await this.#readDialog(entry.agent, paneId, entry.kind);
+      if (dialog !== undefined) return { captured: true, prompt: dialog };
+    }
+    return {
+      captured: false,
+      reason: refusal ?? "prompt_unrecognized",
+    };
   }
 
   /**
@@ -1482,6 +1527,15 @@ export class HerdrAdapter {
       reason,
       keys: [...keys],
     });
+    if (entry.kind === "claude") {
+      const screen = await this.readScreen(paneId, { ansi: true });
+      if (parseHostPrompt(entry.kind, screen) === undefined) {
+        if (parseBlockingDialog(entry.kind, screen) !== undefined)
+          return this.#answerDialog(entry, input, screen);
+        // Neither a permission prompt nor a dialog: nothing here may be answered.
+        return refuse("prompt_unrecognized");
+      }
+    }
     const preflight = await this.#relayPreflight(entry, paneId);
     if (preflight !== undefined) return refuse(preflight);
     const first = await this.#readPrompt(agent, paneId, entry.kind);
@@ -1583,6 +1637,93 @@ export class HerdrAdapter {
     if (!(await stillBlocked())) return refuse("not_blocked");
     await press("enter", "submit the typed answer");
     return { typed: true, keys };
+  }
+
+  /**
+   * Answers an Esc-only dialog relay: the hash must match the screen just
+   * read, the agent must not be working, and exactly one Esc is sent. Then the
+   * input line is polled for a short while; no second key is ever sent.
+   */
+  async #answerDialog(
+    entry: PaneEntry,
+    input: {
+      paneId: string;
+      promptSha: string;
+      answer: PromptAnswer;
+      beforeType: () => void | Promise<void>;
+      log: KeyLogger;
+    },
+    screen: string,
+  ): Promise<RelayOutcome> {
+    const { paneId } = input;
+    const agent = entry.agent!;
+    const refuse = (reason: RelayRefusal): RelayOutcome => ({
+      typed: false,
+      reason,
+      keys: [],
+    });
+    if (input.answer.kind !== "esc") return refuse("no_such_option");
+    const read = this.#dialogOf(agent, paneId, entry.kind, screen);
+    if (read === undefined) return refuse("prompt_unrecognized");
+    if (read.promptSha !== input.promptSha) return refuse("prompt_changed");
+    if (!(await this.#notWorking(agent, paneId))) return refuse("not_blocked");
+    await input.beforeType();
+    await this.#sendKey(
+      paneId,
+      "esc",
+      "dismiss the worker's blocking dialog",
+      input.log,
+    );
+    const deadline = this.#now() + SELECTION_REDRAW_MS;
+    let inputReadable = false;
+    for (;;) {
+      inputReadable = (await this.readInput(paneId)) !== undefined;
+      if (inputReadable || this.#now() >= deadline) break;
+      await this.#sleep(this.#pollMs);
+    }
+    return { typed: true, keys: ["esc"], inputReadable };
+  }
+
+  /** True unless Herdr shows the agent working; a name that points at another pane is not usable here. */
+  async #notWorking(agent: string, paneId: string): Promise<boolean> {
+    try {
+      return (await this.#stateFor(agent, paneId)) !== "working";
+    } catch (error) {
+      if (error instanceof AgentPaneMismatch) return false;
+      throw error;
+    }
+  }
+
+  #dialogOf(
+    agent: string,
+    paneId: string,
+    kind: string,
+    screen: string,
+  ): CapturedPrompt | undefined {
+    const parsed = parseBlockingDialog(kind, screen);
+    if (parsed === undefined) return undefined;
+    const hashed = {
+      agentId: agent,
+      paneId,
+      hostKind: kind,
+      text: parsed.text,
+      options: [] as CapturedPrompt["options"],
+      dialog: true,
+    };
+    return { ...hashed, promptSha: promptHash(hashed) };
+  }
+
+  async #readDialog(
+    agent: string,
+    paneId: string,
+    kind: string,
+  ): Promise<CapturedPrompt | undefined> {
+    return this.#dialogOf(
+      agent,
+      paneId,
+      kind,
+      await this.readScreen(paneId, { ansi: true }),
+    );
   }
 
   /** Why a prompt may not be read at all: another kind of host, or an agent that is not blocked. */

@@ -61,41 +61,41 @@ Checked against the `usage` string in `src/cli.ts` (run `cstan` with no argument
 
 ### Planned work (with `[architect] enabled = true`)
 
-| Command                                                         | Who                | Purpose                                                                               |
-| --------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `cstan plan open normal\|high-risk "<title>" [<superseded-id>]` | PM or operator     | Open a draft plan; a trailing plan id supersedes an approved plan.                    |
-| `cstan plan submit <plan-id> "<json>"`                          | Architect          | Submit the plan body (packages, owned areas, dependencies, acceptance, risks).        |
-| `cstan plan show [<plan-id>]`                                   | any                | List plans, or one plan with its packages, assignees and progress.                    |
-| `cstan plan assign <plan-id> <package-id> <agent-id>`           | PM or operator     | Assign a package; the controller sends the package text to the developer.             |
-| `cstan plan signoff <plan-id> <integration-id> "<summary>"`     | Architect          | Sign off a reviewed integration; the PM is told the branch to hand to you.            |
-| `cstan plan cancel <plan-id> [<package-id>]`                    | operator           | Cancel a plan or one package.                                                         |
+| Command                                                         | Who            | Purpose                                                                        |
+| --------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `cstan plan open normal\|high-risk "<title>" [<superseded-id>]` | PM or operator | Open a draft plan; a trailing plan id supersedes an approved plan.             |
+| `cstan plan submit <plan-id> "<json>"`                          | Architect      | Submit the plan body (packages, owned areas, dependencies, acceptance, risks). |
+| `cstan plan show [<plan-id>]`                                   | any            | List plans, or one plan with its packages, assignees and progress.             |
+| `cstan plan assign <plan-id> <package-id> <agent-id>`           | PM or operator | Assign a package; the controller sends the package text to the developer.      |
+| `cstan plan signoff <plan-id> <integration-id> "<summary>"`     | Architect      | Sign off a reviewed integration; the PM is told the branch to hand to you.     |
+| `cstan plan cancel <plan-id> [<package-id>]`                    | operator       | Cancel a plan or one package.                                                  |
 
 ### Nexora links
 
-| Command                                                                  | Who            | Purpose                                                         |
-| ------------------------------------------------------------------------ | -------------- | --------------------------------------------------------------- |
-| `cstan link requirement\|plan\|package <ref-id> <nexora-id> [<state>]` | PM or operator | Record a Nexora item id and the state last written to Nexora.   |
-| `cstan link bind <requirement-ref-id> <agent-id>`                        | PM or operator | Tie a small-tier requirement to the developer working on it.    |
+| Command                                                                | Who            | Purpose                                                       |
+| ---------------------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
+| `cstan link requirement\|plan\|package <ref-id> <nexora-id> [<state>]` | PM or operator | Record a Nexora item id and the state last written to Nexora. |
+| `cstan link bind <requirement-ref-id> <agent-id>`                      | PM or operator | Tie a small-tier requirement to the developer working on it.  |
 
 ### Prompt relay (with `[prompt_relay] enabled = true`)
 
-| Command                                                                        | Who       | Purpose                                                          |
-| ------------------------------------------------------------------------------ | --------- | ---------------------------------------------------------------- |
-| `cstan prompt show <agent-id>`                                                 | active PM | Capture a blocked worker's permission prompt, options and hash.  |
-| `cstan prompt answer <relay-id> --hash <hash12> option <n>\|esc\|text <text>` | active PM | Type the answer the user chose.                                  |
+| Command                                                                       | Who       | Purpose                                                                                                             |
+| ----------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------- |
+| `cstan prompt show <agent-id>`                                                | active PM | Capture a blocked worker's permission prompt, or an unrecognised blocking dialog (Esc only), with options and hash. |
+| `cstan prompt answer <relay-id> --hash <hash12> option <n>\|esc\|text <text>` | active PM | Type the answer the user chose; a dialog relay takes `esc` only and reports `inputReadable`.                        |
 
 ### Operator (with `[operator] enabled = true`)
 
-| Command                                                                         | Who                     | Purpose                                                  |
-| ------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------- |
-| `cstan op propose "<command>" "<reason>"`                                       | Operator                | Propose one shell command.                               |
-| `cstan op propose --restart [--force] "<reason>"`                               | Operator                | Propose a controller restart.                            |
-| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>]` | PM                      | Approve a proposal, optionally with a session grant.     |
-| `cstan op decide <id> deny ["<note>"]`                                          | PM or operator          | Deny a proposal.                                         |
-| `cstan op show [<id>]` / `cstan op cancel <id>`                                 | see the Operator reference | Show proposals and runs / withdraw a proposal.        |
-| `cstan op grants` / `cstan op revoke <grant-id>`                                | PM or operator          | List / end session grants.                               |
-| `cstan op full-auto on [<minutes>] --asked-user "<text>"`                       | PM                      | Switch every guard off for a limited time.               |
-| `cstan op full-auto off` / `status`                                             | PM or operator          | Switch full auto off / show the time left.               |
+| Command                                                                          | Who                        | Purpose                                              |
+| -------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
+| `cstan op propose "<command>" "<reason>"`                                        | Operator                   | Propose one shell command.                           |
+| `cstan op propose --restart [--force] "<reason>"`                                | Operator                   | Propose a controller restart.                        |
+| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>]` | PM                         | Approve a proposal, optionally with a session grant. |
+| `cstan op decide <id> deny ["<note>"]`                                           | PM or operator             | Deny a proposal.                                     |
+| `cstan op show [<id>]` / `cstan op cancel <id>`                                  | see the Operator reference | Show proposals and runs / withdraw a proposal.       |
+| `cstan op grants` / `cstan op revoke <grant-id>`                                 | PM or operator             | List / end session grants.                           |
+| `cstan op full-auto on [<minutes>] --asked-user "<text>"`                        | PM                         | Switch every guard off for a limited time.           |
+| `cstan op full-auto off` / `status`                                              | PM or operator             | Switch full auto off / show the time left.           |
 
 See the [Operator reference](operator.md) for the rules behind each command.
 

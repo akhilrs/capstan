@@ -347,6 +347,30 @@ export class DeliveryDriver {
     }
   }
 
+  /** Open unreadable-input episodes by agent: the deferred head message that opened each; closed when the input is read. */
+  readonly #unreadable = new Map<string, string>();
+
+  #openUnreadable(
+    agent: AgentRecord,
+    message: MessageRecord,
+    blocker: unknown,
+  ): void {
+    if (this.#unreadable.has(agent.agentId)) return;
+    this.#unreadable.set(agent.agentId, message.messageId);
+    try {
+      this.#core.queueInputBlockedNotice(this.#context(), {
+        agentId: agent.agentId,
+        messageId: message.messageId,
+        blocker:
+          blocker === "dialog" || blocker === "permission_prompt"
+            ? blocker
+            : "unknown",
+      });
+    } catch (error) {
+      this.#log("attention_notice_failed", { error: String(error) });
+    }
+  }
+
   async #advance(): Promise<void> {
     let advance;
     try {
@@ -529,6 +553,7 @@ export class DeliveryDriver {
       return;
     }
     this.#failures.delete(message.messageId);
+    this.#unreadable.delete(agent.agentId);
     if (cleared.cleared && action.notifyOperator) {
       const request: NotificationRequest = {
         kind: "input_cleared",
@@ -552,6 +577,11 @@ export class DeliveryDriver {
       return;
     }
     if (error instanceof InputUnreadable) {
+      this.#openUnreadable(
+        agent,
+        message,
+        (error as { blocker?: unknown }).blocker,
+      );
       this.#logOnce(
         `${message.messageId}|input_unreadable`,
         "input_unreadable",
@@ -702,9 +732,22 @@ export class DeliveryDriver {
       return;
     }
     this.#failures.delete(head.messageId);
-    if (outcome.sent) return;
+    if (outcome.sent) {
+      this.#unreadable.delete(agent.agentId);
+      return;
+    }
     this.#recordDeferral(head, outcome.reason);
+    if (
+      outcome.reason === "input_not_empty" &&
+      outcome.detail !== INPUT_UNREADABLE_DETAIL
+    )
+      this.#unreadable.delete(agent.agentId);
     if (outcome.detail === INPUT_UNREADABLE_DETAIL) {
+      this.#openUnreadable(
+        agent,
+        head,
+        (outcome as { blocker?: unknown }).blocker,
+      );
       this.#skip(head.messageId, agent.agentId, "input_unreadable");
       this.#logOnce(`${head.messageId}|input_unreadable`, "input_unreadable", {
         messageId: head.messageId,

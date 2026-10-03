@@ -1122,3 +1122,97 @@ test("a stalled worker makes the driver queue one Agent stalled notice for the P
     await close(w.h);
   }
 });
+
+const blockedNotices = (w: World) =>
+  w.h.core
+    .messagesFor(w.h.pm.agentId)
+    .filter((m) => m.body.startsWith("Agent blocked"));
+
+const UNREADABLE: SendOutcome = {
+  sent: false,
+  reason: "input_not_empty",
+  detail: "the input line is unreadable",
+};
+
+test("an unreadable input queues one Agent blocked notice per episode for a worker, including the clear path", async () => {
+  const w = await world();
+  try {
+    const dev = w.h.developer.agentId;
+    const first = queue(w, dev);
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    assert.equal(blockedNotices(w).length, 1);
+    assert.match(blockedNotices(w)[0]!.body, new RegExp(`${dev} cannot take`));
+    await w.tick();
+    await w.tick();
+    w.advance((TIMERS.maxDeferralSeconds + 1) * 1000);
+    w.adapter.clearImpl = async () => {
+      throw new InputUnreadable("cannot read");
+    };
+    await w.tick();
+    await w.tick();
+    assert.equal(blockedNotices(w).length, 1, "same head, no repeat");
+
+    // A busy deferral between unreadable ticks does not close the episode.
+    w.adapter.sendImpl = async () => ({ sent: false, reason: "agent_busy" });
+    await w.tick();
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    assert.equal(blockedNotices(w).length, 1);
+
+    // Reading the input empty and sending closes it; a new head warns again.
+    w.adapter.sendImpl = undefined;
+    w.adapter.clearImpl = undefined;
+    await w.tick();
+    await w.tick();
+    assert.equal(state(w, first), "sent");
+    w.h.core.ackMessage(ctx(w.h.core, w.h.developer.credential), first);
+    const second = queue(w, dev, "next");
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    assert.equal(state(w, second), "deferred");
+    assert.equal(blockedNotices(w).length, 2);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("an unreadable input queues one Agent blocked notice for a Supervisor", async () => {
+  const w = await world();
+  try {
+    const supervisor = w.h.addMember("supervisor", "Supervisor");
+    w.adapter.register(supervisor.agentId);
+    queue(w, supervisor.agentId);
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    await w.tick();
+    assert.equal(blockedNotices(w).length, 1);
+    assert.match(blockedNotices(w)[0]!.body, new RegExp(supervisor.agentId));
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a readable non-empty input closes the episode so a later unreadable head warns again", async () => {
+  const w = await world();
+  try {
+    const dev = w.h.developer.agentId;
+    queue(w, dev);
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    w.adapter.sendImpl = async () => ({
+      sent: false,
+      reason: "input_not_empty",
+    });
+    await w.tick();
+    w.adapter.sendImpl = async () => UNREADABLE;
+    await w.tick();
+    assert.equal(
+      blockedNotices(w).length,
+      1,
+      "same head message: the core dedupes it",
+    );
+  } finally {
+    await close(w.h);
+  }
+});

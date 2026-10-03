@@ -605,3 +605,90 @@ test("the Agent blocked notice names cstan prompt show only when the relay is on
       { enabled },
     );
 });
+
+function dialogPrompt(agentId: string): CapturedPrompt {
+  const base = {
+    agentId,
+    paneId: "w1:p1",
+    hostKind: "claude",
+    text: " Teach auto mode about your environment?\n\n Esc to cancel",
+    options: [] as readonly RelayOption[],
+    dialog: true,
+  };
+  return { ...base, promptSha: promptHash(base) };
+}
+
+test("show on a dialog relay prints one Esc option, the framed text, hash and expiry; only esc is accepted", async () => {
+  await withRelay(async (h, state, clock) => {
+    state.captures = [
+      { captured: true, prompt: dialogPrompt(h.developer.agentId) },
+    ];
+    const shown = result(await show(h));
+    assert.equal(shown.kind, "dialog");
+    assert.deepEqual(shown.options, [
+      { key: "esc", text: "Esc", acceptsText: false, widensPermissions: false },
+    ]);
+    assert.match(
+      String(shown.prompt),
+      /\| +Teach auto mode about your environment\?/,
+    );
+    assert.match(String(shown.note), /only Esc/);
+    assert.match(String(shown.hash), /^[0-9a-f]{12}$/);
+    assert.equal(shown.expiresAt, "2026-01-01T00:10:00.000Z");
+    const hash = String(shown.hash);
+    assert.match(
+      refused(await answer(h, "relay-1", "0".repeat(12), "esc")),
+      /hash_mismatch/,
+    );
+    assert.match(
+      refused(await answer(h, "relay-1", hash, "option", "1")),
+      /no_such_option/,
+    );
+    assert.match(
+      refused(await answer(h, "relay-1", hash, "text", "hi")),
+      /no_such_option|no_text_option/,
+    );
+    assert.equal(state.answerCalls.length, 0);
+    state.answer = async ({ beforeType }) => {
+      await beforeType();
+      return { typed: true, keys: ["esc"], inputReadable: false };
+    };
+    const done = result(await answer(h, "relay-1", hash, "esc"));
+    assert.equal(done.inputReadable, false);
+    assert.match(String(done.note), /not readable yet/);
+    assert.match(String(done.note), /cstan observe/);
+    assert.equal(state.answerCalls.length, 1);
+    clock.now += 0;
+  });
+});
+
+test("a dialog capture expires after the ttl", async () => {
+  await withRelay(async (h, state, clock) => {
+    state.captures = [
+      { captured: true, prompt: dialogPrompt(h.developer.agentId) },
+    ];
+    const hash = String(result(await show(h)).hash);
+    clock.now += 601_000;
+    assert.match(
+      refused(await answer(h, "relay-1", hash, "esc")),
+      /relay_not_open: relay relay-1 is expired|capture_expired/,
+    );
+    assert.equal(state.answerCalls.length, 0);
+  });
+});
+
+test("an Esc answer that finds the input box readable reports it", async () => {
+  await withRelay(async (h, state) => {
+    state.captures = [
+      { captured: true, prompt: dialogPrompt(h.developer.agentId) },
+    ];
+    const hash = String(result(await show(h)).hash);
+    state.answer = async ({ beforeType }) => {
+      await beforeType();
+      return { typed: true, keys: ["esc"], inputReadable: true };
+    };
+    const done = result(await answer(h, "relay-1", hash, "esc"));
+    assert.equal(done.inputReadable, true);
+    assert.equal(row(h, "relay-1").state, "answered");
+  });
+});

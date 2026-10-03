@@ -868,6 +868,9 @@ test("with the prompt relay on the PM rule is replaced by the relay procedure", 
     "cstan observe <agent-id>",
     "Keep free-text answers short",
     "After any refusal",
+    "unrecognised blocking dialog as Esc only",
+    "never numbered options, Enter or arrows",
+    "Agent blocked",
   ])
     assert.ok(text.includes(needle), needle);
   const golden = readFileSync(path.join(goldenDirectory, "pm.txt"), "utf8");
