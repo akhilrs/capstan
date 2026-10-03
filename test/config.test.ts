@@ -1710,3 +1710,74 @@ test("cstan config check surfaces [worktree] errors", () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("[worktree] teardown resolves with a 60 second timeout, with or without setup, and leaves a config without it unchanged", () => {
+  withConfig(`${VALID}\n[worktree]\nteardown = "rm -rf x"\n`, (directory) =>
+    assert.deepEqual(loadCapstanConfig(directory).worktree, {
+      setupTimeoutSeconds: DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
+      teardown: "rm -rf x",
+      teardownTimeoutSeconds: 60,
+    }),
+  );
+  withConfig(
+    `${VALID}\n[worktree]\nsetup = "make"\nteardown = "clean"\nteardown_timeout_seconds = 5\n`,
+    (directory) =>
+      assert.deepEqual(loadCapstanConfig(directory).worktree, {
+        setup: "make",
+        setupTimeoutSeconds: DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
+        teardown: "clean",
+        teardownTimeoutSeconds: 5,
+      }),
+  );
+  for (const value of [1, 3600])
+    withConfig(
+      `${VALID}\n[worktree]\nteardown = "x"\nteardown_timeout_seconds = ${value}\n`,
+      (directory) =>
+        assert.equal(
+          loadCapstanConfig(directory).worktree?.teardownTimeoutSeconds,
+          value,
+        ),
+    );
+});
+
+test("[worktree] refuses a bad teardown and a bad or orphan teardown timeout", () => {
+  for (const value of [
+    '""',
+    "5",
+    '"a\\nb"',
+    '"export K=sk-live-ABCDEFGHIJKLMNOP1234"',
+  ])
+    assertRejected(
+      `${VALID}\n[worktree]\nteardown = ${value}\n`,
+      /worktree\.teardown/,
+      "ABCDEFGH",
+    );
+  for (const value of ["0", "3601", "-1", "30.5", '"30"', "true"])
+    assertRejected(
+      `${VALID}\n[worktree]\nteardown = "x"\nteardown_timeout_seconds = ${value}\n`,
+      /worktree\.teardown_timeout_seconds/,
+    );
+  assertRejected(
+    `${VALID}\n[worktree]\nsetup = "make"\nteardown_timeout_seconds = 30\n`,
+    /worktree\.teardown_timeout_seconds/,
+  );
+});
+
+test("cstan config check accepts the teardown keys", () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "cstan-teardown-check-"));
+  try {
+    writeFileSync(
+      path.join(cwd, CONFIG_FILE_NAME),
+      `${VALID}\n[worktree]\nteardown = "rm -rf x"\nteardown_timeout_seconds = 30\n`,
+      { mode: 0o600 },
+    );
+    const result = spawnSync(
+      process.execPath,
+      [path.resolve("dist/src/cli.js"), "config", "check"],
+      { cwd, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

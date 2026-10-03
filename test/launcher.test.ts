@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -29,6 +30,7 @@ import {
   type GitRunner,
   runSetupCommand,
   type SetupRunner,
+  type TeardownRunner,
 } from "../src/launcher.js";
 import { CSTAN_ALLOW_RULE } from "../src/prompts.js";
 import {
@@ -228,6 +230,7 @@ async function world(
     };
     readonly worktree?: ResolvedWorktree;
     readonly runSetup?: SetupRunner;
+    readonly runTeardown?: TeardownRunner;
     readonly git?: GitRunner;
   } = {},
 ): Promise<World> {
@@ -289,6 +292,9 @@ async function world(
       ...(environment.runSetup === undefined
         ? {}
         : { runSetup: environment.runSetup }),
+      ...(environment.runTeardown === undefined
+        ? {}
+        : { runTeardown: environment.runTeardown }),
       projectRoot: root,
       cliPath: "/opt/capstan/cli.js",
       socketPath: path.join(stateDirectory, "control.sock"),
@@ -3894,5 +3900,415 @@ test("defaultGit removes a Capstan worktree that holds untracked files, and repo
     assert.equal(git.worktreeDirtyCount(unknown), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const TEARDOWN: ResolvedWorktree = {
+  setupTimeoutSeconds: 600,
+  teardown: "rm -rf cache",
+  teardownTimeoutSeconds: 9,
+};
+
+test("teardown runs once per cleanup, in the project root, before the worktree is removed", async () => {
+  const calls: Array<[string, string, number]> = [];
+  const holder: { w?: World } = {};
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async (command, cwd, timeoutMs) => {
+        calls.push([command, cwd, timeoutMs]);
+        holder.w!.git.order.push("teardown");
+        return { status: "ok" };
+      },
+    },
+  );
+  holder.w = w;
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    assert.deepEqual(calls, [], "no teardown while the worker lives");
+    await w.launcher.release(first.agentId);
+    assert.deepEqual(calls, [["rm -rf cache", w.root, 9000]]);
+    assert.deepEqual(w.git.order, ["teardown", "remove"]);
+    assert.deepEqual(
+      eventNames(w).filter((name) => name.startsWith("teardown")),
+      ["teardown_started"],
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("teardown runs with the agents' filtered environment plus the worktree path and agent id, and with no agent token or socket", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "capstan-teardown-env-"));
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: {
+        setupTimeoutSeconds: 600,
+        teardown: "env > teardown-env.txt; pwd > teardown-pwd.txt",
+        teardownTimeoutSeconds: 10,
+      },
+      pass: ["PASSED_VALUE"],
+      base: { PASSED_VALUE: "yes", DAEMON_ONLY: "leak" },
+    },
+  );
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    await w.launcher.release(first.agentId);
+    const text = readFileSync(path.join(w.root, "teardown-env.txt"), "utf8");
+    assert.match(text, /^PASSED_VALUE=yes$/m);
+    assert.match(
+      text,
+      new RegExp(`^CAPSTAN_WORKTREE_PATH=${first.worktreePath}$`, "m"),
+    );
+    assert.match(text, /^CAPSTAN_AGENT_ID=developer-1$/m);
+    assert.doesNotMatch(text, /DAEMON_ONLY|SECRET/);
+    assert.doesNotMatch(text, /CAPSTAN_TOKEN|CAPSTAN_SOCKET/);
+    const names = text
+      .split("\n")
+      .map((line) => line.split("=")[0]!)
+      .filter((name) => name.startsWith("CAPSTAN_"));
+    assert.deepEqual(names.sort(), [
+      "CAPSTAN_AGENT_ID",
+      "CAPSTAN_WORKTREE_PATH",
+    ]);
+    assert.equal(
+      readFileSync(path.join(w.root, "teardown-pwd.txt"), "utf8").trim(),
+      realpathSync(w.root),
+    );
+  } finally {
+    w.cleanup();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a failing teardown and a timed-out teardown are logged and the worktree is still removed", async () => {
+  for (const outcome of [
+    { status: "failed", exitCode: 7, output: "boom\u001b[0m" },
+    { status: "timeout" },
+  ] as const) {
+    const w = await world(
+      true,
+      true,
+      3,
+      {},
+      { worktree: TEARDOWN, runTeardown: async () => outcome },
+    );
+    try {
+      await launched(w);
+      const first = await w.launcher.spawn("developer");
+      const released = await w.launcher.release(first.agentId);
+      assert.equal(released.worktreeRemoved, true);
+      assert.deepEqual(w.git.removed, [first.worktreePath]);
+      const failed = w.events.filter((e) => e.event === "teardown_failed");
+      assert.equal(failed.length, 1);
+      assert.equal(failed[0]!.details.agentId, "developer-1");
+      assert.equal(
+        failed[0]!.details.exit,
+        outcome.status === "timeout" ? "timeout" : 7,
+      );
+      if (outcome.status === "failed")
+        assert.equal(failed[0]!.details.output, "boom");
+    } finally {
+      w.cleanup();
+    }
+  }
+});
+
+test("a teardown that throws is logged and the worktree is still removed", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async () => {
+        throw new Error("spawn failed");
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    await w.launcher.release(first.agentId);
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+    assert.equal(
+      w.events.filter((e) => e.event === "teardown_failed").length,
+      1,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("the real teardown runner kills the process group on timeout, logs it and still removes the worktree", async () => {
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: {
+        setupTimeoutSeconds: 600,
+        teardown: "sleep 30 & echo $! > child.pid; wait",
+        teardownTimeoutSeconds: 1,
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    await w.launcher.release(first.agentId);
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+    const failed = w.events.filter((e) => e.event === "teardown_failed");
+    assert.equal(failed.length, 1);
+    assert.equal(failed[0]!.details.exit, "timeout");
+    const pid = Number(readFileSync(path.join(w.root, "child.pid"), "utf8"));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.throws(() => process.kill(pid, 0), /ESRCH/);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("teardown is not run while the pane is still open, and runs on the retry once it closes", async () => {
+  let runs = 0;
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async () => {
+        runs += 1;
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.adapter.closeError = new HerdrError("pane_close_failed", "busy");
+    await w.launcher.release(first.agentId);
+    assert.equal(runs, 0);
+    assert.deepEqual(w.git.removed, []);
+    w.adapter.closeError = undefined;
+    await w.launcher.spawn("developer");
+    assert.equal(runs, 1);
+    assert.deepEqual(w.git.removed, [first.worktreePath]);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("teardown runs again when a refused removal is retried", async () => {
+  let runs = 0;
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async () => {
+        runs += 1;
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.git.removeOk = false;
+    await w.launcher.release(first.agentId);
+    assert.equal(runs, 1);
+    w.git.removeOk = true;
+    await w.launcher.spawn("developer");
+    assert.equal(runs, 2);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("teardown is not run when no worktree path exists", async () => {
+  let runs = 0;
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async () => {
+        runs += 1;
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    w.adapter.worktreeError = new HerdrError("worktree_failed", "no");
+    await assert.rejects(w.launcher.spawn("developer"));
+    assert.equal(runs, 0);
+    assert.deepEqual(w.git.removed, []);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a failed setup, a replace and a config without teardown: teardown runs for the first two and never for the last", async () => {
+  let runs = 0;
+  const runTeardown: TeardownRunner = async () => {
+    runs += 1;
+    return { status: "ok" };
+  };
+  const failing = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: { ...TEARDOWN, setup: "npm ci" },
+      runSetup: async () => ({ status: "timeout" }),
+      runTeardown,
+    },
+  );
+  try {
+    await launched(failing);
+    await assert.rejects(failing.launcher.spawn("developer"));
+    assert.equal(runs, 1, "the failed spawn's worktree is torn down");
+  } finally {
+    failing.cleanup();
+  }
+  const replaced = await world(
+    true,
+    true,
+    3,
+    {},
+    { worktree: TEARDOWN, runTeardown },
+  );
+  try {
+    await launched(replaced);
+    const old = await replaced.launcher.spawn("developer");
+    await replaced.launcher.replace(old.agentId);
+    assert.equal(runs, 2, "the replaced agent's worktree is torn down");
+  } finally {
+    replaced.cleanup();
+  }
+  runs = 0;
+  const plain = await world(
+    true,
+    true,
+    3,
+    {},
+    { worktree: SETUP, runSetup: async () => ({ status: "ok" }), runTeardown },
+  );
+  try {
+    await launched(plain);
+    const first = await plain.launcher.spawn("developer");
+    await plain.launcher.release(first.agentId);
+    assert.equal(runs, 0);
+    assert.deepEqual(
+      eventNames(plain).filter((name) => name.startsWith("teardown")),
+      [],
+    );
+    assert.deepEqual(plain.git.removed, [first.worktreePath]);
+  } finally {
+    plain.cleanup();
+  }
+});
+
+test("the README codebase-memory teardown removes exactly the index files of its own worktree", () => {
+  const readme = readFileSync("README.md", "utf8");
+  const match = /^teardown = '(.+)'$/m.exec(readme);
+  assert.ok(match !== null, "README has a one-line teardown example");
+  const command = match[1]!;
+  const home = mkdtempSync(path.join(tmpdir(), "capstan-teardown-home-"));
+  try {
+    const dir = path.join(home, ".cache", "codebase-memory-mcp");
+    mkdirSync(dir, { recursive: true });
+    const worktree = "/home/x/.herdr/worktrees/proj/proj-developer-3-g1";
+    const own = "home-x-.herdr-worktrees-proj-proj-developer-3-g1";
+    const ownFiles = [
+      `${own}.db`,
+      `${own}.db-shm`,
+      `${own}.db-wal`,
+      `${own}.db.stage.AbC123`,
+      `${own}.db.stage.AbC123.lock`,
+    ];
+    const others = [
+      "home-x-.herdr-worktrees-proj-proj-developer-33-g1.db",
+      "home-x-.herdr-worktrees-proj-proj-developer-3-g10.db",
+      "home-x-.herdr-worktrees-proj-proj-developer-3-g1-extra.db",
+      "home-x-.herdr-worktrees-proj-proj-developer-4-g1.db-wal",
+      "home-x-Workspace-proj.db",
+      "_config.db",
+    ];
+    for (const name of [...ownFiles, ...others])
+      writeFileSync(path.join(dir, name), "x");
+    const run = (id: string) =>
+      spawnSync("sh", ["-c", command], {
+        env: {
+          PATH: "/usr/bin:/bin",
+          HOME: home,
+          CAPSTAN_WORKTREE_PATH: worktree,
+          CAPSTAN_AGENT_ID: id,
+        },
+        encoding: "utf8",
+      });
+    assert.equal(run("developer-3").status, 0);
+    assert.deepEqual(readdirSync(dir).sort(), [...others].sort());
+    assert.equal(run("developer-3").status, 0, "idempotent when run again");
+    const empty = spawnSync("sh", ["-c", command], {
+      env: { PATH: "/usr/bin:/bin", HOME: home },
+    });
+    assert.notEqual(empty.status, 0, "no worktree path removes nothing");
+    assert.deepEqual(readdirSync(dir).sort(), [...others].sort());
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("teardown time is not charged to the cleanup budget", async () => {
+  let clock = 1_000_000;
+  const w = await world();
+  try {
+    await launched(w);
+    const slow = new Launcher({
+      core: w.core,
+      adapter: w.adapter,
+      config: { ...config(), worktree: TEARDOWN } as CapstanConfig,
+      projectRoot: w.root,
+      cliPath: "/opt/capstan/cli.js",
+      socketPath: path.join(w.root, ".capstan", "state", "control.sock"),
+      credential: w.owner,
+      nodePath: "/usr/bin/node",
+      baseEnvironment: { PATH: "/usr/bin:/bin" },
+      git: w.git,
+      now: () => clock,
+      runTeardown: async () => {
+        clock += 5 * 60_000;
+        return { status: "ok" };
+      },
+    });
+    const first = await slow.spawn("developer");
+    const released = await slow.release(first.agentId);
+    assert.deepEqual(
+      [released.paneClosed, released.worktreeRemoved, released.branchKept],
+      [true, true, false],
+    );
+  } finally {
+    w.cleanup();
   }
 });

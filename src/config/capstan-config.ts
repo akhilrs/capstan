@@ -318,10 +318,16 @@ export const DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS = 600;
 export const MAX_WORKTREE_SETUP_TIMEOUT_SECONDS = 3600;
 const MAX_WORKTREE_SETUP_CHARS = 1000;
 
+export const MAX_WORKTREE_TEARDOWN_TIMEOUT_SECONDS = 3600;
+export const DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_SECONDS = 60;
+
 export type ResolvedWorktree = {
-  /** A shell command run once in each new worktree, with the worktree as its working directory. */
-  readonly setup: string;
+  /** A shell command run once in each new worktree, with the worktree as its working directory. Absent when only `teardown` is set. */
+  readonly setup?: string;
   readonly setupTimeoutSeconds: number;
+  /** A shell command run in the project root just before a worktree is removed. */
+  readonly teardown?: string;
+  readonly teardownTimeoutSeconds?: number;
 };
 
 /** Names of environment variables copied from the daemon's environment into every agent it starts. */
@@ -754,22 +760,44 @@ export function parseCapstanConfig(
 }
 
 function resolveWorktree(table: Table): ResolvedWorktree | undefined {
-  rejectUnknownKeys(table, ["setup", "setup_timeout_seconds"], "worktree");
-  if (table.setup === undefined) {
-    if (table.setup_timeout_seconds !== undefined)
-      throw new ConfigError(
-        "worktree.setup_timeout_seconds is set without worktree.setup",
-      );
-    return undefined;
-  }
-  const setup = requiredString(
-    table.setup,
-    "worktree.setup",
-    MAX_WORKTREE_SETUP_CHARS,
+  rejectUnknownKeys(
+    table,
+    ["setup", "setup_timeout_seconds", "teardown", "teardown_timeout_seconds"],
+    "worktree",
   );
-  guardCredentialShape(setup, "worktree.setup");
+  if (table.setup === undefined && table.setup_timeout_seconds !== undefined)
+    throw new ConfigError(
+      "worktree.setup_timeout_seconds is set without worktree.setup",
+    );
+  if (
+    table.teardown === undefined &&
+    table.teardown_timeout_seconds !== undefined
+  )
+    throw new ConfigError(
+      "worktree.teardown_timeout_seconds is set without worktree.teardown",
+    );
+  if (table.setup === undefined && table.teardown === undefined)
+    return undefined;
+  let setup: string | undefined;
+  if (table.setup !== undefined) {
+    setup = requiredString(
+      table.setup,
+      "worktree.setup",
+      MAX_WORKTREE_SETUP_CHARS,
+    );
+    guardCredentialShape(setup, "worktree.setup");
+  }
+  let teardown: string | undefined;
+  if (table.teardown !== undefined) {
+    teardown = requiredString(
+      table.teardown,
+      "worktree.teardown",
+      MAX_WORKTREE_SETUP_CHARS,
+    );
+    guardCredentialShape(teardown, "worktree.teardown");
+  }
   return {
-    setup,
+    ...(setup === undefined ? {} : { setup }),
     setupTimeoutSeconds: optionalInteger(
       table.setup_timeout_seconds,
       "worktree.setup_timeout_seconds",
@@ -777,6 +805,18 @@ function resolveWorktree(table: Table): ResolvedWorktree | undefined {
       MAX_WORKTREE_SETUP_TIMEOUT_SECONDS,
       DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
     ),
+    ...(teardown === undefined
+      ? {}
+      : {
+          teardown,
+          teardownTimeoutSeconds: optionalInteger(
+            table.teardown_timeout_seconds,
+            "worktree.teardown_timeout_seconds",
+            1,
+            MAX_WORKTREE_TEARDOWN_TIMEOUT_SECONDS,
+            DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_SECONDS,
+          ),
+        }),
   };
 }
 

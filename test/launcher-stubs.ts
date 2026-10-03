@@ -352,7 +352,10 @@ export class StubGit implements GitRunner {
   worktreeDirtyCount() {
     return this.dirty;
   }
+  /** Names of the calls that matter for ordering, in call order. */
+  order: string[] = [];
   worktreeRemove(p: string) {
+    this.order.push("remove");
     this.removed.push(p);
     return { removed: this.removeOk, stderr: this.removeStderr };
   }

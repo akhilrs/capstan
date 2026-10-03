@@ -41,7 +41,10 @@ import {
   type PromptInput,
 } from "./prompts.js";
 import { choosePlacement, type LayoutPane } from "./layout.js";
-import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./config/capstan-config.js";
+import {
+  DEFAULT_WAIT_TIMEOUT_SECONDS,
+  DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_SECONDS,
+} from "./config/capstan-config.js";
 
 export const STEP_BUDGET_MS = 60_000;
 export const CLEANUP_BUDGET_MS = 30_000;
@@ -223,6 +226,8 @@ export interface LauncherOptions {
   readonly runSetup?: SetupRunner;
   /** Waits between attempts to start a worker; tests stub it. */
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  /** Runs the worktree teardown command; tests stub it. */
+  readonly runTeardown?: TeardownRunner;
 }
 
 interface Hub {
@@ -252,6 +257,14 @@ export type SetupRunner = (
   command: string,
   cwd: string,
   timeoutMs: number,
+) => Promise<SetupOutcome>;
+
+/** Runs the worktree teardown command with the environment it is given; tests stub it. */
+export type TeardownRunner = (
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  environment: NodeJS.ProcessEnv,
 ) => Promise<SetupOutcome>;
 
 const SETUP_OUTPUT_CHARS = 2000;
@@ -457,6 +470,7 @@ export class Launcher {
   readonly #syncRoles: (() => void) | undefined;
   readonly #runSetup: SetupRunner;
   readonly #sleep: (milliseconds: number) => Promise<void>;
+  readonly #runTeardown: TeardownRunner;
   #tail: Promise<unknown> = Promise.resolve();
   #active = 0;
   #cleanupFailed: LauncherStatus["cleanupFailed"][number][] = [];
@@ -492,6 +506,7 @@ export class Launcher {
           timeoutMs,
           this.#environment(null, true),
         ));
+    this.#runTeardown = options.runTeardown ?? runSetupCommand;
   }
 
   status(): LauncherStatus {
@@ -1852,12 +1867,14 @@ export class Launcher {
     worktreePath: string,
     budget: Budget,
   ): Promise<void> {
+    const setup = config.setup;
+    if (setup === undefined) return;
     budget.check("running the worktree setup");
     const started = this.#now();
     let outcome: SetupOutcome;
     try {
       outcome = await this.#runSetup(
-        config.setup,
+        setup,
         worktreePath,
         config.setupTimeoutSeconds * 1000,
       );
@@ -1865,7 +1882,7 @@ export class Launcher {
       budget.extend(Math.max(0, this.#now() - started));
     }
     if (outcome.status === "ok") return;
-    const command = oneLine(config.setup, 200);
+    const command = oneLine(setup, 200);
     if (outcome.status === "timeout")
       throw new LauncherError(
         "worktree_setup_failed",
@@ -1876,6 +1893,52 @@ export class Launcher {
       "worktree_setup_failed",
       `the setup of ${agentId} (${command}) failed with exit code ${outcome.exitCode ?? "none"}${tail === "" ? "" : `: ${tail}`}`,
     );
+  }
+
+  /** Runs the configured teardown command in the project root just before a worktree is removed. A failure or timeout is logged and never stops the removal. */
+  async #teardownWorktree(
+    agentId: string,
+    worktreePath: string,
+    budget: Budget,
+  ): Promise<void> {
+    const config = this.#config.worktree;
+    const teardown = config?.teardown;
+    if (config === undefined || teardown === undefined) return;
+    const timeoutSeconds =
+      config.teardownTimeoutSeconds ??
+      DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_SECONDS;
+    this.#log("teardown_started", { agentId });
+    const started = this.#now();
+    let outcome: SetupOutcome;
+    try {
+      outcome = await this.#runTeardown(
+        teardown,
+        this.#root,
+        timeoutSeconds * 1000,
+        {
+          ...this.#environment(null, true),
+          CAPSTAN_WORKTREE_PATH: worktreePath,
+          CAPSTAN_AGENT_ID: agentId,
+        },
+      );
+    } catch (error) {
+      outcome = {
+        status: "failed",
+        exitCode: null,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      budget.extend(Math.max(0, this.#now() - started));
+    }
+    if (outcome.status === "ok") return;
+    this.#log("teardown_failed", {
+      agentId,
+      exit: outcome.status === "timeout" ? "timeout" : outcome.exitCode,
+      output:
+        outcome.status === "failed"
+          ? oneLine(outcome.output, SETUP_OUTPUT_CHARS)
+          : "",
+    });
   }
 
   // ----------------------------------------------------------- placement
@@ -2056,6 +2119,7 @@ export class Launcher {
     }
     let worktreeRemoved: boolean | null = null;
     if (worktreePath !== undefined) {
+      await this.#teardownWorktree(agentId, worktreePath, budget);
       this.#log("worktree_removing", {
         agentId,
         dirty: this.#git.worktreeDirtyCount(worktreePath),
