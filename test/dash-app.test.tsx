@@ -8,7 +8,7 @@ import { createElement } from "react";
 import type { AppDeps, CallResult } from "../src/dash/app.js";
 import {
   NOW,
-  degraded,
+  noSupervisor,
   healthy,
   message,
   crowded,
@@ -129,11 +129,11 @@ test("every panel renders at 80x24 and at 120x40, with health and its reason in 
   }
 });
 
-test("a degraded run shows the reason beside the health word", async () => {
-  const app = await open(fixture(degraded()));
+test("a run with supervision on and no Supervisor says so beside the chip", async () => {
+  const app = await open(fixture(noSupervisor()));
   const frame = app.lastFrame()!;
-  assert.ok(frame.includes("DEGRADED"));
-  assert.ok(frame.includes("forced Supervisor evaluation failure"));
+  assert.ok(frame.includes("NO SUPERVISOR"));
+  assert.ok(frame.includes("starts with the next worker"));
   app.unmount();
 });
 

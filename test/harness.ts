@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
-import { tmpdir } from "node:os";
 import path from "node:path";
+import { removeTempDir, tempDir } from "./tmp.js";
 import { callDaemon } from "../src/client.js";
 import {
   startDaemonServer,
@@ -84,7 +83,7 @@ export async function harness(
     clock?: () => Date;
   } = {},
 ): Promise<Harness> {
-  const stateDirectory = mkdtempSync(path.join(tmpdir(), "capstan-daemon-"));
+  const stateDirectory = tempDir("capstan-daemon-");
   const info = projectInfo();
   const core = await ControllerCore.open({
     stateDirectory,
@@ -179,7 +178,7 @@ export async function harness(
 export async function close(h: Harness): Promise<void> {
   await h.server.close();
   h.core.close();
-  rmSync(h.stateDirectory, { recursive: true, force: true });
+  removeTempDir(h.stateDirectory);
 }
 
 export async function call(

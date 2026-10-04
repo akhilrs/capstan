@@ -1,5 +1,5 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────────────────────────────────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
-│ ○ SUPERVISION OFF  health reads degraded until supervision is enabled; this is the starting value, not a fault     workers ░░░░░░░░░░░░ 0/3   ● answering 1s │
+│ ○ SUPERVISION OFF  [supervision] enabled = false in capstan.toml                                                   workers ░░░░░░░░░░░░ 0/3   ● answering 1s │
 ╰─┤ supervision off ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
 ┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃│     SEQ TO           STATE       AGE N DETAIL                                │

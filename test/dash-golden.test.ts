@@ -13,7 +13,7 @@ import { makeTheme } from "../src/dash/theme.js";
 import { buildFrame, EMPTY_RINGS } from "../src/dash/view.js";
 import { modelOf, viewOf } from "./dash-view-helpers.js";
 import { cellWidth } from "../src/dash/format.js";
-import { NOW, crowded, showcase } from "./dash-fixtures.js";
+import { NOW, crowded, showcase, supervisionState } from "./dash-fixtures.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const goldenDirectory = path.join(root, "test", "golden");
@@ -128,62 +128,49 @@ test("a degraded run without a link wraps its reason, dims the stale frame and k
   matchesGolden("dash-100x30-no-link", lines);
 });
 
-test("a fresh project with supervision off does not look like a fault", () => {
+test("supervision off in config reads as off, not as a fault", () => {
   const status = showcase({
-    supervision: {
+    supervisionState: supervisionState({
       enabled: false,
-      health: "degraded",
-      targetEpoch: 0,
-      checkpointEpoch: null,
-      checkpointAssignmentId: null,
-      replacementAttempts: 0,
-    },
-    supervisionReason: null,
+      supervisor: null,
+      lastCheck: null,
+    }),
   });
   const lines = plainLines(
     buildFrame(modelOf(status), viewOf(100, 30), theme).lines,
   );
   assert.match(lines[1]!, /SUPERVISION OFF/);
-  assert.doesNotMatch(lines[1]!, /DEGRADED/);
-  assert.match(lines[2]!, /not a fault/);
+  assert.match(lines[2]!, /enabled = false/);
   assert.match(lines[3]!, /supervision off/);
-  const stale = showcase({
-    supervision: {
-      enabled: false,
-      health: "degraded",
-      targetEpoch: 3,
-      checkpointEpoch: null,
-      checkpointAssignmentId: null,
-      replacementAttempts: 1,
-    },
-    supervisionReason: "lost contact with developer-2",
+});
+
+test("supervision on with a Supervisor running shows its state, the last check and open findings", () => {
+  const status = showcase({
+    supervisionState: supervisionState({ openFindings: 2 }),
   });
-  const withReason = plainLines(
-    buildFrame(modelOf(stale), viewOf(100, 30), theme).lines,
+  const lines = plainLines(
+    buildFrame(modelOf(status), viewOf(100, 30), theme).lines,
   );
-  assert.match(withReason[1]!, /DEGRADED/);
-  assert.match(withReason[1]!, /lost contact with developer-2/);
-  assert.doesNotMatch(
-    withReason[2]!,
-    /epoch/,
-    "epochs mean nothing while supervision is off",
-  );
-  const catchingUp = showcase({
-    supervision: {
-      enabled: true,
-      health: "evaluating",
-      targetEpoch: 5,
-      checkpointEpoch: 4,
-      checkpointAssignmentId: null,
-      replacementAttempts: 0,
-    },
-    supervisionReason: null,
+  assert.match(lines[1]!, /SUPERVISED/);
+  assert.doesNotMatch(lines[1]!, /OFF|DEGRADED/);
+  const text = `${lines[1]!} ${lines[2]!}`;
+  assert.match(text, /supervisor-1 active/);
+  assert.match(text, /check acked 3m ago/);
+  assert.match(text, /2 open findings/);
+  assert.match(lines[3]!, /supervision on/);
+});
+
+test("supervision on with no Supervisor says it starts with the next worker", () => {
+  const status = showcase({
+    supervisionState: supervisionState({ supervisor: null, lastCheck: null }),
   });
-  const live = plainLines(
-    buildFrame(modelOf(catchingUp), viewOf(100, 30), theme).lines,
+  const lines = plainLines(
+    buildFrame(modelOf(status), viewOf(100, 30), theme).lines,
   );
-  assert.match(live[2]!, /epoch 4\/5/);
-  assert.match(withReason[2]!, /replacements 1/);
+  assert.match(lines[1]!, /NO SUPERVISOR/);
+  assert.doesNotMatch(lines[1]!, /OFF|DEGRADED/);
+  assert.match(`${lines[1]!} ${lines[2]!}`, /starts with the next worker/);
+  assert.match(lines[3]!, /supervision on/);
 });
 
 test("the colour build paints the frame with state colours and the NO_COLOR build with none", () => {
@@ -246,7 +233,9 @@ test("a changed row is marked with + under reduced motion and bold otherwise", (
 
 test("long text cut by the width never changes the frame size, even at the smallest size", () => {
   const long = showcase({
-    supervisionReason: "x".repeat(300),
+    supervisionState: supervisionState({
+      supervisor: { agentId: "x".repeat(300), state: "active" },
+    }),
     agents: Array.from({ length: 30 }, (_, i) => ({
       agentId: `a-very-long-agent-identifier-${i}`,
       roleName: "dev",

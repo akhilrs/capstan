@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { tempDir } from "./tmp.js";
 import { PaneLost } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
 import type {
@@ -62,7 +62,7 @@ export class StubAdapter implements LauncherAdapter {
   runError: Error | undefined;
   /** Where created worktrees are said to be; a test that runs a real command there points it at a real directory. */
   worktreeBase = "/tmp/work";
-  dir = mkdtempSync(path.join(tmpdir(), "capstan-launcher-prompts-"));
+  dir = tempDir("capstan-launcher-prompts-");
 
   // The PM's tab as the layout sees it: sizes in terminal cells.
   pmWorkspace: string | undefined;

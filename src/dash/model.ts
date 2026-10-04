@@ -6,8 +6,6 @@ export const WORKING_WINDOW_MS = 30_000;
 export const PIPELINE_ITEMS = 20;
 export const HIGHLIGHT_POLLS = 2;
 
-export type Health = "healthy" | "evaluating" | "degraded" | "unknown";
-
 export interface AgentRow {
   readonly id: string;
   readonly agentId: string;
@@ -84,6 +82,19 @@ export interface WorkRow {
   readonly fingerprint: string;
 }
 
+export interface SupervisionHeader {
+  /** `[supervision] enabled` in the config. */
+  readonly enabled: boolean;
+  readonly supervisor: { readonly id: string; readonly state: string } | null;
+  /** The newest routine check queued; ackedAt is null until it is acknowledged. */
+  readonly lastCheck: {
+    readonly state: string;
+    readonly queuedAt: string;
+    readonly ackedAt: string | null;
+  } | null;
+  readonly openFindings: number;
+}
+
 export interface DashModel {
   readonly header: {
     readonly projectId: string;
@@ -94,12 +105,8 @@ export interface DashModel {
       readonly reason: string;
       readonly actorId: string;
     } | null;
-    readonly supervisionEnabled: boolean;
-    readonly health: Health;
-    readonly healthReason: string | null;
-    readonly targetEpoch: number | null;
-    readonly checkpointEpoch: number | null;
-    readonly replacementAttempts: number;
+    /** The live supervision loop; null when the status carries no `supervisionState`. */
+    readonly supervision: SupervisionHeader | null;
     readonly workers: number;
     readonly workerLimit: number | null;
     /** Whole minutes of full auto left; present only while it is on. */
@@ -143,9 +150,6 @@ function textOrNull(value: unknown): string | null {
 }
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-function numOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** Workers are every active agent except the PM and the Supervisor, the same rule the launcher applies to `limits.max_workers`. */
@@ -222,12 +226,26 @@ export function buildDashModel(
   workerLimit: number | null,
 ): DashModel {
   const run = (status.run ?? {}) as Rec;
-  const supervision = (status.supervision ?? {}) as Rec;
-  const health = ((): Health => {
-    const value = supervision.health;
-    return value === "healthy" || value === "evaluating" || value === "degraded"
-      ? value
-      : "unknown";
+  const supervision = ((): SupervisionHeader | null => {
+    const state = status.supervisionState;
+    if (typeof state !== "object" || state === null) return null;
+    const rec = state as Rec;
+    const supervisor = rec.supervisor as Rec | null | undefined;
+    const check = rec.lastCheck as Rec | null | undefined;
+    return {
+      enabled: rec.enabled === true,
+      supervisor: supervisor
+        ? { id: text(supervisor.agentId), state: text(supervisor.state) }
+        : null,
+      lastCheck: check
+        ? {
+            state: text(check.state),
+            queuedAt: text(check.queuedAt),
+            ackedAt: textOrNull(check.ackedAt),
+          }
+        : null,
+      openFindings: num(rec.openFindings),
+    };
   })();
 
   const rawMessages = list(status.messages);
@@ -443,12 +461,7 @@ export function buildDashModel(
               reason: text(runPauseRecord.reason),
               actorId: text(runPauseRecord.actorId),
             },
-      supervisionEnabled: supervision.enabled === true,
-      health,
-      healthReason: textOrNull(status.supervisionReason),
-      targetEpoch: numOrNull(supervision.targetEpoch),
-      checkpointEpoch: numOrNull(supervision.checkpointEpoch),
-      replacementAttempts: num(supervision.replacementAttempts),
+      supervision,
       workers: active.filter((a) => isWorkerKind(a.kind)).length,
       workerLimit,
       ...operatorHeader(status.operator),

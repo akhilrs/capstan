@@ -13,33 +13,38 @@ import { harness, close } from "./harness.js";
 import { call } from "./harness.js";
 import {
   NOW,
-  degraded,
+  noSupervisor,
   healthy,
   iso,
   message,
   troubled,
 } from "./dash-fixtures.js";
 
-test("the header carries run state, health with its reason, supervision and workers against the limit", () => {
+test("the header carries run state, the live supervision state and workers against the limit", () => {
   const ok = buildDashModel(healthy(), NOW, 3);
   assert.deepEqual(ok.header, {
     projectId: "p1",
     runState: "active",
     runPause: null,
-    supervisionEnabled: true,
-    health: "healthy",
-    healthReason: null,
-    targetEpoch: 4,
-    checkpointEpoch: 4,
-    replacementAttempts: 0,
+    supervision: {
+      enabled: true,
+      supervisor: { id: "supervisor-1", state: "active" },
+      lastCheck: {
+        state: "acked",
+        queuedAt: iso(200),
+        ackedAt: iso(190),
+      },
+      openFindings: 0,
+    },
     workers: 1,
     workerLimit: 3,
   });
-  const bad = buildDashModel(degraded(), NOW, null);
-  assert.equal(bad.header.health, "degraded");
-  assert.equal(bad.header.healthReason, "forced Supervisor evaluation failure");
-  assert.equal(bad.header.workerLimit, null);
-  assert.equal(buildDashModel({}, NOW, null).header.health, "unknown");
+  const bare = buildDashModel(noSupervisor(), NOW, null);
+  assert.equal(bare.header.supervision?.enabled, true);
+  assert.equal(bare.header.supervision?.supervisor, null);
+  assert.equal(bare.header.supervision?.lastCheck, null);
+  assert.equal(bare.header.workerLimit, null);
+  assert.equal(buildDashModel({}, NOW, null).header.supervision, null);
 });
 
 test("workers are active agents other than the PM and the Supervisor", () => {
@@ -309,13 +314,11 @@ test("a finding is marked when its target has ended or is not in the agent list"
 test("text from agents is stripped of control characters before it is shown", () => {
   const model = buildDashModel(
     healthy({
-      supervisionReason: "bad\u001b[2Jreason‮",
       messages: [message("m", "failed", { stateReason: "x\ny" })],
     }),
     NOW,
     3,
   );
-  assert.ok(!/[\u001b‮\n]/.test(model.header.healthReason ?? ""));
   assert.equal(model.queue.messages[0]!.stateReason, "x y");
 });
 
@@ -352,7 +355,7 @@ test("a status produced by a real daemon builds a model without gaps", async () 
       3,
     );
     assert.equal(model.header.projectId, h.info.projectId);
-    assert.equal(model.header.health, "degraded");
+    assert.equal(model.header.supervision?.supervisor, null);
     assert.deepEqual(
       model.agents.map((a) => a.agentId).sort(),
       [h.developer.agentId, h.pm.agentId].sort(),

@@ -2176,9 +2176,18 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
 
     status(call) {
       try {
+        const { supervision: legacy, ...snapshot } =
+          core.statusSnapshot() as unknown as Record<string, unknown>;
         const result: Record<string, unknown> = {
-          ...(core.statusSnapshot() as unknown as Record<string, unknown>),
+          ...snapshot,
           agents: core.listAgents(),
+          // The live loop's state; `legacySupervision` is the old control row, which nothing enables any more.
+          supervisionState: {
+            enabled: deps.config?.supervision?.enabled === true,
+            checkSeconds: deps.config?.supervision?.checkSeconds ?? null,
+            ...core.supervisionActivity(),
+          },
+          legacySupervision: legacy,
         };
         if (call.identity.role === "operator") {
           const unresolved = core.unresolvedMessages(
@@ -2199,7 +2208,9 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             stateReason: m.stateReason,
             lastNotifiedAt: m.lastNotifiedAt,
           }));
-          result.supervisionReason = core.supervisionReason(call.credential);
+          result.legacySupervisionReason = core.supervisionReason(
+            call.credential,
+          );
           result.messagesTruncated = unresolved.truncated;
           result.stalledAgentIds = snapshot.stalledAgentIds;
           result.lostAgentIds = snapshot.lostAgentIds ?? [];

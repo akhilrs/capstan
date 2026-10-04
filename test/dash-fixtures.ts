@@ -5,19 +5,25 @@ export const NOW = Date.parse("2026-10-02T12:00:00Z");
 export const iso = (secondsAgo: number): string =>
   new Date(NOW - secondsAgo * 1000).toISOString();
 
+export const supervisionState = (overrides: Status = {}): Status => ({
+  enabled: true,
+  checkSeconds: 300,
+  supervisor: { agentId: "supervisor-1", state: "active" },
+  lastCheck: {
+    messageId: "m-check",
+    state: "acked",
+    queuedAt: iso(200),
+    ackedAt: iso(190),
+  },
+  openFindings: 0,
+  ...overrides,
+});
+
 export function healthy(overrides: Status = {}): Status {
   return {
     projectId: "p1",
     run: { state: "active", stateVersion: 3 },
-    supervision: {
-      enabled: true,
-      health: "healthy",
-      targetEpoch: 4,
-      checkpointEpoch: 4,
-      checkpointAssignmentId: null,
-      replacementAttempts: 0,
-    },
-    supervisionReason: null,
+    supervisionState: supervisionState(),
     agents: [
       {
         agentId: "pm-agent",
@@ -72,17 +78,9 @@ export function message(
   };
 }
 
-export function degraded(): Status {
+export function noSupervisor(): Status {
   return healthy({
-    supervision: {
-      enabled: true,
-      health: "degraded",
-      targetEpoch: 4,
-      checkpointEpoch: null,
-      checkpointAssignmentId: null,
-      replacementAttempts: 1,
-    },
-    supervisionReason: "forced Supervisor evaluation failure",
+    supervisionState: supervisionState({ supervisor: null, lastCheck: null }),
   });
 }
 
@@ -200,15 +198,7 @@ export function showcase(overrides: Status = {}): Status {
   });
   return healthy({
     projectId: "capstan",
-    supervision: {
-      enabled: true,
-      health: "degraded",
-      targetEpoch: 4,
-      checkpointEpoch: 4,
-      checkpointAssignmentId: null,
-      replacementAttempts: 0,
-    },
-    supervisionReason: "lost contact with developer-2 (pane p4 not responding)",
+    supervisionState: supervisionState({ openFindings: 1 }),
     agents: [
       agent("pm-1", "PM", 1, "active", 95),
       agent("supervisor-1", "Supervisor", 1, "active", 45),
@@ -342,14 +332,11 @@ export function crowded(overrides: Status = {}): Status {
     agent(id, kind, 1, "ended", ago);
   return healthy({
     projectId: "capstan",
-    supervision: {
+    supervisionState: supervisionState({
       enabled: false,
-      health: "degraded",
-      targetEpoch: 0,
-      checkpointEpoch: null,
-      checkpointAssignmentId: null,
-      replacementAttempts: 0,
-    },
+      supervisor: null,
+      lastCheck: null,
+    }),
     agents: [
       ended("supervisor-1", "Supervisor", 4000),
       ended("designer-1", "Designer", 3500),

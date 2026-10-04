@@ -110,7 +110,7 @@ test("the operator's status carries the reason supervision is degraded; an agent
     const before = await call(h, h.owner, "status");
     assert.ok(before.ok);
     assert.equal(
-      (before.result as Record<string, unknown>).supervisionReason,
+      (before.result as Record<string, unknown>).legacySupervisionReason,
       null,
     );
     h.core.markSupervisionDegraded(
@@ -120,13 +120,36 @@ test("the operator's status carries the reason supervision is degraded; an agent
     const after = await call(h, h.owner, "status");
     assert.ok(after.ok);
     assert.equal(
-      (after.result as Record<string, unknown>).supervisionReason,
+      (after.result as Record<string, unknown>).legacySupervisionReason,
       "forced Supervisor evaluation failure",
     );
     const agent = await call(h, h.pm.credential, "status");
     assert.ok(agent.ok);
-    assert.ok(!("supervisionReason" in (agent.result as object)));
+    assert.ok(!("legacySupervisionReason" in (agent.result as object)));
     assert.throws(() => h.core.supervisionReason(h.pm.credential));
+  } finally {
+    await close(h);
+  }
+});
+
+test("status reports the live supervision state and keeps the control row under a legacy key", async () => {
+  const h = await harness();
+  try {
+    const answer = await call(h, h.owner, "status");
+    assert.ok(answer.ok);
+    const result = answer.result as Record<string, unknown>;
+    assert.deepEqual(result.supervisionState, {
+      enabled: false,
+      checkSeconds: null,
+      supervisor: null,
+      lastCheck: null,
+      openFindings: 0,
+    });
+    assert.ok(!("supervision" in result));
+    assert.equal(
+      (result.legacySupervision as { enabled: boolean }).enabled,
+      false,
+    );
   } finally {
     await close(h);
   }

@@ -957,39 +957,34 @@ function healthChip(
       reasonRole: "bad",
     };
   const h = model.header;
-  switch (h.health) {
-    case "healthy":
-      return {
-        text: `${g.idle} HEALTHY`,
-        role: "ok",
-        reason: "",
-        reasonRole: "dim",
-      };
-    case "evaluating":
-      return {
-        text: `${g.idle} EVALUATING`,
-        role: "warn",
-        reason: "",
-        reasonRole: "dim",
-      };
-    case "degraded":
-      if (!h.supervisionEnabled && h.healthReason === null)
-        return {
-          text: `${g.ended} SUPERVISION OFF`,
-          role: "dim",
-          reason:
-            "health reads degraded until supervision is enabled; this is the starting value, not a fault",
-          reasonRole: "dim",
-        };
-      return {
-        text: `${g.attention} DEGRADED`,
-        role: "bad",
-        reason: h.healthReason ?? "reason not recorded",
-        reasonRole: "bad",
-      };
-    default:
-      return { text: "? UNKNOWN", role: "dim", reason: "", reasonRole: "dim" };
-  }
+  const sup = h.supervision;
+  if (sup === null)
+    return { text: "? UNKNOWN", role: "dim", reason: "", reasonRole: "dim" };
+  if (!sup.enabled)
+    return {
+      text: `${g.ended} SUPERVISION OFF`,
+      role: "dim",
+      reason: "[supervision] enabled = false in capstan.toml",
+      reasonRole: "dim",
+    };
+  const findings = `${sup.openFindings} open finding${sup.openFindings === 1 ? "" : "s"}`;
+  if (sup.supervisor === null)
+    return {
+      text: `${g.idle} NO SUPERVISOR`,
+      role: "warn",
+      reason: `supervision on, starts with the next worker; ${findings}`,
+      reasonRole: "dim",
+    };
+  const check =
+    sup.lastCheck === null
+      ? "no check yet"
+      : `check ${sup.lastCheck.state} ${age(sup.lastCheck.ackedAt ?? sup.lastCheck.queuedAt, view.nowMs)} ago`;
+  return {
+    text: `${g.idle} SUPERVISED`,
+    role: "ok",
+    reason: `${sup.supervisor.id} ${sup.supervisor.state}; ${check}; ${findings}`,
+    reasonRole: "dim",
+  };
 }
 
 function headerLines(
@@ -1110,28 +1105,9 @@ function headerLines(
       ];
   const bottomTabs: Tab[] = [
     {
-      text: `supervision ${h.supervisionEnabled ? "on" : "off"}`,
+      text: `supervision ${h.supervision?.enabled === true ? "on" : "off"}`,
       color: color("fg"),
     },
-    ...(h.supervisionEnabled &&
-    h.targetEpoch !== null &&
-    h.targetEpoch > 0 &&
-    h.checkpointEpoch !== h.targetEpoch
-      ? [
-          {
-            text: `epoch ${h.checkpointEpoch ?? "-"}/${h.targetEpoch}`,
-            color: color("warn"),
-          },
-        ]
-      : []),
-    ...(h.replacementAttempts > 0
-      ? [
-          {
-            text: `replacements ${h.replacementAttempts}`,
-            color: color("warn"),
-          },
-        ]
-      : []),
   ];
   return [
     top,

@@ -1,6 +1,6 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
-│ ▲ DEGRADED                                       workers ██████░░ 3/4   ● 1s │
-│   lost contact with developer-2 (pane p4 not responding)                     │
+│ ● SUPERVISED                                     workers ██████░░ 3/4   ● 1s │
+│   supervisor-1 active; check acked 3m ago; 1 open finding                    │
 ╰─┤ supervision on ├───────────────────────────────────────────────────────────╯
 ╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮
 │   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │

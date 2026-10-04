@@ -1472,6 +1472,20 @@ export interface FindingInput {
   readonly escalationRoute: string;
 }
 
+export interface SupervisionActivity {
+  readonly supervisor: {
+    readonly agentId: string;
+    readonly state: string;
+  } | null;
+  readonly lastCheck: {
+    readonly messageId: string;
+    readonly state: string;
+    readonly queuedAt: string;
+    readonly ackedAt: string | null;
+  } | null;
+  readonly openFindings: number;
+}
+
 export interface ControllerStatus {
   readonly projectId: string;
   readonly run: { readonly state: string; readonly stateVersion: number };
@@ -16178,6 +16192,51 @@ export class ControllerCore {
       )
       .get(this.#projectId) as { reason: unknown } | undefined;
     return typeof row?.reason === "string" ? row.reason : null;
+  }
+
+  /** What the live supervision loop is doing now: its active Supervisor, the newest routine check it queued and the open findings. */
+  supervisionActivity(): SupervisionActivity {
+    this.#assertOpen();
+    const supervisor = this.#database
+      .prepare(
+        "SELECT agent_id, state FROM agents WHERE project_id = ? AND kind = 'Supervisor' AND state = 'active' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(this.#projectId) as { agent_id: string; state: string } | undefined;
+    const check = this.#database
+      .prepare(
+        `SELECT m.message_id, m.state, m.queued_at, m.acked_at
+         FROM supervision_checks c JOIN messages m ON m.project_id = c.project_id AND m.message_id = c.message_id
+         WHERE c.project_id = ? ORDER BY m.sequence DESC LIMIT 1`,
+      )
+      .get(this.#projectId) as
+      | {
+          message_id: string;
+          state: string;
+          queued_at: string;
+          acked_at: string | null;
+        }
+      | undefined;
+    const open = this.#database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM agent_findings WHERE project_id = ? AND state = 'open'",
+      )
+      .get(this.#projectId) as { n: number };
+    return {
+      supervisor:
+        supervisor === undefined
+          ? null
+          : { agentId: supervisor.agent_id, state: supervisor.state },
+      lastCheck:
+        check === undefined
+          ? null
+          : {
+              messageId: check.message_id,
+              state: check.state,
+              queuedAt: check.queued_at,
+              ackedAt: check.acked_at,
+            },
+      openFindings: open.n,
+    };
   }
 
   #planStatusEntries(): PlanStatusEntry[] {
