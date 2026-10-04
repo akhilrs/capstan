@@ -10,6 +10,7 @@
 
 ![Node.js 24](https://img.shields.io/badge/node-24.x-3c873a?logo=node.js&logoColor=white)
 ![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Version 0.1.1](https://img.shields.io/badge/version-0.1.1-5f8fa8)
 ![Status: pre-release](https://img.shields.io/badge/status-pre--release-a3672a)
 
@@ -358,7 +359,7 @@ Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a 
 
 ## Contributing
 
-Issues and pull requests are welcome. Before you open one:
+Issues and pull requests are welcome; contributions are accepted under the [MIT License](LICENSE). Before you open one:
 
 - run `npm run check` and keep it green;
 - describe behaviour as the code has it, and update the [reference docs](docs/reference/) with any change to commands, config keys or messages;
@@ -366,7 +367,7 @@ Issues and pull requests are welcome. Before you open one:
 
 ## License
 
-No license file has been added yet. Add one before publishing the repository.
+Capstan is released under the [MIT License](LICENSE).
 
 ## Further reading
 

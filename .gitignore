@@ -7,3 +7,5 @@ coverage/
 *.sqlite-shm
 *.db
 /release/
+.nexora.toml
+.nexora.toml~

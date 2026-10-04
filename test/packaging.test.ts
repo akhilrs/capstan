@@ -58,9 +58,11 @@ test("package.json packaging invariants", () => {
     "dist/src",
     "dist/migrations",
     "README.md",
+    "LICENSE",
     "npm-shrinkwrap.json",
   ]);
   assert.equal(pkg.private, true);
+  assert.equal(pkg.license, "MIT");
   assert.deepEqual(pkg.bin, { cstan: "./dist/src/cli.js" });
   assert.equal(pkg.scripts.prepack, "npm run build");
   assert.equal(pkg.scripts.release, "node scripts/release.mjs");
