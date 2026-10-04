@@ -93,12 +93,12 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
-Bun is not supported yet: a plain `bun install -g` gives a broken `cstan` (see [docs/reference/install.md](docs/reference/install.md#bun)).
+Bun has not been tested since the native dependencies were removed. When installed that way `cstan` still runs on Node 24. The recommended installs are the `curl` one-liner above (standalone binary on Linux x64/arm64) or the npm tarball (see [docs/reference/install.md](docs/reference/install.md#bun)).
 
 Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
 
 > [!NOTE]
-> The installer downloads a GitHub release. Until `v0.1.1` is published, install from a local tarball (see the install reference) or from source (see [Development](#development)).
+> The installer downloads a GitHub release. Binaries, the npm tarball and `SHA256SUMS` are on the [Releases page](https://github.com/akhilrs/capstan/releases). To build from source, see [Development](#development).
 
 Then, in the root of the git repository you want the team to work on:
 

@@ -2,7 +2,7 @@
 
 Capstan installs as the `cstan` command. [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the standalone binary of a release (no Node.js needed), checks it against `SHA256SUMS`, and links the command. Where the release has no binary for the machine, or with `--no-binary`, it installs the npm tarball instead (Node 24 and npm). It never reads stdin and never uses `sudo`.
 
-> Until a release (`v0.1.1`) is published on GitHub and `main` is pushed, only the local paths (`--binary <file>`, `--tarball <file>`) work. The release download and the `curl | sh` URL need both.
+> Releases (binaries, the npm tarball and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
 
 ## Requirements
 
@@ -107,7 +107,9 @@ Test a release download without GitHub by serving `download/v<version>/` (the ta
 
 ## Bun
 
-Not supported as an installer for the tarball: `cstan` runs on Node 24 through its shebang. The standalone binary needs neither Bun nor Node. Earlier versions failed under Bun because Bun skipped the native build of a dependency; the native dependencies are gone, so that failure no longer applies, but a Bun install is untested.
+Bun is not tested since the native dependencies were removed. `cstan` runs on Node 24 through its shebang, so it still runs on Node when installed that way. The recommended installs are the `curl` one-liner (standalone binary on Linux x64/arm64, needs neither Bun nor Node) or the npm tarball.
+
+History: before the native dependencies (`fs-ext`, `better-sqlite3`) were removed, a plain `bun install -g` gave a broken `cstan` because Bun skipped the native build. That no longer applies.
 
 ## Maintainer release steps
 
