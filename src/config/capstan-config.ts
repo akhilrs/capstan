@@ -74,8 +74,8 @@ check_seconds = 300
 # src/researcher-policy.ts; its MCP servers come from [mcp_servers.<name>] and the role's mcp key.
 # The curl denies are guards, not a sandbox: permission_mode "default" plus the strict allow list is
 # the real control. While enabled = false, nothing about a Researcher reaches an agent. To use it,
-# remove the leading # from this table, from [mcp_servers.playwright] and from [roles.researcher]
-# below. The role must differ from the architect and operator roles.
+# remove the leading # from this table and from [roles.researcher] below; [mcp_servers.playwright] is
+# already defined for the designer. The role must differ from the architect and operator roles.
 # [researcher]
 # enabled = true
 # role = "researcher"
@@ -84,9 +84,11 @@ check_seconds = 300
 
 # An MCP server a role may use (roles.<name>.mcp lists server names). The name becomes the
 # mcp__<name>__ tool prefix. Pin the package version; an unpinned package (@latest or no @version) is warned about.
-# [mcp_servers.playwright]
-# command = "npx"
-# args = ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
+# The designer and the optional researcher share the playwright server below. To switch it off for the
+# designer, remove its mcp line (its prompt then reports the Playwright checks as unverified).
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
 
 # Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
 # which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
@@ -146,9 +148,11 @@ prompt = "You implement code changes. Work only in your own worktree and commit 
 kind = "Developer"
 host = "claude"
 permission_mode = "acceptEdits"
-allow = ["Bash(git *)"]
+mcp = ["playwright"]
+allow = ["Bash(git *)", "Skill", "Artifact", "DesignSync", "mcp__playwright", "Bash(python3 -m http.server *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
-prompt = "You design and build user interface and visual changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
+# The designer's workflow lives in roles/designer.md, which \`cstan init\` writes. Edit that file to change it.
+prompt_file = "roles/designer.md"
 
 [roles.reviewer]
 kind = "Verifier"

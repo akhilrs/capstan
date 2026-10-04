@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -10,6 +16,10 @@ import {
   loadCapstanConfig,
   type CapstanConfig,
 } from "../src/config/capstan-config.js";
+import {
+  DESIGNER_PROMPT,
+  DESIGNER_PROMPT_PATH,
+} from "../src/roles/designer-prompt.js";
 import { digestJson } from "../src/controller/canonical.js";
 import { RESEARCHER_REQUIRED_DENY } from "../src/researcher-policy.js";
 
@@ -82,6 +92,13 @@ function load(content: string): CapstanConfig {
   try {
     const file = path.join(directory, CONFIG_FILE_NAME);
     writeFileSync(file, content, { mode: 0o600 });
+    if (content.includes(`prompt_file = "${DESIGNER_PROMPT_PATH}"`)) {
+      mkdirSync(path.join(directory, "roles"));
+      writeFileSync(
+        path.join(directory, DESIGNER_PROMPT_PATH),
+        DESIGNER_PROMPT,
+      );
+    }
     chmodSync(file, 0o600);
     return loadCapstanConfig(directory);
   } finally {
@@ -343,21 +360,16 @@ test("an unpinned @latest mcp argument is warned about", () => {
   assert.ok(!load(BASE).warnings.some((w) => /unpinned/.test(w)));
 });
 
-test("uncommenting the three researcher blocks of the starter config loads", () => {
+test("uncommenting the researcher blocks of the starter config loads", () => {
   assert.ok(STARTER_CONFIG.includes("# [researcher]"));
-  assert.ok(STARTER_CONFIG.includes("# [mcp_servers.playwright]"));
+  assert.ok(STARTER_CONFIG.includes("\n[mcp_servers.playwright]\n"));
   assert.ok(STARTER_CONFIG.includes("# [roles.researcher]"));
   load(STARTER_CONFIG);
   const lines = STARTER_CONFIG.split("\n");
   const out: string[] = [];
   let active = false;
   for (const line of lines) {
-    if (
-      /^# \[(researcher|mcp_servers\.playwright|roles\.researcher)\]$/.test(
-        line,
-      )
-    )
-      active = true;
+    if (/^# \[(researcher|roles\.researcher)\]$/.test(line)) active = true;
     else if (active && !/^# [a-z_]+ = /.test(line)) active = false;
     out.push(active ? line.replace(/^# /, "") : line);
   }

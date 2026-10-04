@@ -45,7 +45,33 @@ cstan dash            # watch the team (optional)
 | `[notifications]`                                                       | `herdr`, `fallback`                                                                                                                                                                                                                                                    | At least one must be true.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `[timers]`                                                              | `max_deferral_seconds`, `max_busy_deferral_seconds`, `pm_ack_timeout_seconds`, `pm_notify_after_seconds`, `notify_interval_seconds`, `stall_after_seconds`, `worker_ack_timeout_seconds`, `finding_check_seconds`, `pm_wake_after_seconds`, `pm_wake_interval_seconds` | Defaults and ranges are in `TIMER_DEFAULTS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
-The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`src/prompts.ts`) followed by the role's own `prompt`.
+The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`src/prompts.ts`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` is the one starter role with a `prompt_file`; see [The designer role](#the-designer-role).
+
+### `prompt_file`
+
+A role may set `prompt_file` instead of `prompt` (never both). The rules:
+
+- The path is relative to the project root and must stay inside it.
+- It must be a regular file of at most 64 KiB, valid UTF-8, with no control characters and no text that looks like a credential.
+- It is read when the config loads and again when an agent launches, so an edit takes effect at the next launch.
+- `cstan config check` prints the file's path and its SHA-256 hash for the role. A missing file fails the load with `prompt_file does not exist`.
+
+### The designer role
+
+`cstan init` writes `roles/designer.md` next to `capstan.toml`, and the starter `[roles.designer]` points at it. The file holds the designer's workflow: Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. Edit the file to change the workflow; `cstan init` never overwrites an existing `roles/designer.md`, and it writes none when `capstan.toml` already exists.
+
+The starter role sets:
+
+```toml
+[roles.designer]
+mcp = ["playwright"]
+allow = ["Bash(git *)", "Skill", "Artifact", "DesignSync", "mcp__playwright", "Bash(python3 -m http.server *)"]
+prompt_file = "roles/designer.md"
+```
+
+`[mcp_servers.playwright]` (pinned `@playwright/mcp`, headless and isolated) is defined in the starter file and shared with the optional researcher. `Artifact` and `DesignSync` exist only when Claude Code on the machine is signed in to claude.ai; without them the prompt tells the designer to say so and report the work as unverified. `DesignSync` is allowed in full, so only the prompt keeps it read-only. Because `mcp` makes Claude Code run with `--strict-mcp-config`, the designer sees only the servers it lists, not your other MCP servers.
+
+To switch Playwright off for the designer, remove the `mcp` line and the `mcp__playwright` allow rule. The prompt then reports the screenshot and contrast checks as unverified. To adopt the workflow in an existing `capstan.toml`, add those three lines to `[roles.designer]`, remove its `prompt`, define `[mcp_servers.playwright]`, and copy `roles/designer.md` from a fresh `cstan init`.
 
 `[researcher]` (`enabled`, `role`, `output_dir`, `user_agent`) turns on the web-research role; `[mcp_servers.<name>]` (`command`, optional `args`) defines an MCP server and `roles.<name>.mcp` lists the servers a `claude`-host role may use. See the [Researcher reference](researcher.md).
 

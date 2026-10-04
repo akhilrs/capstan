@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -10,6 +16,10 @@ import {
   loadCapstanConfig,
   type CapstanConfig,
 } from "../src/config/capstan-config.js";
+import {
+  DESIGNER_PROMPT,
+  DESIGNER_PROMPT_PATH,
+} from "../src/roles/designer-prompt.js";
 
 const DENY = `["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]`;
 
@@ -58,6 +68,13 @@ function load(content: string): CapstanConfig {
   try {
     const file = path.join(directory, CONFIG_FILE_NAME);
     writeFileSync(file, content, { mode: 0o600 });
+    if (content.includes(`prompt_file = "${DESIGNER_PROMPT_PATH}"`)) {
+      mkdirSync(path.join(directory, "roles"));
+      writeFileSync(
+        path.join(directory, DESIGNER_PROMPT_PATH),
+        DESIGNER_PROMPT,
+      );
+    }
     chmodSync(file, 0o600);
     return loadCapstanConfig(directory);
   } finally {

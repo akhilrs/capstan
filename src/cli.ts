@@ -49,6 +49,10 @@ import {
   loadCapstanConfig,
   type CapstanConfig,
 } from "./config/capstan-config.js";
+import {
+  DESIGNER_PROMPT,
+  DESIGNER_PROMPT_PATH,
+} from "./roles/designer-prompt.js";
 
 const CONFIG_NAME = ".capstan/project.json";
 const KEY_NAME = ".capstan/operator.key";
@@ -1061,8 +1065,28 @@ async function runCli(argv: string[]): Promise<number> {
         throw error;
       starterWritten = false;
     }
+    let designerLine = "";
+    if (starterWritten) {
+      const designerPath = path.join(cwd, DESIGNER_PROMPT_PATH);
+      fs.mkdirSync(path.dirname(designerPath), { recursive: true });
+      try {
+        fs.writeFileSync(designerPath, DESIGNER_PROMPT, {
+          flag: "wx",
+          mode: 0o644,
+        });
+        designerLine = `Wrote ${DESIGNER_PROMPT_PATH}\n`;
+      } catch (error) {
+        if (!(
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EEXIST"
+        ))
+          throw error;
+        designerLine = `Kept existing ${DESIGNER_PROMPT_PATH}\n`;
+      }
+    }
     process.stdout.write(
-      `${starterWritten ? `Wrote starter ${CONFIG_FILE_NAME}\n` : `Kept existing ${CONFIG_FILE_NAME}\n`}Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
+      `${starterWritten ? `Wrote starter ${CONFIG_FILE_NAME}\n` : `Kept existing ${CONFIG_FILE_NAME}\n`}${designerLine}Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
     );
     return EXIT.ok;
   }

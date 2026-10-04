@@ -33,6 +33,7 @@ import {
   syncConfiguredRoles,
 } from "../src/cli.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
+import { DESIGNER_PROMPT } from "../src/roles/designer-prompt.js";
 import { ControllerCore } from "../src/controller/core.js";
 import type { MutationContext } from "../src/controller/types.js";
 const cli = path.resolve("dist/src/cli.js");
@@ -983,6 +984,11 @@ test("cstan init writes a starter capstan.toml and never replaces an existing on
       resolved.roles.map((role) => role.name),
       ["pm", "developer", "designer", "reviewer", "tester", "supervisor"],
     );
+    assert.match(created.stdout, /Wrote roles\/designer\.md/);
+    assert.equal(
+      readFileSync(path.join(fresh, "roles", "designer.md"), "utf8"),
+      DESIGNER_PROMPT,
+    );
 
     const custom =
       'schema_version = 1\n# mine\n[hosts.h]\nkind = "claude"\n[roles.lead]\nkind = "PM"\nhost = "h"\n';
@@ -997,6 +1003,33 @@ test("cstan init writes a starter capstan.toml and never replaces an existing on
   } finally {
     rmSync(fresh, { recursive: true, force: true });
     rmSync(existing, { recursive: true, force: true });
+  }
+});
+
+test("cstan init keeps an existing roles/designer.md and writes no role file next to a kept capstan.toml", () => {
+  const withRole = mkdtempSync(path.join(os.tmpdir(), "cstan-role-keep-"));
+  const withConfig = mkdtempSync(path.join(os.tmpdir(), "cstan-role-cfg-"));
+  try {
+    mkdirSync(path.join(withRole, "roles"));
+    writeFileSync(path.join(withRole, "roles", "designer.md"), "mine\n");
+    const kept = invoke(withRole, "init");
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.match(kept.stdout, /Kept existing roles\/designer\.md/);
+    assert.equal(
+      readFileSync(path.join(withRole, "roles", "designer.md"), "utf8"),
+      "mine\n",
+    );
+    writeFileSync(
+      path.join(withConfig, "capstan.toml"),
+      'schema_version = 1\n[hosts.h]\nkind = "claude"\n[roles.lead]\nkind = "PM"\nhost = "h"\n',
+      { mode: 0o600 },
+    );
+    const second = invoke(withConfig, "init");
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(existsSync(path.join(withConfig, "roles")), false);
+  } finally {
+    rmSync(withRole, { recursive: true, force: true });
+    rmSync(withConfig, { recursive: true, force: true });
   }
 });
 

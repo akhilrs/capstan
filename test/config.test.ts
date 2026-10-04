@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -22,6 +23,10 @@ import {
   STARTER_CONFIG,
   loadCapstanConfig,
 } from "../src/config/capstan-config.js";
+import {
+  DESIGNER_PROMPT,
+  DESIGNER_PROMPT_PATH,
+} from "../src/roles/designer-prompt.js";
 
 const VALID = `schema_version = 1
 
@@ -49,6 +54,11 @@ function write(
   const file = path.join(directory, CONFIG_FILE_NAME);
   writeFileSync(file, content, { mode });
   chmodSync(file, mode);
+  // The starter's designer role points at roles/designer.md, which `cstan init` writes next to it.
+  if (content.includes(`prompt_file = "${DESIGNER_PROMPT_PATH}"`)) {
+    mkdirSync(path.join(directory, "roles"), { recursive: true });
+    writeFileSync(path.join(directory, DESIGNER_PROMPT_PATH), DESIGNER_PROMPT);
+  }
 }
 
 function withConfig<T>(content: string | Buffer, run: (dir: string) => T): T {
@@ -1898,4 +1908,64 @@ test("the starter configuration carries a commented [prompt_relay] example that 
     assert.equal(config.promptRelay.enabled, true);
     assert.equal(config.promptRelay.captureTtlSeconds, 600);
   });
+});
+
+test("the starter designer role reads roles/designer.md, uses the playwright MCP server and fails without the file", () => {
+  withConfig(STARTER_CONFIG, (directory) => {
+    const designer = loadCapstanConfig(directory).roles.find(
+      (r) => r.name === "designer",
+    )!;
+    assert.deepEqual(
+      designer.mcp?.map((server) => server.name),
+      ["playwright"],
+    );
+    assert.deepEqual(designer.allow, [
+      "Bash(git *)",
+      "Skill",
+      "Artifact",
+      "DesignSync",
+      "mcp__playwright",
+      "Bash(python3 -m http.server *)",
+    ]);
+    assert.deepEqual(designer.deny, ["Bash(git push)", "Bash(git push *)"]);
+    assert.equal(designer.prompt.source, "file");
+    assert.equal(designer.promptText, DESIGNER_PROMPT);
+    assert.equal(
+      designer.prompt.hash,
+      createHash("sha256").update(DESIGNER_PROMPT).digest("hex"),
+    );
+  });
+  withConfig(STARTER_CONFIG, (directory) => {
+    rmSync(path.join(directory, "roles"), { recursive: true });
+    assert.throws(
+      () => loadCapstanConfig(directory),
+      /roles\.designer\.prompt_file does not exist/,
+    );
+  });
+});
+
+test("a role with prompt_file resolves its text, source and hash from the file", () => {
+  const text = "Do the thing.\nThen stop.\n";
+  const directory = projectDirectory();
+  try {
+    writeFileSync(path.join(directory, "p.md"), text);
+    write(
+      directory,
+      VALID.replace(
+        'kind = "Verifier"',
+        'kind = "Verifier"\nprompt_file = "p.md"',
+      ),
+    );
+    const role = loadCapstanConfig(directory).roles.find(
+      (r) => r.kind === "Verifier",
+    )!;
+    assert.equal(role.promptText, text);
+    assert.equal(role.prompt.source, "file");
+    assert.equal(
+      role.prompt.hash,
+      createHash("sha256").update(text).digest("hex"),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

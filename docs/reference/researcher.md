@@ -8,7 +8,7 @@ An optional **Researcher** agent looks things up on the web for the PM and write
 
 **Enable it.**
 
-1. In `capstan.toml`, uncomment the three blocks the starter file carries (the wording of the comments may differ; the keys are fixed):
+1. In `capstan.toml`, uncomment the two blocks the starter file carries, `[researcher]` and `[roles.researcher]` (the wording of the comments may differ; the keys are fixed). The starter file already defines `[mcp_servers.playwright]`, shared with the designer role, so do not add it a second time (a duplicate table fails the config load):
 
 ```toml
 [researcher]
@@ -16,10 +16,6 @@ enabled = true
 role = "researcher"
 output_dir = "docs/research"
 user_agent = "capstan-researcher/1.0 (research bot; contact: project owner)"
-
-[mcp_servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp@<pinned version>", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
 
 [roles.researcher]
 kind = "Developer"

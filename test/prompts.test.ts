@@ -1004,3 +1004,16 @@ test("every worker kind and the supervisor carry the mail rules, and the PM line
   });
   assert.match(pm, /waits in its queue until the worker runs `cstan inbox`/);
 });
+
+test("a Developer prompt carries the role prompt text after the built-in reference", () => {
+  const rolePrompt = "Design carefully.\nThen verify.\n";
+  const text = buildRolePrompt({
+    roleName: "designer",
+    kind: "Developer",
+    agentId: "developer-1",
+    waitTimeoutSeconds: 90,
+    rolePrompt,
+  });
+  assert.ok(text.indexOf("cstan inbox") < text.indexOf("Design carefully."));
+  assert.ok(text.endsWith(rolePrompt));
+});

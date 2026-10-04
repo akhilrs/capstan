@@ -103,7 +103,7 @@ Re-running the installer upgrades. Options, layout, checksum verification and tr
 Then, in the root of the git repository you want the team to work on:
 
 ```sh
-cstan init            # creates .capstan/ and a starter capstan.toml
+cstan init            # creates .capstan/, a starter capstan.toml and roles/designer.md
 cstan config check    # validates capstan.toml and prints the resolved config
 cstan start           # starts the controller and launches the PM in Herdr
 cstan dash            # optional: watch the team
@@ -116,7 +116,7 @@ Switch to the PM's Herdr pane and tell it what you want built. `cstan stop` shut
 
 ## Configuration
 
-`cstan init` writes a commented starter `capstan.toml`. Keys are checked strictly: an unknown key is an error. A trimmed example:
+`cstan init` writes a commented starter `capstan.toml` and, next to it, `roles/designer.md`, the designer role's prompt file. Keys are checked strictly: an unknown key is an error. A trimmed example:
 
 ```toml
 schema_version = 1
@@ -198,7 +198,7 @@ A role has a free name and one of four kinds; the kind decides what the agent ma
 | ------------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `pm`         | PM         | Talks to you, plans, spawns and releases workers, requests reviews, integrates. Never edits project files. |
 | `developer`  | Developer  | Implements changes in its own worktree and branch, then reports a commit.                                  |
-| `designer`   | Developer  | Builds UI and visual changes, same rules as a developer.                                                   |
+| `designer`   | Developer  | Designs and builds UI: Claude Design, a brief, directions, build, Playwright checks (`roles/designer.md`). |
 | `reviewer`   | Verifier   | Reviews one commit or integration, answers pass or findings once, is ended. Cannot write files.            |
 | `tester`     | Verifier   | Runs the real checks and reports what passed and failed.                                                   |
 | `supervisor` | Supervisor | Watches active workers and raises findings. Read and report only.                                          |

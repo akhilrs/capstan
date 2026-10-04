@@ -29,11 +29,7 @@ import { randomBytes } from "node:crypto";
 
 const FLAG = process.env.CAPSTAN_LIVE_RESEARCHER === "1";
 const CLI = path.resolve("dist/src/cli.js");
-const BLOCKS = new Set([
-  "# [researcher]",
-  "# [mcp_servers.playwright]",
-  "# [roles.researcher]",
-]);
+const BLOCKS = new Set(["# [researcher]", "# [roles.researcher]"]);
 
 function unavailable(): string | undefined {
   if (!FLAG) return "set CAPSTAN_LIVE_RESEARCHER=1 to run";
