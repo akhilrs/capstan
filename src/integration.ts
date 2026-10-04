@@ -15,6 +15,7 @@ import {
   COMMIT_TYPES,
   formatSubject,
   integrationBranchName,
+  parseCommitSubject,
   withSuffix,
 } from "./conventions.js";
 import type { MutationContext } from "./controller/types.js";
@@ -38,6 +39,8 @@ export class IntegrationError extends Error {
 export interface IntegrationGit {
   headCommit(): Promise<string>;
   commitExists(sha: string): Promise<boolean>;
+  /** The first line of a commit's message; left out by a git that cannot read it. */
+  commitSubject?(sha: string): Promise<string | null>;
   merge(input: IntegrationMergeInput): Promise<MergeResult>;
   branchTip(branch: string): Promise<string | null>;
   isInHead(sha: string): Promise<boolean>;
@@ -80,6 +83,42 @@ function firstLine(text: string): string {
 
 type CommitInfo = ReturnType<ControllerCore["integrationCommitInfo"]>;
 
+/** What the reports' own commit subjects say: the most significant type (feat, then fix, then the first other), the shared scope, and the description of the commit that set the type. */
+function fromCommitSubjects(
+  subjects: ReadonlyMap<string, string>,
+  reportIds: readonly string[],
+):
+  | {
+      type: string;
+      scope: string | undefined;
+      breaking: boolean;
+      description: string;
+    }
+  | undefined {
+  const parsed = reportIds.flatMap((id) => {
+    const subject = subjects.get(id);
+    const result =
+      subject === undefined ? undefined : parseCommitSubject(subject);
+    return result?.ok === true ? [result] : [];
+  });
+  if (parsed.length === 0) return undefined;
+  let lead = parsed[0]!;
+  for (const wanted of TYPE_RANK) {
+    const hit = parsed.find((p) => p.type === wanted);
+    if (hit !== undefined) {
+      lead = hit;
+      break;
+    }
+  }
+  const scopes = new Set(parsed.flatMap((p) => (p.scope ? [p.scope] : [])));
+  return {
+    type: lead.type,
+    scope: scopes.size === 1 ? [...scopes][0]! : undefined,
+    breaking: parsed.some((p) => p.breaking),
+    description: lead.description,
+  };
+}
+
 /** The package type that names the squash: feat beats fix beats any other; with none, the leading type of the title (or of the summary when there is no plan), else feat. */
 function squashType(info: CommitInfo, source: string): string {
   const types = info.packages.flatMap((p) => (p.type === null ? [] : [p.type]));
@@ -94,34 +133,59 @@ function squashType(info: CommitInfo, source: string): string {
   );
 }
 
+const SUMMARY_MAX = 400;
+
 /**
- * The squash commit message: a Conventional Commits subject from the plan title and package types, and one
- * line per report. A worker's free text is only the subject when there is no plan.
+ * The squash commit message: a Conventional Commits subject and one entry per report. With a plan the subject
+ * comes from the plan title and package types; without one, from the reports' own commit subjects (type, scope
+ * and description), and only when none can be read from the worker's summary. The summaries go in the body.
  */
-export function squashMessage(info: CommitInfo): {
+export function squashMessage(
+  info: CommitInfo,
+  commitSubjects: ReadonlyMap<string, string> = new Map(),
+): {
   subject: string;
   body: string;
 } {
   const first = firstLine(info.reports[0]?.summary ?? "");
+  const own =
+    info.planTitle === null
+      ? fromCommitSubjects(
+          commitSubjects,
+          info.reports.map((r) => r.reportId),
+        )
+      : undefined;
   const source = info.planTitle !== null ? info.planTitle : first;
   const description =
+    own?.description ||
     source.replace(/\s+/g, " ").trim().replace(LEADING_TYPE, "").trim() ||
     "integrate reports";
   const scopes = new Set(
     info.packages.flatMap((p) => (p.scope ? [p.scope] : [])),
   );
   const lines = info.reports.map((r) => {
-    const line = `Report ${r.reportId} (${r.agentId}): ${firstLine(r.summary).replace(/\s+/g, " ")}`;
+    const text = r.summary.replace(/\s+/g, " ").trim();
+    const clipped =
+      text.length > SUMMARY_MAX
+        ? `${text.slice(0, SUMMARY_MAX).replace(/\s+\S*$/, "")} ...`
+        : text;
+    const line = `Report ${r.reportId} (${r.agentId}): ${clipped}`;
     // A worker's free text must not carry an attribution line into the commit.
     return checkCommitMessage(`chore: x\n\n${line}`, 1).length > 0
       ? `Report ${r.reportId} (${r.agentId}): summary left out`
       : line;
   });
+  const scope =
+    scopes.size === 1
+      ? [...scopes][0]!
+      : own === undefined
+        ? undefined
+        : own.scope;
   const subject = formatSubject(
     {
-      type: squashType(info, source),
-      ...(scopes.size === 1 ? { scope: [...scopes][0]! } : {}),
-      breaking: info.packages.some((p) => p.breaking),
+      type: own?.type ?? squashType(info, source),
+      ...(scope === undefined ? {} : { scope }),
+      breaking: own?.breaking === true || info.packages.some((p) => p.breaking),
       description,
     },
     SUBJECT_MAX,
@@ -187,12 +251,23 @@ export async function integrate(
     let result: MergeResult;
     try {
       const missing = await firstMissingCommit(deps, begun);
+      const subjects = new Map<string, string>();
+      if (missing === undefined && deps.git.commitSubject !== undefined)
+        for (const report of begun.reports) {
+          const subject = await deps.git
+            .commitSubject(report.commitSha)
+            .catch(() => null);
+          if (subject !== null) subjects.set(report.reportId, subject);
+        }
       result =
         missing === undefined
           ? await deps.git.merge({
               baseSha,
               branch,
-              ...squashMessage(deps.core.integrationCommitInfo(integrationId)),
+              ...squashMessage(
+                deps.core.integrationCommitInfo(integrationId),
+                subjects,
+              ),
               merges: begun.reports.map((report) => ({
                 reportId: report.reportId,
                 sha: report.commitSha,

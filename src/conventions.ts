@@ -206,6 +206,10 @@ export function workerBranchName(input: {
   );
 }
 
+export function adHocBranchPrefix(agentId: string): string {
+  return `chore/${cleanId(agentId, 40)}-`; // the start of adHocBranchName
+}
+
 export function adHocBranchName(agentId: string, slug: string): string {
   return clip(`chore/${cleanId(agentId, 40)}-${slugify(slug)}`);
 }

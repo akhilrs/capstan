@@ -250,6 +250,22 @@ export async function commitExists(
   throw new GitCheckError("git could not look the commit up");
 }
 
+/** The first line of a commit's message, or null when git cannot read it. */
+export async function commitSubject(
+  repoRoot: string,
+  sha: string,
+): Promise<string | null> {
+  if (!FULL_SHA.test(sha)) return null;
+  const outcome = await runGit(repoRoot, [
+    "log",
+    "-1",
+    "--format=%s",
+    `${sha}^{commit}`,
+    "--",
+  ]);
+  return outcome.code === 0 ? outcome.stdout.split("\n")[0]!.trim() : null;
+}
+
 const INTEGRATION_TIMEOUT_MS = 60_000;
 const INTEGRATION_BUFFER = 8 * 1024 * 1024;
 const CONTROLLER_IDENTITY: NodeJS.ProcessEnv = {

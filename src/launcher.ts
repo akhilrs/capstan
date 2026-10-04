@@ -42,6 +42,7 @@ import type {
 } from "./herdr/prompt-relay.js";
 import {
   adHocBranchName,
+  adHocBranchPrefix,
   reviewBranchName,
   slugify,
   withSuffix,
@@ -2122,12 +2123,22 @@ export class Launcher {
         renamed: false,
         note: `branch kept: ${current} (${why})`,
       });
+      // Only an ad-hoc chore/<agent-id>-<slug> name is replaced; a task-based name from spawn (or an older one) stays.
+      const adHocPrefix = adHocBranchPrefix(agentId);
+      if (!current.startsWith(adHocPrefix))
+        return kept("it already has a task-based name");
+      // The spawn's title lives on in the ad-hoc slug; a slug that is just the role name carries no title.
+      const spawnSlug = current.slice(adHocPrefix.length);
+      const title =
+        spawnSlug === "" || spawnSlug === slugify(agent.roleName)
+          ? undefined
+          : spawnSlug;
       let wanted: string;
       try {
         wanted = this.#taskBranch(
           { name: agent.roleName, kind: agent.kind },
           task,
-          {},
+          title === undefined ? {} : { title },
         );
       } catch (error) {
         return kept(error instanceof Error ? error.message : String(error));

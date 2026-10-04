@@ -4683,6 +4683,54 @@ test("renameBranchForTask renames an ad-hoc branch with no commit and no report;
   }
 });
 
+test("renameBranchForTask keeps the task-based name a spawn with --task/--type/--title gave", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer", {
+      task: "req-supervision-banner",
+      type: "fix",
+      title: "show real supervision state",
+    });
+    assert.equal(
+      spawned.branch,
+      "fix/req-supervision-banner-show-real-supervision-state",
+    );
+    w.git.tips.set(spawned.branch, SHA);
+    const result = await w.launcher.renameBranchForTask(
+      spawned.agentId,
+      "req-supervision-banner",
+    );
+    assert.equal(result.renamed, false);
+    assert.equal(result.branch, spawned.branch);
+    assert.match(result.note!, /already has a task-based name/);
+    assert.deepEqual(w.git.renames, []);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("renameBranchForTask after an ad-hoc spawn with a title keeps the title as the slug, not the ref id", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer", {
+      title: "clean up temp dirs",
+    });
+    w.git.tips.set(spawned.branch, SHA);
+    const result = await w.launcher.renameBranchForTask(
+      spawned.agentId,
+      "req-tmp-leak",
+    );
+    assert.deepEqual(result, {
+      branch: "feat/req-tmp-leak-clean-up-temp-dirs",
+      renamed: true,
+    });
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("renameBranchForTask keeps a branch that has a commit and gives a taken name a -2", async () => {
   const w = await world();
   try {

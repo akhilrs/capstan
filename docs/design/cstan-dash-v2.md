@@ -18,7 +18,7 @@ Help, the retry confirmation and the observe screen become centred floating boxe
 
 | DEC-006 guarantee | In this spec |
 | --- | --- |
-| Read-only data path: only `callDaemon(..., "status")` plus the three confirmed actions | Unchanged. No new route, no new field beyond `supervisionReason`/`peek` already planned. Every visual element is derived from the `status` response or from a client-side ring buffer (section 5) |
+| Read-only data path: only `callDaemon(..., "status")` plus the three confirmed actions | Unchanged. No new route, no new field beyond `supervisionState`/`peek`. Every visual element is derived from the `status` response or from a client-side ring buffer (section 5) |
 | Confirm flow: action key, then a second `y` (not sooner than 300 ms), target id captured at open, a state change cancels | Unchanged; the prompt moves from the footer line to a dialog (section 2.2) and no longer truncates (bug B6) |
 | `NO_COLOR` / `--no-color` / `TERM=dumb`: meaning never carried by colour alone | Every state has a word and a glyph; focus, selection and meters survive without colour (section 3.3) |
 | Reduced motion (`--reduced-motion`, `CSTAN_REDUCED_MOTION=1`): no spinner, no fade, no bell | Same, plus no overlay animation (there is none). Graphs are data and stay (section 3.4) |
@@ -199,7 +199,7 @@ Controller not answering. The last good frame stays on screen, dimmed (every cel
 
 Other header rules:
 
-- The `epoch -/0` text of v1 is removed. It reappears only as a bottom-border tab when it carries information: `┤ epoch 4/5 ├` when the checkpoint epoch is behind the target epoch, and `┤ replacements 2 ├` when `replacementAttempts > 0`.
+- The `epoch -/0` text of v1 is removed. The epoch and replacement tabs this spec first proposed (`┤ epoch 4/5 ├`, `┤ replacements 2 ├`) were dropped with `status.supervision`: the header now reads `status.supervisionState` and has no epoch concept.
 - The chip text is `● HEALTHY` (green), `● EVALUATING` (yellow), `▲ DEGRADED` (red), `○ NO LINK` (red), `? UNKNOWN` (dim). `PAUSED` replaces the clock tab with `┤ PAUSED ├` (yellow) while polling is paused.
 - The strip is a single line when the reason fits in the room between the chip and the worker meter, otherwise it wraps to two lines (at most one extra row, only while degraded or without a link). Below 20 rows the reason is cut with `…` instead of wrapping.
 
@@ -510,10 +510,8 @@ Context-sensitive, in btop style (key letter in `info`, label dim): global `tab 
 | Run state tab | `status.run.state` | no |
 | Clock | client `Date`, redrawn each second by the existing `useTick(1000)` | no |
 | Poll interval tab `- 2s +` | `--interval` value | no (the `-`/`+` keys are a proposal, section 8) |
-| Health chip | `status.supervision.health` | no |
-| Health reason | `status.supervisionReason` (added by DEC-006 to the operator branch of `status`; set only while health is `degraded`, and `null` when the degraded event carried no reason) | the DEC-006 field only. Section 7 (B5) explains why the reason can still be empty and what the strip shows then |
-| `supervision on/off` tab | `status.supervision.enabled` | no |
-| Epoch and replacement tabs | `status.supervision.targetEpoch`, `checkpointEpoch`, `replacementAttempts` | no |
+| Supervision chip | `status.supervisionState` (`enabled`, `supervisor` with `agentId` and `state`, `lastCheck` with `state`, `queuedAt` and `ackedAt`, `openFindings`): the live supervision loop. The chip is `SUPERVISION OFF` when `enabled` is false and the supervisor, the last check and the open findings otherwise | no |
+| Legacy health (not drawn) | `status.legacySupervision` is the old `supervision_control` row (`enabled`, `health`, epochs, `replacementAttempts`), which nothing enables any more; `status.legacySupervisionReason` is its degraded reason. The dashboard ignores both; they stay in `status` for old clients | no |
 | Worker meter `3/4` | active agents whose kind is not PM or Supervisor (`isWorkerKind`) over `limits.max_workers` from `capstan.toml` (read once client-side) | no. If the config is unreadable the meter is replaced by `workers 3` |
 | Link dot, age, `NO LINK` | client poller state (last success time, error code) | no |
 | Agents table | `status.agents` (`agentId`, `kind`, `generation`, `state`, `lastActivityAt`) | no |
@@ -648,7 +646,7 @@ A second spike confirmed `Text color="#77ca9b"` downsamples to the 256-colour va
 - **Graph colour is by row height**, not by column value, so a tall graph shades from the bottom row to the top row.
 - **Zero values** draw no dot in an area graph (blank), a non-zero value always lights at least one dot; missing history is blank on the left.
 - **Ages** use two units under 10 minutes (`3m41s`) and one unit above (`14m`, `2h05m`, `3d`): `ageDetail()` in `src/dash/format.ts`.
-- **Epoch tab** shows only while supervision is enabled and the target epoch is above 0 and the checkpoint epoch differs from it. A fresh project has target epoch 0 and no checkpoint, which printed `epoch -/0` before.
+- **No epoch tab.** The epoch tabs were removed together with `status.supervision`; a fresh project printed `epoch -/0` before.
 - **`SUPERVISION OFF` chip.** See 9.4.
 - **Rendering** uses Ink's `incrementalRendering: true` (`src/dash/run.ts`). See 9.5.
 - **Confirm dialog text** is the existing `confirmText()` wrapped to the dialog width, so the DEC-006 sentence and the full message id are shown intact (bug B6).
@@ -656,7 +654,7 @@ A second spike confirmed `Text color="#77ca9b"` downsamples to the 256-colour va
 
 ### 9.4 B5 root cause, confirmed against a live daemon
 
-A freshly initialised project reports `supervision.enabled: false` and `supervision.health: degraded` with no reason, because `ControllerCore` inserts the `supervision_control` row as `(enabled 0, health 'degraded', target epoch 0)` and never records a degraded event (`src/controller/core.ts:1352`; `supervisionReason()` only returns a reason when a degraded event exists, `core.ts:12960-12973`). This is exactly the screen the user saw (`supervision:off DEGRADED`, `epoch -/0`). It is the starting value, not a fault. The dashboard now shows `○ SUPERVISION OFF` in a neutral colour with the line "health reads degraded until supervision is enabled; this is the starting value, not a fault". A real degraded state (a reason exists, or supervision is on) still shows the red `▲ DEGRADED` with its reason, wrapped so it is never cut off.
+Historical root cause: a freshly initialised project reported `supervision.enabled: false` and `supervision.health: degraded` with no reason, because `ControllerCore` inserts the `supervision_control` row as `(enabled 0, health 'degraded', target epoch 0)` and never records a degraded event. That row is the old control, which nothing enables any more, so its health said nothing about the live loop. The status now carries `supervisionState` (the configured `enabled`, the supervisor, the last check and the open findings) and the old row as `legacySupervision` with `legacySupervisionReason`; the dashboard shows `○ SUPERVISION OFF` in a neutral colour when `supervisionState.enabled` is false and the live loop's own state otherwise, and never the legacy health or `supervisionReason`.
 
 ### 9.5 Flicker
 

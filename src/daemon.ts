@@ -19,6 +19,7 @@ import { createCommandHandlers, type CommandSet } from "./commands.js";
 import {
   branchTip,
   commitExists,
+  commitSubject,
   coveredReports,
   deleteBranchAt,
   headCommit,
@@ -1047,6 +1048,7 @@ function integrationGit(root: string): IntegrationGit {
   return {
     headCommit: () => headCommit(root),
     commitExists: (sha) => commitExists(root, sha),
+    commitSubject: (sha) => commitSubject(root, sha),
     merge: (input) => mergeIntoBranch(root, input),
     branchTip: (branch) => branchTip(root, branch),
     isInHead: (sha) => isInHead(root, sha),

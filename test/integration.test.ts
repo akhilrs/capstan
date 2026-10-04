@@ -879,6 +879,80 @@ test("squash message: package types rank feat over fix over others; breaking add
   );
 });
 
+const subjectsOf = (
+  summaries: string[],
+  commits: string[],
+): { subject: string; body: string } =>
+  squashMessage(
+    {
+      ...noPlan,
+      planTitle: null,
+      reports: summaries.map((summary, i) => ({
+        reportId: `r${i + 1}`,
+        agentId: `developer-${i + 1}`,
+        summary,
+        branch: null,
+      })),
+    },
+    new Map(commits.map((c, i) => [`r${i + 1}`, c])),
+  );
+
+test("squash subject without a plan takes type, scope and description from the report's commit subject, never the cut-off summary", () => {
+  const message = subjectsOf(
+    [
+      "status/dash now show real supervision state (config enabled, but also much more text follows",
+    ],
+    ["fix(dash): show real supervision state"],
+  );
+  assert.equal(message.subject, "fix(dash): show real supervision state");
+  assert.ok(
+    message.body.includes("status/dash now show real supervision state"),
+  );
+  assert.equal(
+    subjectsOf(["clean up"], ["test: clean up temp dirs"]).subject,
+    "test: clean up temp dirs",
+  );
+  assert.equal(
+    subjectsOf(["x"], ["feat!: drop the old flag"]).subject,
+    "feat!: drop the old flag",
+  );
+});
+
+test("squash subject without a plan: several reports use the most significant type; a shared scope is kept, mixed scopes are dropped", () => {
+  assert.equal(
+    subjectsOf(
+      ["a", "b", "c"],
+      ["test: more tests", "fix(dash): a fix", "feat(dash): a feature"],
+    ).subject,
+    "feat(dash): a feature",
+  );
+  assert.equal(
+    subjectsOf(["a", "b"], ["docs: notes", "fix(dash): a fix"]).subject,
+    "fix(dash): a fix",
+  );
+  assert.equal(
+    subjectsOf(["a", "b"], ["fix(dash): one", "fix(cli): two"]).subject,
+    "fix: one",
+  );
+  assert.equal(
+    subjectsOf(["a", "b"], ["docs: first", "chore: second"]).subject,
+    "docs: first",
+  );
+});
+
+test("squash subject without a plan falls back to the summary when no commit subject is known, and a long description is cut at a word", () => {
+  assert.equal(
+    subjectsOf(["plain summary"], []).subject,
+    "feat: plain summary",
+  );
+  const subject = subjectsOf(
+    ["x"],
+    [`fix: ${Array.from({ length: 20 }, (_, i) => `word${i}x`).join(" ")}`],
+  ).subject;
+  assert.ok(subject.length <= 72);
+  assert.match(subject, /^fix: word0x .*word\d+x$/);
+});
+
 test("squash subject: a long title is cut at a word boundary within 72 characters, without an ellipsis", () => {
   const title = Array.from({ length: 20 }, (_, i) => `word${i}x`).join(" ");
   assert.ok(title.length > 100 - 20);
