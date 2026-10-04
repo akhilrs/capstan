@@ -1,0 +1,30 @@
+<!-- @dsCard group="Actions" height=220 subtitle="Primary and quiet; hover, active, focus, disabled" -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Buttons and focus — preview</title>
+<style>
+body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); margin-bottom: var(--space-5); }
+.cap { display: grid; gap: var(--space-2); justify-items: start; font-family: var(--font-mono); font-size: var(--text-label); color: var(--fg-muted); }
+/* Static stand-ins for states a preview cannot hold: same rules as bundle.css. */
+.demo-hover { background: var(--accent-hover); }
+.cap-btn--quiet.demo-hover { background: var(--surface); }
+.demo-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.demo-link-focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-2); }
+</style>
+</head>
+<body>
+<div class="row">
+  <div class="cap"><button class="cap-btn" type="button">Copy</button>default</div>
+  <div class="cap"><button class="cap-btn demo-hover" type="button">Copy</button>hover</div>
+  <div class="cap"><button class="cap-btn demo-focus" type="button">Copy</button>focus</div>
+  <div class="cap"><button class="cap-btn" type="button" disabled>Copy</button>disabled</div>
+</div>
+<div class="row">
+  <div class="cap"><button class="cap-btn cap-btn--quiet" type="button">Light</button>quiet</div>
+  <div class="cap"><button class="cap-btn cap-btn--quiet demo-hover" type="button">Light</button>hover</div>
+  <div class="cap"><button class="cap-btn cap-btn--quiet demo-focus" type="button">Light</button>focus</div>
+  <div class="cap"><a class="cap-link demo-link-focus" href="#">Read install.sh</a>link focus</div>
+</div>
+</body>
+</html>

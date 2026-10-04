@@ -1,0 +1,24 @@
+<!-- @dsCard group="Data" height=380 subtitle="cstan dash illustration in a terminal panel" -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Agents table — preview</title>
+<style>body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-sans); }</style>
+</head>
+<body>
+<div class="cap-term" role="group" aria-label="Example of the cstan dash terminal dashboard">
+  <div class="cap-term__bar"><span>cstan dash</span><span>controller up, ledger ok</span></div>
+  <div class="cap-scroll" tabindex="0" role="region" aria-label="Agents table">
+    <table class="cap-table">
+      <thead><tr><th scope="col">Agent</th><th scope="col">Role</th><th scope="col">State</th><th scope="col">Branch or last fact</th></tr></thead>
+      <tbody>
+        <tr><td>pm-1</td><td class="is-muted">PM</td><td><span class="cap-state is-active">talking to you</span></td><td class="is-muted">main conversation</td></tr>
+        <tr><td>developer-2</td><td class="is-muted">Developer</td><td><span class="cap-state">reported</span></td><td>3f9c2e1 verified</td></tr>
+        <tr><td>reviewer-3</td><td class="is-muted">Reviewer</td><td><span class="cap-state is-active">reviewing</span></td><td class="is-muted">at 3f9c2e1, answers once</td></tr>
+        <tr><td>supervisor-1</td><td class="is-muted">Supervisor</td><td><span class="cap-state">watching</span></td><td class="is-muted">no open findings</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cap-term__foot"><span>queue 2</span><span>reports verified 4</span></div>
+</div>
+</body>
+</html>

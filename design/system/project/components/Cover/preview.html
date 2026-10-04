@@ -1,0 +1,57 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Capstan — cover</title>
+<style>
+body { margin: 0; background: var(--bg); }
+.cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bg); }
+.cover svg { position: absolute; inset: 0; }
+.accent { fill: var(--accent); }
+.ink { fill: var(--fg); }
+.muted { fill: var(--fg-muted); }
+.dot { fill: var(--fg-muted); }
+.cut { fill: var(--bg); }
+.tile { rx: var(--radius-2); }
+.text { position: absolute; left: var(--space-7); bottom: var(--space-7); max-width: 440px; }
+.name { margin: 0; font-family: var(--font-sans); font-weight: 600; font-size: 96px; line-height: 0.92; letter-spacing: -0.025em; color: var(--fg); }
+.tag { margin: var(--space-3) 0 0; font-family: var(--font-sans); font-size: 14px; color: var(--fg-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+  <svg viewBox="0 0 960 288" width="960" height="288" aria-hidden="true">
+    <!-- blocks: accent 192x240 (space-9 x2, bleeds top), fg 192x144 (bleeds right and bottom), fg-muted 96x96 (bleeds top right)
+         arrangement: one tall amber slab with two ink satellites stepping down to the right, all right of x=480
+         pattern: "precise, technical, mono, a 4px grid" -> a dot grid at space-6 (32px) pitch, muted on the ground and cut out of the slab
+         scales: space-6 pitch, space-9 block sides, radius-2 corners, dot r=2 (half of space-1) -->
+    <rect class="accent tile" x="576" y="-8" width="192" height="248"/>
+    <rect class="ink tile" x="768" y="144" width="200" height="152"/>
+    <rect class="muted tile" x="864" y="-8" width="104" height="104"/>
+    <g class="dot">
+      <circle cx="496" cy="48" r="2"/><circle cx="528" cy="48" r="2"/><circle cx="560" cy="48" r="2"/>
+      <circle cx="496" cy="80" r="2"/><circle cx="528" cy="80" r="2"/><circle cx="560" cy="80" r="2"/>
+      <circle cx="496" cy="112" r="2"/><circle cx="528" cy="112" r="2"/><circle cx="560" cy="112" r="2"/>
+      <circle cx="496" cy="144" r="2"/><circle cx="528" cy="144" r="2"/><circle cx="560" cy="144" r="2"/>
+      <circle cx="496" cy="176" r="2"/><circle cx="528" cy="176" r="2"/><circle cx="560" cy="176" r="2"/>
+      <circle cx="496" cy="208" r="2"/><circle cx="528" cy="208" r="2"/><circle cx="560" cy="208" r="2"/>
+      <circle cx="496" cy="240" r="2"/><circle cx="528" cy="240" r="2"/><circle cx="560" cy="240" r="2"/>
+      <circle cx="784" cy="48" r="2"/><circle cx="816" cy="48" r="2"/><circle cx="848" cy="48" r="2"/>
+      <circle cx="784" cy="80" r="2"/><circle cx="816" cy="80" r="2"/><circle cx="848" cy="80" r="2"/>
+      <circle cx="784" cy="112" r="2"/><circle cx="816" cy="112" r="2"/><circle cx="848" cy="112" r="2"/>
+    </g>
+    <g class="cut">
+      <circle cx="624" cy="48" r="2"/><circle cx="656" cy="48" r="2"/><circle cx="688" cy="48" r="2"/><circle cx="720" cy="48" r="2"/>
+      <circle cx="624" cy="80" r="2"/><circle cx="656" cy="80" r="2"/><circle cx="688" cy="80" r="2"/><circle cx="720" cy="80" r="2"/>
+      <circle cx="624" cy="112" r="2"/><circle cx="656" cy="112" r="2"/><circle cx="688" cy="112" r="2"/><circle cx="720" cy="112" r="2"/>
+      <circle cx="624" cy="144" r="2"/><circle cx="656" cy="144" r="2"/><circle cx="688" cy="144" r="2"/><circle cx="720" cy="144" r="2"/>
+      <circle cx="624" cy="176" r="2"/><circle cx="656" cy="176" r="2"/><circle cx="688" cy="176" r="2"/><circle cx="720" cy="176" r="2"/>
+      <circle cx="624" cy="208" r="2"/><circle cx="656" cy="208" r="2"/><circle cx="688" cy="208" r="2"/><circle cx="720" cy="208" r="2"/>
+    </g>
+  </svg>
+  <div class="text">
+    <p class="name">Capstan</p>
+    <p class="tag">Ink, paper and one coil of rope-amber for a control room of coding agents.</p>
+  </div>
+</div>
+</body>
+</html>

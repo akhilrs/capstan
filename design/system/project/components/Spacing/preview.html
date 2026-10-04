@@ -1,0 +1,31 @@
+<!-- @dsCard group="Foundations" height=330 subtitle="4px scale, radii and motion" page -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Spacing — preview</title>
+<style>
+body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-mono); font-size: var(--text-label); }
+.row { display: grid; grid-template-columns: var(--space-9) var(--space-7) minmax(0, 1fr); gap: var(--space-3); align-items: center; height: var(--space-6); color: var(--fg-muted); }
+.bar { height: var(--space-3); background: var(--accent); }
+.radii { display: flex; gap: var(--space-5); margin-top: var(--space-5); color: var(--fg-muted); }
+.radii div { display: grid; gap: var(--space-2); justify-items: start; }
+.box { width: var(--space-8); height: var(--space-7); border: 1px solid var(--fg-muted); background: var(--surface); }
+</style>
+</head>
+<body>
+<div class="row"><span>space-1</span><span>4</span><div class="bar" style="width: var(--space-1)"></div></div>
+<div class="row"><span>space-2</span><span>8</span><div class="bar" style="width: var(--space-2)"></div></div>
+<div class="row"><span>space-3</span><span>12</span><div class="bar" style="width: var(--space-3)"></div></div>
+<div class="row"><span>space-4</span><span>16</span><div class="bar" style="width: var(--space-4)"></div></div>
+<div class="row"><span>space-5</span><span>24</span><div class="bar" style="width: var(--space-5)"></div></div>
+<div class="row"><span>space-6</span><span>32</span><div class="bar" style="width: var(--space-6)"></div></div>
+<div class="row"><span>space-7</span><span>48</span><div class="bar" style="width: var(--space-7)"></div></div>
+<div class="row"><span>space-8</span><span>64</span><div class="bar" style="width: var(--space-8)"></div></div>
+<div class="row"><span>space-9</span><span>96</span><div class="bar" style="width: var(--space-9)"></div></div>
+<div class="radii">
+  <div><span class="box" style="border-radius: var(--radius-0)"></span>radius-0</div>
+  <div><span class="box" style="border-radius: var(--radius-1)"></span>radius-1</div>
+  <div><span class="box" style="border-radius: var(--radius-2)"></span>radius-2</div>
+  <div>duration-fast 150ms<br>duration-base 250ms<br>ease-out</div>
+</div>
+</body>
+</html>

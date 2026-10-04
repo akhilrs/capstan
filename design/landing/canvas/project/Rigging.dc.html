@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capstan — Rigging diagram direction</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400;62..125,600;62..125,800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.rg{
+  --bg:#fafaf7;--bg-2:#efeee8;--fg:#111518;--fg-2:#5c6166;--line:#111518;--hair:#d6d4cc;
+  --accent:#9a5a1e;--on-accent:#fafaf7;--accent-hover:#7a4616;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:64px;--s9:96px;
+  --t-xs:12px;--t-sm:14px;--t-body:17px;--t-lead:21px;--t-h2:13px;--t-h1:clamp(48px,8.4vw,128px);
+  --sans:"Archivo",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+  --r:0px;--dur:180ms;--ease:cubic-bezier(.2,.7,.2,1);
+  background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:var(--t-body);line-height:1.55;min-height:100vh;
+}
+.rg.dark{--bg:#101315;--bg-2:#181c1f;--fg:#ecebe6;--fg-2:#9aa0a5;--line:#ecebe6;--hair:#2c3236;--accent:#e6a35a;--on-accent:#101315;--accent-hover:#f0bd84}
+@media (prefers-color-scheme: dark){.rg:not(.light){--bg:#101315;--bg-2:#181c1f;--fg:#ecebe6;--fg-2:#9aa0a5;--line:#ecebe6;--hair:#2c3236;--accent:#e6a35a;--on-accent:#101315;--accent-hover:#f0bd84}}
+.rg .logo-d{display:none}
+.rg.dark .logo-l{display:none}.rg.dark .logo-d{display:block}
+@media (prefers-color-scheme: dark){.rg:not(.light) .logo-l{display:none}.rg:not(.light) .logo-d{display:block}}
+.rg a{color:var(--fg);text-underline-offset:4px;transition:color var(--dur) var(--ease)}
+.rg a:hover{color:var(--accent)}
+.rg :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.rg .wrap{max-width:1360px;margin:0 auto;padding:0 var(--s7)}
+.rg header{display:flex;justify-content:space-between;align-items:center;gap:var(--s4);padding:var(--s4) 0;border-bottom:2px solid var(--line)}
+.rg header img{height:52px;width:auto}
+.rg nav{display:flex;gap:var(--s5);font-family:var(--mono);font-size:var(--t-sm)}
+.rg nav a{display:inline-flex;align-items:center;min-height:44px}
+.rg h1{font-weight:800;font-stretch:78%;font-size:var(--t-h1);line-height:.92;letter-spacing:-.035em;margin:var(--s8) 0 var(--s7);max-width:11em;text-transform:uppercase}
+.rg h1 span{color:var(--accent)}
+.rg .intro{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--s5) var(--s6);padding-bottom:var(--s8)}
+.rg .intro p.lead{grid-column:1 / span 5;font-size:var(--t-lead);line-height:1.5;margin:0}
+.rg .inst{grid-column:7 / span 6}
+.rg .lbl{font-family:var(--mono);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.1em;color:var(--fg-2);margin:0 0 var(--s2)}
+.rg .cmd{display:flex;align-items:stretch;border:2px solid var(--line)}
+.rg .cmd code{flex:1;padding:var(--s4);font-family:var(--mono);font-size:15px;line-height:1.6;overflow-wrap:anywhere;background:var(--bg-2)}
+.rg .copy{flex:none;min-width:112px;min-height:44px;border:0;border-left:2px solid var(--line);background:var(--accent);color:var(--on-accent);font-family:var(--sans);font-weight:600;font-size:var(--t-body);cursor:pointer;transition:background-color var(--dur) var(--ease)}
+.rg .copy:focus-visible{outline-color:var(--fg)}
+.rg .copy:hover{background:var(--accent-hover)}
+.rg .copy[data-state="copied"]{background:var(--fg);color:var(--bg)}
+.rg .copy[data-state="error"]{background:var(--bg);color:var(--fg)}
+.rg .meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--s2) var(--s4);margin:var(--s2) 0 0;font-family:var(--mono);font-size:var(--t-xs);color:var(--fg-2)}
+.rg .meta p{margin:0}
+.rg .diagram{border-top:2px solid var(--line);border-bottom:2px solid var(--line);padding:var(--s7) 0}
+.rg h2{font-family:var(--mono);font-size:var(--t-h2);font-weight:500;text-transform:uppercase;letter-spacing:.1em;margin:0 0 var(--s6);color:var(--fg-2)}
+.rg .flow{display:flex;align-items:center;margin:0;padding:0;list-style:none}
+.rg .node{flex:none;border:2px solid var(--line);padding:var(--s3) var(--s4);background:var(--bg);font-weight:600;line-height:1.3;text-align:left}
+.rg .node small{display:block;font-family:var(--mono);font-weight:400;font-size:var(--t-xs);color:var(--fg-2);margin-top:var(--s1)}
+.rg .node.key{background:var(--fg);color:var(--bg)}
+.rg .node.key small{color:var(--bg);opacity:.8}
+.rg .node.you{border-color:var(--accent);color:var(--accent)}
+.rg .crew{flex:none;display:flex;flex-direction:column;gap:var(--s2);padding:0;margin:0;list-style:none}
+.rg .crew .node{font-weight:500;font-size:var(--t-sm);padding:var(--s2) var(--s3)}
+.rg .conn{flex:1 1 0;min-width:var(--s7);position:relative;height:var(--s7);display:flex;align-items:flex-start;justify-content:center}
+.rg .conn::before{content:"";position:absolute;left:0;right:var(--s1);top:50%;border-top:2px solid var(--line)}
+.rg .conn::after{content:"";position:absolute;right:0;top:calc(50% - 5px);border:6px solid transparent;border-left:8px solid var(--line);border-right:0}
+.rg .conn span{font-family:var(--mono);font-size:var(--t-xs);color:var(--fg-2);padding:0 var(--s1);white-space:nowrap;background:var(--bg);position:relative}
+.rg .conn.merge::before{border-top-color:var(--accent)}
+.rg .conn.merge::after{border-left-color:var(--accent)}
+.rg .conn.merge span{color:var(--accent)}
+.rg .steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--s5);margin:var(--s7) 0 0;padding:0;list-style:none;counter-reset:s}
+.rg .steps li{counter-increment:s;border-top:1px solid var(--hair);padding-top:var(--s3);font-size:15px;line-height:1.5;color:var(--fg-2)}
+.rg .steps li::before{content:counter(s);display:block;font-weight:800;font-stretch:78%;font-size:40px;line-height:1;color:var(--fg);margin-bottom:var(--s2)}
+.rg .steps b{color:var(--fg);font-weight:600}
+.rg .steps code,.rg .start code{font-family:var(--mono);font-size:.88em}
+.rg .start{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--s5) var(--s6);padding:var(--s8) 0}
+.rg .start .h{grid-column:1 / span 3}
+.rg .start dl{grid-column:5 / span 8;margin:0;display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);border-top:2px solid var(--line)}
+.rg .start dt,.rg .start dd{margin:0;padding:var(--s3) 0;border-bottom:1px solid var(--hair)}
+.rg .start dt{font-family:var(--mono);font-size:15px}
+.rg .start dd{color:var(--fg-2)}
+.rg footer{border-top:2px solid var(--line);padding:var(--s4) 0 var(--s7);display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:var(--s4);font-family:var(--mono);font-size:var(--t-xs);color:var(--fg-2)}
+.rg footer a{display:inline-flex;align-items:center;min-height:44px;margin-left:var(--s5)}
+@media (max-width:1100px){
+  .rg .flow{flex-direction:column;align-items:flex-start}
+  .rg .conn{flex:none;height:var(--s7);min-width:0;width:auto;margin-left:var(--s6);padding-left:var(--s4);align-items:center;justify-content:flex-start}
+  .rg .conn::before{left:0;right:auto;top:0;bottom:var(--s1);border-top:0;border-left:2px solid var(--line)}
+  .rg .conn.merge::before{border-left-color:var(--accent)}
+  .rg .conn::after{left:-5px;right:auto;top:auto;bottom:0;border:6px solid transparent;border-top:8px solid var(--line);border-bottom:0}
+  .rg .conn.merge::after{border-top-color:var(--accent);border-left-color:transparent}
+  .rg .crew{flex-direction:row;flex-wrap:wrap}
+  .rg .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:900px){
+  .rg .wrap{padding:0 var(--s4)}
+  .rg .intro,.rg .start{grid-template-columns:minmax(0,1fr)}
+  .rg .intro p.lead,.rg .inst,.rg .start .h,.rg .start dl{grid-column:1 / -1}
+  .rg h1{margin:var(--s7) 0 var(--s6)}
+}
+@media (max-width:560px){
+  .rg header img{height:40px}
+  .rg nav .opt{display:none}
+  .rg .cmd{flex-direction:column}
+  .rg .copy{border-left:0;border-top:2px solid var(--line)}
+  .rg .steps{grid-template-columns:minmax(0,1fr)}
+  .rg .start dl{grid-template-columns:minmax(0,1fr)}
+  .rg .start dt{border-bottom:0;padding-bottom:0}
+  .rg footer a{margin:0 var(--s5) 0 0}
+}
+@media (prefers-reduced-motion: reduce){.rg *{transition:none !important}}
+</style>
+</helmet>
+<div class="rg {{themeClass}}">
+<div class="wrap">
+<header>
+  <a href="https://github.com/akhilrs/capstan" aria-label="Capstan on GitHub">
+    <img class="logo-l" src="/_blob/e084e96dfb8ea634b1f46ea438d9c229" alt="Capstan" width="165" height="52">
+    <img class="logo-d" src="/_blob/6aa6144597e2d2ba19a67c1951154ed6" alt="Capstan" width="165" height="52">
+  </a>
+  <nav aria-label="Primary">
+    <a class="opt" href="#rig">How it's rigged</a>
+    <a href="https://github.com/akhilrs/capstan/tree/main/docs/reference">Docs</a>
+    <a href="https://github.com/akhilrs/capstan">GitHub</a>
+  </nav>
+</header>
+<main>
+<h1>One PM. A crew of agents. <span>Your merge.</span></h1>
+<div class="intro">
+  <p class="lead">Capstan is an open-source controller that turns a handful of Claude Code and Codex sessions into a delivery team, and keeps every handoff in a ledger instead of a scrollback.</p>
+  <div class="inst">
+    <p class="lbl" id="inst-l">Install</p>
+    <div class="cmd" role="group" aria-labelledby="inst-l">
+      <code>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</code>
+      <button class="copy" type="button" data-state="{{copyState}}" onClick="{{copy}}">{{copyLabel}}</button>
+    </div>
+    <div class="meta"><p role="status" aria-live="polite">{{copyStatus}}</p><p>no sudo · ~/.local/bin/cstan · <a href="https://github.com/akhilrs/capstan/blob/main/install.sh">install.sh</a></p></div>
+  </div>
+</div>
+
+<section class="diagram" id="rig" aria-labelledby="rig-t">
+  <h2 id="rig-t">How it's rigged</h2>
+  <ol class="flow" aria-label="Flow of work from you to your HEAD">
+    <li class="node you">You<small>tasks · answers</small></li>
+    <li class="conn" aria-hidden="true"><span>talks to</span></li>
+    <li class="node">PM agent<small>one conversation</small></li>
+    <li class="conn" aria-hidden="true"><span>cstan</span></li>
+    <li class="node key">Controller<small>daemon · SQLite ledger</small></li>
+    <li class="conn" aria-hidden="true"><span>tasks</span></li>
+    <li>
+      <ul class="crew" aria-label="Workers, each in its own pane, worktree and branch">
+        <li class="node">Architect</li>
+        <li class="node">Developers · Designers</li>
+        <li class="node">Reviewers · Testers</li>
+        <li class="node">Supervisor</li>
+      </ul>
+    </li>
+    <li class="conn" aria-hidden="true"><span>integrate</span></li>
+    <li class="node">integration branch<small>squashed, reviewed</small></li>
+    <li class="conn merge" aria-hidden="true"><span>you merge</span></li>
+    <li class="node you">your HEAD</li>
+  </ol>
+  <ol class="steps">
+    <li><b>You ask the PM.</b> It picks a tier; larger work goes to the Architect as packages.</li>
+    <li><b>Workers build</b> on their own branches and run <code>cstan report</code>.</li>
+    <li><b>Reviews are independent:</b> a fresh reviewer at the reported commit.</li>
+    <li><b>Integration is mechanical:</b> no checkout touched, conflicts become tasks.</li>
+    <li><b>You merge,</b> then <code>cstan integrate confirm</code>.</li>
+  </ol>
+</section>
+
+<section class="start" aria-labelledby="start-t">
+  <div class="h"><h2 id="start-t">First run</h2></div>
+  <dl>
+    <dt>cstan init</dt><dd>Creates .capstan/, a starter capstan.toml and roles/designer.md.</dd>
+    <dt>cstan config check</dt><dd>Validates the config and prints what it resolved.</dd>
+    <dt>cstan start</dt><dd>Starts the controller and launches the PM in Herdr.</dd>
+    <dt>cstan dash</dt><dd>Optional read-only dashboard of agents, queue and findings.</dd>
+  </dl>
+</section>
+</main>
+<footer>
+  <span>Capstan v0.1.1 · pre-release · MIT</span>
+  <span><a href="https://github.com/akhilrs/capstan/releases">Releases</a><a href="https://github.com/akhilrs/capstan">GitHub</a></span>
+</footer>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["auto","light","dark"],"default":"auto"},"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = (this.state && this.state.copy) || 'idle';
+    const theme = this.props.theme ?? 'auto';
+    const set = (s) => {
+      this.setState({ copy: s });
+      clearTimeout(this._t);
+      if (s !== 'idle') this._t = setTimeout(() => this.setState({ copy: 'idle' }), 2400);
+    };
+    const cmd = 'curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh';
+    return {
+      themeClass: theme === 'auto' ? '' : theme,
+      copyState: st,
+      copyLabel: st === 'copied' ? 'Copied' : st === 'error' ? 'Retry' : 'Copy',
+      copyStatus: st === 'copied' ? 'Copied. Paste it in a terminal.' : st === 'error' ? 'Clipboard blocked. Select the command and copy it by hand.' : '',
+      copy: () => {
+        try { navigator.clipboard.writeText(cmd).then(() => set('copied'), () => set('error')); }
+        catch (e) { set('error'); }
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

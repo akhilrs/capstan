@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capstan — Logbook direction</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.lg{
+  --paper:#f4efe4;--paper-2:#ebe4d4;--ink:#22303c;--ink-2:#56626c;--rule:#cfc5b0;
+  --accent:#a3672a;--accent-text:#8a521c;--on-accent:#f4efe4;--accent-hover:#74441a;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:64px;--s9:96px;--s10:128px;
+  --t-label:13px;--t-body:18px;--t-lead:22px;--t-h2:34px;--t-h1:clamp(44px,6.4vw,88px);
+  --serif:"Newsreader",Georgia,serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+  --r:2px;--dur:160ms;--ease:cubic-bezier(.2,.7,.2,1);
+  background:var(--paper);color:var(--ink);font-family:var(--serif);font-size:var(--t-body);line-height:1.55;
+  min-height:100vh;
+}
+.lg.dark{--paper:#141a20;--paper-2:#1c242c;--ink:#e4ded0;--ink-2:#a9a395;--rule:#33404b;--accent:#e0a45e;--accent-text:#e0a45e;--on-accent:#141a20;--accent-hover:#ecbd85}
+@media (prefers-color-scheme: dark){.lg:not(.light){--paper:#141a20;--paper-2:#1c242c;--ink:#e4ded0;--ink-2:#a9a395;--rule:#33404b;--accent:#e0a45e;--accent-text:#e0a45e;--on-accent:#141a20;--accent-hover:#ecbd85}}
+.lg .logo-d{display:none}
+.lg.dark .logo-l{display:none}.lg.dark .logo-d{display:block}
+@media (prefers-color-scheme: dark){.lg:not(.light) .logo-l{display:none}.lg:not(.light) .logo-d{display:block}}
+.lg a{color:var(--ink);text-decoration-color:var(--rule);text-underline-offset:4px;transition:text-decoration-color var(--dur) var(--ease),color var(--dur) var(--ease)}
+.lg a:hover{color:var(--accent-text);text-decoration-color:currentColor}
+.lg :focus-visible{outline:2px solid var(--accent-text);outline-offset:3px;border-radius:var(--r)}
+.lg .wrap{max-width:1240px;margin:0 auto;padding:0 var(--s7)}
+.lg header{display:flex;align-items:center;justify-content:space-between;gap:var(--s5);padding:var(--s5) 0;border-bottom:1px solid var(--rule)}
+.lg header img{height:64px;width:auto}
+.lg nav{display:flex;gap:var(--s5);font-family:var(--mono);font-size:var(--t-label)}
+.lg nav a{display:inline-flex;align-items:center;min-height:44px}
+.lg .hero{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:var(--s5);padding:var(--s9) 0 var(--s8)}
+.lg .hero-copy{grid-column:1 / span 7}
+.lg .hero-log{grid-column:9 / span 4;align-self:end}
+.lg .eyebrow{font-family:var(--mono);font-size:var(--t-label);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin:0 0 var(--s5)}
+.lg h1{font-weight:500;font-size:var(--t-h1);line-height:1.02;letter-spacing:-.02em;margin:0 0 var(--s6)}
+.lg h1 em{font-style:italic;color:var(--accent-text)}
+.lg .lead{font-size:var(--t-lead);line-height:1.5;max-width:34em;margin:0 0 var(--s7);color:var(--ink)}
+.lg .install{border:1px solid var(--ink);border-radius:var(--r);background:var(--paper-2)}
+.lg .install-head{display:flex;justify-content:space-between;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4);border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:var(--t-label);color:var(--ink-2)}
+.lg .install-body{display:flex;align-items:center;gap:var(--s4);padding:var(--s4)}
+.lg .install code{flex:1;font-family:var(--mono);font-size:15px;line-height:1.6;overflow-wrap:anywhere;color:var(--ink)}
+.lg .install code .p{color:var(--accent-text);user-select:none}
+.lg .copy{flex:none;font-family:var(--mono);font-size:14px;font-weight:500;min-height:44px;min-width:96px;padding:0 var(--s4);border:0;border-radius:var(--r);background:var(--accent-text);color:var(--on-accent);cursor:pointer;transition:background-color var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.lg .copy:focus-visible{outline-color:var(--ink)}
+.lg .copy:hover{background:var(--accent-hover)}
+.lg .copy:active{transform:translateY(1px)}
+.lg .copy[data-state="copied"]{background:var(--ink);color:var(--paper)}
+.lg .copy[data-state="error"]{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.lg .status{min-height:1.6em;margin:var(--s3) 0 0;font-family:var(--mono);font-size:var(--t-label);color:var(--ink-2)}
+.lg .fine{margin:var(--s2) 0 0;font-family:var(--mono);font-size:var(--t-label);color:var(--ink-2)}
+.lg .log-title{font-family:var(--mono);font-size:var(--t-label);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin:0 0 var(--s3);padding-bottom:var(--s2);border-bottom:2px solid var(--ink)}
+.lg .log{list-style:none;margin:0;padding:0}
+.lg .log li{display:grid;grid-template-columns:52px 1fr;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--rule);font-size:16px;line-height:1.45}
+.lg .log time{font-family:var(--mono);font-size:var(--t-label);color:var(--ink-2);padding-top:2px}
+.lg .log code,.lg .steps code,.lg .rules code{font-family:var(--mono);font-size:.82em}
+.lg .log .mark{color:var(--accent-text);font-weight:600}
+.lg section.band{border-top:1px solid var(--rule);padding:var(--s9) 0;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:var(--s5)}
+.lg .band-head{grid-column:1 / span 4}
+.lg .band-body{grid-column:6 / span 7}
+.lg h2{font-weight:500;font-size:var(--t-h2);line-height:1.15;letter-spacing:-.01em;margin:0 0 var(--s4)}
+.lg .band-head p{color:var(--ink-2);margin:0}
+.lg .steps{list-style:none;margin:0;padding:0;counter-reset:s}
+.lg .steps li{counter-increment:s;display:grid;grid-template-columns:var(--s8) 1fr;gap:var(--s4);padding:var(--s5) 0;border-bottom:1px solid var(--rule)}
+.lg .steps li:first-child{padding-top:0}
+.lg .steps li::before{content:counter(s);font-size:40px;line-height:1;color:var(--accent-text);font-weight:500}
+.lg .steps strong{font-weight:600}
+.lg .steps p{margin:0}
+.lg pre.cmds{margin:0 0 var(--s7);padding:var(--s5);background:var(--paper-2);border-left:2px solid var(--ink);font-family:var(--mono);font-size:15px;line-height:1.9;overflow-x:auto;color:var(--ink)}
+.lg pre.cmds .c{color:var(--ink-2)}
+.lg .rules{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s6)}
+.lg .rules li{padding-top:var(--s3);border-top:1px solid var(--ink)}
+.lg .rules b{display:block;font-weight:600;margin-bottom:var(--s1)}
+.lg .rules span{color:var(--ink-2);font-size:16px}
+.lg footer{border-top:1px solid var(--rule);padding:var(--s6) 0 var(--s8);display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:var(--s4);font-family:var(--mono);font-size:var(--t-label);color:var(--ink-2)}
+.lg footer a{display:inline-flex;align-items:center;min-height:44px}
+.lg footer .links{display:flex;gap:var(--s5)}
+@media (max-width:960px){
+  .lg .wrap{padding:0 var(--s4)}
+  .lg .hero,.lg section.band{grid-template-columns:minmax(0,1fr);row-gap:var(--s7)}
+  .lg .hero{padding:var(--s8) 0}
+  .lg .hero-copy,.lg .hero-log,.lg .band-head,.lg .band-body{grid-column:1 / -1}
+  .lg section.band{padding:var(--s8) 0}
+}
+@media (max-width:560px){
+  .lg header img{height:44px}
+  .lg nav .opt{display:none}
+  .lg .install-body{flex-direction:column;align-items:stretch}
+  .lg .rules{grid-template-columns:minmax(0,1fr)}
+  .lg .lead{font-size:20px}
+  .lg pre.cmds{white-space:pre-wrap;overflow-wrap:anywhere}
+}
+@media (prefers-reduced-motion: reduce){.lg *{transition:none !important}}
+</style>
+</helmet>
+<div class="lg {{themeClass}}">
+<div class="wrap">
+<header>
+  <a href="https://github.com/akhilrs/capstan" aria-label="Capstan on GitHub">
+    <img class="logo-l" src="/_blob/e084e96dfb8ea634b1f46ea438d9c229" alt="Capstan" width="203" height="64">
+    <img class="logo-d" src="/_blob/6aa6144597e2d2ba19a67c1951154ed6" alt="Capstan" width="203" height="64">
+  </a>
+  <nav aria-label="Primary">
+    <a class="opt" href="#how">How it works</a>
+    <a href="https://github.com/akhilrs/capstan/tree/main/docs/reference">Docs</a>
+    <a href="https://github.com/akhilrs/capstan">GitHub</a>
+  </nav>
+</header>
+
+<main>
+<div class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Open source · MIT · v0.1.1 pre-release</p>
+    <h1>You talk to one PM. <em>It runs the crew.</em></h1>
+    <p class="lead">Capstan turns a few Claude Code and Codex sessions into a delivery team. Each worker gets its own pane, worktree and branch; a controller verifies every report, and nothing reaches your main branch unless you merge it.</p>
+    <div class="install">
+      <div class="install-head"><span>Install · no sudo</span><span>Linux · macOS</span></div>
+      <div class="install-body">
+        <code><span class="p">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</code>
+        <button class="copy" type="button" data-state="{{copyState}}" onClick="{{copy}}">{{copyLabel}}</button>
+      </div>
+    </div>
+    <p class="status" role="status" aria-live="polite">{{copyStatus}}</p>
+    <p class="fine">Installs under ~/.local/share/capstan and links ~/.local/bin/cstan. <a href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read the script first</a>.</p>
+  </div>
+  <aside class="hero-log" aria-labelledby="log-t">
+    <p class="log-title" id="log-t">Example log · one task</p>
+    <ol class="log">
+      <li><time>09:02</time><span><b>pm-1</b> spawns <b>developer-2</b> on <code>capstan/developer-2-g1</code></span></li>
+      <li><time>09:41</time><span>developer-2 reports <code>3f9c2e1</code>. <span class="mark">Controller verifies</span> it is on that branch.</span></li>
+      <li><time>09:44</time><span>A fresh <b>reviewer-3</b> starts at that exact commit.</span></li>
+      <li><time>10:07</time><span>reviewer-3 answers once: <span class="mark">pass</span>.</span></li>
+      <li><time>10:08</time><span>Squashed onto <code>capstan/integration/7</code>. Your checkout is untouched.</span></li>
+      <li><time>10:15</time><span><b>You</b> merge.</span></li>
+    </ol>
+  </aside>
+</div>
+
+<section class="band" id="how" aria-labelledby="how-t">
+  <div class="band-head">
+    <h2 id="how-t">How a task moves</h2>
+    <p>Completion is never guessed from terminal text. Every step is a fact in a SQLite ledger.</p>
+  </div>
+  <ol class="steps band-body">
+    <li><p><strong>You ask the PM.</strong> It picks a tier: small work goes straight to a developer, larger work to an Architect who splits it into packages.</p></li>
+    <li><p><strong>Workers build.</strong> Each commits on its own branch, never pushes or merges, and runs <code>cstan report</code>.</p></li>
+    <li><p><strong>Reviews are independent.</strong> A fresh reviewer starts at the reported commit; findings go back to the developer.</p></li>
+    <li><p><strong>Integration is mechanical.</strong> Reviewed reports are squashed onto an integration branch without touching your checkout.</p></li>
+    <li><p><strong>You merge.</strong> Then <code>cstan integrate confirm</code> tells the controller to clean up.</p></li>
+  </ol>
+</section>
+
+<section class="band" aria-labelledby="start-t">
+  <div class="band-head">
+    <h2 id="start-t">Then, in your repo</h2>
+    <p>Needs git, Herdr for the panes, and Claude Code for the PM.</p>
+  </div>
+  <div class="band-body">
+<pre class="cmds"><span class="c"># starter capstan.toml and roles/</span>
+cstan init
+<span class="c"># validate and print the resolved config</span>
+cstan config check
+<span class="c"># controller up, PM launched in Herdr</span>
+cstan start
+<span class="c"># optional: watch the team</span>
+cstan dash</pre>
+    <ul class="rules">
+      <li><b>Never pushes</b><span>Workers commit on <code>capstan/&lt;agent&gt;-g&lt;n&gt;</code>. You merge.</span></li>
+      <li><b>Verified reports</b><span>A report names a full commit id, checked against the worker's branch.</span></li>
+      <li><b>Prompt relay</b><span>Permission prompts reach you through the PM, with the exact answer typed back.</span></li>
+      <li><b>Pause anything</b><span>Hold one agent or the whole run; messages stay queued.</span></li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer>
+  <span>Capstan · MIT licence · Node 24 or standalone binary</span>
+  <span class="links"><a href="https://github.com/akhilrs/capstan/releases">Releases</a><a href="https://github.com/akhilrs/capstan/tree/main/docs/reference">Docs</a><a href="https://github.com/akhilrs/capstan">GitHub</a></span>
+</footer>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["auto","light","dark"],"default":"auto"},"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = (this.state && this.state.copy) || 'idle';
+    const theme = this.props.theme ?? 'auto';
+    const set = (s) => {
+      this.setState({ copy: s });
+      clearTimeout(this._t);
+      if (s !== 'idle') this._t = setTimeout(() => this.setState({ copy: 'idle' }), 2400);
+    };
+    const cmd = 'curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh';
+    return {
+      themeClass: theme === 'auto' ? '' : theme,
+      copyState: st,
+      copyLabel: st === 'copied' ? 'Copied' : st === 'error' ? 'Retry' : 'Copy',
+      copyStatus: st === 'copied' ? 'Copied to clipboard. Paste it in a terminal.' : st === 'error' ? 'Clipboard blocked. Select the command and copy it by hand.' : '',
+      copy: () => {
+        try { navigator.clipboard.writeText(cmd).then(() => set('copied'), () => set('error')); }
+        catch (e) { set('error'); }
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -9,3 +9,6 @@ coverage/
 /release/
 .nexora.toml
 .nexora.toml~
+
+# Local design screenshots (verification only, not committed)
+design/landing/screens/

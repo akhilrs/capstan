@@ -1,0 +1,44 @@
+<!-- @dsCard group="Actions" height=360 subtitle="Idle, copied and error, plus a working copy" -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Install bar — preview</title>
+<style>
+body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+.stack { display: grid; gap: var(--space-4); }
+</style>
+</head>
+<body>
+<div class="stack">
+  <div>
+    <div class="cap-install">
+      <code class="cap-install__cmd"><span class="cap-install__prompt" aria-hidden="true">$ </span><span id="cmd">curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</span></code>
+      <button class="cap-btn" type="button" id="live" data-state="idle">Copy</button>
+    </div>
+    <p class="cap-install__status" id="live-status" role="status" aria-live="polite" data-state="idle"></p>
+  </div>
+  <div>
+    <div class="cap-install">
+      <code class="cap-install__cmd"><span class="cap-install__prompt" aria-hidden="true">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</code>
+      <button class="cap-btn" type="button" data-state="copied">Copied</button>
+    </div>
+    <p class="cap-install__status" data-state="copied">Copied. Paste it into a terminal to install cstan.</p>
+  </div>
+  <div>
+    <div class="cap-install">
+      <code class="cap-install__cmd"><span class="cap-install__prompt" aria-hidden="true">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</code>
+      <button class="cap-btn" type="button" data-state="error">Copy again</button>
+    </div>
+    <p class="cap-install__status" data-state="error">The browser blocked the clipboard. The command is selected: press Ctrl+C to copy it.</p>
+  </div>
+</div>
+<script>
+  var b = document.getElementById('live'), s = document.getElementById('live-status'), t;
+  function set(st, msg) { b.dataset.state = st; s.dataset.state = st; b.textContent = st === 'copied' ? 'Copied' : st === 'error' ? 'Copy again' : 'Copy'; s.textContent = msg || ''; clearTimeout(t); if (st === 'copied') t = setTimeout(function () { set('idle'); }, 4000); }
+  b.addEventListener('click', function () {
+    var cmd = document.getElementById('cmd').textContent;
+    try { navigator.clipboard.writeText(cmd).then(function () { set('copied', 'Copied. Paste it into a terminal to install cstan.'); }, function () { set('error', 'The browser blocked the clipboard. Select the command and copy it.'); }); }
+    catch (e) { set('error', 'The browser blocked the clipboard. Select the command and copy it.'); }
+  });
+</script>
+</body>
+</html>

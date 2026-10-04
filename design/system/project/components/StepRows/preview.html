@@ -1,0 +1,16 @@
+<!-- @dsCard group="Content" height=420 subtitle="Numbered rows for a real sequence" -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Step rows — preview</title>
+<style>body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-sans); font-size: var(--text-body); line-height: 1.55; }</style>
+</head>
+<body>
+<ol class="cap-steps">
+  <li><span class="cap-steps__title">You ask the PM</span><span class="cap-steps__text">It picks a tier. Small work goes straight to a developer; larger work goes to an Architect, who splits it into packages.</span></li>
+  <li><span class="cap-steps__title">Workers build</span><span class="cap-steps__text">Each commits on its own branch, never pushes or merges, and runs <code class="cap-inline">cstan report</code> with a full commit id.</span></li>
+  <li><span class="cap-steps__title">Reviews are independent</span><span class="cap-steps__text">A fresh reviewer starts at the reported commit and answers once.</span></li>
+  <li><span class="cap-steps__title">Integration is mechanical</span><span class="cap-steps__text">Reviewed reports are squashed onto an integration branch without touching your checkout.</span></li>
+  <li><span class="cap-steps__title">You merge</span><span class="cap-steps__text">Then <code class="cap-inline">cstan integrate confirm</code> tells the controller to clean up.</span></li>
+</ol>
+</body>
+</html>

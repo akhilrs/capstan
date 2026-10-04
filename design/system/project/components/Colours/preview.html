@@ -1,0 +1,29 @@
+<!-- @dsCard group="Foundations" height=300 subtitle="Ink and paper with one accent; pairs in use" page -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Colours — preview</title>
+<style>
+body { margin: 0; padding: var(--space-5); background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.sw { border: 1px solid var(--line); border-radius: var(--radius-2); overflow: hidden; }
+.chip { height: var(--space-8); display: flex; align-items: flex-end; padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: var(--text-label); }
+.name { padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: var(--text-label); color: var(--fg-muted); background: var(--bg); }
+.bg { background: var(--bg); color: var(--fg); } .surface { background: var(--surface); color: var(--fg); }
+.fg { background: var(--fg); color: var(--bg); } .muted { background: var(--fg-muted); color: var(--bg); }
+.line { background: var(--line); color: var(--fg); } .accent { background: var(--accent); color: var(--on-accent); }
+.hover { background: var(--accent-hover); color: var(--on-accent); } .focus { background: var(--bg); color: var(--fg); box-shadow: inset 0 0 0 2px var(--focus); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="sw"><div class="chip bg">Aa text on bg</div><div class="name">bg</div></div>
+  <div class="sw"><div class="chip surface">Aa text on surface</div><div class="name">surface</div></div>
+  <div class="sw"><div class="chip fg">Aa</div><div class="name">fg</div></div>
+  <div class="sw"><div class="chip muted">Aa</div><div class="name">fg-muted</div></div>
+  <div class="sw"><div class="chip line">divider only</div><div class="name">line</div></div>
+  <div class="sw"><div class="chip accent">Copy</div><div class="name">accent / on-accent</div></div>
+  <div class="sw"><div class="chip hover">Copy (hover)</div><div class="name">accent-hover</div></div>
+  <div class="sw"><div class="chip focus">focus ring</div><div class="name">focus</div></div>
+</div>
+</body>
+</html>

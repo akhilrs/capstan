@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capstan: a controller for your AI coding agents</title>
+<meta name="description" content="Capstan turns a few Claude Code and Codex sessions into a delivery team. You talk to one PM agent; it runs the crew, and nothing reaches your main branch unless you merge it.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="assets/capstan-icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<script>try { var t = localStorage.getItem("capstan-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+<header class="site-head">
+  <a class="site-head__logo cap-focusable" href="https://github.com/akhilrs/capstan" aria-label="Capstan on GitHub">
+    <img class="logo-dark" src="assets/capstan-logo-dark.svg" alt="" width="152" height="48">
+    <img class="logo-light" src="assets/capstan-logo-light.svg" alt="" width="152" height="48">
+  </a>
+  <nav class="site-nav" aria-label="Primary">
+    <a class="cap-link nav-optional" href="#how">How it works</a>
+    <a class="cap-link" href="https://github.com/akhilrs/capstan/tree/main/docs/reference">Docs</a>
+    <a class="cap-link" href="https://github.com/akhilrs/capstan">GitHub</a>
+    <button class="cap-btn cap-btn--quiet theme-toggle" type="button" id="theme-toggle" hidden>Light</button>
+  </nav>
+</header>
+
+<main id="main">
+<div class="hero">
+  <div class="hero__copy">
+    <h1>A controller for your AI coding agents.</h1>
+    <p class="hero__lead">Describe the work to <strong>one PM agent</strong>. It spawns developers, reviewers and testers as real Claude Code or Codex sessions, each in its own pane, worktree and branch, and tells you <strong>which branch to merge</strong>.</p>
+  </div>
+
+  <figure class="hero__dash">
+    <div class="cap-term" role="group" aria-label="Example of the cstan dash terminal dashboard">
+      <div class="cap-term__bar"><span>cstan dash</span><span>controller up, ledger ok</span></div>
+      <div class="cap-scroll" tabindex="0" role="region" aria-label="Agents table, scrolls sideways on small screens">
+        <table class="cap-table" id="dash">
+          <thead><tr><th scope="col">Agent</th><th scope="col">Role</th><th scope="col">State</th><th scope="col">Branch or last fact</th></tr></thead>
+          <tbody>
+            <tr><td>pm-1</td><td class="is-muted">PM</td><td><span class="cap-state is-active">talking to you</span></td><td class="is-muted">main conversation</td></tr>
+            <tr><td>architect-1</td><td class="is-muted">Architect</td><td><span class="cap-state">idle</span></td><td class="is-muted">plan accepted, 3 packages</td></tr>
+            <tr data-agent="developer-2"><td>developer-2</td><td class="is-muted">Developer</td><td><span class="cap-state">reported</span></td><td>3f9c2e1 verified</td></tr>
+            <tr><td>designer-4</td><td class="is-muted">Designer</td><td><span class="cap-state">waiting for mail</span></td><td>capstan/designer-4-g1</td></tr>
+            <tr data-agent="reviewer-3"><td>reviewer-3</td><td class="is-muted">Reviewer</td><td><span class="cap-state is-active">reviewing</span></td><td class="is-muted">at 3f9c2e1, answers once</td></tr>
+            <tr><td>supervisor-1</td><td class="is-muted">Supervisor</td><td><span class="cap-state">watching</span></td><td class="is-muted">no open findings</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cap-term__foot"><span>queue 2</span><span id="dash-verified">reports verified 4</span><span>integration branch capstan/integration/7 waits for review</span></div>
+    </div>
+    <figcaption class="hero__caption">An example run in <code class="cap-inline">cstan dash</code>, the read-only terminal dashboard.</figcaption>
+  </figure>
+
+  <div class="hero__install">
+    <div class="cap-install">
+      <code class="cap-install__cmd" id="install-cmd"><span class="cap-install__prompt" aria-hidden="true">$ </span><span id="install-text">curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh</span></code>
+      <button class="cap-btn" type="button" id="copy-btn" data-state="idle" aria-describedby="install-status">Copy</button>
+    </div>
+    <div class="install-meta">
+      <p class="cap-install__status" id="install-status" role="status" aria-live="polite" data-state="idle"></p>
+      <p class="install-meta__note">No sudo. Linux x64 and arm64 get a standalone binary; elsewhere it needs Node 24.6 or newer. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read install.sh</a></p>
+    </div>
+  </div>
+</div>
+
+<section class="band" id="how" aria-labelledby="how-title">
+  <div class="band__head">
+    <h2 id="how-title">How a task moves</h2>
+    <p class="band__intro">Nothing is guessed from terminal text. Every step is a fact in a SQLite ledger.</p>
+  </div>
+  <ol class="cap-steps band__body">
+    <li><span class="cap-steps__title">You ask the PM</span><span class="cap-steps__text">It picks a tier. Small work goes straight to a developer; larger work goes to an Architect, who splits it into packages.</span></li>
+    <li><span class="cap-steps__title">Workers build</span><span class="cap-steps__text">Each commits on its own branch, never pushes or merges, and runs <code class="cap-inline">cstan report</code> with a full commit id. The controller checks the commit is on that branch before the PM hears about it.</span></li>
+    <li><span class="cap-steps__title">Reviews are independent</span><span class="cap-steps__text">A fresh reviewer starts at the reported commit and answers once. Findings go back to the developer, who amends and reports again.</span></li>
+    <li><span class="cap-steps__title">Integration is mechanical</span><span class="cap-steps__text">Reviewed reports are squashed onto <code class="cap-inline">capstan/integration/&lt;id&gt;</code> without touching your checkout. A conflict becomes a new task.</span></li>
+    <li><span class="cap-steps__title">You merge</span><span class="cap-steps__text">Then <code class="cap-inline">cstan integrate confirm</code> tells the controller to clean up.</span></li>
+  </ol>
+</section>
+
+<section class="band" aria-labelledby="start-title">
+  <div class="band__head"><h2 id="start-title">First run</h2></div>
+<pre class="cap-code band__code"><span class="cap-code__comment"># in the repository you want the team to work on</span>
+<span class="cap-code__prompt">$ </span>cstan init
+<span class="cap-code__prompt">$ </span>cstan config check
+<span class="cap-code__prompt">$ </span>cstan start
+<span class="cap-code__prompt">$ </span>cstan dash   <span class="cap-code__comment"># optional</span></pre>
+  <div class="band__aside">
+    <p>You need git, Herdr for the panes and Claude Code for the PM.</p>
+    <p>Then switch to the PM's Herdr pane and say what you want built. <code class="cap-inline">cstan stop</code> shuts the controller down.</p>
+    <p><a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/docs/reference/install.md">Install reference</a></p>
+  </div>
+</section>
+</main>
+
+<footer class="site-foot">
+  <p>Capstan 0.1.1, pre-release, MIT licence</p>
+  <nav aria-label="Footer">
+    <a class="cap-link" href="https://github.com/akhilrs/capstan/releases">Releases</a>
+    <a class="cap-link" href="https://github.com/akhilrs/capstan">GitHub</a>
+  </nav>
+</footer>
+</div>
+<script src="app.js" defer></script>
+</body>
+</html>
