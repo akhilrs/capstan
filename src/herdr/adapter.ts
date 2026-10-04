@@ -346,11 +346,21 @@ export function claudeArguments(
       }),
       "--strict-mcp-config",
     );
-  if (role.hooks === "off") args.push("--settings", '{"disableAllHooks":true}');
+  // Both keys: Claude Code has renamed the attribution setting before.
+  const attribution = {
+    includeCoAuthoredBy: false,
+    attribution: { commit: "", pr: "" },
+  };
+  if (role.hooks === "off")
+    args.push(
+      "--settings",
+      JSON.stringify({ disableAllHooks: true, ...attribution }),
+    );
   else
     args.push(
       "--settings",
       JSON.stringify({
+        ...attribution,
         hooks: {
           PostToolUse: [
             {

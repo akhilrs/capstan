@@ -33,6 +33,11 @@ const config = {
 } as unknown as CapstanConfig;
 
 interface Stub {
+  /** What the stubbed launcher answers when a branch is to be renamed after a task. */
+  rename?: (
+    agentId: string,
+    task: string,
+  ) => { branch: string | null; renamed: boolean; note?: string };
   inHead: boolean;
 }
 
@@ -101,6 +106,8 @@ async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
           reviewers.push(reviewer);
           return { state: "started", agentId: reviewer.agentId };
         },
+        renameBranchForTask: async (agentId: string, task: string) =>
+          stub.rename?.(agentId, task) ?? { branch: null, renamed: false },
         release: async (agentId: string) => ({ state: "released", agentId }),
         status: () => ({}),
       } as never,
@@ -625,5 +632,47 @@ test("replace rebinds the packages of the predecessor in the ledger", async () =
       h.core.agentSeed(successor.agentId).packages.map((p) => p.packageId),
       ["wp1"],
     );
+  });
+});
+
+test("plan assign names the assignee's branch after the package and prints it, or says the branch was kept", async () => {
+  await withTeam(async (t) => {
+    const { h } = t;
+    const planId = await approvedPlan(t, "wp1", "wp2");
+    const asked: string[] = [];
+    t.stub.rename = (agentId, task) => {
+      asked.push(`${agentId}:${task}`);
+      return agentId === t.devA.agentId
+        ? { branch: "feat/x-wp1", renamed: true }
+        : {
+            branch: "chore/dev-b-developer",
+            renamed: false,
+            note: "branch kept: chore/dev-b-developer (it already has commits)",
+          };
+    };
+    const first = await call(h, h.pm.credential, "plan", [
+      "assign",
+      planId,
+      "wp1",
+      t.devA.agentId,
+    ]);
+    assert.ok(first.ok, JSON.stringify(first));
+    const a = (first as { result: Record<string, unknown> }).result;
+    assert.equal(a.branch, "feat/x-wp1");
+    assert.equal(a.branchNote, undefined);
+    const second = await call(h, h.pm.credential, "plan", [
+      "assign",
+      planId,
+      "wp2",
+      t.devB.agentId,
+    ]);
+    assert.ok(second.ok, JSON.stringify(second));
+    const b = (second as { result: Record<string, unknown> }).result;
+    assert.equal(b.branch, "chore/dev-b-developer");
+    assert.match(String(b.branchNote), /^branch kept: chore\/dev-b-developer/);
+    assert.deepEqual(asked, [
+      `${t.devA.agentId}:${planId}/wp1`,
+      `${t.devB.agentId}:${planId}/wp2`,
+    ]);
   });
 });

@@ -625,9 +625,9 @@ test("spawn starts one worker in its own worktree with its token, prompt, worker
     const result = await w.launcher.spawn("developer");
     assert.equal(result.state, "started");
     assert.equal(result.agentId, "developer-1");
-    assert.equal(result.branch, "capstan/developer-1-g1");
+    assert.equal(result.branch, "chore/developer-1-developer");
     assert.ok(
-      w.adapter.calls.includes(`worktree:capstan/developer-1-g1:${SHA}`),
+      w.adapter.calls.includes(`worktree:chore/developer-1-developer:${SHA}`),
     );
     assert.deepEqual(
       w.adapter.worktreeParents,
@@ -653,7 +653,7 @@ test("spawn starts one worker in its own worktree with its token, prompt, worker
       .find((r) => r.agentId === "developer-1")!;
     assert.deepEqual(
       [row.worktreePath, row.branch, row.baseSha, row.paneId === result.paneId],
-      ["/tmp/work/developer-1", "capstan/developer-1-g1", SHA, true],
+      ["/tmp/work/developer-1", "chore/developer-1-developer", SHA, true],
     );
   } finally {
     w.cleanup();
@@ -1265,11 +1265,11 @@ test("the branch is named for the generation, git must accept the name before an
   try {
     await launched(w);
     const first = await w.launcher.spawn("developer");
-    assert.equal(first.branch, "capstan/developer-1-g1");
+    assert.equal(first.branch, "chore/developer-1-developer");
     assert.equal(
       w.core.agentPanes(w.owner).find((r) => r.agentId === "developer-1")!
         .branch,
-      "capstan/developer-1-g1",
+      "chore/developer-1-developer",
     );
     w.core.recordAgentPane(ctx(w.core, w.owner), {
       agentId: "developer-1",
@@ -1428,7 +1428,7 @@ test("a failed spawn ends the agent, closes the pane, removes the worktree, dele
       "ended",
     );
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["chore/developer-1-developer", SHA]]);
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,
@@ -1441,7 +1441,7 @@ test("a failed spawn ends the agent, closes the pane, removes the worktree, dele
     w.adapter.startError = undefined;
     const retry = await w.launcher.spawn("developer");
     assert.equal(retry.agentId, "developer-2");
-    assert.equal(retry.branch, "capstan/developer-2-g1");
+    assert.equal(retry.branch, "chore/developer-2-developer");
   } finally {
     w.cleanup();
   }
@@ -1951,7 +1951,7 @@ test("an ended agent's leftover worktree and branch are released at the next sta
     w.git.deleted = [];
     await w.reopen().adoptAll();
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["chore/developer-1-developer", SHA]]);
     assert.equal(
       w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
       false,
@@ -1986,7 +1986,10 @@ test("a worktree git refuses to remove keeps its row, is listed by status after 
     w.git.removeOk = true;
     await fresh.adoptAll();
     assert.deepEqual(fresh.status().cleanupFailed, []);
-    assert.deepEqual(w.git.deleted.at(-1), ["capstan/developer-1-g1", SHA]);
+    assert.deepEqual(w.git.deleted.at(-1), [
+      "chore/developer-1-developer",
+      SHA,
+    ]);
   } finally {
     w.cleanup();
   }
@@ -3458,7 +3461,7 @@ test("a failing setup rejects with worktree_setup_failed naming the exit code an
     assert.equal(w.adapter.starts.length, startsBefore);
     assert.ok(w.adapter.calls.some((c) => c.startsWith("close:")));
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["chore/developer-1-developer", SHA]]);
     assert.equal(
       w.core.listAgents().find((a) => a.agentId === "developer-1")!.state,
       "ended",
@@ -3493,7 +3496,7 @@ test("a timed-out setup rejects with worktree_setup_failed and the same cleanup"
         /timed out after 7s/.test(e.message),
     );
     assert.deepEqual(w.git.removed, ["/tmp/work/developer-1"]);
-    assert.deepEqual(w.git.deleted, [["capstan/developer-1-g1", SHA]]);
+    assert.deepEqual(w.git.deleted, [["chore/developer-1-developer", SHA]]);
   } finally {
     w.cleanup();
   }
@@ -4552,4 +4555,324 @@ test("interrupt sends exactly one Esc to a working agent, nothing to an idle one
   } finally {
     w.cleanup();
   }
+});
+
+async function approvedPackagePlan(
+  w: World,
+  architectStart: number,
+  packages: Array<Record<string, unknown>>,
+): Promise<string> {
+  const planId = w.core.openPlan(ctx(w.core, w.owner), {
+    tier: "normal",
+    title: "names",
+  }).planId;
+  w.core.submitPlan(
+    ctx(w.core, w.adapter.starts[architectStart]!.environment!.CAPSTAN_TOKEN!),
+    {
+      planId,
+      bodyJson: JSON.stringify({ summary: "s", packages }),
+      baseSha: "a".repeat(40),
+      review: false,
+    },
+  );
+  return planId;
+}
+
+test("spawn --task names the branch after the package: its type, the plan and package ids (or the linked Nexora id) and its title", async () => {
+  const w = await world(true, true, 5);
+  try {
+    await launched(w);
+    await w.launcher.spawn("developer");
+    const planId = await approvedPackagePlan(w, 1, [
+      { id: "conventions", title: "Conventions module", type: "fix" },
+      { id: "plain", title: "Plain one" },
+    ]);
+    const typed = await w.launcher.spawn("developer", {
+      task: `${planId}/conventions`,
+    });
+    assert.equal(typed.branch, `fix/${planId}-conventions-conventions-module`);
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === typed.agentId)!
+        .branch,
+      typed.branch,
+    );
+    assert.ok(w.adapter.calls.includes(`worktree:${typed.branch}:${SHA}`));
+    w.core.linkExternal(ctx(w.core, w.owner), {
+      refKind: "package",
+      refId: `${planId}/plain`,
+      externalId: "NX-12",
+    });
+    const linked = await w.launcher.spawn("developer", {
+      task: `${planId}/plain`,
+      title: "Own words",
+    });
+    assert.equal(linked.branch, "feat/NX-12-own-words");
+    await assert.rejects(
+      w.launcher.spawn("developer", { task: `${planId}/nope` }),
+      (e: unknown) => e instanceof LauncherError && e.code === "unknown_task",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a spawn that fails while choosing the branch name cleans up as if no branch was recorded", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    await assert.rejects(
+      w.launcher.spawn("developer", { task: "plan-1/nope" }),
+      (e: unknown) => e instanceof LauncherError && e.code === "unknown_task",
+    );
+    w.git.tips.set("taken", SHA);
+    await assert.rejects(
+      w.launcher.spawn("developer", { branch: "taken" }),
+      (e: unknown) => e instanceof LauncherError && e.code === "branch_in_use",
+    );
+    assert.ok(!w.git.byBranchQueries.includes(""));
+    assert.deepEqual(w.git.deleted, []);
+    assert.ok(!eventNames(w).includes("branch_kept"));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a requirement task names the branch after its ref id; --type wins over the default", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const one = await w.launcher.spawn("developer", {
+      task: "req-7",
+      type: "refactor",
+    });
+    assert.equal(one.branch, "refactor/req-7-req-7");
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("renameBranchForTask renames an ad-hoc branch with no commit and no report; the worktree row, the ledger and a later report follow", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const spawned = await w.launcher.spawn("developer");
+    w.git.tips.set(spawned.branch, SHA);
+    const result = await w.launcher.renameBranchForTask(
+      spawned.agentId,
+      "req-9",
+    );
+    assert.deepEqual(result, { branch: "feat/req-9-req-9", renamed: true });
+    assert.deepEqual(w.git.renames, [[spawned.branch, "feat/req-9-req-9"]]);
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === spawned.agentId)!
+        .branch,
+      "feat/req-9-req-9",
+    );
+    const commit = "c".repeat(40);
+    w.git.reachable.add(commit);
+    w.git.tips.set("feat/req-9-req-9", commit);
+    reportAs(w, spawned.agentId, 1, commit, "done");
+    const later = await w.launcher.renameBranchForTask(
+      spawned.agentId,
+      "req-10",
+    );
+    assert.equal(later.renamed, false);
+    assert.match(later.note!, /^branch kept: feat\/req-9-req-9 /);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("renameBranchForTask keeps a branch that has a commit and gives a taken name a -2", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    w.git.tips.set(first.branch, "d".repeat(40));
+    const kept = await w.launcher.renameBranchForTask(first.agentId, "req-9");
+    assert.equal(kept.renamed, false);
+    assert.equal(kept.branch, first.branch);
+    assert.match(kept.note!, /^branch kept: chore\/developer-1-developer /);
+    assert.deepEqual(w.git.renames, []);
+    const second = await w.launcher.spawn("developer");
+    w.git.tips.set(second.branch, SHA);
+    w.git.tips.set("feat/req-9-req-9", "e".repeat(40));
+    const named = await w.launcher.renameBranchForTask(second.agentId, "req-9");
+    assert.deepEqual(named, { branch: "feat/req-9-req-9-2", renamed: true });
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace continues the predecessor's branch at its accepted commit, saves unreported commits at refs/capstan/kept and names them in the seed and the event", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    const commit = "c".repeat(40);
+    const unreported = "d".repeat(40);
+    w.git.reachable.add(commit);
+    w.git.tips.set(old.branch, unreported);
+    reportAs(w, old.agentId, 1, commit, "parser written");
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    assert.equal(result.branch, old.branch, "the same branch name");
+    assert.equal(result.keptRef, `refs/capstan/kept/${old.agentId}`);
+    assert.equal(
+      w.git.refs.get(`refs/capstan/kept/${old.agentId}`),
+      unreported,
+    );
+    assert.ok(
+      w.adapter.calls.includes(`worktree:${old.branch}:${commit}`),
+      "the successor's worktree starts at the accepted commit",
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).find((r) => r.agentId === result.agentId)!
+        .branch,
+      old.branch,
+    );
+    const prompt = promptOf(w, 2);
+    assert.ok(prompt.includes(`refs/capstan/kept/${old.agentId}`), prompt);
+    assert.ok(prompt.includes(`(tip ${unreported})`));
+    // Releasing the predecessor's leftovers later never touches the successor's branch.
+    assert.equal(
+      w.core.activeBranchHolder(old.branch, old.agentId),
+      result.agentId,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("cleanup never deletes or force-removes a branch the ledger records for another active agent", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const first = await w.launcher.spawn("developer");
+    const second = await w.launcher.spawn("developer");
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: second.agentId,
+      workspaceId: "w3",
+      paneId: second.paneId,
+      worktreePath: second.worktreePath,
+      branch: first.branch,
+      baseSha: SHA,
+    });
+    const before = w.git.deleted.length;
+    await w.launcher.release(first.agentId);
+    assert.equal(w.git.deleted.length, before, "no branch deleted");
+    assert.deepEqual(w.git.removedWithBranch.at(-1), undefined);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("defaultGit forces the worktree of a branch the ledger records, a legacy capstan/ branch, and nothing else", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-recorded-"));
+  const run = (...args: string[]) =>
+    spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  try {
+    run("init", "-q");
+    run(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "i",
+    );
+    const git = defaultGit(root);
+    const tree = (branch: string, name: string): string => {
+      const dir = path.join(root, "trees", name);
+      assert.equal(run("worktree", "add", "-q", "-b", branch, dir).status, 0);
+      writeFileSync(path.join(dir, "node_modules"), "x");
+      return dir;
+    };
+    const recorded = tree("feat/NX-1-parser", "recorded");
+    assert.equal(
+      git.worktreeRemove(recorded, "feat/NX-1-parser").removed,
+      true,
+      "the branch recorded for the agent is forced",
+    );
+    assert.equal(existsSync(recorded), false);
+    const unrecorded = tree("feat/NX-2-other", "unrecorded");
+    assert.equal(
+      git.worktreeRemove(unrecorded, "feat/NX-9-else").removed,
+      false,
+    );
+    assert.equal(git.worktreeRemove(unrecorded).removed, false);
+    const legacy = tree("capstan/dev-1-g1", "legacy");
+    assert.equal(git.worktreeRemove(legacy).removed, true);
+    const renamed = git.renameBranch("feat/NX-2-other", "feat/NX-2-renamed");
+    assert.equal(renamed.renamed, true);
+    assert.equal(
+      git.worktreeRemove(unrecorded, "feat/NX-2-renamed").removed,
+      true,
+    );
+    assert.equal(git.branchTip("feat/NX-2-other"), null);
+    assert.equal(git.saveRef("refs/capstan/kept/x", git.headSha()), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a legacy capstan/<agent>-g<n> agent keeps working: a report on it is accepted, replace continues its name and a branch with commits is kept on assign", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    const legacy = "capstan/developer-1-g1";
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: old.agentId,
+      workspaceId: "w3",
+      paneId: old.paneId,
+      worktreePath: old.worktreePath,
+      branch: legacy,
+      baseSha: SHA,
+    });
+    const commit = "c".repeat(40);
+    w.git.reachable.add(commit);
+    w.git.tips.set(legacy, commit);
+    reportAs(w, old.agentId, 1, commit, "legacy work");
+    const kept = await w.launcher.renameBranchForTask(old.agentId, "req-3");
+    assert.equal(kept.renamed, false);
+    assert.match(kept.note!, /^branch kept: capstan\/developer-1-g1 /);
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    assert.equal(
+      result.branch,
+      legacy,
+      "the successor continues the legacy name",
+    );
+    assert.ok(w.adapter.calls.includes(`worktree:${legacy}:${commit}`));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("no source file builds a branch from an agent id or a generation", () => {
+  const files: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".ts")) files.push(full);
+    }
+  };
+  walk(path.resolve(import.meta.dirname, "..", "..", "src"));
+  assert.ok(files.length > 20);
+  const offenders = files.filter((file) => {
+    const text = readFileSync(file, "utf8");
+    return (
+      /`capstan\/\$\{/.test(text) ||
+      /-g\$\{/.test(text) ||
+      /["']-g["']\s*\+/.test(text)
+    );
+  });
+  assert.deepEqual(offenders, []);
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -74,6 +75,9 @@ test("the designer prompt has its sections in order and the required rules", () 
     "Never claim a screenshot or a check that did not run",
     "Work only in your own worktree",
     "Never push and never merge",
+    "Conventional Commits",
+    "Generated with Claude Code",
+    "you never rename your branch",
   ])
     assert.ok(DESIGNER_PROMPT.includes(needle), needle);
   const avoid = DESIGNER_PROMPT.slice(
@@ -143,4 +147,16 @@ test("the designer prompt passes the prompt_file guards and fits in a Developer 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("the six golden prompt fixtures have no designer file", () => {
+  const files = readdirSync(path.join(ROOT, "test", "fixtures", "prompts-off"));
+  assert.deepEqual(files.sort(), [
+    "architect.txt",
+    "developer.txt",
+    "operator.txt",
+    "pm.txt",
+    "reviewer.txt",
+    "supervisor.txt",
+  ]);
 });

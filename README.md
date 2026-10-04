@@ -31,18 +31,18 @@ Everything is driven through one command: `cstan`.
 | Feature                                 | What you get                                                                                                                                                              |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **PM and worker roles**                 | One PM talks to you. Workers are free-named roles of four kinds: PM, Developer, Verifier, Supervisor.                                                                     |
-| **A worktree per agent**                | Each worker gets its own pane, worktree and branch (`capstan/<agent-id>-g<n>`), cut from your HEAD.                                                                       |
+| **A worktree per agent**                | Each worker gets its own pane, worktree and branch (`<type>/<task-id>-<slug>`, for example `feat/PM-47-add-login`), cut from your HEAD.                                   |
 | **Delivered, acknowledged messages**    | One FIFO per recipient. Messages wait while a worker is busy and stay blocked until acknowledged; problems reach the PM with the exact `cstan resolve` to run.            |
 | **Verified reports**                    | A report names a full commit id; the controller checks it lies on that worker's branch before the PM hears about it.                                                      |
 | **Independent reviews**                 | `request-review` starts a fresh Verifier at the reported commit. It answers once, pass or findings, and is ended.                                                         |
-| **Integrate, confirm, discard**         | Reviewed reports are squashed onto `capstan/integration/<id>` without a checkout. You merge; the controller confirms it is in HEAD.                                       |
+| **Integrate, confirm, discard**         | Reviewed reports are squashed onto `integration/<plan-id>-<slug>` without a checkout. You merge; the controller confirms it is in HEAD.                                   |
 | **Planned work tiers**                  | An optional Architect splits normal and high-risk work into packages with owned files, dependencies and acceptance criteria. High-risk plans get their own review.        |
 | **Supervisor and findings**             | A Supervisor watches active workers and raises findings with evidence, a requested correction and a done-when; unresolved ones escalate.                                  |
 | **Operator**                            | An optional role that proposes shell commands or a controller restart. Nothing runs without a hash-bound PM approval, a session grant or time-boxed full auto.            |
 | **Prompt relay**                        | When a worker stops at a permission prompt, the PM shows you the exact prompt and types only the answer you pick. An unrecognised blocking dialog is relayed as Esc only. |
 | **Researcher with MCP servers**         | An optional web-research role with WebSearch, read-only curl and a headless Playwright browser, writing one sourced report.                                               |
 | **Pause and resume**                    | You or the PM hold one agent or the whole run with a reason: messages stay queued, spawn, plan assign, review and integrate are refused, `--interrupt` adds one Esc.      |
-| **Replace and lost agents**             | Lost panes are detected and reported. `cstan replace` starts a successor seeded from the ledger on a branch at its last accepted report.                                  |
+| **Replace and lost agents**             | Lost panes are detected and reported. `cstan replace` starts a successor seeded from the ledger on the same branch name, restarted at its last accepted report.           |
 | **Defaults per role kind**              | Set a model and permission mode once per kind; a role's own value wins.                                                                                                   |
 | **Env pass-through and worktree hooks** | Name extra variables for agents; run a `setup` command in each new worktree and a `teardown` before removal.                                                              |
 | **Nexora tracking**                     | The PM can mirror requirements and packages into Nexora; the ledger keeps the links and shows drift.                                                                      |
@@ -244,16 +244,16 @@ Run `cstan` with no arguments for the usage line. Every routed command accepts `
 <details>
 <summary><b>Messaging and workers</b></summary>
 
-| Command                                                    | Purpose                                          |
-| ---------------------------------------------------------- | ------------------------------------------------ |
-| `cstan send <agent-id\|@pm> "<text>"`                      | Queue a message.                                 |
-| `cstan wait`                                               | Block for new messages (PM and workers).         |
-| `cstan ack <message-id>`                                   | Acknowledge a message.                           |
-| `cstan spawn <role>`                                       | Start a worker.                                  |
-| `cstan release <agent-id>`                                 | End a worker, free its pane and worktree.        |
-| `cstan replace <agent-id>`                                 | Replace a lost or stuck worker.                  |
-| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]` | Hold one agent or the whole run (you or the PM). |
-| `cstan resume [<agent-id>] --reason "<text>"`              | Release a pause.                                 |
+| Command                                                              | Purpose                                                   |
+| -------------------------------------------------------------------- | --------------------------------------------------------- |
+| `cstan send <agent-id\|@pm> "<text>"`                                | Queue a message.                                          |
+| `cstan wait`                                                         | Block for new messages (PM and workers).                  |
+| `cstan ack <message-id>`                                             | Acknowledge a message.                                    |
+| `cstan spawn <role> [--task <ref>] [--type <type>] [--title <text>]` | Start a worker; `--task` names its branch after the task. |
+| `cstan release <agent-id>`                                           | End a worker, free its pane and worktree.                 |
+| `cstan replace <agent-id>`                                           | Replace a lost or stuck worker.                           |
+| `cstan pause [<agent-id>] --reason "<text>" [--interrupt]`           | Hold one agent or the whole run (you or the PM).          |
+| `cstan resume [<agent-id>] --reason "<text>"`                        | Release a pause.                                          |
 
 </details>
 
@@ -362,6 +362,10 @@ Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a 
 Issues and pull requests are welcome; contributions are accepted under the [MIT License](LICENSE). Before you open one:
 
 - run `npm run check` and keep it green;
+- write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) (`<type>[(scope)][!]: <description>`; types `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, `revert`);
+- name branches `<type>/<task-id>-<slug>` (or `chore/<agent-id>-<slug>` for ad-hoc work); Capstan creates worker and integration (`integration/<plan-id>-<slug>`) branches for you, and older `capstan/<agent>-g<n>` branches still work;
+- leave AI attribution out of commits and pull requests: no `Co-Authored-By` line naming Claude, no `Claude-Session` line, no "Generated with Claude Code" footer (`cstan report` refuses commits that have one);
+- releases follow [SemVer](https://semver.org): `npm run release` picks the version from the commits, writes `CHANGELOG.md`, builds the assets and tags locally (`--dry-run` previews it, `--version X.Y.Z` overrides it). See [Branches, commits and releases](docs/reference/workflow.md#branches-commits-and-releases) and [Releases](docs/reference/commands.md#releases);
 - describe behaviour as the code has it, and update the [reference docs](docs/reference/) with any change to commands, config keys or messages;
 - for design changes, read the relevant note in [`docs/design/`](docs/design/) and [`decisions/`](decisions/) first.
 

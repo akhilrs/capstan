@@ -774,11 +774,14 @@ test("the frame check is linear: a body of blank lines is checked in a moment an
 
 function stubLauncher(): {
   calls: string[];
+  spawnOptions: unknown[];
   api: NonNullable<CommandDependencies["launcher"]>;
 } {
   const calls: string[] = [];
+  const spawnOptions: unknown[] = [];
   return {
     calls,
+    spawnOptions,
     api: {
       interrupt: async (agentId: string) => {
         calls.push(`interrupt:${agentId}`);
@@ -792,8 +795,9 @@ function stubLauncher(): {
         calls.push("restart");
         return { state: "started", generation: 2 };
       },
-      spawn: async (role: string) => {
+      spawn: async (role: string, options?: unknown) => {
         calls.push(`spawn:${role}`);
+        spawnOptions.push(options);
         if (role === "busy")
           throw new LauncherError("worker_limit", "3 of 3 workers are active");
         if (role === "boom") throw new Error("internal detail");
@@ -1560,6 +1564,51 @@ test("a message queued after the commit does not block the report and only adds 
     );
     assert.equal(accepted.state, "accepted");
     assert.equal((accepted.unread as { count: number }).count, 1);
+  } finally {
+    await close(h);
+  }
+});
+
+test("spawn takes --task, --type and --title for the branch name and refuses anything else", async () => {
+  const launcher = stubLauncher();
+  const h = await harness({ commands: { launcher: launcher.api } });
+  try {
+    assert.ok(
+      (
+        await call(h, h.owner, "spawn", [
+          "developer",
+          "--task",
+          "plan-16/conventions",
+          "--type",
+          "fix",
+          "--title",
+          "Conventions module",
+        ])
+      ).ok,
+    );
+    assert.deepEqual(launcher.spawnOptions.at(-1), {
+      task: "plan-16/conventions",
+      type: "fix",
+      title: "Conventions module",
+    });
+    assert.ok((await call(h, h.owner, "spawn", ["developer"])).ok);
+    assert.deepEqual(launcher.spawnOptions.at(-1), {});
+    const before = launcher.calls.length;
+    for (const args of [
+      ["developer", "--task"],
+      ["developer", "--type", "wip"],
+      ["developer", "--task", "a/b/c"],
+      ["developer", "--task", "x", "--task", "y"],
+      ["developer", "--title", "  "],
+      ["developer", "--branch", "x"],
+      ["developer", "plan-16"],
+    ])
+      assert.equal(
+        codeOf(await call(h, h.owner, "spawn", args)),
+        "invalid_request",
+        JSON.stringify(args),
+      );
+    assert.equal(launcher.calls.length, before, "nothing reached the launcher");
   } finally {
     await close(h);
   }

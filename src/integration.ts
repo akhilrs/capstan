@@ -10,6 +10,13 @@ import type {
   IntegrationOutcome,
   IntegrationRecord,
 } from "./controller/core.js";
+import {
+  checkCommitMessage,
+  COMMIT_TYPES,
+  formatSubject,
+  integrationBranchName,
+  withSuffix,
+} from "./conventions.js";
 import type { MutationContext } from "./controller/types.js";
 import type {
   CoveredReport,
@@ -58,27 +65,9 @@ export interface IntegrationDeps {
 /** Integrations this process is merging right now; a `running` row outside this set belongs to a cut-off run. */
 const inFlight = new Set<string>();
 
-/** The whole id keeps the name unique, so a branch with this name is never another integration's. */
-function branchFor(integrationId: string): string {
-  return `capstan/integration/${integrationId}`;
-}
-
 const SUBJECT_MAX = 72;
-const COMMIT_TYPES = "feat|fix|refactor|docs|test|chore|style|perf|ci";
-const LEADING_TYPE = new RegExp(`^(${COMMIT_TYPES})(?:\\([^)]+\\))?!?:`);
-
-const DEFAULT_COMMIT_TYPE = "feat";
-
-/** At most `room` characters, ending on a whole word; a first word longer than `room` is cut hard. */
-function cutAtWord(text: string, room: number): string {
-  if (text.length <= room) return text;
-  const head = text.slice(0, room);
-  const wordEnd = /\s/.test(text.charAt(room))
-    ? head.length
-    : head.search(/\s\S*$/);
-  const cut = wordEnd > 0 ? head.slice(0, wordEnd) : head;
-  return cut.replace(/[\s,;:\-–]+$/, "");
-}
+const TYPE_RANK = ["feat", "fix"];
+const LEADING_TYPE = /^[a-z]+(?:\([^)]*\))?!?:\s*/;
 
 function firstLine(text: string): string {
   return (
@@ -89,33 +78,80 @@ function firstLine(text: string): string {
   );
 }
 
-/** The squash commit message: `<type>: <title>` and one line per report. */
-export function squashMessage(info: {
-  readonly planTitle: string | null;
-  readonly reports: readonly {
-    readonly reportId: string;
-    readonly agentId: string;
-    readonly summary: string;
-  }[];
-}): { subject: string; body: string } {
+type CommitInfo = ReturnType<ControllerCore["integrationCommitInfo"]>;
+
+/** The package type that names the squash: feat beats fix beats any other; with none, the leading type of the title (or of the summary when there is no plan), else feat. */
+function squashType(info: CommitInfo, source: string): string {
+  const types = info.packages.flatMap((p) => (p.type === null ? [] : [p.type]));
+  for (const wanted of TYPE_RANK) if (types.includes(wanted)) return wanted;
+  const leading = /^([a-z]+)(?:\([^)]*\))?!?:/.exec(source)?.[1];
+  return (
+    types[0] ??
+    (leading !== undefined &&
+    (COMMIT_TYPES as readonly string[]).includes(leading)
+      ? leading
+      : "feat")
+  );
+}
+
+/**
+ * The squash commit message: a Conventional Commits subject from the plan title and package types, and one
+ * line per report. A worker's free text is only the subject when there is no plan.
+ */
+export function squashMessage(info: CommitInfo): {
+  subject: string;
+  body: string;
+} {
   const first = firstLine(info.reports[0]?.summary ?? "");
-  const planTitle = (info.planTitle ?? "").replace(/\s+/g, " ").trim();
-  const type =
-    LEADING_TYPE.exec(planTitle)?.[1] ??
-    LEADING_TYPE.exec(first)?.[1] ??
-    DEFAULT_COMMIT_TYPE;
-  const title =
-    (planTitle !== "" ? planTitle : first).replace(/\s+/g, " ").trim() ||
+  const source = info.planTitle !== null ? info.planTitle : first;
+  const description =
+    source.replace(/\s+/g, " ").trim().replace(LEADING_TYPE, "").trim() ||
     "integrate reports";
-  const prefix = `${type}: `;
-  const subject = prefix + cutAtWord(title, SUBJECT_MAX - prefix.length);
-  const body = info.reports
-    .map(
-      (r) =>
-        `Report ${r.reportId} (${r.agentId}): ${firstLine(r.summary).replace(/\s+/g, " ")}`,
+  const scopes = new Set(
+    info.packages.flatMap((p) => (p.scope ? [p.scope] : [])),
+  );
+  const lines = info.reports.map((r) => {
+    const line = `Report ${r.reportId} (${r.agentId}): ${firstLine(r.summary).replace(/\s+/g, " ")}`;
+    // A worker's free text must not carry an attribution line into the commit.
+    return checkCommitMessage(`chore: x\n\n${line}`, 1).length > 0
+      ? `Report ${r.reportId} (${r.agentId}): summary left out`
+      : line;
+  });
+  const subject = formatSubject(
+    {
+      type: squashType(info, source),
+      ...(scopes.size === 1 ? { scope: [...scopes][0]! } : {}),
+      breaking: info.packages.some((p) => p.breaking),
+      description,
+    },
+    SUBJECT_MAX,
+  );
+  if (info.planId !== null) lines.push("", `Refs: ${info.planId}`);
+  return { subject, body: lines.join("\n") };
+}
+
+/** integration/<plan-id>-<slug>, or integration/<integration-id> without a common plan; -2, -3 ... while the name is a live branch or an earlier integration's. */
+async function chooseBranch(
+  deps: IntegrationDeps,
+  integrationId: string,
+  info: CommitInfo,
+): Promise<string> {
+  const base =
+    info.planId === null
+      ? integrationBranchName({ integrationId })
+      : integrationBranchName({
+          integrationId: info.planId,
+          planTitle: (info.planTitle ?? "").replace(LEADING_TYPE, "").trim(),
+        });
+  for (let n = 1; n < 1000; n += 1) {
+    const name = withSuffix(base, n);
+    if (
+      !deps.core.integrationBranchRecorded(name) &&
+      (await deps.git.branchTip(name)) === null
     )
-    .join("\n");
-  return { subject, body };
+      return name;
+  }
+  return integrationBranchName({ integrationId });
 }
 
 /** Merges the reports in order and returns the recorded outcome. A refusal throws before anything is created. */
@@ -129,7 +165,11 @@ export async function integrate(
   await recoverIntegrations(deps, "pending");
   const baseSha = await deps.git.headCommit();
   const integrationId = randomUUID();
-  const branch = branchFor(integrationId);
+  const branch = await chooseBranch(
+    deps,
+    integrationId,
+    deps.core.plannedCommitInfo(input.reportIds),
+  );
   const begun = deps.core.beginIntegration(deps.context(deps.credential), {
     integrationId,
     reportIds: input.reportIds,

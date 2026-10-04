@@ -58,7 +58,33 @@ test("a valid plan parses with defaults filled in", () => {
     estimateHours: 2,
     acceptance: ["wp2 works"],
     risks: [],
+    type: null,
+    scope: null,
+    breaking: false,
   });
+});
+
+test("package type, scope and breaking are optional; a bad one is invalid_shape", () => {
+  const plan = accepted(
+    body({
+      packages: [pkg("wp1", { type: "fix", scope: "plans", breaking: true })],
+    }),
+  );
+  assert.equal(plan.packages[0]?.type, "fix");
+  assert.equal(plan.packages[0]?.scope, "plans");
+  assert.equal(plan.packages[0]?.breaking, true);
+  for (const bad of [
+    { type: "feature" },
+    { type: 3 },
+    { scope: "Has Space" },
+    { scope: "" },
+    { breaking: "yes" },
+  ]) {
+    assert.equal(
+      refusal(body({ packages: [pkg("wp1", bad)] }))[0],
+      "invalid_shape",
+    );
+  }
 });
 
 test("a plan keeps every optional field it supplies", () => {

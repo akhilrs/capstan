@@ -49,7 +49,7 @@ test("the seed names the predecessor and the base, lists empty sections as none 
   );
   assert.match(
     text,
-    /The predecessor's branch capstan\/developer-1-g1 is kept for reference if it held commits \(it is removed when it held none\)/,
+    /You continue the predecessor's branch capstan\/developer-1-g1 at the base above; the predecessor left no commits past it/,
   );
   assert.equal((text.match(/^- none$/gm) ?? []).length, 3);
   assert.match(
@@ -72,11 +72,12 @@ test("the seed names the predecessor and the base, lists empty sections as none 
     data(),
     { sha: SHA_A, source: "predecessor" },
     SHA_B,
+    "refs/capstan/kept/developer-1",
   );
   assert.match(withTip, new RegExp(`\\(tip ${SHA_B}\\)`));
   assert.match(
     withTip,
-    /may hold commits that were never reported; they are not accepted/,
+    /You continue the predecessor's branch capstan\/developer-1-g1, reset to the base above\. Commits the predecessor made after it, never accepted, were saved at refs\/capstan\/kept\/developer-1/,
   );
 });
 

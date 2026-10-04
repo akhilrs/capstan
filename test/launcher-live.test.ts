@@ -196,9 +196,9 @@ test(
       // Spawn a worker: a real worktree on its own branch at the recorded base sha, dialog answered by the controller.
       const spawned = await launcher.spawn("developer");
       assert.equal(spawned.state, "started", JSON.stringify(spawned));
-      assert.equal(spawned.branch, "capstan/developer-1-g1");
+      assert.equal(spawned.branch, "chore/developer-1-developer");
       assert.equal(
-        execFileSync("git", ["rev-parse", "capstan/developer-1-g1"], {
+        execFileSync("git", ["rev-parse", "chore/developer-1-developer"], {
           cwd: live.repo,
           encoding: "utf8",
         }).trim(),
@@ -209,7 +209,34 @@ test(
           cwd: live.repo,
           encoding: "utf8",
         }),
-        /branch refs\/heads\/capstan\/developer-1/,
+        /branch refs\/heads\/chore\/developer-1-developer/,
+      );
+      // Binding a task renames the branch (no commit, no report): git, the worktree's HEAD and the ledger follow.
+      const renamed = await launcher.renameBranchForTask(
+        "developer-1",
+        "REQ-1",
+      );
+      assert.deepEqual(renamed, { branch: "feat/REQ-1-req-1", renamed: true });
+      assert.match(
+        execFileSync("git", ["worktree", "list", "--porcelain"], {
+          cwd: live.repo,
+          encoding: "utf8",
+        }),
+        /branch refs\/heads\/feat\/REQ-1-req-1/,
+      );
+      assert.equal(
+        execFileSync(
+          "git",
+          ["-C", spawned.worktreePath, "branch", "--show-current"],
+          {
+            encoding: "utf8",
+          },
+        ).trim(),
+        "feat/REQ-1-req-1",
+      );
+      assert.equal(
+        core.agentPanes(owner).find((r) => r.agentId === "developer-1")!.branch,
+        "feat/REQ-1-req-1",
       );
       await until("the worker to be idle", async () =>
         (await first.agentObservation("developer-1")) === "idle"

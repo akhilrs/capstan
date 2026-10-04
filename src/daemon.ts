@@ -23,6 +23,7 @@ import {
   deleteBranchAt,
   headCommit,
   inspectCommit,
+  newCommitMessages,
   isInHead,
   mergeIntoBranch,
 } from "./git.js";
@@ -938,6 +939,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       ...(operatorService === undefined ? {} : { operator: operatorService }),
       controllerCredential: credential,
       inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
+      newCommitMessages: (input) =>
+        newCommitMessages(options.workspaceRoot, input),
       commitExists: (sha) => commitExists(options.workspaceRoot, sha),
       integrationGit: integrationGit(options.workspaceRoot),
       driverSnapshot: () =>

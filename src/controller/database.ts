@@ -210,6 +210,14 @@ const migrations: Readonly<
     name: "0031_pauses.sql",
     url: new URL("../../migrations/0031_pauses.sql", import.meta.url),
   },
+  32: {
+    version: 32,
+    name: "0032_integration_branch_names.sql",
+    url: new URL(
+      "../../migrations/0032_integration_branch_names.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 /** The highest migration version this build knows. */

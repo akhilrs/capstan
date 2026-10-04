@@ -76,8 +76,12 @@ interface Team {
   readonly reviewers: Member[];
 }
 
+/** The branch renames the stubbed launcher was asked for, in the current team. */
+let renamesOf: string[] = [];
+
 async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
   const stub: Stub = { inHead: false, covered: new Map() };
+  const renames: string[] = [];
   const reviewers: Member[] = [];
   const holder: { h?: Harness } = {};
   const h = await harness({
@@ -112,6 +116,10 @@ async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
           reviewers.push(reviewer);
           return { state: "started", agentId: reviewer.agentId };
         },
+        renameBranchForTask: async (agentId: string, task: string) => {
+          renames.push(`${agentId}:${task}`);
+          return { branch: `feat/${task}`, renamed: true };
+        },
         release: async (agentId: string) => ({ state: "released", agentId }),
         status: () => ({}),
       } as never,
@@ -134,6 +142,7 @@ async function withTeam(run: (t: Team) => Promise<void>): Promise<void> {
         configHash: String.fromCharCode(97 + index).repeat(64),
       })),
     );
+    renamesOf = renames;
     await run({
       h,
       stub,
@@ -650,5 +659,25 @@ test("a report the head does not hold stays unfinished and so does the plan", as
       plan: "in_progress",
       packages: { wp1: "in_progress", wp2: "completed" },
     });
+  });
+});
+
+test("link bind names the bound agent's branch after the requirement and prints it", async () => {
+  await withTeam(async (t) => {
+    const { h } = t;
+    assert.ok((await link(h, h.owner, "requirement", "req-1", "PM-2")).ok);
+    const bound = await link(
+      h,
+      h.pm.credential,
+      "bind",
+      "req-1",
+      t.devA.agentId,
+    );
+    assert.ok(bound.ok, JSON.stringify(bound));
+    assert.equal(
+      (bound as { result: { branch: string } }).result.branch,
+      "feat/req-1",
+    );
+    assert.deepEqual(renamesOf, [`${t.devA.agentId}:req-1`]);
   });
 });

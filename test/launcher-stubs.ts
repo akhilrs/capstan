@@ -430,14 +430,37 @@ export class StubGit implements GitRunner {
   }
   /** Names of the calls that matter for ordering, in call order. */
   order: string[] = [];
-  worktreeRemove(p: string) {
+  /** The recorded branch worktreeRemove was given, per removal. */
+  removedWithBranch: Array<string | undefined> = [];
+  worktreeRemove(p: string, recordedBranch?: string) {
     this.order.push("remove");
     this.removed.push(p);
+    this.removedWithBranch.push(recordedBranch);
     return { removed: this.removeOk, stderr: this.removeStderr };
   }
   deleteBranchIf(branch: string, sha: string) {
     this.deleted.push([branch, sha]);
+    if (this.deleteOk && this.tips.get(branch) === sha)
+      this.tips.delete(branch);
     return this.deleteOk;
+  }
+  renames: Array<[string, string]> = [];
+  renameOk = true;
+  /** Moves the tip to the new name, as git branch -m does. */
+  renameBranch(from: string, to: string) {
+    if (!this.renameOk) return { renamed: false, stderr: "refused" };
+    this.renames.push([from, to]);
+    const tip = this.tips.get(from);
+    if (tip !== undefined) {
+      this.tips.delete(from);
+      this.tips.set(to, tip);
+    }
+    return { renamed: true, stderr: "" };
+  }
+  refs = new Map<string, string>();
+  saveRef(ref: string, sha: string) {
+    this.refs.set(ref, sha);
+    return true;
   }
   branchNamesValid = true;
   branchNameValid() {
@@ -455,7 +478,10 @@ export class StubGit implements GitRunner {
     return this.reachableAll || this.reachable.has(sha);
   }
   byBranchError: Error | undefined;
+  /** Every branch worktreeByBranch was asked about. */
+  byBranchQueries: string[] = [];
   worktreeByBranch(branch: string) {
+    this.byBranchQueries.push(branch);
     if (this.byBranchError) throw this.byBranchError;
     return this.byBranch.get(branch);
   }

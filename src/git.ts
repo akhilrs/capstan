@@ -171,6 +171,65 @@ export async function inspectCommit(
   };
 }
 
+/** The messages of commits on `sha` that are new: not at or before the base, not on HEAD and not on any other local branch. */
+export async function newCommitMessages(
+  repoRoot: string,
+  input: {
+    readonly sha: string;
+    readonly baseSha: string;
+    readonly ownBranch: string;
+    readonly limit: number;
+  },
+): Promise<
+  { sha: string; parents: number; message: string }[] | { tooMany: true }
+> {
+  if (!FULL_SHA.test(input.sha) || !FULL_SHA.test(input.baseSha))
+    throw new GitCheckError("the commit ids must be full ids");
+  const ref = `refs/heads/${input.ownBranch}`;
+  const valid = await runGit(repoRoot, ["check-ref-format", ref]);
+  if (valid.code !== 0)
+    throw new GitCheckError("the recorded branch name is not a valid ref");
+  const listed = await runGit(
+    repoRoot,
+    [
+      "rev-list",
+      "--reverse",
+      `--max-count=${input.limit + 1}`,
+      input.sha,
+      `^${input.baseSha}`,
+      "^HEAD",
+      "--not",
+      `--exclude=${input.ownBranch.replace(/[*?[\\]/g, "\\$&")}`,
+      "--branches",
+    ],
+    { maxBuffer: 1024 * 1024 },
+  );
+  if (listed.code !== 0)
+    throw new GitCheckError("git could not list the new commits");
+  const shas = listed.stdout.split("\n").filter((l) => l !== "");
+  if (shas.length > input.limit) return { tooMany: true };
+  const out: { sha: string; parents: number; message: string }[] = [];
+  for (const sha of shas) {
+    if (!FULL_SHA.test(sha))
+      throw new GitCheckError("git gave an unexpected commit id");
+    const shown = await runGit(
+      repoRoot,
+      ["show", "-s", "--format=%P%x00%B", sha],
+      { maxBuffer: 1024 * 1024 },
+    );
+    if (shown.code !== 0)
+      throw new GitCheckError("git could not read a commit message");
+    const cut = shown.stdout.indexOf("\0");
+    if (cut < 0) throw new GitCheckError("git gave an unexpected commit");
+    const parents = shown.stdout
+      .slice(0, cut)
+      .split(" ")
+      .filter((p) => p !== "").length;
+    out.push({ sha, parents, message: shown.stdout.slice(cut + 1) });
+  }
+  return out;
+}
+
 /** Whether a commit with this id exists in the repository; false for a missing id or an object that is not a commit. */
 export async function commitExists(
   repoRoot: string,

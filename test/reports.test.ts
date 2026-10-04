@@ -7,6 +7,7 @@ import {
   MAX_REPORT_SUMMARY_BYTES,
   type ReportEvidence,
 } from "../src/controller/core.js";
+import { GitCheckError } from "../src/git.js";
 import { AuthorizationError } from "../src/controller/auth.js";
 import {
   REPORT_RATE_LIMIT,
@@ -666,6 +667,131 @@ test("with two active PMs the core cannot choose one, so the relay stays idle in
       relay.stop();
     }
     assert.deepEqual(events, []);
+  } finally {
+    await close(h);
+  }
+});
+
+test("the report command refuses new commits that break the commit rules, writes no row, and accepts them once fixed", async () => {
+  let messages: { sha: string; parents: number; message: string }[] = [];
+  let limitSeen = 0;
+  const h = await harness({
+    commands: {
+      inspectCommit: async () => ({
+        commitExists: true,
+        branchTip: COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+      newCommitMessages: async (input) => {
+        limitSeen = input.limit;
+        return messages;
+      },
+    },
+  });
+  const rows = async () =>
+    (
+      (await call(h, h.owner, "status")) as {
+        result: { reports: unknown[] };
+      }
+    ).result.reports.length;
+  const sendReport = () =>
+    call(h, h.developer.credential, "report", [COMMIT, "x"]);
+  try {
+    recordPane(h, BRANCH, BASE);
+    messages = [{ sha: "c".repeat(40), parents: 1, message: "update stuff" }];
+    const bad = await sendReport();
+    assert.ok(!bad.ok);
+    assert.equal(bad.code, "rejected");
+    assert.match(
+      bad.message,
+      /commit_message: cccccccc "update stuff" breaks subject-format: /,
+    );
+    assert.match(bad.message, /git commit --amend/);
+    assert.equal(await rows(), 0, "no ledger row for a refusal");
+    messages = [
+      { sha: "c".repeat(40), parents: 1, message: "fix: update stuff" },
+    ];
+    messages = [
+      {
+        sha: "c".repeat(40),
+        parents: 1,
+        message:
+          "fix: a\n\nco-authored-by: Claude Opus <noreply@anthropic.com>",
+      },
+    ];
+    const co = await sendReport();
+    assert.ok(!co.ok);
+    assert.match(co.message, /breaks claude-co-author/);
+    messages = [
+      {
+        sha: "c".repeat(40),
+        parents: 1,
+        message: "fix: a\n\nClaude-Session: x",
+      },
+      {
+        sha: "d".repeat(40),
+        parents: 1,
+        message:
+          "fix: b\n\n\u{1F916} Generated with [Claude Code](https://claude.com/claude-code)",
+      },
+    ];
+    const both = await sendReport();
+    assert.ok(!both.ok);
+    assert.match(both.message, /claude-session/);
+    assert.match(both.message, /claude-code-footer/);
+    messages = [
+      { sha: "c".repeat(40), parents: 2, message: "Merge branch 'x' into y" },
+    ];
+    assert.ok((await sendReport()).ok, "a default merge subject is accepted");
+    assert.equal(limitSeen, 200);
+  } finally {
+    await close(h);
+  }
+  const h2 = await harness({
+    commands: {
+      inspectCommit: async () => ({
+        commitExists: true,
+        branchTip: COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+      newCommitMessages: async () => ({ tooMany: true }),
+    },
+  });
+  try {
+    recordPane(h2, BRANCH, BASE);
+    const many = await call(h2, h2.developer.credential, "report", [
+      COMMIT,
+      "x",
+    ]);
+    assert.ok(!many.ok);
+    assert.match(many.message, /more than 200 new commits/);
+  } finally {
+    await close(h2);
+  }
+});
+
+test("a git failure while reading commit messages is the could-not-check error, not acceptance", async () => {
+  const h = await harness({
+    commands: {
+      inspectCommit: async () => ({
+        commitExists: true,
+        branchTip: COMMIT,
+        isAncestorOfTip: true,
+        isAncestorOfBase: false,
+      }),
+      newCommitMessages: async () => {
+        throw new GitCheckError("boom");
+      },
+    },
+  });
+  try {
+    recordPane(h, BRANCH, BASE);
+    const out = await call(h, h.developer.credential, "report", [COMMIT, "x"]);
+    assert.ok(!out.ok);
+    assert.equal(out.code, "error");
+    assert.match(out.message, /could not check the commit/);
   } finally {
     await close(h);
   }

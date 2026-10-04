@@ -8,6 +8,7 @@ import {
   GitCheckError,
   cleanGitEnvironment,
   inspectCommit,
+  newCommitMessages,
 } from "../src/git.js";
 
 function git(root: string, ...args: string[]): string {
@@ -206,5 +207,89 @@ test("the daemon's own git variables and a replace ref cannot steer the check", 
   } finally {
     rmSync(r.root, { recursive: true, force: true });
     rmSync(other.root, { recursive: true, force: true });
+  }
+});
+
+test("newCommitMessages lists only commits new on the branch: not the base, not HEAD, not other branches", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-git-"));
+  try {
+    git(root, "init", "-q", "-b", "main");
+    const commit = (file: string, message: string): string => {
+      writeFileSync(path.join(root, file), message);
+      git(root, "add", file);
+      git(root, "commit", "-q", "-m", message);
+      return git(root, "rev-parse", "HEAD");
+    };
+    const base = commit("a", "chore: base");
+    git(root, "switch", "-q", "-c", "work");
+    commit("b", "update stuff");
+    const second = commit("c", "fix: second\n\nbody");
+    git(root, "switch", "-q", "-c", "other", base);
+    const foreign = commit("d", "feat: other worker");
+    git(root, "switch", "-q", "work");
+    git(root, "merge", "-q", "--no-edit", foreign);
+    const merged = git(root, "rev-parse", "HEAD");
+    git(root, "switch", "-q", "main");
+    const input = { sha: merged, baseSha: base, ownBranch: "work", limit: 200 };
+    const found = await newCommitMessages(root, input);
+    assert.ok(Array.isArray(found));
+    assert.deepEqual(
+      found.map((c) => [
+        c.sha === second ? "second" : c.sha === merged ? "merge" : "first",
+        c.parents,
+      ]),
+      [
+        ["first", 1],
+        ["second", 1],
+        ["merge", 2],
+      ],
+    );
+    assert.match(found[0]!.message, /^update stuff/);
+    assert.match(found[1]!.message, /^fix: second\n\nbody/);
+    assert.match(found[2]!.message, /^Merge /);
+    // Commits reachable from HEAD are never checked.
+    git(root, "merge", "-q", "--ff-only", "work");
+    assert.deepEqual(await newCommitMessages(root, input), []);
+    assert.deepEqual(
+      await newCommitMessages(root, { ...input, sha: base }),
+      [],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("newCommitMessages reports too many commits and fails on git errors", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "capstan-git-"));
+  try {
+    git(root, "init", "-q", "-b", "main");
+    writeFileSync(path.join(root, "a"), "a");
+    git(root, "add", "a");
+    git(root, "commit", "-q", "-m", "chore: base");
+    const base = git(root, "rev-parse", "HEAD");
+    git(root, "switch", "-q", "-c", "work");
+    let tip = base;
+    for (let i = 0; i < 4; i++) {
+      git(root, "commit", "-q", "--allow-empty", "-m", `chore: c${i}`);
+      tip = git(root, "rev-parse", "HEAD");
+    }
+    git(root, "switch", "-q", "main");
+    const input = { sha: tip, baseSha: base, ownBranch: "work", limit: 3 };
+    assert.deepEqual(await newCommitMessages(root, input), { tooMany: true });
+    assert.equal(
+      ((await newCommitMessages(root, { ...input, limit: 4 })) as unknown[])
+        .length,
+      4,
+    );
+    await assert.rejects(
+      newCommitMessages(root, { ...input, sha: "f".repeat(40) }),
+      GitCheckError,
+    );
+    await assert.rejects(
+      newCommitMessages(root, { ...input, ownBranch: "bad..name" }),
+      GitCheckError,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

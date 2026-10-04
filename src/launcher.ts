@@ -40,6 +40,13 @@ import type {
   PromptAnswer,
   RelayOutcome,
 } from "./herdr/prompt-relay.js";
+import {
+  adHocBranchName,
+  reviewBranchName,
+  slugify,
+  withSuffix,
+  workerBranchName,
+} from "./conventions.js";
 import { SeedTooLargeError, buildSeed, type SeedBase } from "./seed.js";
 import {
   buildRolePrompt,
@@ -94,8 +101,11 @@ export type LauncherAdapter = Pick<
 
 export interface GitRunner {
   headSha(): string;
-  /** Removes a worktree. Only a worktree of a `capstan/` branch is forced (it may hold untracked files such as installed dependencies); any other is removed without force. `stderr` is git's message when it refuses. */
-  worktreeRemove(worktreePath: string): {
+  /** Removes a worktree. Only a worktree of a legacy `capstan/` branch or of `recordedBranch` (the branch the ledger records for its agent) is forced (it may hold untracked files such as installed dependencies); any other is removed without force. `stderr` is git's message when it refuses. */
+  worktreeRemove(
+    worktreePath: string,
+    recordedBranch?: string,
+  ): {
     readonly removed: boolean;
     readonly stderr: string;
   };
@@ -104,8 +114,15 @@ export interface GitRunner {
   /** Atomic compare-and-delete: only when the branch still points at `sha`. */
   deleteBranchIf(branch: string, sha: string): boolean;
   worktreeByBranch(branch: string): string | undefined;
-  /** Whether `capstan/...` names a valid branch, checked by git before a worktree is created for it. */
+  /** Whether `branch` names a valid branch, checked by git before a worktree is created for it. */
   branchNameValid(branch: string): boolean;
+  /** `git branch -m` from the project root; the branch's worktree follows. `stderr` is git's message when it refuses. */
+  renameBranch(
+    from: string,
+    to: string,
+  ): { readonly renamed: boolean; readonly stderr: string };
+  /** Points `ref` (a full ref name) at `sha`. */
+  saveRef(ref: string, sha: string): boolean;
   /** The commit a branch points at, or null when there is no such branch. */
   branchTip(branch: string): string | null;
   /** Whether `sha` (40 lowercase hex characters) resolves as a commit and is an ancestor of one of the refs. */
@@ -169,6 +186,26 @@ export interface SpawnResult {
   readonly warning?: string;
 }
 
+export interface SpawnOptions {
+  readonly baseSha?: string;
+  readonly seed?: string;
+  /** `<plan-id>/<package-id>` or a requirement ref id: the branch is named after it. */
+  readonly task?: string;
+  readonly type?: string;
+  readonly title?: string;
+  /** The report or integration a reviewer looks at. */
+  readonly reviewTarget?: string;
+  /** Continue this branch name (a replacement's). */
+  readonly branch?: string;
+}
+
+/** What renaming an assignee's branch did; `note` is the line to print when the branch was kept. */
+export interface BranchRenameResult {
+  readonly branch: string | null;
+  readonly renamed: boolean;
+  readonly note?: string;
+}
+
 export interface ObserveResult {
   readonly agentId: string;
   readonly roleName: string;
@@ -205,6 +242,8 @@ export type ReplaceResult =
       /** null when the predecessor was already ended. */
       readonly predecessorWorktreeRemoved: boolean | null;
       readonly cancelledMessageIds: readonly string[];
+      /** Where the predecessor's unreported commits were saved, when it had any. */
+      readonly keptRef?: string;
       /** False when the ledger could not record the replacement; the new agent runs all the same. */
       readonly replacementRecorded: boolean;
     })
@@ -319,10 +358,11 @@ function oneLine(text: string, maxLength: number): string {
 const MAX_SYNC_REASON_CHARS = 200;
 const MAX_NOTE_LENGTH = 200;
 
-/** Whether git lists `worktreePath` as a worktree checked out on a `capstan/` branch, which only Capstan creates. */
+/** Whether git lists `worktreePath` as a worktree checked out on a legacy `capstan/` branch or on `recordedBranch`, the branch the ledger records for its agent. */
 function isCapstanWorktree(
   git: (args: string[]) => ReturnType<typeof spawnSync>,
   worktreePath: string,
+  recordedBranch?: string,
 ): boolean {
   const result = git(["worktree", "list", "--porcelain", "-z"]);
   if (result.status !== 0 || typeof result.stdout !== "string") return false;
@@ -337,7 +377,12 @@ function isCapstanWorktree(
   let current: string | undefined;
   for (const line of result.stdout.split("\0")) {
     if (line.startsWith("worktree ")) current = line.slice("worktree ".length);
-    if (line.startsWith("branch refs/heads/capstan/") && current !== undefined)
+    if (
+      current !== undefined &&
+      (line.startsWith("branch refs/heads/capstan/") ||
+        (recordedBranch !== undefined &&
+          line === `branch refs/heads/${recordedBranch}`))
+    )
       if (real(current) === wanted) return true;
   }
   return false;
@@ -366,9 +411,10 @@ export function defaultGit(projectRoot: string): GitRunner {
         );
       return sha;
     },
-    worktreeRemove(worktreePath) {
+    worktreeRemove(worktreePath, recordedBranch) {
       const args = ["worktree", "remove"];
-      if (isCapstanWorktree(git, worktreePath)) args.push("--force");
+      if (isCapstanWorktree(git, worktreePath, recordedBranch))
+        args.push("--force");
       const result = git([...args, worktreePath]);
       return {
         removed: result.status === 0,
@@ -425,6 +471,17 @@ export function defaultGit(projectRoot: string): GitRunner {
     },
     branchNameValid: (branch) =>
       git(["check-ref-format", `refs/heads/${branch}`]).status === 0,
+    renameBranch(from, to) {
+      const result = git(["branch", "-m", from, to]);
+      return {
+        renamed: result.status === 0,
+        stderr: oneLine(
+          typeof result.stderr === "string" ? result.stderr : "",
+          MAX_NOTE_LENGTH,
+        ),
+      };
+    },
+    saveRef: (ref, sha) => git(["update-ref", ref, sha]).status === 0,
     deleteBranchIf: (branch, sha) =>
       git(["update-ref", "-d", `refs/heads/${branch}`, sha]).status === 0,
     worktreeByBranch(branch) {
@@ -1435,8 +1492,10 @@ export class Launcher {
     this.#assertRoleSynced(role);
     const data = this.#core.agentSeed(agentId);
     const tip = data.branch === null ? null : this.#git.branchTip(data.branch);
+    const keptRef = `refs/capstan/kept/${agentId}`;
     const reachableFrom = [
       ...(tip === null ? [] : [`refs/heads/${data.branch}`]),
+      keptRef,
       "HEAD",
     ];
     const base: SeedBase =
@@ -1446,7 +1505,12 @@ export class Launcher {
         : { sha: this.#git.headSha(), source: "head" };
     let seed: string;
     try {
-      seed = buildSeed(data, base, tip);
+      seed = buildSeed(
+        data,
+        base,
+        tip,
+        tip !== null && tip !== base.sha ? keptRef : null,
+      );
     } catch (error) {
       if (error instanceof SeedTooLargeError)
         throw new LauncherError("seed_too_large", error.message);
@@ -1465,10 +1529,43 @@ export class Launcher {
           };
       }
       let spawned: SpawnResult;
+      let kept: { readonly ref: string; readonly tip: string } | undefined;
       try {
+        // The successor continues the predecessor's branch at the base; commits past it are saved first.
+        if (data.branch !== null) {
+          const current = this.#git.branchTip(data.branch);
+          if (current !== null) {
+            if (
+              this.#core.activeBranchHolder(data.branch, agentId) !== undefined
+            )
+              throw new LauncherError(
+                "branch_in_use",
+                `${data.branch} is held by another active agent`,
+              );
+            if (this.#git.worktreeByBranch(data.branch) !== undefined)
+              throw new LauncherError(
+                "branch_in_use",
+                `${data.branch} is still checked out in a worktree`,
+              );
+            if (current !== base.sha) {
+              if (!this.#git.saveRef(keptRef, current))
+                throw new LauncherError(
+                  "git_error",
+                  `could not save ${current} at ${keptRef}`,
+                );
+              kept = { ref: keptRef, tip: current };
+            }
+            if (!this.#git.deleteBranchIf(data.branch, current))
+              throw new LauncherError(
+                "git_error",
+                `${data.branch} moved while it was being reset`,
+              );
+          }
+        }
         spawned = await this.spawn(agent.roleName, {
           baseSha: base.sha,
           seed,
+          ...(data.branch === null ? {} : { branch: data.branch }),
         });
       } catch (error) {
         throw new LauncherError(
@@ -1481,6 +1578,10 @@ export class Launcher {
         this.#core.recordAgentReplaced(this.#context(), {
           predecessorId: agentId,
           successorId: spawned.agentId,
+          branch: spawned.branch,
+          ...(kept === undefined
+            ? {}
+            : { keptRef: kept.ref, keptTip: kept.tip }),
         });
       } catch (error) {
         replacementRecorded = false;
@@ -1497,6 +1598,7 @@ export class Launcher {
         baseSource: base.source,
         predecessorWorktreeRemoved: released?.worktreeRemoved ?? null,
         cancelledMessageIds: released?.cancelledMessageIds ?? [],
+        ...(kept === undefined ? {} : { keptRef: kept.ref }),
         replacementRecorded,
       };
     } finally {
@@ -1650,11 +1752,12 @@ export class Launcher {
     });
   }
 
-  /** `baseSha` makes the worker's worktree and branch start at that commit (a review) instead of the project's HEAD. */
-  spawn(
-    roleName: string,
-    options: { readonly baseSha?: string; readonly seed?: string } = {},
-  ): Promise<SpawnResult> {
+  /**
+   * `baseSha` makes the worker's worktree and branch start at that commit (a review) instead of the project's HEAD.
+   * The branch is named after `task` (a `<plan-id>/<package-id>` or a requirement ref id), after `reviewTarget` (a
+   * reviewer), or is `branch` itself (a replacement continues its predecessor's); otherwise it is an ad-hoc `chore/` name.
+   */
+  spawn(roleName: string, options: SpawnOptions = {}): Promise<SpawnResult> {
     try {
       this.#core.assertRunNotPaused("spawn");
     } catch (error) {
@@ -1747,17 +1850,17 @@ export class Launcher {
         );
       budget.check("creating the agent");
       const agent = this.#createAgent(role);
-      const generation = this.#core.agentRecord(agent.agentId)?.generation ?? 1;
-      const branch = `capstan/${agent.agentId}-g${generation}`;
       const info: {
         worktreePath?: string;
         paneId?: string;
-        branch: string;
+        branch?: string;
         baseSha?: string;
         moveMayHaveHappened?: boolean;
-      } = { branch };
+      } = {};
       let step = "worktree";
       try {
+        const branch = this.#spawnBranch(agent.agentId, role, options);
+        info.branch = branch;
         if (!this.#git.branchNameValid(branch))
           throw new LauncherError(
             "invalid_branch",
@@ -1926,6 +2029,132 @@ export class Launcher {
         await this.#cleanupAgent(agent.agentId, info);
         throw failure;
       }
+    });
+  }
+
+  /** The branch a new worker gets; a name that is taken gets `-2`, `-3`, ... */
+  #spawnBranch(
+    agentId: string,
+    role: { readonly name: string; readonly kind: string },
+    options: SpawnOptions,
+  ): string {
+    if (options.branch !== undefined) {
+      if (
+        this.#git.branchTip(options.branch) !== null ||
+        this.#git.worktreeByBranch(options.branch) !== undefined ||
+        this.#core.activeBranchHolder(options.branch, agentId) !== undefined
+      )
+        throw new LauncherError(
+          "branch_in_use",
+          `${options.branch} still exists; it cannot be continued`,
+        );
+      return options.branch;
+    }
+    let wanted: string;
+    if (options.reviewTarget !== undefined)
+      wanted = reviewBranchName(agentId, options.reviewTarget);
+    else if (options.task !== undefined)
+      wanted = this.#taskBranch(role, options.task, options);
+    else wanted = adHocBranchName(agentId, slugify(options.title ?? role.name));
+    return this.#freeBranch(wanted, agentId);
+  }
+
+  #taskBranch(
+    role: { readonly name: string; readonly kind: string },
+    task: string,
+    options: { readonly type?: string; readonly title?: string },
+  ): string {
+    let naming: ReturnType<ControllerCore["taskNaming"]>;
+    try {
+      naming = this.#core.taskNaming(this.#credential, task);
+    } catch (error) {
+      throw new LauncherError(
+        "unknown_task",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const type =
+      options.type ??
+      naming.type ??
+      (this.#isResearcherRole(role.name, role.kind) ? "docs" : "feat");
+    return workerBranchName({
+      type,
+      taskId: naming.taskId,
+      slug: options.title ?? naming.title,
+    });
+  }
+
+  /** `wanted`, or the first of `wanted-2`, `wanted-3`, ... that no branch, worktree or active agent's record holds. */
+  #freeBranch(wanted: string, agentId: string): string {
+    for (let n = 1; n < 1000; n += 1) {
+      const name = withSuffix(wanted, n);
+      if (
+        this.#git.branchTip(name) === null &&
+        this.#git.worktreeByBranch(name) === undefined &&
+        this.#core.activeBranchHolder(name, agentId) === undefined
+      )
+        return name;
+    }
+    throw new LauncherError(
+      "invalid_branch",
+      `no free branch name starting with ${wanted}`,
+    );
+  }
+
+  /**
+   * Gives an assignee's branch the name of its task when it still has no commit after its base and no report;
+   * otherwise the branch is kept. Never fails the assignment: the answer says what happened.
+   */
+  renameBranchForTask(
+    agentId: string,
+    task: string,
+  ): Promise<BranchRenameResult> {
+    return this.#run(async () => {
+      const row = this.#core
+        .agentPanes(this.#credential)
+        .find((candidate) => candidate.agentId === agentId);
+      const agent = this.#core.agentRecord(agentId);
+      if (row?.branch == null || agent === undefined)
+        return { branch: null, renamed: false, note: "no branch recorded" };
+      const current = row.branch;
+      const kept = (why: string): BranchRenameResult => ({
+        branch: current,
+        renamed: false,
+        note: `branch kept: ${current} (${why})`,
+      });
+      let wanted: string;
+      try {
+        wanted = this.#taskBranch(
+          { name: agent.roleName, kind: agent.kind },
+          task,
+          {},
+        );
+      } catch (error) {
+        return kept(error instanceof Error ? error.message : String(error));
+      }
+      if (current === wanted) return { branch: current, renamed: false };
+      if (this.#core.agentHasReports(agentId))
+        return kept("the agent has reported");
+      const tip = this.#git.branchTip(current);
+      if (tip === null || row.baseSha === null || tip !== row.baseSha)
+        return kept("it already has commits");
+      const name = this.#freeBranch(wanted, agentId);
+      if (!this.#git.branchNameValid(name))
+        return kept("git does not accept the new name");
+      const moved = this.#git.renameBranch(current, name);
+      if (!moved.renamed) return kept(moved.stderr || "git refused the rename");
+      try {
+        this.#core.renameAgentBranch(this.#context(), {
+          agentId,
+          from: current,
+          to: name,
+        });
+      } catch (error) {
+        this.#git.renameBranch(name, current);
+        return kept(error instanceof Error ? error.message : String(error));
+      }
+      this.#log("branch_renamed", { agentId, from: current, to: name });
+      return { branch: name, renamed: true };
     });
   }
 
@@ -2218,8 +2447,16 @@ export class Launcher {
           branchKept: info.branch === undefined ? null : true,
         };
     }
+    // A branch the ledger records for another active agent (a replacement continues its predecessor's) is never deleted or force-removed here.
+    const heldByOther =
+      info.branch !== undefined &&
+      this.#core.activeBranchHolder(info.branch, agentId) !== undefined;
     let worktreePath = info.worktreePath;
-    if (worktreePath === undefined && info.branch !== undefined) {
+    if (
+      worktreePath === undefined &&
+      info.branch !== undefined &&
+      !heldByOther
+    ) {
       try {
         worktreePath = this.#git.worktreeByBranch(info.branch);
       } catch (error) {
@@ -2239,7 +2476,10 @@ export class Launcher {
         agentId,
         dirty: this.#git.worktreeDirtyCount(worktreePath),
       });
-      const removal = this.#git.worktreeRemove(worktreePath);
+      const removal = this.#git.worktreeRemove(
+        worktreePath,
+        heldByOther ? undefined : info.branch,
+      );
       worktreeRemoved = removal.removed;
       if (!worktreeRemoved) {
         this.#log("worktree_kept", {
@@ -2255,7 +2495,13 @@ export class Launcher {
       }
     }
     let branchKept: boolean | null = info.branch === undefined ? null : true;
-    if (info.branch !== undefined && info.baseSha !== undefined) {
+    if (heldByOther) {
+      this.#log("branch_kept", {
+        agentId,
+        branch: info.branch,
+        reason: "held_by_active_agent",
+      });
+    } else if (info.branch !== undefined && info.baseSha !== undefined) {
       branchKept = !this.#git.deleteBranchIf(info.branch, info.baseSha);
       if (branchKept)
         this.#log("branch_kept", { agentId, branch: info.branch });

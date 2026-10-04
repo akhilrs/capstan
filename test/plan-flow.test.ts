@@ -286,7 +286,7 @@ async function signoffAndConfirm(
     .slice(before)
     .filter((b) => b.startsWith(`Plan ${planId} signed off`));
   assert.equal(notices.length, 1);
-  assert.ok(notices[0]!.includes(`capstan/integration/${integrationId}`));
+  assert.ok(notices[0]!.includes(h.core.integration(integrationId).branch));
   assert.ok(notices[0]!.includes(HEAD));
   assert.ok(notices[0]!.includes(`the user merges it into the project's HEAD`));
   assert.ok(
@@ -631,7 +631,7 @@ test("a restarted PM's summary lists open plans and merged integrations until th
     assert.deepEqual(restarted.summary.integrations, [
       {
         integrationId,
-        branch: `capstan/integration/${integrationId}`,
+        branch: h.core.integration(integrationId).branch,
         headSha: HEAD,
       },
     ]);
@@ -646,7 +646,7 @@ test("a restarted PM's summary lists open plans and merged integrations until th
     assert.ok(prompt.includes(`- ${planId} [approved, normal]`));
     assert.ok(
       prompt.includes(
-        `- ${integrationId} on branch capstan/integration/${integrationId} at ${HEAD}`,
+        `- ${integrationId} on branch ${h.core.integration(integrationId).branch} at ${HEAD}`,
       ),
     );
 
@@ -700,7 +700,11 @@ test("a sign-off made while no PM is active is relayed to the next PM once, and 
       b.startsWith(`Plan ${planId} signed off. Integration ${integrationId} `),
     );
     assert.equal(notices.length, 1);
-    assert.ok(notices[0]!.includes(`capstan/integration/${integrationId}`));
+    assert.ok(notices[0]!.includes(h.core.integration(integrationId).branch));
+    assert.match(
+      h.core.integration(integrationId).branch,
+      /^integration\/plan-1-/,
+    );
     assert.deepEqual(
       h.core
         .unannouncedPlanNotices(h.owner)

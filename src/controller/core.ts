@@ -68,6 +68,7 @@ import {
 } from "../operator.js";
 import { normalizeText, oneLine } from "../text.js";
 import {
+  packageNaming,
   packageOfBody,
   workPackageMessage,
   type PackageView,
@@ -5908,6 +5909,141 @@ export class ControllerCore {
     );
   }
 
+  /**
+   * The naming keys of a task a worker branch is named after: a `<plan-id>/<package-id>` package of a plan, or a
+   * requirement ref id. The task id is the linked Nexora id, else `<plan-id>-<package-id>`, else the ref id.
+   */
+  taskNaming(
+    credential: string,
+    ref: string,
+  ): {
+    readonly kind: "package" | "requirement";
+    readonly taskId: string;
+    readonly type: string | null;
+    readonly title: string;
+  } {
+    this.#authorize(credential, "plan:read");
+    const slash = ref.indexOf("/");
+    if (slash < 0) {
+      safeId(ref, "requirement ref id");
+      const link = this.#linkRow("requirement", ref);
+      return {
+        kind: "requirement",
+        taskId: link?.external_id ?? ref,
+        type: null,
+        title: ref,
+      };
+    }
+    const planId = ref.slice(0, slash);
+    const packageId = ref.slice(slash + 1);
+    safeId(planId, "plan id");
+    safeId(packageId, "package id");
+    const plan = this.#planRow(planId);
+    if (plan === undefined)
+      throw new ControllerError(`plan ${planId} does not exist`);
+    const revision = this.#database
+      .prepare(
+        "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+      )
+      .get(this.#projectId, planId, plan.approved_revision) as
+      { body_json: string } | undefined;
+    const view =
+      revision === undefined
+        ? undefined
+        : packageOfBody(revision.body_json, packageId);
+    if (revision === undefined || view === undefined)
+      throw new ControllerError(
+        `plan ${planId} has no approved package ${packageId}`,
+      );
+    const link = this.#linkRow("package", `${planId}/${packageId}`);
+    return {
+      kind: "package",
+      taskId: link?.external_id ?? `${planId}-${packageId}`,
+      type: packageNaming(revision.body_json, packageId).type,
+      title: view.title,
+    };
+  }
+
+  /** Whether the agent has made any report, accepted or not. */
+  agentHasReports(agentId: string): boolean {
+    this.#assertOpen();
+    safeId(agentId, "agent id");
+    return (
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM agent_reports WHERE project_id = ? AND agent_id = ? LIMIT 1",
+        )
+        .get(this.#projectId, agentId) !== undefined
+    );
+  }
+
+  /** The active agent whose recorded branch is `branch`, other than `exceptAgentId`; undefined when none. */
+  activeBranchHolder(
+    branch: string,
+    exceptAgentId?: string,
+  ): string | undefined {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT p.agent_id FROM agent_panes p JOIN agents a ON a.project_id = p.project_id AND a.agent_id = p.agent_id
+         WHERE p.project_id = ? AND p.branch = ? AND a.state = 'active' AND p.agent_id <> ? LIMIT 1`,
+      )
+      .get(this.#projectId, branch, exceptAgentId ?? "") as
+      { agent_id: string } | undefined;
+    return row?.agent_id;
+  }
+
+  /** Records that an active agent's branch was renamed in git: the pane row now names `to`. */
+  renameAgentBranch(
+    context: MutationContext,
+    input: {
+      readonly agentId: string;
+      readonly from: string;
+      readonly to: string;
+    },
+  ): { readonly renamed: true } {
+    safeId(input.agentId, "agent id");
+    for (const name of [input.from, input.to])
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/.test(name))
+        throw new TypeError("branch name is not acceptable");
+    return this.#mutate(
+      context,
+      "agent_pane.rename_branch",
+      "controller:reconcile",
+      { ...input },
+      () => {
+        const agent = this.#agentRow(input.agentId);
+        if (agent?.state !== "active")
+          throw new ControllerError("a branch is renamed for an active agent");
+        const row = this.#database
+          .prepare(
+            "SELECT branch FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+          )
+          .get(this.#projectId, input.agentId) as
+          { branch: string | null } | undefined;
+        if (row?.branch !== input.from)
+          throw new ControllerError(
+            `${input.agentId} does not have the recorded branch ${input.from}`,
+          );
+        this.#database
+          .prepare(
+            "UPDATE agent_panes SET branch = ?, updated_at = ? WHERE project_id = ? AND agent_id = ?",
+          )
+          .run(input.to, this.#now(), this.#projectId, input.agentId);
+        return {
+          value: { renamed: true as const },
+          event: {
+            entityType: "agent_pane",
+            entityId: input.agentId,
+            stateVersion: agent.generation,
+            toState: "branch_renamed",
+            details: { from: input.from, to: input.to },
+          },
+        };
+      },
+    );
+  }
+
   /** Every link with its wanted state and drift flag, oldest first. */
   externalLinks(credential: string): readonly ExternalLinkRecord[] {
     this.#authorize(credential, "plan:read");
@@ -6155,32 +6291,81 @@ export class ControllerCore {
     return this.#integrationRecord(integrationId);
   }
 
-  /** What the squash commit of an integration says: the plan title when every report is a package of one plan, and the reports in merge order. */
+  /** What the squash commit of an integration says: the plan and its packages when every report is a package of one plan, and the reports in merge order. */
   integrationCommitInfo(integrationId: string): {
+    readonly planId: string | null;
     readonly planTitle: string | null;
+    readonly packages: readonly {
+      readonly packageId: string;
+      readonly type: string | null;
+      readonly scope: string | null;
+      readonly breaking: boolean;
+    }[];
     readonly reports: readonly {
       readonly reportId: string;
       readonly agentId: string;
       readonly summary: string;
+      readonly branch: string | null;
     }[];
   } {
     this.#assertOpen();
     safeId(integrationId, "integration id");
-    const reports = this.#integrationAuthors(integrationId);
-    const plans = this.#database
-      .prepare(
-        `SELECT DISTINCT pl.plan_id, pl.title FROM integration_reports ir
-         JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
-         JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
-         JOIN plan_packages pp ON pp.project_id = ir.project_id AND pp.assignee_agent_id = r.agent_id
-         JOIN plans pl ON pl.project_id = pp.project_id AND pl.plan_id = pp.plan_id
-         WHERE ir.project_id = ? AND ir.integration_id = ?`,
-      )
-      .all(this.#projectId, integrationId) as {
-      plan_id: string;
-      title: string;
-    }[];
-    const common = plans.filter(
+    return this.#commitInfo(this.#integrationAuthors(integrationId));
+  }
+
+  /** The commit info of reports that are not yet an integration, in the order given; unknown ids are left out. */
+  plannedCommitInfo(
+    reportIds: readonly string[],
+  ): ReturnType<ControllerCore["integrationCommitInfo"]> {
+    this.#assertOpen();
+    const reports: AgentReportRow[] = [];
+    for (const id of reportIds) {
+      safeId(id, "report id");
+      const row = this.#database
+        .prepare(
+          "SELECT * FROM agent_reports WHERE project_id = ? AND report_id = ?",
+        )
+        .get(this.#projectId, id) as AgentReportRow | undefined;
+      if (row !== undefined) reports.push(row);
+    }
+    return this.#commitInfo(reports);
+  }
+
+  /** True when an earlier integration recorded this branch name. */
+  integrationBranchRecorded(branch: string): boolean {
+    this.#assertOpen();
+    return (
+      this.#database
+        .prepare(
+          "SELECT 1 AS present FROM integrations WHERE project_id = ? AND branch = ?",
+        )
+        .get(this.#projectId, branch) !== undefined
+    );
+  }
+
+  #commitInfo(
+    reports: readonly AgentReportRow[],
+  ): ReturnType<ControllerCore["integrationCommitInfo"]> {
+    const plans = new Map<
+      string,
+      { plan_id: string; title: string; approved_revision: number | null }
+    >();
+    for (const report of reports) {
+      for (const row of this.#database
+        .prepare(
+          `SELECT DISTINCT pl.plan_id, pl.title, pl.approved_revision FROM plan_packages pp
+           JOIN agents a ON a.project_id = pp.project_id AND a.agent_id = pp.assignee_agent_id
+           JOIN plans pl ON pl.project_id = pp.project_id AND pl.plan_id = pp.plan_id
+           WHERE pp.project_id = ? AND pp.assignee_agent_id = ? AND a.generation = ?`,
+        )
+        .all(this.#projectId, report.agent_id, report.generation) as {
+        plan_id: string;
+        title: string;
+        approved_revision: number | null;
+      }[])
+        plans.set(row.plan_id, row);
+    }
+    const common = [...plans.values()].filter(
       (plan) =>
         !reports.some(
           (report) =>
@@ -6197,13 +6382,49 @@ export class ControllerCore {
               ) === undefined,
         ),
     );
+    const plan = reports.length > 0 && common.length === 1 ? common[0]! : null;
+    const packages: {
+      packageId: string;
+      type: string | null;
+      scope: string | null;
+      breaking: boolean;
+    }[] = [];
+    if (plan !== null && plan.approved_revision !== null) {
+      const body = this.#database
+        .prepare(
+          "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        )
+        .get(this.#projectId, plan.plan_id, plan.approved_revision) as
+        { body_json: string } | undefined;
+      const agents = [...new Set(reports.map((r) => r.agent_id))];
+      for (const agentId of agents) {
+        const assigned = this.#database
+          .prepare(
+            "SELECT package_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id = ? ORDER BY package_id",
+          )
+          .all(this.#projectId, plan.plan_id, agentId) as {
+          package_id: string;
+        }[];
+        for (const row of assigned) {
+          if (packages.some((p) => p.packageId === row.package_id)) continue;
+          packages.push({
+            packageId: row.package_id,
+            ...(body === undefined
+              ? { type: null, scope: null, breaking: false }
+              : packageNaming(body.body_json, row.package_id)),
+          });
+        }
+      }
+    }
     return {
-      planTitle:
-        reports.length > 0 && common.length === 1 ? common[0]!.title : null,
+      planId: plan?.plan_id ?? null,
+      planTitle: plan?.title ?? null,
+      packages,
       reports: reports.map((report) => ({
         reportId: report.report_id,
         agentId: report.agent_id,
         summary: report.summary,
+        branch: report.branch,
       })),
     };
   }
@@ -6471,7 +6692,14 @@ export class ControllerCore {
    */
   recordAgentReplaced(
     context: MutationContext,
-    input: { readonly predecessorId: string; readonly successorId: string },
+    input: {
+      readonly predecessorId: string;
+      readonly successorId: string;
+      /** The branch the successor continues, and where the predecessor's unreported commits were saved, when there were any. */
+      readonly branch?: string;
+      readonly keptRef?: string;
+      readonly keptTip?: string;
+    },
   ): { readonly recorded: true } {
     safeId(input.predecessorId, "predecessor agent id");
     safeId(input.successorId, "successor agent id");
@@ -6520,6 +6748,10 @@ export class ControllerCore {
             details: {
               successorId: input.successorId,
               packagesRebound: rebound,
+              ...(input.branch === undefined ? {} : { branch: input.branch }),
+              ...(input.keptRef === undefined
+                ? {}
+                : { keptRef: input.keptRef, keptTip: input.keptTip ?? null }),
             },
           },
         };

@@ -58,7 +58,7 @@ A role may set `prompt_file` instead of `prompt` (never both). The rules:
 
 ### The designer role
 
-`cstan init` writes `roles/designer.md` next to `capstan.toml`, and the starter `[roles.designer]` points at it. The file holds the designer's workflow: Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. Edit the file to change the workflow; `cstan init` never overwrites an existing `roles/designer.md`, and it writes none when `capstan.toml` already exists.
+`cstan init` writes `roles/designer.md` next to `capstan.toml`, and the starter `[roles.designer]` points at it. The file holds the designer's workflow (and the commit-subject and no-attribution rule; the same text is embedded in `src/roles/designer-prompt.ts`, which `cstan init` writes, so the two change together): Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. Edit the file to change the workflow; `cstan init` never overwrites an existing `roles/designer.md`, and it writes none when `capstan.toml` already exists.
 
 The starter role sets:
 
@@ -95,6 +95,8 @@ A Developer or Verifier role can run on a Codex or OMP host instead of Claude Co
 
 **Allowed:** `Developer` and `Verifier` roles without `allow`/`deny`, with `permission_mode` `acceptEdits` or `auto`.
 **Refused by the configuration loader:** `PM` and `Supervisor` roles, any `allow` or `deny` (they are Claude Code tool rules), and other permission modes. The Architect and Operator roles must be on a `claude` host, so they stay on Claude.
+
+**Commit and branch rules apply on every host.** The report check refuses commits that break the Conventional Commits or no-attribution rules whatever host made them (see [Branches, commits and releases](workflow.md#branches-commits-and-releases)). Claude hosts are started with Claude Code's attribution settings off. Codex 0.160.0 and OMP 18.3.1 appear to add no commit trailers (found by a binary string search, not a run), so the report check is the safety net.
 
 **These workers are unsandboxed.** Codex runs with `--sandbox danger-full-access --ask-for-approval never` (its sandbox blocks the daemon socket) and OMP with `--approval-mode yolo`. Nothing blocks a `git push` or an edit outside the worktree; the role prompt asks, the controller does not enforce. Capstan trusts the worktree for Codex with a run-time override, so `~/.codex/config.toml` is not changed.
 

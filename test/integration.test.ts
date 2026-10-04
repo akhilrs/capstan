@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkCommitMessage, parseCommitSubject } from "../src/conventions.js";
 import { openSqlite } from "../src/controller/sqlite.js";
 import { test } from "node:test";
 import type { ReportEvidence } from "../src/controller/core.js";
@@ -203,7 +204,7 @@ test("an integration needs accepted reports whose latest review passed, named on
     assert.equal(record.state, "merged");
     assert.equal(record.headSha, HEAD);
     assert.equal(record.baseSha, BASE);
-    assert.equal(record.branch, `capstan/integration/${record.integrationId}`);
+    assert.equal(record.branch, `integration/${record.integrationId}`);
   } finally {
     await close(h);
   }
@@ -603,9 +604,7 @@ test("an outcome that cannot be recorded does not leave the integration running 
       /disk full/,
     );
     assert.deepEqual(h.core.runningIntegrations(h.owner), []);
-    assert.ok(
-      git.calls.some((c) => c.startsWith("delete capstan/integration/")),
-    );
+    assert.ok(git.calls.some((c) => c.startsWith("delete integration/")));
   } finally {
     await close(h);
   }
@@ -697,7 +696,11 @@ test("a branch that could not be deleted at settle is swept by the next integrat
   }
 });
 
-function approvedPlan(h: Harness, title: string, packages: [string, Member][]) {
+function approvedPlan(
+  h: Harness,
+  title: string,
+  packages: [string, Member, Record<string, unknown>?][],
+) {
   const architect = member(
     h,
     `architect-${title.replace(/\W/g, "")}`,
@@ -712,7 +715,7 @@ function approvedPlan(h: Harness, title: string, packages: [string, Member][]) {
     planId,
     bodyJson: JSON.stringify({
       summary: "s",
-      packages: packages.map(([id]) => ({ id, title: id })),
+      packages: packages.map(([id, , extra]) => ({ id, title: id, ...extra })),
     }),
     baseSha: BASE,
     review: false,
@@ -747,10 +750,10 @@ test("the squash message takes the plan title when the reports are packages of o
     ];
     for (const id of ids) review(h, id, "pass");
     const input = await squashOf(h, ids);
-    assert.equal(input.subject, "fix: Plan Alpha");
+    assert.equal(input.subject, "feat: Plan Alpha");
     assert.equal(
       input.body,
-      `Report ${ids[0]} (${a.agentId}): fix(core): repair the thing\nReport ${ids[1]} (developer-2): second summary`,
+      `Report ${ids[0]} (${a.agentId}): fix(core): repair the thing\nReport ${ids[1]} (developer-2): second summary\n\nRefs: plan-1`,
     );
     assert.doesNotMatch(input.body, /Co-Authored-By|Claude/);
   } finally {
@@ -776,7 +779,7 @@ test("without one plan the squash subject is the first summary line, typed feat 
     const two = await squashOf(h, [ids[0]!, ids[1]!]);
     assert.equal(two.subject, "feat: plain summary");
     const unplanned = await squashOf(h, [ids[2]!]);
-    assert.equal(unplanned.subject, "docs: docs(x): unplanned");
+    assert.equal(unplanned.subject, "docs: unplanned");
     assert.match(
       unplanned.subject,
       /^(feat|fix|refactor|docs|test|chore|style|perf|ci)(\([^)]+\))?: .{1,}/,
@@ -812,21 +815,68 @@ test("the integration review task does not claim one merge per report", async ()
   }
 });
 
+const noPlan = { planId: null, packages: [] } as const;
 const subjectOf = (planTitle: string | null, summary: string) =>
   squashMessage({
+    ...noPlan,
     planTitle,
-    reports: [{ reportId: "r1", agentId: "developer-1", summary }],
+    reports: [
+      { reportId: "r1", agentId: "developer-1", summary, branch: null },
+    ],
   }).subject;
 
-test("squash subject: the type comes from the plan title, then the first summary, and defaults to feat", () => {
+test("squash subject: the plan title types it when no package does, and feat is the default", () => {
   assert.equal(
     subjectOf("fix: Plan title", "docs: summary"),
-    "fix: fix: Plan title",
+    "fix: Plan title",
   );
-  assert.equal(subjectOf("Plan title", "docs(x): summary"), "docs: Plan title");
-  // No type anywhere: feat is the documented default.
-  assert.equal(subjectOf("Plan title", "plain summary"), "feat: Plan title");
+  assert.equal(subjectOf("Plan title", "docs(x): summary"), "feat: Plan title");
+  assert.equal(subjectOf("feat: Plan title", "plain"), "feat: Plan title");
   assert.equal(subjectOf(null, "plain summary"), "feat: plain summary");
+});
+
+test("squash message: package types rank feat over fix over others; breaking adds a bang; Refs names the plan", () => {
+  const message = (
+    packages: { type: string | null; scope?: string; breaking?: boolean }[],
+  ) =>
+    squashMessage({
+      planId: "plan-1",
+      planTitle: "feat: Add widgets",
+      packages: packages.map((p, i) => ({
+        packageId: `p${i}`,
+        type: p.type,
+        scope: p.scope ?? null,
+        breaking: p.breaking ?? false,
+      })),
+      reports: [
+        {
+          reportId: "r1",
+          agentId: "developer-1",
+          summary: "done \u{1F916} Generated with Claude Code",
+          branch: null,
+        },
+      ],
+    });
+  assert.equal(
+    message([{ type: "docs" }, { type: "fix" }, { type: "feat" }]).subject,
+    "feat: Add widgets",
+  );
+  assert.equal(
+    message([{ type: "docs" }, { type: "fix" }]).subject,
+    "fix: Add widgets",
+  );
+  assert.equal(message([{ type: "docs" }]).subject, "docs: Add widgets");
+  assert.equal(
+    message([{ type: "feat", scope: "plans", breaking: true }]).subject,
+    "feat(plans)!: Add widgets",
+  );
+  const done = message([{ type: "feat" }]);
+  assert.ok(done.body.endsWith("\n\nRefs: plan-1"));
+  assert.equal(parseCommitSubject(done.subject).ok, true);
+  assert.deepEqual(
+    checkCommitMessage(`${done.subject}\n\n${done.body}`, 1),
+    [],
+  );
 });
 
 test("squash subject: a long title is cut at a word boundary within 72 characters, without an ellipsis", () => {
@@ -1077,6 +1127,86 @@ test("coverage candidates name the heads of other integrations that held the rep
       .coverageCandidates(h.owner, c.integrationId)
       ?.reports.find((r) => r.reportId === c.other);
     assert.deepEqual(other?.integrationHeads, ["b".repeat(40)]);
+  } finally {
+    await close(h);
+  }
+});
+
+test("the branch is integration/<plan-id>-<slug>, -2 after a discard, and integration/<integration-id> without a plan", async () => {
+  const h = await harness();
+  try {
+    withRoles(h);
+    const a = h.developer;
+    const b = member(h, "developer-2", "Developer", "developer");
+    approvedPlan(h, "feat: Add widgets", [
+      ["wp1", a, { type: "fix", scope: "ui", breaking: true }],
+    ]);
+    const planned = reportBy(h, a, "1".repeat(40));
+    const loose = reportBy(h, b, "2".repeat(40));
+    review(h, planned, "pass");
+    review(h, loose, "pass");
+    const git = fakeGit();
+    const first = await integrate(deps(h, git), {
+      reportIds: [planned],
+      requestedBy: "operator",
+    });
+    assert.equal(first.branch, "integration/plan-1-add-widgets");
+    assert.equal(git.inputs[0]!.subject, "fix(ui)!: Add widgets");
+    await settleIntegration(deps(h, git), {
+      integrationId: first.integrationId,
+      outcome: "discarded",
+    });
+    const second = await integrate(deps(h, git), {
+      reportIds: [planned],
+      requestedBy: "operator",
+    });
+    assert.equal(second.branch, "integration/plan-1-add-widgets-2");
+    await settleIntegration(deps(h, git), {
+      integrationId: second.integrationId,
+      outcome: "discarded",
+    });
+    const none = await integrate(deps(h, git), {
+      reportIds: [loose],
+      requestedBy: "operator",
+    });
+    assert.equal(none.branch, `integration/${none.integrationId}`);
+  } finally {
+    await close(h);
+  }
+});
+
+test("an integration recorded with a legacy capstan/integration/<id> branch is still reviewed, confirmed and discarded", async () => {
+  const h = await harness();
+  try {
+    const { ids } = reviewedPair(h);
+    const git = fakeGit();
+    for (const [id, outcome] of [
+      ["legacy-1", "confirmed"],
+      ["legacy-2", "discarded"],
+    ] as const) {
+      const reports = id === "legacy-1" ? [ids[0]!] : [ids[1]!];
+      h.core.beginIntegration(ctx(h.core, h.owner), {
+        integrationId: id,
+        reportIds: reports,
+        baseSha: BASE,
+        branch: `capstan/integration/${id}`,
+        requestedBy: "operator",
+      });
+      h.core.finishIntegration(ctx(h.core, h.owner), {
+        integrationId: id,
+        outcome: { kind: "merged", headSha: HEAD },
+      });
+      if (outcome === "confirmed") {
+        review(h, id, "pass");
+        git.inHead = true;
+      }
+      const settled = await settleIntegration(deps(h, git), {
+        integrationId: id,
+        outcome,
+      });
+      assert.equal(settled.record.state, outcome);
+      assert.ok(git.calls.includes(`delete capstan/integration/${id} ${HEAD}`));
+    }
   } finally {
     await close(h);
   }

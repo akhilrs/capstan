@@ -386,12 +386,12 @@ const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
   workerRoles,
 });
 
-test("with the Architect disabled every prompt is byte-identical to the one before the Architect existed", async () => {
+test("with the Architect disabled every prompt is byte-identical to its recorded hash", async () => {
   const { createHash } = await import("node:crypto");
   const golden = {
-    PM: "a30c87ce94c0de3c",
-    Developer: "81941770d1df82a2",
-    Verifier: "003f83eefe674a13",
+    PM: "31a94980346f13c0",
+    Developer: "ec1cb31613943457",
+    Verifier: "b2e2b6bba285b4e4",
     Supervisor: "a6f0ae0e24514359",
   } as const;
   for (const [kind, prefix] of Object.entries(golden)) {
@@ -814,7 +814,7 @@ const goldenCases = {
     isOperator: true,
   },
 } as const;
-// The golden files were generated from main before the prompt relay existed; they are never regenerated.
+// The golden files hold the prompts with the prompt relay off; they were regenerated once for the commit, branch and release rules (the operator and supervisor files did not change).
 const goldenDirectory = path.join(
   import.meta.dirname,
   "..",
@@ -1016,4 +1016,192 @@ test("a Developer prompt carries the role prompt text after the built-in referen
   });
   assert.ok(text.indexOf("cstan inbox") < text.indexOf("Design carefully."));
   assert.ok(text.endsWith(rolePrompt));
+});
+
+test("every prompt of a role that commits carries the commit rule, the attribution ban and the branch rule", () => {
+  const committers = {
+    developer: buildRolePrompt({ ...goldenInput("Developer"), architect }),
+    designer: buildRolePrompt({
+      ...goldenInput("Developer"),
+      rolePrompt: "You design.",
+    }),
+    researcher: buildRolePrompt({
+      ...goldenInput("Developer"),
+      isResearcher: true,
+      researcher: {
+        role: "researcher",
+        outputDir: "docs/research",
+        userAgent: "capstan-research",
+      },
+    }),
+    reviewer: buildRolePrompt(goldenInput("Verifier")),
+  };
+  for (const [name, text] of Object.entries(committers)) {
+    for (const needle of [
+      "<type>[(scope)][!]: <description>",
+      "feat, fix, docs, refactor, perf, test, build, ci, chore, style, revert",
+      "Merge commits are only for bringing in dependencies",
+      "revert: <description>",
+      "Co-Authored-By line naming Claude",
+      "Claude-Session line",
+      '"Generated with Claude Code" line',
+      "<type>/<task-id>-<slug>",
+      "never rename it",
+      "commit_message:",
+    ])
+      assert.ok(text.includes(needle), `${name}: ${needle}`);
+  }
+  for (const name of ["architect", "operator", "supervisor"])
+    assert.ok(
+      !readFileSync(path.join(goldenDirectory, `${name}.txt`), "utf8").includes(
+        "Commit rules",
+      ),
+      `${name} makes no commits`,
+    );
+});
+
+test("the developer finish rules keep the amend policy and agree with the commit rules", () => {
+  const text = buildRolePrompt(goldenInput("Developer"));
+  assert.ok(
+    text.includes(
+      "fix review findings or follow-up edits with `git commit --amend`, never a new fix commit",
+    ),
+  );
+  assert.ok(
+    text.includes(
+      "After a verified report or a passed review, do not amend that commit",
+    ),
+  );
+  assert.ok(text.includes("report the new full commit id"));
+});
+
+test("the reviewer prompt tells the reviewer to flag commit, attribution and branch violations as findings", () => {
+  const text = buildRolePrompt(goldenInput("Verifier"));
+  assert.ok(
+    text.includes("check the commits you review against the commit rules"),
+  );
+  assert.ok(
+    text.includes(
+      "Report each violation as a finding that names the commit and the rule it breaks",
+    ),
+  );
+  assert.ok(text.includes("Generated with Claude Code"));
+});
+
+test("the architect prompt asks for a type, scope and breaking flag per package", () => {
+  const text = buildRolePrompt({ ...goldenCases.architect });
+  assert.ok(text.includes("Give each package a `type`"));
+  assert.ok(text.includes("`scope`"));
+  assert.ok(text.includes('"breaking": true'));
+});
+
+test("the PM prompt documents spawn --task, the rename at assign and bind, linking first and integration branch names", () => {
+  const text = buildRolePrompt({ ...goldenCases.pm });
+  for (const needle of [
+    "--task <plan-id>/<package-id>",
+    "[--task <requirement-ref-id>]",
+    "--type <type>",
+    "--title <text>",
+    "`cstan plan assign` renames the assignee's branch",
+    "`cstan link bind` renames the assignee's branch",
+    "Run `cstan link package` before you spawn or assign",
+    "integration/<plan-id>-<slug>",
+    "chore/<agent-id>-<slug>",
+  ])
+    assert.ok(text.includes(needle), needle);
+  const nexora = buildRolePrompt({
+    ...goldenCases.pm,
+    nexora: { track: "always", defaultAction: "create" },
+  });
+  assert.ok(nexora.includes("so the worker's branch carries the Nexora id"));
+});
+
+test("no prompt names the old capstan/<agent>-g<n> branch as the branch to expect", () => {
+  for (const [name, input] of Object.entries(goldenCases)) {
+    const text = buildRolePrompt(input);
+    for (const line of text.split("\n"))
+      if (line.includes("capstan/<agent>-g<n>"))
+        assert.ok(
+          /older|still work/.test(line),
+          `${name}: ${line.slice(0, 80)}`,
+        );
+  }
+});
+
+const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+const readRepo = (...parts: string[]): string =>
+  readFileSync(path.join(repoRoot, ...parts), "utf8");
+
+test("every spawn flag, refusal code and release option in docs/reference/commands.md exists in the code", () => {
+  const docs = readRepo("docs", "reference", "commands.md");
+  const source = `${readRepo("src", "cli.ts")}\n${readRepo("src", "commands.ts")}`;
+
+  const spawnRow = docs
+    .split("\n")
+    .find((line) => line.includes("`cstan spawn <role>"));
+  assert.ok(spawnRow !== undefined, "the spawn row");
+  const flags = new Set(spawnRow.match(/--[a-z-]+/g));
+  assert.deepEqual([...flags].sort(), ["--task", "--title", "--type"]);
+  for (const flag of flags) assert.ok(source.includes(`"${flag}"`), flag);
+
+  const section = docs.slice(
+    docs.indexOf("## Report refusals"),
+    docs.indexOf("## Releases"),
+  );
+  const codes = [...section.matchAll(/^\| `([a-z_]+)` +\|/gm)].map(
+    (m) => m[1]!,
+  );
+  assert.deepEqual(codes.sort(), [
+    "commit_message",
+    "rate_limited",
+    "report_limit",
+    "report_rejected",
+    "unread_messages",
+  ]);
+  for (const code of codes) assert.ok(source.includes(`${code}:`), code);
+
+  const rules = [
+    ...section.matchAll(
+      /`((?:subject-format|body-separation|claude-[a-z-]+))`/g,
+    ),
+  ].map((m) => m[1]!);
+  assert.equal(new Set(rules).size, 5);
+  const conventions = readRepo("src", "conventions.ts");
+  for (const rule of rules) assert.ok(conventions.includes(`"${rule}"`), rule);
+
+  const releaseScript = readRepo("scripts", "release.mjs");
+  const options = [
+    ...docs.slice(docs.indexOf("## Releases")).matchAll(/^\| `(--[a-z-]+)/gm),
+  ].map((m) => m[1]!);
+  assert.deepEqual(options.sort(), [
+    "--allow-dirty-lock",
+    "--dry-run",
+    "--version",
+  ]);
+  for (const option of options)
+    assert.ok(releaseScript.includes(`"${option}"`), option);
+  assert.ok(
+    readRepo("package.json").includes('"release": "node scripts/release.mjs"'),
+  );
+});
+
+test("the branch patterns the docs name are the ones the code builds", () => {
+  const docs = `${readRepo("README.md")}\n${readRepo("docs", "reference", "workflow.md")}`;
+  for (const pattern of [
+    "<type>/<task-id>-<slug>",
+    "chore/<agent-id>-<slug>",
+    "integration/<plan-id>-<slug>",
+  ])
+    assert.ok(docs.includes(pattern), pattern);
+  const conventions = readRepo("src", "conventions.ts");
+  assert.ok(
+    conventions.includes(
+      "`${branchType(input.type)}/${cleanId(input.taskId, 40)}-${slugify(input.slug)}`",
+    ),
+  );
+  assert.ok(
+    conventions.includes("`chore/${cleanId(agentId, 40)}-${slugify(slug)}`"),
+  );
+  assert.ok(conventions.includes('`integration/${parts.join("-")}`'));
+  assert.ok(!docs.includes("capstan/<agent-id>-g<generation>"));
 });

@@ -1,3 +1,4 @@
+import { BRANCH_TYPES } from "./conventions.js";
 import { normalizeText } from "./text.js";
 
 /** Largest plan body the controller accepts, in UTF-8 bytes. */
@@ -16,6 +17,10 @@ export interface PlanPackage {
   estimateHours: number;
   acceptance: string[];
   risks: string[];
+  /** One of BRANCH_TYPES; names the squash commit and branch of the package. */
+  type: string | null;
+  scope: string | null;
+  breaking: boolean;
 }
 
 export interface PlanBody {
@@ -65,7 +70,11 @@ const PACKAGE_KEYS = [
   "estimate_hours",
   "acceptance",
   "risks",
+  "type",
+  "scope",
+  "breaking",
 ];
+const SCOPE_PATTERN = /^[a-z0-9][a-z0-9._/-]{0,29}$/;
 
 function shapeError(reason: string): never {
   throw new PlanError("invalid_shape", reason);
@@ -134,6 +143,28 @@ function parsePackage(value: unknown, index: number): PlanPackage {
       `${where}.estimate_hours must be a number greater than 0 and at most ${MAX_PACKAGE_ESTIMATE_HOURS}`,
     );
   }
+  let type: string | null = null;
+  if (record.type !== undefined) {
+    if (
+      typeof record.type !== "string" ||
+      !(BRANCH_TYPES as readonly string[]).includes(record.type)
+    ) {
+      shapeError(`${where}.type must be one of ${BRANCH_TYPES.join(", ")}`);
+    }
+    type = record.type;
+  }
+  let scope: string | null = null;
+  if (record.scope !== undefined) {
+    if (typeof record.scope !== "string" || !SCOPE_PATTERN.test(record.scope)) {
+      shapeError(
+        `${where}.scope must be a short identifier matching ${SCOPE_PATTERN.source}`,
+      );
+    }
+    scope = record.scope;
+  }
+  if (record.breaking !== undefined && typeof record.breaking !== "boolean") {
+    shapeError(`${where}.breaking must be a boolean`);
+  }
   return {
     id,
     title: text(record.title, `${where}.title`),
@@ -155,6 +186,9 @@ function parsePackage(value: unknown, index: number): PlanPackage {
       required: true,
     }),
     risks: textList(record.risks, `${where}.risks`, { required: false }),
+    type,
+    scope,
+    breaking: record.breaking === true,
   };
 }
 
@@ -388,6 +422,37 @@ export function packageOfBody(
       typeof found.estimateHours === "number" ? found.estimateHours : null,
     acceptance: stringItems(found.acceptance),
     risks: stringItems(found.risks),
+  };
+}
+
+/** The naming keys of package `packageId` in a stored body; a body without them, or without the package, reads as untyped. */
+export function packageNaming(
+  bodyJson: string,
+  packageId: string,
+): { type: string | null; scope: string | null; breaking: boolean } {
+  let body: unknown;
+  try {
+    body = JSON.parse(bodyJson);
+  } catch {
+    body = null;
+  }
+  const packages = (body as { packages?: unknown } | null)?.packages;
+  const found = Array.isArray(packages)
+    ? (packages.find(
+        (p) =>
+          typeof p === "object" &&
+          p !== null &&
+          (p as { id?: unknown }).id === packageId,
+      ) as Record<string, unknown> | undefined)
+    : undefined;
+  return {
+    type:
+      typeof found?.type === "string" &&
+      (BRANCH_TYPES as readonly string[]).includes(found.type)
+        ? found.type
+        : null,
+    scope: typeof found?.scope === "string" ? found.scope : null,
+    breaking: found?.breaking === true,
   };
 }
 

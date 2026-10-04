@@ -22,7 +22,7 @@ export class ReviewRequestError extends Error {
 export interface ReviewLauncher {
   spawn(
     roleName: string,
-    options: { readonly baseSha: string },
+    options: { readonly baseSha: string; readonly reviewTarget?: string },
   ): Promise<{ readonly agentId: string; readonly state: string }>;
   release(agentId: string): Promise<unknown>;
 }
@@ -108,7 +108,10 @@ export async function requestReview(
       "commit_missing",
       "the commit to review no longer exists in the repository",
     );
-  const spawned = await deps.launcher.spawn(role, { baseSha: check.commitSha });
+  const spawned = await deps.launcher.spawn(role, {
+    baseSha: check.commitSha,
+    reviewTarget: input.subjectId,
+  });
   try {
     const review = deps.core.beginReview(deps.context(input.pmCredential), {
       subjectId: input.subjectId,

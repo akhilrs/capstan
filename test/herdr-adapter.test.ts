@@ -409,6 +409,29 @@ async function startedWorker(
   return { paneId, agent: "dev", pane };
 }
 
+const HOOKS_OFF_SETTINGS = JSON.stringify({
+  disableAllHooks: true,
+  includeCoAuthoredBy: false,
+  attribution: { commit: "", pr: "" },
+});
+
+test("claude settings turn Claude attribution off with hooks on and off", () => {
+  for (const hooks of ["inherit", "off"] as const) {
+    const args = claudeArguments({
+      model: null,
+      permissionMode: "default",
+      allow: [],
+      deny: [],
+      hooks,
+    });
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1] as string);
+    assert.equal(settings.includeCoAuthoredBy, false);
+    assert.deepEqual(settings.attribution, { commit: "", pr: "" });
+    assert.equal(settings.disableAllHooks === true, hooks === "off");
+    assert.equal(settings.hooks !== undefined, hooks === "inherit");
+  }
+});
+
 test("the adapter reads the Herdr version and creates worktrees and workspaces as registered fresh panes", async () => {
   const h = harness();
   try {
@@ -1925,7 +1948,7 @@ test("claudeArguments puts --mcp-config and --strict-mcp-config before --setting
   assert.deepEqual(args.slice(at + 2), [
     "--strict-mcp-config",
     "--settings",
-    '{"disableAllHooks":true}',
+    HOOKS_OFF_SETTINGS,
     "--append-system-prompt-file",
     "/tmp/p.md",
   ]);
@@ -1973,6 +1996,8 @@ test("claudeArguments builds the per-role list and refuses control characters", 
   assert.deepEqual(
     JSON.parse(inherited[inherited.indexOf("--settings") + 1]!),
     {
+      includeCoAuthoredBy: false,
+      attribution: { commit: "", pr: "" },
       hooks: {
         PostToolUse: [
           {
@@ -2007,7 +2032,7 @@ test("claudeArguments builds the per-role list and refuses control characters", 
       "--disallowedTools",
       "Bash(rm *)",
       "--settings",
-      '{"disableAllHooks":true}',
+      HOOKS_OFF_SETTINGS,
       "--append-system-prompt-file",
       "/tmp/p.md",
     ],

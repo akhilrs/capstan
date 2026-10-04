@@ -37,6 +37,7 @@ import {
   type ReportEvidence,
   type ReportReason,
 } from "./controller/core.js";
+import { BRANCH_TYPES, checkCommitMessage } from "./conventions.js";
 import type { CommitInspection } from "./git.js";
 import { GitCheckError } from "./git.js";
 import { ReportRateLimiter, oneLineSummary } from "./reports.js";
@@ -82,6 +83,7 @@ import type {
 import type { CommandResponse, ErrorCode } from "./daemon.js";
 
 export const WAIT_POLL_MS = 250;
+const MAX_CHECKED_COMMITS = 200;
 const VALIDATION_MESSAGE = /^(?:[a-z][^\n]*\b(?:must|needs)\b|unknown\b)/;
 // A line that reads like the driver's frame or like a message header in
 // `cstan inbox` output. It is tested on a normalized copy (NFKC, lower case,
@@ -255,6 +257,15 @@ export interface CommandDependencies {
     readonly baseSha: string | null;
     readonly sha: string;
   }) => Promise<CommitInspection>;
+  /** The new commits behind a reported commit, for the commit message rules. */
+  readonly newCommitMessages?: (input: {
+    readonly sha: string;
+    readonly baseSha: string;
+    readonly ownBranch: string;
+    readonly limit: number;
+  }) => Promise<
+    { sha: string; parents: number; message: string }[] | { tooMany: true }
+  >;
   /** The git operations integration needs; the daemon passes the real ones. */
   readonly integrationGit?: IntegrationDeps["git"];
   readonly log?: (event: string, details: Record<string, unknown>) => void;
@@ -266,8 +277,22 @@ export interface LauncherApi {
   restartPm(): Promise<unknown>;
   spawn(
     roleName: string,
-    options?: { baseSha?: string },
+    options?: {
+      baseSha?: string;
+      task?: string;
+      type?: string;
+      title?: string;
+    },
   ): Promise<{ readonly state: string; readonly agentId: string }>;
+  /** Renames an assignee's branch after its task when it has no commit and no report; never throws for a kept branch. */
+  renameBranchForTask?(
+    agentId: string,
+    task: string,
+  ): Promise<{
+    readonly branch: string | null;
+    readonly renamed: boolean;
+    readonly note?: string;
+  }>;
   release(agentId: string): Promise<unknown>;
   replace(agentId: string): Promise<{ readonly state: string }>;
   observe(
@@ -443,6 +468,24 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? abortableSleep;
   const log = deps.log ?? (() => undefined);
+
+  /** Names an assignee's branch after its task; the answer carries the branch and, when it was kept, why. */
+  const renameBranch = async (
+    agentId: string,
+    task: string,
+  ): Promise<{ branch?: string; branchNote?: string }> => {
+    if (deps.launcher?.renameBranchForTask === undefined) return {};
+    try {
+      const outcome = await deps.launcher.renameBranchForTask(agentId, task);
+      return {
+        ...(outcome.branch === null ? {} : { branch: outcome.branch }),
+        ...(outcome.note === undefined ? {} : { branchNote: outcome.note }),
+      };
+    } catch (error) {
+      log("branch_rename_failed", { agentId, error: String(error) });
+      return {};
+    }
+  };
 
   const context = (credential: string): MutationContext =>
     newContext(core, credential);
@@ -897,10 +940,44 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           "forbidden",
           "only the PM or the operator may spawn workers",
         );
-      if (call.args.length !== 1)
-        return fail("invalid_request", "spawn needs one role name");
-      if (!NAME_PATTERN.test(call.args[0]!))
+      const [roleName, ...flags] = call.args;
+      const usage =
+        "spawn needs a role name and takes --task <plan-id>/<package-id> or <requirement-ref-id>, --type <type> and --title <text>";
+      if (roleName === undefined) return fail("invalid_request", usage);
+      if (!NAME_PATTERN.test(roleName))
         return fail("invalid_request", "the role name is not valid");
+      const named: { task?: string; type?: string; title?: string } = {};
+      for (let i = 0; i < flags.length; i += 2) {
+        const flag = flags[i];
+        const value = flags[i + 1];
+        if (
+          (flag !== "--task" && flag !== "--type" && flag !== "--title") ||
+          value === undefined ||
+          named[flag.slice(2) as "task" | "type" | "title"] !== undefined
+        )
+          return fail("invalid_request", usage);
+        named[flag.slice(2) as "task" | "type" | "title"] = value;
+      }
+      if (
+        named.task !== undefined &&
+        !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127})?$/.test(
+          named.task,
+        )
+      )
+        return fail(
+          "invalid_request",
+          "--task must be <plan-id>/<package-id> or a requirement ref id",
+        );
+      if (
+        named.type !== undefined &&
+        !(BRANCH_TYPES as readonly string[]).includes(named.type)
+      )
+        return fail(
+          "invalid_request",
+          `--type must be one of ${BRANCH_TYPES.join(", ")}`,
+        );
+      if (named.title !== undefined && !/\S/.test(named.title))
+        return fail("invalid_request", "--title must not be empty");
       try {
         core.assertRunNotPaused("spawn");
       } catch (error) {
@@ -911,9 +988,9 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
           "not_configured",
           "spawning agents needs capstan.toml and Herdr",
         );
-      log("spawn_requested", { requestedBy, role: call.args[0] });
+      log("spawn_requested", { requestedBy, role: roleName, ...named });
       try {
-        return ok(await deps.launcher.spawn(call.args[0]!));
+        return ok(await deps.launcher.spawn(roleName, named));
       } catch (error) {
         return mapError(error);
       }
@@ -1061,6 +1138,57 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
               "rejected",
               `unread_messages: ${unread.length} message(s) to you are not acknowledged (${unread.map((message) => message.messageId).join(", ")}); run cstan inbox, act on and ack them, then report again`,
             );
+        }
+        if (
+          deps.newCommitMessages !== undefined &&
+          branch !== null &&
+          baseSha !== null &&
+          inspection.commitExists &&
+          inspection.isAncestorOfTip &&
+          !inspection.isAncestorOfBase &&
+          sha !== baseSha
+        ) {
+          const found = await deps.newCommitMessages({
+            sha,
+            baseSha,
+            ownBranch: branch,
+            limit: MAX_CHECKED_COMMITS,
+          });
+          if ("tooMany" in found) {
+            log("report_commit_refused", {
+              agentId: caller.agentId,
+              rule: "too_many_commits",
+            });
+            return fail(
+              "rejected",
+              `commit_message: more than ${MAX_CHECKED_COMMITS} new commits since the base; squash or rebase your branch down and report the new tip`,
+            );
+          }
+          const violations = found.flatMap((commit) =>
+            checkCommitMessage(commit.message, commit.parents).map((v) => ({
+              commit,
+              ...v,
+            })),
+          );
+          if (violations.length > 0) {
+            const shown = violations.slice(0, 5).map((v) => {
+              const subject = (v.commit.message.split("\n")[0] ?? "").slice(
+                0,
+                80,
+              );
+              return `commit_message: ${v.commit.sha.slice(0, 8)} "${subject}" breaks ${v.rule}: ${v.reason}`;
+            });
+            const more =
+              violations.length > 5
+                ? ` (and ${violations.length - 5} more)`
+                : "";
+            for (const rule of new Set(violations.map((v) => v.rule)))
+              log("report_commit_refused", { agentId: caller.agentId, rule });
+            return fail(
+              "rejected",
+              `${shown.join("; ")}${more}. No report was recorded. Fix: for a commit you have not reported yet, reword it (git commit --amend for the tip, or git rebase -i then reword for an earlier one) and report the new full id; or put the fixed commits on a new branch (git switch -c <new-branch> <base>, git cherry-pick the work, reword) and report from there. Use Conventional Commits subjects (type(scope): description) and no Claude Co-Authored-By, Claude-Session or 'Generated with Claude Code' lines; check git log of the range before reporting.`,
+            );
+          }
         }
         const evidence: ReportEvidence = {
           generation: caller.generation,
@@ -1409,6 +1537,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             agentId,
             ...(early === undefined ? {} : { early }),
           });
+          const named = await renameBranch(agentId, `${planId}/${packageId}`);
           return ok({
             planId,
             packageId: assigned.packageId,
@@ -1416,6 +1545,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             messageId: assigned.assignmentMessageId,
             early: assigned.unmet.length > 0,
             unmet: assigned.unmet,
+            ...named,
           });
         }
         if (sub === "signoff") {
@@ -1640,7 +1770,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
       }
     },
 
-    link(call) {
+    async link(call) {
       const requestedBy = workerManager(call.identity);
       if (requestedBy === undefined)
         return fail("forbidden", "only the PM or the operator may link");
@@ -1669,6 +1799,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
             refId: link.refId,
             boundAgentId: link.boundAgentId,
             boundAt: link.boundAt,
+            ...(await renameBranch(agentId, refId)),
           });
         }
         const [refId, externalId, syncedState, ...extra] = rest;
