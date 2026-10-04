@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- temporary: plan-17 lint-guard */
 import {
   createCipheriv,
   createDecipheriv,

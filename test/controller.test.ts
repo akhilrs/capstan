@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- temporary: plan-17 lint-guard */
 import assert from "node:assert/strict";
 import {
   mkdtempSync,

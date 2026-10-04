@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
@@ -1134,7 +1134,13 @@ const readRepo = (...parts: string[]): string =>
 
 test("every spawn flag, refusal code and release option in docs/reference/commands.md exists in the code", () => {
   const docs = readRepo("docs", "reference", "commands.md");
-  const source = `${readRepo("src", "cli.ts")}\n${readRepo("src", "commands.ts")}`;
+  const source = [
+    readRepo("src", "cli.ts"),
+    readRepo("src", "commands.ts"),
+    ...readdirSync(path.join(repoRoot, "src", "commands")).map((file) =>
+      readRepo("src", "commands", file),
+    ),
+  ].join("\n");
 
   const spawnRow = docs
     .split("\n")
