@@ -10,7 +10,7 @@ import { openDaemonLog } from "./client.js";
 export const NOTIFICATION_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 export type NotificationKind =
-  "pm_message" | "input_cleared" | "delivery_stuck";
+  "pm_message" | "input_cleared" | "delivery_stuck" | "pm_stale";
 export type NotificationChannel = "herdr" | "fallback";
 
 export interface NotifierAdapter {
@@ -26,9 +26,37 @@ export interface NotificationRequest {
   readonly detail?: string;
 }
 
+export type ChannelFailureReason =
+  "not_shown" | "command_failed" | "invalid_text" | "timeout";
+
 export interface ChannelResult {
   readonly channel: NotificationChannel;
   readonly ok: boolean;
+  /** Why a failed channel failed. */
+  readonly reason?: ChannelFailureReason;
+  /** The sanitized error message of a failed channel, at most NOTIFICATION_ERROR_MAX_CHARS characters. */
+  readonly error?: string;
+}
+
+export const NOTIFICATION_ERROR_MAX_CHARS = 200;
+
+/** Names the failure from the error's class and code; a Herdr answer of shown:false carries the code notification_not_shown. */
+function failureReason(error: unknown): ChannelFailureReason {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "notification_not_shown") return "not_shown";
+  if (code === "timeout") return "timeout";
+  if (error instanceof Error && error.name === "InvalidArgumentError")
+    return "invalid_text";
+  return "command_failed";
+}
+
+function sanitizedError(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return text
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, NOTIFICATION_ERROR_MAX_CHARS);
 }
 
 export interface Notifier {
@@ -54,6 +82,7 @@ const TITLES: Readonly<Record<NotificationKind, string>> = {
   pm_message: "Capstan: PM message waiting",
   input_cleared: "Capstan: input line cleared",
   delivery_stuck: "Capstan: delivery stuck",
+  pm_stale: "Capstan: PM mail is stale",
 };
 
 function bodyOf(request: NotificationRequest): string {
@@ -62,6 +91,8 @@ function bodyOf(request: NotificationRequest): string {
       return `Message ${request.messageId} for the PM is waiting${request.repeat ? " (reminder)" : ""}`;
     case "input_cleared":
       return `Cleared ${request.detail ?? "some"} characters typed in ${request.recipientAgentId}'s input line before message ${request.messageId}`;
+    case "pm_stale":
+      return `${request.detail ?? "A message"} for the PM has waited too long (oldest: ${request.messageId})`;
     case "delivery_stuck":
       return `Message ${request.messageId} for ${request.recipientAgentId} is stuck: ${request.detail ?? "unknown reason"}`;
   }
@@ -78,12 +109,20 @@ export function createNotifier(options: NotifierOptions): Notifier {
           await options.adapter.notify(TITLES[request.kind], bodyOf(request));
           results.push({ channel: "herdr", ok: true });
         } catch (error) {
+          const reason = failureReason(error);
+          const message = sanitizedError(error);
           log("notification_channel_failed", {
             channel: "herdr",
             messageId: request.messageId,
+            reason,
             error: error instanceof Error ? error.name : "error",
           });
-          results.push({ channel: "herdr", ok: false });
+          results.push({
+            channel: "herdr",
+            ok: false,
+            reason,
+            ...(message === "" ? {} : { error: message }),
+          });
         }
       }
       // Passive: the ledger record is what the watch pane reads.
@@ -115,6 +154,10 @@ export function createNotifier(options: NotifierOptions): Notifier {
                 messageId: request.messageId,
                 channel: result.channel,
                 ok: result.ok,
+                ...(result.reason === undefined
+                  ? {}
+                  : { reason: result.reason }),
+                ...(result.error === undefined ? {} : { error: result.error }),
                 kind: request.kind,
                 repeat: request.repeat,
                 recorded,

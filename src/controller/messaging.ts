@@ -172,8 +172,20 @@ export interface MessagingTimers {
   readonly pmWakeIntervalSeconds: number;
 }
 
-/** The most wake lines the controller types for one unread message. */
-export const MAX_PM_WAKES = 5;
+/** The longest wait between two wake lines for one unread message; the wait doubles from the configured interval up to this. */
+export const PM_WAKE_MAX_INTERVAL_SECONDS = 1800;
+
+/** Seconds to wait after wake number `wakeCount` before the next one: the interval doubles per wake, capped. */
+export function pmWakeBackoffSeconds(
+  intervalSeconds: number,
+  wakeCount: number,
+): number {
+  const doublings = Math.min(Math.max(wakeCount - 1, 0), 30);
+  return Math.min(
+    intervalSeconds * 2 ** doublings,
+    PM_WAKE_MAX_INTERVAL_SECONDS,
+  );
+}
 
 export const MESSAGING_TIMER_NAMES: readonly (keyof MessagingTimers)[] = [
   "maxDeferralSeconds",
@@ -326,52 +338,68 @@ export function evaluateMessaging(
       )
         transitions.push({ messageId: head.messageId, to: "expired" });
     }
-    if (
-      !agent.paused &&
-      agent.kind === "PM" &&
-      head !== undefined &&
-      (head.state === "queued" ||
-        head.state === "sent" ||
-        head.state === "unacked")
-    ) {
+    const pending = own.reduce<MessageFacts | undefined>(
+      (oldest, message) =>
+        (message.state === "queued" ||
+          message.state === "sent" ||
+          message.state === "unacked") &&
+        (oldest === undefined || message.sequence < oldest.sequence)
+          ? message
+          : oldest,
+      undefined,
+    );
+    if (!agent.paused && agent.kind === "PM" && pending !== undefined) {
       const counted = countedMillis(
         "ack",
-        head.queuedMs,
+        pending.queuedMs,
         nowMs,
         agent.observations,
         agent.waits,
       );
       if (counted >= timers.pmNotifyAfterSeconds * 1000) {
-        if (head.lastNotifiedMs === null)
+        if (pending.lastNotifiedMs === null)
           actions.push({
             kind: "notify_operator",
-            messageId: head.messageId,
+            messageId: pending.messageId,
             repeat: false,
           });
         else if (
-          nowMs - head.lastNotifiedMs >=
+          nowMs - pending.lastNotifiedMs >=
           timers.notifyIntervalSeconds * 1000
         )
           actions.push({
             kind: "notify_operator",
-            messageId: head.messageId,
+            messageId: pending.messageId,
             repeat: true,
           });
       }
     }
+    // The wake target is the oldest unread message, whatever state the head is in: a pulled head must not hide a later unread one.
+    const wakeTarget = own.reduce<MessageFacts | undefined>(
+      (oldest, message) =>
+        message.state === "queued" &&
+        (oldest === undefined || message.sequence < oldest.sequence)
+          ? message
+          : oldest,
+      undefined,
+    );
     if (
       !agent.paused &&
       agent.kind === "PM" &&
       timers.pmWakeAfterSeconds > 0 &&
-      head?.state === "queued" &&
-      nowMs - head.queuedMs >= timers.pmWakeAfterSeconds * 1000 &&
-      head.wakeCount < MAX_PM_WAKES &&
-      (head.lastWakeMs === null ||
-        nowMs - head.lastWakeMs >= timers.pmWakeIntervalSeconds * 1000)
+      wakeTarget !== undefined &&
+      nowMs - wakeTarget.queuedMs >= timers.pmWakeAfterSeconds * 1000 &&
+      (wakeTarget.lastWakeMs === null ||
+        nowMs - wakeTarget.lastWakeMs >=
+          pmWakeBackoffSeconds(
+            timers.pmWakeIntervalSeconds,
+            wakeTarget.wakeCount,
+          ) *
+            1000)
     ) {
       const state = stateAt(agent.observations, nowMs);
       if (state === "idle" || state === "done")
-        actions.push({ kind: "wake_pm", messageId: head.messageId });
+        actions.push({ kind: "wake_pm", messageId: wakeTarget.messageId });
     }
     if (agent.paused) continue;
     if (

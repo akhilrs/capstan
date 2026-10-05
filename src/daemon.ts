@@ -37,6 +37,7 @@ import type {
   CapstanConfig,
   ResolvedOperator,
 } from "./config/capstan-config.js";
+import { DEFAULT_PM_STALE_MINUTES } from "./config/capstan-config.js";
 import { newContext } from "./context.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import {
@@ -791,6 +792,9 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         notifier: options.notifier,
         credential,
         log: detailLog,
+        pmStaleSeconds:
+          (options.capstan.notifications.pmStaleMinutes ??
+            DEFAULT_PM_STALE_MINUTES) * 60,
         processProbe:
           options.processProbe ??
           createProcessProbe(

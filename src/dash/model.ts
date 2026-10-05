@@ -95,8 +95,16 @@ export interface SupervisionHeader {
   readonly openFindings: number;
 }
 
+export interface PmMailHeader {
+  readonly pending: number;
+  readonly oldestAgeSeconds: number;
+  readonly stale: boolean;
+}
+
 export interface DashModel {
   readonly header: {
+    /** The PM's pending mail; null when the status carries none (no live PM, or not the operator). */
+    readonly pmMail: PmMailHeader | null;
     readonly projectId: string;
     readonly runState: string;
     /** The open run pause, or null. */
@@ -449,8 +457,17 @@ export function buildDashModel(
     };
   });
 
+  const pmMailRec = status.pmMail as Rec | null | undefined;
   return {
     header: {
+      pmMail:
+        typeof pmMailRec === "object" && pmMailRec !== null
+          ? {
+              pending: num(pmMailRec.pending),
+              oldestAgeSeconds: num(pmMailRec.oldestAgeSeconds),
+              stale: pmMailRec.stale === true,
+            }
+          : null,
       projectId: text(status.projectId),
       runState: text(run.state),
       runPause:

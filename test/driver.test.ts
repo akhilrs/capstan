@@ -118,6 +118,8 @@ class StubAdapter implements DriverAdapter {
 
   readonly wakes: Typed[] = [];
   wakeOutcome: "sent" | "pm_not_idle" | "input_not_empty" = "sent";
+  /** Makes the wake throw after beforeSend recorded it. */
+  wakeThrowsAfterRecord = false;
   async wakePm(input: {
     paneId: string;
     text: string;
@@ -126,6 +128,7 @@ class StubAdapter implements DriverAdapter {
     if (this.wakeOutcome !== "sent")
       return { sent: false as const, reason: this.wakeOutcome };
     await input.beforeSend();
+    if (this.wakeThrowsAfterRecord) throw new Error("prompt failed");
     this.wakes.push({ paneId: input.paneId, text: input.text });
     return { sent: true as const };
   }
@@ -186,6 +189,7 @@ interface World {
 async function world(
   timers: MessagingTimers = TIMERS,
   processProbe?: ProcessActivityProbe,
+  pmStaleSeconds?: number,
 ): Promise<World> {
   const clock = { now: Date.parse("2026-01-01T00:00:00.000Z") };
   const h = await harness({ clock: () => new Date(clock.now) });
@@ -202,6 +206,7 @@ async function world(
     now: () => clock.now,
     log: (event, details) => events.push({ event, details }),
     ...(processProbe === undefined ? {} : { processProbe }),
+    ...(pmStaleSeconds === undefined ? {} : { pmStaleSeconds }),
   });
   return {
     h,
@@ -837,7 +842,7 @@ test("an unreadable line seen while sending is classified stuck at once, not aft
 });
 
 test("a PM message waiting past the notification time notifies once, records it, and repeats at the interval", async () => {
-  const w = await world();
+  const w = await world(TIMERS, undefined, 86_400);
   try {
     const id = w.h.core.enqueueMessage(ctx(w.h.core, w.h.owner), {
       recipientAgentId: w.h.pm.agentId,
@@ -1059,7 +1064,7 @@ test("an idle PM with an unread message is woken once, recorded first, and not a
         text: "Run cstan inbox: a teammate has written to you.",
       },
     ]);
-    assert.ok(w.eventNames().includes("pm_woken"));
+    assert.ok(w.eventNames().includes("pm_wake_typed"));
     await w.tick();
     assert.equal(w.adapter.wakes.length, 1, "not within the interval");
     w.advance(121_000);
@@ -1395,5 +1400,156 @@ test("an idle test-runner parent whose exited children keep using CPU is not rep
     } finally {
       await close(w.h);
     }
+  }
+});
+
+function pmMessage(w: World, body = "report"): string {
+  return w.h.core.enqueueMessage(ctx(w.h.core, w.h.owner), {
+    recipientAgentId: w.h.pm.agentId,
+    body,
+  }).messageId;
+}
+
+const staleSent = (w: World): NotificationRequest[] =>
+  w.notifier.sent.filter((r) => r.kind === "pm_stale");
+
+const count = (w: World, event: string): number =>
+  w.events.filter((e) => e.event === event).length;
+
+test("a wake the PM is not ready for is not recorded, and is tried again once the PM is idle with an empty line", async () => {
+  const w = await world(WAKE_TIMERS);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    const id = pmMessage(w);
+    w.advance(30_000);
+    for (const outcome of ["pm_not_idle", "input_not_empty"] as const) {
+      w.adapter.wakeOutcome = outcome;
+      await w.tick();
+      assert.equal(w.adapter.wakes.length, 0, outcome);
+    }
+    assert.equal(count(w, "pm_wake_typed"), 0);
+    w.adapter.wakeOutcome = "sent";
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 1);
+    assert.equal(count(w, "pm_wake_typed"), 1);
+    assert.equal(state(w, id), "queued");
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a wake with no pull logs pm_wake_unanswered once and re-wakes after the backoff; a pull stops further wakes", async () => {
+  const w = await world(WAKE_TIMERS);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    const id = pmMessage(w);
+    w.advance(21_000);
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 1);
+    w.advance(60_000);
+    await w.tick();
+    assert.equal(count(w, "pm_wake_unanswered"), 0, "within the interval");
+    w.advance(61_000);
+    await w.tick();
+    assert.equal(count(w, "pm_wake_unanswered"), 1);
+    assert.equal(w.adapter.wakes.length, 2, "re-woken after the backoff");
+    await w.tick();
+    await w.tick();
+    assert.equal(count(w, "pm_wake_unanswered"), 1, "logged once per wake");
+    w.advance(241_000);
+    await w.tick();
+    assert.equal(count(w, "pm_wake_unanswered"), 2);
+    assert.equal(w.adapter.wakes.length, 3, "the second wait is 240 s");
+    w.h.core.recordSent(ctx(w.h.core, w.h.owner), id);
+    w.advance(5_000_000);
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 3, "a pulled message stops the wakes");
+    assert.equal(count(w, "pm_wake_unanswered"), 2);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a wake that throws after it was recorded is pm_wake_failed, never typed, and is retried at the next backoff step", async () => {
+  const w = await world(WAKE_TIMERS);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    pmMessage(w);
+    w.advance(21_000);
+    w.adapter.wakeThrowsAfterRecord = true;
+    await w.tick();
+    assert.equal(count(w, "pm_wake_failed"), 1);
+    assert.equal(count(w, "pm_wake_typed"), 0);
+    await w.tick();
+    assert.equal(count(w, "pm_wake_failed"), 1, "not before the backoff");
+    w.adapter.wakeThrowsAfterRecord = false;
+    w.advance(121_000);
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 1);
+    assert.equal(count(w, "pm_wake_typed"), 1);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a PM with only pulled messages gets no wake and no unanswered log, and a stale episode once the oldest is past the threshold", async () => {
+  const w = await world(WAKE_TIMERS, undefined, 600);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    const id = pmMessage(w);
+    w.h.core.recordSent(ctx(w.h.core, w.h.owner), id);
+    w.advance(300_000);
+    await w.tick();
+    assert.equal(staleSent(w).length, 0, "not stale yet");
+    w.advance(301_000);
+    await w.tick();
+    assert.equal(w.adapter.wakes.length, 0);
+    assert.equal(count(w, "pm_wake_unanswered"), 0);
+    assert.deepEqual(
+      staleSent(w).map((r) => [r.kind, r.messageId]),
+      [["pm_stale", id]],
+    );
+    assert.equal(w.driver.snapshot().pmStale?.oldestMessageId, id);
+  } finally {
+    await close(w.h);
+  }
+});
+
+test("a stale PM message notifies once per episode, again for a new episode, and never while the PM is paused", async () => {
+  const w = await world(TIMERS, undefined, 600);
+  try {
+    w.adapter.register(w.h.pm.agentId);
+    assert.equal(w.driver.snapshot().pmStale ?? null, null);
+    const first = pmMessage(w, "one");
+    w.advance(601_000);
+    for (let i = 0; i < 5; i += 1) await w.tick();
+    assert.equal(staleSent(w).length, 1, "once across many ticks");
+    assert.equal(staleSent(w)[0]!.kind, "pm_stale");
+    const snapshot = w.driver.snapshot().pmStale;
+    assert.equal(snapshot?.oldestMessageId, first);
+    assert.equal(snapshot?.pending, 1);
+    assert.equal(snapshot?.notified, true);
+    // The episode ends when the oldest message is no longer pending.
+    w.h.core.recordSent(ctx(w.h.core, w.h.owner), first);
+    w.h.core.ackMessage(ctx(w.h.core, w.h.pm.credential), first);
+    await w.tick();
+    assert.equal(w.driver.snapshot().pmStale, null);
+    pmMessage(w, "two");
+    w.advance(601_000);
+    await w.tick();
+    await w.tick();
+    assert.equal(staleSent(w).length, 2, "a new episode fires again");
+    // Paused: nothing fires for a new episode until resumed.
+    const third = pmMessage(w, "three");
+    w.h.core.pauseAgent(ctx(w.h.core, w.h.owner), {
+      agentId: w.h.pm.agentId,
+      reason: "hold",
+    });
+    w.advance(601_000);
+    await w.tick();
+    assert.equal(staleSent(w).length, 2, "none while paused");
+    assert.ok(third);
+  } finally {
+    await close(w.h);
   }
 });

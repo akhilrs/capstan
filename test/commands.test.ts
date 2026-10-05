@@ -1613,3 +1613,43 @@ test("spawn takes --task, --type and --title for the branch name and refuses any
     await close(h);
   }
 });
+
+function statusConfig(pmStaleMinutes: number): Partial<CommandDependencies> {
+  const base = waitConfig(1);
+  return {
+    config: {
+      ...base,
+      notifications: { ...base.notifications, pmStaleMinutes },
+    },
+  };
+}
+
+test("status carries pmMail: stale past the threshold, not stale below it, null without an active PM", async () => {
+  const stale = await harness({ commands: statusConfig(0) });
+  const calm = await harness({ commands: statusConfig(10) });
+  try {
+    for (const h of [stale, calm]) {
+      const sent = await call(h, h.developer.credential, "send", [
+        "@pm",
+        "hello",
+      ]);
+      assert.ok(sent.ok, JSON.stringify(sent));
+    }
+    const staleMail = bodyOf(await call(stale, stale.owner, "status"))
+      .pmMail as Record<string, unknown>;
+    assert.equal(staleMail.agentId, stale.pm.agentId);
+    assert.equal(staleMail.pending, 1);
+    assert.equal(staleMail.stale, true);
+    assert.equal(typeof staleMail.oldestMessageId, "string");
+    assert.equal(staleMail.notified, false);
+    const calmMail = bodyOf(await call(calm, calm.owner, "status"))
+      .pmMail as Record<string, unknown>;
+    assert.equal(calmMail.pending, 1);
+    assert.equal(calmMail.stale, false);
+    stale.core.endAgent(ctx(stale.core, stale.owner), stale.pm.agentId);
+    assert.equal(bodyOf(await call(stale, stale.owner, "status")).pmMail, null);
+  } finally {
+    await close(stale);
+    await close(calm);
+  }
+});

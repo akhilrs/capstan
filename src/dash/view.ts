@@ -987,6 +987,25 @@ function healthChip(
   };
 }
 
+/** One full-width line above the header while the PM has stale mail: a glyph and text, bold, so it reads without colour. */
+function pmStaleBanner(
+  model: DashModel,
+  view: ViewState,
+  theme: Theme,
+  g: Glyphs,
+): Line[] {
+  const mail = model.header.pmMail;
+  if (mail === null || !mail.stale) return [];
+  const minutes = Math.floor(mail.oldestAgeSeconds / 60);
+  const text = ` ${g.attention} PM MAIL STALE: ${mail.pending} message${mail.pending === 1 ? "" : "s"} pending, oldest ${minutes} min; the PM has unread mail`;
+  return [
+    fitLine(
+      [span(text, { color: theme.color("bad"), bold: true })],
+      view.size.columns,
+    ),
+  ];
+}
+
 function headerLines(
   model: DashModel,
   view: ViewState,
@@ -1201,7 +1220,10 @@ export function buildFrame(
 ): Frame {
   const g = glyphsFor(theme.ascii);
   const { columns, rows } = view.size;
-  const header = headerLines(model, view, theme, g);
+  const header = [
+    ...pmStaleBanner(model, view, theme, g),
+    ...headerLines(model, view, theme, g),
+  ];
   const bodyRows = rows - header.length - 1;
   const layout = layoutFor(columns, rows);
   const widths = columnWidths(columns, layout.mode);

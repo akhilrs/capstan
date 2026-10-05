@@ -182,6 +182,8 @@ export type ResolvedRole = {
 export type ResolvedNotifications = {
   readonly herdr: boolean;
   readonly fallback: boolean;
+  /** Minutes a PM message may stay pending before the operator is told it is stale; the parser always sets it. */
+  readonly pmStaleMinutes?: number;
 };
 
 export type ResolvedLimits = {
@@ -339,3 +341,5 @@ export type CapstanConfig = {
 };
 
 export const DEFAULT_SUPERVISION_CHECK_SECONDS = 300;
+/** Minutes a PM message may stay pending before it counts as stale. */
+export const DEFAULT_PM_STALE_MINUTES = 10;

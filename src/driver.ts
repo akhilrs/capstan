@@ -12,6 +12,7 @@ import {
 } from "./controller/core.js";
 import {
   messagingTimersOf,
+  pmWakeBackoffSeconds,
   queueHead,
   type DeferralReason,
   type HerdrState,
@@ -42,6 +43,8 @@ import {
 } from "./herdr/process-activity.js";
 import { HerdrError } from "./herdr/runner.js";
 import type { DriverSnapshot } from "./commands.js";
+import { DEFAULT_PM_STALE_MINUTES } from "./config/capstan-config.js";
+import { pmMailSummary } from "./pm-mail.js";
 import type { Notifier, NotificationRequest } from "./notifier.js";
 
 export const MIN_TICK_MS = 500;
@@ -54,6 +57,12 @@ export const SUPPRESS_LIMIT = 10;
 export const STUCK_AFTER_TICKS = 10;
 /** The least time between two process samples of one working agent. */
 export const PROCESS_SAMPLE_MS = 15_000;
+const PENDING_STATES: readonly string[] = [
+  "queued",
+  "deferred",
+  "sent",
+  "unacked",
+];
 const TRUNCATION_MARKER = "[truncated]";
 
 /** The part of the Herdr adapter the driver uses; tests stub it. */
@@ -103,6 +112,8 @@ export interface DriverOptions {
   readonly tickMs?: number;
   /** Tells whether a tool process under a working agent uses CPU; such an agent is not reported as stalled. */
   readonly processProbe?: ProcessActivityProbe;
+  /** A PM message pending this long raises one stale notification per episode; default DEFAULT_PM_STALE_MINUTES. */
+  readonly pmStaleSeconds?: number;
 }
 
 /** Thrown from a callback that must stop the physical action because the ledger moved on. */
@@ -179,6 +190,22 @@ export class DeliveryDriver {
   readonly #activity = new ProcessActivityTracker();
   readonly #lastSampleMs = new Map<string, number>();
   readonly #probeFailed = new Set<string>();
+  readonly #pmStaleSeconds: number;
+  /** The last wake typed for each message this process woke the PM for. */
+  readonly #wakes = new Map<
+    string,
+    { wakeAt: number; count: number; unansweredLogged: boolean }
+  >();
+  /** The open stale episode by PM, keyed in memory only: a restart during an episode can notify once more. */
+  readonly #staleEpisodes = new Map<
+    string,
+    {
+      since: string;
+      oldestMessageId: string;
+      pending: number;
+      notified: boolean;
+    }
+  >();
 
   constructor(options: DriverOptions) {
     this.#core = options.core;
@@ -190,13 +217,17 @@ export class DeliveryDriver {
     this.#log = options.log ?? (() => undefined);
     this.#tickMs = Math.max(options.tickMs ?? DEFAULT_TICK_MS, MIN_TICK_MS);
     this.#processProbe = options.processProbe;
+    this.#pmStaleSeconds =
+      options.pmStaleSeconds ?? DEFAULT_PM_STALE_MINUTES * 60;
   }
 
   snapshot(): DriverSnapshot {
+    const stale = [...this.#staleEpisodes.values()][0];
     return {
       stalledAgentIds: this.#stalled,
       stuck: this.#stuck,
       lostAgentIds: [...this.#lost].sort(),
+      pmStale: stale === undefined ? null : { ...stale },
     };
   }
 
@@ -255,7 +286,10 @@ export class DeliveryDriver {
     for (const agent of agents) await this.#observe(agent, outcomes);
     this.#judgeLoss(agents, outcomes);
     this.#forgetProcesses(agents);
+    // Wakes are judged before the next one can be typed, so a wake that went unanswered is logged before it is repeated.
+    this.#judgeWakes(agents);
     await this.#advance();
+    await this.#judgeStale(agents);
     for (const agent of agents)
       if (
         agent.kind !== "PM" &&
@@ -497,7 +531,7 @@ export class DeliveryDriver {
     return false;
   }
 
-  /** Types one wake line into an idle PM that has an unread message; the wake is recorded first and never repeated sooner than the interval. */
+  /** Types one wake line into an idle PM that has an unread message; the wake is recorded first and never repeated sooner than the backoff. */
   async #wake(
     action: Extract<MessagingAction, { kind: "wake_pm" }>,
   ): Promise<void> {
@@ -508,6 +542,7 @@ export class DeliveryDriver {
       return;
     const owned = this.#owned(agent);
     if (typeof owned === "string") return;
+    let recorded = false;
     try {
       const outcome = await this.#adapter.wakePm({
         paneId: owned.paneId,
@@ -517,6 +552,7 @@ export class DeliveryDriver {
           if (current === undefined || current.state !== "queued")
             throw new StaleActionError("the message is no longer unread");
           this.#core.recordPmWake(this.#context(), message.messageId);
+          recorded = true;
         },
       });
       if (!outcome.sent)
@@ -525,13 +561,114 @@ export class DeliveryDriver {
           "wake_skipped",
           { messageId: message.messageId, reason: outcome.reason },
         );
-      else this.#log("pm_woken", { messageId: message.messageId });
+      else {
+        const previous = this.#wakes.get(message.messageId);
+        this.#wakes.set(message.messageId, {
+          wakeAt: this.#now(),
+          count: (previous?.count ?? 0) + 1,
+          unansweredLogged: false,
+        });
+        this.#log("pm_wake_typed", { messageId: message.messageId });
+      }
     } catch (error) {
-      if (!this.#isStale(error, message.messageId))
+      if (recorded) {
+        // The wake is in the ledger, so the next one waits for the backoff; it was not typed, so it is not a wake.
+        this.#log("pm_wake_failed", {
+          messageId: message.messageId,
+          error: String(error),
+        });
+      } else if (!this.#isStale(error, message.messageId))
         this.#log("wake_failed", {
           messageId: message.messageId,
           error: String(error),
         });
+    }
+  }
+
+  /** A wake is answered when the message left the queued state or the PM pulled or acknowledged any message after it; one still queued after the next backoff step is logged once. */
+  #judgeWakes(agents: readonly AgentRecord[]): void {
+    const messages = agents
+      .filter((a) => a.kind === "PM")
+      .flatMap((pm) => this.#pmMessages(pm));
+    const now = this.#now();
+    for (const [messageId, wake] of [...this.#wakes]) {
+      const message = messages.find((m) => m.messageId === messageId);
+      const pulledSince = messages.some((m) =>
+        [m.sentAt, m.ackedAt].some(
+          (at) => at !== null && Date.parse(at) > wake.wakeAt,
+        ),
+      );
+      if (message === undefined || message.state !== "queued" || pulledSince) {
+        this.#wakes.delete(messageId);
+        continue;
+      }
+      const intervalMs =
+        pmWakeBackoffSeconds(this.#timers.pmWakeIntervalSeconds, wake.count) *
+        1000;
+      if (!wake.unansweredLogged && now - wake.wakeAt >= intervalMs) {
+        wake.unansweredLogged = true;
+        this.#log("pm_wake_unanswered", { messageId, wakes: wake.count });
+      }
+    }
+  }
+
+  /** One stale notification per episode; an episode is keyed by the oldest pending message and ends when that message is no longer pending. */
+  async #judgeStale(agents: readonly AgentRecord[]): Promise<void> {
+    const pms = agents.filter((a) => a.kind === "PM");
+    for (const pm of pms) await this.#judgeStaleFor(pm);
+    const live = new Set(pms.map((a) => a.agentId));
+    for (const id of [...this.#staleEpisodes.keys()])
+      if (!live.has(id)) this.#staleEpisodes.delete(id);
+  }
+
+  #pmMessages(pm: AgentRecord): readonly MessageRecord[] {
+    try {
+      return this.#core.messagesFor(pm.agentId);
+    } catch (error) {
+      this.#log("pm_mail_failed", { error: String(error) });
+      return [];
+    }
+  }
+
+  async #judgeStaleFor(pm: AgentRecord): Promise<void> {
+    const messages = this.#pmMessages(pm);
+    const now = this.#now();
+    const summary = pmMailSummary(messages, now, this.#pmStaleSeconds);
+    const episode = this.#staleEpisodes.get(pm.agentId);
+    const stillPending =
+      episode !== undefined &&
+      messages.some(
+        (m) =>
+          m.messageId === episode.oldestMessageId &&
+          PENDING_STATES.includes(m.state),
+      );
+    if (episode !== undefined && !stillPending)
+      this.#staleEpisodes.delete(pm.agentId);
+    if (!summary.stale || summary.oldestMessageId === null) return;
+    let current = this.#staleEpisodes.get(pm.agentId);
+    if (current === undefined) {
+      current = {
+        since: new Date(now).toISOString(),
+        oldestMessageId: summary.oldestMessageId,
+        pending: summary.pending,
+        notified: false,
+      };
+      this.#staleEpisodes.set(pm.agentId, current);
+    }
+    current.pending = summary.pending;
+    if (current.notified || this.#core.isDeliveryPaused(pm.agentId)) return;
+    current.notified = true;
+    const request: NotificationRequest = {
+      kind: "pm_stale",
+      messageId: current.oldestMessageId,
+      recipientAgentId: pm.agentId,
+      repeat: false,
+      detail: `${summary.pending} message${summary.pending === 1 ? "" : "s"}`,
+    };
+    try {
+      this.#notifier.write(request, await this.#notifier.send(request), false);
+    } catch (error) {
+      this.#log("pm_stale_notify_failed", { error: String(error) });
     }
   }
 

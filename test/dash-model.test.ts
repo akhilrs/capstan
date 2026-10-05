@@ -23,6 +23,7 @@ import {
 test("the header carries run state, the live supervision state and workers against the limit", () => {
   const ok = buildDashModel(healthy(), NOW, 3);
   assert.deepEqual(ok.header, {
+    pmMail: null,
     projectId: "p1",
     runState: "active",
     runPause: null,
@@ -450,4 +451,20 @@ test("a history sample counts unresolved and working agents and the age of the o
   const empty = buildDashModel(healthy(), NOW, 3);
   assert.equal(historySample(empty, NOW).oldestSeconds, 0);
   assert.equal(historySample(model, NOW + 30_000).oldestSeconds, 90);
+});
+
+test("the header carries the PM's pending mail when the status has it", () => {
+  const model = buildDashModel(
+    {
+      ...healthy(),
+      pmMail: { pending: 2, oldestAgeSeconds: 700, stale: true },
+    },
+    NOW,
+    3,
+  );
+  assert.deepEqual(model.header.pmMail, {
+    pending: 2,
+    oldestAgeSeconds: 700,
+    stale: true,
+  });
 });

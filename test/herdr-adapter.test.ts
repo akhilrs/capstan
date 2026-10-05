@@ -981,6 +981,17 @@ test("notify fails when Herdr accepts the command but shows nothing", async () =
         error.code === "notification_not_shown" &&
         /disabled/.test(error.message),
     );
+    h.fake.notification = {
+      shown: false,
+      reason: "no_foreground_client",
+    };
+    await assert.rejects(
+      h.adapter.notify("Capstan: PM message waiting", "body"),
+      (error: unknown) =>
+        error instanceof HerdrError &&
+        error.code === "notification_not_shown" &&
+        /no_foreground_client/.test(error.message),
+    );
     h.fake.notification = { shown: true };
     await h.adapter.notify("Capstan: PM message waiting", "body");
   } finally {

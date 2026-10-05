@@ -184,6 +184,13 @@ export interface DriverSnapshot {
     readonly messageId: string;
     readonly reason: string;
   }[];
+  /** The open stale-mail episode of the PM: its oldest pending message has waited past `[notifications] pm_stale_minutes`. */
+  readonly pmStale?: {
+    readonly since: string;
+    readonly oldestMessageId: string;
+    readonly pending: number;
+    readonly notified: boolean;
+  } | null;
 }
 
 /** What a Supervisor is told about a finding after raising or checking it. */

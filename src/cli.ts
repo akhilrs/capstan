@@ -454,6 +454,26 @@ export function pauseLines(status: unknown, nowMs: number): string[] {
   ];
 }
 
+/** `PM MAIL STALE: ...` when the PM's oldest pending message has waited past the threshold, `pm mail: ...` when messages are only pending; empty otherwise. */
+export function pmMailLines(status: unknown): string[] {
+  const mail = (status as { pmMail?: unknown } | null)?.pmMail as
+    | {
+        pending?: number;
+        oldestAgeSeconds?: number;
+        oldestMessageId?: string | null;
+        stale?: boolean;
+      }
+    | null
+    | undefined;
+  if (!mail || !mail.pending) return [];
+  const minutes = Math.floor((mail.oldestAgeSeconds ?? 0) / 60);
+  if (mail.stale === true)
+    return [
+      `PM MAIL STALE: ${mail.pending} message(s) pending, oldest ${minutes} min (${mail.oldestMessageId ?? "-"})`,
+    ];
+  return [`pm mail: ${mail.pending} pending, oldest ${minutes} min`];
+}
+
 interface PauseLike {
   readonly agentId?: string | null;
   readonly reason: string;
@@ -790,7 +810,10 @@ function handleWire(result: WireResult, json: boolean, command = ""): number {
       process.stdout.write(`${renderMessages(response.result)}\n`);
     else {
       if (!json && command === "status")
-        for (const line of pauseLines(response.result, Date.now()))
+        for (const line of [
+          ...pauseLines(response.result, Date.now()),
+          ...pmMailLines(response.result),
+        ])
           process.stdout.write(`${line}\n`);
       output(response.result, json);
     }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  MAX_PM_WAKES,
+  pmWakeBackoffSeconds,
   type MessagingTimers,
 } from "../src/controller/messaging.js";
 import { close, ctx, harness, type Harness } from "./harness.js";
@@ -175,7 +175,7 @@ test("a worker stalled or blocked for the stall time tells the PM once per episo
   }
 });
 
-test("an idle PM with an unread message gets a wake action after the wait, at most five times and never sooner than the interval; a busy PM, a read message or a disabled wake gets none", async () => {
+test("an idle PM with an unread message gets a wake action after the wait, with the interval doubling and never sooner than the backoff; a busy PM, a read message or a disabled wake gets none", async () => {
   const w = await world();
   try {
     const pm = w.h.pm.agentId;
@@ -197,16 +197,15 @@ test("an idle PM with an unread message gets a wake action after the wait, at mo
       "0 turns it off",
     );
     assert.deepEqual(actions(), ["wake_pm"]);
-    for (let wake = 1; wake <= MAX_PM_WAKES; wake += 1) {
+    for (let wake = 1; wake <= 6; wake += 1) {
       assert.equal(
         w.h.core.recordPmWake(ctx(w.h.core, w.h.owner), id).wakes,
         wake,
       );
-      assert.deepEqual(actions(), [], "not within the interval");
-      w.advance(TIMERS.pmWakeIntervalSeconds + 1);
-      if (wake < MAX_PM_WAKES) assert.deepEqual(actions(), ["wake_pm"]);
+      assert.deepEqual(actions(), [], "not within the backoff");
+      w.advance(pmWakeBackoffSeconds(TIMERS.pmWakeIntervalSeconds, wake) + 1);
+      assert.deepEqual(actions(), ["wake_pm"], "wakes keep coming");
     }
-    assert.deepEqual(actions(), [], `no more than ${MAX_PM_WAKES} wakes`);
   } finally {
     await close(w.h);
   }

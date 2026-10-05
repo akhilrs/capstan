@@ -30,6 +30,7 @@ import {
   findingDefectIdentity,
   reserveDispatchSlot,
   syncConfiguredRoles,
+  pmMailLines,
 } from "../src/cli.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { DESIGNER_PROMPT } from "../src/roles/designer-prompt.js";
@@ -2378,4 +2379,24 @@ test("no ExperimentalWarning from node:sqlite reaches stderr from init or status
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("text status prints the PM mail line: STALE once when stale, the plain pending line otherwise", () => {
+  const stale = pmMailLines({
+    pmMail: {
+      pending: 2,
+      oldestAgeSeconds: 725,
+      oldestMessageId: "m-1",
+      stale: true,
+    },
+  });
+  assert.deepEqual(stale, [
+    "PM MAIL STALE: 2 message(s) pending, oldest 12 min (m-1)",
+  ]);
+  assert.deepEqual(
+    pmMailLines({ pmMail: { pending: 1, oldestAgeSeconds: 60, stale: false } }),
+    ["pm mail: 1 pending, oldest 1 min"],
+  );
+  assert.deepEqual(pmMailLines({ pmMail: null }), []);
+  assert.deepEqual(pmMailLines({}), []);
 });

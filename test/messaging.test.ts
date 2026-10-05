@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   MESSAGE_STATES,
+  PM_WAKE_MAX_INTERVAL_SECONDS,
   countedMillis,
   evaluateMessaging,
   isFinalState,
@@ -471,4 +472,111 @@ test("suppressActiveStalls drops a stalled agent with recent child activity, kee
   ]);
   assert.equal(result.transitions, evaluation.transitions);
   assert.equal(result.actions, evaluation.actions);
+});
+
+const WAKE_TIMERS: MessagingTimers = {
+  ...timers,
+  pmWakeAfterSeconds: 20,
+  pmNotifyAfterSeconds: 100_000,
+};
+const wakeIds = (
+  agents: AgentFacts[],
+  messages: MessageFacts[],
+  nowMs: number,
+): string[] =>
+  evaluateMessaging(agents, messages, nowMs, WAKE_TIMERS)
+    .actions.filter((a) => a.kind === "wake_pm")
+    .map((a) => a.messageId);
+
+test("a PM whose head is sent or unacked still gets a wake for a later queued message", () => {
+  for (const state of ["sent", "unacked"] as const)
+    assert.deepEqual(
+      wakeIds(
+        [pm()],
+        [
+          facts({ messageId: "m1", sequence: 1, state }),
+          facts({ messageId: "m2", sequence: 2, state: "queued" }),
+        ],
+        21 * SECOND,
+      ),
+      ["m2"],
+      state,
+    );
+  assert.deepEqual(
+    wakeIds([pm()], [facts({ messageId: "m1", state: "sent" })], 600 * SECOND),
+    [],
+    "a pulled message is never a reason to wake",
+  );
+  assert.deepEqual(
+    wakeIds(
+      [pm()],
+      [
+        facts({ messageId: "m3", sequence: 3, state: "queued" }),
+        facts({ messageId: "m2", sequence: 2, state: "queued" }),
+      ],
+      21 * SECOND,
+    ),
+    ["m2"],
+    "the oldest queued message is the target",
+  );
+});
+
+test("wakes keep coming after 5 with the interval doubling up to the cap", () => {
+  const expected = [120, 240, 480, 960, 1800, 1800, 1800];
+  assert.equal(PM_WAKE_MAX_INTERVAL_SECONDS, 1800);
+  expected.forEach((seconds, index) => {
+    const lastWakeMs = 1_000_000 * SECOND;
+    const message = facts({
+      state: "queued",
+      wakeCount: index + 1,
+      lastWakeMs,
+    });
+    assert.deepEqual(
+      wakeIds([pm()], [message], lastWakeMs + (seconds - 1) * SECOND),
+      [],
+      `wake ${index + 2} is not due early`,
+    );
+    assert.deepEqual(
+      wakeIds([pm()], [message], lastWakeMs + seconds * SECOND),
+      ["m1"],
+      `wake ${index + 2} is due after ${seconds} s`,
+    );
+  });
+});
+
+test("no wake while the PM works, is blocked or unknown, or is paused", () => {
+  const queued = [facts({ state: "queued" })];
+  for (const state of ["working", "blocked", "unknown"] as const)
+    assert.deepEqual(
+      wakeIds(
+        [pm({ observations: [{ state, atMs: 0 }] })],
+        queued,
+        600 * SECOND,
+      ),
+      [],
+      state,
+    );
+  assert.deepEqual(
+    wakeIds([pm({ observations: [] })], queued, 600 * SECOND),
+    [],
+  );
+  assert.deepEqual(wakeIds([pm({ paused: true })], queued, 600 * SECOND), []);
+  assert.deepEqual(wakeIds([pm()], queued, 600 * SECOND), ["m1"]);
+});
+
+test("the operator notification targets the oldest pending PM message, not the head", () => {
+  const result = evaluateMessaging(
+    [pm()],
+    [
+      facts({ messageId: "m1", sequence: 1, state: "deferred", sentMs: null }),
+      facts({ messageId: "m2", sequence: 2, state: "sent" }),
+      facts({ messageId: "m3", sequence: 3, state: "queued" }),
+    ],
+    400 * SECOND,
+    { ...timers, pmAckTimeoutSeconds: 100_000 },
+  );
+  assert.deepEqual(
+    result.actions.filter((a) => a.kind === "notify_operator"),
+    [{ kind: "notify_operator", messageId: "m2", repeat: false }],
+  );
 });

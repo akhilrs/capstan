@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { InvalidArgumentError } from "../src/herdr/adapter.js";
+import { HerdrError } from "../src/herdr/runner.js";
 import {
   NOTIFICATION_LOG_MAX_BYTES,
   createNotifier,
@@ -102,7 +104,12 @@ test("a failing herdr channel is never silent: an ok:false line, a log entry, an
   try {
     const results = await n.notifier.send(REQUEST);
     assert.deepEqual(results, [
-      { channel: "herdr", ok: false },
+      {
+        channel: "herdr",
+        ok: false,
+        reason: "command_failed",
+        error: "herdr is down",
+      },
       { channel: "fallback", ok: true },
     ]);
     assert.equal(n.logs[0]!.event, "notification_channel_failed");
@@ -171,5 +178,85 @@ test("a record file that cannot be written is logged, never thrown", () => {
     assert.equal(n.logs.at(-1)!.event, "notification_record_failed");
   } finally {
     n.cleanup();
+  }
+});
+
+test("a Herdr channel that failed leaves ok:false with a distinct reason and a sanitized error; the fallback line is unchanged", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "capstan-notifier-"));
+  try {
+    const failures: Array<[unknown, string]> = [
+      [
+        new HerdrError(
+          "notification_not_shown",
+          "Herdr did not show the notification: no_foreground_client",
+        ),
+        "not_shown",
+      ],
+      [new HerdrError("command_failed", "herdr exited 1"), "command_failed"],
+      [new HerdrError("timeout", "herdr notification timed out"), "timeout"],
+      [
+        new InvalidArgumentError("notification body is not acceptable"),
+        "invalid_text",
+      ],
+      [
+        new Error("boom\u001b[31m\nsecond   line " + "x".repeat(400)),
+        "command_failed",
+      ],
+    ];
+    let serial = 0;
+    for (const [error, reason] of failures) {
+      const recordPath = path.join(directory, `${serial++}.jsonl`);
+      const notifier = createNotifier({
+        adapter: {
+          notify: async () => {
+            throw error;
+          },
+        },
+        channels: { herdr: true, fallback: true },
+        recordPath,
+        now: () => new Date("2026-01-01T00:00:00.000Z"),
+      });
+      const results = await notifier.send(REQUEST);
+      notifier.write(REQUEST, results, true);
+      const lines = readFileSync(recordPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      assert.equal(lines.length, 2);
+      assert.equal(lines[0]!.channel, "herdr");
+      assert.equal(lines[0]!.ok, false);
+      assert.equal(lines[0]!.reason, reason);
+      const text = lines[0]!.error as string;
+      assert.ok(text.length > 0 && text.length <= 200, `${text.length}`);
+      assert.doesNotMatch(text, /[\u0000-\u001f]/);
+      assert.deepEqual(Object.keys(lines[1]!), [
+        "ts",
+        "messageId",
+        "channel",
+        "ok",
+        "kind",
+        "repeat",
+        "recorded",
+      ]);
+      assert.equal(lines[1]!.channel, "fallback");
+      assert.equal(lines[1]!.ok, true);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("pm_stale has its own title and body", async () => {
+  const s = setup({ herdr: true, fallback: false });
+  try {
+    await s.notifier.send({
+      ...REQUEST,
+      kind: "pm_stale",
+      detail: "2 messages",
+    });
+    assert.equal(s.calls[0]!.title, "Capstan: PM mail is stale");
+    assert.match(s.calls[0]!.body, /2 messages.*m-1/);
+  } finally {
+    s.cleanup();
   }
 });

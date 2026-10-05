@@ -1,3 +1,4 @@
+import type { DriverSnapshot } from "../src/commands/shared.js";
 import assert from "node:assert/strict";
 
 // No test may reach a real Herdr session: the daemon and `cstan start` stay out of it.
@@ -905,7 +906,7 @@ test("the daemon log file must be a private regular file and the spawn environme
   }
 });
 
-test("the daemon passes a process probe to the driver, so a working agent's pane is sampled", async () => {
+test("the daemon passes a process probe and the stale threshold to the driver, so a working agent's pane is sampled and an old PM message is reported", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "capstan-daemon-probe-"));
   const stateDirectory = path.join(root, "state");
   const info = projectInfo();
@@ -934,7 +935,8 @@ test("the daemon passes a process probe to the driver, so a working agent's pane
     schemaVersion: 1,
     projectName: null,
     herdrSession: "unused",
-    notifications: { herdr: false, fallback: true },
+    // 0.01 minutes: a PM message goes stale within a second only if the daemon hands the driver this value (the default is ten minutes).
+    notifications: { herdr: false, fallback: true, pmStaleMinutes: 0.01 },
     timers: {
       maxDeferralSeconds: 120,
       maxBusyDeferralSeconds: 120,
@@ -967,8 +969,12 @@ test("the daemon passes a process probe to the driver, so a working agent's pane
     ],
     roles: [pm],
   } as unknown as CapstanConfig;
+  const notified: string[] = [];
   const notifier: Notifier = {
-    send: async () => [{ channel: "fallback", ok: true }],
+    send: async (request) => {
+      notified.push(request.kind);
+      return [{ channel: "fallback", ok: true }];
+    },
     write: () => undefined,
   };
   const socket = path.join(stateDirectory, "control.sock");
@@ -1013,9 +1019,30 @@ test("the daemon passes a process probe to the driver, so a working agent's pane
     while (sampled.length === 0 && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 50));
     assert.ok(sampled.length > 0, "the driver sampled through the probe");
+    const sent = await callDaemon(socket, info.ownerCredential, "send", [
+      "pm-1",
+      "for the PM",
+    ]);
+    assert.equal(
+      (sent.response as { ok?: boolean } | undefined)?.ok,
+      true,
+      JSON.stringify(sent),
+    );
+    const staleDeadline = Date.now() + 8000;
+    while (!notified.includes("pm_stale") && Date.now() < staleDeadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(
+      notified.includes("pm_stale"),
+      "the driver got the configured stale threshold",
+    );
   } finally {
     await callDaemon(socket, info.ownerCredential, "shutdown", [], 30_000);
     await done;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the status command's driver snapshot fallback type-checks without pmStale", () => {
+  const snapshot: DriverSnapshot = { stalledAgentIds: [], stuck: [] };
+  assert.equal(snapshot.pmStale, undefined);
 });

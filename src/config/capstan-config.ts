@@ -38,6 +38,7 @@ import {
   DEFAULT_MAX_WORKERS,
   DEFAULT_MIN_PANE_COLUMNS,
   DEFAULT_MIN_PANE_ROWS,
+  DEFAULT_PM_STALE_MINUTES,
   DEFAULT_PM_WIDTH_PERCENT,
   DEFAULT_SUPERVISION_CHECK_SECONDS,
   DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
@@ -185,7 +186,11 @@ export function parseCapstanConfig(
     throw new ConfigError(`herdr_session must match ${SESSION_PATTERN.source}`);
 
   const notificationTable = optionalTable(root.notifications, "notifications");
-  rejectUnknownKeys(notificationTable, ["herdr", "fallback"], "notifications");
+  rejectUnknownKeys(
+    notificationTable,
+    ["herdr", "fallback", "pm_stale_minutes"],
+    "notifications",
+  );
   const notifications: ResolvedNotifications = {
     herdr: optionalBoolean(
       notificationTable.herdr,
@@ -196,6 +201,13 @@ export function parseCapstanConfig(
       notificationTable.fallback,
       "notifications.fallback",
       true,
+    ),
+    pmStaleMinutes: optionalInteger(
+      notificationTable.pm_stale_minutes,
+      "notifications.pm_stale_minutes",
+      1,
+      1440,
+      DEFAULT_PM_STALE_MINUTES,
     ),
   };
   if (!notifications.herdr && !notifications.fallback)

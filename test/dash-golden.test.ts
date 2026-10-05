@@ -437,3 +437,47 @@ test("the findings panel keeps the reason and marks ended and unknown targets", 
     text.includes("2 target ended") && text.includes("1 target unknown"),
   );
 });
+
+const staleMail = {
+  ...showcase(),
+  pmMail: { pending: 3, oldestAgeSeconds: 780, stale: true },
+};
+
+for (const [columns, rows] of [
+  [80, 24],
+  [120, 36],
+] as const) {
+  test(`stale PM mail adds a banner at ${columns}x${rows}, readable without colour`, () => {
+    const frame = buildFrame(modelOf(staleMail), viewOf(columns, rows), theme);
+    const lines = plainLines(frame.lines);
+    assert.equal(lines.length, rows);
+    for (const line of lines)
+      assert.equal(Array.from(line).length, columns, line);
+    assert.match(lines[0]!, /PM MAIL STALE: 3 messages pending, oldest 13 min/);
+    matchesGolden(`dash-stale-mail-${columns}x${rows}`, lines);
+  });
+
+  test(`stale PM mail banner at ${columns}x${rows} is coloured and bold with colour on, and absent when not stale`, () => {
+    const coloured = makeTheme({ noColor: false, reducedMotion: true });
+    const frame = buildFrame(
+      modelOf(staleMail),
+      viewOf(columns, rows),
+      coloured,
+    );
+    assert.ok(
+      frame.lines[0]!.some((s) => s.bold === true && s.color !== undefined),
+    );
+    const calm = buildFrame(
+      modelOf({
+        ...staleMail,
+        pmMail: { pending: 1, oldestAgeSeconds: 30, stale: false },
+      }),
+      viewOf(columns, rows),
+      theme,
+    );
+    assert.deepEqual(
+      plainLines(calm.lines),
+      plainLines(buildFrame(modelOf(), viewOf(columns, rows), theme).lines),
+    );
+  });
+}

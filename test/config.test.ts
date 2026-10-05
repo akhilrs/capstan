@@ -16,6 +16,7 @@ import {
   CONFIG_FILE_NAME,
   ConfigError,
   DEFAULT_HERDR_SESSION,
+  DEFAULT_PM_STALE_MINUTES,
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   DEFAULT_WORKTREE_SETUP_TIMEOUT_SECONDS,
   MAX_WAIT_TIMEOUT_SECONDS,
@@ -135,7 +136,11 @@ test("a valid configuration resolves every default", () => {
     for (const role of config.roles)
       assert.match(role.configHash, /^[0-9a-f]{64}$/);
     assert.equal(config.herdrSession, DEFAULT_HERDR_SESSION);
-    assert.deepEqual(config.notifications, { herdr: true, fallback: true });
+    assert.deepEqual(config.notifications, {
+      herdr: true,
+      fallback: true,
+      pmStaleMinutes: DEFAULT_PM_STALE_MINUTES,
+    });
     assert.equal(DEFAULT_WAIT_TIMEOUT_SECONDS, 90);
     assert.equal(MAX_WAIT_TIMEOUT_SECONDS, 3600);
   });
@@ -147,15 +152,46 @@ test("herdr_session and the notification channels are read, and validated", () =
     (directory) => {
       const config = loadCapstanConfig(directory);
       assert.equal(config.herdrSession, "capstan-work");
-      assert.deepEqual(config.notifications, { herdr: false, fallback: true });
+      assert.deepEqual(config.notifications, {
+        herdr: false,
+        fallback: true,
+        pmStaleMinutes: 10,
+      });
     },
   );
   withConfig(`${VALID}\n[notifications]\nfallback = false\n`, (directory) =>
     assert.deepEqual(loadCapstanConfig(directory).notifications, {
       herdr: true,
       fallback: false,
+      pmStaleMinutes: 10,
     }),
   );
+});
+
+test("[notifications] pm_stale_minutes parses, defaults to 10, is bounded, refuses non-integers and is documented in the starter config", () => {
+  assert.equal(DEFAULT_PM_STALE_MINUTES, 10);
+  withConfig(`${VALID}\n[notifications]\npm_stale_minutes = 3\n`, (directory) =>
+    assert.equal(loadCapstanConfig(directory).notifications.pmStaleMinutes, 3),
+  );
+  for (const edge of [1, 1440])
+    withConfig(
+      `${VALID}\n[notifications]\npm_stale_minutes = ${edge}\n`,
+      (directory) =>
+        assert.equal(
+          loadCapstanConfig(directory).notifications.pmStaleMinutes,
+          edge,
+        ),
+    );
+  for (const bad of ["0", "1441", "-1", "2.5", '"10"', "true"])
+    assertRejected(
+      `${VALID}\n[notifications]\npm_stale_minutes = ${bad}\n`,
+      /notifications\.pm_stale_minutes/,
+    );
+  assertRejected(
+    `${VALID}\n[notifications]\npm_stale = 5\n`,
+    /notifications has 1 unknown key/,
+  );
+  assert.ok(STARTER_CONFIG.includes("pm_stale_minutes = 10"));
 });
 
 test("the starter configuration written by init is valid and gives the PM workers to delegate to", () => {

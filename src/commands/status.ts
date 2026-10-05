@@ -1,5 +1,7 @@
 /** status: the operator's view of the run. */
 import { type ResolvedOperator } from "../config/capstan-config.js";
+import { DEFAULT_PM_STALE_MINUTES } from "../config/types.js";
+import { pmMailSummary } from "../pm-mail.js";
 import {
   MAX_STATUS_MESSAGES,
   MAX_STATUS_CLEARS,
@@ -15,7 +17,7 @@ import {
 export function statusHandlers(
   env: CommandEnv,
 ): Record<string, CommandHandler> {
-  const { deps, core, agentOf } = env;
+  const { deps, core, agentOf, now } = env;
   return {
     status(call) {
       try {
@@ -55,6 +57,23 @@ export function statusHandlers(
             call.credential,
           );
           result.messagesTruncated = unresolved.truncated;
+          const pm = core
+            .listAgents()
+            .find((a) => a.kind === "PM" && a.state === "active");
+          result.pmMail = null;
+          if (pm !== undefined) {
+            const summary = pmMailSummary(
+              core.messagesFor(pm.agentId),
+              now(),
+              (deps.config?.notifications?.pmStaleMinutes ??
+                DEFAULT_PM_STALE_MINUTES) * 60,
+            );
+            result.pmMail = {
+              agentId: pm.agentId,
+              ...summary,
+              notified: snapshot.pmStale?.notified ?? false,
+            };
+          }
           result.stalledAgentIds = snapshot.stalledAgentIds;
           result.lostAgentIds = snapshot.lostAgentIds ?? [];
           result.stuck = snapshot.stuck;

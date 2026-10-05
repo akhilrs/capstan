@@ -2,6 +2,11 @@
 
 export const STARTER_CONFIG = `schema_version = 1
 
+# A message for the PM that stays unanswered this many minutes (pulled but not acknowledged counts)
+# raises one "stale" notification, shown in the status pane and sent to Herdr. Range 1 to 1440.
+[notifications]
+pm_stale_minutes = 10
+
 [limits]
 max_workers = 3
 
