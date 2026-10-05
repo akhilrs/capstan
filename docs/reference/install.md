@@ -6,12 +6,22 @@ Capstan installs as the `cstan` command. [`install.sh`](../../install.sh) is a P
 
 ## Requirements
 
-| Need                              | Why                                                                                                                             | Fix if missing                                  |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Linux or macOS                    | Other systems are not supported                                                                                                 | —                                               |
-| Node.js 24 (`>=24.6 <25`) and npm | **Tarball path only** (`--tarball`, `--no-binary`, or a release with no binary for this machine). The binary path needs no Node | `nvm install 24 && nvm use 24`, or `fnm use 24` |
-| `curl` or `wget`                  | Downloads (not needed for a local-path `--binary` or `--tarball`)                                                               | Install either                                  |
-| `sha256sum` or `shasum`           | Checksum verification                                                                                                           | Part of coreutils / macOS                       |
+| Need                              | Why                                                                                                                                        | Fix if missing                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Linux or macOS                    | Other systems are not supported                                                                                                            | —                                                                                        |
+| Node.js 24 (`>=24.6 <25`) and npm | **Tarball path only** (`--tarball`, `--no-binary`, or a release with no binary for this machine). The binary path needs no Node            | `nvm install 24 && nvm use 24`, or `fnm use 24`                                          |
+| `curl` or `wget`                  | Downloads (not needed for a local-path `--binary` or `--tarball`)                                                                          | Install either                                                                           |
+| `sha256sum` or `shasum`           | Checksum verification                                                                                                                      | Part of coreutils / macOS                                                                |
+| `git`, with at least one commit   | **Hard requirement at run time.** Workers get their own git worktree and branch from HEAD; reports, reviews, plans and integration use git | `git init && git add -A && git commit -m "chore: initial commit"`, or `cstan init --git` |
+
+### The project's git repository
+
+The installer only warns when `git` is missing, but Capstan itself needs the project root to be the top-level folder of a git work tree whose HEAD is a commit. `cstan init` and `cstan start` check this and, when it does not hold, name what is missing and the fix (`git init`, `git add -A`, `git commit -m "chore: initial commit"`). `cstan start` refuses to start the controller, and `cstan spawn` (and so review and replace) fail with the same message. `cstan init --git` does it for you: it runs `git init` only when the folder is not a repository, prints the files it will commit (your `.gitignore` is respected; `.capstan/` is excluded through `.git/info/exclude`) and creates the initial commit. Nothing runs git init or commits without that flag.
+
+- A project root that is a subdirectory of a larger repository is not supported; run `cstan` from the repository's top-level folder.
+- A bare repository is refused; use a normal checkout.
+- A detached HEAD is supported: workers branch from the commit HEAD points to.
+- A repository with no commits is refused until it has one.
 
 Nothing is compiled on either path: there is no `make`, C++ compiler, `python3` or `node-gyp` step. The runtime uses the built-in `node:sqlite`.
 

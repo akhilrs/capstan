@@ -72,7 +72,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux or macOS; `curl` or `wget`; git; Herdr for the panes; and Claude Code (the host the starter config uses). On Linux x64 and arm64 the installer downloads a standalone binary and needs no Node.js. Where a release has no binary for your machine (or with `--no-binary`) it installs the npm tarball, which needs Node.js 24.6 or newer (`>=24.6 <25`) with npm. Nothing is compiled either way: the runtime uses the built-in `node:sqlite`.
+**Requirements:** Linux or macOS; `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). On Linux x64 and arm64 the installer downloads a standalone binary and needs no Node.js. Where a release has no binary for your machine (or with `--no-binary`) it installs the npm tarball, which needs Node.js 24.6 or newer (`>=24.6 <25`) with npm. Nothing is compiled either way: the runtime uses the built-in `node:sqlite`.
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -100,10 +100,10 @@ Re-running the installer upgrades. Options, layout, checksum verification and tr
 > [!NOTE]
 > The installer downloads a GitHub release. Binaries, the npm tarball and `SHA256SUMS` are on the [Releases page](https://github.com/akhilrs/capstan/releases). To build from source, see [Development](#development).
 
-Then, in the root of the git repository you want the team to work on:
+Then, in the root of the git repository you want the team to work on. If the folder is not a repository yet, or has no commit, run `cstan init --git` instead: it runs `git init` when needed, lists the files it will commit, and creates an initial commit (`chore: initial commit`) of the current files, honouring your `.gitignore`. Capstan never runs git init or commits without that flag; `cstan start` refuses to run until the requirement is met.
 
 ```sh
-cstan init            # creates .capstan/, a starter capstan.toml and roles/designer.md
+cstan init            # (or: cstan init --git) creates .capstan/, a starter capstan.toml and roles/designer.md
 cstan config check    # validates capstan.toml and prints the resolved config
 cstan start           # starts the controller and launches the PM in Herdr
 cstan dash            # optional: watch the team

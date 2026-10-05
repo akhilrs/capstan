@@ -46,7 +46,28 @@ import {
 import type { MutationContext } from "../src/controller/types.js";
 const cli = path.resolve("dist/src/cli.js");
 
+/** `cstan start` refuses a folder without a git commit; these tests are about the daemon, so the folder gets an empty one. */
+function ensureCommit(cwd: string, args: string[]): void {
+  if (args[0] !== "start" || existsSync(path.join(cwd, ".git"))) return;
+  for (const git of [
+    ["init", "--quiet"],
+    [
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "chore: initial commit",
+    ],
+  ])
+    spawnSync("git", ["-C", cwd, ...git]);
+}
+
 function invokeWithEnv(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
+  ensureCommit(cwd, args);
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
@@ -62,6 +83,7 @@ function invokeAsync(
   cwd: string,
   ...args: string[]
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  ensureCommit(cwd, args);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd,
@@ -2177,6 +2199,7 @@ test("a restrictive umask does not stop a start, and the fresh log is still mode
   const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-daemon-umask-"));
   try {
     assert.equal(invoke(cwd, "init").status, 0);
+    ensureCommit(cwd, ["start"]);
     const result = spawnSync(
       "sh",
       ["-c", `umask 0277 && exec "${process.execPath}" "${cli}" start --json`],
@@ -2447,6 +2470,7 @@ function invokeAsyncWithEnv(
   env: NodeJS.ProcessEnv,
   ...args: string[]
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  ensureCommit(cwd, args);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd,

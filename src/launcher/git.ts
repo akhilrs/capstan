@@ -4,6 +4,7 @@ import path from "node:path";
 import { LauncherError, MAX_NOTE_LENGTH, type GitRunner } from "./shared.js";
 import { oneLine } from "./text.js";
 import { spawnSync } from "node:child_process";
+import { checkGitRequirement } from "../git-requirement.js";
 
 /** Whether git lists `worktreePath` as a worktree checked out on a legacy `capstan/` branch or on `recordedBranch`, the branch the ledger records for its agent. */
 function isCapstanWorktree(
@@ -44,6 +45,9 @@ export function defaultGit(projectRoot: string): GitRunner {
     });
   return {
     headSha() {
+      const requirement = checkGitRequirement(projectRoot);
+      if (!requirement.ok)
+        throw new LauncherError("git_requirement", requirement.message);
       const result = git(["rev-parse", "HEAD"]);
       const sha = typeof result.stdout === "string" ? result.stdout.trim() : "";
       if (/^[0-9a-f]{64}$/.test(sha))

@@ -108,6 +108,8 @@ export class SpawnOps {
           `${workers.length} of ${limit} workers are active (${workers.map((a) => a.agentId).join(", ")}); release one with cstan release <agent-id>${stuck.length === 0 ? "" : `; a cleanup failed for ${stuck.join("; ")}`}`,
         );
       }
+      // Fails with the git requirement's message before an agent record or a hub exists.
+      this.k.git.headSha();
       const pm = this.k.activeAgents().find((a) => a.kind === "PM");
       const pmPane =
         pm === undefined

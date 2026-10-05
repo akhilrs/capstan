@@ -39,6 +39,15 @@ import { projectDisplayName, projectSlug } from "./herdr/naming.js";
 import { createHerdrRunner } from "./herdr/runner.js";
 import { createNotifier } from "./notifier.js";
 import { watchStatus } from "./watch.js";
+import {
+  INITIAL_COMMIT_MESSAGE,
+  checkGitRequirement,
+  createInitialCommit,
+  excludeCapstanState,
+  filesToCommit,
+  gitInitIfNeeded,
+  gitSetupRefusal,
+} from "./git-requirement.js";
 import { NOT_A_TERMINAL_MESSAGE, hasTerminal } from "./dash/terminal.js";
 import { age } from "./dash/format.js";
 import {
@@ -960,6 +969,45 @@ function takeIntervalSeconds(flags: string[]): number {
   return seconds;
 }
 
+/** `cstan init --git`: lists the files it will commit, then creates the initial commit when HEAD is unborn. The repository itself is created by the caller's `gitInitIfNeeded`. */
+function setupGit(cwd: string, alreadyCreated = false): void {
+  const created = gitInitIfNeeded(cwd) || alreadyCreated;
+  excludeCapstanState(cwd);
+  if (created) process.stdout.write("Ran git init\n");
+  const check = checkGitRequirement(cwd);
+  if (check.ok) {
+    process.stdout.write(
+      "The repository already has a commit; nothing to commit\n",
+    );
+    return;
+  }
+  if (check.problem !== "no_commit") throw new InvalidInputError(check.message);
+  const files = filesToCommit(cwd);
+  process.stdout.write(
+    `Committing ${files.length} file${files.length === 1 ? "" : "s"} as "${INITIAL_COMMIT_MESSAGE}":\n${files.map((file) => `  ${file}`).join("\n")}\n`,
+  );
+  try {
+    createInitialCommit(cwd);
+  } catch (error) {
+    throw new InvalidInputError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  process.stdout.write("Created the initial commit\n");
+}
+
+/** After `cstan init` without `--git`: warns when the project cannot start yet. */
+function warnIfGitMissing(cwd: string): void {
+  const check = checkGitRequirement(cwd);
+  if (!check.ok) process.stderr.write(`warning: ${check.message}\n`);
+}
+
+/** Refuses `cstan start` outside a usable git repository. */
+function requireGit(cwd: string): void {
+  const check = checkGitRequirement(cwd);
+  if (!check.ok) throw new InvalidInputError(check.message);
+}
+
 async function runCli(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === "--version" || command === "-V" || command === "version") {
@@ -979,11 +1027,22 @@ async function runCli(argv: string[]): Promise<number> {
   }
   const cwd = process.cwd();
   if (command === "init") {
-    if (rest.length !== 0) usage();
+    const flags = [...rest];
+    const withGit = takeFlag(flags, "--git");
+    if (flags.length !== 0) usage();
     const name = path.basename(cwd);
     if (name.trim() === "" || name.length > 256)
       throw new InvalidInputError("project directory name is invalid");
     const directory = path.join(cwd, ".capstan");
+    if (withGit) {
+      const refusal = gitSetupRefusal(cwd);
+      if (refusal !== undefined) throw new InvalidInputError(refusal);
+    }
+    if (withGit && fs.existsSync(directory)) {
+      // An initialized project: only the git part runs.
+      setupGit(cwd);
+      return EXIT.ok;
+    }
     try {
       fs.mkdirSync(directory, { mode: 0o700 });
     } catch (error) {
@@ -1005,39 +1064,8 @@ async function runCli(argv: string[]): Promise<number> {
       maxRunMs: 3_600_000,
       maxDispatches: 16,
     };
-    const gitRoot = spawnSync(
-      "git",
-      ["-C", cwd, "rev-parse", "--show-toplevel"],
-      {
-        encoding: "utf8",
-      },
-    );
-    let credentialIgnored = false;
-    if (
-      gitRoot.status === 0 &&
-      path.resolve(gitRoot.stdout.replace(/\r?\n$/, "")) === cwd
-    ) {
-      const exclude = spawnSync(
-        "git",
-        ["-C", cwd, "rev-parse", "--git-path", "info/exclude"],
-        { encoding: "utf8" },
-      );
-      if (exclude.status === 0) {
-        const excludePath = path.resolve(cwd, exclude.stdout.trim());
-        const existing = fs.existsSync(excludePath)
-          ? fs.readFileSync(excludePath, "utf8")
-          : "";
-        if (!existing.split(/\r?\n/).includes("/.capstan/")) {
-          fs.mkdirSync(path.dirname(excludePath), { recursive: true });
-          fs.appendFileSync(
-            excludePath,
-            `${existing && !existing.endsWith("\n") ? "\n" : ""}/.capstan/\n`,
-            { mode: 0o600 },
-          );
-        }
-        credentialIgnored = true;
-      }
-    }
+    const gitCreated = withGit && gitInitIfNeeded(cwd);
+    const credentialIgnored = excludeCapstanState(cwd);
     const credential = randomBytes(32).toString("base64url");
     fs.writeFileSync(path.join(cwd, KEY_NAME), `${credential}\n`, {
       flag: "wx",
@@ -1087,6 +1115,8 @@ async function runCli(argv: string[]): Promise<number> {
     process.stdout.write(
       `${starterWritten ? `Wrote starter ${CONFIG_FILE_NAME}\n` : `Kept existing ${CONFIG_FILE_NAME}\n`}${designerLine}Initialized Capstan project ${config.projectId}\nOperator credential: ${path.join(cwd, KEY_NAME)} (0600)\n${credentialIgnored ? "The repository-local Git exclude protects .capstan from ordinary staging." : "Add .capstan/ to .gitignore before staging project files."}\n`,
     );
+    if (withGit) setupGit(cwd, gitCreated);
+    else warnIfGitMissing(cwd);
     return EXIT.ok;
   }
   if (command === "config") {
@@ -1220,6 +1250,7 @@ async function runCli(argv: string[]): Promise<number> {
     const parsed = parseOptions(rest);
     if (parsed.positional.length !== 0) usage();
     const operator = loadOperator(cwd);
+    requireGit(cwd);
     try {
       const result = await ensureDaemon({
         socketPath: operator.socketPath,
