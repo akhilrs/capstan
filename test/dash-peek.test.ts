@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { CommandDependencies } from "../src/commands.js";
 import { OBSERVE_RATE_LIMIT } from "../src/observe.js";
 import type { CommandResponse } from "../src/daemon.js";
-import { call, close, ctx, harness } from "./harness.js";
+import { call, close, harness } from "./harness.js";
+import { seedLedger, setSupervisionDegraded } from "./legacy-rows.js";
 
 type Launcher = NonNullable<CommandDependencies["launcher"]>;
 
@@ -113,9 +114,12 @@ test("the operator's status carries the reason supervision is degraded; an agent
       (before.result as Record<string, unknown>).legacySupervisionReason,
       null,
     );
-    h.core.markSupervisionDegraded(
-      ctx(h.core, h.owner),
-      "forced Supervisor evaluation failure",
+    seedLedger(h.stateDirectory, (db) =>
+      setSupervisionDegraded(
+        db,
+        h.info.projectId,
+        "forced Supervisor evaluation failure",
+      ),
     );
     const after = await call(h, h.owner, "status");
     assert.ok(after.ok);

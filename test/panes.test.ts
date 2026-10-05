@@ -3,6 +3,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { openSqlite, type Database } from "../src/controller/sqlite.js";
 import { close, ctx, harness, type Harness } from "./harness.js";
+import { insertWorkItem, seedLedger } from "./legacy-rows.js";
 
 const SHA = "a".repeat(40);
 
@@ -23,21 +24,9 @@ function writableDatabase(h: Harness): Database {
 }
 
 function addWork(h: Harness, id: string, state: string): void {
-  h.core.createWorkItem(ctx(h.core, h.owner), {
-    workItemId: id,
-    title: `Work ${id}`,
-    description: "d",
-    requiredRole: "Developer",
-  });
-  const db = writableDatabase(h);
-  try {
-    db.prepare("UPDATE work_items SET state = ? WHERE work_item_id = ?").run(
-      state,
-      id,
-    );
-  } finally {
-    db.close();
-  }
+  seedLedger(h.stateDirectory, (db) =>
+    insertWorkItem(db, h.info.projectId, { workItemId: id, state }),
+  );
 }
 
 test("pane rows are recorded, updated with the agent's generation, read back and cleared, for a controller only", async () => {

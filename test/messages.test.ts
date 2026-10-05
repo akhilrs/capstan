@@ -14,6 +14,7 @@ import {
   MessageTransitionError,
   MutationConflictError,
 } from "../src/controller/core.js";
+import { insertAssignment, insertWorkItem, seedLedger } from "./legacy-rows.js";
 import type { MessagingTimers } from "../src/controller/messaging.js";
 import type {
   InitialProject,
@@ -997,15 +998,22 @@ test("registerAgent refuses a mismatched, inactive or already bound actor, seat 
 test("replacement and ending refuse while the agent seat has an active assignment", async () => {
   const w = await world();
   try {
-    const { core, developer, owner } = w;
-    core.createWorkItem(w.ctx(owner), {
-      workItemId: "work-1",
-      title: "A task",
-      description: "Do it",
-      requiredRole: "Developer",
+    const { core, developer } = w;
+    seedLedger(w.stateDirectory, (db) => {
+      insertWorkItem(db, w.info.projectId, {
+        workItemId: "work-1",
+        title: "A task",
+        description: "Do it",
+        state: "running",
+      });
+      insertAssignment(db, w.info.projectId, {
+        assignmentId: "assignment-1",
+        workItemId: "work-1",
+        seatId: developer.seatId,
+        workerActorId: developer.actorId,
+        command: { commandId: "command-1" },
+      });
     });
-    core.markReady(w.ctx(owner), "work-1");
-    core.assignWorkItem(w.ctx(owner), "work-1", developer.seatId);
     assert.throws(
       () => core.replaceAgentGeneration(w.ctx(), developer.agentId),
       MutationConflictError,

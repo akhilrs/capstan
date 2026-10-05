@@ -1,0 +1,277 @@
+{
+  "status": {
+    "projectId": "pgoldenlegacyrows",
+    "run": {
+      "state": "active",
+      "stateVersion": 0
+    },
+    "pause": {
+      "run": null,
+      "agents": []
+    },
+    "stateVersion": 16,
+    "inputRevision": 1,
+    "supervision": {
+      "enabled": true,
+      "health": "degraded",
+      "targetEpoch": 0,
+      "checkpointEpoch": null,
+      "checkpointAssignmentId": null,
+      "replacementAttempts": 0
+    },
+    "roles": [
+      {
+        "role": "Developer",
+        "seatId": "golden-dev-seat",
+        "seatState": "active",
+        "actorActive": true,
+        "sessionState": null,
+        "assignmentId": "golden-assignment"
+      },
+      {
+        "role": "Verifier",
+        "seatId": "golden-verifier-seat",
+        "seatState": "active",
+        "actorActive": true,
+        "sessionState": null,
+        "assignmentId": null
+      }
+    ],
+    "plans": [],
+    "work": [
+      {
+        "workItemId": "golden-prerequisite",
+        "title": "Prerequisite",
+        "role": "Developer",
+        "state": "accepted",
+        "owner": null,
+        "blockers": [],
+        "nextLegalActions": []
+      },
+      {
+        "workItemId": "golden-work",
+        "title": "Golden work",
+        "role": "Developer",
+        "state": "running",
+        "owner": "Developer golden-dev",
+        "blockers": [],
+        "nextLegalActions": ["wait"]
+      },
+      {
+        "workItemId": "golden-blocked-by",
+        "title": "Waits on work",
+        "role": "Developer",
+        "state": "pending",
+        "owner": null,
+        "blockers": ["golden-work"],
+        "nextLegalActions": ["wait"]
+      },
+      {
+        "workItemId": "golden-awaiting",
+        "title": "Work golden-awaiting",
+        "role": "Developer",
+        "state": "awaiting_verification",
+        "owner": null,
+        "blockers": [],
+        "nextLegalActions": ["verify"]
+      },
+      {
+        "workItemId": "golden-failed",
+        "title": "Work golden-failed",
+        "role": "Developer",
+        "state": "blocked",
+        "owner": null,
+        "blockers": [],
+        "nextLegalActions": ["reconcile", "contain"]
+      },
+      {
+        "workItemId": "golden-pending",
+        "title": "Work golden-pending",
+        "role": "Developer",
+        "state": "pending",
+        "owner": null,
+        "blockers": [],
+        "nextLegalActions": ["wait"]
+      },
+      {
+        "workItemId": "golden-ready",
+        "title": "Work golden-ready",
+        "role": "Developer",
+        "state": "ready",
+        "owner": null,
+        "blockers": [],
+        "nextLegalActions": ["wait"]
+      }
+    ],
+    "findings": [
+      {
+        "findingId": "golden-finding",
+        "affectedWorkItemId": "golden-work",
+        "affectedSeatId": "golden-dev-seat",
+        "affectedAssignmentId": "golden-assignment",
+        "affectedGeneration": 1,
+        "fingerprint": "3de2252329cf98cc1cc5f4a93aaaf10af128a52113172ea96ef03b82895cf79b",
+        "severity": "medium",
+        "state": "reported",
+        "evidence": {
+          "observation": "observed golden-finding"
+        },
+        "requestedCorrection": "fix it",
+        "acknowledgementDeadline": "2026-01-02T00:00:00.000Z",
+        "resolutionCondition": "evidence of the fix",
+        "escalationRoute": "operator",
+        "interventionCount": 0,
+        "reopenedFromFindingId": null
+      }
+    ],
+    "evidence": [
+      {
+        "candidateId": "golden-candidate",
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reportHash": "c702050c8537af2a05bb7866515bb1e5927f458bfff1bee7c4bfa1a2762014d7",
+        "developerEvidence": ["npm test"],
+        "evidenceRef": "artifact:golden-evidence",
+        "verifierEvidence": [
+          {
+            "evidenceId": "golden-evidence",
+            "criterion": "criterion-one",
+            "passed": true,
+            "artifactRef": "artifact:golden-evidence",
+            "observation": null,
+            "exitStatus": null,
+            "evidenceHash": "30889124b4dc2549bf2dc3183117800e7ddcaa23f65a6f2832166173d6193271"
+          }
+        ]
+      }
+    ],
+    "finalVerification": [
+      {
+        "workItemId": "golden-prerequisite",
+        "assignmentId": "golden-verifier-assignment",
+        "commitSha": "cccccccccccccccccccccccccccccccccccccccc",
+        "evidence": [
+          {
+            "evidenceId": "golden-final-evidence",
+            "criterion": "criterion-one",
+            "passed": true,
+            "artifactRef": "artifact:golden-final-evidence",
+            "observation": null,
+            "exitStatus": null,
+            "evidenceHash": "ae1de279698ed6e0c7e40f8a8ed6f7e67e030328048537acca6429fa75d4aa8e"
+          }
+        ]
+      }
+    ]
+  },
+  "inspect": {
+    "golden-work": {
+      "kind": "work_item",
+      "id": "golden-work",
+      "record": {
+        "project_id": "pgoldenlegacyrows",
+        "work_item_id": "golden-work",
+        "parent_work_item_id": null,
+        "title": "Golden work",
+        "description": "d",
+        "required_role": "Developer",
+        "state": "running",
+        "state_version": 1,
+        "input_revision": 1,
+        "accepted_candidate_id": null,
+        "created_by": "owner-actor",
+        "created_at": "2026-01-01T00:00:02.000Z",
+        "acceptance_criteria_json": "[\"criterion-one\"]",
+        "final_verification": 0
+      }
+    },
+    "golden-assignment": {
+      "kind": "assignment",
+      "id": "golden-assignment",
+      "record": {
+        "project_id": "pgoldenlegacyrows",
+        "assignment_id": "golden-assignment",
+        "work_item_id": "golden-work",
+        "seat_id": "golden-dev-seat",
+        "containment_proof_ref": null,
+        "state": "running",
+        "state_version": 1,
+        "input_revision": 1,
+        "active_generation": 1,
+        "authority_state": "active",
+        "created_by": "owner-actor",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "ended_at": null,
+        "worker_actor_id": "developer-actor"
+      }
+    },
+    "golden-candidate": {
+      "kind": "candidate",
+      "id": "golden-candidate",
+      "record": {
+        "project_id": "pgoldenlegacyrows",
+        "candidate_id": "golden-candidate",
+        "assignment_id": "golden-assignment",
+        "attempt": 1,
+        "generation": 1,
+        "input_revision": 1,
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "changed_scope_json": "[\"src/\"]",
+        "limitations_json": "[]",
+        "report_hash": "c702050c8537af2a05bb7866515bb1e5927f458bfff1bee7c4bfa1a2762014d7",
+        "created_by": "owner-actor",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "evidence_json": "[\"npm test\"]"
+      }
+    },
+    "golden-finding": {
+      "kind": "finding",
+      "id": "golden-finding",
+      "record": {
+        "project_id": "pgoldenlegacyrows",
+        "finding_id": "golden-finding",
+        "work_item_id": "golden-work",
+        "assignment_id": "golden-assignment",
+        "generation": 1,
+        "fingerprint": "3de2252329cf98cc1cc5f4a93aaaf10af128a52113172ea96ef03b82895cf79b",
+        "severity": "medium",
+        "evidence_json": "{\"observation\":\"observed golden-finding\"}",
+        "requested_correction": "fix it",
+        "resolution_condition": "evidence of the fix",
+        "state": "reported",
+        "state_version": 1,
+        "created_by": "owner-actor",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "affected_seat_id": "golden-dev-seat",
+        "affected_work_item_id": "golden-work",
+        "affected_assignment_id": "golden-assignment",
+        "affected_generation": 1,
+        "detected_after_sequence": 0,
+        "acknowledgement_deadline": "2026-01-02T00:00:00.000Z",
+        "escalation_route": "operator",
+        "intervention_count": 0,
+        "cooldown_until": null,
+        "reopened_from_finding_id": null
+      }
+    },
+    "golden-recovery": {
+      "kind": "recovery",
+      "id": "golden-recovery",
+      "record": {
+        "project_id": "pgoldenlegacyrows",
+        "recovery_id": "golden-recovery",
+        "work_item_id": "golden-work",
+        "assignment_id": "golden-assignment",
+        "recovery_type": "worker_replacement",
+        "finding_id": null,
+        "generation": 1,
+        "reason": "worker lost",
+        "containment_state": "contained",
+        "containment_proof_ref": "proof:test",
+        "outcome": "pending",
+        "created_by": "owner-actor",
+        "created_at": "2026-01-01T00:00:00.000Z"
+      }
+    }
+  }
+}

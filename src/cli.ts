@@ -100,35 +100,6 @@ export type CstanInspectJsonV1 = {
   record: Record<string, unknown>;
 };
 class BlockedError extends Error {}
-export function escalateSupervisorOverlapFinding(
-  core: ControllerCore,
-  findingId: string,
-  sourceAuthorityState: string,
-  supervisorCredential: string,
-  operatorCredential: string,
-): void {
-  let state = core
-    .statusSnapshot()
-    .findings.find((entry) => entry.findingId === findingId)?.state;
-  if (state === "detected" && sourceAuthorityState === "active") {
-    core.transitionFinding(
-      context(core, supervisorCredential),
-      findingId,
-      "reported",
-      { observation: "overlapping Supervisor authority" },
-    );
-    state = "reported";
-  }
-  if (state === "reported" || state === "detected")
-    core.transitionFinding(
-      context(core, operatorCredential),
-      findingId,
-      "escalated",
-      {
-        reason: "Supervisor seat cannot correct its own authority overlap",
-      },
-    );
-}
 class InvalidInputError extends Error {}
 
 function fail(message: string, code = EXIT.usage): never {

@@ -28,13 +28,20 @@ import {
   assertTrackedCheckoutMatchesHead,
   createFindingFingerprint,
   findingDefectIdentity,
-  escalateSupervisorOverlapFinding,
   reserveDispatchSlot,
   syncConfiguredRoles,
 } from "../src/cli.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { DESIGNER_PROMPT } from "../src/roles/designer-prompt.js";
 import { ControllerCore } from "../src/controller/core.js";
+import {
+  insertAssignment,
+  insertCandidate,
+  insertDependency,
+  insertWorkItem,
+  seedLedger,
+  setAcceptedCandidate,
+} from "./legacy-rows.js";
 import type { MutationContext } from "../src/controller/types.js";
 const cli = path.resolve("dist/src/cli.js");
 
@@ -132,141 +139,6 @@ test("Supervisor defect codes preserve distinct same-event findings without para
   assert.throws(() => fingerprint("  "), /bounded stable code/);
   assert.throws(() => fingerprint("x".repeat(65)), /bounded stable code/);
   assert.throws(() => fingerprint("free text"), /bounded stable code/);
-});
-
-test("unknown-only Supervisor overlap escalates its finding", async () => {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), "cstan-unknown-overlap-"));
-  let core: ControllerCore | undefined;
-  try {
-    assert.equal(invoke(cwd, "init").status, 0);
-    const config = JSON.parse(
-      readFileSync(path.join(cwd, ".capstan/project.json"), "utf8"),
-    ) as { projectId: string; name: string; stateDirectory: string };
-    const ownerCredential = readFileSync(
-      path.join(cwd, ".capstan/operator.key"),
-      "utf8",
-    ).trim();
-    core = await ControllerCore.open({
-      stateDirectory: config.stateDirectory,
-      project: {
-        projectId: config.projectId,
-        name: config.name,
-        ownerCredential,
-        initialInputs: [
-          {
-            kind: "project_config",
-            content: {
-              schemaVersion: 1,
-              projectId: config.projectId,
-              name: config.name,
-              baseSha: "a".repeat(40),
-            },
-          },
-          {
-            kind: "task_brief",
-            content: {
-              taskId: "unknown-overlap",
-              objective: "Escalate an unknown Supervisor overlap",
-            },
-          },
-          { kind: "acceptance_criteria", content: ["Observe overlap"] },
-          {
-            kind: "policy",
-            content: { maxSlices: 2, maxRunMs: 1_000, maxDispatches: 2 },
-          },
-          { kind: "plan", content: { schemaVersion: 1 } },
-        ],
-      },
-    });
-    const mutate = (credential: string) => {
-      const requestId = randomUUID();
-      return {
-        credential,
-        requestId,
-        idempotencyKey: requestId,
-        expectedVersion: core!.stateVersion,
-        inputRevision: core!.inputRevision,
-      };
-    };
-    const seatId = "unknown-overlap-supervisor";
-    core.createSeat(mutate(ownerCredential), {
-      seatId,
-      name: "Unknown overlap Supervisor",
-      role: "Supervisor",
-    });
-    const supervisor = core.createActor(mutate(ownerCredential), {
-      displayName: "Unknown overlap Supervisor",
-      role: "Supervisor",
-      seatId,
-    });
-    const assign = (workItemId: string) => {
-      core!.createWorkItem(mutate(ownerCredential), {
-        workItemId,
-        title: workItemId,
-        description: "Observe Supervisor authority",
-        requiredRole: "Supervisor",
-      });
-      core!.markReady(mutate(ownerCredential), workItemId);
-      return core!.assignWorkItem(mutate(ownerCredential), workItemId, seatId);
-    };
-    const previous = assign("unknown-overlap-previous");
-    core.confirmContainment(
-      mutate(ownerCredential),
-      previous.assignmentId,
-      "unknown-overlap-previous-contained",
-    );
-    const current = assign("unknown-overlap-current");
-    const db = openSqlite(
-      path.join(config.stateDirectory, "controller.sqlite"),
-    );
-    try {
-      db.prepare(
-        "UPDATE assignments SET authority_state = 'unknown' WHERE project_id = ? AND assignment_id IN (?, ?)",
-      ).run(config.projectId, previous.assignmentId, current.assignmentId);
-    } finally {
-      db.close();
-    }
-    const findingId = "unknown-overlap-finding";
-    core.createFinding(mutate(supervisor.credential), {
-      findingId,
-      workItemId: current.workItemId,
-      assignmentId: current.assignmentId,
-      generation: current.generation,
-      affectedWorkItemId: previous.workItemId,
-      affectedSeatId: seatId,
-      affectedAssignmentId: previous.assignmentId,
-      affectedGeneration: previous.generation,
-      fingerprint: "unknown-supervisor-overlap",
-      severity: "critical",
-      evidence: { code: "overlapping_authority" },
-      requestedCorrection: "Operator must resolve Supervisor seat overlap",
-      acknowledgementDeadline: new Date(Date.now() + 60_000).toISOString(),
-      resolutionCondition: "Operator verifies exclusive Supervisor authority",
-      escalationRoute: "operator",
-    });
-    assert.equal(
-      core
-        .statusSnapshot()
-        .findings.find((entry) => entry.findingId === findingId)?.state,
-      "detected",
-    );
-    escalateSupervisorOverlapFinding(
-      core,
-      findingId,
-      "unknown",
-      supervisor.credential,
-      ownerCredential,
-    );
-    assert.equal(
-      core
-        .statusSnapshot()
-        .findings.find((entry) => entry.findingId === findingId)?.state,
-      "escalated",
-    );
-  } finally {
-    core?.close();
-    rmSync(cwd, { recursive: true, force: true });
-  }
 });
 
 test("immutable checkout check detects tracked bytes hidden by assume-unchanged", () => {
@@ -598,11 +470,12 @@ test("cstan status and inspect read a populated ledger through the executable", 
       name: "Status PM",
       role: "PM",
     });
-    core.createActor(mutate(credential), {
+    const pmActor = core.createActor(mutate(credential), {
       displayName: "Status PM",
       role: "PM",
       seatId: pm.seatId,
     });
+    const prerequisiteAssignmentId = "status-prerequisite-assignment";
     const developer = core.createSeat(mutate(credential), {
       seatId: "status-developer-seat",
       name: "Status Developer",
@@ -623,145 +496,86 @@ test("cstan status and inspect read a populated ledger through the executable", 
       role: "Verifier",
       seatId: verifier.seatId,
     });
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-prerequisite",
-      title: "Status prerequisite",
-      description: "Keep this prerequisite open for blocker reporting",
-      requiredRole: "PM",
-    });
-    core.markReady(mutate(credential), "status-prerequisite");
-    const prerequisite = core.assignWorkItem(
-      mutate(credential),
-      "status-prerequisite",
-      pm.seatId,
-    );
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-dependent",
-      title: "Status dependent",
-      description: "Expose its prerequisite blocker",
-      requiredRole: "Developer",
-    });
-    core.addDependency(
-      mutate(credential),
-      "status-dependent",
-      "status-prerequisite",
-    );
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-pending-ready",
-      title: "Status pending ready",
-      description: "Expose the next legal readiness transition",
-      requiredRole: "Developer",
-    });
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-large-inspect",
-      title: "Status large inspect",
-      description: "x".repeat(20_000),
-      requiredRole: "Developer",
-    });
-
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-candidate-work",
-      title: "Status candidate",
-      description: "Expose durable candidate evidence",
-      requiredRole: "Developer",
-    });
-    core.markReady(mutate(credential), "status-candidate-work");
-    const candidateAssignment = core.assignWorkItem(
-      mutate(credential),
-      "status-candidate-work",
-      developer.seatId,
-    );
-    const complete = (
-      assignment: typeof candidateAssignment,
-      role: "Developer" | "Verifier",
-    ) => {
-      const identity = {
-        commandId: assignment.commandId,
-        assignmentId: assignment.assignmentId,
-        attempt: assignment.attempt,
-        generation: assignment.generation,
-      };
-      core!.beginCommandDelivery(mutate(credential), identity.commandId);
-      core!.recordBridgeReceipt({
-        ...identity,
-        sequence: 1,
-        type: "accepted",
-        role,
-        timestamp: "2026-01-01T00:00:01.000Z",
+    seedLedger(config.stateDirectory, (db) => {
+      const id = config.projectId;
+      insertWorkItem(db, id, {
+        workItemId: "status-prerequisite",
+        title: "Status prerequisite",
+        description: "Keep this prerequisite open for blocker reporting",
+        requiredRole: "PM",
+        state: "running",
       });
-      core!.beginCommandStart(mutate(credential), identity.commandId);
-      core!.recordBridgeReceipt({
-        ...identity,
-        sequence: 2,
-        type: "submitted",
-        role,
-        timestamp: "2026-01-01T00:00:02.000Z",
+      insertAssignment(db, id, {
+        assignmentId: prerequisiteAssignmentId,
+        workItemId: "status-prerequisite",
+        seatId: pm.seatId,
+        workerActorId: pmActor.actorId,
+        state: "running",
       });
-      core!.recordBridgeReceipt({
-        ...identity,
-        sequence: 3,
-        type: "working",
-        role,
-        timestamp: "2026-01-01T00:00:03.000Z",
+      insertWorkItem(db, id, {
+        workItemId: "status-dependent",
+        title: "Status dependent",
+        description: "Expose its prerequisite blocker",
       });
-      core!.recordBridgeReceipt({
-        ...identity,
-        sequence: 4,
-        type: "completed",
-        role,
-        timestamp: "2026-01-01T00:00:04.000Z",
-        reply: "completed",
-        evidenceRef: { journal: "/tmp/status-journal", sequence: 4 },
+      insertDependency(db, id, "status-dependent", "status-prerequisite");
+      insertWorkItem(db, id, {
+        workItemId: "status-pending-ready",
+        title: "Status pending ready",
+        description: "Expose the next legal readiness transition",
       });
-      core!.confirmContainment(
-        mutate(credential),
-        assignment.assignmentId,
-        `status-contained:${assignment.assignmentId}`,
-      );
-    };
-    complete(candidateAssignment, "Developer");
-    const candidate = core.submitCandidate(mutate(developerActor.credential), {
-      candidateId: "status-candidate",
-      assignmentId: candidateAssignment.assignmentId,
-      commitSha: "c".repeat(40),
-      baseSha: "a".repeat(40),
-      changedScope: ["src/status.ts"],
-      limitations: [],
-      evidence: ["implemented and verified"],
+      insertWorkItem(db, id, {
+        workItemId: "status-large-inspect",
+        title: "Status large inspect",
+        description: "x".repeat(20_000),
+      });
+      insertWorkItem(db, id, {
+        workItemId: "status-candidate-work",
+        title: "Status candidate",
+        description: "Expose durable candidate evidence",
+        state: "awaiting_verification",
+      });
+      insertAssignment(db, id, {
+        assignmentId: "status-candidate-assignment",
+        workItemId: "status-candidate-work",
+        seatId: developer.seatId,
+        workerActorId: developerActor.actorId,
+        state: "completed",
+        authorityState: "contained",
+      });
+      insertWorkItem(db, id, {
+        workItemId: "status-verifier-work",
+        title: "Status verifier",
+        description: "Verify the status candidate",
+        requiredRole: "Verifier",
+        parentWorkItemId: "status-candidate-work",
+        state: "accepted",
+      });
+      insertAssignment(db, id, {
+        assignmentId: "status-verifier-assignment",
+        workItemId: "status-verifier-work",
+        seatId: verifier.seatId,
+        workerActorId: verifierActor.actorId,
+        state: "completed",
+        authorityState: "contained",
+      });
+      insertCandidate(db, id, {
+        candidateId: "status-candidate",
+        assignmentId: "status-candidate-assignment",
+        commitSha: "c".repeat(40),
+        developerEvidence: ["implemented and verified"],
+        evidence: [
+          {
+            evidenceId: "status-candidate-evidence",
+            verifierAssignmentId: "status-verifier-assignment",
+            criterion: "The controller is active",
+            artifactRef: "artifact://status/candidate-evidence",
+            observation: "status checks passed",
+            exitStatus: 0,
+          },
+        ],
+      });
+      setAcceptedCandidate(db, id, "status-candidate-work", "status-candidate");
     });
-    core.createWorkItem(mutate(credential), {
-      workItemId: "status-verifier-work",
-      title: "Status verifier",
-      description: "Verify the status candidate",
-      requiredRole: "Verifier",
-      parentWorkItemId: "status-candidate-work",
-    });
-    core.markReady(mutate(credential), "status-verifier-work");
-    const verifierAssignment = core.assignWorkItem(
-      mutate(credential),
-      "status-verifier-work",
-      verifier.seatId,
-      candidate.candidateId,
-    );
-    complete(verifierAssignment, "Verifier");
-    core.recordEvidence(
-      mutate(verifierActor.credential),
-      verifierAssignment.assignmentId,
-      {
-        evidenceId: "status-candidate-evidence",
-        candidateId: candidate.candidateId,
-        criterion: "The controller is active",
-        passed: true,
-        artifactRef: "artifact://status/candidate-evidence",
-        observation: "status checks passed",
-        exitStatus: 0,
-      },
-    );
-    core.acceptCandidate(
-      mutate(credential),
-      "status-candidate-work",
-      candidate.candidateId,
-    );
     const status = await invokeAsync(cwd, "status", "--json");
     assert.equal(status.status, 0, status.stderr);
     const result = JSON.parse(status.stdout) as {
@@ -809,7 +623,7 @@ test("cstan status and inspect read a populated ledger through the executable", 
     const pmStatus = result.roles.find((role) => role.role === "PM");
     assert.equal(pmStatus?.seatId, pm.seatId);
     assert.equal(pmStatus?.actorActive, true);
-    assert.equal(pmStatus?.assignmentId, prerequisite.assignmentId);
+    assert.equal(pmStatus?.assignmentId, prerequisiteAssignmentId);
     assert.equal(pmStatus?.sessionState, null);
     const ownership = result.ownership.find(
       (item) => item.workItemId === "status-prerequisite",
@@ -842,7 +656,7 @@ test("cstan status and inspect read a populated ledger through the executable", 
     assert.equal(result.evidence.length, 1);
     const evidence = result.evidence[0];
     assert.ok(evidence);
-    assert.equal(evidence.candidateId, candidate.candidateId);
+    assert.equal(evidence.candidateId, "status-candidate");
     assert.equal(evidence.commitSha, "c".repeat(40));
     assert.deepEqual(evidence.developerEvidence, ["implemented and verified"]);
     assert.match(evidence.reportHash, /^[a-f0-9]{64}$/);
@@ -916,21 +730,13 @@ test("cstan inspect JSON has the versioned work-item record schema", async () =>
         ],
       },
     });
-    const requestId = randomUUID();
-    core.createWorkItem(
-      {
-        credential,
-        requestId,
-        idempotencyKey: requestId,
-        expectedVersion: core.stateVersion,
-        inputRevision: core.inputRevision,
-      },
-      {
+    seedLedger(config.stateDirectory, (db) =>
+      insertWorkItem(db, config.projectId, {
         workItemId: "inspectable",
         title: "Inspectable item",
         description: "Inspect this persisted task",
         requiredRole: "PM",
-      },
+      }),
     );
     core.close();
     core = undefined;
@@ -1516,15 +1322,27 @@ test("after kill -9 the next command restarts the daemon and reconciles without 
     }).messageId;
     core.pullMessage({ ...context(), credential: pmActor.credential });
     core.recordAgentObservation(context(), "pm-agent", "working");
-    seat("worker", "Developer");
-    core.createWorkItem(context(), {
-      workItemId: "work-1",
-      title: "Old flow work",
-      description: "in flight",
-      requiredRole: "Developer",
+    const workerActor = seat("worker", "Developer");
+    seedLedger(path.join(cwd, ".capstan/state"), (db) => {
+      const projectId = (
+        db.prepare("SELECT project_id FROM projects").get() as {
+          project_id: string;
+        }
+      ).project_id;
+      insertWorkItem(db, projectId, {
+        workItemId: "work-1",
+        title: "Old flow work",
+        description: "in flight",
+        state: "running",
+      });
+      insertAssignment(db, projectId, {
+        assignmentId: "work-1-assignment",
+        workItemId: "work-1",
+        seatId: "worker-seat",
+        workerActorId: workerActor.actorId,
+        command: { commandId: "work-1-command" },
+      });
     });
-    core.markReady(context(), "work-1");
-    core.assignWorkItem(context(), "work-1", "worker-seat");
     core.close();
     const seeded = tableCounts(cwd);
     const messageRows = tableRows(cwd, "messages");
