@@ -322,8 +322,11 @@ export class AgentsArea {
               : "raiser_ended",
             now,
           );
-        this.areas.core.cancelUnstartedOperatorProposalsOf(agentId, now);
-        this.areas.core.endOperatorGrantsOf(agentId);
+        this.areas.operatorProposals.cancelUnstartedOperatorProposalsOf(
+          agentId,
+          now,
+        );
+        this.areas.operatorGrants.endOperatorGrantsOf(agentId);
         const unacknowledged = this.areas.messages
           .messageRowsFor(agentId)
           .filter((row) => !isFinalState(row.state))
@@ -414,8 +417,11 @@ export class AgentsArea {
       )
       .run(actorId, generation, now, this.kernel.projectId, agentId);
     this.areas.messageNotices.closeWaits(agentId, now);
-    this.areas.core.cancelUnstartedOperatorProposalsOf(agentId, now);
-    this.areas.core.endOperatorGrantsOf(agentId);
+    this.areas.operatorProposals.cancelUnstartedOperatorProposalsOf(
+      agentId,
+      now,
+    );
+    this.areas.operatorGrants.endOperatorGrantsOf(agentId);
     this.kernel.database
       .prepare(
         "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
@@ -461,7 +467,7 @@ export class AgentsArea {
          ORDER BY revision DESC LIMIT 1`,
       )
       .get(this.kernel.projectId) as { content_json: string } | undefined;
-    const work = this.areas.core
+    const work = this.areas.status
       .statusSnapshot()
       .work.filter(
         (item) => !["accepted", "canceled", "failed"].includes(item.state),
@@ -514,7 +520,7 @@ export class AgentsArea {
         )
         .all(this.kernel.projectId) as ExternalLinkRow[]
     )
-      .map((row) => this.areas.core.linkRecord(row))
+      .map((row) => this.areas.links.linkRecord(row))
       .sort((a, b) => Number(b.drift) - Number(a.drift));
     if (allLinks.length > MAX_SUMMARY_LINKS) truncated = true;
     const linksForSummary = allLinks.slice(0, MAX_SUMMARY_LINKS).map((l) => ({
@@ -547,8 +553,8 @@ export class AgentsArea {
         blockers: item.blockers,
       })),
       messages: bounded,
-      plans: this.areas.core.openPlansForSummary(),
-      integrations: this.areas.core.mergedIntegrationsForSummary(),
+      plans: this.areas.plans.openPlansForSummary(),
+      integrations: this.areas.integrations.mergedIntegrationsForSummary(),
       links: linksForSummary,
       truncated,
       summarizedGeneration: generation,

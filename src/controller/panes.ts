@@ -333,7 +333,7 @@ export class PanesArea {
     const slash = ref.indexOf("/");
     if (slash < 0) {
       safeId(ref, "requirement ref id");
-      const link = this.areas.core.linkRow("requirement", ref);
+      const link = this.areas.links.linkRow("requirement", ref);
       return {
         kind: "requirement",
         taskId: link?.external_id ?? ref,
@@ -345,7 +345,7 @@ export class PanesArea {
     const packageId = ref.slice(slash + 1);
     safeId(planId, "plan id");
     safeId(packageId, "package id");
-    const plan = this.areas.core.planRow(planId);
+    const plan = this.areas.plans.planRow(planId);
     if (plan === undefined)
       throw new ControllerError(`plan ${planId} does not exist`);
     const revision = this.kernel.database
@@ -362,7 +362,7 @@ export class PanesArea {
       throw new ControllerError(
         `plan ${planId} has no approved package ${packageId}`,
       );
-    const link = this.areas.core.linkRow("package", `${planId}/${packageId}`);
+    const link = this.areas.links.linkRow("package", `${planId}/${packageId}`);
     return {
       kind: "package",
       taskId: link?.external_id ?? `${planId}-${packageId}`,
