@@ -2,7 +2,7 @@
  * The Capstan controller daemon: one long-running process that owns the
  * project lock and serves the cstan command surface over a Unix socket.
  *
- * Known limit (DEC-005, MVP_PLAN_V2 section 6): any process of the same user
+ * Known limit (DEC-005): any process of the same user
  * can reach the socket and can read an agent's environment token or the
  * operator key file. Authentication labels a caller; the controller's fact
  * verification narrows what a forger can do but does not close it.

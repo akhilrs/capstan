@@ -12,3 +12,9 @@ coverage/
 
 # Local design screenshots (verification only, not committed)
 design/landing/screens/
+
+# Editor and local backups
+*~
+*.swp
+*.pre-*
+.DS_Store

@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "gates": [
-    {
-      "name": "pm5-controller-quality-and-regression",
-      "command": "npm run check"
-    }
-  ]
-}

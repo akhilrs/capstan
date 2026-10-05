@@ -2,7 +2,7 @@
 
 **Status:** proposal, for the user's review. No code changes in this document's commit. Sections 0 to 9 design the Architect role and the tiered flow; section 10 adds PM-owned Nexora tracking (user decision: the PM handles all Nexora work), and its steps and questions are appended to sections 8 and 9.
 **Naming:** follows `docs/design/cstan-dash-v2.md` (kebab-case file in `docs/design/`). The decisions in `decisions/` are `DEC-NNN-*.md`; if this is approved, the plan of record is a new `decisions/DEC-007-architect-role.md` that points here.
-**Base:** `main` at `691ac09`. `README.md` was requested as reading but is not tracked on this branch or on `main`; the design is grounded in the code, `MVP_PLAN_V2.md` and `decisions/DEC-005-capstan-v2-direction.md` instead.
+**Base:** `main` at `691ac09`. `README.md` was requested as reading but is not tracked on this branch or on `main`; the design is grounded in the code, the V2 plan (since removed) and `decisions/DEC-005-capstan-v2-direction.md` instead.
 
 ## 0. Decisions taken by the user (not re-opened here)
 
