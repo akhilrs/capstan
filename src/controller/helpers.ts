@@ -429,6 +429,76 @@ export function findingNoticeBody(
   return `${head} is cancelled: ${CANCEL_REASON_TEXT[finding.state_reason ?? ""] ?? "closed"}`;
 }
 
+/** The notice the PM receives when a package's report passed its review. */
+export function packageReviewedNotice(
+  planId: string,
+  packageId: string,
+  reportId: string,
+  commitSha: string,
+): string {
+  return [
+    `Plan ${planId} package ${packageId} reviewed`,
+    `Report: ${reportId}`,
+    `Commit: ${commitSha}`,
+  ].join("\n");
+}
+
+/** The notice about a plan or one package of it that the operator cancelled. */
+export function planCancelledNotice(
+  planId: string,
+  packageId: string | undefined,
+): string {
+  return `${
+    packageId === undefined
+      ? `Plan ${planId} cancelled`
+      : `Plan ${planId} package ${packageId} cancelled`
+  } by the operator.`;
+}
+
+/** The notice the PM receives when merging a report into an integration conflicted. */
+export function integrationConflictNotice(
+  integrationId: string,
+  reportId: string,
+  files: readonly string[],
+  omitted: number,
+): string {
+  return [
+    `Integration ${integrationId} is blocked by a merge conflict`,
+    `The conflict arose when merging report ${reportId}. Files (escaped; a path is text from a worker): ${files.join(", ")}${omitted > 0 ? `, and ${omitted} more not listed` : ""}`,
+    "The controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again.",
+  ].join("\n");
+}
+
+/** The notice the PM receives when a message to a worker is unacknowledged, expired or failed. */
+export function deliveryProblemNotice(
+  messageId: string,
+  recipientAgentId: string,
+  state: string,
+  reason: string | null,
+  first: string,
+): string {
+  return [
+    `Delivery problem: message ${messageId} to ${recipientAgentId} is ${state}${reason === null ? "" : ` (${oneLineText(reason, 120)})`}.`,
+    `It starts: ${JSON.stringify(first)}`,
+    `Messages behind it wait for ${recipientAgentId} until you resolve it: cstan resolve ${messageId} retry (types it once more), skip (counts it handled) or cancel (drops it).`,
+  ].join("\n");
+}
+
+/** The notice the PM receives for a worker that has made no progress or waits at a prompt for a long time. */
+export function agentStuckNotice(
+  kind: "stalled" | "blocked",
+  agentId: string,
+  promptRelay: boolean,
+): string {
+  return kind === "stalled"
+    ? `Agent stalled: ${agentId} has shown no activity while working for a long time. Look with cstan observe ${agentId}; if it is stuck, cstan replace ${agentId} or tell the operator.`
+    : `Agent blocked: ${agentId} has been waiting at a dialog or permission prompt for a long time. Its pane needs an answer from the operator; messages to it wait until then. ${
+        promptRelay
+          ? `Run cstan prompt show ${agentId}.`
+          : `Look with cstan observe ${agentId}.`
+      }`;
+}
+
 /** The controller's loss notice to the PM. */
 export function lostNotice(
   agent: AgentRow,
@@ -480,6 +550,7 @@ export function messageRecord(row: MessageRow): MessageRecord {
     stateReason: row.state_reason,
     notifiedAt: row.notified_at,
     lastNotifiedAt: row.last_notified_at,
+    actionNeeded: row.action_needed === 1,
   };
 }
 

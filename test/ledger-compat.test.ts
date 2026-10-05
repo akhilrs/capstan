@@ -71,7 +71,11 @@ async function checkOpens(
       }
     ).v;
     pending.close();
-    const migrated = behind < maxEmbeddedMigration() ? behind + 1 : 0;
+    const pendingVersions = Array.from(
+      { length: Math.max(0, maxEmbeddedMigration() - behind) },
+      (_, index) => String(behind + 1 + index),
+    );
+    const migrated = pendingVersions.length > 0;
     const db = await openDatabase(target);
     try {
       const ledger = db
@@ -97,13 +101,13 @@ async function checkOpens(
     } finally {
       db.close();
     }
-    // The ledger may be one migration behind this build; that one migration writes one backup.
+    // The ledger may be behind this build; each pending migration writes one backup.
     assert.deepEqual(
       listing(directory)
         .filter((n) => n.includes(".pre-v"))
         .map((n) => /\.pre-v(\d+)-/.exec(n)![1]),
-      migrated ? [String(migrated)] : [],
-      `${label}: only the pending migration wrote a backup`,
+      pendingVersions,
+      `${label}: only the pending migrations wrote a backup`,
     );
     const after = header(target);
     // Bytes 16..27: page size, file-format versions, reserved space and payload fractions; 60: user_version.

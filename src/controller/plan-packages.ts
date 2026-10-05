@@ -12,7 +12,12 @@ import {
   type PlanCancelResult,
   type PlanSignoffRecord,
 } from "./records.js";
-import { safeId, safeText, planSignedOffNotice } from "./helpers.js";
+import {
+  safeId,
+  safeText,
+  planSignedOffNotice,
+  planCancelledNotice,
+} from "./helpers.js";
 
 export class PlanPackagesArea {
   constructor(
@@ -611,13 +616,9 @@ export class PlanPackagesArea {
             )
             .run(now, now, this.kernel.projectId, input.planId);
         }
-        const subject =
-          input.packageId === undefined
-            ? `Plan ${input.planId} cancelled`
-            : `Plan ${input.planId} package ${input.packageId} cancelled`;
         const notified = this.areas.plans.queuePlanNotice(
           plan,
-          `${subject} by the operator.`,
+          planCancelledNotice(input.planId, input.packageId),
           now,
         );
         const held = this.planPackageRows(input.planId).filter((row) =>

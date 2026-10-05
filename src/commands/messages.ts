@@ -26,7 +26,7 @@ export function messageHandlers(
     context,
     describe,
     delivered,
-    pull,
+    pullFor,
     agentOf,
     isArchitect,
   } = env;
@@ -51,22 +51,21 @@ export function messageHandlers(
           // Read-only: the hook runs after every tool call and never pulls or prints a body.
           if (agent === undefined)
             return fail("forbidden", "the caller is not an agent");
-          const { count, oldestQueuedAt, messageIds } = core.unreadSummary(
-            call.credential,
-          );
-          return ok({ count, oldestQueuedAt, messageIds });
+          const { count, oldestQueuedAt, messageIds, actionNeeded } =
+            core.unreadSummary(call.credential);
+          return ok({ count, oldestQueuedAt, messageIds, actionNeeded });
         }
         if (call.args.length !== 0)
           return fail("invalid_request", "inbox takes no arguments");
         if (agent === undefined)
           return fail("forbidden", "the caller is not an agent");
-        if (agent.kind === "PM") {
-          pull(call.credential);
-          return ok({ messages: delivered(call.credential) });
-        }
-        core.pullPending(call.credential);
+        pullFor(agent, call.credential);
         const messages = delivered(call.credential);
-        return ok({ messages, count: messages.length });
+        return ok({
+          messages,
+          count: messages.length,
+          actionNeededCount: messages.filter((m) => m.actionNeeded).length,
+        });
       } catch (error) {
         return mapError(error);
       }
@@ -85,9 +84,14 @@ export function messageHandlers(
 
     send(call) {
       try {
-        if (call.args.length !== 2)
-          return fail("invalid_request", "send needs a recipient and a text");
-        const [target, body] = call.args as [string, string];
+        const actionNeeded = call.args[0] === "--action";
+        const args = actionNeeded ? call.args.slice(1) : call.args;
+        if (args.length !== 2)
+          return fail(
+            "invalid_request",
+            "send needs a recipient and a text, after an optional --action",
+          );
+        const [target, body] = args as [string, string];
         if (Buffer.byteLength(body, "utf8") > MAX_SEND_BODY_BYTES)
           return fail(
             "body_too_large",
@@ -153,6 +157,7 @@ export function messageHandlers(
         const { messageId } = core.enqueueMessage(context(call.credential), {
           recipientAgentId: recipient.agentId,
           body,
+          actionNeeded,
         });
         return ok({ messageId });
       } catch (error) {

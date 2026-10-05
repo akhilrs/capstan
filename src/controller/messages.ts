@@ -8,6 +8,7 @@ import {
   type AuthenticatedActor,
 } from "./auth.js";
 import { sha256 } from "./canonical.js";
+import { controllerActionNeeded } from "./action-needed.js";
 import {
   DEFERRAL_REASONS,
   RESOLUTION_DECISIONS,
@@ -80,6 +81,7 @@ export class MessagesArea {
           input.body,
           bodyHash,
           now,
+          input.actionNeeded === true,
         );
         const senderAgent = this.kernel.agentByActor(actor.actorId);
         if (senderAgent !== undefined)
@@ -105,8 +107,13 @@ export class MessagesArea {
     body: string,
     bodyHash: string,
     now: string,
+    actionNeeded = false,
   ): string {
     const messageId = randomUUID();
+    // Every controller notice goes through here, so the controller's own texts are classified once, in this path.
+    const flagged =
+      actionNeeded ||
+      (this.#isControllerActor(senderActorId) && controllerActionNeeded(body));
     const sequence = (
       this.kernel.database
         .prepare(
@@ -117,8 +124,8 @@ export class MessagesArea {
     this.kernel.database
       .prepare(
         `INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
-          body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?)`,
+          body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at, action_needed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?, ?)`,
       )
       .run(
         this.kernel.projectId,
@@ -132,8 +139,19 @@ export class MessagesArea {
         now,
         now,
         now,
+        flagged ? 1 : 0,
       );
     return messageId;
+  }
+
+  #isControllerActor(actorId: string): boolean {
+    return (
+      this.kernel.database
+        .prepare(
+          "SELECT 1 AS yes FROM actors WHERE project_id = ? AND actor_id = ? AND is_internal = 1",
+        )
+        .get(this.kernel.projectId, actorId) !== undefined
+    );
   }
 
   message(messageId: string): MessageRecord | undefined {
@@ -341,9 +359,10 @@ export class MessagesArea {
   }
 
   /**
-   * A worker reads its mail: every queued or deferred message becomes sent, in
-   * sequence order, one ledger event each. It stops at the first expired or
-   * failed message, which is the PM's to resolve, and pulls nothing while the
+   * An agent reads its mail (the PM too): every queued or deferred message
+   * becomes sent, in sequence order, one ledger event each. It stops at the
+   * first expired or failed message, which is the PM's to resolve, and pulls
+   * nothing while the
    * agent's delivery is paused. A message already sent or unacked is kept.
    */
   pullPending(credential: string): readonly MessageRecord[] {
@@ -354,7 +373,7 @@ export class MessagesArea {
       credential,
     );
     const agent = this.kernel.agentByActor(actor.actorId);
-    if (agent === undefined || agent.kind === "PM") return [];
+    if (agent === undefined) return [];
     if (this.areas.pauses.isDeliveryPaused(agent.agent_id)) return [];
     const pulled: MessageRecord[] = [];
     for (const row of this.messageRowsFor(agent.agent_id)) {
@@ -415,6 +434,7 @@ export class MessagesArea {
     readonly count: number;
     readonly oldestQueuedAt: string | null;
     readonly messageIds: readonly string[];
+    readonly actionNeeded: number;
   } {
     this.kernel.assertOpen();
     const actor = authenticateActor(
@@ -443,6 +463,7 @@ export class MessagesArea {
       count: waiting.length,
       oldestQueuedAt: oldest,
       messageIds: waiting.map((row) => row.message_id),
+      actionNeeded: waiting.filter((row) => row.action_needed === 1).length,
     };
   }
 

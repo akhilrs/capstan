@@ -16,6 +16,7 @@ import {
 } from "../src/controller/core.js";
 import { insertAssignment, insertWorkItem, seedLedger } from "./legacy-rows.js";
 import type { MessagingTimers } from "../src/controller/messaging.js";
+import { pmMailSummary } from "../src/pm-mail.js";
 import type {
   InitialProject,
   MutationContext,
@@ -2021,7 +2022,7 @@ test("a worker pull sends every queued or deferred message in sequence order, on
   }
 });
 
-test("a worker pull stops at an expired message, pulls nothing while paused, and the PM pull is untouched", async () => {
+test("a pull stops at an expired message and pulls nothing while paused", async () => {
   const w = await world();
   try {
     const { core, developer } = w;
@@ -2043,7 +2044,142 @@ test("a worker pull stops at an expired message, pulls nothing while paused, and
       core.pullPending(developer.credential).map((m) => m.messageId),
       [behind],
     );
-    assert.deepEqual(core.pullPending(w.pm.credential), []);
+  } finally {
+    close(w);
+  }
+});
+
+test("the PM's pull takes every pending message in sequence order, one ledger event each, and stops at an expired one", async () => {
+  const w = await world();
+  try {
+    const { core, pm } = w;
+    const first = send(w, pm, "one");
+    const second = send(w, pm, "two");
+    const third = send(w, pm, "three");
+    const before = events(w, "message").length;
+    const pulled = core.pullPending(pm.credential);
+    assert.deepEqual(
+      pulled.map((m) => m.messageId),
+      [first, second, third],
+    );
+    assert.deepEqual(
+      pulled.map((m) => m.state),
+      ["sent", "sent", "sent"],
+    );
+    const added = events(w, "message").slice(before);
+    assert.deepEqual(
+      added.map((e) => [e.entity_id, e.from_state, e.to_state]),
+      [first, second, third].map((id) => [id, "queued", "sent"]),
+    );
+    // Acks are accepted in any order.
+    core.ackMessage(w.ctx(pm.credential), third);
+    core.ackMessage(w.ctx(pm.credential), first);
+    core.ackMessage(w.ctx(pm.credential), second);
+    for (const id of [first, second, third])
+      assert.equal(stateOf(w, id), "acked");
+
+    const expiring = send(w, pm, "four");
+    const behind = send(w, pm, "five");
+    core.recordDeferral(w.ctx(), expiring, "agent_blocked");
+    w.advance(121);
+    core.advanceMessaging(w.ctx(), timers);
+    assert.equal(stateOf(w, expiring), "expired");
+    assert.deepEqual(core.pullPending(pm.credential), []);
+    assert.equal(
+      stateOf(w, behind),
+      "queued",
+      "not pulled behind an expired one",
+    );
+  } finally {
+    close(w);
+  }
+});
+
+test("an unacked PM message is printed again and can be acked late; nothing pending pulls nothing", async () => {
+  const w = await world();
+  try {
+    const { core, pm } = w;
+    assert.deepEqual(core.pullPending(pm.credential), []);
+    const message = send(w, pm, "one");
+    assert.deepEqual(
+      core.pullPending(pm.credential).map((m) => m.messageId),
+      [message],
+    );
+    w.advance(601);
+    core.advanceMessaging(w.ctx(), timers);
+    assert.equal(stateOf(w, message), "unacked");
+    assert.deepEqual(core.pullPending(pm.credential), [], "no new pull");
+    assert.deepEqual(
+      core.agentInbox(pm.credential).map((m) => [m.messageId, m.state]),
+      [[message, "unacked"]],
+      "the inbox prints it again",
+    );
+    core.ackMessage(w.ctx(pm.credential), message);
+    assert.equal(stateOf(w, message), "acked_late");
+  } finally {
+    close(w);
+  }
+});
+
+test("after a PM pull-all leaves messages sent and unacked there is no wake, and the stale rule still counts them", async () => {
+  const w = await world();
+  try {
+    const { core, pm } = w;
+    const wakeTimers = { ...timers, pmWakeAfterSeconds: 20 };
+    core.recordAgentObservation(w.ctx(), pm.agentId, "idle");
+    const first = send(w, pm, "one");
+    send(w, pm, "two");
+    w.advance(30);
+    assert.deepEqual(
+      core.advanceMessaging(w.ctx(), wakeTimers).actions.map((a) => a.kind),
+      ["wake_pm"],
+      "an unread head wakes the PM",
+    );
+    core.pullPending(pm.credential);
+    w.advance(60);
+    assert.deepEqual(
+      core
+        .advanceMessaging(w.ctx(), wakeTimers)
+        .actions.filter((a) => a.kind === "wake_pm"),
+      [],
+    );
+    const summary = pmMailSummary(
+      core.messagesFor(pm.agentId),
+      w.clock.nowMs,
+      60,
+    );
+    assert.equal(summary.pending, 2);
+    assert.equal(summary.stale, true);
+    assert.equal(summary.oldestMessageId, first);
+  } finally {
+    close(w);
+  }
+});
+
+test("a message sent with actionNeeded keeps the flag, a controller notice is classified, and a teammate's text is not", async () => {
+  const w = await world();
+  try {
+    const { core, pm, developer } = w;
+    const plain = send(w, pm, "see this");
+    const flagged = core.enqueueMessage(w.ctx(), {
+      recipientAgentId: pm.agentId,
+      body: "decide now",
+      actionNeeded: true,
+    }).messageId;
+    const mimic = send(
+      w,
+      pm,
+      "Delivery problem: not really",
+      developer.credential,
+    );
+    assert.equal(core.message(plain)!.actionNeeded, false);
+    assert.equal(core.message(flagged)!.actionNeeded, true);
+    assert.equal(core.message(mimic)!.actionNeeded, false);
+    assert.deepEqual(
+      [...core.pullPending(pm.credential)].map((m) => m.actionNeeded),
+      [false, true, false],
+    );
+    assert.equal(core.unreadSummary(pm.credential).actionNeeded, 1);
   } finally {
     close(w);
   }
@@ -2129,6 +2265,7 @@ test("unreadSummary counts the caller's waiting messages without writing anythin
       count: 0,
       oldestQueuedAt: null,
       messageIds: [],
+      actionNeeded: 0,
     });
     const first = send(w, developer, "one");
     w.advance(60);

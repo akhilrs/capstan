@@ -129,6 +129,7 @@ interface Delivered {
   from: string;
   fromAgentId: string;
   body: string;
+  actionNeeded?: boolean;
 }
 
 function messagesOf(response: CommandResponse): Delivered[] {
@@ -195,7 +196,7 @@ function rawCall(
   return { socket, reply };
 }
 
-test("inbox moves the queue head to sent, re-prints it, and only an explicit ack moves it on", async () => {
+test("inbox moves all of the PM's pending mail to sent, re-prints it, and acks in any order", async () => {
   const h = await harness();
   try {
     const first = messageId(await send(h, h.owner, "@pm", "first"));
@@ -204,22 +205,24 @@ test("inbox moves the queue head to sent, re-prints it, and only an explicit ack
     const one = messagesOf(await call(h, h.pm.credential, "inbox"));
     assert.deepEqual(
       one.map((m) => [m.messageId, m.state, m.body, m.from]),
-      [[first, "sent", "first", "operator"]],
+      [
+        [first, "sent", "first", "operator"],
+        [second, "sent", "second", "operator"],
+      ],
     );
     const again = messagesOf(await call(h, h.pm.credential, "inbox"));
     assert.deepEqual(
       again.map((m) => m.messageId),
-      [first],
-      "a re-read, not a resend, and the second stays behind the first",
+      [first, second],
+      "a re-read, not a resend",
     );
-    assert.equal(stateOf(h, second), "queued");
     assert.equal(stateOf(h, first), "sent", "printing never acks");
-    const acked = bodyOf(await call(h, h.pm.credential, "ack", [first]));
+    const acked = bodyOf(await call(h, h.pm.credential, "ack", [second]));
     assert.equal(acked.state, "acked");
     const next = messagesOf(await call(h, h.pm.credential, "inbox"));
     assert.deepEqual(
       next.map((m) => [m.messageId, m.state]),
-      [[second, "sent"]],
+      [[first, "sent"]],
     );
     assert.equal(
       codeOf(await call(h, h.developer.credential, "ack", [second])),
@@ -1303,7 +1306,11 @@ test("plan show lists plans and shows one with its packages, and is readable by 
       h.pm.credential,
       h.owner,
     ]) {
-      assert.deepEqual(bodyOf(await call(h, credential, "plan", ["show"])), {
+      const listed: Record<string, unknown> = {
+        ...bodyOf(await call(h, credential, "plan", ["show"])),
+      };
+      delete listed.unread;
+      assert.deepEqual(listed, {
         plans: [
           {
             planId: "plan-1",
@@ -1451,11 +1458,70 @@ test("send, ack and status by a worker with mail waiting carry unread; inbox and
       (waited.messages as Delivered[]).map((m) => m.messageId),
       [second],
     );
-    assert.equal(
-      bodyOf(await send(h, h.pm.credential, h.developer.agentId, "x")).unread,
-      undefined,
-      "the PM gets no notice",
+    const pmUnread = bodyOf(
+      await send(h, h.pm.credential, h.developer.agentId, "y"),
+    ).unread as { count: number; actionNeeded: number } | undefined;
+    assert.ok(
+      pmUnread !== undefined,
+      "the PM has mail waiting, so it gets the notice too",
     );
+    assert.equal(pmUnread.actionNeeded, 0);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a PM command other than inbox and wait carries the unread notice with the action-needed count, and none when nothing is pending", async () => {
+  const h = await harness({ commands: commandOptions(1) });
+  try {
+    assert.equal(
+      bodyOf(await call(h, h.pm.credential, "status")).unread,
+      undefined,
+      "no mail, no notice",
+    );
+    const plain = messageId(await send(h, h.owner, "@pm", "fyi"));
+    const urgent = messageId(
+      await call(h, h.owner, "send", ["--action", "@pm", "decide now"]),
+    );
+    assert.equal(h.core.message(plain)!.actionNeeded, false);
+    assert.equal(h.core.message(urgent)!.actionNeeded, true);
+    const unread = bodyOf(await call(h, h.pm.credential, "status")).unread as {
+      count: number;
+      oldestQueuedAt: string;
+      actionNeeded: number;
+    };
+    assert.equal(unread.count, 2);
+    assert.equal(unread.actionNeeded, 1);
+    assert.match(unread.oldestQueuedAt, /^\d{4}-\d\d-\d\dT/);
+    const inbox = bodyOf(await call(h, h.pm.credential, "inbox")) as {
+      messages: Delivered[];
+      count: number;
+      actionNeededCount: number;
+      unread?: unknown;
+    };
+    assert.equal(inbox.unread, undefined, "inbox carries no notice");
+    assert.deepEqual(
+      inbox.messages.map((m) => [m.messageId, m.actionNeeded]),
+      [
+        [plain, false],
+        [urgent, true],
+      ],
+      "sequence order, marked not reordered",
+    );
+    assert.equal(inbox.count, 2);
+    assert.equal(inbox.actionNeededCount, 1);
+    await call(h, h.pm.credential, "ack", [plain]);
+    await call(h, h.pm.credential, "ack", [urgent]);
+    assert.equal(
+      bodyOf(await call(h, h.pm.credential, "status")).unread,
+      undefined,
+    );
+    const empty = bodyOf(await call(h, h.pm.credential, "wait")) as {
+      messages: Delivered[];
+      timedOut: boolean;
+    };
+    assert.deepEqual(empty.messages, []);
+    assert.equal(empty.timedOut, true);
   } finally {
     await close(h);
   }

@@ -1235,7 +1235,7 @@ export class ControllerCore {
   }
 
   /**
-   * A worker reads its mail: every queued or deferred message becomes sent, in
+   * An agent reads its mail (the PM too): every queued or deferred message becomes sent, in
    * sequence order, one ledger event each. It stops at the first expired or
    * failed message, which is the PM's to resolve, and pulls nothing while the
    * agent's delivery is paused. A message already sent or unacked is kept.
@@ -1249,6 +1249,7 @@ export class ControllerCore {
     readonly count: number;
     readonly oldestQueuedAt: string | null;
     readonly messageIds: readonly string[];
+    readonly actionNeeded: number;
   } {
     return this.#areas.messages.unreadSummary(credential);
   }

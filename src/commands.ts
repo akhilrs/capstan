@@ -58,7 +58,7 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
     ...waitHandlers(env),
   };
 
-  /** A worker's command other than inbox and wait (and the operator agent's op, whose answers are exact) also tells the caller when mail waits for it; the PM reads its mail by inbox and wait. */
+  /** An agent's command other than inbox and wait (and the operator agent's op, whose answers are exact) also tells the caller when mail waits for it, the PM included. */
   const withNotice =
     (handler: CommandHandler): CommandHandler =>
     async (call) => {
@@ -67,18 +67,22 @@ export function createCommandHandlers(deps: CommandDependencies): CommandSet {
         response === null ||
         !response.ok ||
         call.identity.agent == null ||
-        call.identity.agent.kind === "PM" ||
         typeof response.result !== "object" ||
         response.result === null ||
         Array.isArray(response.result)
       )
         return response;
       try {
-        const { count, oldestQueuedAt } = core.unreadSummary(call.credential);
+        const { count, oldestQueuedAt, actionNeeded } = core.unreadSummary(
+          call.credential,
+        );
         if (count === 0) return response;
         return {
           ok: true,
-          result: { ...response.result, unread: { count, oldestQueuedAt } },
+          result: {
+            ...response.result,
+            unread: { count, oldestQueuedAt, actionNeeded },
+          },
         };
       } catch (error) {
         log("unread_notice_failed", { error: String(error) });

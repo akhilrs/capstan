@@ -735,6 +735,7 @@ export interface MessageRow {
   readonly state_reason: string | null;
   readonly notified_at: string | null;
   readonly last_notified_at: string | null;
+  readonly action_needed: number;
 }
 
 export interface MutationEvent {

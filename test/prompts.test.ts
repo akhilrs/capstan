@@ -304,6 +304,17 @@ test("a Supervisor prompt teaches observe, finding and check with their limits a
   assert.match(worker, /Two corrections are sent at most/);
 });
 
+test("the PM prompt says inbox prints all pending messages and explains the notice and ACTION NEEDED", () => {
+  const pm = buildRolePrompt(base);
+  assert.match(pm, /prints every message waiting for you/);
+  assert.match(pm, /ACTION NEEDED/);
+  assert.match(pm, /message\(s\) wait for you/);
+  assert.match(pm, /need action/);
+  assert.match(pm, /Acknowledge each message in any order/);
+  assert.doesNotMatch(pm, /prints the next message/);
+  assert.doesNotMatch(pm, /next message is delivered only after/);
+});
+
 test("the PM prompt teaches replace and the loss message, and every worker prompt knows the replacement seed", () => {
   const pm = buildRolePrompt(base);
   assert.match(pm, /cstan replace <agent-id>/);
@@ -389,7 +400,7 @@ const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
 test("with the Architect disabled every prompt is byte-identical to its recorded hash", async () => {
   const { createHash } = await import("node:crypto");
   const golden = {
-    PM: "31a94980346f13c0",
+    PM: "1e2fbc6aa34eadfa",
     Developer: "ec1cb31613943457",
     Verifier: "b2e2b6bba285b4e4",
     Supervisor: "a6f0ae0e24514359",

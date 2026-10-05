@@ -451,7 +451,6 @@ export interface CommandEnv {
   readonly context: (credential: string) => MutationContext;
   readonly describe: (message: MessageRecord) => Record<string, unknown>;
   readonly delivered: (credential: string) => Record<string, unknown>[];
-  readonly pull: (credential: string) => boolean;
   readonly pullFor: (agent: AgentRecord, credential: string) => boolean;
   readonly agentOf: (identity: Identity) => AgentRecord | undefined;
   readonly workerManager: (identity: Identity) => string | undefined;

@@ -19,6 +19,7 @@ import {
   reviewTask,
   reviewNotice,
   planNeedsAttentionNotice,
+  packageReviewedNotice,
 } from "./helpers.js";
 
 export class ReviewsArea {
@@ -499,11 +500,12 @@ export class ReviewsArea {
         )?.report_id === row.subject_report_id,
     );
     if (match === undefined) return;
-    const body = [
-      `Plan ${match.plan_id} package ${match.package_id} reviewed`,
-      `Report: ${row.subject_report_id}`,
-      `Commit: ${row.commit_sha}`,
-    ].join("\n");
+    const body = packageReviewedNotice(
+      match.plan_id,
+      match.package_id,
+      row.subject_report_id!,
+      row.commit_sha,
+    );
     const sent = this.kernel.database
       .prepare(
         "SELECT 1 AS present FROM messages WHERE project_id = ? AND body = ?",

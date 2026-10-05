@@ -153,7 +153,7 @@ test("migrating prunes the backups it took down to the configured count", async 
   }
 });
 
-test("upgrading a v30 ledger writes a pre-v31 backup through the adapter and prunes to the keep count", async () => {
+test("upgrading a v30 ledger writes a backup before each later migration through the adapter and prunes to the keep count", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
   try {
     const databasePath = path.join(directory, "controller.sqlite");
@@ -193,7 +193,75 @@ test("upgrading a v30 ledger writes a pre-v31 backup through the adapter and pru
     database.close();
     const names = listing(directory).filter((n) => n.includes(".pre-v"));
     assert.equal(names.length, 2);
-    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v31-")));
+    // The upgrade backs up before v31, v32 and v33; the two newest stay.
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v33-")));
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v32-")));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("migration 0033 adds messages.action_needed, gives every existing message 0 and is backed up first; migration numbers do not collide", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
+  try {
+    const migrationsDirectory = path.resolve(
+      import.meta.dirname,
+      "..",
+      "..",
+      "migrations",
+    );
+    const numbers = fs
+      .readdirSync(migrationsDirectory)
+      .filter((n) => /^\d{4}_.*\.sql$/.test(n))
+      .map((n) => n.slice(0, 4));
+    assert.equal(new Set(numbers).size, numbers.length, "no number twice");
+    assert.ok(numbers.includes("0033"));
+
+    const target = path.join(directory, "controller.sqlite");
+    fs.copyFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "..",
+        "..",
+        "test",
+        "fixtures",
+        "ledger-better-sqlite3.sqlite",
+      ),
+      target,
+    );
+    const before = openSqlite(target);
+    const stored = (
+      before.prepare("SELECT COUNT(*) AS n FROM messages").get() as {
+        n: number;
+      }
+    ).n;
+    assert.ok(stored > 0, "the fixture has messages");
+    assert.ok(
+      !(
+        before.prepare("PRAGMA table_info(messages)").all() as {
+          name: string;
+        }[]
+      ).some((c) => c.name === "action_needed"),
+    );
+    before.close();
+    const database = await openDatabase(target);
+    try {
+      const rows = database
+        .prepare("SELECT action_needed FROM messages")
+        .all() as { action_needed: number }[];
+      assert.equal(rows.length, stored);
+      assert.ok(rows.every((row) => row.action_needed === 0));
+      assert.throws(() =>
+        database.prepare("UPDATE messages SET action_needed = 2").run(),
+      );
+    } finally {
+      database.close();
+    }
+    assert.ok(
+      listing(directory).some((n) =>
+        n.startsWith("controller.sqlite.pre-v33-"),
+      ),
+    );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

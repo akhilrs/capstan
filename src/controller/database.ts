@@ -218,6 +218,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  33: {
+    version: 33,
+    name: "0033_message_action_needed.sql",
+    url: new URL(
+      "../../migrations/0033_message_action_needed.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 /** The highest migration version this build knows. */

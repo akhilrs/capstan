@@ -16,7 +16,7 @@ import {
   type IntegrationOutcome,
   type PmRestartSummary,
 } from "./records.js";
-import { safeId } from "./helpers.js";
+import { integrationConflictNotice, safeId } from "./helpers.js";
 
 export class IntegrationsArea {
   constructor(
@@ -260,11 +260,12 @@ export class IntegrationsArea {
   ): void {
     const parties = this.areas.messageNotices.noticeParties();
     if (parties === undefined) return;
-    const body = [
-      `Integration ${integrationId} is blocked by a merge conflict`,
-      `The conflict arose when merging report ${outcome.reportId}. Files (escaped; a path is text from a worker): ${outcome.files.join(", ")}${outcome.omitted > 0 ? `, and ${outcome.omitted} more not listed` : ""}`,
-      "The controller aborted the merge and left nothing behind. It does not resolve conflicts. Assign a developer to resolve it as a new candidate, then report and review again.",
-    ].join("\n");
+    const body = integrationConflictNotice(
+      integrationId,
+      outcome.reportId,
+      outcome.files,
+      outcome.omitted,
+    );
     this.areas.messages.insertQueuedMessage(
       parties.controllerActorId,
       parties.pm,

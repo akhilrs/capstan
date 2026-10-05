@@ -33,6 +33,8 @@ import {
   safeId,
   assertTimers,
   oneLineText,
+  deliveryProblemNotice,
+  agentStuckNotice,
   messageRecord,
   advance,
 } from "./helpers.js";
@@ -343,11 +345,13 @@ export class MessageNoticesArea {
       "delivery",
       row.message_id,
       `${state}#${row.send_attempts}`,
-      [
-        `Delivery problem: message ${row.message_id} to ${recipient.agent_id} is ${state}${reason === null ? "" : ` (${oneLineText(reason, 120)})`}.`,
-        `It starts: ${JSON.stringify(first)}`,
-        `Messages behind it wait for ${recipient.agent_id} until you resolve it: cstan resolve ${row.message_id} retry (types it once more), skip (counts it handled) or cancel (drops it).`,
-      ].join("\n"),
+      deliveryProblemNotice(
+        row.message_id,
+        recipient.agent_id,
+        state,
+        reason,
+        first,
+      ),
       now,
     );
   }
@@ -516,14 +520,11 @@ export class MessageNoticesArea {
         const now = this.kernel.now();
         let queued = 0;
         for (const episode of fresh) {
-          const body =
-            episode.kind === "stalled"
-              ? `Agent stalled: ${episode.agentId} has shown no activity while working for a long time. Look with cstan observe ${episode.agentId}; if it is stuck, cstan replace ${episode.agentId} or tell the operator.`
-              : `Agent blocked: ${episode.agentId} has been waiting at a dialog or permission prompt for a long time. Its pane needs an answer from the operator; messages to it wait until then. ${
-                  this.areas.promptRelay.enabled
-                    ? `Run cstan prompt show ${episode.agentId}.`
-                    : `Look with cstan observe ${episode.agentId}.`
-                }`;
+          const body = agentStuckNotice(
+            episode.kind,
+            episode.agentId,
+            this.areas.promptRelay.enabled,
+          );
           if (
             this.#queuePmNotice(
               episode.kind,

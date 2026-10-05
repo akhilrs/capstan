@@ -63,6 +63,7 @@ export function createCommandEnv(deps: CommandDependencies): CommandEnv {
       body: message.body,
       state: message.state,
       sentAt: message.sentAt,
+      actionNeeded: message.actionNeeded,
     };
   };
 
@@ -73,14 +74,9 @@ export function createCommandEnv(deps: CommandDependencies): CommandEnv {
       .filter((row) => row.state === "sent" || row.state === "unacked")
       .map(describe);
 
-  const pull = (credential: string): boolean =>
-    core.pullMessage(context(credential)).message !== null;
-
-  /** What `inbox` and `wait` do to read: the PM pulls its head, a worker pulls all its mail. True when a message was pulled. */
-  const pullFor = (agent: AgentRecord, credential: string): boolean =>
-    agent.kind === "PM"
-      ? pull(credential)
-      : core.pullPending(credential).length > 0;
+  /** What `inbox` and `wait` do to read: every agent, the PM too, pulls all its pending mail. True when a message was pulled. */
+  const pullFor = (_agent: AgentRecord, credential: string): boolean =>
+    core.pullPending(credential).length > 0;
 
   const agentOf = (identity: Identity): AgentRecord | undefined =>
     identity.agent ?? undefined;
@@ -297,7 +293,6 @@ export function createCommandEnv(deps: CommandDependencies): CommandEnv {
     context,
     describe,
     delivered,
-    pull,
     pullFor,
     agentOf,
     workerManager,

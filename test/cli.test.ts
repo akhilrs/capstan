@@ -2341,6 +2341,107 @@ test("inbox --hook prints nothing and exits 0 without the agent environment, wit
   }
 });
 
+test("an agent command prints the unread notice with the action count, inbox marks action-needed frames and send --action reaches the daemon", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "capstan-notice-"));
+  const socketPath = path.join(dir, "notice.sock");
+  let reply = { ok: true, result: {} } as unknown;
+  const requests: string[] = [];
+  const server = net.createServer((socket) => {
+    socket.on("data", (chunk) => {
+      requests.push(chunk.toString("utf8"));
+      socket.end(`${JSON.stringify(reply)}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    const env = {
+      CAPSTAN_TOKEN: "token-1",
+      CAPSTAN_SOCKET: socketPath,
+      CAPSTAN_AGENT_ID: "pm-1",
+    };
+    const oldest = new Date(Date.now() - 7 * 60_000).toISOString();
+    reply = {
+      ok: true,
+      result: {
+        messageId: "m-9",
+        state: "acked",
+        unread: { count: 2, oldestQueuedAt: oldest, actionNeeded: 1 },
+      },
+    };
+    const noisy = await invokeAsyncWithEnv(dir, env, "ack", "m-9");
+    assert.equal(noisy.status, 0, noisy.stderr);
+    assert.match(
+      noisy.stderr,
+      /notice: 2 message\(s\) wait for you \(oldest 7 min\): run cstan inbox, 1 need action\n/,
+    );
+    reply = {
+      ok: true,
+      result: {
+        messageId: "m-9",
+        state: "acked",
+        unread: { count: 1, oldestQueuedAt: oldest, actionNeeded: 0 },
+      },
+    };
+    const plain = await invokeAsyncWithEnv(dir, env, "ack", "m-9");
+    assert.match(plain.stderr, /run cstan inbox\n/);
+    assert.doesNotMatch(plain.stderr, /need action/);
+    reply = { ok: true, result: { messageId: "m-9", state: "acked" } };
+    const quiet = await invokeAsyncWithEnv(dir, env, "ack", "m-9");
+    assert.doesNotMatch(quiet.stderr, /notice:/);
+
+    reply = {
+      ok: true,
+      result: {
+        count: 2,
+        actionNeededCount: 1,
+        messages: [
+          {
+            messageId: "m-1",
+            state: "sent",
+            from: "controller",
+            fromAgentId: "controller",
+            body: "first",
+          },
+          {
+            messageId: "m-2",
+            state: "sent",
+            from: "controller",
+            fromAgentId: "controller",
+            body: "Delivery problem: x",
+            actionNeeded: true,
+          },
+        ],
+      },
+    };
+    const inbox = await invokeAsyncWithEnv(dir, env, "inbox");
+    assert.equal(inbox.status, 0, inbox.stderr);
+    assert.ok(
+      inbox.stdout.indexOf("message m-1") <
+        inbox.stdout.indexOf("[ACTION NEEDED]\nmessage m-2"),
+      "sequence order is kept and only the second frame is marked",
+    );
+    assert.equal(inbox.stdout.split("[ACTION NEEDED]").length - 1, 1);
+
+    reply = { ok: true, result: { messageId: "m-3" } };
+    const sent = await invokeAsyncWithEnv(
+      dir,
+      env,
+      "send",
+      "--action",
+      "developer-1",
+      "please decide",
+    );
+    assert.equal(sent.status, 0, sent.stderr);
+    assert.match(
+      requests.at(-1)!,
+      /"command":"send","args":\["--action","developer-1","please decide"\]/,
+    );
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function invokeAsyncWithEnv(
   cwd: string,
   env: NodeJS.ProcessEnv,

@@ -136,6 +136,8 @@ export interface ReplacedAgent {
 export interface MessageInput {
   readonly recipientAgentId: string;
   readonly body: string;
+  /** The message asks its recipient for a step, not only informs it. */
+  readonly actionNeeded?: boolean;
 }
 
 export interface MessageRecord {
@@ -156,6 +158,7 @@ export interface MessageRecord {
   readonly stateReason: string | null;
   readonly notifiedAt: string | null;
   readonly lastNotifiedAt: string | null;
+  readonly actionNeeded: boolean;
 }
 
 export interface MessageRejectionRecord {

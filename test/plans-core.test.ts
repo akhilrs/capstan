@@ -1271,6 +1271,7 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
 
 function undoMigration0031(db: Database): void {
   db.exec(`
+    ALTER TABLE messages DROP COLUMN action_needed;
     DROP TABLE pauses;
     DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';
     DELETE FROM capability_grants WHERE capability = 'run:control'

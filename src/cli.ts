@@ -731,6 +731,7 @@ function renderMessages(result: unknown): string {
       from: string;
       fromAgentId: string;
       body: string;
+      actionNeeded?: boolean;
     }>;
     timedOut?: boolean;
   };
@@ -748,7 +749,7 @@ function renderMessages(result: unknown): string {
     messages
       .map(
         (m) =>
-          `message ${m.messageId ?? ""} [${m.state ?? ""}] from ${m.from ?? ""}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId ?? ""})`}\n${m.body ?? ""}`,
+          `${m.actionNeeded === true ? "[ACTION NEEDED]\n" : ""}message ${m.messageId ?? ""} [${m.state ?? ""}] from ${m.from ?? ""}${m.fromAgentId === m.from ? "" : ` (${m.fromAgentId ?? ""})`}\n${m.body ?? ""}`,
       )
       .join("\n\n")
   );
@@ -819,12 +820,16 @@ function handleWire(result: WireResult, json: boolean, command = ""): number {
     }
     const unread = (
       response.result as {
-        unread?: { count?: unknown; oldestQueuedAt?: unknown };
+        unread?: {
+          count?: unknown;
+          oldestQueuedAt?: unknown;
+          actionNeeded?: unknown;
+        };
       } | null
     )?.unread;
     if (!json && typeof unread?.count === "number")
       process.stderr.write(
-        `notice: ${unread.count} message(s) wait for you (oldest ${oldestMinutes(unread.oldestQueuedAt)} min): run cstan inbox\n`,
+        `notice: ${unread.count} message(s) wait for you (oldest ${oldestMinutes(unread.oldestQueuedAt)} min): run cstan inbox${typeof unread.actionNeeded === "number" && unread.actionNeeded > 0 ? `, ${unread.actionNeeded} need action` : ""}\n`,
       );
     const warning = (response.result as { warning?: unknown } | null)?.warning;
     if (typeof warning === "string")

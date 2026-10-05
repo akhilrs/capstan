@@ -79,7 +79,8 @@ export function waitHandlers(env: CommandEnv): Record<string, CommandHandler> {
         return ok({
           messages,
           timedOut: !pulled,
-          ...(agent.kind === "PM" ? {} : { count: messages.length }),
+          count: messages.length,
+          actionNeededCount: messages.filter((m) => m.actionNeeded).length,
         });
       } catch (error) {
         if (local.signal.aborted) return abortReply(local.signal);
