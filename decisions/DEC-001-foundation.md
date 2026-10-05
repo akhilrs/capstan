@@ -18,7 +18,7 @@ OpenRig v0.5.14 is pinned at `cc75efdd17fb967bde7cff6c5805791986af78d8`.
 
 ## Rationale
 
-OpenRig's durable queue and transactional-scribe patterns are useful references. Its selected runtime is tmux. The pinned source has no OMP adapter. Extending it would introduce a daemon, migration, and runtime coupling while still requiring Capstan-specific generations, candidate binding, verification, containment, and operator controls. An independent controller isolates the MVP proof and follows `MVP_PLAN.md` section 5.1.
+OpenRig's durable queue and transactional-scribe patterns are useful references. Its selected runtime is tmux. The pinned source has no OMP adapter. Extending it would introduce a daemon, migration, and runtime coupling while still requiring Capstan-specific generations, candidate binding, verification, containment, and operator controls. An independent controller isolates the MVP proof and follows section 5.1 of the original MVP plan (since removed; see git history).
 
 ## Scope and license
 

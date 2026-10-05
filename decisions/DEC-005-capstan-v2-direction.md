@@ -6,14 +6,14 @@
 
 ## Context
 
-`MVP_PLAN.md` (M0 to M3) built a fixed four-seat workflow: one OMP session per role in a Docker container with a per-role network and an iptables egress allowlist, driven from a brief file through an OMP-extension bridge with an fsynced receipt journal. The operator chose a different shape on 2026-09-30:
+The original MVP plan (M0 to M3, since removed from the tree; see git history) built a fixed four-seat workflow: one OMP session per role in a Docker container with a per-role network and an iptables egress allowlist, driven from a brief file through an OMP-extension bridge with an fsynced receipt journal. The operator chose a different shape on 2026-09-30:
 
 - The operator runs `cstan`, which opens the configured agent host in Herdr. The first agent is the PM. The operator talks to it directly.
 - The PM asks Capstan to spawn other agents (developer, reviewer, later designer, tester and a Supervisor). Agents are interactive and persist until the task ends.
 - Isolation is git worktrees, not containers. This runs only on the operator's own VM.
 - The host (Claude Code first, Codex and OMP later) and its permissions are set per role in `capstan.toml`.
 
-Evidence for this decision: the PM-19 spike (`docs/spike-herdr-agents.md`, six experiments with Claude Code in an isolated Herdr session, one run each) and an external plan review of the redesign. The full design is `MVP_PLAN_V2.md`.
+Evidence for this decision: the PM-19 spike (six experiments with Claude Code in an isolated Herdr session, one run each) and an external plan review of the redesign. The full design was the V2 plan, since removed; this record and `docs/reference/` now describe it.
 
 ## Decision
 
@@ -21,7 +21,7 @@ Evidence for this decision: the PM-19 spike (`docs/spike-herdr-agents.md`, six e
 2. The controller is a long-running daemon separate from the PM, with a single-instance lock. Its SQLite ledger stays the authority for workflow state.
 3. All agent-to-agent text goes through the controller (`cstan send`), one writer and one strict FIFO per recipient. Only the controller sends input to, starts, stops or closes agents in Herdr; no agent, including the PM, does so by policy. Read-only inspection (`herdr agent list`, `read`, `wait`) is allowed for the Supervisor and for diagnosis. Nothing enforces any of this (see the trust model).
 4. Workflow facts (reports, acks, review requests, findings) are recorded when an agent runs a `cstan` command. Completion is never inferred from terminal text or Herdr's state. The controller verifies what it can, but an environment credential only labels a reporter (spike E5).
-5. Roles come from configuration with a free name and one of four kinds (`PM`, `Developer`, `Verifier`, `Supervisor`). The kind decides the capabilities, and the existing role columns keep their CHECK constraints. The database migration is additive (`MVP_PLAN_V2.md` section 9).
+5. Roles come from configuration with a free name and one of four kinds (`PM`, `Developer`, `Verifier`, `Supervisor`). The kind decides the capabilities, and the existing role columns keep their CHECK constraints. The database migration is additive (V2 plan section 9).
 
 ## What this supersedes
 
@@ -65,9 +65,9 @@ Stop and revisit this decision if: a second user or an untrusted party can reach
 
 - The PM-5 to PM-9 controller core is reused; the Docker runtime manager (about 1,250 lines), the OMP bridge, the egress and receipt scripts and the fixed scheduler are replaced and later removed. Nothing is removed until the replacement passes its stage gate.
 - PM-12 (Herdr re-pin and Docker requalification) is moot except for choosing a Herdr version. PM-13 (failure-injection harness) is rescoped to pane and process failures.
-- The build is a thin vertical slice on Claude Code first (PM, one developer, one reviewer), with the Supervisor, recovery, the harness and Codex and OMP adapters after it (`MVP_PLAN_V2.md`).
+- The build is a thin vertical slice on Claude Code first (PM, one developer, one reviewer), with the Supervisor, recovery, the harness and Codex and OMP adapters after it (V2 plan).
 - Real-host tests spend the operator's Claude account; the operator sets a cap before any long run.
 
 ## Not verified
 
-Codex and OMP behavior; an updated Herdr Claude hook; long tasks and context growth; agent death and replacement; several agents interfering; pre-trusting worktrees; scrubbing the Herdr server's environment; pinning the detection manifest; `herdr notification`; `cstan wait` under Claude Code's shell-command behavior; selective PM hooks through `--setting-sources`. `MVP_PLAN_V2.md` section 12 lists each item with the stage that tests it and a fallback where one exists; some items have none yet.
+Codex and OMP behavior; an updated Herdr Claude hook; long tasks and context growth; agent death and replacement; several agents interfering; pre-trusting worktrees; scrubbing the Herdr server's environment; pinning the detection manifest; `herdr notification`; `cstan wait` under Claude Code's shell-command behavior; selective PM hooks through `--setting-sources`. The V2 plan section 12 lists each item with the stage that tests it and a fallback where one exists; some items have none yet.

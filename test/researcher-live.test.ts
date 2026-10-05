@@ -1,7 +1,7 @@
 /**
  * Opt-in live check of the Researcher role: a real Claude Code, a real Herdr session, the real
  * network and `npx @playwright/mcp`. It runs only when CAPSTAN_LIVE_RESEARCHER=1 and is not part of
- * the CI pass. It automates steps 1 to 3 of docs/researcher-live-evidence.txt: the config check, the
+ * the CI pass. It checks the config, the
  * spawn with the playwright MCP server connected, and a curl pipeline that runs with no permission
  * prompt. Reddit may answer with a login redirect, 403 or 429; that still proves the curl path.
  */

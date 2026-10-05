@@ -159,7 +159,7 @@ Rendered tests (`test/dash-app.test.tsx`, `ink-testing-library`): `render(<App â
 
 Safety tests: a static test reads the files in `src/dash/` and fails if any imports `better-sqlite3`, `controller/database`, or a value (not `import type`) from `controller/core`; non-TTY test spawns `dist/src/cli.js dash` with stdio pipes and expects exit code 2 and the message naming `cstan status`; `cstan status` output snapshot test (`test/cli.test.ts` already covers it) must pass unmodified, which shows the status contract did not change.
 
-Not covered by automation: a real terminal's alternate-screen restore and resize, real Herdr `peek`. A manual check list goes into the PR (run in a real terminal with a live daemon, kill the daemon while the dashboard runs, resize, `Ctrl+C`), and `GATES.json` is not changed: `npm run check` already runs the new tests.
+Not covered by automation: a real terminal's alternate-screen restore and resize, real Herdr `peek`. A manual check list goes into the PR (run in a real terminal with a live daemon, kill the daemon while the dashboard runs, resize, `Ctrl+C`), and `npm run check` already runs the new tests.
 
 ## 8. Risks and open questions
 
