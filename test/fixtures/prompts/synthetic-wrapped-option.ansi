@@ -23,7 +23,7 @@
  [0m[38;2;177;185;249m❯ [0m[38;2;153;153;153m1. [0m[38;2;177;185;249mYes[0m
    [0m[38;2;153;153;153m2. [0mYes, and always allow access to [0m[1m/tmp/cph-spike/repo [0mfrom this project
    [0m[38;2;153;153;153m3. [0mYes,
-      and switch to auto mode[0m[38;2;153;153;153m · auto mode handles these prompts for you[0m
+  and switch to auto mode[0m[38;2;153;153;153m · auto mode handles these prompts for you[0m
    [0m[38;2;153;153;153m4. [0mNo
 
  [0m[38;2;153;153;153mEsc to cancel · Tab to amend[0m

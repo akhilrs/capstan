@@ -8,7 +8,6 @@ import {
   type AuthenticatedActor,
 } from "./auth.js";
 import { sha256 } from "./canonical.js";
-import { controllerActionNeeded } from "./action-needed.js";
 import {
   DEFERRAL_REASONS,
   RESOLUTION_DECISIONS,
@@ -107,13 +106,9 @@ export class MessagesArea {
     body: string,
     bodyHash: string,
     now: string,
-    actionNeeded = false,
+    actionNeeded: boolean,
   ): string {
     const messageId = randomUUID();
-    // Every controller notice goes through here, so the controller's own texts are classified once, in this path.
-    const flagged =
-      actionNeeded ||
-      (this.#isControllerActor(senderActorId) && controllerActionNeeded(body));
     const sequence = (
       this.kernel.database
         .prepare(
@@ -139,19 +134,9 @@ export class MessagesArea {
         now,
         now,
         now,
-        flagged ? 1 : 0,
+        actionNeeded ? 1 : 0,
       );
     return messageId;
-  }
-
-  #isControllerActor(actorId: string): boolean {
-    return (
-      this.kernel.database
-        .prepare(
-          "SELECT 1 AS yes FROM actors WHERE project_id = ? AND actor_id = ? AND is_internal = 1",
-        )
-        .get(this.kernel.projectId, actorId) !== undefined
-    );
   }
 
   message(messageId: string): MessageRecord | undefined {

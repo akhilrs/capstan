@@ -389,11 +389,14 @@ function acceptsText(header: string, question: string, text: string): boolean {
 
 const OPTION_LINE = /^ (❯| ) (\d+)\. (\S.*)$/u;
 
+/** Claude soft-wraps a long option (one naming a long path) onto a line with a six-space hanging indent. */
+const OPTION_CONTINUATION = /^ {6}(\S.*)$/u;
+
 /**
  * Claude Code's permission dialog on a read of the pane: a rule line, the
  * header and detail, the question, numbered options with one `❯` marker and an
  * `Esc to cancel` footer that is the last line. Any other layout (a dialog
- * that is not last, two markers, wrapped options, control characters, text
+ * that is not last, two markers, an option wrapped by a bare line break, control characters, text
  * over the size limit) is undefined, as is every host but claude.
  */
 export function parseHostPrompt(
@@ -411,16 +414,26 @@ export function parseHostPrompt(
   let cursor = last - 1;
   if (cursor >= 0 && lines[cursor]!.trim() === "") cursor -= 1;
   const rows: Array<{ marked: boolean; number: number; text: string }> = [];
+  let continuation: string[] = [];
   while (cursor >= 0) {
-    const match = OPTION_LINE.exec(lines[cursor]!.trimEnd());
-    if (!match) break;
+    const line = lines[cursor]!.trimEnd();
+    const match = OPTION_LINE.exec(line);
+    if (!match) {
+      const wrapped = OPTION_CONTINUATION.exec(line);
+      if (!wrapped) break;
+      continuation.unshift(wrapped[1]!);
+      cursor -= 1;
+      continue;
+    }
     rows.unshift({
       marked: match[1] === "❯",
       number: Number(match[2]),
-      text: match[3]!,
+      text: [match[3]!, ...continuation].join(" "),
     });
+    continuation = [];
     cursor -= 1;
   }
+  if (continuation.length > 0) return undefined;
   if (rows.length < 2) return undefined;
   if (rows.some((row, index) => row.number !== index + 1)) return undefined;
   const markers = rows.flatMap((row, index) => (row.marked ? [index] : []));

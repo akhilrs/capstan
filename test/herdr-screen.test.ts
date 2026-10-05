@@ -605,6 +605,34 @@ test("the real screens with an open text field parse with the field's wording an
   );
 });
 
+test("parseHostPrompt reads the Claude 2.1.289 Bash prompt whose long-path option is soft-wrapped onto a hanging-indent line", () => {
+  const parsed = parseHostPrompt(
+    "claude",
+    prompt("claude-bash-permission-wrapped-option.ansi"),
+  )!;
+  assert.ok(parsed);
+  assert.deepEqual(
+    parsed.options.map((entry) => entry.number),
+    [1, 2, 3, 4],
+  );
+  assert.equal(
+    parsed.options[1]!.text,
+    "Yes, and always allow access to /tmp/cph-spikes/home/.herdr/worktrees/repo/chore-developer-1-developer from this project",
+  );
+  assert.equal(parsed.options[1]!.widensPermissions, true);
+  assert.equal(parsed.options[1]!.acceptsText, false);
+  assert.equal(parsed.options[3]!.text, "No");
+  assert.equal(parsed.selectedIndex, 0);
+  assert.ok(parsed.text.includes("touch relay-one.txt"));
+  // A continuation line with no option above it is not an option.
+  const orphan = prompt("claude-bash-permission-wrapped-option.ansi").replace(
+    "1. \u001b[0m\u001b[38;5;153mYes\u001b[0m",
+    "\u001b[0mnot an option\u001b[0m",
+  );
+  assert.notEqual(orphan, prompt("claude-bash-permission-wrapped-option.ansi"));
+  assert.equal(parseHostPrompt("claude", orphan), undefined);
+});
+
 test("wording no fixture proves is flagged by the heuristic only when it adds a rule or switches the mode", () => {
   const screen = prompt("claude-bash-permission.ansi")
     .replace(

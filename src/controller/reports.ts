@@ -246,6 +246,7 @@ export class ReportsArea {
       body,
       sha256(body),
       now,
+      false,
     );
     this.kernel.database
       .prepare(

@@ -64,6 +64,8 @@ Full auto switches off every guard for a limited time. While it is on, each Oper
 
 ## Restart and rollback
 
+Note: `npm run build` empties `dist/` first, so building in a live project makes `cstan` briefly unavailable until it ends; the restart below is the safe way to swap builds.
+
 `cstan op propose --restart [--force] "<reason>"` asks the controller to restart itself so a new build of `dist/` takes effect. There is one flag name: `--force` on `propose` (there is no `--force-restart` and no flag on `decide`); the hash covers it.
 
 1. **Refused without a rollback target.** The controller keeps a known-good copy of the build it is running in `.capstan/state/known-good/` (`dist/` plus `manifest.json` with `createdAt`, `controllerVersion`, `maxMigration` and the sha256 of `package.json`, `package-lock.json` and `node_modules/.package-lock.json`). It saves the copy 60 seconds after start, and only when `dist/` on disk still equals the build the controller loaded: a build run in that window never becomes known-good. Until the copy exists, `op propose --restart` is refused with `no_known_good`, and the check is repeated when the restart runs. A restart never starts without a rollback target. Restart proposals are also refused with `no_schema_probe` when Node has no `node:sqlite` (the helper reads the ledger schema with it; Node 22.5 or newer).

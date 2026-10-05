@@ -59,6 +59,8 @@ function isolatedEnvironment(
   environment.HOME = home;
   environment.PATH = `${binDirectory}:${process.env.PATH ?? ""}`;
   environment.TERM = "xterm-256color";
+  // The scratch HOME's rc files set the bash prompt the adapter waits for, so panes must run bash whatever the operator's login shell is.
+  environment.SHELL = "/bin/bash";
   return environment;
 }
 

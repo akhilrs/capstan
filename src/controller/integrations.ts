@@ -272,6 +272,7 @@ export class IntegrationsArea {
       body,
       sha256(body),
       now,
+      true,
     );
   }
 

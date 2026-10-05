@@ -92,6 +92,7 @@ export class OperatorRunsArea {
           this.areas.messageNotices.noticeToPm(
             `Operator proposal ${row.proposal_id} was approved automatically but not run: the run is paused (${paused.reason}). It is cancelled; the Operator may propose it again after resume.`,
             now,
+            false,
           );
           return {
             value: { claimed: false, reason: "run_paused", detail },
@@ -277,9 +278,10 @@ export class OperatorRunsArea {
       record.proposerAgentId,
       body,
       now,
+      false,
     );
     if (record.autoRule !== null)
-      this.areas.messageNotices.noticeToPm(body, now);
+      this.areas.messageNotices.noticeToPm(body, now, false);
     if (messageId !== null)
       this.kernel.database
         .prepare(

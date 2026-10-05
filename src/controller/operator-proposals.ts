@@ -324,7 +324,11 @@ export class OperatorProposalsArea {
             now,
           );
         const record = this.operatorRecord(this.operatorRow(proposalId)!);
-        this.areas.messageNotices.noticeToPm(proposalNoticeToPm(record), now);
+        this.areas.messageNotices.noticeToPm(
+          proposalNoticeToPm(record),
+          now,
+          true,
+        );
         const fullAuto = effectiveRule === FULL_AUTO_RULE;
         return {
           value: record,
@@ -528,6 +532,7 @@ export class OperatorProposalsArea {
           row.proposer_agent_id,
           decisionNotice(record, state),
           now,
+          false,
         );
         return {
           value: record,
@@ -593,6 +598,7 @@ export class OperatorProposalsArea {
             row.proposer_agent_id,
             endedWithoutRunNotice(record, "was cancelled; it was not run."),
             now,
+            false,
           );
         return {
           value: record,
@@ -657,9 +663,14 @@ export class OperatorProposalsArea {
     this.setOperatorState(row, "expired", now);
     const record = this.operatorRecord(this.operatorRow(row.proposal_id)!);
     const body = expiredNotice(record, behind);
-    this.areas.messageNotices.noticeToAgent(row.proposer_agent_id, body, now);
+    this.areas.messageNotices.noticeToAgent(
+      row.proposer_agent_id,
+      body,
+      now,
+      false,
+    );
     if (row.state === "approved")
-      this.areas.messageNotices.noticeToPm(body, now);
+      this.areas.messageNotices.noticeToPm(body, now, false);
   }
 
   expireOperatorProposals(

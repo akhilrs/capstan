@@ -35,6 +35,25 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
   { plugins: { capstan } },
+  {
+    // The landing page is a plain browser script, not TypeScript or Node.
+    files: ["site/**/*.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: Object.fromEntries(
+        [
+          "clearTimeout",
+          "document",
+          "localStorage",
+          "navigator",
+          "requestAnimationFrame",
+          "setTimeout",
+          "window",
+        ].map((name) => [name, "readonly"]),
+      ),
+    },
+    rules: { "no-undef": "error" },
+  },
   { files: ["src/**"], rules: limits(1500, 800) },
   { files: ["test/**"], rules: limits(3000, 1500) },
   {

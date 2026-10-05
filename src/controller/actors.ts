@@ -482,6 +482,7 @@ export class ActorsArea {
         body,
         sha256(body),
         now,
+        true,
       );
     }
     return true;

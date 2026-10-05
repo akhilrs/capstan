@@ -339,19 +339,21 @@ Run from source instead of installing a release:
 ```sh
 git clone <this repository> capstan && cd capstan
 npm install
-npm run build          # compiles to dist/ and copies migrations
+npm run build          # empties dist/, compiles to dist/ and copies migrations
 npm link               # puts the cstan binary (dist/src/cli.js) on your PATH
 ```
 
 Day to day:
 
 ```sh
-npm run build          # tsc, copy migrations
+npm run build          # empties dist/, then tsc and copy migrations
 npm test               # build, then node --test dist/test/*.test.js
 npm run lint           # eslint src test
 npm run format:check   # prettier
 npm run check          # lint + format:check + test
 ```
+
+`npm run build` first removes `dist/` so output of deleted sources cannot linger. The daemon runs from `dist/`, so rebuilding in a live project briefly makes `cstan` unavailable; use the Operator restart (`cstan op propose --restart`), which swaps the build safely, instead of building under a running controller.
 
 A standalone Node-free binary (Linux x64 and arm64) comes from `npm run build:binary`; check it with `npm run smoke:binary`. `npm run release` builds the tarball and both binaries with `SHA256SUMS` and prints the publish command without running it. See [docs/binary.md](docs/binary.md).
 

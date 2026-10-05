@@ -25,11 +25,12 @@
   "scripts": {
     "prepack": "npm run build",
     "release": "node scripts/release.mjs",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs && chmod 755 dist/src/cli.js",
     "test": "npm run build && node scripts/run-tests.mjs",
-    "lint": "eslint src test",
-    "format:check": "prettier --check src test scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
-    "format": "prettier --write src test scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
+    "lint": "eslint src test site",
+    "format:check": "prettier --check src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
+    "format": "prettier --write src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
     "check": "npm run lint && npm run format:check && npm test",
     "build:binary": "node scripts/build-binary.mjs",
     "smoke:binary": "sh scripts/smoke-binary.sh"

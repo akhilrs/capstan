@@ -231,6 +231,7 @@ export class PlansArea {
     this.areas.messageNotices.noticeToPm(
       planApprovedNotice(plan.plan_id, bodyJson, this.#approvalNote(plan)),
       now,
+      true,
     );
   }
 
@@ -361,6 +362,7 @@ export class PlansArea {
         const announced = this.areas.messageNotices.noticeToPm(
           body,
           this.kernel.now(),
+          true,
         );
         return {
           value: { announced },
@@ -440,6 +442,7 @@ export class PlansArea {
               body,
               sha256(body),
               now,
+              false,
             );
           }
         }
@@ -549,7 +552,12 @@ export class PlansArea {
   }
 
   /** Queues a controller notice to the plan's architect (while active) and to the sole active PM; returns the agents told. The caller owns the transaction. */
-  queuePlanNotice(plan: PlanRow, body: string, now: string): string[] {
+  queuePlanNotice(
+    plan: PlanRow,
+    body: string,
+    now: string,
+    actionNeeded: boolean,
+  ): string[] {
     const parties = this.areas.messageNotices.noticeParties();
     if (parties === undefined) return [];
     const recipients: AgentRow[] = [parties.pm];
@@ -565,6 +573,7 @@ export class PlansArea {
         body,
         sha256(body),
         now,
+        actionNeeded,
       );
     return recipients.map((r) => r.agent_id);
   }

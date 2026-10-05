@@ -321,7 +321,7 @@ export interface RestartCoordinatorOptions {
   readonly healthTimeoutSeconds: number;
   readonly idleWaitSeconds: number;
   readonly busy: () => readonly string[];
-  readonly notifyPm: (body: string) => void;
+  readonly notifyPm: (body: string, actionNeeded: boolean) => void;
   /** The same graceful stop as the `shutdown` route. */
   readonly requestStop: () => void;
   readonly pid?: number;
@@ -381,6 +381,7 @@ export function createRestartCoordinator(
     try {
       options.notifyPm(
         `Operator restart refused (${error.code}): ${error.message}`,
+        true,
       );
     } catch (notifyError) {
       log("restart_pm_notice_failed", { error: String(notifyError) });
@@ -671,7 +672,7 @@ export interface RestartRecoveryDeps {
     report: RestartRunReport,
     durationMs: number,
   ) => void;
-  readonly notifyPm: (body: string) => void;
+  readonly notifyPm: (body: string, actionNeeded: boolean) => void;
   readonly now?: () => number;
   readonly log?: (event: string, details: Record<string, unknown>) => void;
 }
@@ -699,7 +700,10 @@ export function recoverRestartResults(
     const startedAt =
       proposal.run === null ? now() : Date.parse(proposal.run.startedAt);
     try {
-      deps.notifyPm(restartNoticeToPm(proposal.proposalId, result));
+      deps.notifyPm(
+        restartNoticeToPm(proposal.proposalId, result),
+        result.outcome !== "ok",
+      );
     } catch (error) {
       log("restart_pm_notice_failed", {
         proposalId: proposal.proposalId,

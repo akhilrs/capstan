@@ -836,7 +836,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           : path.dirname(
               path.dirname(options.cliPath ?? process.argv[1] ?? ""),
             ));
-      const notifyPm = (body: string): void => {
+      const notifyPm = (body: string, actionNeeded: boolean): void => {
         const pm = core!
           .listAgents()
           .find((agent) => agent.kind === "PM" && agent.state === "active");
@@ -847,6 +847,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         core!.enqueueMessage(newContext(core!, credential), {
           recipientAgentId: pm.agentId,
           body,
+          actionNeeded,
         });
       };
       const coordinator = restartModule.createRestartCoordinator({

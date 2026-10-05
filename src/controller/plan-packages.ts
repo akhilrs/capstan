@@ -276,6 +276,7 @@ export class PlanPackagesArea {
         task,
         sha256(task),
         now,
+        false,
       );
       this.kernel.database
         .prepare(
@@ -431,6 +432,7 @@ export class PlanPackagesArea {
             summary,
           ),
           now,
+          true,
         );
         return {
           value: {
@@ -620,6 +622,7 @@ export class PlanPackagesArea {
           plan,
           planCancelledNotice(input.planId, input.packageId),
           now,
+          true,
         );
         const held = this.planPackageRows(input.planId).filter((row) =>
           cancelledPackages.includes(row.package_id),
@@ -637,6 +640,7 @@ export class PlanPackagesArea {
             body,
             sha256(body),
             now,
+            false,
           );
           if (!notified.includes(developer.agent_id))
             notified.push(developer.agent_id);

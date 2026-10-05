@@ -331,6 +331,7 @@ export class ReviewsArea {
           task,
           sha256(task),
           now,
+          false,
         );
         return {
           value: reviewRecord(row),
@@ -453,6 +454,7 @@ export class ReviewsArea {
         this.areas.messageNotices.noticeToPm(
           planNeedsAttentionNotice(plan.plan_id),
           now,
+          true,
         );
       return;
     }
@@ -511,7 +513,8 @@ export class ReviewsArea {
         "SELECT 1 AS present FROM messages WHERE project_id = ? AND body = ?",
       )
       .get(this.kernel.projectId, body);
-    if (sent === undefined) this.areas.messageNotices.noticeToPm(body, now);
+    if (sent === undefined)
+      this.areas.messageNotices.noticeToPm(body, now, true);
   }
 
   #reviewAuthorIds(row: ReviewRow): string[] {
@@ -545,6 +548,7 @@ export class ReviewsArea {
       body,
       sha256(body),
       now,
+      false,
     );
     this.kernel.database
       .prepare(

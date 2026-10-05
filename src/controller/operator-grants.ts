@@ -163,6 +163,7 @@ export class OperatorGrantsArea {
       source.proposer_agent_id,
       grantEndedNotice(this.#grantRecord(row), reason),
       now,
+      false,
     );
   }
 
@@ -325,7 +326,7 @@ export class OperatorGrantsArea {
         const now = this.kernel.now();
         if (input.change !== "startup") {
           const body = fullAutoNotice(input.change, input.minutes ?? null);
-          this.areas.messageNotices.noticeToPm(body, now);
+          this.areas.messageNotices.noticeToPm(body, now, false);
           for (const operator of this.kernel.database
             .prepare(
               "SELECT * FROM agents WHERE project_id = ? AND role_name = ? AND state = 'active'",
@@ -335,6 +336,7 @@ export class OperatorGrantsArea {
               operator.agent_id,
               body,
               now,
+              false,
             );
         }
         return {
@@ -390,8 +392,9 @@ export class OperatorGrantsArea {
           row.proposer_agent_id,
           body,
           now,
+          false,
         );
-        this.areas.messageNotices.noticeToPm(body, now);
+        this.areas.messageNotices.noticeToPm(body, now, false);
         return {
           value: record,
           event: this.areas.operatorProposals.operatorEvent(

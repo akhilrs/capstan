@@ -244,7 +244,7 @@ export interface OperatorServiceOptions {
   /** Refuses a restart proposal that could not run (throws an OperatorError); returns a warning for the PM, or null. */
   readonly restartPreflight?: () => { readonly warning: string | null };
   /** Sends a controller message to the active PM. */
-  readonly notifyPm?: (body: string) => void;
+  readonly notifyPm?: (body: string, actionNeeded: boolean) => void;
   readonly processes?: ProcessOperations;
   /** Milliseconds from a source that never runs backwards; full auto is timed with it so a wall-clock jump cannot lengthen it. */
   readonly monotonicNow?: () => number;
@@ -599,6 +599,7 @@ export function createOperatorService(
         try {
           options.notifyPm?.(
             `Operator proposal ${record.proposalId} (restart): ${restartWarning}.`,
+            true,
           );
         } catch (error) {
           log("operator_warning_not_sent", { error: String(error) });

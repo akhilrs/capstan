@@ -131,6 +131,7 @@ export class PausesArea {
         this.areas.messageNotices.noticeToPm(
           `The operator paused the run: ${pauseReason}. Workers are held and spawn, plan assign, request-review and integrate are refused until \`cstan resume --reason "<text>"\`. You keep receiving messages.`,
           now,
+          false,
         );
       else if (
         caller.role === "operator" &&
@@ -140,6 +141,7 @@ export class PausesArea {
         this.areas.messageNotices.noticeToPm(
           `The operator resumed the run: ${pauseReason}. Held messages are delivered in order.`,
           now,
+          false,
         );
       return {
         value: { state: toState },
@@ -345,6 +347,7 @@ export class PausesArea {
             this.areas.messageNotices.noticeToPm(
               `The operator paused ${target.agent_id}: ${reason}. Its messages are held until \`cstan resume ${target.agent_id} --reason "<text>"\`.`,
               now,
+              false,
             );
         } else {
           if (open === undefined)
@@ -356,6 +359,7 @@ export class PausesArea {
             this.areas.messageNotices.noticeToPm(
               `The operator resumed ${target.agent_id}: ${reason}. Its held messages are delivered in order.`,
               now,
+              false,
             );
         }
         const record: PauseRecord = open ?? {

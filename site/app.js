@@ -30,7 +30,7 @@
 
   function legacyCopy() {
     selectCommand();
-    try { return document.execCommand("copy"); } catch (e) { return false; }
+    try { return document.execCommand("copy"); } catch { return false; }
   }
 
   function failed() {
@@ -46,7 +46,10 @@
   btn.addEventListener("click", function () {
     var cmd = text.textContent;
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(cmd).then(copied, function () { legacyCopy() ? copied() : failed(); });
+      navigator.clipboard.writeText(cmd).then(copied, function () {
+        if (legacyCopy()) copied();
+        else failed();
+      });
     } else if (legacyCopy()) {
       copied();
     } else {
@@ -70,7 +73,7 @@
   toggle.addEventListener("click", function () {
     var next = current() === "dark" ? "light" : "dark";
     root.dataset.theme = next;
-    try { localStorage.setItem("capstan-theme", next); } catch (e) {}
+    try { localStorage.setItem("capstan-theme", next); } catch {}
     label();
   });
 

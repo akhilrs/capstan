@@ -62,7 +62,7 @@ export class MessageNoticesArea {
   }
 
   /** Queues a controller notice to the one active PM; false when there is none, and then the reconcile loop re-sends it (unannouncedPlanNotices). The caller owns the transaction. */
-  noticeToPm(body: string, now: string): boolean {
+  noticeToPm(body: string, now: string, actionNeeded: boolean): boolean {
     const parties = this.noticeParties();
     if (parties === undefined) return false;
     this.areas.messages.insertQueuedMessage(
@@ -71,6 +71,7 @@ export class MessageNoticesArea {
       body,
       sha256(body),
       now,
+      actionNeeded,
     );
     return true;
   }
@@ -292,6 +293,7 @@ export class MessageNoticesArea {
     episode: string,
     body: string,
     now: string,
+    actionNeeded: boolean,
   ): boolean {
     const parties = this.noticeParties();
     if (parties === undefined) return false;
@@ -307,6 +309,7 @@ export class MessageNoticesArea {
       body,
       sha256(body),
       now,
+      actionNeeded,
     );
     this.kernel.database
       .prepare(
@@ -353,6 +356,7 @@ export class MessageNoticesArea {
         first,
       ),
       now,
+      true,
     );
   }
 
@@ -472,6 +476,7 @@ export class MessageNoticesArea {
           episode,
           body,
           this.kernel.now(),
+          true,
         );
         return {
           value: { queued },
@@ -532,6 +537,7 @@ export class MessageNoticesArea {
               String(episode.episodeMs),
               body,
               now,
+              true,
             )
           )
             queued += 1;
@@ -705,6 +711,7 @@ export class MessageNoticesArea {
           body,
           sha256(body),
           now,
+          false,
         );
         this.kernel.database
           .prepare(
@@ -915,7 +922,12 @@ export class MessageNoticesArea {
   }
 
   /** A controller message to one active agent; null when the agent has ended. The caller owns the transaction. */
-  noticeToAgent(agentId: string, body: string, now: string): string | null {
+  noticeToAgent(
+    agentId: string,
+    body: string,
+    now: string,
+    actionNeeded: boolean,
+  ): string | null {
     const agent = this.kernel.agentRow(agentId);
     if (agent?.state !== "active") return null;
     return this.areas.messages.insertQueuedMessage(
@@ -924,6 +936,7 @@ export class MessageNoticesArea {
       body,
       sha256(body),
       now,
+      actionNeeded,
     );
   }
 }

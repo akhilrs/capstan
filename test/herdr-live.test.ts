@@ -43,7 +43,12 @@ test(
     const live = await startLiveEnvironment();
     try {
       const { adapter, repo } = live;
-      assert.equal(await adapter.version(), "herdr 0.9.1");
+      // Tested on 0.9.1; any 0.9.x from there on keeps the CLI surface the adapter uses.
+      const version = /^herdr 0\.9\.(\d+)$/.exec(await adapter.version());
+      assert.ok(
+        version !== null && Number(version[1]) >= 1,
+        "unsupported Herdr version: the adapter needs 0.9.x with x >= 1",
+      );
 
       // A fresh isolated session has notifications disabled: Herdr answers
       // exit 0 with shown:false, and the adapter must report that as a failure.

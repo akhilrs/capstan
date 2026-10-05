@@ -112,6 +112,7 @@ export class FindingsArea {
       body,
       sha256(body),
       now,
+      true,
     );
     this.kernel.database
       .prepare(
@@ -491,6 +492,7 @@ export class FindingsArea {
       body,
       sha256(body),
       now,
+      true,
     );
     this.kernel.database
       .prepare(
