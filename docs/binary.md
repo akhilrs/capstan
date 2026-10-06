@@ -52,11 +52,44 @@ runtime uses the built-in `node:sqlite`, so `better-sqlite3` and `fs-ext` are go
 ## Releases and install
 
 `npm run release` packs the npm tarball, builds both binaries (`npm run build:binary`) and writes
-`capstan-controller-<v>.tgz`, `cstan-<v>-linux-x64`, `cstan-<v>-linux-arm64` and a `SHA256SUMS` listing all three to
+`capstan-controller-<v>.tgz`, `cstan-<v>-linux-x64`, `cstan-<v>-linux-arm64`, the two `cstan-dash-<v>-linux-<arch>` files and a `SHA256SUMS` listing all of them to
 `release/` (or `$CSTAN_RELEASE_DIR`). It prints the `gh release create` command and never runs it.
 [`install.sh`](../install.sh) installs the binary for the machine when the release's `SHA256SUMS` lists it, checks it with
 `<binary> --version`, and links it; no Node is needed. `--no-binary` forces the npm tarball. See
 [Install reference](reference/install.md).
+
+## The Rust dashboard (`cstan-dash`)
+
+`cstan dash` runs a Rust program, `cstan-dash` (source in `dash/`), when it can find one, and the Node dashboard
+otherwise. It is a separate small static binary, not part of the SEA.
+
+- **Build.** `npm run build:dash` runs `cargo build --release --locked` in `dash/` and leaves
+  `dash/target/release/cstan-dash`, where a source checkout finds it. `npm run build:dash -- --target linux-x64`
+  (or `linux-arm64`, repeatable) builds the static musl binary and writes `release/cstan-dash-<version>-linux-<arch>`.
+  The musl targets need `rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl`;
+  `dash/.cargo/config.toml` links aarch64 with `rust-lld`, so no cross gcc is needed.
+- **Release.** `npm run release` builds both cstan-dash targets after the cstan binaries and lists them in `SHA256SUMS`
+  and in the `gh release create` command. `--no-dash` skips them; without `cargo` the release fails unless
+  `--no-dash` is given. `--dry-run` lists every asset.
+- **Install.** `install.sh` installs `cstan-dash` beside `cstan` (`current/bin/`) when `SHA256SUMS` lists it, after
+  checking it the same way as the binary. A release without it installs `cstan` alone and says so.
+- **Launch.** Before loading react or ink, `runDash` searches in this order and takes the first executable file:
+  `CSTAN_DASH_BIN` (absolute path); beside the realpath of the running `cstan` (the SEA binary and the installer's
+  `current/bin/`); `<repo>/dash/target/release/cstan-dash` when running from `dist/src/cli.js`;
+  `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`.
+  `CSTAN_DASH=node` skips the search and runs the Node dashboard; `CSTAN_DASH=rust` fails when none is found.
+- **Probe.** A candidate is used only after `<bin> --version` (2 s limit) prints `cstan-dash <version>`; a file that
+  does not run is skipped for the next one, and `CSTAN_DASH=rust` then fails naming it.
+- **Hand-over.** The dashboard replaces the `cstan` process with `process.execve` (experimental in Node 24, so no
+  Node process stays resident) with `--socket`, `--interval`, `--worker-limit` (when known), `--no-color` and
+  `--reduced-motion`. The environment loses `CAPSTAN_TOKEN` and `CAPSTAN_SOCKET` and gains `CSTAN_DASH_CREDENTIAL`.
+  `execve` aborts the process when the exec fails, so it is only used for an ELF file or a script with an executable
+  interpreter; anything else is run as a child with inherited stdio, `SIGTERM`/`SIGHUP` forwarded and the child's
+  exit code returned. A candidate that cannot be started (ENOENT, EACCES, ENOEXEC) falls back to the Node dashboard.
+- **Fallback.** With no binary, `cstan dash` runs the Node dashboard and prints one line after it exits:
+  `cstan: using the Node dashboard; install cstan-dash for lower CPU and memory: ...`.
+- **Credential.** The operator credential is in the dashboard's environment, readable by the same user through
+  `/proc`; the key file is readable by that user anyway.
 
 ## Operator restart
 

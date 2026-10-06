@@ -43,6 +43,8 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 | `--version <x.y.z>`     | `CAPSTAN_VERSION`      | Release to install. Default: the latest, read from the redirect of `https://github.com/akhilrs/capstan/releases/latest` (no API call).                                                                  |
 | `--binary <path\|url>`  | `CAPSTAN_BINARY`       | Install this standalone binary instead of a release. Verified against `--sha256`, or against the `SHA256SUMS` file next to it (a `SHA256SUMS` without an entry for the file aborts). For local testing. |
 | `--no-binary`           | —                      | Install the npm tarball even when the release has a binary for this machine.                                                                                                                            |
+| `--dash-binary <file>`  | —                      | Install this `cstan-dash` (the Rust dashboard) beside `cstan`. Verified against the `SHA256SUMS` next to it when there is one.                                                                          |
+| `--no-dash`             | —                      | Do not install `cstan-dash`.                                                                                                                                                                            |
 | `--tarball <path\|url>` | `CAPSTAN_TARBALL`      | Install this npm tarball instead of a release. Skips the release lookup. For local testing.                                                                                                             |
 | `--sha256 <hex>`        | `CAPSTAN_SHA256`       | Expected checksum. With `--binary` or `--tarball` it can be the only verification; with a release it must also match `SHA256SUMS`.                                                                      |
 | `--home <dir>`          | `CAPSTAN_HOME`         | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                                                                                                                 |
@@ -54,6 +56,12 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 Options win over environment variables.
 
 **Which path.** `--binary` installs a binary. `--tarball` or `--no-binary` installs the tarball. Otherwise the installer reads the release's `SHA256SUMS`: if it lists `cstan-<version>-<os>-<arch>` for this machine (`linux-x64` or `linux-arm64`; macOS binaries are not published) it installs that binary, and if not it says so and installs the tarball (older releases have no binaries).
+
+**The dashboard.** When the release's `SHA256SUMS` also lists `cstan-dash-<version>-<os>-<arch>`, the installer downloads it, checks the sha256 (a mismatch aborts and leaves the previous install alone) and puts it at `current/bin/cstan-dash`, for binary and tarball installs alike. A release without it installs `cstan` alone with a note. `--no-dash` skips it.
+
+### The dashboard binary (`cstan-dash`)
+
+`cstan dash` uses `cstan-dash` for lower CPU and memory, and runs the Node dashboard when none is found (it then prints one hint line after it exits). Search order, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running `cstan` (`current/bin/`); `<repo>/dash/target/release/cstan-dash` when running from `dist/src/cli.js`; `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`. `CSTAN_DASH=node` always runs the Node dashboard; `CSTAN_DASH=rust` fails when no binary is found. A candidate that cannot be started falls back to the Node dashboard. In a source checkout build it with `npm run build:dash` (needs Rust). The operator credential reaches it as `CSTAN_DASH_CREDENTIAL` in its environment, readable only by the same user. See [Standalone binary](../binary.md).
 
 ## Layout and upgrades
 
@@ -126,10 +134,10 @@ History: before the native dependencies (`fs-ext`, `better-sqlite3`) were remove
 The user runs these; the installer and agents do not publish.
 
 ```sh
-npm run release                                  # tarball, both binaries and SHA256SUMS in release/
+npm run release                                  # tarball, both binaries, both cstan-dash and SHA256SUMS in release/ (--no-dash skips cstan-dash; --dry-run lists the assets)
 git tag v0.1.1 && git push origin main v0.1.1
 gh release create v0.1.1 release/capstan-controller-0.1.1.tgz release/cstan-0.1.1-linux-x64 \
-  release/cstan-0.1.1-linux-arm64 release/SHA256SUMS --title v0.1.1 --notes "Capstan 0.1.1"
+  release/cstan-0.1.1-linux-arm64 release/cstan-dash-0.1.1-linux-x64 release/cstan-dash-0.1.1-linux-arm64 release/SHA256SUMS --title v0.1.1 --notes "Capstan 0.1.1"
 ```
 
 `npm run release` builds the binaries (about 130 MB each; the first run downloads the Node archives from nodejs.org) and prints the exact `gh release create` command; it never runs it. The asset names must be `capstan-controller-<version>.tgz` and `cstan-<version>-<os>-<arch>`, with `SHA256SUMS` listing all of them, on tag `v<version>`. Set `CSTAN_RELEASE_DIR` to write somewhere other than `release/`. Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.

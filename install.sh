@@ -42,6 +42,9 @@ Options:
   --binary <path|url>   Install this standalone binary instead of a release (env CAPSTAN_BINARY).
                         Verified against --sha256 or the SHA256SUMS file next to it.
   --no-binary           Install the npm tarball even when the release has a binary for this machine.
+  --dash-binary <file>  Install this cstan-dash (the Rust dashboard) next to cstan. Verified against the
+                        SHA256SUMS file next to it when there is one.
+  --no-dash             Do not install cstan-dash even when the release has one.
   --tarball <path|url>  Install this npm tarball instead of a release (env CAPSTAN_TARBALL).
   --sha256 <hex>        Expected sha256 of the binary or tarball (env CAPSTAN_SHA256).
   --home <dir>          Install root (env CAPSTAN_HOME).
@@ -51,6 +54,8 @@ Options:
   --uninstall           Remove the install and the bin symlink.
   --help                Show this help.
 
+A release that lists cstan-dash-<version>-<os>-<arch> in SHA256SUMS also gets cstan-dash, checked the same way;
+without it `cstan dash` runs the Node dashboard.
 The binary needs no Node.js. The tarball path needs Node 24 and npm.
 Environment: CAPSTAN_RELEASE_BASE overrides https://github.com/akhilrs/capstan/releases (tests).
 Re-running the installer upgrades. Project .capstan/ directories are never touched.
@@ -70,6 +75,8 @@ parse_args() {
   TARBALL="${CAPSTAN_TARBALL:-}"
   BINARY="${CAPSTAN_BINARY:-}"
   NO_BINARY=0
+  DASH_BINARY=""
+  NO_DASH=0
   SHA256="${CAPSTAN_SHA256:-}"
   HOME_DIR="${CAPSTAN_HOME:-}"
   BIN_DIR="${CAPSTAN_BIN_DIR:-}"
@@ -77,24 +84,26 @@ parse_args() {
   UNINSTALL=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --version | --tarball | --binary | --sha256 | --home | --bin-dir)
+      --version | --tarball | --binary | --dash-binary | --sha256 | --home | --bin-dir)
         [ $# -ge 2 ] || die "$1 needs a value"
         case "$1" in
           --version) VERSION="$2" ;;
           --tarball) TARBALL="$2" ;;
           --binary) BINARY="$2" ;;
+          --dash-binary) DASH_BINARY="$2" ;;
           --sha256) SHA256="$2" ;;
           --home) HOME_DIR="$2" ;;
           --bin-dir) BIN_DIR="$2" ;;
         esac
         shift 2
         ;;
-      --version=* | --tarball=* | --binary=* | --sha256=* | --home=* | --bin-dir=*)
+      --version=* | --tarball=* | --binary=* | --dash-binary=* | --sha256=* | --home=* | --bin-dir=*)
         value="${1#*=}"
         case "$1" in
           --version=*) VERSION="$value" ;;
           --tarball=*) TARBALL="$value" ;;
           --binary=*) BINARY="$value" ;;
+          --dash-binary=*) DASH_BINARY="$value" ;;
           --sha256=*) SHA256="$value" ;;
           --home=*) HOME_DIR="$value" ;;
           --bin-dir=*) BIN_DIR="$value" ;;
@@ -103,6 +112,10 @@ parse_args() {
         ;;
       --no-binary)
         NO_BINARY=1
+        shift
+        ;;
+      --no-dash)
+        NO_DASH=1
         shift
         ;;
       --uninstall)
@@ -129,6 +142,7 @@ parse_args() {
   fi
   [ -z "$BINARY" ] || [ -z "$TARBALL" ] || die "--binary and --tarball are exclusive"
   [ -z "$BINARY" ] || [ "$NO_BINARY" = 0 ] || die "--binary and --no-binary are exclusive"
+  [ -z "$DASH_BINARY" ] || [ "$NO_DASH" = 0 ] || die "--dash-binary and --no-dash are exclusive"
   case "$HOME_DIR" in /*) ;; *) die "--home must be an absolute path: $HOME_DIR" ;; esac
   case "$BIN_DIR" in /*) ;; *) die "--bin-dir must be an absolute path: $BIN_DIR" ;; esac
   HOME_DIR="${HOME_DIR%/}"
@@ -368,6 +382,44 @@ obtain_binary() {
   fi
 }
 
+# Fetches cstan-dash into TMP_DIR, verifies it and sets DASH_FILE (empty when none is installed). Runs after the
+# release is known, so VERSION and PLATFORM are set. A release without a cstan-dash asset installs cstan alone.
+obtain_dash() {
+  DASH_FILE=""
+  [ "$NO_DASH" = 0 ] || return 0
+  if [ -n "$DASH_BINARY" ]; then
+    [ -f "$DASH_BINARY" ] || die "cstan-dash not found: $DASH_BINARY"
+    DASH_FILE="$TMP_DIR/cstan-dash"
+    cp "$DASH_BINARY" "$DASH_FILE"
+    dash_name="${DASH_BINARY##*/}"
+    dash_sums="${DASH_BINARY%/*}/SHA256SUMS"
+    if [ -f "$dash_sums" ]; then
+      dash_expected="$(sums_entry "$dash_sums" "$dash_name")"
+      [ -n "$dash_expected" ] || die "SHA256SUMS has no entry for $dash_name; refusing to install."
+      [ "$(sha256_of "$DASH_FILE")" = "$(lower "$dash_expected")" ] ||
+        die "sha256 mismatch for $dash_name; refusing to install."
+      say "cstan-dash checksum verified against SHA256SUMS."
+    else
+      warn "installing cstan-dash without a SHA256SUMS file next to it: it is unverified."
+    fi
+    return 0
+  fi
+  [ -z "$BINARY" ] && [ -z "$TARBALL" ] && [ -n "$PLATFORM" ] && [ -n "$VERSION" ] || return 0
+  dash_base="$RELEASE_BASE/download/v$VERSION"
+  [ -f "$TMP_DIR/SHA256SUMS" ] || fetch "$dash_base/SHA256SUMS" "$TMP_DIR/SHA256SUMS" || return 0
+  dash_name="cstan-dash-$VERSION-$PLATFORM"
+  dash_expected="$(sums_entry "$TMP_DIR/SHA256SUMS" "$dash_name")"
+  if [ -z "$dash_expected" ]; then
+    say "Note: Capstan $VERSION has no cstan-dash for $PLATFORM; installing cstan alone (cstan dash uses the Node dashboard)."
+    return 0
+  fi
+  DASH_FILE="$TMP_DIR/cstan-dash"
+  fetch "$dash_base/$dash_name" "$DASH_FILE" || die "could not download $dash_base/$dash_name."
+  [ "$(sha256_of "$DASH_FILE")" = "$(lower "$dash_expected")" ] ||
+    die "sha256 mismatch for $dash_name; refusing to install."
+  say "cstan-dash checksum verified against SHA256SUMS."
+}
+
 installed_version() {
   [ -x "$CURRENT/bin/cstan" ] || return 0
   "$CURRENT/bin/cstan" --version 2>/dev/null </dev/null | sed -n 's/^cstan //p' | head -n 1 || true
@@ -404,6 +456,20 @@ stage_binary() {
   mkdir -p "$STAGING/bin"
   cp "$BIN_FILE" "$STAGING/bin/cstan"
   chmod 755 "$STAGING/bin/cstan"
+}
+
+# Puts the verified cstan-dash beside cstan, where the resolver looks for it. A file that does not run (for example
+# built for another CPU) is dropped with a warning rather than failing the whole install.
+stage_dash() {
+  [ -n "$DASH_FILE" ] || return 0
+  mkdir -p "$STAGING/bin"
+  cp "$DASH_FILE" "$STAGING/bin/cstan-dash"
+  chmod 755 "$STAGING/bin/cstan-dash"
+  if ! "$STAGING/bin/cstan-dash" --version </dev/null >/dev/null 2>&1; then
+    rm -f "$STAGING/bin/cstan-dash"
+    DASH_FILE=""
+    warn "cstan-dash does not run on this machine; installed cstan alone."
+  fi
 }
 
 # Runs the staged cstan, checks its version and swaps it in as current.
@@ -448,6 +514,9 @@ report_success() {
   say ""
   say "Installed cstan $VERSION"
   say "  command: $BIN_LINK -> $CURRENT/bin/cstan"
+  if [ -n "$DASH_FILE" ]; then
+    say "  dashboard: $CURRENT/bin/cstan-dash (cstan dash uses it)"
+  fi
   case ":${PATH:-}:" in
     *":$BIN_DIR:"*) ;;
     *)
@@ -510,13 +579,17 @@ main() {
   choose_kind
   if [ "$KIND" = binary ]; then
     obtain_binary
+    obtain_dash
     prepare_install
     stage_binary
+    stage_dash
   else
     check_node
     obtain_tarball
+    obtain_dash
     prepare_install
     stage_tarball
+    stage_dash
   fi
   activate_staged
   report_success

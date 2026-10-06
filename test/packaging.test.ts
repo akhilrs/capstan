@@ -118,10 +118,19 @@ if [ "$1" = run ] && [ "$2" = build:binary ]; then
   for t in linux-x64 linux-arm64; do printf "binary-$t" > "release/cstan-$V-$t"; done
   exit 0
 fi
+if [ "$1" = run ] && [ "$2" = build:dash ]; then
+  mkdir -p release
+  for t in linux-x64 linux-arm64; do printf "dash-$t" > "release/cstan-dash-$V-$t"; done
+  exit 0
+fi
 exit 0
 `,
     { mode: 0o755 },
   );
+  // The release script wants cargo for cstan-dash; the stub npm builds the files.
+  fs.writeFileSync(path.join(dir, "bin", "cargo"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
   const git = (...args: string[]) =>
     spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
       cwd: dir,
@@ -269,15 +278,45 @@ test("release script creates a missing nested release dir and writes SHA256SUMS"
       sums,
       `${sha("tarball")}  stub-pkg-1.1.0.tgz\n` +
         `${sha("binary-linux-x64")}  cstan-1.1.0-linux-x64\n` +
-        `${sha("binary-linux-arm64")}  cstan-1.1.0-linux-arm64\n`,
+        `${sha("binary-linux-arm64")}  cstan-1.1.0-linux-arm64\n` +
+        `${sha("dash-linux-x64")}  cstan-dash-1.1.0-linux-x64\n` +
+        `${sha("dash-linux-arm64")}  cstan-dash-1.1.0-linux-arm64\n`,
     );
     assert.equal(
       fs.existsSync(path.join(box.dir, "release", "cstan-1.1.0-linux-x64")),
       false,
     );
     assert.equal(
+      fs.existsSync(
+        path.join(box.dir, "release", "cstan-dash-1.1.0-linux-x64"),
+      ),
+      false,
+    );
+    assert.equal(
       fs.existsSync(path.join(box.dir, "npm-shrinkwrap.json")),
       false,
+    );
+  } finally {
+    box.cleanup();
+  }
+});
+
+test("release --no-dash leaves cstan-dash out; --dry-run lists it otherwise", () => {
+  const box = releaseSandbox();
+  try {
+    const dry = box.run(["--dry-run"]);
+    assert.match(String(dry.stdout), /cstan-dash-1\.1\.0-linux-x64/);
+    assert.match(String(dry.stdout), /cstan-dash-1\.1\.0-linux-arm64/);
+    const skipped = box.run(["--dry-run", "--no-dash"]);
+    assert.doesNotMatch(String(skipped.stdout), /cstan-dash-1/);
+    const result = box.run(["--no-dash"], {
+      STUB_PACK_OK: "1",
+      CSTAN_RELEASE_DIR: "out",
+    });
+    assert.equal(result.status, 0, String(result.stderr));
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(box.dir, "out", "SHA256SUMS"), "utf8"),
+      /cstan-dash/,
     );
   } finally {
     box.cleanup();

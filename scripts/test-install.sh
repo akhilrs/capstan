@@ -1,6 +1,6 @@
 #!/bin/sh
-# Smoke test for install.sh. Builds the release assets (npm run release: the npm tarball and the
-# standalone binaries) and runs every install scenario against temp HOME / CAPSTAN_HOME /
+# Smoke test for install.sh. Builds the release assets (npm run release --no-dash: the npm tarball and the
+# standalone binaries; cstan-dash scenarios use fake dashboards, so cargo is not needed) and runs every install scenario against temp HOME / CAPSTAN_HOME /
 # CAPSTAN_BIN_DIR dirs, for the npm tarball path (--no-binary / --tarball) and the binary path
 # (--binary, or a release whose SHA256SUMS lists the binary). Release scenarios use file://, so curl.
 # The build needs network for npm's dependency fetch and the Node archives of the binaries.
@@ -54,7 +54,7 @@ if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ]; then
   RELEASE_DIR="$CAPSTAN_TEST_RELEASE_DIR"
 else
   RELEASE_DIR="$SANDBOX/release"
-  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release >"$SANDBOX/release.log" 2>&1) || {
+  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release -- --no-dash >"$SANDBOX/release.log" 2>&1) || {
     cat "$SANDBOX/release.log"
     echo "npm run release failed" >&2
     exit 1
@@ -340,6 +340,77 @@ else
     cat "$E/out"
   fi
   check "fallback to the tarball is announced" contains "$E/out" "using the npm tarball"
+  unset CAPSTAN_RELEASE_BASE
+fi
+
+# --- 11. cstan-dash (the Rust dashboard) ----------------------------------------
+# Fake dashboards stand in for the real binary: a script that answers --version is enough for the installer.
+if [ -z "$HOST_PLATFORM" ]; then
+  echo "skip cstan-dash scenarios: no release platform for this machine"
+else
+  DASHNAME="cstan-dash-$VERSION-$HOST_PLATFORM"
+  FAKEDASH="$SANDBOX/fake-dash"
+  mkdir -p "$FAKEDASH"
+  printf '#!/bin/sh\necho "cstan-dash %s"\n' "$VERSION" >"$FAKEDASH/$DASHNAME"
+  chmod 755 "$FAKEDASH/$DASHNAME"
+  if command -v sha256sum >/dev/null 2>&1; then
+    DASHSHA="$(sha256sum "$FAKEDASH/$DASHNAME" | cut -d ' ' -f 1)"
+  else
+    DASHSHA="$(shasum -a 256 "$FAKEDASH/$DASHNAME" | cut -d ' ' -f 1)"
+  fi
+  # dash_release <env-name> <with-dash>: a fake release holding the tarball and optionally the dashboard.
+  dash_release() {
+    new_env "$1"
+    DREL="$E/releases/download/v$VERSION"
+    mkdir -p "$DREL"
+    cp "$TGZ" "$DREL/"
+    printf '%s  capstan-controller-%s.tgz\n' "$SHA" "$VERSION" >"$DREL/SHA256SUMS"
+    if [ "$2" = yes ]; then
+      cp "$FAKEDASH/$DASHNAME" "$DREL/"
+      printf '%s  %s\n' "$DASHSHA" "$DASHNAME" >>"$DREL/SHA256SUMS"
+    fi
+    export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  }
+
+  dash_release dashrel yes
+  if run_install --no-binary --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release with cstan-dash installs"
+  else
+    fail "release with cstan-dash installs"
+    cat "$E/out"
+  fi
+  check "cstan-dash is verified against SHA256SUMS" contains "$E/out" "cstan-dash checksum verified"
+  check "cstan-dash is installed beside cstan" test -x "$CAPSTAN_HOME/current/bin/cstan-dash"
+  check "installed cstan-dash runs" test "$("$CAPSTAN_HOME/current/bin/cstan-dash" --version)" = "cstan-dash $VERSION"
+  check "the success report names the dashboard" contains "$E/out" "cstan-dash (cstan dash uses it)"
+
+  printf 'tamper' >>"$DREL/$DASHNAME"
+  check_not "a cstan-dash with a wrong sha is refused" run_install --no-binary --version "$VERSION"
+  check "the previous install survives a refused cstan-dash" test -x "$CAPSTAN_HOME/current/bin/cstan-dash"
+  check "no staging dir left after a refused cstan-dash" sh -c '[ -z "$(ls -d "$CAPSTAN_HOME"/staging.* 2>/dev/null)" ]'
+
+  dash_release dashno yes
+  check "--no-dash installs cstan alone" run_install --no-binary --no-dash --version "$VERSION"
+  check_not "--no-dash leaves no cstan-dash" test -e "$CAPSTAN_HOME/current/bin/cstan-dash"
+  check "cstan still runs without cstan-dash" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+
+  dash_release dashmissing no
+  if run_install --no-binary --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release without cstan-dash installs"
+  else
+    fail "release without cstan-dash installs"
+    cat "$E/out"
+  fi
+  check "the missing cstan-dash is noted" contains "$E/out" "has no cstan-dash for $HOST_PLATFORM"
+  check_not "no cstan-dash installed for such a release" test -e "$CAPSTAN_HOME/current/bin/cstan-dash"
+
+  new_env dashlocal
+  unset CAPSTAN_RELEASE_BASE
+  check "--dash-binary installs the given file" run_install --tarball "$TGZ" --sha256 "$SHA" --dash-binary "$FAKEDASH/$DASHNAME"
+  check "--dash-binary lands beside cstan" test -x "$CAPSTAN_HOME/current/bin/cstan-dash"
+  printf '%s  %s\n' "$BAD" "$DASHNAME" >"$FAKEDASH/SHA256SUMS"
+  check_not "--dash-binary failing its SHA256SUMS is refused" run_install --tarball "$TGZ" --sha256 "$SHA" --dash-binary "$FAKEDASH/$DASHNAME"
+  check_not "--dash-binary with --no-dash is refused" run_install --tarball "$TGZ" --sha256 "$SHA" --dash-binary "$FAKEDASH/$DASHNAME" --no-dash
   unset CAPSTAN_RELEASE_BASE
 fi
 

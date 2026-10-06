@@ -1,0 +1,4 @@
+# musl targets build fully static binaries. rust-lld links aarch64 without a cross gcc; add the target with
+# `rustup target add aarch64-unknown-linux-musl` (and x86_64-unknown-linux-musl for linux-x64).
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

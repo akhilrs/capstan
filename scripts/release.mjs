@@ -19,6 +19,7 @@ const releaseDir = path.resolve(
 const shrinkwrap = path.join(root, "npm-shrinkwrap.json");
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
+const withDash = !argv.includes("--no-dash");
 
 function fail(message) {
   console.error(`release: ${message}`);
@@ -126,7 +127,17 @@ const section = renderChangelogSection(version, date, commits);
 console.log(`current: ${current}`);
 console.log(`next:    ${version} (${next.level})`);
 console.log(`\n${section}`);
+
+const targets = ["linux-x64", "linux-arm64"];
+const dashTargets = targets;
 if (dryRun) {
+  console.log("Assets that would be built:");
+  console.log(`  capstan-controller-${version}.tgz`);
+  for (const target of targets) console.log(`  cstan-${version}-${target}`);
+  if (withDash)
+    for (const target of dashTargets)
+      console.log(`  cstan-dash-${version}-${target}`);
+  else console.log("  (cstan-dash skipped: --no-dash)");
   console.log("Dry run: nothing was changed.");
   process.exit(0);
 }
@@ -135,6 +146,13 @@ if (dryRun) {
 // Nothing is committed or tagged until all of that succeeded; a failure restores the files it touched.
 const changelogPath = path.join(root, "CHANGELOG.md");
 const lockPath = path.join(root, "package-lock.json");
+if (
+  withDash &&
+  spawnSync("cargo", ["--version"], { stdio: "ignore" }).status !== 0
+)
+  fail(
+    "cargo not found, so cstan-dash cannot be built; install Rust (https://rustup.rs) or pass --no-dash to release without it",
+  );
 const originals = new Map(
   [pkgPath, lockPath, changelogPath].map((file) => [
     file,
@@ -157,7 +175,6 @@ function setVersion(file) {
 
 // The standalone binaries. build-binary writes them to <root>/release; copy them to the release directory
 // when that is a different one (CSTAN_RELEASE_DIR) and remove the originals to save disk.
-const targets = ["linux-x64", "linux-arm64"];
 const builtDir = path.join(root, "release");
 const binaries = targets.map((target) => `cstan-${version}-${target}`);
 
@@ -198,15 +215,36 @@ function buildAssets() {
   );
   if (build.status !== 0)
     throw new Error(`npm run build:binary failed (${build.status})`);
-  for (const name of binaries) {
-    const built = path.join(builtDir, name);
-    const kept = path.join(releaseDir, name);
-    if (built === kept) continue;
-    fs.copyFileSync(built, kept);
-    fs.chmodSync(kept, 0o755);
-    fs.rmSync(built);
+  const moveToReleaseDir = (names) => {
+    for (const name of names) {
+      const built = path.join(builtDir, name);
+      const kept = path.join(releaseDir, name);
+      if (built === kept) continue;
+      fs.copyFileSync(built, kept);
+      fs.chmodSync(kept, 0o755);
+      fs.rmSync(built);
+    }
+  };
+  moveToReleaseDir(binaries);
+  const dashes = [];
+  if (withDash) {
+    const dash = spawnSync(
+      "npm",
+      [
+        "run",
+        "build:dash",
+        "--",
+        ...dashTargets.flatMap((target) => ["--target", target]),
+      ],
+      { cwd: root, stdio: "inherit" },
+    );
+    if (dash.status !== 0)
+      throw new Error(`npm run build:dash failed (${dash.status})`);
+    for (const target of dashTargets)
+      dashes.push(`cstan-dash-${version}-${target}`);
+    moveToReleaseDir(dashes);
   }
-  return [tarball, ...binaries];
+  return [tarball, ...binaries, ...dashes];
 }
 
 let assets;

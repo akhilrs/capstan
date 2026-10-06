@@ -1,5 +1,12 @@
 import { callDaemon } from "../client.js";
 import type { CallResult } from "./app.js";
+import {
+  NODE_DASH_HINT,
+  defaultContext,
+  defaultLaunchDeps,
+  launchRust,
+  resolveDash,
+} from "./launch.js";
 import { wantsAscii } from "./terminal.js";
 
 export interface DashOptions {
@@ -17,6 +24,28 @@ export interface DashRuntime {
 
 /** Runs the dashboard until the operator quits. The caller has already checked for a terminal and started the daemon. */
 export async function runDash(
+  options: DashOptions,
+  runtime: DashRuntime,
+): Promise<void> {
+  const resolution = resolveDash(defaultContext());
+  if (resolution.kind === "rust") {
+    const outcome = await launchRust(
+      resolution.bin,
+      options,
+      runtime,
+      process.env,
+      defaultLaunchDeps(),
+    );
+    if (outcome.kind === "exited") {
+      // The caller sets its own exit code after this returns, so leave here with the child's.
+      process.exit(outcome.code);
+    }
+  }
+  await runNodeDash(options, runtime);
+  if (resolution.kind !== "node") process.stderr.write(`${NODE_DASH_HINT}\n`);
+}
+
+async function runNodeDash(
   options: DashOptions,
   runtime: DashRuntime,
 ): Promise<void> {
