@@ -5,6 +5,10 @@ export const MIN_ROWS = 16;
 export const WIDE_COLUMNS = 100;
 /** Rows below which a wrapped header reason is cut with an ellipsis instead. */
 export const WRAP_REASON_ROWS = 20;
+/** Below this many rows the task summary shares a status row instead of taking its own. */
+export const SHARED_TASK_ROWS = 30;
+/** The fewest cells of task summary worth sharing a row for. */
+export const MIN_SHARED_SUMMARY = 24;
 /** Panel chrome: top and bottom border. */
 export const CHROME_ROWS = 2;
 /** Spare rows given to a graph never exceed this. */

@@ -34,6 +34,8 @@ import {
   TWO_GRAPHS_ROWS,
   windowOf,
   WRAP_REASON_ROWS,
+  SHARED_TASK_ROWS,
+  MIN_SHARED_SUMMARY,
   type PanelId,
   type PanelWish,
 } from "./layout.js";
@@ -1170,53 +1172,88 @@ function headerLines(
       span(" "),
       edgeSpan,
     ]);
+  const summary = taskSummary(h.tasks, cw);
+  const summaryRole = color(h.tasks?.length === 0 ? "dim" : "fg");
+  const short = H < SHARED_TASK_ROWS;
+  const reasonSpan = (text: string): Span =>
+    span(text, { color: color(chip.reasonRole) });
+  /** On a short terminal the task summary shares the last strip row; `avail` is what that row has left after the chip and the right side. */
+  const shared = (reason: string, avail: number): Span[] | null => {
+    if (!short || summary === "") return null;
+    const gap = reason === "" ? 0 : 2;
+    const summaryWidth = Math.min(
+      cellWidth(summary),
+      Math.max(MIN_SHARED_SUMMARY, Math.floor(avail / 2)),
+    );
+    if (
+      avail - gap - summaryWidth < 0 ||
+      summaryWidth < Math.min(cellWidth(summary), MIN_SHARED_SUMMARY)
+    )
+      return null;
+    const reasonText = truncate(reason, avail - gap - summaryWidth);
+    const reasonCells = cellWidth(reasonText);
+    const summaryText = truncate(
+      summary,
+      avail - reasonCells - (reasonCells === 0 ? 0 : 2),
+    );
+    return [
+      reasonSpan(reasonText),
+      span(reasonCells === 0 ? "" : "  "),
+      span(summaryText, { color: summaryRole }),
+    ];
+  };
+  const chipCells = cellWidth(chip.text);
+  const wrappedShare = wrap ? shared(chip.reason, cw - 2) : null;
+  const flatShare =
+    wrap || chip.reason === "" ? null : shared(chip.reason, Math.max(0, room));
   const strip: Line[] = wrap
     ? [
         content([
           chipSpan,
-          span(" ".repeat(Math.max(1, cw - cellWidth(chip.text) - rightWidth))),
+          span(" ".repeat(Math.max(1, cw - chipCells - rightWidth))),
           ...right,
         ]),
         content([
           span("  "),
-          span(truncate(chip.reason, cw - 2), {
-            color: color(chip.reasonRole),
-          }),
+          ...(wrappedShare ?? [
+            span(truncate(chip.reason, cw - 2), {
+              color: color(chip.reasonRole),
+            }),
+          ]),
         ]),
       ]
-    : [
-        content([
-          chipSpan,
-          span(chip.reason === "" ? "" : "  "),
+    : (() => {
+        const middle = flatShare ?? [
           span(truncate(chip.reason, Math.max(0, room)), {
             color: color(chip.reasonRole),
           }),
-          span(
-            " ".repeat(
-              Math.max(
-                1,
-                cw -
-                  cellWidth(chip.text) -
-                  (chip.reason === "" ? 0 : 2) -
-                  Math.min(cellWidth(chip.reason), Math.max(0, room)) -
-                  rightWidth,
+        ];
+        return [
+          content([
+            chipSpan,
+            span(chip.reason === "" ? "" : "  "),
+            ...middle,
+            span(
+              " ".repeat(
+                Math.max(
+                  1,
+                  cw -
+                    chipCells -
+                    (chip.reason === "" ? 0 : 2) -
+                    lineWidth(middle) -
+                    rightWidth,
+                ),
               ),
             ),
-          ),
-          ...right,
-        ]),
-      ];
-  const summary = taskSummary(h.tasks, cw);
-  const tasks: Line[] =
-    summary === ""
-      ? []
-      : [
-          content([
-            span(summary, {
-              color: color(h.tasks!.length === 0 ? "dim" : "fg"),
-            }),
+            ...right,
           ]),
         ];
+      })();
+  const sharedRow = wrappedShare !== null || flatShare !== null;
+  const tasks: Line[] =
+    summary === "" || sharedRow
+      ? []
+      : [content([span(summary, { color: summaryRole })])];
   return [
     top,
     ...strip,

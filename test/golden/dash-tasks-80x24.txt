@@ -1,7 +1,6 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ● SUPERVISED                                     workers ████████ 5/4   ● 1s │
-│   supervisor-1 active; check acked 3m ago; 0 open findings                   │
-│ working on: plan-19 Dashboard cleanup (1/2) · PM-120 Fix the poller          │
+│   supervisor-1 active; check acked 3…  working on: plan-19 Dashboard cleanu… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents─────────────────────────────────────────────────────────┤ 6 active ├─╮
 │   AGENT        TASK           ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
@@ -20,5 +19,6 @@
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭─⁴findings────────────────────────────────────────────────────────────────────╮
 │ no open findings                                                             │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
  ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  ? help  q quit    

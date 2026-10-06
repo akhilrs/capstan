@@ -242,7 +242,9 @@ test("the header line shows in the frame at 80 and 160 columns, and fits", () =>
     assert.equal(lines.length, rows);
     assert.match(
       lines.slice(0, 5).join("\n"),
-      /working on: plan-19 Dashboard cleanup \(1\/2\)/,
+      columns === 80
+        ? /working on: plan-19 Dashboard cleanu…/
+        : /working on: plan-19 Dashboard cleanup \(1\/2\)/,
     );
     for (const line of lines) assert.equal(Array.from(line).length, columns);
   }
@@ -257,7 +259,7 @@ test("the header line shows in the frame at 80 and 160 columns, and fits", () =>
       theme,
     ).lines,
   );
-  assert.ok(idle.slice(0, 5).some((l) => /^│ idle +│$/.test(l)));
+  assert.ok(idle.slice(0, 5).some((l) => /^│ .*  idle +│$/.test(l)));
 });
 
 test("at 80 columns TASK is at least 10 cells wide or absent, and the other columns keep their widths", () => {

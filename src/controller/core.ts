@@ -1070,7 +1070,7 @@ export class ControllerCore {
     return this.#areas.actors.recordAgentReplaced(context, input);
   }
 
-  /** What a replacement of this agent is seeded with, newest entries only, in ledger order. A read; works for an ended agent. */
+  /** The active tasks the dashboard shows. A read. */
   activeTasks(
     credential: string,
     caps: Parameters<StatusArea["activeTasks"]>[1],
@@ -1078,6 +1078,7 @@ export class ControllerCore {
     return this.#areas.status.activeTasks(credential, caps);
   }
 
+  /** What a replacement of this agent is seeded with, newest entries only, in ledger order. A read; works for an ended agent. */
   agentSeed(agentId: string): AgentSeedData {
     return this.#areas.actors.agentSeed(agentId);
   }
