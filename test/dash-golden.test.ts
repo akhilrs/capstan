@@ -373,7 +373,7 @@ test("the selected detail area is hidden when the queue has nothing to select", 
 test("an escalated finding on an ended agent is dimmed, says so and is not counted as needing the operator", () => {
   const frame = buildFrame(modelOf(crowded(), 3), viewOf(160, 45), theme);
   const text = plainLines(frame.lines).join("\n");
-  assert.ok(text.includes("1 stale (target ended)"));
+  assert.ok(text.includes("1 stale (target ended or unknown)"));
   assert.ok(!text.includes("needs operator"));
   assert.ok(text.includes("escalated 2/2 (target ended)"));
   assert.ok(!text.includes("ESCALATED"));
@@ -439,7 +439,7 @@ test("the findings panel keeps the reason and marks ended and unknown targets", 
   ).join("\n");
   assert.equal(text.match(/\(target ended\) why-kept/g)?.length, 2);
   assert.ok(text.includes("(target unknown) why-kept"));
-  assert.ok(text.includes("3 stale (target ended)"));
+  assert.ok(text.includes("3 stale (target ended or unknown)"));
 });
 
 const staleMail = {
@@ -684,7 +684,9 @@ test("stale findings are dim, plain, sorted last under a caption, and do not cou
   const lines = plainLines(frame.lines);
   const text = lines.join("\n");
   const live = lines.findIndex((l) => l.includes("ESCALATED"));
-  const caption = lines.findIndex((l) => l.includes("2 stale (target ended)"));
+  const caption = lines.findIndex((l) =>
+    l.includes("2 stale (target ended or unknown)"),
+  );
   const first = lines.findIndex((l) => l.includes("0192a1"));
   assert.ok(live > 0 && live < caption && caption < first);
   assert.ok(text.includes("1 needs operator"));
@@ -716,7 +718,7 @@ test("with no room for stale rows the caption alone summarises them, and live fi
     buildFrame(modelOf(status), viewOf(100, 24, { focus: "agents" }), theme)
       .lines,
   ).join("\n");
-  assert.ok(tight.includes("2 stale (target ended)"));
+  assert.ok(tight.includes("2 stale (target ended or unknown)"));
   assert.ok(tight.includes("developer-2"));
   const model = modelOf(status);
   assert.equal(model.findings.filter((f) => !f.stale).length, 1);
@@ -785,4 +787,50 @@ test("the golden screens for an empty queue, a waiting strip, stale findings and
     "dash-supervision-idle-120x36",
     plainLines(buildFrame(modelOf(idle), viewOf(120, 36), theme).lines),
   );
+});
+
+test("the unfocused findings counter shows the rows actually visible when the cursor is in the stale block and the live rows are scrolled", () => {
+  const many = (prefix: string, target: string, n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      staleFinding(
+        `${prefix}${String(i).padStart(2, "0")}-xxxx`,
+        target,
+        "open",
+      ),
+    );
+  const status = showcase({
+    messages: [],
+    stuck: [],
+    agentFindings: [
+      ...many("live", "developer-1", 12),
+      ...many("dead", "ghost-9", 6),
+    ],
+  });
+  const model = modelOf(status);
+  const liveCount = model.findings.filter((f) => !f.stale).length;
+  assert.ok(liveCount >= 4 && model.findings.length - liveCount >= 4);
+  const lines = plainLines(
+    buildFrame(
+      model,
+      viewOf(160, 48, {
+        focus: "agents",
+        selected: {
+          agents: 0,
+          pipeline: 0,
+          queue: 0,
+          findings: liveCount + 4,
+          work: 0,
+        },
+      }),
+      theme,
+    ).lines,
+  );
+  const visible = lines
+    .map((l) => l.match(/(live|dead)(\d\d)/))
+    .filter((m): m is RegExpMatchArray => m !== null)
+    .map((m) => (m[1] === "live" ? 0 : liveCount) + Number(m[2]) + 1);
+  assert.ok(visible.length > 0);
+  const counter = lines.join("\n").match(/\d+-\d+\/\d+/g) ?? ([] as string[]);
+  const want = `${Math.min(...visible)}-${Math.max(...visible)}/${model.findings.length}`;
+  assert.ok(counter.includes(want), `${want} not in ${counter.join(" ")}`);
 });

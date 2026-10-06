@@ -18,7 +18,7 @@
 │ no unresolved messages ─ max 6 since dash start                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─⁴findings────────────────────────────────────────────────────────────────────╮
-│ ── 1 stale (target ended) ──                                                 │
+│ ── 1 stale (target ended or unknown) ──                                      │
 │ ○ 0192a1 designer-1 medium   escalated 2/2 (target ended) no progress after… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  e all ended  tab focus  r refresh  ? help  q quit        

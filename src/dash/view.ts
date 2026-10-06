@@ -804,21 +804,11 @@ function findingsPanel(ctx: Ctx): Line[] {
     { key: "int", title: "INT", width: 3 },
     { key: "reason", title: "REASON", width: 10, flex: true },
   ]);
-  // Live rows scroll on their own; stale rows only get what the live rows and the caption leave.
+  // One window over live then stale rows (the caption takes a row of its own), so the visible rows
+  // are always contiguous and the cursor stays in view in either block.
   const cursor = view.selected.findings;
-  const liveCap = Math.max(0, avail - captionRows);
-  const liveWin = windowOf(
-    live.length,
-    Math.min(cursor, Math.max(0, live.length - 1)),
-    liveCap,
-  );
-  const liveShown = liveWin.end - liveWin.start;
-  const staleRoom = Math.max(0, avail - liveShown - captionRows);
-  const staleWin = windowOf(
-    stale.length,
-    Math.min(Math.max(0, cursor - live.length), Math.max(0, stale.length - 1)),
-    staleRoom,
-  );
+  const cap = Math.max(0, avail - captionRows);
+  const win = windowOf(rows.length, Math.min(cursor, rows.length - 1), cap);
   const body: Line[] = [];
   if (header > 0) body.push(indent(tableHeader(cols, theme), ctx.w - 2));
   if (rows.length === 0) body.push(textLine(ctx, "no open findings"));
@@ -849,22 +839,20 @@ function findingsPanel(ctx: Ctx): Line[] {
       },
     });
   };
-  live
-    .slice(liveWin.start, liveWin.end)
-    .forEach((f, i) => body.push(rowOf(f, liveWin.start + i)));
+  const liveEnd = Math.min(win.end, live.length);
+  for (let i = win.start; i < liveEnd; i++) body.push(rowOf(live[i]!, i));
   if (stale.length > 0 && avail > 0)
     body.push(
       styleLine(
         textLine(
           ctx,
-          `${g.rule.repeat(2)} ${stale.length} stale (target ended) ${g.rule.repeat(2)}`,
+          `${g.rule.repeat(2)} ${stale.length} stale (target ended or unknown) ${g.rule.repeat(2)}`,
         ),
         { dim: true },
       ),
     );
-  stale
-    .slice(staleWin.start, staleWin.end)
-    .forEach((f, i) => body.push(rowOf(f, live.length + staleWin.start + i)));
+  for (let i = Math.max(win.start, live.length); i < win.end; i++)
+    body.push(rowOf(stale[i - live.length]!, i));
   const needs = live.filter((f) => f.needsOperator).length;
   return assemble(ctx, {
     id: "findings",
@@ -872,12 +860,9 @@ function findingsPanel(ctx: Ctx): Line[] {
       needs > 0
         ? [{ text: `${needs} needs operator`, color: theme.color("bad") }]
         : [],
-    bottomRight: counter(ctx, cursor, rows.length, {
-      start: liveWin.start,
-      end: liveWin.start + liveShown + (staleWin.end - staleWin.start),
-    }),
+    bottomRight: counter(ctx, cursor, rows.length, win),
     body,
-    thumb: thumbRange(live.length, liveCap, liveWin.start, liveCap),
+    thumb: thumbRange(rows.length, cap, win.start, cap),
     thumbTop: header,
   });
 }
