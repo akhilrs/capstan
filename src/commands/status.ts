@@ -12,6 +12,9 @@ import {
   mapError,
   MAX_STATUS_REPORTS,
   MAX_STATUS_PROPOSALS,
+  MAX_STATUS_TASK_PLANS,
+  MAX_STATUS_TASK_PACKAGES,
+  MAX_STATUS_TASK_REQUIREMENTS,
   type CommandEnv,
 } from "./shared.js";
 
@@ -114,6 +117,11 @@ export function statusHandlers(
               createdAt: i.createdAt,
             }));
           result.pipelineCounts = core.pipelineCounts(call.credential);
+          result.activeTasks = core.activeTasks(call.credential, {
+            plans: MAX_STATUS_TASK_PLANS,
+            packages: MAX_STATUS_TASK_PACKAGES,
+            requirements: MAX_STATUS_TASK_REQUIREMENTS,
+          });
           result.awaitingConfirm = core.awaitingConfirm(
             call.credential,
             MAX_STATUS_REPORTS,

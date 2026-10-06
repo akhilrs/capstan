@@ -3,11 +3,11 @@
 │   supervisor-1 active; check acked 3m ago; 1 open finding                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮
-│   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
-│ ▲ developer-2                 Developer  g1  STALLED ░░░░░░░░  3m41s  0 p4   █
-│ ● pm-1                        PM         g1  idle    ░░░░░░░░  1m35s  0 p1   █
-│ ● supervisor-1                Supervisor g1  idle    ░░░░░░░░    45s  0 p2   █
-│ * developer-1                 Developer  g2  working ████████     3s  0 p3   │
+│   AGENT            TASK       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
+│ ▲ developer-2      -          Developer  g1  STALLED ░░░░░░░░  3m41s  0 p4   █
+│ ● pm-1             -          PM         g1  idle    ░░░░░░░░  1m35s  0 p1   █
+│ ● supervisor-1     -          Supervisor g1  idle    ░░░░░░░░    45s  0 p2   █
+│ * developer-1      -          Developer  g2  working ████████     3s  0 p3   │
 ╰─┤ working: inferred ├──────────────────────────────────────────────┤ 1-4/6 ├─╯
 ╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
 │ reported 6  ──►  review 5  ──►  integrated 3                                 │

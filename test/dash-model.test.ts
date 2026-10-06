@@ -23,6 +23,7 @@ import {
 test("the header carries run state, the live supervision state and workers against the limit", () => {
   const ok = buildDashModel(healthy(), NOW, 3);
   assert.deepEqual(ok.header, {
+    tasks: null,
     pmMail: null,
     projectId: "p1",
     runState: "active",

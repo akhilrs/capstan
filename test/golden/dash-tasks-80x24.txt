@@ -1,0 +1,24 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ● SUPERVISED                                     workers ████████ 5/4   ● 1s │
+│   supervisor-1 active; check acked 3m ago; 0 open findings                   │
+│ working on: plan-19 Dashboard cleanup (1/2) · PM-120 Fix the poller          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents─────────────────────────────────────────────────────────┤ 6 active ├─╮
+│   AGENT        TASK           ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
+│ ● pm-1         -              PM         g1  idle    ░░░░░░░░  1m35s  0 -    █
+│ * architect-1  plan-19 · plan Architect  g1  working ███░░░░░    20s  0 -    █
+│ * developer-1  plan-19/dash-… Developer  g1  working ████████     3s  0 p3   █
+│ * developer-2  PM-120 Fix th… Developer  g1  working ██████░░     8s  0 p4   │
+╰─┤ working: inferred ├──────────────────────────────────────────────┤ 1-4/6 ├─╯
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+│ reported 0  ──►  review 1  ──►  integrated 0                                 │
+│ reports      ░░░░░░░░░░░░░░░░   0                                            │
+│ reviews      ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓   1  started 1                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+┏━³queue━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ no problems ├┤ f problems only [ ] ├━┓
+┃ no unresolved messages ─ max 6 since dash start                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─⁴findings────────────────────────────────────────────────────────────────────╮
+│ no open findings                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  ? help  q quit    

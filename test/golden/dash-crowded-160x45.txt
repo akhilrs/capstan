@@ -2,14 +2,14 @@
 │ ○ SUPERVISION OFF  [supervision] enabled = false in capstan.toml                                                   workers ░░░░░░░░░░░░ 0/3   ● answering 1s │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
-┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃│ no unresolved messages ─ max 6 since dash start                              │
-┃▌* pm-1                       PM         g1  working ████████     2s  0 w1:p1 ┃╰──────────────────────────────────────────────────────────────────────────────╯
-┃ ○ reviewer-6                 Reviewer   g1  ended             5m00s  0 -     ┃╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
-┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃│ reported 3  ──►  review 6  ──►  integrated 3                                 │
-┃ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
-┃ ○ reviewer-3                 Reviewer   g1  ended               25m  0 -     ┃│                                                                              │
-┃ ○ reviewer-2                 Reviewer   g1  ended               33m  0 -     ┃│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
-┃ ○ designer-1                 Designer   g1  ended               58m  0 -     ┃│                                                                              │
+┃   AGENT           TASK       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃│ no unresolved messages ─ max 6 since dash start                              │
+┃▌* pm-1            -          PM         g1  working ████████     2s  0 w1:p1 ┃╰──────────────────────────────────────────────────────────────────────────────╯
+┃ ○ reviewer-6      -          Reviewer   g1  ended             5m00s  0 -     ┃╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+┃ ○ reviewer-5      -          Reviewer   g1  ended               10m  0 -     ┃│ reported 3  ──►  review 6  ──►  integrated 3                                 │
+┃ ○ reviewer-4      -          Reviewer   g1  ended               15m  0 -     ┃│ reports      ███████████▒▒▒▒▒   3  accepted 2  rejected 1                    │
+┃ ○ reviewer-3      -          Reviewer   g1  ended               25m  0 -     ┃│                                                                              │
+┃ ○ reviewer-2      -          Reviewer   g1  ended               33m  0 -     ┃│ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
+┃ ○ designer-1      -          Designer   g1  ended               58m  0 -     ┃│                                                                              │
 ┃ working agents (inferred) ─ now 1 ─ since dash start                         ┃│ integrations ████████████████   3  confirmed 3                               │
 ┃                             ⣿⣿⡇                  ⡇                           ┃│ STAGE       STATE      WHO / COMMIT                                      AGE │
 ┃                             ⣿⣿⡇                  ⡇                           ┃│ integration confirmed  i3012345                                          10m │

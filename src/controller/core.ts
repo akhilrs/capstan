@@ -20,7 +20,7 @@ import {
   type ResolutionDecision,
 } from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
-import type { StatusArea } from "./status.js";
+import type { StatusArea, ActiveTasks } from "./status.js";
 import {} from "../operator-policy.js";
 import { type FullAutoChange } from "../operator.js";
 import {} from "../plans.js";
@@ -1071,6 +1071,13 @@ export class ControllerCore {
   }
 
   /** What a replacement of this agent is seeded with, newest entries only, in ledger order. A read; works for an ended agent. */
+  activeTasks(
+    credential: string,
+    caps: Parameters<StatusArea["activeTasks"]>[1],
+  ): ActiveTasks {
+    return this.#areas.status.activeTasks(credential, caps);
+  }
+
   agentSeed(agentId: string): AgentSeedData {
     return this.#areas.actors.agentSeed(agentId);
   }

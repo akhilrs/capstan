@@ -657,10 +657,16 @@ export class ActorsArea {
     const findings = openFindings.slice(-SEED_FINDINGS);
     const pane = this.kernel.database
       .prepare(
-        "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+        "SELECT branch, base_sha, task_ref, task_title FROM agent_panes WHERE project_id = ? AND agent_id = ?",
       )
       .get(this.kernel.projectId, agentId) as
-      { branch: string | null; base_sha: string | null } | undefined;
+      | {
+          branch: string | null;
+          base_sha: string | null;
+          task_ref: string | null;
+          task_title: string | null;
+        }
+      | undefined;
     const last = reports.at(-1);
     return {
       agentId,
@@ -670,6 +676,8 @@ export class ActorsArea {
       generation: agent.generation,
       branch: pane?.branch ?? last?.branch ?? this.#branchAtEnd(agentId),
       baseSha: pane?.base_sha ?? null,
+      taskRef: pane?.task_ref ?? null,
+      taskTitle: pane?.task_title ?? null,
       messages: shown.map((row) => ({
         messageId: row.message_id,
         sender:

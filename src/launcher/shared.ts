@@ -142,6 +142,9 @@ export interface SpawnOptions {
   readonly reviewTarget?: string;
   /** Continue this branch name (a replacement's). */
   readonly branch?: string;
+  /** A replacement's predecessor task: stored on the pane row only, never used to name the branch. */
+  readonly recordTaskRef?: string;
+  readonly recordTaskTitle?: string;
 }
 
 /** What renaming an assignee's branch did; `note` is the line to print when the branch was kept. */

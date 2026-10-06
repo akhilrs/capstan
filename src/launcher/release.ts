@@ -126,6 +126,10 @@ export class ReleaseOps {
           baseSha: base.sha,
           seed,
           ...(data.branch === null ? {} : { branch: data.branch }),
+          ...(data.taskRef == null ? {} : { recordTaskRef: data.taskRef }),
+          ...(data.taskTitle == null
+            ? {}
+            : { recordTaskTitle: data.taskTitle }),
         });
       } catch (error) {
         throw new LauncherError(

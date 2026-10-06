@@ -1,0 +1,423 @@
+{
+  "projectId": "project-id",
+  "run": {
+    "state": "active",
+    "stateVersion": 0
+  },
+  "pause": {
+    "run": null,
+    "agents": []
+  },
+  "stateVersion": 43,
+  "inputRevision": 1,
+  "roles": [
+    {
+      "role": "Developer",
+      "seatId": "architect-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "dev-three-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "dev-two-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "developer-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "plain-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "PM",
+      "seatId": "pm-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Verifier",
+      "seatId": "loose-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Verifier",
+      "seatId": "reviewer-4-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Verifier",
+      "seatId": "reviewer-live-seat",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    }
+  ],
+  "plans": [
+    {
+      "planId": "plan-1",
+      "title": "the plan",
+      "tier": "normal",
+      "state": "approved",
+      "cancelled": false,
+      "architectAgentId": "architect",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z",
+      "packages": {
+        "reviewed": 1,
+        "assigned": 1
+      },
+      "signoffs": []
+    }
+  ],
+  "work": [],
+  "findings": [],
+  "evidence": [],
+  "finalVerification": [],
+  "agents": [
+    {
+      "agentId": "architect",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "architect-seat",
+      "actorId": "uuid-1",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "dev-three",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "dev-three-seat",
+      "actorId": "uuid-2",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "dev-two",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "dev-two-seat",
+      "actorId": "uuid-3",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "developer-agent",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "developer-seat",
+      "actorId": "uuid-4",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "plain",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "plain-seat",
+      "actorId": "uuid-5",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "pm-agent",
+      "roleName": "pm",
+      "kind": "PM",
+      "seatId": "pm-seat",
+      "actorId": "uuid-6",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "reviewer-4",
+      "roleName": "reviewer",
+      "kind": "Verifier",
+      "seatId": "reviewer-4-seat",
+      "actorId": "uuid-7",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "agentId": "reviewer-live",
+      "roleName": "reviewer",
+      "kind": "Verifier",
+      "seatId": "reviewer-live-seat",
+      "actorId": "uuid-8",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "supervisionState": {
+    "enabled": false,
+    "checkSeconds": null,
+    "supervisor": null,
+    "lastCheck": null,
+    "openFindings": 0
+  },
+  "legacySupervision": {
+    "enabled": false,
+    "health": "degraded",
+    "targetEpoch": 0,
+    "checkpointEpoch": null,
+    "checkpointAssignmentId": null,
+    "replacementAttempts": 0
+  },
+  "messages": [
+    {
+      "messageId": "uuid-9",
+      "recipientAgentId": "pm-agent",
+      "state": "queued",
+      "sequence": 1,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-10",
+      "recipientAgentId": "developer-agent",
+      "state": "queued",
+      "sequence": 2,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-11",
+      "recipientAgentId": "architect",
+      "state": "queued",
+      "sequence": 3,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-12",
+      "recipientAgentId": "reviewer-4",
+      "state": "queued",
+      "sequence": 4,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-13",
+      "recipientAgentId": "pm-agent",
+      "state": "queued",
+      "sequence": 5,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-14",
+      "recipientAgentId": "dev-two",
+      "state": "queued",
+      "sequence": 6,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-15",
+      "recipientAgentId": "pm-agent",
+      "state": "queued",
+      "sequence": 7,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "uuid-16",
+      "recipientAgentId": "reviewer-live",
+      "state": "queued",
+      "sequence": 8,
+      "queuedAt": "2026-01-01T00:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    }
+  ],
+  "legacySupervisionReason": null,
+  "messagesTruncated": false,
+  "pmMail": {
+    "agentId": "pm-agent",
+    "pending": 3,
+    "oldestMessageId": "uuid-9",
+    "oldestQueuedAt": "2026-01-01T00:00:00.000Z",
+    "oldestAgeSeconds": 0,
+    "stale": false,
+    "notified": false
+  },
+  "stalledAgentIds": [],
+  "lostAgentIds": [],
+  "stuck": [],
+  "inputClears": [],
+  "panes": [
+    {
+      "agentId": "dev-three",
+      "workspaceId": null,
+      "paneId": null,
+      "worktreePath": null,
+      "branch": "capstan/dev-three-g1",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generation": 1,
+      "taskRef": "req-1",
+      "taskTitle": "Fix the thing"
+    },
+    {
+      "agentId": "developer-agent",
+      "workspaceId": null,
+      "paneId": null,
+      "worktreePath": null,
+      "branch": "capstan/developer-agent-g1",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generation": 1,
+      "taskRef": null,
+      "taskTitle": null
+    }
+  ],
+  "reviews": [
+    {
+      "reviewId": "uuid-17",
+      "reportId": "uuid-18",
+      "integrationId": null,
+      "round": 1,
+      "state": "started",
+      "authorAgentId": "dev-three",
+      "reviewerAgentId": "reviewer-live",
+      "announced": false,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "reviewId": "uuid-19",
+      "reportId": "uuid-20",
+      "integrationId": null,
+      "round": 1,
+      "state": "passed",
+      "authorAgentId": "developer-agent",
+      "reviewerAgentId": "reviewer-4",
+      "announced": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "integrations": [],
+  "pipelineCounts": {
+    "reports": {
+      "accepted": 2
+    },
+    "reviews": {
+      "passed": 1,
+      "started": 1
+    },
+    "integrations": {}
+  },
+  "activeTasks": {
+    "plans": [
+      {
+        "planId": "plan-1",
+        "title": "the plan",
+        "state": "approved",
+        "architectAgentId": "architect",
+        "nexoraId": null,
+        "total": 2,
+        "done": 1,
+        "packages": [
+          {
+            "packageId": "wp1",
+            "title": "First",
+            "nexoraId": "NX-1",
+            "assigneeAgentId": "developer-agent",
+            "progress": "reviewed"
+          },
+          {
+            "packageId": "wp2",
+            "title": "Second",
+            "nexoraId": null,
+            "assigneeAgentId": "dev-two",
+            "progress": "assigned"
+          }
+        ]
+      }
+    ],
+    "requirements": [
+      {
+        "refId": "req-1",
+        "nexoraId": "NX-7",
+        "title": "Fix the thing",
+        "agentIds": ["dev-three"]
+      }
+    ],
+    "truncated": false
+  },
+  "awaitingConfirm": [],
+  "agentFindings": [],
+  "reports": [
+    {
+      "reportId": "uuid-18",
+      "agentId": "dev-three",
+      "generation": 1,
+      "commitSha": "2222222222222222222222222222222222222222",
+      "state": "accepted",
+      "reason": null,
+      "announced": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "reportId": "uuid-20",
+      "agentId": "developer-agent",
+      "generation": 1,
+      "commitSha": "1111111111111111111111111111111111111111",
+      "state": "accepted",
+      "reason": null,
+      "announced": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}

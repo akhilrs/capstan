@@ -69,10 +69,18 @@ export interface AgentPaneInput {
   readonly worktreePath: string | null;
   readonly branch: string | null;
   readonly baseSha: string | null;
+  /** The task the worker was spawned for; omitted (never undefined) when it has none, so stored requests replay. */
+  readonly taskRef?: string;
+  readonly taskTitle?: string;
 }
 
-export interface AgentPaneRecord extends AgentPaneInput {
+export interface AgentPaneRecord extends Omit<
+  AgentPaneInput,
+  "taskRef" | "taskTitle"
+> {
   readonly generation: number;
+  readonly taskRef: string | null;
+  readonly taskTitle: string | null;
 }
 
 export const MAX_REPORT_SUMMARY_BYTES = 1000;
@@ -532,6 +540,9 @@ export interface AgentSeedData {
   readonly generation: number;
   readonly branch: string | null;
   readonly baseSha: string | null;
+  /** The task the agent was spawned for; null for an agent without one or whose pane row is gone. */
+  readonly taskRef?: string | null;
+  readonly taskTitle?: string | null;
   readonly messages: readonly {
     readonly messageId: string;
     readonly sender: string;

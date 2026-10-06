@@ -402,3 +402,81 @@ export function crowded(overrides: Status = {}): Status {
     ...overrides,
   });
 }
+
+/** A run with task data: one plan of two packages (one reviewed), an Architect, a package assignee, a small-task worker, a reviewer on a started review and an agent with no task. */
+export function tasksShowcase(overrides: Status = {}): Status {
+  return healthy({
+    projectId: "capstan",
+    agents: [
+      agent("pm-1", "PM", 1, "active", 95),
+      agent("architect-1", "Architect", 1, "active", 20),
+      agent("developer-1", "Developer", 1, "active", 3),
+      agent("developer-2", "Developer", 1, "active", 8),
+      agent("reviewer-1", "Verifier", 1, "active", 12),
+      agent("designer-1", "Designer", 1, "active", 40),
+    ],
+    panes: [
+      {
+        agentId: "developer-2",
+        paneId: "p4",
+        taskRef: "req-7",
+        taskTitle: "Fix the poller",
+      },
+      {
+        agentId: "developer-1",
+        paneId: "p3",
+        taskRef: "plan-19/dash-ui",
+        taskTitle: "Dash UI",
+      },
+    ],
+    reviews: [
+      {
+        reviewId: "v1",
+        reviewerAgentId: "reviewer-1",
+        authorAgentId: "developer-2",
+        round: 1,
+        state: "started",
+        createdAt: iso(30),
+      },
+    ],
+    activeTasks: {
+      plans: [
+        {
+          planId: "plan-19",
+          title: "Dashboard cleanup",
+          state: "approved",
+          architectAgentId: "architect-1",
+          nexoraId: null,
+          total: 2,
+          done: 1,
+          packages: [
+            {
+              packageId: "dash-ui",
+              title: "Dash UI",
+              nexoraId: "PM-114",
+              assigneeAgentId: "developer-1",
+              progress: "assigned",
+            },
+            {
+              packageId: "dash-model",
+              title: "Dash model",
+              nexoraId: null,
+              assigneeAgentId: null,
+              progress: "reviewed",
+            },
+          ],
+        },
+      ],
+      requirements: [
+        {
+          refId: "req-7",
+          nexoraId: "PM-120",
+          title: "Fix the poller",
+          agentIds: ["developer-2"],
+        },
+      ],
+      truncated: false,
+    },
+    ...overrides,
+  });
+}

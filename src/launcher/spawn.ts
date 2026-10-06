@@ -33,6 +33,7 @@ import {
   type SpawnResult,
 } from "./shared.js";
 import { oneLine } from "./text.js";
+import { normalizeTaskTitle, TASK_REF_PATTERN } from "../task-text.js";
 
 export class SpawnOps {
   constructor(private readonly k: LauncherKernel) {}
@@ -58,6 +59,12 @@ export class SpawnOps {
           "the base commit must be a full lowercase id",
         ),
       );
+    let taskFields: { taskRef?: string; taskTitle?: string };
+    try {
+      taskFields = this.taskFields(options);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.k.runStarting(async (budget) => {
       await this.k.observer.adoptNow(this.k.budget(ADOPT_BUDGET_MS));
       const role = this.k.config.roles.find((r) => r.name === roleName);
@@ -162,6 +169,7 @@ export class SpawnOps {
           worktreePath: null,
           branch,
           baseSha,
+          ...taskFields,
         });
         budget.check("creating the worktree");
         const tree = await this.k.adapter.createWorktree({
@@ -179,6 +187,7 @@ export class SpawnOps {
           worktreePath: tree.path,
           branch,
           baseSha,
+          ...taskFields,
         });
         if (this.k.config.worktree !== undefined) {
           step = "setup";
@@ -215,6 +224,7 @@ export class SpawnOps {
               worktreePath: tree.path,
               branch,
               baseSha,
+              ...taskFields,
             });
             info.moveMayHaveHappened = false;
           } else {
@@ -317,6 +327,29 @@ export class SpawnOps {
         throw failure;
       }
     });
+  }
+
+  /** The task ref and title a spawn stores on every pane row it writes, normalized; keys are omitted when absent. */
+  taskFields(options: SpawnOptions): { taskRef?: string; taskTitle?: string } {
+    const ref = options.task ?? options.recordTaskRef;
+    const title = options.title ?? options.recordTaskTitle;
+    const fields: { taskRef?: string; taskTitle?: string } = {};
+    try {
+      if (ref !== undefined) {
+        if (!TASK_REF_PATTERN.test(ref))
+          throw new TypeError(
+            "the task must be <plan-id>/<package-id> or a requirement ref id",
+          );
+        fields.taskRef = ref;
+      }
+      if (title !== undefined) fields.taskTitle = normalizeTaskTitle(title);
+    } catch (error) {
+      throw new LauncherError(
+        "invalid_task",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return fields;
   }
 
   /** The branch a new worker gets; a name that is taken gets `-2`, `-3`, ... */

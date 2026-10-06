@@ -1487,3 +1487,104 @@ test("renameBranchForTask keeps a branch that has a commit and gives a taken nam
     w.cleanup();
   }
 });
+
+test("a spawn stores its task and folded title on every pane row; a spawn without them stores null; a hub re-record keeps them", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const tasked = await w.launcher.spawn("developer", {
+      task: "req-1",
+      title: "  Fix   it ",
+    });
+    const plain = await w.launcher.spawn("developer");
+    const rows = (): Map<
+      string,
+      { taskRef: string | null; taskTitle: string | null }
+    > => new Map(w.core.agentPanes(w.owner).map((r) => [r.agentId, r]));
+    assert.equal(rows().get(tasked.agentId)!.taskRef, "req-1");
+    assert.equal(rows().get(tasked.agentId)!.taskTitle, "Fix it");
+    assert.equal(rows().get(plain.agentId)!.taskRef, null);
+    assert.equal(rows().get(plain.agentId)!.taskTitle, null);
+    const row = rows().get(tasked.agentId)!;
+    w.core.recordAgentPane(ctx(w.core, w.owner), {
+      agentId: tasked.agentId,
+      workspaceId: "w9",
+      paneId: "w9:p1",
+      worktreePath: "/tmp/work/other",
+      branch: tasked.branch,
+      baseSha: SHA,
+    });
+    assert.equal(rows().get(tasked.agentId)!.taskRef, row.taskRef);
+    assert.equal(rows().get(tasked.agentId)!.taskTitle, "Fix it");
+
+    const long = await w.launcher.spawn("developer", {
+      task: "req-2",
+      title: "x".repeat(250),
+    });
+    assert.equal(rows().get(long.agentId)!.taskTitle, "x".repeat(200));
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a title with a control character is refused before any agent exists", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const before = w.core.listAgents().length;
+    await assert.rejects(
+      w.launcher.spawn("developer", { task: "req-1", title: "bad\u0007" }),
+      (e: unknown) => e instanceof LauncherError && e.code === "invalid_task",
+    );
+    assert.equal(w.core.listAgents().length, before);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a spawn with a task that fails at worktree creation leaves no pane row and no active agent", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    w.adapter.worktreeError = new Error("no worktree");
+    await assert.rejects(
+      w.launcher.spawn("developer", { task: "req-1", title: "Fix it" }),
+    );
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === "developer-1"),
+      false,
+    );
+    assert.equal(
+      w.core.listAgents().find((a) => a.agentId === "developer-1")!.state,
+      "ended",
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("replace gives the successor's own row the predecessor's task and keeps the predecessor's branch", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer", {
+      task: "req-1",
+      title: "Fix it",
+    });
+    const result = await w.launcher.replace(old.agentId);
+    assert.equal(result.state, "started");
+    if (result.state !== "started") return;
+    const row = w.core
+      .agentPanes(w.owner)
+      .find((r) => r.agentId === result.agentId)!;
+    assert.equal(row.taskRef, "req-1");
+    assert.equal(row.taskTitle, "Fix it");
+    assert.equal(row.branch, old.branch);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === old.agentId),
+      false,
+    );
+  } finally {
+    w.cleanup();
+  }
+});

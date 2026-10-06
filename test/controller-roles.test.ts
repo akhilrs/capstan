@@ -195,6 +195,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 31, name: "0031_pauses.sql" },
           { version: 32, name: "0032_integration_branch_names.sql" },
           { version: 33, name: "0033_message_action_needed.sql" },
+          { version: 34, name: "0034_agent_pane_task.sql" },
         ],
       );
       assert.equal(

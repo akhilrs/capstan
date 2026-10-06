@@ -1,12 +1,39 @@
 import type { ControllerKernel } from "./kernel.js";
 import type { ControllerAreas } from "./areas.js";
 import { ControllerError } from "./errors.js";
+import { packageOfBody } from "../plans.js";
 import {
   type PlanStatusEntry,
   type PlanRow,
   type ReadinessResult,
   type ControllerStatus,
 } from "./records.js";
+
+export interface ActiveTasks {
+  readonly plans: readonly {
+    readonly planId: string;
+    readonly title: string;
+    readonly state: string;
+    readonly architectAgentId: string | null;
+    readonly nexoraId: string | null;
+    readonly total: number;
+    readonly done: number;
+    readonly packages: readonly {
+      readonly packageId: string;
+      readonly title: string;
+      readonly nexoraId: string | null;
+      readonly assigneeAgentId: string | null;
+      readonly progress: string;
+    }[];
+  }[];
+  readonly requirements: readonly {
+    readonly refId: string;
+    readonly nexoraId: string | null;
+    readonly title: string | null;
+    readonly agentIds: readonly string[];
+  }[];
+  readonly truncated: boolean;
+}
 
 export class StatusArea {
   constructor(
@@ -680,5 +707,159 @@ export class StatusArea {
       createdAt: r.created_at,
       reviewState: r.review_state,
     }));
+  }
+
+  /**
+   * The plans still in play (not cancelled, signed off or superseded), with their packages, and the requirements an
+   * active agent works on. Capped so a poll stays small; `truncated` says when a cap cut rows. Operator-only.
+   */
+  activeTasks(
+    credential: string,
+    caps: {
+      readonly plans: number;
+      readonly packages: number;
+      readonly requirements: number;
+    },
+  ): ActiveTasks {
+    this.kernel.authorize(credential, "controller:reconcile");
+    const db = this.kernel.database;
+    const projectId = this.kernel.projectId;
+    let truncated = false;
+    const nexoraOf = (refKind: string, refId: string): string | null =>
+      this.areas.links.linkRow(refKind, refId)?.external_id ?? null;
+    const planRows = (
+      db
+        .prepare(
+          `SELECT * FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
+             AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
+           ORDER BY sequence`,
+        )
+        .all(projectId) as PlanRow[]
+    ).slice(-caps.plans);
+    const activePlanCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
+             AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)`,
+        )
+        .get(projectId) as { n: number }
+    ).n;
+    if (activePlanCount > planRows.length) truncated = true;
+    const plans = planRows.map((row) => {
+      const revision = db
+        .prepare(
+          "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        )
+        .get(
+          projectId,
+          row.plan_id,
+          row.approved_revision ?? row.current_revision,
+        ) as { body_json: string } | undefined;
+      let bodyIds: string[] = [];
+      if (revision !== undefined) {
+        try {
+          const body = JSON.parse(revision.body_json) as {
+            packages?: unknown;
+          } | null;
+          if (Array.isArray(body?.packages))
+            bodyIds = body.packages.flatMap((p: unknown) => {
+              const id = (p as { id?: unknown } | null)?.id;
+              return typeof id === "string" ? [id] : [];
+            });
+        } catch {
+          bodyIds = [];
+        }
+      }
+      const rows = new Map(
+        this.areas.planPackages
+          .planPackages(row.plan_id)
+          .map((entry) => [entry.packageId, entry]),
+      );
+      const ids = [...new Set([...bodyIds, ...rows.keys()])].sort();
+      const entries = ids.map((packageId) => {
+        const entry = rows.get(packageId);
+        return {
+          packageId,
+          title:
+            (revision === undefined
+              ? undefined
+              : packageOfBody(revision.body_json, packageId)?.title) ??
+            packageId,
+          nexoraId: nexoraOf("package", `${row.plan_id}/${packageId}`),
+          assigneeAgentId: entry?.assigneeAgentId ?? null,
+          progress:
+            entry === undefined
+              ? ("unassigned" as const)
+              : entry.cancelledAt === null
+                ? entry.progress
+                : ("cancelled" as const),
+        };
+      });
+      if (entries.length > caps.packages) truncated = true;
+      const counted = entries.filter((e) => e.progress !== "cancelled");
+      return {
+        planId: row.plan_id,
+        title: row.title,
+        state: row.state,
+        architectAgentId: row.architect_agent_id,
+        nexoraId: nexoraOf("plan", row.plan_id),
+        total: counted.length,
+        done: counted.filter(
+          (e) => e.progress === "reviewed" || e.progress === "integrated",
+        ).length,
+        packages: entries.slice(0, caps.packages),
+      };
+    });
+    const byRef = new Map<
+      string,
+      { agentIds: Set<string>; title: string | null }
+    >();
+    const add = (
+      refId: string,
+      agentId: string,
+      title: string | null,
+    ): void => {
+      const entry = byRef.get(refId) ?? { agentIds: new Set(), title: null };
+      entry.agentIds.add(agentId);
+      entry.title ??= title;
+      byRef.set(refId, entry);
+    };
+    for (const row of db
+      .prepare(
+        `SELECT p.agent_id, p.task_ref, p.task_title FROM agent_panes p JOIN agents a ON a.project_id = p.project_id AND a.agent_id = p.agent_id
+         WHERE p.project_id = ? AND a.state = 'active' AND p.task_ref IS NOT NULL AND instr(p.task_ref, '/') = 0 ORDER BY p.agent_id`,
+      )
+      .all(projectId) as {
+      agent_id: string;
+      task_ref: string;
+      task_title: string | null;
+    }[])
+      add(row.task_ref, row.agent_id, row.task_title);
+    for (const row of db
+      .prepare(
+        `SELECT l.ref_id, l.bound_agent_id AS agent_id, p.task_title FROM external_links l
+         JOIN agents a ON a.project_id = l.project_id AND a.agent_id = l.bound_agent_id
+         LEFT JOIN agent_panes p ON p.project_id = a.project_id AND p.agent_id = a.agent_id
+         WHERE l.project_id = ? AND l.ref_kind = 'requirement' AND l.system = 'nexora' AND a.state = 'active'
+         ORDER BY l.ref_id, l.bound_agent_id`,
+      )
+      .all(projectId) as {
+      ref_id: string;
+      agent_id: string;
+      task_title: string | null;
+    }[])
+      add(row.ref_id, row.agent_id, row.task_title);
+    const refs = [...byRef.keys()].sort();
+    if (refs.length > caps.requirements) truncated = true;
+    const requirements = refs.slice(0, caps.requirements).map((refId) => {
+      const entry = byRef.get(refId)!;
+      return {
+        refId,
+        nexoraId: nexoraOf("requirement", refId),
+        title: entry.title,
+        agentIds: [...entry.agentIds].sort(),
+      };
+    });
+    return { plans, requirements, truncated };
   }
 }

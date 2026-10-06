@@ -202,6 +202,7 @@ Other header rules:
 - The `epoch -/0` text of v1 is removed. The epoch and replacement tabs this spec first proposed (`┤ epoch 4/5 ├`, `┤ replacements 2 ├`) were dropped with `status.supervision`: the header now reads `status.supervisionState` and has no epoch concept.
 - The chip text is `● HEALTHY` (green), `● EVALUATING` (yellow), `▲ DEGRADED` (red), `○ NO LINK` (red), `? UNKNOWN` (dim). `PAUSED` replaces the clock tab with `┤ PAUSED ├` (yellow) while polling is paused.
 - The strip is a single line when the reason fits in the room between the chip and the worker meter, otherwise it wraps to two lines (at most one extra row, only while degraded or without a link). Below 20 rows the reason is cut with `…` instead of wrapping.
+- **Task line.** When the status carries task data, the header box gets one more content line under the strip: `idle` when nothing is active, `working on: plan-19 Dashboard cleanup (1/2)` for one task, the labels joined with ` · ` when several fit, then `N tasks: a, b, +k` (as many names as fit), cut with `…` when even that does not fit. The data is `status.activeTasks` (plans with done/total, and the requirements an agent works on); an older daemon without it falls back to `status.plans` (plans only), and with neither the line is hidden. The line costs one body row.
 
 ## 2. Overlays
 
@@ -478,6 +479,7 @@ Let `cw = panel width - 4` (two border cells and one padding cell on each side).
 | 60 | agents `PANE` |
 | 56 | queue `N` (notified marker) |
 | 46 | agents `ROLE` |
+| TASK needs 10 cells | agents `TASK`: dropped first, before `PANE`, once the agent name has its width and fewer than 10 cells are left |
 | 40 | agents `ACTIVITY` bar |
 | 51 | queue tab `input clears` |
 | 45 | pipeline tab `reported > review > integrated` |
@@ -518,6 +520,7 @@ Context-sensitive, in btop style (key letter in `info`, label dim): global `tab 
 | `working` glyph and state | inferred: activity within 30 s or a message in `sent`/`unacked` to the agent. Not Herdr's real status | no (still inferred; the box says `working: inferred`) |
 | `STALLED`, `LOST` | `status.stalledAgentIds`, `status.lostAgentIds` | no |
 | `BLOCKED` | derived: an unresolved message to the agent is in `status.stuck`, or an `escalated` finding targets it | no |
+| `TASK` | per agent: a package assignee `plan-19/dash-ui PM-114 <title>`, the plan's Architect `plan-19 · plan`, a requirement worker `<nexora id or ref id> <title>` (from `status.activeTasks`, else the pane's `taskRef` and `taskTitle`), a reviewer with a `started` review the author (or integration) it reviews, otherwise `-`. Labels are cleaned of control characters | no |
 | `ACTIVITY` bar | derived from `lastActivityAt`: full bar = activity now, empty = 30 s or more ago. It is recency, not load | no |
 | `Q` | count of unresolved `status.messages` to the agent | no |
 | `PANE` | `status.panes` | no |

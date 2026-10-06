@@ -93,3 +93,27 @@ export function durationText(seconds: number): string {
     return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
   return `${Math.floor(seconds / 86_400)}d`;
 }
+
+/**
+ * The header's task summary in `width` cells: `idle` for none, `working on: a · b` while every label fits,
+ * then `N tasks: a, b, +k` with as many names as fit, and an ellipsis when even that is cut. An empty string
+ * for `null` (no task data).
+ */
+export function taskSummary(
+  tasks: readonly { readonly id: string; readonly label: string }[] | null,
+  width: number,
+): string {
+  if (tasks === null || width <= 0) return "";
+  if (tasks.length === 0) return truncate("idle", width);
+  const full = `working on: ${tasks.map((t) => t.label).join(" · ")}`;
+  if (tasks.length === 1 || cellWidth(full) <= width)
+    return truncate(full, width);
+  const head = `${tasks.length} tasks: `;
+  for (let shown = tasks.length; shown >= 1; shown--) {
+    const names = tasks.slice(0, shown).map((t) => t.id);
+    const rest = tasks.length - shown;
+    const text = `${head}${[...names, ...(rest > 0 ? [`+${rest}`] : [])].join(", ")}`;
+    if (cellWidth(text) <= width) return text;
+  }
+  return truncate(`${head}${tasks[0]!.id}, +${tasks.length - 1}`, width);
+}

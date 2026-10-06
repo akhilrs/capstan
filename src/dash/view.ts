@@ -1,7 +1,14 @@
 /** The dashboard as a pure function: model and view state in, a fixed-size grid of styled lines out. Ink only paints it. */
 import { availableDecisions, type DashAction } from "./actions.js";
 import { bottomBorder, thumbRange, topBorder, type Tab } from "./border.js";
-import { age, ageDetail, cellWidth, durationText, truncate } from "./format.js";
+import {
+  age,
+  ageDetail,
+  cellWidth,
+  durationText,
+  taskSummary,
+  truncate,
+} from "./format.js";
 import { glyphsFor, type Glyphs } from "./glyphs.js";
 import {
   areaGraph,
@@ -46,6 +53,7 @@ import {
   pipelineItems,
   queueCollapsed,
   queueRows,
+  TASK_NONE,
   visibleAgents,
   type AgentRow,
   type DashModel,
@@ -323,6 +331,8 @@ function agentState(
 const ACTIVITY_WINDOW_SECONDS = 30;
 
 const AGENT_NAME_MAX = 20;
+const TASK_MIN = 10;
+const TASK_MAX = 40;
 
 function agentsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
@@ -341,8 +351,16 @@ function agentsPanel(ctx: Ctx): Line[] {
     agents.map((a) => a.paneId ?? "-"),
     4,
   );
-  // Optional columns go, rightmost first, before an agent name is cut.
+  const taskWidth = Math.min(
+    TASK_MAX,
+    widest(
+      agents.map((a) => a.task),
+      TASK_MIN,
+    ),
+  );
+  // Optional columns go before an agent name is cut: TASK first, then the rest rightmost first.
   const optional = [
+    { key: "task", ok: true },
     { key: "pane", ok: fits(cw, "agentsPane") },
     { key: "activity", ok: fits(cw, "agentsActivity") },
     { key: "role", ok: fits(cw, "agentsRole") },
@@ -351,9 +369,7 @@ function agentsPanel(ctx: Ctx): Line[] {
     const kept = new Set(
       optional.filter((o, i) => o.ok && i >= drop).map((o) => o.key),
     );
-    return resolveCols(cw, [
-      { key: "glyph", title: " ", width: 1 },
-      { key: "agent", title: "AGENT", width: nameWidth, flex: true },
+    const rest: Col[] = [
       ...(kept.has("role") ? [{ key: "role", title: "ROLE", width: 10 }] : []),
       { key: "gen", title: "GEN", width: 3 },
       {
@@ -369,7 +385,26 @@ function agentsPanel(ctx: Ctx): Line[] {
       ...(kept.has("pane")
         ? [{ key: "pane", title: "PANE", width: paneWidth }]
         : []),
-    ]);
+    ];
+    const agentCol: Col = {
+      key: "agent",
+      title: "AGENT",
+      width: nameWidth,
+      flex: true,
+    };
+    const glyphCol: Col = { key: "glyph", title: " ", width: 1 };
+    // TASK takes what is left once the agent name has its width, and only when that is at least TASK_MIN.
+    const room =
+      cw -
+      (glyphCol.width +
+        nameWidth +
+        2 +
+        rest.reduce((a, c) => a + c.width + 1, 0));
+    const task: Col[] =
+      kept.has("task") && room >= TASK_MIN
+        ? [{ key: "task", title: "TASK", width: Math.min(taskWidth, room) }]
+        : [];
+    return resolveCols(cw, [glyphCol, agentCol, ...task, ...rest]);
   };
   let cols = build(0);
   for (
@@ -404,6 +439,9 @@ function agentsPanel(ctx: Ctx): Line[] {
       cells: {
         glyph,
         agent: span(a.agentId, { color: theme.color("fg") }),
+        task: span(a.task, {
+          color: theme.color(a.task === TASK_NONE ? "dim" : "fg"),
+        }),
         role: span(a.kind, { color: theme.color("fg") }),
         gen: span(`g${a.generation}`, { color: theme.color("dim") }),
         state: span(st.word, { color: theme.color(st.role) }),
@@ -1168,7 +1206,23 @@ function headerLines(
           ...right,
         ]),
       ];
-  return [top, ...strip, bottomBorder(W, { focused: false }, g, border)];
+  const summary = taskSummary(h.tasks, cw);
+  const tasks: Line[] =
+    summary === ""
+      ? []
+      : [
+          content([
+            span(summary, {
+              color: color(h.tasks!.length === 0 ? "dim" : "fg"),
+            }),
+          ]),
+        ];
+  return [
+    top,
+    ...strip,
+    ...tasks,
+    bottomBorder(W, { focused: false }, g, border),
+  ];
 }
 
 // ---------------------------------------------------------------- footer

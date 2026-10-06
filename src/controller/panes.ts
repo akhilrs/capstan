@@ -5,6 +5,7 @@ import { packageNaming, packageOfBody } from "../plans.js";
 import { type MutationContext } from "./types.js";
 import { ControllerError } from "./errors.js";
 import { type AgentPaneInput, type AgentPaneRecord } from "./records.js";
+import { MAX_TASK_TITLE, TASK_REF_PATTERN } from "../task-text.js";
 import { safeId } from "./helpers.js";
 
 export class PanesArea {
@@ -37,6 +38,16 @@ export class PanesArea {
       throw new TypeError("branch name is not acceptable");
     if (input.baseSha !== null && !/^[0-9a-f]{40}$/.test(input.baseSha))
       throw new TypeError("base sha must be 40 lowercase hex characters");
+    if (input.taskRef !== undefined && !TASK_REF_PATTERN.test(input.taskRef))
+      throw new TypeError("task ref is not acceptable");
+    if (
+      input.taskTitle !== undefined &&
+      (Array.from(input.taskTitle).length > MAX_TASK_TITLE ||
+        input.taskTitle.trim() !== input.taskTitle ||
+        input.taskTitle === "" ||
+        /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]|\s\s/u.test(input.taskTitle))
+    )
+      throw new TypeError("task title is not acceptable");
     return this.kernel.mutate(
       context,
       "agent_pane.record",
@@ -51,13 +62,15 @@ export class PanesArea {
         const now = this.kernel.now();
         this.kernel.database
           .prepare(
-            `INSERT INTO agent_panes(project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO agent_panes(project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at, task_ref, task_title)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(project_id, agent_id) DO UPDATE SET
                workspace_id = excluded.workspace_id, pane_id = excluded.pane_id,
                worktree_path = excluded.worktree_path, branch = excluded.branch,
                base_sha = excluded.base_sha, generation = excluded.generation,
-               updated_at = excluded.updated_at`,
+               updated_at = excluded.updated_at,
+               task_ref = COALESCE(excluded.task_ref, agent_panes.task_ref),
+               task_title = COALESCE(excluded.task_title, agent_panes.task_title)`,
           )
           .run(
             this.kernel.projectId,
@@ -70,6 +83,8 @@ export class PanesArea {
             agent.generation,
             now,
             now,
+            input.taskRef ?? null,
+            input.taskTitle ?? null,
           );
         return {
           value: { recorded: true as const },
@@ -294,7 +309,7 @@ export class PanesArea {
     return (
       this.kernel.database
         .prepare(
-          "SELECT agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation FROM agent_panes WHERE project_id = ? ORDER BY agent_id",
+          "SELECT agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, task_ref, task_title FROM agent_panes WHERE project_id = ? ORDER BY agent_id",
         )
         .all(this.kernel.projectId) as Array<{
         agent_id: string;
@@ -304,6 +319,8 @@ export class PanesArea {
         branch: string | null;
         base_sha: string | null;
         generation: number;
+        task_ref: string | null;
+        task_title: string | null;
       }>
     ).map((row) => ({
       agentId: row.agent_id,
@@ -313,6 +330,8 @@ export class PanesArea {
       branch: row.branch,
       baseSha: row.base_sha,
       generation: row.generation,
+      taskRef: row.task_ref,
+      taskTitle: row.task_title,
     }));
   }
 

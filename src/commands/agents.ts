@@ -1,6 +1,7 @@
 /** pause, resume, launch, spawn, replace, release and pm-restart: the commands that manage agents. */
 import { NAME_PATTERN } from "../config/capstan-config.js";
 import { BRANCH_TYPES } from "../conventions.js";
+import { normalizeTaskTitle } from "../task-text.js";
 import {
   SAFE_AGENT_ID,
   type CommandHandler,
@@ -84,8 +85,18 @@ export function agentHandlers(env: CommandEnv): Record<string, CommandHandler> {
           "invalid_request",
           `--type must be one of ${BRANCH_TYPES.join(", ")}`,
         );
-      if (named.title !== undefined && !/\S/.test(named.title))
-        return fail("invalid_request", "--title must not be empty");
+      if (named.title !== undefined) {
+        try {
+          named.title = normalizeTaskTitle(named.title);
+        } catch (error) {
+          return fail(
+            "invalid_request",
+            error instanceof Error
+              ? `--${error.message.replace(/^the title /, "title ")}`
+              : "--title is not valid",
+          );
+        }
+      }
       try {
         core.assertRunNotPaused("spawn");
       } catch (error) {

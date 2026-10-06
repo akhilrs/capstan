@@ -3,11 +3,11 @@
 │   [supervision] enabled = false in capstan.toml                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓
-┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃
-┃▌* pm-1                       PM         g1  working ████████     2s  0 w1:p1 █
-┃ ○ reviewer-6                 Reviewer   g1  ended             5m00s  0 -     █
-┃ ○ reviewer-5                 Reviewer   g1  ended               10m  0 -     ┃
-┃ ○ reviewer-4                 Reviewer   g1  ended               15m  0 -     ┃
+┃   AGENT           TASK       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃
+┃▌* pm-1            -          PM         g1  working ████████     2s  0 w1:p1 █
+┃ ○ reviewer-6      -          Reviewer   g1  ended             5m00s  0 -     █
+┃ ○ reviewer-5      -          Reviewer   g1  ended               10m  0 -     ┃
+┃ ○ reviewer-4      -          Reviewer   g1  ended               15m  0 -     ┃
 ┗━┤ working: inferred ├━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/7 ├━┛
 ╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
 │ reported 3  ──►  review 6  ──►  integrated 3                                 │

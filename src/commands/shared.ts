@@ -99,6 +99,9 @@ export const SAFE_AGENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export const MAX_STATUS_MESSAGES = 200;
 export const MAX_STATUS_CLEARS = 50;
 export const MAX_STATUS_PROPOSALS = 20;
+export const MAX_STATUS_TASK_PLANS = 10;
+export const MAX_STATUS_TASK_PACKAGES = 30;
+export const MAX_STATUS_TASK_REQUIREMENTS = 20;
 
 /** What `op` answers for a session grant; the text is printed verbatim. */
 export function describeGrantRecord(grant: OperatorGrantRecord) {

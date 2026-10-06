@@ -2,13 +2,13 @@
 │ ● SUPERVISED  supervisor-1 active; check acked 3m ago; 1 open finding                                              workers █████████░░░ 3/4   ● answering 1s │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├┤ f problems only [ ] ├━┓
-│   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │┃     SEQ TO           STATE       AGE N DETAIL                                ┃
-│ ▲ developer-2                 Developer  g1  STALLED ░░░░░░░░  3m41s  2 p4   │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledgement after 3 attempts ┃
-│ ● pm-1                        PM         g1  idle    ░░░░░░░░  1m35s  1 p1   │┃ ●   #42 developer-2  queued    3m10s · deferred: recipient busy              ┃
-│ ● supervisor-1                Supervisor g1  idle    ░░░░░░░░    45s  0 p2   │┃ ●   #44 developer-1  sent         8s ●                                       ┃
-│ * developer-1                 Developer  g2  working ████████     3s  1 p3   │┃ ●   #45 designer-1   sent         2s ●                                       ┃
-│ * designer-1                  Designer   g1  working ████████     1s  1 p5   │┃ ●   #46 pm-1         queued       1s ·                                       ┃
-│ ○ developer-0                 Developer  g1  ended               14m  0 -    │┃ ── selected ──────────────────────────────────────────────────────────────── ┃
+│   AGENT            TASK       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │┃     SEQ TO           STATE       AGE N DETAIL                                ┃
+│ ▲ developer-2      -          Developer  g1  STALLED ░░░░░░░░  3m41s  2 p4   │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledgement after 3 attempts ┃
+│ ● pm-1             -          PM         g1  idle    ░░░░░░░░  1m35s  1 p1   │┃ ●   #42 developer-2  queued    3m10s · deferred: recipient busy              ┃
+│ ● supervisor-1     -          Supervisor g1  idle    ░░░░░░░░    45s  0 p2   │┃ ●   #44 developer-1  sent         8s ●                                       ┃
+│ * developer-1      -          Developer  g2  working ████████     3s  1 p3   │┃ ●   #45 designer-1   sent         2s ●                                       ┃
+│ * designer-1       -          Designer   g1  working ████████     1s  1 p5   │┃ ●   #46 pm-1         queued       1s ·                                       ┃
+│ ○ developer-0      -          Developer  g1  ended               14m  0 -    │┃ ── selected ──────────────────────────────────────────────────────────────── ┃
 │ working agents (inferred) ─ now 3 ─ since dash start                         │┃ #41 to developer-2  unacked  queued 3m41s ago                                ┃
 │                             ⣿⣿⡇                  ⡇                           │┃ message 0192f4c1-3a7e-7b2d  notified                                         ┃
 │                             ⣿⣿⡇                  ⡇                           │┃ ! no acknowledgement after 3 attempts   can: retry, skip, cancel             ┃

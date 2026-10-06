@@ -23,6 +23,8 @@ export interface AgentRow {
   readonly pausedAt: string | null;
   readonly paneId: string | null;
   readonly queueDepth: number;
+  /** What the agent works on, one line; `-` when nothing is known. */
+  readonly task: string;
   readonly fingerprint: string;
 }
 
@@ -116,8 +118,16 @@ export interface PmMailHeader {
   readonly stale: boolean;
 }
 
+/** One thing being worked on: `id` is the short name, `label` the full line (id, title, progress). */
+export interface TaskEntry {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface DashModel {
   readonly header: {
+    /** Active tasks; null when the status carries no task data (no header line), an empty list means idle. */
+    readonly tasks: readonly TaskEntry[] | null;
     /** The PM's pending mail; null when the status carries none (no live PM, or not the operator). */
     readonly pmMail: PmMailHeader | null;
     readonly projectId: string;
@@ -175,6 +185,190 @@ function textOrNull(value: unknown): string | null {
 }
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export const TASK_NONE = "-";
+
+/** `a b`, or whichever part is present; empty when neither is. */
+function joinParts(...parts: readonly (string | null | undefined)[]): string {
+  return parts
+    .filter((p) => p !== null && p !== undefined && p !== "")
+    .join(" ");
+}
+
+/** `(done/total)` from two counters, or "" when either is not a count. */
+function progressOf(done: unknown, total: unknown): string {
+  return typeof done === "number" &&
+    typeof total === "number" &&
+    Number.isFinite(done) &&
+    Number.isFinite(total)
+    ? `(${Math.max(0, Math.floor(done))}/${Math.max(0, Math.floor(total))})`
+    : "";
+}
+
+const ACTIVE_PLAN_STATES: ReadonlySet<string> = new Set([
+  "draft",
+  "in_review",
+  "approved",
+]);
+
+/** What the status says about who works on what, as lookups by agent id. */
+interface TaskIndex {
+  /** Header entries; null when the status has neither `activeTasks` nor `plans`. */
+  readonly entries: readonly TaskEntry[] | null;
+  /** Agent id -> `plan-19 · plan`, with ` +k` when it is the Architect of k more plans. */
+  readonly architect: ReadonlyMap<string, string>;
+  /** Agent id -> `plan-19/dash-ui PM-114 <title>`. */
+  readonly assignee: ReadonlyMap<string, string>;
+  /** Agent id -> `<nexora id or ref id> <title>`. */
+  readonly requirement: ReadonlyMap<string, string>;
+  /** `plan/package` -> the package label, for a pane whose task ref names a package. */
+  readonly packageByRef: ReadonlyMap<string, string>;
+  /** Requirement ref id -> label, for a pane whose task ref names a requirement but has no title. */
+  readonly requirementByRef: ReadonlyMap<string, string>;
+  /** Built from `status.plans` alone (an older daemon): a pane's own task fields come before the Architect. */
+  readonly fromPlans: boolean;
+}
+
+function setFirst(map: Map<string, string>, key: string, value: string): void {
+  if (key !== "" && !map.has(key)) map.set(key, value);
+}
+
+function architectLabels(
+  plansOf: ReadonlyMap<string, readonly string[]>,
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const [agentId, ids] of plansOf)
+    labels.set(
+      agentId,
+      `${ids[0]} · plan${ids.length > 1 ? ` +${ids.length - 1}` : ""}`,
+    );
+  return labels;
+}
+
+function addArchitect(
+  plansOf: Map<string, string[]>,
+  agentId: string,
+  planId: string,
+): void {
+  if (agentId !== "")
+    plansOf.set(agentId, [...(plansOf.get(agentId) ?? []), planId]);
+}
+
+/**
+ * The header entries and the per-agent task lookups from `status.activeTasks`. A status without it (an older
+ * daemon) falls back to `status.plans`, which gives open plans and Architects but no packages or requirements;
+ * with neither, or no open plan, `entries` is null. Every field is optional: a malformed one is skipped.
+ */
+export function taskIndexOf(status: Rec): TaskIndex {
+  const plansOf = new Map<string, string[]>();
+  const assignee = new Map<string, string>();
+  const requirement = new Map<string, string>();
+  const packageByRef = new Map<string, string>();
+  const requirementByRef = new Map<string, string>();
+  const entries: TaskEntry[] = [];
+  const index = (
+    found: readonly TaskEntry[] | null,
+    fromPlans: boolean,
+  ): TaskIndex => ({
+    entries: found,
+    architect: architectLabels(plansOf),
+    assignee,
+    requirement,
+    packageByRef,
+    requirementByRef,
+    fromPlans,
+  });
+  const raw = status.activeTasks;
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    const active = raw as Rec;
+    for (const plan of list(active.plans)) {
+      const planId = text(plan.planId);
+      if (planId === "") continue;
+      entries.push({
+        id: planId,
+        label: joinParts(
+          planId,
+          text(plan.title),
+          progressOf(plan.done, plan.total),
+        ),
+      });
+      addArchitect(plansOf, text(plan.architectAgentId), planId);
+      for (const pkg of list(plan.packages)) {
+        const packageId = text(pkg.packageId);
+        if (packageId === "") continue;
+        const ref = `${planId}/${packageId}`;
+        const label = joinParts(ref, text(pkg.nexoraId), text(pkg.title));
+        if (!packageByRef.has(ref)) packageByRef.set(ref, label);
+        setFirst(assignee, text(pkg.assigneeAgentId), label);
+      }
+    }
+    for (const req of list(active.requirements)) {
+      const refId = text(req.refId);
+      const name = text(req.nexoraId) || refId;
+      if (name === "") continue;
+      const label = joinParts(name, text(req.title));
+      entries.push({ id: name, label });
+      if (refId !== "") requirementByRef.set(refId, label);
+      for (const agentId of Array.isArray(req.agentIds) ? req.agentIds : [])
+        setFirst(requirement, text(agentId), label);
+    }
+    return index(entries, false);
+  }
+  if (!Array.isArray(status.plans)) return index(null, false);
+  for (const plan of list(status.plans)) {
+    const planId = text(plan.planId);
+    if (
+      planId === "" ||
+      plan.cancelled === true ||
+      !ACTIVE_PLAN_STATES.has(text(plan.state)) ||
+      list(plan.signoffs).length > 0
+    )
+      continue;
+    addArchitect(plansOf, text(plan.architectAgentId), planId);
+    const counts =
+      typeof plan.packages === "object" &&
+      plan.packages !== null &&
+      !Array.isArray(plan.packages)
+        ? (plan.packages as Rec)
+        : {};
+    let total = 0;
+    for (const [state, n] of Object.entries(counts))
+      if (state !== "cancelled") total += num(n);
+    const done = num(counts.reviewed) + num(counts.integrated);
+    entries.push({
+      id: planId,
+      label: joinParts(planId, text(plan.title), progressOf(done, total)),
+    });
+  }
+  return index(entries.length === 0 ? null : entries, true);
+}
+
+/** The task a pane was spawned with: the package or requirement it names, else its ref and spawn title. */
+function paneTask(pane: Rec | undefined, index: TaskIndex): string | null {
+  if (pane === undefined) return null;
+  const ref = text(pane.taskRef);
+  if (ref === "") return null;
+  const known = ref.includes("/")
+    ? index.packageByRef.get(ref)
+    : index.requirementByRef.get(ref);
+  return known ?? (joinParts(ref, text(pane.taskTitle)) || null);
+}
+
+/** `review <author or integration id> r<round>` by reviewer, for each started review. */
+function reviewSubjects(reviews: readonly Rec[]): Map<string, string> {
+  const subjects = new Map<string, string>();
+  for (const r of reviews) {
+    if (r.state !== "started") continue;
+    const subject = text(r.authorAgentId) || text(r.integrationId).slice(0, 8);
+    if (subject !== "")
+      setFirst(
+        subjects,
+        text(r.reviewerAgentId),
+        `review ${subject} r${num(r.round)}`,
+      );
+  }
+  return subjects;
 }
 
 /** Workers are every active agent except the PM and the Supervisor, the same rule the launcher applies to `limits.max_workers`. */
@@ -361,6 +555,11 @@ export function buildDashModel(
   const paneOf = new Map<string, string>();
   for (const pane of list(status.panes))
     if (pane.paneId) paneOf.set(text(pane.agentId), text(pane.paneId));
+  const paneRecords = new Map<string, Rec>();
+  for (const pane of list(status.panes))
+    paneRecords.set(text(pane.agentId), pane);
+  const taskIndex = taskIndexOf(status);
+  const subjects = reviewSubjects(list(status.reviews));
   const agentRecords = list(status.agents);
   const activeAgents = new Set(
     agentRecords
@@ -412,11 +611,24 @@ export function buildDashModel(
           : null),
       paneId: paneOf.get(agentId) ?? null,
       queueDepth: depth.get(agentId) ?? 0,
+      task:
+        state === "active"
+          ? (taskIndex.assignee.get(agentId) ??
+            (taskIndex.fromPlans
+              ? (paneTask(paneRecords.get(agentId), taskIndex) ??
+                taskIndex.architect.get(agentId))
+              : (taskIndex.architect.get(agentId) ??
+                taskIndex.requirement.get(agentId) ??
+                paneTask(paneRecords.get(agentId), taskIndex))) ??
+            subjects.get(agentId) ??
+            TASK_NONE)
+          : TASK_NONE,
     };
     return {
       ...row,
       fingerprint: [
         row.state,
+        row.task,
         row.generation,
         row.working,
         row.stalled,
@@ -549,6 +761,7 @@ export function buildDashModel(
   const pmMailRec = status.pmMail as Rec | null | undefined;
   return {
     header: {
+      tasks: taskIndex.entries,
       pmMail:
         typeof pmMailRec === "object" && pmMailRec !== null
           ? {

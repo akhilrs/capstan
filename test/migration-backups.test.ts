@@ -193,9 +193,9 @@ test("upgrading a v30 ledger writes a backup before each later migration through
     database.close();
     const names = listing(directory).filter((n) => n.includes(".pre-v"));
     assert.equal(names.length, 2);
-    // The upgrade backs up before v31, v32 and v33; the two newest stay.
+    // The upgrade backs up before v31 to v34; the two newest stay.
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v34-")));
     assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v33-")));
-    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v32-")));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -260,6 +260,102 @@ test("migration 0033 adds messages.action_needed, gives every existing message 0
     assert.ok(
       listing(directory).some((n) =>
         n.startsWith("controller.sqlite.pre-v33-"),
+      ),
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("migration 0034 adds agent_panes.task_ref and task_title as NULL on every existing row, is backed up first and its CHECKs reject bad values; migration numbers do not collide", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
+  try {
+    const migrationsDirectory = path.resolve(
+      import.meta.dirname,
+      "..",
+      "..",
+      "migrations",
+    );
+    const numbers = fs
+      .readdirSync(migrationsDirectory)
+      .filter((n) => /^\d{4}_.*\.sql$/.test(n))
+      .map((n) => n.slice(0, 4));
+    assert.equal(new Set(numbers).size, numbers.length, "no number twice");
+    assert.ok(numbers.includes("0034"));
+
+    const target = path.join(directory, "controller.sqlite");
+    fs.copyFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "..",
+        "..",
+        "test",
+        "fixtures",
+        "ledger-better-sqlite3.sqlite",
+      ),
+      target,
+    );
+    const columns = (db: {
+      prepare(sql: string): { all(): unknown[] };
+    }): string[] =>
+      (
+        db.prepare("PRAGMA table_info(agent_panes)").all() as { name: string }[]
+      ).map((c) => c.name);
+    const before = openSqlite(target);
+    assert.ok(!columns(before).includes("task_ref"));
+    assert.ok(!columns(before).includes("task_title"));
+    const oldRows = before
+      .prepare(
+        "SELECT project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at FROM agent_panes ORDER BY agent_id",
+      )
+      .all();
+    assert.ok(oldRows.length > 0, "the fixture has agent_panes rows");
+    before.close();
+    const database = await openDatabase(target);
+    try {
+      assert.ok(columns(database).includes("task_ref"));
+      assert.ok(columns(database).includes("task_title"));
+      assert.deepEqual(
+        database
+          .prepare(
+            "SELECT project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at FROM agent_panes ORDER BY agent_id",
+          )
+          .all(),
+        oldRows,
+      );
+      assert.equal(
+        (
+          database
+            .prepare(
+              "SELECT COUNT(*) AS n FROM agent_panes WHERE task_ref IS NOT NULL OR task_title IS NOT NULL",
+            )
+            .get() as { n: number }
+        ).n,
+        0,
+      );
+      for (const [column, value] of [
+        ["task_ref", ""],
+        ["task_ref", "  "],
+        ["task_ref", "a".repeat(258)],
+        ["task_title", ""],
+        ["task_title", "   "],
+        ["task_title", "a".repeat(201)],
+      ] as const)
+        assert.throws(
+          () =>
+            database.prepare(`UPDATE agent_panes SET ${column} = ?`).run(value),
+          (error: Error) => error instanceof Error,
+          `${column} ${value.length}`,
+        );
+      database
+        .prepare("UPDATE agent_panes SET task_ref = ?, task_title = ?")
+        .run("a".repeat(257), "b".repeat(200));
+    } finally {
+      database.close();
+    }
+    assert.ok(
+      listing(directory).some((n) =>
+        n.startsWith("controller.sqlite.pre-v34-"),
       ),
     );
   } finally {

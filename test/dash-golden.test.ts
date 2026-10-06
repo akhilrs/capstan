@@ -19,6 +19,7 @@ import {
   iso,
   showcase,
   supervisionState,
+  tasksShowcase,
 } from "./dash-fixtures.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
@@ -64,6 +65,24 @@ for (const [columns, rows] of [
     for (const line of lines)
       assert.equal(Array.from(line).length, columns, line);
     matchesGolden(`dash-${columns}x${rows}`, lines);
+  });
+}
+
+for (const [columns, rows] of [
+  [80, 24],
+  [160, 45],
+] as const) {
+  test(`the ${columns}x${rows} screen with active tasks matches its golden file`, () => {
+    const frame = buildFrame(
+      modelOf(tasksShowcase()),
+      viewOf(columns, rows),
+      theme,
+    );
+    const lines = plainLines(frame.lines);
+    assert.equal(lines.length, rows);
+    for (const line of lines)
+      assert.equal(Array.from(line).length, columns, line);
+    matchesGolden(`dash-tasks-${columns}x${rows}`, lines);
   });
 }
 

@@ -53,6 +53,8 @@ test("pane rows are recorded, updated with the agent's generation, read back and
       branch: "capstan/developer-1",
       baseSha: SHA,
       generation: 1,
+      taskRef: null,
+      taskTitle: null,
     });
     assert.throws(
       () => h.core.agentPanes(h.developer.credential),
@@ -586,6 +588,53 @@ test("orphan panes are recorded once, read back and cleared, for a controller on
       cleared: false,
     });
     assert.deepEqual(h.core.orphanPanes(h.owner), []);
+  } finally {
+    await close(h);
+  }
+});
+
+test("a pane row stores the spawn task, keeps it when a re-record omits it, and loses it with the row; a stored request without the fields replays", async () => {
+  const h = await harness();
+  try {
+    const agentId = h.developer.agentId;
+    h.core.recordAgentPane(ctx(h.core, h.owner), {
+      ...pane(agentId),
+      taskRef: "plan-1/pkg-a",
+      taskTitle: "Fix it",
+    });
+    assert.equal(h.core.agentPanes(h.owner)[0]!.taskRef, "plan-1/pkg-a");
+    assert.equal(h.core.agentPanes(h.owner)[0]!.taskTitle, "Fix it");
+    h.core.recordAgentPane(
+      ctx(h.core, h.owner),
+      pane(agentId, { paneId: "w3:p1" }),
+    );
+    const kept = h.core.agentPanes(h.owner)[0]!;
+    assert.equal(kept.paneId, "w3:p1");
+    assert.equal(kept.taskRef, "plan-1/pkg-a");
+    assert.equal(kept.taskTitle, "Fix it");
+    for (const bad of [
+      { taskRef: "" },
+      { taskRef: "a b" },
+      { taskTitle: "" },
+      { taskTitle: "  padded " },
+      { taskTitle: "bell\u0007" },
+      { taskTitle: "x".repeat(201) },
+    ])
+      assert.throws(
+        () =>
+          h.core.recordAgentPane(ctx(h.core, h.owner), {
+            ...pane(agentId),
+            ...bad,
+          }),
+        TypeError,
+      );
+    h.core.clearAgentPane(ctx(h.core, h.owner), agentId);
+    assert.deepEqual(h.core.agentPanes(h.owner), []);
+
+    const replayed = ctx(h.core, h.owner);
+    const first = h.core.recordAgentPane(replayed, pane(agentId));
+    assert.deepEqual(h.core.recordAgentPane(replayed, pane(agentId)), first);
+    assert.equal(h.core.agentPanes(h.owner)[0]!.taskRef, null);
   } finally {
     await close(h);
   }
