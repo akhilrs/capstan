@@ -108,9 +108,82 @@ export function nextVersion(current, commits) {
   return { version, level };
 }
 
+const MIN_CUT_OFF = 30;
+const TYPE_RANK = [
+  "feat",
+  "fix",
+  "perf",
+  "revert",
+  "refactor",
+  "docs",
+  "test",
+  "build",
+  "ci",
+  "style",
+  "chore",
+];
+
+function normalizeSubject(description) {
+  return description
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[\s.,;:!?]+$/, "");
+}
+
+/** Equal subjects, or one a prefix of the other where the shorter is long enough to be a cut-off title. */
+function sameSubject(a, b) {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return (
+    short === long || (short.length >= MIN_CUT_OFF && long.startsWith(short))
+  );
+}
+
+function mergeCommits(prior, c) {
+  const better =
+    TYPE_RANK.indexOf(c.type) < TYPE_RANK.indexOf(prior.type) ? c : prior;
+  const scopes = [prior.scope, c.scope].filter(Boolean);
+  const note = prior.note ?? c.note;
+  return {
+    ...better,
+    scope: scopes.sort((x, y) => y.length - x.length)[0] ?? null,
+    description:
+      c.description.trim().length > prior.description.trim().length
+        ? c.description
+        : prior.description,
+    breaking: prior.breaking || c.breaking,
+    note,
+  };
+}
+
+/**
+ * Parsed commits with repeats removed. Scope is ignored when comparing; subjects match when their
+ * normalized forms (trimmed, lower-case, no trailing punctuation) are equal or one is a prefix of the
+ * other and at least 30 characters (a cut-off title). Types are compared across: the merged entry takes
+ * the highest-ranking type, the longest subject and the more specific scope, at the first one's position.
+ */
+export function dedupeCommits(commits) {
+  const kept = [];
+  for (const raw of commits) {
+    const c = normalize(raw);
+    if (!c) continue;
+    const subject = normalizeSubject(c.description);
+    const at = kept.findIndex((k) => sameSubject(k.subject, subject));
+    if (at === -1) kept.push({ subject, commit: c });
+    else {
+      const merged = mergeCommits(kept[at].commit, c);
+      kept[at] = {
+        subject: normalizeSubject(merged.description),
+        commit: merged,
+      };
+    }
+  }
+  return kept.map((k) => k.commit);
+}
+
 /** The CHANGELOG section for a release; commits are strings or { sha, message }. */
 export function renderChangelogSection(version, date, commits) {
-  const parsed = commits.map(normalize).filter((c) => c !== null);
+  const parsed = dedupeCommits(commits);
   const item = (c, text) =>
     `- ${c.scope ? `**${c.scope}:** ` : ""}${text}${c.sha ? ` (${c.sha.slice(0, 7)})` : ""}`;
   const groups = [];

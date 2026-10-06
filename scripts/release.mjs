@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   compareVersions,
+  dedupeCommits,
   lastReleaseTag,
   nextVersion,
   parseCommit,
@@ -126,6 +127,10 @@ const date = new Date().toISOString().slice(0, 10);
 const section = renderChangelogSection(version, date, commits);
 console.log(`current: ${current}`);
 console.log(`next:    ${version} (${next.level})`);
+const listed = dedupeCommits(commits).length;
+console.log(
+  `commits: ${commits.length} counted, ${listed} listed (${commits.length - listed} duplicate(s) collapsed)`,
+);
 console.log(`\n${section}`);
 
 const targets = ["linux-x64", "linux-arm64"];

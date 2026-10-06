@@ -22,6 +22,7 @@ const notes = (await import(
     date: string,
     commits: { sha: string; message: string }[],
   ): string;
+  dedupeCommits(commits: { sha: string; message: string }[]): unknown[];
   lastReleaseTag(root: string): string | null;
 };
 
@@ -187,4 +188,74 @@ test("lastReleaseTag picks the highest vX.Y.Z reachable from HEAD", () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("changelog drops an exact duplicate and keeps the first", () => {
+  const section = notes.renderChangelogSection("1.0.0", "2026-10-04", [
+    { sha: "aaaaaaa1", message: "fix(ui): same thing" },
+    { sha: "bbbbbbb2", message: "fix(ui): same thing" },
+  ]);
+  assert.equal(section.match(/same thing/g)?.length, 1);
+  assert.match(section, /aaaaaaa/);
+});
+
+test("changelog treats case, spacing and trailing punctuation as the same subject", () => {
+  const section = notes.renderChangelogSection("1.0.0", "2026-10-04", [
+    { sha: "aaaaaaa1", message: "feat: Add The Thing." },
+    { sha: "bbbbbbb2", message: "feat: add the  thing " },
+  ]);
+  assert.equal(section.match(/- /g)?.length, 1);
+});
+
+test("changelog keeps different subjects that share a short prefix", () => {
+  const commits = [
+    { sha: "aaaaaaa1", message: "fix: handle null" },
+    { sha: "bbbbbbb2", message: "fix: handle null in parser" },
+    { sha: "ccccccc3", message: "fix: handle timeouts" },
+  ];
+  assert.equal(notes.dedupeCommits(commits).length, 3);
+  const section = notes.renderChangelogSection("1.0.0", "2026-10-04", commits);
+  assert.equal(section.match(/- /g)?.length, 3);
+});
+
+test("changelog merges a scoped, cut-off and re-typed repeat into one entry", () => {
+  const title = "Split oversized modules and remove the dormant legacy engine";
+  const commits = [
+    {
+      sha: "aaaaaaa1",
+      message:
+        "refactor(controller): Split oversized modules and remove the dormant",
+    },
+    { sha: "bbbbbbb2", message: `refactor: ${title}` },
+    { sha: "ccccccc3", message: `chore: ${title}` },
+    { sha: "ddddddd4", message: `feat(ui): ${title}.` },
+  ];
+  const merged = notes.dedupeCommits(commits) as {
+    type: string;
+    scope: string | null;
+    description: string;
+  }[];
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.type, "feat");
+  assert.equal(merged[0]?.scope, "controller");
+  assert.equal(merged[0]?.description, `${title}.`);
+  const section = notes.renderChangelogSection("1.0.0", "2026-10-04", commits);
+  assert.equal(section.match(/- /g)?.length, 1);
+  assert.match(section, /### Features/);
+});
+
+test("changelog keeps a scope and breaking flag from either repeat", () => {
+  const merged = notes.dedupeCommits([
+    {
+      sha: "aaaaaaa1",
+      message: "fix(cli): a long enough shared subject line here",
+    },
+    {
+      sha: "bbbbbbb2",
+      message: "fix!: a long enough shared subject line here",
+    },
+  ]) as { scope: string | null; breaking: boolean }[];
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.scope, "cli");
+  assert.equal(merged[0]?.breaking, true);
 });
