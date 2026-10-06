@@ -429,9 +429,8 @@ fn no_size_panics_and_no_painted_size_has_an_overlong_line() {
 }
 
 /// The whole range with every fixture, also the sizes under 60x16 that the app replaces with a placeholder.
-/// Run with `--ignored`; the other sweep takes every fixture with CSTAN_SWEEP_ALL=1.
+/// The other sweep takes every fixture with CSTAN_SWEEP_ALL=1.
 #[test]
-#[ignore = "reports the sizes under 60x16, which the app does not paint"]
 fn every_size_from_1x1_to_200x60_has_no_line_wider_than_the_width() {
     let (_, found) = sweep(true);
     let all: Vec<&Finding> = found.iter().collect();

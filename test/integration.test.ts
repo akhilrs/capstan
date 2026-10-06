@@ -1285,3 +1285,46 @@ test("an integration recorded with a legacy capstan/integration/<id> branch is s
     await close(h);
   }
 });
+
+test("squash subject from a long plan title is cut at a word, never at a dangling word, and the body is cut at a word", () => {
+  const message = squashMessage({
+    planId: null,
+    packages: [
+      { packageId: "p1", type: "test", scope: "dash", breaking: false },
+    ],
+    planTitle:
+      "test(dash): end-to-end parity, redraw, key and performance checks of the dashboard",
+    reports: [
+      {
+        reportId: "r1",
+        agentId: "developer-1",
+        summary: `${"alpha ".repeat(90)}omega`,
+        branch: null,
+      },
+    ],
+  });
+  assert.equal(
+    message.subject,
+    "test(dash): end-to-end parity, redraw, key and performance checks",
+  );
+  assert.ok(message.body.endsWith("alpha ..."), message.body);
+  assert.ok(!/alph ?\.\.\.$/.test(message.body));
+});
+
+test("squash body keeps a hard cut of a report summary that is one long token", () => {
+  const url = `https://example.test/${"a".repeat(500)}`;
+  const message = squashMessage({
+    planId: null,
+    packages: [],
+    planTitle: null,
+    reports: [
+      { reportId: "r1", agentId: "developer-1", summary: url, branch: null },
+    ],
+  });
+  assert.ok(
+    message.body.startsWith(
+      `Report r1 (developer-1): ${url.slice(0, 400)} ...`,
+    ),
+    message.body,
+  );
+});

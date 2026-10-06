@@ -526,7 +526,7 @@ test("sign-off is refused for a non-architect, an unmerged or unreviewed integra
     assert.equal(
       await signoff(t.architect, discarded),
       "rejected",
-      "not merged",
+      "not merged or confirmed",
     );
 
     const first = resultOf<{ integrationId: string }>(
@@ -573,7 +573,7 @@ test("sign-off is refused for a non-architect, an unmerged or unreviewed integra
   });
 });
 
-test("sign-off is refused for an integration that holds a report outside the plan", async () => {
+test("sign-off accepts an integration that holds a report outside the plan and tells the PM about it", async () => {
   await withTeam(async (t) => {
     const { h } = t;
     const planId = await openAndSubmit(t, "normal", "wp1");
@@ -586,18 +586,18 @@ test("sign-off is refused for an integration that holds a report outside the pla
       await call(h, t.architect.credential, "integrate", [inside, outside]),
     );
     await passReview(t, t.architect, integrationId);
-    const refused = await call(h, t.architect.credential, "plan", [
-      "signoff",
-      planId,
-      integrationId,
-      "ok",
-    ]);
-    assert.equal(refused.ok, false);
-    assert.match(
-      (refused as { message: string }).message,
-      new RegExp(`report ${outside} .* is not a package of plan ${planId}`),
+    resultOf(
+      await call(h, t.architect.credential, "plan", [
+        "signoff",
+        planId,
+        integrationId,
+        "ok",
+      ]),
     );
-    assert.deepEqual(h.core.planRecord(h.owner, planId)!.signoffs, []);
+    assert.deepEqual(
+      h.core.planRecord(h.owner, planId)!.signoffs.map((s) => s.extraReports),
+      [[outside]],
+    );
   });
 });
 

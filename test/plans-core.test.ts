@@ -124,18 +124,20 @@ function git(): IntegrationGit {
 async function integrateReports(
   h: Harness,
   reportIds: string[],
+  gitOverride: IntegrationGit = git(),
+  expected = "merged",
 ): Promise<string> {
   const record = await integrate(
     {
       core: h.core,
-      git: git(),
+      git: gitOverride,
       context: (credential: string) => ctx(h.core, credential),
       credential: h.owner,
       log: () => undefined,
     },
     { reportIds, requestedBy: "operator" },
   );
-  assert.equal(record.state, "merged");
+  assert.equal(record.state, expected);
   return record.integrationId;
 }
 
@@ -672,7 +674,7 @@ test("package progress ignores reports before the assignment and counts a report
   }
 });
 
-test("a sign-off needs the architect, a merged integration of this plan's packages and a passed integration review", async () => {
+test("a sign-off needs the architect, an integration holding this plan's packages and a passed integration review", async () => {
   const t = await team();
   try {
     const { h } = t;
@@ -707,7 +709,7 @@ test("a sign-off needs the architect, a merged integration of this plan's packag
     );
     assert.throws(
       () => signoff(t.architect, other, integrationId),
-      /not a package of plan/,
+      /package wp1 of plan plan-2 is not integrated in integration/,
       "an integration of another plan's work is refused",
     );
     assert.throws(
@@ -742,7 +744,7 @@ test("a sign-off needs the architect, a merged integration of this plan's packag
   }
 });
 
-test("a sign-off refuses a report outside the plan's packages", async () => {
+test("a sign-off lists the reports that are not packages of the plan", async () => {
   const t = await team();
   try {
     const { h } = t;
@@ -754,21 +756,22 @@ test("a sign-off refuses a report outside the plan's packages", async () => {
     review(h, stray, "pass");
     const integrationId = await integrateReports(h, [own, stray]);
     review(h, integrationId, "pass");
-    assert.throws(
-      () =>
-        h.core.recordSignoff(ctx(h.core, t.architect.credential), {
-          planId,
-          integrationId,
-          summary: "x",
-        }),
-      new RegExp(`report ${stray} of the integration is not a package`),
+    const done = h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+      planId,
+      integrationId,
+      summary: "x",
+    });
+    assert.deepEqual(done.extraReports, [stray]);
+    assert.deepEqual(
+      h.core.planRecord(h.owner, planId)!.signoffs.map((s) => s.extraReports),
+      [[stray]],
     );
   } finally {
     await close(t.h);
   }
 });
 
-test("a sign-off needs a merged integration", async () => {
+test("a sign-off is refused for an integration that is not merged or confirmed", async () => {
   const t = await team();
   try {
     const { h } = t;
@@ -782,14 +785,141 @@ test("a sign-off needs a merged integration", async () => {
       integrationId,
       outcome: "discarded",
     });
+    const signoff = (id: string) => () =>
+      h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+        planId,
+        integrationId: id,
+        summary: "x",
+      });
     assert.throws(
-      () =>
-        h.core.recordSignoff(ctx(h.core, t.architect.credential), {
-          planId,
-          integrationId,
-          summary: "x",
-        }),
-      /is discarded, not merged/,
+      signoff(integrationId),
+      /is discarded, not merged or confirmed/,
+    );
+    const failedGit: IntegrationGit = {
+      ...git(),
+      merge: async () => {
+        throw new Error("boom");
+      },
+    };
+    const failed = await integrateReports(h, [report], failedGit, "failed");
+    assert.throws(signoff(failed), /is failed, not merged or confirmed/);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a sign-off is accepted for an integration that is already confirmed", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1");
+    assign(t, planId, "wp1", t.dev1);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, report, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    assert.throws(
+      () => settle(t, integrationId, "confirmed"),
+      /only after its latest review passed/,
+      "an unreviewed integration cannot be confirmed, so it cannot reach a sign-off that way",
+    );
+    review(h, integrationId, "pass");
+    settle(t, integrationId, "confirmed");
+    const signoff = () =>
+      h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+        planId,
+        integrationId,
+        summary: "after the merge",
+      });
+    assert.deepEqual(signoff().extraReports, []);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a sign-off is refused while a plan package is not integrated anywhere, and for a cancelled plan", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1", "wp2", "wp3");
+    assign(t, planId, "wp1", t.dev1);
+    assign(t, planId, "wp2", t.dev2);
+    const report = reportBy(h, t.dev1, "1".repeat(40));
+    const second = reportBy(h, t.dev2, "2".repeat(40));
+    review(h, report, "pass");
+    review(h, second, "pass");
+    const integrationId = await integrateReports(h, [report]);
+    review(h, integrationId, "pass");
+    const signoff = () =>
+      h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+        planId,
+        integrationId,
+        summary: "x",
+      });
+    assert.throws(
+      signoff,
+      /packages wp2, wp3 of plan plan-1 are not integrated in integration/,
+    );
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId, packageId: "wp2" });
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId, packageId: "wp3" });
+    assert.equal(
+      signoff().integrationId,
+      integrationId,
+      "cancelled packages need no integration",
+    );
+    h.core.cancelPlan(ctx(h.core, h.owner), { planId });
+    const again = () =>
+      h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+        planId,
+        integrationId,
+        summary: "y",
+      });
+    assert.throws(again, /plan plan-1 is cancelled/);
+  } finally {
+    await close(t.h);
+  }
+});
+
+test("a plan-22-like sequence: confirmed integrations, then a final one with a follow-up report, can be signed off", async () => {
+  const t = await team();
+  try {
+    const { h } = t;
+    const planId = approved(t, "wp1", "wp2");
+    assign(t, planId, "wp1", t.dev1);
+    assign(t, planId, "wp2", t.dev2);
+    const one = reportBy(h, t.dev1, "1".repeat(40));
+    review(h, one, "pass");
+    const first = await integrateReports(h, [one]);
+    review(h, first, "pass");
+    settle(t, first, "confirmed");
+    const two = reportBy(h, t.dev2, "2".repeat(40));
+    const followUp = reportBy(
+      h,
+      member(h, "dev-three", "Developer", "developer"),
+      "3".repeat(40),
+    );
+    review(h, two, "pass");
+    review(h, followUp, "pass");
+    const last = await integrateReports(h, [two, followUp]);
+    review(h, last, "pass");
+    const signoff = (integrationId: string) =>
+      h.core.recordSignoff(ctx(h.core, t.architect.credential), {
+        planId,
+        integrationId,
+        summary: "all in",
+      });
+    const done = signoff(last);
+    assert.deepEqual(done.extraReports, [followUp]);
+    settle(t, last, "confirmed");
+    assert.deepEqual(
+      h.core
+        .planRecord(h.owner, planId)!
+        .signoffs.map((s) => [s.integrationId, s.extraReports]),
+      [[last, [followUp]]],
+    );
+    // The confirmed first integration is signable as well once it passed review, but only with every package in it or before it.
+    assert.throws(
+      () => signoff(first),
+      /package wp2 of plan plan-1 is not integrated/,
     );
   } finally {
     await close(t.h);
@@ -895,7 +1025,7 @@ test("a sign-off refuses an integration without reports", async () => {
           integrationId,
           summary: "empty",
         }),
-      /has no reports of plan/,
+      /has no reports/,
     );
   } finally {
     await close(t.h);

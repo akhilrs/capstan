@@ -19,8 +19,19 @@ struct BoxSpec {
 fn make_box(spec: BoxSpec, theme: &Theme, g: &Glyphs) -> Overlay {
     let columns = spec.size.columns as i64;
     let rows_total = spec.size.rows as i64;
-    let width = (spec.width as i64).min(columns - 4).max(20) as usize;
+    let width = (spec.width as i64)
+        .min(columns - 4)
+        .max(20)
+        .min(columns)
+        .max(0) as usize;
     let height = (rows_total - 2).min(spec.body.len() as i64 + 2);
+    if width < 4 || height < 2 {
+        return Overlay {
+            lines: Vec::new(),
+            top: 0,
+            left: 0,
+        };
+    }
     let border = theme.color(ColorRole::Overlay);
     let edge = g.edge_focused;
     let rows = (height - 2).max(0) as usize;

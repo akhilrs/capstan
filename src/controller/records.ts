@@ -312,6 +312,8 @@ export interface PlanSignoffRecord {
   readonly architectAgentId: string;
   readonly summary: string;
   readonly createdAt: string;
+  /** Reports of the integration that are not packages of the plan. */
+  readonly extraReports: readonly string[];
 }
 
 export interface PlanStatusEntry {

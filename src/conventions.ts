@@ -141,6 +141,56 @@ export function slugify(title: string, max = 40): string {
   return cut === "" ? "work" : cut;
 }
 
+const DANGLING_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "by",
+  "for",
+  "from",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+const TRAILING_PUNCTUATION = /[\s.,;:!?&+\-\u2013\u2014/([{]+$/;
+
+/** A string cut at a character limit without splitting a surrogate pair. */
+export function cutHard(text: string, max: number): string {
+  let end = Math.min(max, text.length);
+  const last = text.charCodeAt(end - 1);
+  if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return text.slice(0, end).replace(TRAILING_PUNCTUATION, "");
+}
+
+/** The longest whole-word head of text within max characters, minus trailing punctuation and dangling words (of, the, in ...); empty when no word fits. */
+export function cutAtWord(text: string, max: number): string {
+  let head = text;
+  if (text.length > max) {
+    const window = text.slice(0, max + 1);
+    const space = window.search(/\s\S*$/);
+    head = space > 0 ? window.slice(0, space) : "";
+  }
+  for (;;) {
+    const trimmed = head.replace(TRAILING_PUNCTUATION, "");
+    const word = /(?:^|\s)(\S+)$/.exec(trimmed)?.[1];
+    if (
+      word !== undefined &&
+      trimmed.length > word.length &&
+      DANGLING_WORDS.has(word.toLowerCase())
+    ) {
+      head = trimmed.slice(0, trimmed.length - word.length);
+      continue;
+    }
+    return trimmed;
+  }
+}
+
 export function formatSubject(
   input: {
     type: string;
@@ -165,15 +215,8 @@ export function formatSubject(
   let description = input.description.replace(/\s+/g, " ").trim();
   if (description === "") description = "update";
   const room = Math.max(1, max - prefix.length);
-  if (description.length > room) {
-    const head = description.slice(0, room + 1);
-    const space = head.lastIndexOf(" ");
-    description = (
-      space > 0 ? head.slice(0, space) : description.slice(0, room)
-    ).replace(/[\s.,;:-]+$/, "");
-    if (description === "")
-      description = input.description.trim().slice(0, room);
-  }
+  if (description.length > room)
+    description = cutAtWord(description, room) || cutHard(description, room);
   return prefix + description;
 }
 

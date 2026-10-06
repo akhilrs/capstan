@@ -70,7 +70,7 @@ pub fn column_widths(columns: usize, mode: LayoutMode) -> Vec<usize> {
         return vec![columns];
     }
     let left = columns / 2;
-    vec![left, columns - left]
+    vec![left, columns.saturating_sub(left)]
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -116,7 +116,7 @@ pub fn fill_rows(rows: usize, wishes: &[PanelWish], focus: PanelId) -> Vec<(Pane
             if heights[i].1 >= w.want {
                 continue;
             }
-            let score = w.weight / ((heights[i].1 - w.min) as f64 + 1.0);
+            let score = w.weight / ((heights[i].1.saturating_sub(w.min)) as f64 + 1.0);
             if score > best_score {
                 best = Some(i);
                 best_score = score;
@@ -172,11 +172,13 @@ pub fn window_of(count: usize, cursor: usize, capacity: usize) -> Window {
             hidden: 0,
         };
     }
-    let start = (cursor + 1).saturating_sub(capacity).min(count - capacity);
+    let start = (cursor + 1)
+        .saturating_sub(capacity)
+        .min(count.saturating_sub(capacity));
     Window {
         start,
         end: start + capacity,
-        hidden: count - capacity,
+        hidden: count.saturating_sub(capacity),
     }
 }
 
@@ -251,9 +253,9 @@ pub struct AgentSections {
 
 pub fn agent_sections(body: usize, agents: usize) -> AgentSections {
     let header = if body >= 3 { 1 } else { 0 };
-    let avail = body - header;
+    let avail = body.saturating_sub(header);
     let rows = agents.max(1).min(avail);
-    let left = avail - rows;
+    let left = avail.saturating_sub(rows);
     AgentSections {
         header,
         rows,
@@ -294,9 +296,9 @@ pub fn pipeline_sections(body: usize, items: usize) -> PipelineSections {
     let stages = if gapped {
         GAPPED_STAGE_ROWS
     } else {
-        3.min(body - 1)
+        3.min(body.saturating_sub(1))
     };
-    let rest = body - 1 - stages;
+    let rest = body.saturating_sub(1 + stages);
     if rest < 3 {
         return PipelineSections {
             flow: 1,
@@ -313,6 +315,6 @@ pub fn pipeline_sections(body: usize, items: usize) -> PipelineSections {
         compact_summary: false,
         gapped,
         header: 1,
-        items: items.min(rest - 1),
+        items: items.min(rest.saturating_sub(1)),
     }
 }

@@ -2,7 +2,9 @@
 use super::format::{cell_width, truncate};
 use super::glyphs::{glyphs_for, Glyphs};
 use super::header::{header_lines, pm_stale_banner};
-use super::layout::{column_widths, columns_of, fill_rows, height_of, layout_for};
+use super::layout::{
+    column_widths, columns_of, fill_rows, height_of, layout_for, MIN_COLUMNS, MIN_ROWS,
+};
 use super::lines::{
     ascii_line, blank_line, fit_line, line_width, merge_spans, plain, span, style_line, Style,
 };
@@ -104,10 +106,27 @@ fn footer_line(view: &ViewState, theme: &Theme) -> Line {
     fit_line(&spans, w)
 }
 
+/// Below the smallest layout: the placeholder text cut to the width, as a single line (none when there is no room).
+fn too_small_frame(columns: usize, rows: usize) -> Frame {
+    let text = format!("terminal too small (need {MIN_COLUMNS}x{MIN_ROWS}, have {columns}x{rows})");
+    let lines = if columns == 0 || rows == 0 {
+        Vec::new()
+    } else {
+        vec![fit_line(&[plain(text)], columns)]
+    };
+    Frame {
+        lines,
+        shown: Vec::new(),
+    }
+}
+
 pub fn build_frame(model: &DashModel, view: &ViewState, theme: &Theme) -> Frame {
     let g: Glyphs = glyphs_for(theme.ascii);
     let columns = view.size.columns as usize;
     let rows = view.size.rows as usize;
+    if columns < MIN_COLUMNS || rows < MIN_ROWS {
+        return too_small_frame(columns, rows);
+    }
     let mut header = pm_stale_banner(model, view, theme, &g);
     header.extend(header_lines(model, view, theme, &g));
     let strip = waiting_strip(model, view.size, view.now_ms, theme, &g);
@@ -161,7 +180,8 @@ pub fn build_frame(model: &DashModel, view: &ViewState, theme: &Theme) -> Frame 
         view.link,
         super::types::Link::Down | super::types::Link::Toolarge
     );
-    let last = all.len() - 1;
+    all.truncate(rows);
+    let last = all.len().saturating_sub(1);
     let painted: Vec<Line> = if stale {
         all.into_iter()
             .enumerate()
@@ -182,11 +202,21 @@ pub fn build_frame(model: &DashModel, view: &ViewState, theme: &Theme) -> Frame 
     } else {
         all
     };
-    let lines = if theme.ascii {
-        painted.iter().map(|l| ascii_line(l)).collect()
-    } else {
-        painted
-    };
+    let lines = painted
+        .iter()
+        .map(|l| {
+            let l = if theme.ascii {
+                ascii_line(l)
+            } else {
+                l.clone()
+            };
+            if line_width(&l) > columns {
+                fit_line(&l, columns)
+            } else {
+                l
+            }
+        })
+        .collect();
     shown.sort_by_key(|p| PANEL_ORDER.iter().position(|o| o == p));
     Frame { lines, shown }
 }

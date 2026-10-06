@@ -242,10 +242,19 @@ export function planSignedOffNotice(
   branch: string,
   headSha: string | null,
   summary: string,
+  confirmed = false,
+  extraReports: readonly string[] = [],
 ): string {
   return [
     `Plan ${planId} signed off. Integration ${integrationId} is on branch ${branch} at commit ${headSha ?? "unknown"}.`,
-    `Tell the user that branch and that the user merges it into the project's HEAD. Do not merge it yourself. When the user says the merge is done, run cstan integrate confirm ${integrationId}.`,
+    confirmed
+      ? `The integration is already confirmed; there is nothing to merge or confirm for this sign-off.`
+      : `Tell the user that branch and that the user merges it into the project's HEAD. Do not merge it yourself. When the user says the merge is done, run cstan integrate confirm ${integrationId}.`,
+    ...(extraReports.length === 0
+      ? []
+      : [
+          `Reports in it that are not plan packages: ${extraReports.join(", ")}`,
+        ]),
     `The architect's summary, not verified: ${JSON.stringify(summary)}`,
   ].join("\n");
 }

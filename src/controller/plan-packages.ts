@@ -19,6 +19,17 @@ import {
   planCancelledNotice,
 } from "./helpers.js";
 
+/**
+ * True for the report `r` (agent_reports) that counts for package `pp` (plan_packages): the assignee's accepted report of
+ * its current generation made since the assignment, unless a later-assigned package of the same agent claims it.
+ */
+const PACKAGE_REPORT_PREDICATE = `pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
+  AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
+  AND NOT EXISTS (
+    SELECT 1 FROM plan_packages other
+    WHERE other.project_id = r.project_id AND other.assignee_agent_id = r.agent_id AND other.assigned_at <= r.created_at
+      AND (other.assigned_at, other.plan_id, other.package_id) > (pp.assigned_at, pp.plan_id, pp.package_id))`;
+
 export class PlanPackagesArea {
   constructor(
     readonly kernel: ControllerKernel,
@@ -318,9 +329,29 @@ export class PlanPackagesArea {
     });
   }
 
+  /** Reports of the integration that are not reports of any package of the plan, in integration order. */
+  signoffExtraReports(planId: string, integrationId: string): string[] {
+    return (
+      this.kernel.database
+        .prepare(
+          `SELECT ir.report_id FROM integration_reports ir
+           JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+           WHERE ir.project_id = ? AND ir.integration_id = ? AND NOT EXISTS (
+             SELECT 1 FROM plan_packages pp WHERE pp.project_id = ir.project_id AND pp.plan_id = ?
+               AND ${PACKAGE_REPORT_PREDICATE})
+           ORDER BY ir.position`,
+        )
+        .all(this.kernel.projectId, integrationId, planId) as {
+        report_id: string;
+      }[]
+    ).map((row) => row.report_id);
+  }
+
   /**
-   * The plan's architect signs off a merged integration whose reports all belong to the plan's packages
-   * and whose latest finished review passed. One sign-off per plan and integration.
+   * The plan's architect signs off an integration that merged cleanly (merged, or already confirmed) and whose
+   * latest finished review passed. Every live package of the plan must be in it or in an earlier merged
+   * integration; it may also hold reports that are not packages (listed in the record). One sign-off per
+   * plan and integration.
    */
   recordSignoff(
     context: MutationContext,
@@ -360,25 +391,11 @@ export class PlanPackagesArea {
           throw new ControllerError(
             `integration ${input.integrationId} does not exist`,
           );
-        if (integration.state !== "merged")
+        if (plan.cancelled_at !== null)
+          throw new ControllerError(`plan ${input.planId} is cancelled`);
+        if (integration.state !== "merged" && integration.state !== "confirmed")
           throw new ControllerError(
-            `integration ${input.integrationId} is ${integration.state}, not merged`,
-          );
-        const outside = this.kernel.database
-          .prepare(
-            `SELECT ir.report_id FROM integration_reports ir
-             JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
-             JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id
-             WHERE ir.project_id = ? AND ir.integration_id = ? AND NOT EXISTS (
-               SELECT 1 FROM plan_packages pp
-               WHERE pp.project_id = ir.project_id AND pp.plan_id = ? AND pp.assignee_agent_id = r.agent_id AND a.generation = r.generation)
-             ORDER BY ir.position LIMIT 1`,
-          )
-          .get(this.kernel.projectId, input.integrationId, input.planId) as
-          { report_id: string } | undefined;
-        if (outside !== undefined)
-          throw new ControllerError(
-            `report ${outside.report_id} of the integration is not a package of plan ${input.planId}`,
+            `integration ${input.integrationId} is ${integration.state}, not merged or confirmed; only an integration that merged cleanly can be signed off`,
           );
         const reportCount = this.kernel.database
           .prepare(
@@ -387,7 +404,30 @@ export class PlanPackagesArea {
           .get(this.kernel.projectId, input.integrationId) as { n: number };
         if (reportCount.n === 0)
           throw new ControllerError(
-            `integration ${input.integrationId} has no reports of plan ${input.planId}`,
+            `integration ${input.integrationId} has no reports`,
+          );
+        // Every live package must be in this integration or an earlier one that merged; reports outside the plan are allowed.
+        const notIntegrated = (
+          this.kernel.database
+            .prepare(
+              `SELECT pp.package_id FROM plan_packages pp
+               WHERE pp.project_id = ? AND pp.plan_id = ? AND pp.cancelled_at IS NULL AND NOT EXISTS (
+                 SELECT 1 FROM integration_reports ir
+                 JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+                 JOIN integrations target ON target.project_id = i.project_id AND target.integration_id = ?
+                 JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+                 WHERE ir.project_id = pp.project_id AND i.state IN ('merged', 'confirmed')
+                   AND (i.integration_id = target.integration_id OR i.sequence < target.sequence)
+                   AND ${PACKAGE_REPORT_PREDICATE})
+               ORDER BY pp.package_id`,
+            )
+            .all(this.kernel.projectId, input.planId, input.integrationId) as {
+            package_id: string;
+          }[]
+        ).map((row) => row.package_id);
+        if (notIntegrated.length > 0)
+          throw new ControllerError(
+            `package${notIntegrated.length === 1 ? "" : "s"} ${notIntegrated.join(", ")} of plan ${input.planId} ${notIntegrated.length === 1 ? "is" : "are"} not integrated in integration ${input.integrationId} or an earlier merged integration`,
           );
         const latest = this.kernel.database
           .prepare(
@@ -430,6 +470,8 @@ export class PlanPackagesArea {
             integration.branch,
             integration.head_sha,
             summary,
+            integration.state === "confirmed",
+            this.signoffExtraReports(input.planId, input.integrationId),
           ),
           now,
           true,
@@ -440,6 +482,10 @@ export class PlanPackagesArea {
             architectAgentId: agent.agent_id,
             summary,
             createdAt: now,
+            extraReports: this.signoffExtraReports(
+              input.planId,
+              input.integrationId,
+            ),
           },
           event: {
             entityType: "plan",

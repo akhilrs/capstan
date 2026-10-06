@@ -340,12 +340,17 @@ export class PlansArea {
         } else if (input.kind === "signed_off") {
           const signoff = this.kernel.database
             .prepare(
-              `SELECT s.summary, i.branch, i.head_sha FROM plan_signoffs s JOIN integrations i
+              `SELECT s.summary, i.branch, i.head_sha, i.state FROM plan_signoffs s JOIN integrations i
                  ON i.project_id = s.project_id AND i.integration_id = s.integration_id
                WHERE s.project_id = ? AND s.plan_id = ? AND s.integration_id = ?`,
             )
             .get(this.kernel.projectId, plan.plan_id, input.integrationId) as
-            | { summary: string; branch: string; head_sha: string | null }
+            | {
+                summary: string;
+                branch: string;
+                head_sha: string | null;
+                state: string;
+              }
             | undefined;
           if (signoff === undefined)
             throw new ControllerError(
@@ -357,6 +362,11 @@ export class PlansArea {
             signoff.branch,
             signoff.head_sha,
             signoff.summary,
+            signoff.state === "confirmed",
+            this.areas.planPackages.signoffExtraReports(
+              plan.plan_id,
+              input.integrationId,
+            ),
           );
         } else body = planNeedsAttentionNotice(plan.plan_id);
         const announced = this.areas.messageNotices.noticeToPm(
@@ -517,6 +527,10 @@ export class PlansArea {
         architectAgentId: row.architect_agent_id,
         summary: row.summary,
         createdAt: row.created_at,
+        extraReports: this.areas.planPackages.signoffExtraReports(
+          planId,
+          row.integration_id,
+        ),
       })),
     };
   }

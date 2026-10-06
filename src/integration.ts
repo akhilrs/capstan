@@ -12,6 +12,8 @@ import type {
 } from "./controller/core.js";
 import {
   checkCommitMessage,
+  cutAtWord,
+  cutHard,
   COMMIT_TYPES,
   formatSubject,
   integrationBranchName,
@@ -167,7 +169,7 @@ export function squashMessage(
     const text = r.summary.replace(/\s+/g, " ").trim();
     const clipped =
       text.length > SUMMARY_MAX
-        ? `${text.slice(0, SUMMARY_MAX).replace(/\s+\S*$/, "")} ...`
+        ? `${cutAtWord(text, SUMMARY_MAX) || cutHard(text, SUMMARY_MAX)} ...`
         : text;
     const line = `Report ${r.reportId} (${r.agentId}): ${clipped}`;
     // A worker's free text must not carry an attribution line into the commit.
