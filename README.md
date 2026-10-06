@@ -93,13 +93,53 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
-**The dashboard.** `cstan dash` has a Rust build, `cstan-dash`, that uses far less CPU and memory than the Node dashboard (about 1% of a core and 7 MB idle against about 22% and 380 MB; see [the measurements](docs/research/rust-dash-performance.md)). When the release lists a `cstan-dash` for your machine, the installer downloads it, checks its sha256 against `SHA256SUMS` and puts it next to `cstan`; `--no-dash` skips it and `--dash-binary <file>` installs one you built. A release without it installs `cstan` alone and `cstan dash` runs the Node dashboard. To build it from a source checkout (needs [Rust](https://rustup.rs)):
+### Dashboard (cstan-dash)
+
+`cstan dash` has a Rust build, `cstan-dash`, that replaces the Node dashboard with about 26 times less CPU and far less memory: about 1% of a core and 7 MB idle against about 22% and 380 MB (the measurements, with the method and the other cases, are in [docs/research/rust-dash-performance.md](docs/research/rust-dash-performance.md)). The Node dashboard still works and is the fallback, so nothing here is required.
+
+**With the installer.** The one-liner above also installs `cstan-dash` when the release has one for your machine (Linux x64 and arm64). It downloads `cstan-dash-<version>-<target>`, checks it against `SHA256SUMS` (a mismatch aborts the install) and puts it at `~/.local/share/capstan/current/bin/cstan-dash`, next to `cstan`. A release without it installs `cstan` alone with a note.
 
 ```sh
-npm run build:dash    # writes dash/target/release/cstan-dash, which cstan dash finds in a checkout
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --no-dash                        # skip it
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --dash-binary ./cstan-dash       # install one you already have
 ```
 
-`cstan dash` uses the Rust binary when it finds one and the Node dashboard otherwise. `CSTAN_DASH=rust` fails when there is no binary, `CSTAN_DASH=node` always runs the Node one, and `CSTAN_DASH_BIN=/absolute/path` names the binary to use. The search order is in the [Install reference](docs/reference/install.md#the-dashboard-binary-cstan-dash).
+`--dash-binary` checks the file against a `SHA256SUMS` beside it when there is one, and warns that it is unverified when there is not. The full option list is in the [Install reference](docs/reference/install.md).
+
+**By hand.** Download `cstan-dash-<version>-linux-x64` or `cstan-dash-<version>-linux-arm64` and `SHA256SUMS` from the [Releases page](https://github.com/akhilrs/capstan/releases), check it, and put it somewhere `cstan dash` looks:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS
+chmod +x cstan-dash-0.1.1-linux-x64
+mkdir -p ~/.local/share/capstan/current/bin
+mv cstan-dash-0.1.1-linux-x64 ~/.local/share/capstan/current/bin/cstan-dash
+```
+
+Any directory on your `PATH`, or a path named by `CSTAN_DASH_BIN`, works too.
+
+**From source.** In a source checkout, install Rust with [rustup](https://rustup.rs) (`dash/rust-toolchain.toml` selects the stable toolchain with clippy and rustfmt), then build:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+npm run build:dash    # writes dash/target/release/cstan-dash
+```
+
+A `cstan` run from that checkout (`dist/src/cli.js`) finds `dash/target/release/cstan-dash` without any other setup.
+
+**Which dashboard `cstan dash` runs.** It takes the first executable file that answers `--version` from this list:
+
+1. `CSTAN_DASH_BIN`, an absolute path.
+2. Beside the real path of the running `cstan` (the installer's `current/bin/`).
+3. `dash/target/release/cstan-dash` of the checkout, when running from `dist/src/cli.js`.
+4. `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`.
+5. The first `cstan-dash` on `PATH`.
+
+`CSTAN_DASH=node` skips the search and always runs the Node dashboard; `CSTAN_DASH=rust` fails with a message when no working binary is found. With neither set and no binary found, `cstan dash` runs the Node dashboard and prints one line when it exits: `cstan: using the Node dashboard; install cstan-dash for lower CPU and memory: ...`.
+
+**Checking it.** `cstan-dash --version` prints `cstan-dash <version>`. To see which one is running, start `cstan dash` and run `pgrep -a cstan-dash` from another terminal: the Rust dashboard shows up as a `cstan-dash` process. The Node dashboard does not, and it prints the hint line above after you quit when no binary was found.
+
+> [!NOTE]
+> `cstan-dash` binaries come from tagged releases, on the [Releases page](https://github.com/akhilrs/capstan/releases). CI runs on branches and pull requests do not publish them.
 
 Bun has not been tested since the native dependencies were removed. When installed that way `cstan` still runs on Node 24. The recommended installs are the `curl` one-liner above (standalone binary on Linux x64/arm64) or the npm tarball (see [docs/reference/install.md](docs/reference/install.md#bun)).
 
