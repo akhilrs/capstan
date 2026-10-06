@@ -3,12 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { plainLines } from "../src/dash/lines.js";
-import {
-  confirmOverlay,
-  helpOverlay,
-  observeOverlay,
-  type Overlay,
-} from "../src/dash/overlays.js";
 import { makeTheme } from "../src/dash/theme.js";
 import { buildFrame, EMPTY_RINGS } from "../src/dash/view.js";
 import { modelOf, viewOf } from "./dash-view-helpers.js";
@@ -21,6 +15,14 @@ import {
   supervisionState,
   tasksShowcase,
 } from "./dash-fixtures.js";
+import {
+  GOLDENS,
+  emptyQueue,
+  goldenLines,
+  staleFinding,
+  staleMail,
+  staleStatus,
+} from "./dash-golden-cases.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const goldenDirectory = path.join(root, "test", "golden");
@@ -40,18 +42,9 @@ function matchesGolden(name: string, lines: readonly string[]): void {
 
 const theme = makeTheme({ noColor: true, reducedMotion: true });
 
-function overlaid(base: readonly string[], overlay: Overlay): string[] {
-  const out = base.map((l) => Array.from(l));
-  overlay.lines.forEach((line, r) => {
-    const row = out[overlay.top + r];
-    if (row === undefined) return;
-    const cells = Array.from(line.map((s) => s.text).join(""));
-    cells.forEach((ch, c) => {
-      row[overlay.left + c] = ch;
-    });
-  });
-  return out.map((r) => r.join(""));
-}
+test("every golden file matches the screen its case in dash-golden-cases.ts draws", () => {
+  for (const golden of GOLDENS) matchesGolden(golden.file, goldenLines(golden));
+});
 
 for (const [columns, rows] of [
   [80, 24],
@@ -64,7 +57,6 @@ for (const [columns, rows] of [
     assert.equal(lines.length, rows);
     for (const line of lines)
       assert.equal(Array.from(line).length, columns, line);
-    matchesGolden(`dash-${columns}x${rows}`, lines);
   });
 }
 
@@ -82,7 +74,6 @@ for (const [columns, rows] of [
     assert.equal(lines.length, rows);
     for (const line of lines)
       assert.equal(Array.from(line).length, columns, line);
-    matchesGolden(`dash-tasks-${columns}x${rows}`, lines);
   });
 }
 
@@ -101,44 +92,6 @@ test("the same screens in ASCII mode use only ASCII characters", () => {
       assert.match(line, /^[\x20-\x7e]*$/, line);
     }
   }
-  matchesGolden(
-    "dash-120x36-ascii",
-    plainLines(buildFrame(modelOf(), viewOf(120, 36), ascii).lines),
-  );
-});
-
-test("the overlays match their golden files at 120x36", () => {
-  const size = { columns: 120, rows: 36 };
-  const base = plainLines(buildFrame(modelOf(), viewOf(120, 36), theme).lines);
-  const model = modelOf();
-  const message = model.queue.messages[0]!;
-  matchesGolden("dash-help", overlaid(base, helpOverlay(size, theme)));
-  matchesGolden(
-    "dash-confirm-retry",
-    overlaid(
-      base,
-      confirmOverlay(
-        { kind: "resolve", decision: "retry", message },
-        size,
-        theme,
-      ),
-    ),
-  );
-  matchesGolden(
-    "dash-observe",
-    overlaid(
-      base,
-      observeOverlay(
-        {
-          agentId: "developer-2",
-          agentStatus: "blocked",
-          text: "developer-2 pane p4\n\nReading docs/spike-herdr-agents.md\nEdit(src/dash/theme.ts)\n  Updated src/dash/theme.ts with 12 additions\n\nThinking... (3m 41s, esc to interrupt)\n\n  waiting for tool permission:\n  Bash(npm run check)\n  1. Yes   2. No\n",
-        },
-        size,
-        theme,
-      ),
-    ),
-  );
 });
 
 test("a degraded run without a link wraps its reason, dims the stale frame and keeps the last good data", () => {
@@ -150,7 +103,6 @@ test("a degraded run without a link wraps its reason, dims the stale frame and k
   const lines = plainLines(frame.lines);
   assert.match(lines[1]!, /NO LINK/);
   assert.match(lines[2]!, /controller not answering/);
-  matchesGolden("dash-100x30-no-link", lines);
 });
 
 test("supervision off in config reads as off, not as a fault", () => {
@@ -322,7 +274,7 @@ for (const [columns, rows] of [
       viewOf(columns, rows, { focus: "agents" }),
       theme,
     );
-    matchesGolden(`dash-crowded-${columns}x${rows}`, plainLines(frame.lines));
+    assert.equal(plainLines(frame.lines).length, rows);
   });
 }
 
@@ -461,29 +413,27 @@ test("the findings panel keeps the reason and marks ended and unknown targets", 
   assert.ok(text.includes("3 stale (target ended or unknown)"));
 });
 
-const staleMail = {
-  ...showcase(),
-  pmMail: { pending: 3, oldestAgeSeconds: 780, stale: true },
-};
-
 for (const [columns, rows] of [
   [80, 24],
   [120, 36],
 ] as const) {
   test(`stale PM mail adds a banner at ${columns}x${rows}, readable without colour`, () => {
-    const frame = buildFrame(modelOf(staleMail), viewOf(columns, rows), theme);
+    const frame = buildFrame(
+      modelOf(staleMail()),
+      viewOf(columns, rows),
+      theme,
+    );
     const lines = plainLines(frame.lines);
     assert.equal(lines.length, rows);
     for (const line of lines)
       assert.equal(Array.from(line).length, columns, line);
     assert.match(lines[0]!, /PM MAIL STALE: 3 messages pending, oldest 13 min/);
-    matchesGolden(`dash-stale-mail-${columns}x${rows}`, lines);
   });
 
   test(`stale PM mail banner at ${columns}x${rows} is coloured and bold with colour on, and absent when not stale`, () => {
     const coloured = makeTheme({ noColor: false, reducedMotion: true });
     const frame = buildFrame(
-      modelOf(staleMail),
+      modelOf(staleMail()),
       viewOf(columns, rows),
       coloured,
     );
@@ -492,7 +442,7 @@ for (const [columns, rows] of [
     );
     const calm = buildFrame(
       modelOf({
-        ...staleMail,
+        ...staleMail(),
         pmMail: { pending: 1, oldestAgeSeconds: 30, stale: false },
       }),
       viewOf(columns, rows),
@@ -507,7 +457,6 @@ for (const [columns, rows] of [
 
 // ------------------------------------------------- queue collapse, totals, header, stale, strip
 
-const emptyQueue = () => showcase({ messages: [], stuck: [] });
 const colour = makeTheme({ noColor: false, reducedMotion: true });
 const queueTop = (lines: readonly string[]) =>
   lines.findIndex((l) => l.includes("queue"));
@@ -678,26 +627,6 @@ test("supervision on with no Supervisor: idle (dim) with no worker, NO SUPERVISO
   assert.ok(!/supervision (on|off)/.test(border), border);
 });
 
-const staleFinding = (id: string, target: string, state = "escalated") => ({
-  findingId: id,
-  targetAgentId: target,
-  severity: "high",
-  state,
-  interventions: 2,
-  stateReason: "no progress",
-});
-
-const staleStatus = () =>
-  showcase({
-    messages: [],
-    stuck: [],
-    agentFindings: [
-      staleFinding("0192a1-aaaa", "developer-0"),
-      staleFinding("0192a2-bbbb", "ghost-9", "open"),
-      staleFinding("0192a3-cccc", "developer-2"),
-    ],
-  });
-
 test("stale findings are dim, plain, sorted last under a caption, and do not count as needing the operator", () => {
   const frame = buildFrame(modelOf(staleStatus()), viewOf(160, 45), colour);
   const lines = plainLines(frame.lines);
@@ -741,71 +670,6 @@ test("with no room for stale rows the caption alone summarises them, and live fi
   assert.ok(tight.includes("developer-2"));
   const model = modelOf(status);
   assert.equal(model.findings.filter((f) => !f.stale).length, 1);
-});
-
-test("the golden screens for an empty queue, a waiting strip, stale findings and idle supervision", () => {
-  const waiting = showcase({
-    awaitingConfirm: [
-      {
-        integrationId: "0123456789abcdef",
-        branch: "integration/x",
-        createdAt: iso(200),
-        reviewState: "passed",
-      },
-    ],
-    pendingProposals: [
-      {
-        proposalId: "p-7",
-        kind: "add-role",
-        proposer: "pm-1",
-        reason: "need a tester",
-        createdAt: iso(40),
-      },
-    ],
-    pause: {
-      run: { pausedAt: iso(300), reason: "operator break", actorId: "op" },
-      agents: [
-        { agentId: "developer-2", pausedAt: iso(90), reason: "stalled" },
-      ],
-    },
-  });
-  const idle = emptyQueue();
-  idle.agents = [];
-  idle.panes = [];
-  idle.supervisionState = supervisionState({
-    supervisor: null,
-    lastCheck: null,
-    openFindings: 2,
-  });
-  for (const [columns, rows] of [
-    [80, 24],
-    [120, 36],
-  ] as const) {
-    matchesGolden(
-      `dash-empty-queue-${columns}x${rows}`,
-      plainLines(
-        buildFrame(modelOf(emptyQueue()), viewOf(columns, rows), theme).lines,
-      ),
-    );
-  }
-  matchesGolden(
-    "dash-waiting-120x36",
-    plainLines(buildFrame(modelOf(waiting), viewOf(120, 36), theme).lines),
-  );
-  matchesGolden(
-    "dash-waiting-80x24",
-    plainLines(buildFrame(modelOf(waiting), viewOf(80, 24), theme).lines),
-  );
-  matchesGolden(
-    "dash-stale-findings-120x36",
-    plainLines(
-      buildFrame(modelOf(staleStatus()), viewOf(120, 36), theme).lines,
-    ),
-  );
-  matchesGolden(
-    "dash-supervision-idle-120x36",
-    plainLines(buildFrame(modelOf(idle), viewOf(120, 36), theme).lines),
-  );
 });
 
 test("the unfocused findings counter shows the rows actually visible when the cursor is in the stale block and the live rows are scrolled", () => {

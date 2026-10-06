@@ -106,9 +106,12 @@ export interface OpenSqliteOptions {
   readonly timeout?: number;
 }
 
+const STATEMENT_CACHE_SIZE = 256;
+
 export class Database {
   readonly #db: NodeSqlite.DatabaseSync;
   #savepoints = 0;
+  readonly #statements = new Map<string, Statement>();
 
   constructor(db: NodeSqlite.DatabaseSync) {
     this.#db = db;
@@ -118,8 +121,23 @@ export class Database {
     return this.#db.isOpen;
   }
 
+  /**
+   * Returns the statement for `sql`, reusing one prepared earlier (at most STATEMENT_CACHE_SIZE
+   * texts, least recently used dropped first; all cleared on close). SQLite re-prepares a cached
+   * statement itself after DDL changes the schema.
+   */
   prepare(sql: string): Statement {
-    return new Statement(this.#db.prepare(sql));
+    const cached = this.#statements.get(sql);
+    if (cached) {
+      this.#statements.delete(sql);
+      this.#statements.set(sql, cached);
+      return cached;
+    }
+    const statement = new Statement(this.#db.prepare(sql));
+    if (this.#statements.size >= STATEMENT_CACHE_SIZE)
+      this.#statements.delete(this.#statements.keys().next().value as string);
+    this.#statements.set(sql, statement);
+    return statement;
   }
 
   exec(sql: string): void {
@@ -164,6 +182,7 @@ export class Database {
   }
 
   close(): void {
+    this.#statements.clear();
     if (this.#db.isOpen) this.#db.close();
   }
 }

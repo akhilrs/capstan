@@ -231,6 +231,14 @@ const migrations: Readonly<
     name: "0034_agent_pane_task.sql",
     url: new URL("../../migrations/0034_agent_pane_task.sql", import.meta.url),
   },
+  35: {
+    version: 35,
+    name: "0035_status_query_indexes.sql",
+    url: new URL(
+      "../../migrations/0035_status_query_indexes.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 /** The highest migration version this build knows. */

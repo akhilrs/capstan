@@ -193,9 +193,9 @@ test("upgrading a v30 ledger writes a backup before each later migration through
     database.close();
     const names = listing(directory).filter((n) => n.includes(".pre-v"));
     assert.equal(names.length, 2);
-    // The upgrade backs up before v31 to v34; the two newest stay.
+    // The upgrade backs up before v31 to v35; the two newest stay.
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v35-")));
     assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v34-")));
-    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v33-")));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

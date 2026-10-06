@@ -53,7 +53,7 @@ const capture = (h: Harness) =>
     prompt: prompt(h.developer.agentId),
   });
 
-test("migrations are registered through 0034 and every earlier migration is still recorded", async () => {
+test("migrations are registered through 0035 and every earlier migration is still recorded", async () => {
   await withLedger((h, raw) => {
     const versions = raw((db) =>
       db
@@ -62,7 +62,7 @@ test("migrations are registered through 0034 and every earlier migration is stil
     ) as Array<{ version: number }>;
     assert.deepEqual(
       versions.map((entry) => entry.version),
-      Array.from({ length: 34 }, (_, index) => index + 1),
+      Array.from({ length: 35 }, (_, index) => index + 1),
     );
     assert.ok(h.core.stateVersion > 0);
   });
@@ -78,6 +78,8 @@ test("an existing ledger that lacks 0030 migrates, keeps its data and backfills 
         DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';
         DELETE FROM capability_grants WHERE capability = 'run:control' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM');
         DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control';
+        DROP INDEX actors_by_seat_active;
+        DROP INDEX assignments_by_seat_authority;
         DELETE FROM schema_migrations WHERE version >= 30;
         DROP TABLE prompt_relays;
         DELETE FROM role_capabilities WHERE capability = 'prompt:relay';

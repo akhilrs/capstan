@@ -160,3 +160,16 @@ test("the six golden prompt fixtures have no designer file", () => {
     "supervisor.txt",
   ]);
 });
+
+test("the designer's assembled prompt carries the process safety rule", async () => {
+  const { buildRolePrompt } = await import("../src/prompts.js");
+  const text = buildRolePrompt({
+    roleName: "designer",
+    kind: "Developer",
+    agentId: "designer-1",
+    waitTimeoutSeconds: 90,
+    rolePrompt: DESIGNER_PROMPT,
+  });
+  assert.match(text, /never use pkill -f or killall/);
+  assert.match(text, /\/proc\/<pid>\/cwd/);
+});

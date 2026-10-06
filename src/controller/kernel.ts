@@ -26,6 +26,19 @@ import type { AgentRecord, Capability, MutationContext } from "./types.js";
  * The state every area of the controller shares: the database, the project identity, the clock, the lock
  * and the one transaction wrapper (`mutate`) through which every state change is written and ledgered.
  */
+function toAgentRecord(row: AgentRow): AgentRecord {
+  return {
+    agentId: row.agent_id,
+    roleName: row.role_name,
+    kind: row.kind,
+    seatId: row.seat_id,
+    actorId: row.actor_id,
+    generation: row.generation,
+    state: row.state,
+    lastActivityAt: row.last_activity_at,
+  };
+}
+
 export class ControllerKernel {
   closed = false;
 
@@ -414,18 +427,19 @@ export class ControllerKernel {
 
   agentRecord(agentId: string): AgentRecord | undefined {
     const row = this.agentRow(agentId);
-    return row === undefined
-      ? undefined
-      : {
-          agentId: row.agent_id,
-          roleName: row.role_name,
-          kind: row.kind,
-          seatId: row.seat_id,
-          actorId: row.actor_id,
-          generation: row.generation,
-          state: row.state,
-          lastActivityAt: row.last_activity_at,
-        };
+    return row === undefined ? undefined : toAgentRecord(row);
+  }
+
+  /** Every agent of the project in one query, ordered by agent id. */
+  agentRecords(): AgentRecord[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at
+           FROM agents WHERE project_id = ? ORDER BY agent_id`,
+        )
+        .all(this.projectId) as AgentRow[]
+    ).map(toAgentRecord);
   }
 
   agentByActorRecord(actorId: string): AgentRecord | null {

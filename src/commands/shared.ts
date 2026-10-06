@@ -1,4 +1,6 @@
 /** What the command handler groups share: the dependency and response types, the constants and small helpers, and the CommandEnv each group is built from. */
+import { realpathSync, statSync } from "node:fs";
+import path from "node:path";
 import { AuthenticationError, AuthorizationError } from "../controller/auth.js";
 import {
   MessageTransitionError,
@@ -216,6 +218,11 @@ export interface CommandDependencies {
   readonly config?: CapstanConfig;
   /** The project credential; used only for cleanup that the caller's own credential cannot do. */
   readonly controllerCredential: string;
+  /** Where this controller lives; the daemon fills it so ping and status can say which project answered. */
+  readonly controllerLocation?: {
+    readonly projectRoot: string;
+    readonly ledgerPath: string;
+  };
   readonly now?: () => number;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly driverSnapshot?: () => DriverSnapshot;
@@ -471,4 +478,69 @@ export interface CommandEnv {
     call: Parameters<CommandHandler>[0],
     pausing: boolean,
   ) => Promise<CommandResponse>;
+}
+
+export interface SocketVerdict {
+  readonly kind: "none" | "match" | "foreign";
+  readonly socket: string;
+  readonly projectRoot?: string;
+  readonly expectedSocket?: string;
+}
+
+function realOrResolved(target: string): string {
+  try {
+    return realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+/** Whether `CAPSTAN_SOCKET` belongs to the project the working directory is in: the nearest ancestor with a `.capstan` directory. Pure: no throw, no output. */
+export function socketVerdict(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): SocketVerdict {
+  const socket = env.CAPSTAN_SOCKET;
+  if (!socket) return { kind: "none", socket: "" };
+  let dir = realOrResolved(cwd);
+  for (;;) {
+    let found = false;
+    try {
+      found = statSync(path.join(dir, ".capstan")).isDirectory();
+    } catch {
+      // No .capstan here; keep looking upwards.
+    }
+    if (found) {
+      const expectedSocket = path.join(
+        dir,
+        ".capstan",
+        "state",
+        "control.sock",
+      );
+      const same = realOrResolved(socket) === realOrResolved(expectedSocket);
+      return {
+        kind: same ? "match" : "foreign",
+        socket,
+        projectRoot: dir,
+        expectedSocket,
+      };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return { kind: "none", socket };
+    dir = parent;
+  }
+}
+
+/** `project <root>` and `ledger <path>` from a ping or status result; an older daemon sends neither. */
+export function controllerLines(result: unknown): string[] {
+  const value = (result ?? {}) as {
+    projectRoot?: unknown;
+    ledgerPath?: unknown;
+    controller?: { projectRoot?: unknown; ledgerPath?: unknown };
+  };
+  const root = value.controller?.projectRoot ?? value.projectRoot;
+  const ledger = value.controller?.ledgerPath ?? value.ledgerPath;
+  if (typeof root !== "string" || typeof ledger !== "string")
+    return ["project unknown (older daemon)"];
+  return [`project ${root}`, `ledger ${ledger}`];
 }

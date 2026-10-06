@@ -152,6 +152,9 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
       db.exec(
         "DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control'; DELETE FROM capability_grants WHERE capability = 'run:control' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM'); DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control'",
       );
+      db.exec(
+        "DROP INDEX actors_by_seat_active; DROP INDEX assignments_by_seat_authority",
+      );
       db.prepare("DELETE FROM schema_migrations WHERE version >= 14").run();
       before = snapshot(db);
     } finally {
@@ -196,6 +199,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 32, name: "0032_integration_branch_names.sql" },
           { version: 33, name: "0033_message_action_needed.sql" },
           { version: 34, name: "0034_agent_pane_task.sql" },
+          { version: 35, name: "0035_status_query_indexes.sql" },
         ],
       );
       assert.equal(

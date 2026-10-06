@@ -38,6 +38,11 @@ export function statusHandlers(
           },
           legacySupervision: legacy,
         };
+        if (deps.controllerLocation !== undefined)
+          result.controller = {
+            pid: process.pid,
+            ...deps.controllerLocation,
+          };
         if (call.identity.role === "operator") {
           const unresolved = core.unresolvedMessages(
             call.credential,

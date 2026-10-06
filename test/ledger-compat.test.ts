@@ -76,7 +76,9 @@ async function checkOpens(
       (_, index) => String(behind + 1 + index),
     );
     const migrated = pendingVersions.length > 0;
-    const db = await openDatabase(target);
+    const db = await openDatabase(target, {
+      keepMigrationBackups: Math.max(3, pendingVersions.length),
+    });
     try {
       const ledger = db
         .prepare(

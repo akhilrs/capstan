@@ -121,3 +121,7 @@ teardown = 'd="$HOME/.cache/codebase-memory-mcp"; n=$(printf %s "${CAPSTAN_WORKT
 Indexes left behind by worktrees removed before you set `teardown` are not cleaned up automatically. To remove them once by hand, list the files in `~/.cache/codebase-memory-mcp/` whose name starts with your worktree base path and whose worktree no longer exists (`git worktree list`), check the list, then delete those files.
 
 Per-project controller files live in `.capstan/`: `project.json` (limits `maxSlices`, `maxRunMs`, `maxDispatches` shown by `cstan status`), `operator.key`, `daemon.log`, and `state/` (`controller.sqlite`, `control.sock`, `notifications.jsonl`, and the newest `controller.sqlite.pre-v*.sqlite` migration backups; see `[ledger]`).
+
+## `CAPSTAN_ALLOW_FOREIGN_SOCKET`
+
+Set to `1` in an agent shell to let `cstan` use a `CAPSTAN_SOCKET` that is not the socket of the project (nearest `.capstan/` ancestor) the working directory is in. Without it such a command exits 2 and sends no request. With it, one warning line is printed per command. `cstan inbox --hook` ignores it: on a foreign socket it stays silent and makes no request.

@@ -1378,7 +1378,24 @@ test("after kill -9 the next command restarts the daemon and reconciles without 
 
     const ping = invoke(cwd, "ping", "--json");
     assert.equal(ping.status, 0, ping.stderr);
-    const second = JSON.parse(ping.stdout) as { pid: number };
+    const second = JSON.parse(ping.stdout) as {
+      pid: number;
+      projectRoot: string;
+      ledgerPath: string;
+    };
+    assert.equal(second.projectRoot, cwd);
+    assert.equal(
+      second.ledgerPath,
+      path.join(cwd, ".capstan", "state", "controller.sqlite"),
+    );
+    const plainPing = invoke(cwd, "ping");
+    assert.match(plainPing.stdout, new RegExp(`^project ${cwd}$`, "m"));
+    assert.match(plainPing.stdout, /^ledger .+controller\.sqlite$/m);
+    const jsonStatus = JSON.parse(invoke(cwd, "status", "--json").stdout) as {
+      controller: { pid: number; projectRoot: string; ledgerPath: string };
+    };
+    assert.equal(jsonStatus.controller.projectRoot, cwd);
+    assert.equal(jsonStatus.controller.ledgerPath, second.ledgerPath);
     assert.notEqual(second.pid, first.pid);
     assert.equal(daemonPid(cwd), second.pid);
 

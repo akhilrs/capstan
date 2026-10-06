@@ -3,6 +3,11 @@ import { entryPath, isSea } from "./sea.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { resolveDatabasePath } from "./controller/database.js";
+import { controllerLines, socketVerdict } from "./commands/shared.js";
+
+export { controllerLines, socketVerdict };
+export type { SocketVerdict } from "./commands/shared.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -95,6 +100,7 @@ export type CstanStatusJsonV1 = ControllerStatus & {
   }[];
   limits: Pick<Config, "maxSlices" | "maxRunMs" | "maxDispatches">;
   nextLegalActions: readonly string[];
+  controller: { pid: number; projectRoot: string; ledgerPath: string };
 };
 export type CstanInspectJsonV1 = {
   schemaVersion: 1;
@@ -110,6 +116,8 @@ export type CstanInspectJsonV1 = {
 };
 class BlockedError extends Error {}
 class InvalidInputError extends Error {}
+/** A CAPSTAN_SOCKET that belongs to another project; exits with the usage code. */
+class ForeignSocketError extends Error {}
 
 function fail(message: string, code = EXIT.usage): never {
   process.stderr.write(`${message}\n`);
@@ -654,6 +662,8 @@ const ROUTED_COMMANDS: ReadonlySet<string> = new Set(
   ),
 );
 
+let foreignSocketWarned = false;
+
 function agentEnvironment():
   { readonly token: string; readonly socketPath: string } | undefined {
   const token = process.env.CAPSTAN_TOKEN;
@@ -671,6 +681,19 @@ function agentEnvironment():
     throw new InvalidInputError(
       "CAPSTAN_SOCKET must not contain whitespace or control characters",
     );
+  const verdict = socketVerdict(process.cwd(), process.env);
+  if (verdict.kind === "foreign") {
+    if (process.env.CAPSTAN_ALLOW_FOREIGN_SOCKET !== "1")
+      throw new ForeignSocketError(
+        `CAPSTAN_SOCKET (${verdict.socket}) is not the socket of the project you are in (${verdict.projectRoot}, socket ${verdict.expectedSocket}); nothing was sent. Unset CAPSTAN_SOCKET and CAPSTAN_TOKEN, or set CAPSTAN_ALLOW_FOREIGN_SOCKET=1 to use it anyway`,
+      );
+    if (!foreignSocketWarned) {
+      foreignSocketWarned = true;
+      process.stderr.write(
+        `warning: CAPSTAN_SOCKET (${verdict.socket}) is not the socket of the project you are in (${verdict.projectRoot}); continuing because CAPSTAN_ALLOW_FOREIGN_SOCKET=1\n`,
+      );
+    }
+  }
   return { token, socketPath };
 }
 
@@ -778,6 +801,8 @@ async function runInboxHook(): Promise<number> {
       !path.isAbsolute(socketPath)
     )
       return EXIT.ok;
+    if (socketVerdict(process.cwd(), process.env).kind === "foreign")
+      return EXIT.ok;
     const { response } = await callDaemon(
       socketPath,
       token,
@@ -819,6 +844,9 @@ function handleWire(result: WireResult, json: boolean, command = ""): number {
     if (!json && (command === "inbox" || command === "wait"))
       process.stdout.write(`${renderMessages(response.result)}\n`);
     else {
+      if (!json && (command === "status" || command === "ping"))
+        for (const line of controllerLines(response.result))
+          process.stdout.write(`${line}\n`);
       if (!json && command === "status")
         for (const line of [
           ...pauseLines(response.result, Date.now()),
@@ -1377,11 +1405,12 @@ async function runCli(argv: string[]): Promise<number> {
       takeFlag(flags, "--reduced-motion") ||
       (process.env.CSTAN_REDUCED_MOTION ?? "") === "1";
     if (flags.length !== 0) usage();
+    const inAgentShell = agentEnvironment();
     if (!hasTerminal()) {
       process.stderr.write(`cstan: ${NOT_A_TERMINAL_MESSAGE}\n`);
       return EXIT.usage;
     }
-    if (agentEnvironment())
+    if (inAgentShell)
       throw new InvalidInputError(
         "dash is an operator tool; run it without CAPSTAN_TOKEN and CAPSTAN_SOCKET",
       );
@@ -1442,9 +1471,17 @@ async function runCli(argv: string[]): Promise<number> {
         maxDispatches: config.maxDispatches,
       },
       nextLegalActions,
+      controller: {
+        pid: process.pid,
+        projectRoot: cwd,
+        ledgerPath: resolveDatabasePath(config.stateDirectory),
+      },
     };
     if (!parsed.json)
-      for (const line of pauseLines(statusOutput, Date.now()))
+      for (const line of [
+        ...controllerLines(statusOutput),
+        ...pauseLines(statusOutput, Date.now()),
+      ])
         process.stdout.write(`${line}\n`);
     output(statusOutput, parsed.json);
     return EXIT.ok;
@@ -1524,11 +1561,13 @@ if (isMain) {
         process.exitCode =
           error instanceof BlockedError
             ? EXIT.blocked
-            : error instanceof InvalidInputError ||
-                error instanceof TypeError ||
-                error instanceof SyntaxError
-              ? EXIT.invalid
-              : EXIT.runtime;
+            : error instanceof ForeignSocketError
+              ? EXIT.usage
+              : error instanceof InvalidInputError ||
+                  error instanceof TypeError ||
+                  error instanceof SyntaxError
+                ? EXIT.invalid
+                : EXIT.runtime;
       process.stderr.write(
         `cstan: ${error instanceof Error ? error.message : String(error)}\n`,
       );

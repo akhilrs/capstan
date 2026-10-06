@@ -15,6 +15,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { AuthenticationError } from "./controller/auth.js";
 import { ControllerCore } from "./controller/core.js";
+import { resolveDatabasePath } from "./controller/database.js";
 import { createCommandHandlers, type CommandSet } from "./commands.js";
 import {
   branchTip,
@@ -230,6 +231,8 @@ export async function startDaemonServer(options: {
   onShutdown: () => void;
   commands?: CommandSet;
   maxResponseBytes?: number;
+  /** The project this daemon serves; ping and the fallback status report it. */
+  location?: { projectRoot: string; ledgerPath: string };
 }): Promise<DaemonServer> {
   const { socketPath, core, log, onShutdown, commands } = options;
   const connections = new Set<Connection>();
@@ -391,13 +394,23 @@ export async function startDaemonServer(options: {
     }
     switch (command) {
       case "ping":
-        return finish({ ok: true, result: { pong: true, pid: process.pid } });
+        return finish({
+          ok: true,
+          result: {
+            pong: true,
+            pid: process.pid,
+            ...options.location,
+          },
+        });
       case "status":
         return finish({
           ok: true,
           result: {
             ...(core.statusSnapshot() as unknown as Record<string, unknown>),
             agents: core.listAgents(),
+            ...(options.location === undefined
+              ? {}
+              : { controller: { pid: process.pid, ...options.location } }),
           },
         });
       case "shutdown":
@@ -944,6 +957,10 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       ...(launcher === undefined ? {} : { launcher }),
       ...(operatorService === undefined ? {} : { operator: operatorService }),
       controllerCredential: credential,
+      controllerLocation: {
+        projectRoot: options.workspaceRoot,
+        ledgerPath: resolveDatabasePath(options.stateDirectory),
+      },
       inspectCommit: (input) => inspectCommit(options.workspaceRoot, input),
       newCommitMessages: (input) =>
         newCommitMessages(options.workspaceRoot, input),
@@ -958,6 +975,10 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       core,
       log: options.log,
       onShutdown: stopRequested,
+      location: {
+        projectRoot: options.workspaceRoot,
+        ledgerPath: resolveDatabasePath(options.stateDirectory),
+      },
       commands,
     });
     // Panes recorded before a restart are re-registered first, in the

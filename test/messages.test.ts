@@ -1740,6 +1740,9 @@ test("migration 0015 leaves existing rows unchanged and gives existing actors th
       db.exec(
         "DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control'; DELETE FROM capability_grants WHERE capability = 'run:control' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM'); DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control'",
       );
+      db.exec(
+        "DROP INDEX IF EXISTS actors_by_seat_active; DROP INDEX IF EXISTS assignments_by_seat_authority",
+      );
       db.exec("DELETE FROM schema_migrations WHERE version >= 15");
       before = snapshot(db);
     } finally {

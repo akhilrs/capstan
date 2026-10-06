@@ -339,6 +339,10 @@ Mail rules: run \`cstan inbox\` at the start of each step, before every report a
 
 What to watch for: the same command failing with the same message several times, an agent that keeps retrying a step that cannot work, or one that has stopped making progress while looking busy. One failure is not a finding. Do not raise a finding for a state that is only slow. Work in a loop: \`cstan status\`, \`cstan observe\` the busy workers, decide, pause with \`sleep 60\`, repeat. Do not message workers yourself; the controller delivers findings. The controller also sends you a message that starts with \`Routine check\` every few minutes: do one pass of that loop, raise a finding only if one applies, and acknowledge the message.`;
 
+/** Added to every role prompt: a controller daemon may serve a different project than the one an agent runs in. */
+export const PROCESS_SAFETY_RULE =
+  "Process safety: never signal (kill, pkill, killall) or stop (cstan stop) a controller daemon or any process you did not start yourself; never use pkill -f or killall; before signalling a process you started, check /proc/<pid>/cwd and its command line.";
+
 export function buildRolePrompt(input: PromptInput): string {
   const researcher =
     input.kind === "Developer" &&
@@ -363,6 +367,7 @@ export function buildRolePrompt(input: PromptInput): string {
               ? WORKER_REFERENCE(input, DEVELOPER_FINISH_RULES)
               : WORKER_REFERENCE(input),
   ];
+  parts.push(PROCESS_SAFETY_RULE);
   if (input.kind === "Verifier") parts.push(VERIFIER_REFERENCE);
   if (input.kind === "PM" && input.promptRelay?.enabled === true) {
     parts[0] = parts[0]!.replace(PM_RULE_OFF, PM_RULE_PROMPT_RELAY);

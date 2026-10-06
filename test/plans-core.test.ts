@@ -820,6 +820,9 @@ test("migration 0022 adds the plan tables and grants the plan capabilities to ex
       db.exec(
         "DELETE FROM role_capabilities WHERE capability LIKE 'plan:%' OR (role = 'Developer' AND capability = 'review:request')",
       );
+      db.exec(
+        "DROP INDEX IF EXISTS actors_by_seat_active; DROP INDEX IF EXISTS assignments_by_seat_authority",
+      );
       db.exec("DELETE FROM schema_migrations WHERE version >= 22");
     } finally {
       db.close();
@@ -1213,6 +1216,9 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
         "DELETE FROM role_capabilities WHERE role = 'Developer' AND capability = 'review:request'",
       );
       undoMigration0025(db);
+      db.exec(
+        "DROP INDEX IF EXISTS actors_by_seat_active; DROP INDEX IF EXISTS assignments_by_seat_authority",
+      );
       db.exec("DELETE FROM schema_migrations WHERE version >= 23");
     });
     const reopened = await ReopenedCore.of(h);
@@ -2195,6 +2201,9 @@ test("migration 0025 adds the link table and the cancellation columns to a ledge
     const db = openSqlite(databasePath);
     try {
       undoMigration0025(db);
+      db.exec(
+        "DROP INDEX actors_by_seat_active; DROP INDEX assignments_by_seat_authority",
+      );
       db.exec("DELETE FROM schema_migrations WHERE version >= 25");
     } finally {
       db.close();

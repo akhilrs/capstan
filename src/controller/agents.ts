@@ -158,13 +158,7 @@ export class AgentsArea {
 
   listAgents(): readonly AgentRecord[] {
     this.kernel.assertOpen();
-    return (
-      this.kernel.database
-        .prepare(
-          "SELECT agent_id FROM agents WHERE project_id = ? ORDER BY agent_id",
-        )
-        .all(this.kernel.projectId) as Array<{ agent_id: string }>
-    ).map((row) => this.kernel.agentRecord(row.agent_id)!);
+    return this.kernel.agentRecords();
   }
 
   agentRecord(agentId: string): AgentRecord | undefined {

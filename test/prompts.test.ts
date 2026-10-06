@@ -400,10 +400,10 @@ const goldenInput = (kind: "PM" | "Developer" | "Verifier" | "Supervisor") => ({
 test("with the Architect disabled every prompt is byte-identical to its recorded hash", async () => {
   const { createHash } = await import("node:crypto");
   const golden = {
-    PM: "1e2fbc6aa34eadfa",
-    Developer: "ec1cb31613943457",
-    Verifier: "b2e2b6bba285b4e4",
-    Supervisor: "a6f0ae0e24514359",
+    PM: "b1347d78b3da0a6c",
+    Developer: "7769de631b7a51b4",
+    Verifier: "2a31e604dc6ea057",
+    Supervisor: "ca286dfda1ee36ed",
   } as const;
   for (const [kind, prefix] of Object.entries(golden)) {
     const text = buildRolePrompt(goldenInput(kind as keyof typeof golden));
@@ -825,7 +825,7 @@ const goldenCases = {
     isOperator: true,
   },
 } as const;
-// The golden files hold the prompts with the prompt relay off; they were regenerated once for the commit, branch and release rules (the operator and supervisor files did not change).
+// The golden files hold the prompts with the prompt relay off; they were regenerated for the commit, branch and release rules, and again for the process safety rule that every prompt carries.
 const goldenDirectory = path.join(
   import.meta.dirname,
   "..",
@@ -1221,4 +1221,14 @@ test("the branch patterns the docs name are the ones the code builds", () => {
   );
   assert.ok(conventions.includes('`integration/${parts.join("-")}`'));
   assert.ok(!docs.includes("capstan/<agent-id>-g<generation>"));
+});
+
+test("every role prompt carries the process safety rule", () => {
+  for (const kind of ["PM", "Developer", "Verifier", "Supervisor"] as const) {
+    const text = buildRolePrompt({ ...base, kind, roleName: kind });
+    assert.match(text, /never signal \(kill, pkill, killall\)/);
+    assert.match(text, /\(cstan stop\) a controller daemon/);
+    assert.match(text, /never use pkill -f or killall/);
+    assert.match(text, /\/proc\/<pid>\/cwd/);
+  }
 });
