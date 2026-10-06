@@ -17,14 +17,14 @@ name = "cstan-dash"
 path = "src/main.rs"
 
 [dependencies]
-crossterm = "0.28"
-indexmap = { version = "2", features = ["serde"] }
-libc = "0.2.190"
-ratatui = "0.29"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-signal-hook = "0.3"
-unicode-segmentation = "1"
+crossterm = "=0.28.1"
+indexmap = { version = "=2.14.2", features = ["serde"] }
+libc = "=0.2.190"
+ratatui = "=0.29.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+signal-hook = "=0.3.18"
+unicode-segmentation = "=1.13.3"
 
 [profile.release]
 lto = true
@@ -32,4 +32,4 @@ codegen-units = 1
 strip = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
+tempfile = "=3.27.0"

@@ -93,6 +93,14 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
+**The dashboard.** `cstan dash` has a Rust build, `cstan-dash`, that uses far less CPU and memory than the Node dashboard (about 1% of a core and 7 MB idle against about 22% and 380 MB; see [the measurements](docs/research/rust-dash-performance.md)). When the release lists a `cstan-dash` for your machine, the installer downloads it, checks its sha256 against `SHA256SUMS` and puts it next to `cstan`; `--no-dash` skips it and `--dash-binary <file>` installs one you built. A release without it installs `cstan` alone and `cstan dash` runs the Node dashboard. To build it from a source checkout (needs [Rust](https://rustup.rs)):
+
+```sh
+npm run build:dash    # writes dash/target/release/cstan-dash, which cstan dash finds in a checkout
+```
+
+`cstan dash` uses the Rust binary when it finds one and the Node dashboard otherwise. `CSTAN_DASH=rust` fails when there is no binary, `CSTAN_DASH=node` always runs the Node one, and `CSTAN_DASH_BIN=/absolute/path` names the binary to use. The search order is in the [Install reference](docs/reference/install.md#the-dashboard-binary-cstan-dash).
+
 Bun has not been tested since the native dependencies were removed. When installed that way `cstan` still runs on Node 24. The recommended installs are the `curl` one-liner above (standalone binary on Linux x64/arm64) or the npm tarball (see [docs/reference/install.md](docs/reference/install.md#bun)).
 
 Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).

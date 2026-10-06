@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: cstan (build, test, lint, format)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.6.x
+          cache: npm
+      # Some suites commit in temporary repositories and need an identity.
+      - name: Git identity
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - run: npm ci
+      - run: npm run build
+      # The live suites (real Herdr and Claude) skip themselves when herdr is not installed, which it is not here.
+      - run: npm test
+      - run: npm run lint
+      - run: npm run format:check
+
+  dash:
+    name: cstan-dash (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.6.x
+      # Installs the channel and components named in dash/rust-toolchain.toml.
+      - name: Rust toolchain
+        working-directory: dash
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dash
+      # check:dash runs cargo fmt --check, clippy -D warnings and cargo test --locked; it needs no npm packages.
+      - run: npm run check:dash

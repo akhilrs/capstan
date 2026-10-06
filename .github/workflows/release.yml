@@ -1,0 +1,154 @@
+name: Release
+
+# Runs when a version tag is pushed (npm run release creates the tag locally; pushing it starts this).
+# Uses only the built-in GITHUB_TOKEN; the one job that writes is the last one.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  cstan:
+    name: cstan tarball and standalone binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.6.x
+          cache: npm
+      - id: version
+        name: Tag must match package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      # The same steps scripts/release.mjs runs: the shrinkwrap pins the lockfile versions inside the tarball
+      # (prepack builds), then the binaries are cut for both Linux targets.
+      - name: npm tarball
+        run: |
+          mkdir -p release
+          cp package-lock.json npm-shrinkwrap.json
+          npm pack --pack-destination release
+          rm npm-shrinkwrap.json
+      - name: Standalone binaries
+        run: npm run build:binary -- --target linux-x64 --target linux-arm64
+      - name: Check the x64 binary runs
+        run: |
+          out="$(./release/cstan-${{ steps.version.outputs.version }}-linux-x64 --version)"
+          test "$out" = "cstan ${{ steps.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cstan
+          path: |
+            release/capstan-controller-*.tgz
+            release/cstan-*-linux-*
+          if-no-files-found: error
+
+  dash:
+    name: cstan-dash ${{ matrix.target }}
+    needs: cstan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # The arm64 build is best effort: when it fails the release goes out without it (see the release job).
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            triple: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            optional: false
+          - target: linux-arm64
+            triple: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            optional: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.6.x
+      - name: musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.triple }}
+        working-directory: dash
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dash
+          key: ${{ matrix.triple }}
+      - name: Build
+        run: npm run build:dash -- --target ${{ matrix.target }}
+      - name: Check it runs
+        run: |
+          out="$(./release/cstan-dash-${{ needs.cstan.outputs.version }}-${{ matrix.target }} --version)"
+          echo "$out"
+          case "$out" in *"${{ needs.cstan.outputs.version }}"*) ;; *) echo "unexpected version output" >&2; exit 1 ;; esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cstan-dash-${{ matrix.target }}
+          path: release/cstan-dash-*
+          if-no-files-found: error
+
+  publish:
+    name: SHA256SUMS and GitHub release
+    needs: [cstan, dash]
+    # The arm64 dash may have failed; the x64 one and cstan must have worked.
+    if: ${{ !cancelled() && needs.cstan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.cstan.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          cd assets
+          for f in "capstan-controller-$VERSION.tgz" "cstan-$VERSION-linux-x64" "cstan-$VERSION-linux-arm64" "cstan-dash-$VERSION-linux-x64"; do
+            test -f "$f" || { echo "missing asset $f" >&2; exit 1; }
+          done
+          chmod 755 cstan-*
+          sha256sum capstan-controller-*.tgz cstan-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Summary
+        run: |
+          {
+            echo "### Release $GITHUB_REF_NAME"
+            echo
+            if [ -f "assets/cstan-dash-$VERSION-linux-arm64" ]; then
+              echo "All assets built: cstan and cstan-dash for linux-x64 and linux-arm64."
+            else
+              echo "**cstan-dash for linux-arm64 was not built** (the aarch64 musl build failed). The release has cstan-dash for linux-x64 only; the installer installs cstan alone on arm64 and \`cstan dash\` uses the Node dashboard there."
+            fi
+            echo
+            echo '```'
+            cat assets/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Create the release
+        run: |
+          cd assets
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            capstan-controller-*.tgz cstan-* SHA256SUMS
