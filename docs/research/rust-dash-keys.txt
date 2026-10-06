@@ -1,0 +1,170 @@
+rust-keys.py: cstan-dash 0.1.1, node v24.6.0, 2026-10-06, sizes 80x24,160x45
+== 80x24
+  ok    first frame draws (cstan dash -> cstan-dash)
+  ok    the process is cstan-dash (same pid as cstan dash)
+  ok    panels shown at 80x24: [1, 2, 3, 4]
+  ok    the queue has the focus at the start (hint line: y retry)
+  ok    key 1: focus moves to panel 1
+  ok    key 2: focus moves to panel 2
+  ok    key 3: focus moves to panel 3
+  ok    key 4: focus moves to panel 4
+  ok    key 5: focus stays (panel not shown) on panel 4
+  ok    tab: focus 2
+  ok    tab: focus 3
+  ok    tab: focus 4
+  ok    tab: focus 1
+  ok    shift-tab: focus 4
+  ok    shift-tab: focus 3
+  ok    shift-tab: focus 2
+  ok    shift-tab: focus 1
+  ok    key 3: queue focused
+  ok    down: selection on #42
+  ok    down: selection on #44
+  ok    up: selection back on #42
+  ok    k: selection on #41
+  ok    j: selection on #42
+  ok    y on a queued message: refused with a notice, no prompt, no call
+  ok    up: selection on #41 again
+  ok    f: problems only is on, #42 leaves the list
+  ok    f: problems only is off, #42 is back
+  ok    y: asks to retry #41 (nothing sent yet)
+  ok    y then n: cancelled, no call
+  ok    y then esc: cancelled, no call
+  ok    y, esc: cancelled, no call
+  ok    y: asks again
+  ok    y, y: confirmed, the daemon gets resolve 0192f4c1-3a7e-7b2d retry
+          daemon call: resolve 0192f4c1-3a7e-7b2d retry
+  ok    s: asks to skip #41 (nothing sent yet)
+  ok    s then n: cancelled, no call
+  ok    s then esc: cancelled, no call
+  ok    s, esc: cancelled, no call
+  ok    s: asks again
+  ok    s, y: confirmed, the daemon gets resolve 0192f4c1-3a7e-7b2d skip
+          daemon call: resolve 0192f4c1-3a7e-7b2d skip
+  ok    c: asks to cancel #41 (nothing sent yet)
+  ok    c then n: cancelled, no call
+  ok    c then esc: cancelled, no call
+  ok    c, esc: cancelled, no call
+  ok    c: asks again
+  ok    c, y: confirmed, the daemon gets cancel 0192f4c1-3a7e-7b2d
+          daemon call: cancel 0192f4c1-3a7e-7b2d
+  ok    key 1: agents focused (hint: o observe)
+  ok    agents panel lists 10 rows (5 active + the 5 latest ended)
+  ok    e: every ended agent is listed
+  ok    e: back to the 5 latest ended
+  ok    o on developer-2 (active): the daemon gets peek developer-2 40, the overlay opens
+          daemon call: peek developer-2 40
+  ok    q inside the overlay closes it and does not quit
+  ok    the dashboard is still running
+  ok    o again, esc closes the overlay
+          daemon call: peek developer-2 40
+  ok    esc
+  ok    o on an ended agent: the footer says it has ended, no call
+  ok    up x5 back to the first agent
+  ok    p: PAUSED in the header
+  ok    3 then y while paused: no prompt
+  ok    p: resumed
+  ok    +: interval 2s
+  ok    +: interval 3s
+  ok    +: interval 4s
+  ok    +: interval 5s
+  ok    r: polls at once (a status request within 1.5 s with a 5 s interval)
+  ok    -: interval 4s
+  ok    -: interval 3s
+  ok    -: interval 2s
+  ok    -: interval 1s
+  ok    - at 1s stays at 1s
+  ok    ?: help overlay
+  ok    ? again closes it
+  ok    ? then esc closes it
+  ok    esc
+  ok    ? then another key closes it
+  ok    x
+  ok    q quits with exit status 0
+  ok    ctrl+c quits with exit status 0
+  77/77 steps passed
+== 160x45
+  ok    first frame draws (cstan dash -> cstan-dash)
+  ok    the process is cstan-dash (same pid as cstan dash)
+  ok    panels shown at 160x45: [1, 2, 3, 4]
+  ok    the queue has the focus at the start (hint line: y retry)
+  ok    key 1: focus moves to panel 1
+  ok    key 2: focus moves to panel 2
+  ok    key 3: focus moves to panel 3
+  ok    key 4: focus moves to panel 4
+  ok    key 5: focus stays (panel not shown) on panel 4
+  ok    tab: focus 2
+  ok    tab: focus 3
+  ok    tab: focus 4
+  ok    tab: focus 1
+  ok    shift-tab: focus 4
+  ok    shift-tab: focus 3
+  ok    shift-tab: focus 2
+  ok    shift-tab: focus 1
+  ok    key 3: queue focused
+  ok    down: selection on #42
+  ok    down: selection on #44
+  ok    up: selection back on #42
+  ok    k: selection on #41
+  ok    j: selection on #42
+  ok    y on a queued message: refused with a notice, no prompt, no call
+  ok    up: selection on #41 again
+  ok    f: problems only is on, #42 leaves the list
+  ok    f: problems only is off, #42 is back
+  ok    y: asks to retry #41 (nothing sent yet)
+  ok    y then n: cancelled, no call
+  ok    y then esc: cancelled, no call
+  ok    y, esc: cancelled, no call
+  ok    y: asks again
+  ok    y, y: confirmed, the daemon gets resolve 0192f4c1-3a7e-7b2d retry
+          daemon call: resolve 0192f4c1-3a7e-7b2d retry
+  ok    s: asks to skip #41 (nothing sent yet)
+  ok    s then n: cancelled, no call
+  ok    s then esc: cancelled, no call
+  ok    s, esc: cancelled, no call
+  ok    s: asks again
+  ok    s, y: confirmed, the daemon gets resolve 0192f4c1-3a7e-7b2d skip
+          daemon call: resolve 0192f4c1-3a7e-7b2d skip
+  ok    c: asks to cancel #41 (nothing sent yet)
+  ok    c then n: cancelled, no call
+  ok    c then esc: cancelled, no call
+  ok    c, esc: cancelled, no call
+  ok    c: asks again
+  ok    c, y: confirmed, the daemon gets cancel 0192f4c1-3a7e-7b2d
+          daemon call: cancel 0192f4c1-3a7e-7b2d
+  ok    key 1: agents focused (hint: o observe)
+  ok    agents panel lists 10 rows (5 active + the 5 latest ended)
+  ok    e: every ended agent is listed
+  ok    e: back to the 5 latest ended
+  ok    o on developer-2 (active): the daemon gets peek developer-2 40, the overlay opens
+          daemon call: peek developer-2 40
+  ok    q inside the overlay closes it and does not quit
+  ok    the dashboard is still running
+  ok    o again, esc closes the overlay
+          daemon call: peek developer-2 40
+  ok    esc
+  ok    o on an ended agent: the footer says it has ended, no call
+  ok    up x5 back to the first agent
+  ok    p: PAUSED in the header
+  ok    3 then y while paused: no prompt
+  ok    p: resumed
+  ok    +: interval 2s
+  ok    +: interval 3s
+  ok    +: interval 4s
+  ok    +: interval 5s
+  ok    r: polls at once (a status request within 1.5 s with a 5 s interval)
+  ok    -: interval 4s
+  ok    -: interval 3s
+  ok    -: interval 2s
+  ok    -: interval 1s
+  ok    - at 1s stays at 1s
+  ok    ?: help overlay
+  ok    ? again closes it
+  ok    ? then esc closes it
+  ok    esc
+  ok    ? then another key closes it
+  ok    x
+  ok    q quits with exit status 0
+  ok    ctrl+c quits with exit status 0
+  77/77 steps passed
+failed steps: 0

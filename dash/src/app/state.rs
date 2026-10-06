@@ -98,6 +98,8 @@ pub struct AppState {
     pub link: Link,
     changes: ChangeState,
     pub rings: Rings,
+    /// Bumped whenever the rings change.
+    pub rings_rev: u64,
     pub focus: PanelId,
     selection: [Selection; 5],
     pub problems_only: bool,
@@ -257,6 +259,7 @@ impl AppState {
             link: Link::Starting,
             changes: ChangeState::default(),
             rings: Rings::default(),
+            rings_rev: 0,
             focus: PanelId::Queue,
             selection: Default::default(),
             problems_only: false,
@@ -549,6 +552,7 @@ impl AppState {
                     push_sample(&mut self.rings.unresolved, sample.unresolved);
                     push_sample(&mut self.rings.working, sample.working);
                     push_sample(&mut self.rings.oldest, sample.oldest_seconds);
+                    self.rings_rev += 1;
                 }
             }
         }

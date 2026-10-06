@@ -197,6 +197,41 @@ pub fn paint_screen(
     }
 }
 
+/// Repaints the rows in `rows` (the frame line, then any overlay lines on it) into a buffer that already shows the
+/// rest of the screen. A repainted row starts blank, so the result is what `paint_screen` gives for the whole screen.
+pub fn paint_rows(
+    buffer: &mut Buffer,
+    area: Rect,
+    rows: &[usize],
+    lines: &[Line],
+    overlay: Option<&Overlay>,
+    depth: ColorDepth,
+    cell_width: fn(&str) -> usize,
+) {
+    for &row in rows {
+        if row >= area.height as usize {
+            continue;
+        }
+        let y = row as u16;
+        for x in 0..area.width {
+            if let Some(cell) = buffer.cell_mut((area.x + x, area.y + y)) {
+                cell.reset();
+            }
+        }
+        if let Some(line) = lines.get(row) {
+            paint_line(buffer, area, 0, y, line, depth, cell_width);
+        }
+    }
+    if let Some(overlay) = overlay {
+        for (index, line) in overlay.lines.iter().enumerate() {
+            let y = overlay.top.saturating_add(index as u16);
+            if rows.contains(&(y as usize)) {
+                paint_line(buffer, area, overlay.left, y, line, depth, cell_width);
+            }
+        }
+    }
+}
+
 /// Plain text at the top left, for the placeholders.
 pub fn paint_text(buffer: &mut Buffer, area: Rect, text: &str, cell_width: fn(&str) -> usize) {
     let line = vec![Span {

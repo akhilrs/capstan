@@ -1,5 +1,7 @@
 #!/bin/sh
-# Smoke test for the standalone cstan binaries (npm run build:binary first).
+# Smoke test for the standalone cstan binaries (npm run build:binary first). With the Rust dashboard built (npm run
+# build:dash, or CSTAN_DASH_SMOKE_BIN=<path to cstan-dash>) it also runs `cstan dash` in a pty both with cstan-dash
+# beside the binary (the frame must come from cstan-dash) and without it (the Node dashboard and its hint).
 # Runs each binary in a mkdtemp HOME and a temp git repository with a PATH that holds only the
 # binary's directory plus /usr/bin:/bin and no node. Skips a target whose binary is missing or
 # cannot run on this machine (arm64 needs qemu-aarch64 binfmt). Exit code 0 means every check passed.
@@ -61,6 +63,35 @@ wait_gone() {
     i=$((i + 1))
   done
   return 1
+}
+
+# dash_binary: the cstan-dash to test with (CSTAN_DASH_SMOKE_BIN, the x64 release build, or the build:dash output);
+# prints its path, or nothing when none runs here.
+dash_binary() {
+  for candidate in "${CSTAN_DASH_SMOKE_BIN:-}" "$ROOT/release/cstan-dash-$VERSION-linux-x64" \
+    "${CARGO_TARGET_DIR:-$ROOT/dash/target}/release/cstan-dash"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    case "$("$candidate" --version 2>/dev/null)" in "cstan-dash "*) printf '%s\n' "$candidate" && return 0 ;; esac
+  done
+  return 0
+}
+
+# dash_session <dir with cstan> <name>: runs `cstan dash` in a pty (160x45) from that directory, reads which program
+# the process has become after 3 s, sends q, and leaves the pty output in $DIR/dash.<name>.out, the program in
+# $DIR/dash.<name>.exe and the pid in $DIR/dash.<name>.pid.
+dash_session() {
+  pidfile="$DIR/dash.$2.pid"
+  exefile="$DIR/dash.$2.exe"
+  out="$DIR/dash.$2.out"
+  rm -f "$pidfile" "$exefile"
+  (
+    sleep 3
+    readlink "/proc/$(cat "$pidfile" 2>/dev/null)/exe" >"$exefile" 2>/dev/null || true
+    printf q
+    sleep 3
+  ) | timeout -s KILL 25 env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm \
+    PATH="$1:/usr/bin:/bin" script -qec "stty rows 45 cols 160; echo \$\$ >'$pidfile'; exec cstan dash --no-color" /dev/null \
+    >"$out" 2>&1 || true
 }
 
 smoke() {
@@ -152,6 +183,43 @@ smoke() {
     fi
   else
     echo "skip $NAME: dash (no script(1))"
+  fi
+
+  # The Rust dashboard: cstan dash becomes cstan-dash when it sits beside the binary, else the Node dashboard runs.
+  if command -v script >/dev/null 2>&1; then
+    DASHBIN="$(dash_binary)"
+    case "$(file -b "$REAL")" in *x86-64*) NATIVE=1 ;; *) NATIVE=0 ;; esac
+    if [ -z "$DASHBIN" ] || [ "$NATIVE" = 0 ] || [ "$(uname -m)" != x86_64 ]; then
+      echo "skip $NAME: rust dash (no runnable x86-64 cstan-dash; npm run build:dash)"
+    else
+      for variant in without with; do
+        VDIR="$DIR/$variant"
+        mkdir -p "$VDIR"
+        # A copy of the binary (a symlink would resolve back to its own directory, where cstan-dash may sit).
+        ln "$REAL" "$VDIR/cstan" 2>/dev/null || cp "$REAL" "$VDIR/cstan"
+        [ "$variant" = with ] && cp "$DASHBIN" "$VDIR/cstan-dash"
+        dash_session "$VDIR" "$variant"
+        EXE="$(cat "$DIR/dash.$variant.exe" 2>/dev/null || true)"
+        DPID="$(cat "$DIR/dash.$variant.pid" 2>/dev/null || true)"
+        if [ "$variant" = with ]; then
+          [ "$(basename "$EXE")" = cstan-dash ] && pass "$NAME: cstan dash is cstan-dash itself (/proc/$DPID/exe)" ||
+            fail "$NAME: cstan dash with cstan-dash beside it runs '$EXE'"
+          grep -aq "queue" "$DIR/dash.with.out" && grep -aq "agents" "$DIR/dash.with.out" &&
+            pass "$NAME: cstan-dash draws a frame" || fail "$NAME: no cstan-dash frame ($(head -c 300 "$DIR/dash.with.out"))"
+          if [ -n "$DPID" ] && wait_gone "$DPID"; then pass "$NAME: q quits cstan-dash"; else fail "$NAME: cstan-dash did not quit on q"; fi
+          ! grep -aq "using the Node dashboard" "$DIR/dash.with.out" && pass "$NAME: no Node-dash hint beside cstan-dash" ||
+            fail "$NAME: the Node-dash hint appeared although cstan-dash is beside the binary"
+        else
+          [ -n "$EXE" ] && [ "$(basename "$EXE")" != cstan-dash ] && pass "$NAME: without cstan-dash the Node dashboard runs ($EXE)" ||
+            fail "$NAME: cstan dash without cstan-dash runs '$EXE'"
+          grep -aq "queue" "$DIR/dash.without.out" && pass "$NAME: the Node dashboard draws a frame" ||
+            fail "$NAME: no Node dashboard frame ($(head -c 300 "$DIR/dash.without.out"))"
+          grep -aq "using the Node dashboard" "$DIR/dash.without.out" && pass "$NAME: the hint line to install cstan-dash appears" ||
+            fail "$NAME: no Node-dash hint line"
+        fi
+        rm -f "$VDIR/cstan" "$VDIR/cstan-dash"
+      done
+    fi
   fi
 
   # Warnings on stderr (SEA or node:sqlite) would show here.

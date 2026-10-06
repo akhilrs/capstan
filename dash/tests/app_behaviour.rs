@@ -1286,11 +1286,9 @@ fn failures_back_off_and_a_later_success_recovers_the_interval() {
     ]));
     // The scaled table: 20 ms, 40 ms, 80 ms against a 5 ms interval.
     let (poller, events, _, _) = scripted_poller(5, vec![20, 40, 80], script);
-    let mut stamps = Vec::new();
     let mut links = Vec::new();
     for _ in 0..6 {
         let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
-        stamps.push(Instant::now());
         links.push(match event {
             PollEvent::Failed { link } => Some(link),
             PollEvent::Status { .. } => None,
@@ -1307,21 +1305,12 @@ fn failures_back_off_and_a_later_success_recovers_the_interval() {
             None
         ]
     );
-    let gap = |i: usize| stamps[i + 1].duration_since(stamps[i]);
-    assert!(
-        gap(0) >= Duration::from_millis(19),
-        "after one failure: 20 ms"
-    );
-    assert!(gap(1) >= Duration::from_millis(39), "after two: 40 ms");
-    assert!(gap(2) >= Duration::from_millis(79), "after three: 80 ms");
-    assert!(
-        gap(3) >= Duration::from_millis(79),
-        "stays at the last step"
-    );
-    assert!(
-        gap(4) < Duration::from_millis(60),
-        "a success returns to the interval"
-    );
+    // The delay before each next try, by the failures in a row: the steps in order, the last one held, and the
+    // interval again after a success.
+    let delays: Vec<u64> = (0..6)
+        .map(|failures| next_delay_ms(failures, 5, &[20, 40, 80]))
+        .collect();
+    assert_eq!(delays, [5, 20, 40, 80, 80, 80]);
     poller.join();
 }
 

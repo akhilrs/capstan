@@ -15,11 +15,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event as TerminalEvent};
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 
 use crate::model::DashAction;
-use crate::view::{make_theme, Overlay, Size, Theme, ThemeOptions, ViewState};
+use crate::view::{make_theme, Line, Overlay, Rings, Size, Theme, ThemeOptions, ViewState};
 use client::{CallResult, Client};
 use paint::ColorDepth;
 use poller::{PollEvent, Poller, BACKOFF_MS};
@@ -66,6 +67,13 @@ struct DrawKey {
     placeholder: Option<String>,
 }
 
+/// What the terminal buffer holds after the last frame paint.
+struct Painted {
+    lines: Vec<Line>,
+    overlay: Option<Overlay>,
+    buffer: Buffer,
+}
+
 pub struct Runtime<B: Backend> {
     pub state: AppState,
     pub terminal: Terminal<B>,
@@ -75,8 +83,14 @@ pub struct Runtime<B: Backend> {
     controls: Box<dyn Controls>,
     bell: Box<dyn FnMut() + Send>,
     drawn: Option<DrawKey>,
+    /// The last painted frame, to paint only the lines that differ from it.
+    painted: Option<Painted>,
+    /// The rings last handed to the view, and the `rings_rev` they were taken at.
+    rings_cache: Option<(u64, Rings)>,
     /// How many times the screen was painted.
     pub draws: usize,
+    /// How many frame lines the last paint wrote into the buffer.
+    pub rows_painted: usize,
     spinner_at: Option<i64>,
     pub exit: Option<u8>,
 }
@@ -106,7 +120,10 @@ impl<B: Backend> Runtime<B> {
             controls,
             bell,
             drawn: None,
+            painted: None,
+            rings_cache: None,
             draws: 0,
+            rows_painted: 0,
             spinner_at: None,
             exit: None,
         }
@@ -187,10 +204,11 @@ impl<B: Backend> Runtime<B> {
     /// Paints when what the screen shows has changed since the last paint; true when it painted.
     pub fn redraw_if_needed(&mut self, now: i64) -> io::Result<bool> {
         let size = self.size()?;
-        let mut view = self.state.view_state(size, now, false);
-        view.now_ms = 0;
+        let view = self.state.view_state(size, now, false);
+        let mut compared = view.clone();
+        compared.now_ms = 0;
         let key = DrawKey {
-            view,
+            view: compared,
             overlay: self.state.overlay(),
             model_rev: self.state.model_rev,
             placeholder: self.state.placeholder(size),
@@ -198,21 +216,29 @@ impl<B: Backend> Runtime<B> {
         if self.drawn.as_ref() == Some(&key) {
             return Ok(false);
         }
-        self.paint(size, now, &key)?;
+        self.paint(size, view, &key)?;
         self.drawn = Some(key);
         Ok(true)
     }
 
-    fn paint(&mut self, size: Size, now: i64, key: &DrawKey) -> io::Result<()> {
+    fn paint(&mut self, size: Size, view: ViewState, key: &DrawKey) -> io::Result<()> {
         let depth = self.depth;
         let measure = self.hooks.cell_width;
         let area = Rect::new(0, 0, size.columns, size.rows);
         if let Some(text) = &key.placeholder {
+            self.painted = None;
             self.terminal
                 .draw(|f| paint::paint_text(f.buffer_mut(), area, text, measure))?;
         } else if let Some(model) = &self.state.model {
-            let view = self.state.view_state(size, now, true);
+            let rev = self.state.rings_rev;
+            // The rings are cloned only when they changed since the last frame.
+            let mut view = view;
+            view.rings = match self.rings_cache.take() {
+                Some((at, rings)) if at == rev => rings,
+                _ => self.state.rings.clone(),
+            };
             let frame = (self.hooks.build_frame)(model, &view, &self.theme);
+            self.rings_cache = Some((rev, view.rings));
             let overlay: Option<Overlay> = match &key.overlay {
                 Some(OverlayKind::Peek(peek)) => {
                     Some((self.hooks.observe_overlay)(peek, size, &self.theme))
@@ -223,16 +249,51 @@ impl<B: Backend> Runtime<B> {
                 Some(OverlayKind::Help) => Some((self.hooks.help_overlay)(size, &self.theme)),
                 None => None,
             };
-            self.terminal.draw(|f| {
-                paint::paint_screen(
-                    f.buffer_mut(),
-                    area,
-                    &frame.lines,
-                    overlay.as_ref(),
-                    depth,
-                    measure,
-                )
-            })?;
+            // Only the lines that differ from the last frame are painted, unless the size, the first frame or the
+            // overlay says the whole screen must be.
+            let previous = self.painted.take().filter(|p| {
+                p.buffer.area == area && p.overlay == overlay && p.lines.len() == frame.lines.len()
+            });
+            let mut painted = match previous {
+                Some(mut p) => {
+                    let rows: Vec<usize> = (0..frame.lines.len())
+                        .filter(|&row| p.lines[row] != frame.lines[row])
+                        .collect();
+                    self.rows_painted = rows.len();
+                    paint::paint_rows(
+                        &mut p.buffer,
+                        area,
+                        &rows,
+                        &frame.lines,
+                        overlay.as_ref(),
+                        depth,
+                        measure,
+                    );
+                    p
+                }
+                None => {
+                    self.rows_painted = frame.lines.len();
+                    let mut buffer = Buffer::empty(area);
+                    paint::paint_screen(
+                        &mut buffer,
+                        area,
+                        &frame.lines,
+                        overlay.as_ref(),
+                        depth,
+                        measure,
+                    );
+                    Painted {
+                        lines: Vec::new(),
+                        overlay: None,
+                        buffer,
+                    }
+                }
+            };
+            self.terminal
+                .draw(|f| f.buffer_mut().content.clone_from(&painted.buffer.content))?;
+            painted.lines = frame.lines;
+            painted.overlay = overlay;
+            self.painted = Some(painted);
             self.state.shown = frame.shown;
         }
         self.draws += 1;
