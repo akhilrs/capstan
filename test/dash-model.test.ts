@@ -468,3 +468,174 @@ test("the header carries the PM's pending mail when the status has it", () => {
     stale: true,
   });
 });
+
+test("pipeline totals and state counts come from pipelineCounts when present, and are no longer capped", () => {
+  const model = buildDashModel(
+    healthy({
+      pipelineCounts: {
+        reports: { accepted: 50, rejected: 10 },
+        reviews: { passed: 40, findings: 5 },
+        integrations: { confirmed: 20, merged: 1 },
+      },
+      reports: Array.from({ length: 20 }, (_, i) => ({
+        reportId: `r${i}`,
+        agentId: "developer-agent",
+        state: "accepted",
+        createdAt: iso(i),
+      })),
+    }),
+    NOW,
+    3,
+  );
+  const { reports, reviews, integrations } = model.pipeline;
+  assert.equal(reports.total, 60);
+  assert.deepEqual(reports.counts, { accepted: 50, rejected: 10 });
+  assert.equal(reports.capped, false);
+  assert.equal(reviews.total, 45);
+  assert.equal(integrations.total, 21);
+  assert.equal(reports.items.length, 20, "the row list is unchanged");
+});
+
+test("without pipelineCounts, or with a malformed stage, the totals come from the lists and keep the cap", () => {
+  const reports = Array.from({ length: 20 }, (_, i) => ({
+    reportId: `r${i}`,
+    agentId: "a",
+    state: "accepted",
+    createdAt: iso(i),
+  }));
+  for (const pipelineCounts of [
+    undefined,
+    null,
+    "x",
+    { reports: { accepted: "many" } },
+    { reports: [1, 2] },
+  ]) {
+    const model = buildDashModel(healthy({ reports, pipelineCounts }), NOW, 3);
+    assert.equal(model.pipeline.reports.total, 20);
+    assert.equal(model.pipeline.reports.capped, true);
+    assert.deepEqual(model.pipeline.reports.counts, { accepted: 20 });
+  }
+  const mixed = buildDashModel(
+    healthy({ reports, pipelineCounts: { reviews: { passed: 7 } } }),
+    NOW,
+    3,
+  );
+  assert.equal(mixed.pipeline.reviews.total, 7);
+  assert.equal(
+    mixed.pipeline.reports.capped,
+    true,
+    "a missing stage falls back",
+  );
+});
+
+test("a finding is stale unless its target is active, and live findings sort first, escalated before open", () => {
+  const finding = (id: string, target: string, state: string) => ({
+    findingId: id,
+    targetAgentId: target,
+    severity: "low",
+    state,
+    interventions: 0,
+    stateReason: null,
+  });
+  const agents = [
+    ...(healthy().agents as object[]),
+    {
+      agentId: "gone-agent",
+      roleName: "d",
+      kind: "Developer",
+      generation: 1,
+      state: "ended",
+      lastActivityAt: iso(9),
+    },
+  ];
+  const model = buildDashModel(
+    healthy({
+      agents,
+      agentFindings: [
+        finding("f-ended-esc", "gone-agent", "escalated"),
+        finding("f-open", "developer-agent", "open"),
+        finding("f-unknown", "ghost", "open"),
+        finding("f-esc", "developer-agent", "escalated"),
+        finding("f-resolved", "developer-agent", "resolved"),
+      ],
+    }),
+    NOW,
+    3,
+  );
+  assert.deepEqual(
+    model.findings.map((f) => [f.id, f.targetState, f.stale]),
+    [
+      ["f-esc", "active", false],
+      ["f-open", "active", false],
+      ["f-ended-esc", "ended", true],
+      ["f-unknown", "unknown", true],
+    ],
+  );
+});
+
+test("waiting items come from confirms, proposals and pauses, and are empty when nothing waits", () => {
+  assert.deepEqual(buildDashModel(healthy(), NOW, 3).waiting, []);
+  const model = buildDashModel(
+    healthy({
+      awaitingConfirm: [
+        {
+          integrationId: "0123456789abcdef",
+          branch: "integration/x",
+          createdAt: iso(120),
+          reviewState: "passed",
+        },
+        {
+          integrationId: "fedcba9876543210",
+          branch: "integration/y",
+          createdAt: iso(60),
+          reviewState: null,
+        },
+      ],
+      pendingProposals: [
+        {
+          proposalId: "p-7",
+          kind: "add-role",
+          proposer: "pm-1",
+          reason: "need a tester",
+          createdAt: iso(30),
+        },
+      ],
+      pause: {
+        run: { pausedAt: iso(300), reason: "operator break", actorId: "op" },
+        agents: [
+          { agentId: "developer-agent", pausedAt: iso(90), reason: "review" },
+        ],
+      },
+    }),
+    NOW,
+    3,
+  );
+  assert.deepEqual(
+    model.waiting.map((w) => [w.kind, w.label, w.since]),
+    [
+      [
+        "integration",
+        "integration 01234567 merged, review passed: cstan integrate confirm pending",
+        iso(120),
+      ],
+      [
+        "integration",
+        "integration fedcba98 merged, review none: cstan integrate confirm pending",
+        iso(60),
+      ],
+      ["proposal", "proposal p-7 add-role by pm-1: need a tester", iso(30)],
+      ["run-paused", "run paused: operator break", iso(300)],
+      ["agent-paused", "developer-agent paused: review", iso(90)],
+    ],
+  );
+  assert.equal(new Set(model.waiting.map((w) => w.id)).size, 5);
+});
+
+test("malformed waiting sources add nothing", () => {
+  const model = buildDashModel(
+    healthy({ awaitingConfirm: "x", pendingProposals: [null, 3] }),
+    NOW,
+    3,
+  );
+  assert.deepEqual(model.waiting, []);
+});

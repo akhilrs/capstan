@@ -13,7 +13,13 @@ import { makeTheme } from "../src/dash/theme.js";
 import { buildFrame, EMPTY_RINGS } from "../src/dash/view.js";
 import { modelOf, viewOf } from "./dash-view-helpers.js";
 import { cellWidth } from "../src/dash/format.js";
-import { NOW, crowded, showcase, supervisionState } from "./dash-fixtures.js";
+import {
+  NOW,
+  crowded,
+  iso,
+  showcase,
+  supervisionState,
+} from "./dash-fixtures.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const goldenDirectory = path.join(root, "test", "golden");
@@ -141,7 +147,7 @@ test("supervision off in config reads as off, not as a fault", () => {
   );
   assert.match(lines[1]!, /SUPERVISION OFF/);
   assert.match(lines[2]!, /enabled = false/);
-  assert.match(lines[3]!, /supervision off/);
+  assert.doesNotMatch(lines.join("\n"), /supervision off/);
 });
 
 test("supervision on with a Supervisor running shows its state, the last check and open findings", () => {
@@ -157,7 +163,7 @@ test("supervision on with a Supervisor running shows its state, the last check a
   assert.match(text, /supervisor-1 active/);
   assert.match(text, /check acked 3m ago/);
   assert.match(text, /2 open findings/);
-  assert.match(lines[3]!, /supervision on/);
+  assert.doesNotMatch(lines.join("\n"), /supervision on/);
 });
 
 test("supervision on with no Supervisor says it starts with the next worker", () => {
@@ -170,7 +176,6 @@ test("supervision on with no Supervisor says it starts with the next worker", ()
   assert.match(lines[1]!, /NO SUPERVISOR/);
   assert.doesNotMatch(lines[1]!, /OFF|DEGRADED/);
   assert.match(`${lines[1]!} ${lines[2]!}`, /starts with the next worker/);
-  assert.match(lines[3]!, /supervision on/);
 });
 
 test("the colour build paints the frame with state colours and the NO_COLOR build with none", () => {
@@ -368,11 +373,12 @@ test("the selected detail area is hidden when the queue has nothing to select", 
 test("an escalated finding on an ended agent is dimmed, says so and is not counted as needing the operator", () => {
   const frame = buildFrame(modelOf(crowded(), 3), viewOf(160, 45), theme);
   const text = plainLines(frame.lines).join("\n");
-  assert.ok(text.includes("1 target ended"));
+  assert.ok(text.includes("1 stale (target ended)"));
   assert.ok(!text.includes("needs operator"));
-  assert.ok(text.includes("ESCALATED 2/2 (target ended)"));
+  assert.ok(text.includes("escalated 2/2 (target ended)"));
+  assert.ok(!text.includes("ESCALATED"));
   const row = frame.lines.find((l) =>
-    l.some((s) => s.text.includes("ESCALATED")),
+    l.some((s) => s.text.includes("escalated 2/2")),
   );
   assert.ok(row?.some((s) => s.dim === true));
 });
@@ -385,7 +391,7 @@ test("stage bars are separated by blank rows when there is room, and use glyphs,
   const reports = at("reports  ");
   assert.ok(reports > 0);
   assert.ok(
-    lines[reports + 1]!.slice(0, 80).replaceAll(/[│┃]/g, "").trim() === "",
+    lines[reports + 1]!.slice(80).replaceAll(/[│┃]/g, "").trim() === "",
   );
   assert.ok(lines[reports + 2]!.includes("reviews"));
   for (const line of frame.lines)
@@ -433,9 +439,7 @@ test("the findings panel keeps the reason and marks ended and unknown targets", 
   ).join("\n");
   assert.equal(text.match(/\(target ended\) why-kept/g)?.length, 2);
   assert.ok(text.includes("(target unknown) why-kept"));
-  assert.ok(
-    text.includes("2 target ended") && text.includes("1 target unknown"),
-  );
+  assert.ok(text.includes("3 stale (target ended)"));
 });
 
 const staleMail = {
@@ -481,3 +485,304 @@ for (const [columns, rows] of [
     );
   });
 }
+
+// ------------------------------------------------- queue collapse, totals, header, stale, strip
+
+const emptyQueue = () => showcase({ messages: [], stuck: [] });
+const colour = makeTheme({ noColor: false, reducedMotion: true });
+const queueTop = (lines: readonly string[]) =>
+  lines.findIndex((l) => l.includes("queue"));
+
+for (const [columns, rows] of [
+  [80, 24],
+  [100, 30],
+  [120, 36],
+  [160, 45],
+] as const) {
+  test(`an empty queue is three rows at ${columns}x${rows}, also when focused`, () => {
+    for (const focus of ["queue", "agents"] as const) {
+      const frame = buildFrame(
+        modelOf(emptyQueue()),
+        viewOf(columns, rows, { focus }),
+        theme,
+      );
+      const lines = plainLines(frame.lines);
+      assert.equal(lines.length, rows);
+      const top = queueTop(lines);
+      assert.ok(top > 0);
+      const span =
+        columns >= 100 ? lines.slice(top, top + 3) : lines.slice(top);
+      assert.match(span[1]!, /no unresolved messages/);
+      assert.match(span[1]!, /max 6 since/);
+      assert.match(span[2]!, /[╰┗]/);
+      assert.ok(frame.shown.includes("queue"));
+      assert.deepEqual(frame.shown, [
+        "agents",
+        "pipeline",
+        "queue",
+        "findings",
+      ]);
+    }
+  });
+}
+
+test("a collapsed queue shows no max when the queue was never used, and the f filter with messages does not collapse it", () => {
+  const quiet = plainLines(
+    buildFrame(
+      modelOf(emptyQueue()),
+      viewOf(120, 36, { rings: EMPTY_RINGS }),
+      theme,
+    ).lines,
+  ).join("\n");
+  assert.match(
+    quiet,
+    /no unresolved messages \s*│|no unresolved messages\s+[│┃]/,
+  );
+  assert.doesNotMatch(quiet, /no unresolved messages.*max/);
+  const filtered = plainLines(
+    buildFrame(
+      modelOf(
+        showcase({
+          messages: [
+            {
+              messageId: "m1",
+              recipientAgentId: "developer-1",
+              state: "sent",
+              sequence: 1,
+              queuedAt: iso(5),
+              deferredReason: null,
+              stateReason: null,
+              lastNotifiedAt: iso(5),
+            },
+          ],
+          stuck: [],
+        }),
+      ),
+      viewOf(120, 36, { problemsOnly: true }),
+      theme,
+    ).lines,
+  ).join("\n");
+  assert.ok(filtered.includes("no delivery problems"));
+  assert.ok(filtered.includes("── selected") === false);
+});
+
+test("a collapsed queue hands its rows to agents and the right column, wide and narrow", () => {
+  const wide = plainLines(
+    buildFrame(modelOf(emptyQueue()), viewOf(160, 45), theme).lines,
+  );
+  const rowOf = (lines: readonly string[], word: string, from: number) =>
+    lines.findIndex((l) => l.slice(from).includes(word));
+  assert.ok(rowOf(wide, "queue", 80) < rowOf(wide, "pipeline", 80));
+  assert.ok(rowOf(wide, "pipeline", 80) < rowOf(wide, "findings", 80));
+  assert.equal(rowOf(wide, "pipeline", 0), rowOf(wide, "pipeline", 80));
+  const narrow = plainLines(
+    buildFrame(modelOf(emptyQueue()), viewOf(80, 36), theme).lines,
+  );
+  const open = plainLines(buildFrame(modelOf(), viewOf(80, 36), theme).lines);
+  const height = (lines: readonly string[], word: string) =>
+    lines.findIndex((l) => l.includes("pipeline")) >= 0 ? word : "";
+  assert.ok(height(narrow, "x") === "x" && height(open, "x") === "x");
+  const agents = (lines: readonly string[]) =>
+    lines.findIndex((l) => l.includes("pipeline")) -
+    lines.findIndex((l) => l.includes("agents"));
+  assert.ok(agents(narrow) >= agents(open));
+});
+
+test("pipeline totals read the true counts with no 20+, and fall back to the capped text without them", () => {
+  const counted = showcase({
+    pipelineCounts: {
+      reports: { accepted: 50, rejected: 10 },
+      reviews: { passed: 40, findings: 5 },
+      integrations: { confirmed: 20, merged: 1 },
+    },
+  });
+  for (const [columns, rows] of [
+    [120, 36],
+    [160, 45],
+  ] as const) {
+    const text = plainLines(
+      buildFrame(modelOf(counted), viewOf(columns, rows), theme).lines,
+    ).join("\n");
+    assert.match(
+      text,
+      /reported 60 +[─-]+[►>] +review 45 +[─-]+[►>] +integrated 21/,
+    );
+    assert.ok(!text.includes("20+"));
+    assert.match(text, /accepted 50/);
+  }
+  const twenty = Array.from({ length: 20 }, (_, i) => ({
+    reportId: `r${i}`,
+    agentId: "developer-1",
+    commitSha: "a".repeat(40),
+    state: "accepted",
+    createdAt: iso(i),
+  }));
+  const old = plainLines(
+    buildFrame(modelOf(showcase({ reports: twenty })), viewOf(120, 36), theme)
+      .lines,
+  ).join("\n");
+  assert.match(old, /reported 20\+/);
+});
+
+test("supervision on with no Supervisor: idle (dim) with no worker, NO SUPERVISOR (warn) with one", () => {
+  const idle = showcase({
+    agents: [],
+    panes: [],
+    supervisionState: supervisionState({
+      supervisor: null,
+      lastCheck: null,
+      openFindings: 2,
+    }),
+  });
+  const chipOf = (status: Record<string, unknown>, text: string) => {
+    const frame = buildFrame(modelOf(status), viewOf(120, 36), colour);
+    const found = frame.lines[1]!.find((s) => s.text.includes(text));
+    assert.ok(found, text);
+    return found;
+  };
+  const dim = chipOf(idle, "SUPERVISION IDLE");
+  assert.equal(dim.color, colour.color("dim"));
+  assert.notEqual(dim.color, colour.color("warn"));
+  const lines = plainLines(
+    buildFrame(modelOf(idle), viewOf(120, 36), theme).lines,
+  );
+  assert.match(lines[1]!, /starts with the next worker; 2 open findings/);
+  assert.ok(!lines.join("\n").includes("NO SUPERVISOR"));
+  const warn = chipOf(
+    showcase({
+      supervisionState: supervisionState({ supervisor: null, lastCheck: null }),
+    }),
+    "NO SUPERVISOR",
+  );
+  assert.equal(warn.color, colour.color("warn"));
+  const border = lines[3]!;
+  assert.ok(!/supervision (on|off)/.test(border), border);
+});
+
+const staleFinding = (id: string, target: string, state = "escalated") => ({
+  findingId: id,
+  targetAgentId: target,
+  severity: "high",
+  state,
+  interventions: 2,
+  stateReason: "no progress",
+});
+
+const staleStatus = () =>
+  showcase({
+    messages: [],
+    stuck: [],
+    agentFindings: [
+      staleFinding("0192a1-aaaa", "developer-0"),
+      staleFinding("0192a2-bbbb", "ghost-9", "open"),
+      staleFinding("0192a3-cccc", "developer-2"),
+    ],
+  });
+
+test("stale findings are dim, plain, sorted last under a caption, and do not count as needing the operator", () => {
+  const frame = buildFrame(modelOf(staleStatus()), viewOf(160, 45), colour);
+  const lines = plainLines(frame.lines);
+  const text = lines.join("\n");
+  const live = lines.findIndex((l) => l.includes("ESCALATED"));
+  const caption = lines.findIndex((l) => l.includes("2 stale (target ended)"));
+  const first = lines.findIndex((l) => l.includes("0192a1"));
+  assert.ok(live > 0 && live < caption && caption < first);
+  assert.ok(text.includes("1 needs operator"));
+  const dimRows = frame.lines.filter((l) =>
+    l.some((s) => s.text.includes("0192a1") || s.text.includes("0192a2")),
+  );
+  assert.equal(dimRows.length, 2);
+  for (const row of dimRows)
+    for (const s of row.filter((x) => x.text.trim() !== ""))
+      if (s.color !== undefined)
+        assert.ok(
+          ![colour.color("bad"), colour.color("warn")].includes(s.color),
+          s.text,
+        );
+  for (const row of dimRows.concat(
+    frame.lines.filter((l) => l.some((s) => s.text.includes("2 stale"))),
+  ))
+    assert.ok(
+      row.every(
+        (s) => s.dim === true || s.text.trim() === "" || s.text.includes("│"),
+      ) || row.some((s) => s.dim === true),
+    );
+  assert.ok(text.includes("escalated 2/2 (target ended)"));
+});
+
+test("with no room for stale rows the caption alone summarises them, and live findings keep their space", () => {
+  const status = staleStatus();
+  const tight = plainLines(
+    buildFrame(modelOf(status), viewOf(100, 24, { focus: "agents" }), theme)
+      .lines,
+  ).join("\n");
+  assert.ok(tight.includes("2 stale (target ended)"));
+  assert.ok(tight.includes("developer-2"));
+  const model = modelOf(status);
+  assert.equal(model.findings.filter((f) => !f.stale).length, 1);
+});
+
+test("the golden screens for an empty queue, a waiting strip, stale findings and idle supervision", () => {
+  const waiting = showcase({
+    awaitingConfirm: [
+      {
+        integrationId: "0123456789abcdef",
+        branch: "integration/x",
+        createdAt: iso(200),
+        reviewState: "passed",
+      },
+    ],
+    pendingProposals: [
+      {
+        proposalId: "p-7",
+        kind: "add-role",
+        proposer: "pm-1",
+        reason: "need a tester",
+        createdAt: iso(40),
+      },
+    ],
+    pause: {
+      run: { pausedAt: iso(300), reason: "operator break", actorId: "op" },
+      agents: [
+        { agentId: "developer-2", pausedAt: iso(90), reason: "stalled" },
+      ],
+    },
+  });
+  const idle = emptyQueue();
+  idle.agents = [];
+  idle.panes = [];
+  idle.supervisionState = supervisionState({
+    supervisor: null,
+    lastCheck: null,
+    openFindings: 2,
+  });
+  for (const [columns, rows] of [
+    [80, 24],
+    [120, 36],
+  ] as const) {
+    matchesGolden(
+      `dash-empty-queue-${columns}x${rows}`,
+      plainLines(
+        buildFrame(modelOf(emptyQueue()), viewOf(columns, rows), theme).lines,
+      ),
+    );
+  }
+  matchesGolden(
+    "dash-waiting-120x36",
+    plainLines(buildFrame(modelOf(waiting), viewOf(120, 36), theme).lines),
+  );
+  matchesGolden(
+    "dash-waiting-80x24",
+    plainLines(buildFrame(modelOf(waiting), viewOf(80, 24), theme).lines),
+  );
+  matchesGolden(
+    "dash-stale-findings-120x36",
+    plainLines(
+      buildFrame(modelOf(staleStatus()), viewOf(120, 36), theme).lines,
+    ),
+  );
+  matchesGolden(
+    "dash-supervision-idle-120x36",
+    plainLines(buildFrame(modelOf(idle), viewOf(120, 36), theme).lines),
+  );
+});

@@ -1,0 +1,24 @@
+╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
+│ ● SUPERVISED                                     workers ██████░░ 3/4   ● 1s │
+│   supervisor-1 active; check acked 3m ago; 1 open finding                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮
+│   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
+│ ▲ developer-2                 Developer  g1  STALLED ░░░░░░░░  3m41s  0 p4   █
+│ ● pm-1                        PM         g1  idle    ░░░░░░░░  1m35s  0 p1   █
+│ ● supervisor-1                Supervisor g1  idle    ░░░░░░░░    45s  0 p2   █
+│ * developer-1                 Developer  g2  working ████████     3s  0 p3   │
+╰─┤ working: inferred ├──────────────────────────────────────────────┤ 1-4/6 ├─╯
+╭─²pipeline─────────────────────────────────┤ reported > review > integrated ├─╮
+│ reported 6  ──►  review 5  ──►  integrated 3                                 │
+│ reports      █████████████▒▒▒   6  accepted 5  rejected 1                    │
+│ reviews      ██████████▓▓▓▒▒▒   5  passed 3  started 1  findings 1           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+┏━³queue━━━━━━━━━━━━━━┤ no problems ├┤ input clears 1 ├┤ f problems only [ ] ├━┓
+┃ no unresolved messages ─ max 6 since dash start                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─⁴findings───────────────────────────────────────────────┤ 1 needs operator ├─╮
+│ ▲ 0192a1 developer-2 high     ESCALATED 2/2 no progress after 2 interventio… │
+│ ● 0192a4 developer-1 low      open      0/2 scope drift: edits files outsid… │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  ? help  q quit    

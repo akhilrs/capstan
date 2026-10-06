@@ -1,7 +1,7 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ○ SUPERVISION OFF                                workers ░░░░░░░░ 0/3   ● 1s │
 │   [supervision] enabled = false in capstan.toml                              │
-╰─┤ supervision off ├──────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────────────╯
 ┏━¹agents━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1 active ├┤ 9 ended ├━┓
 ┃   AGENT                      ROLE       GEN STATE   ACTIVITY    AGE  Q PANE  ┃
 ┃▌* pm-1                       PM         g1  working ████████     2s  0 w1:p1 █
@@ -15,10 +15,10 @@
 │ reviews      █████████████▒▒▒   6  passed 5  findings 1                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─³queue────────────────────────────────┤ no problems ├┤ f problems only [ ] ├─╮
-│ no unresolved messages                                                       │
-│                                                                              │
+│ no unresolved messages ─ max 6 since dash start                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-╭─⁴findings─────────────────────────────────────────────────┤ 1 target ended ├─╮
-│ ▲ 0192a1 designer-1 medium   ESCALATED 2/2 (target ended) no progress after… │
+╭─⁴findings────────────────────────────────────────────────────────────────────╮
+│ ── 1 stale (target ended) ──                                                 │
+│ ○ 0192a1 designer-1 medium   escalated 2/2 (target ended) no progress after… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
  ↑↓ select  o observe  e all ended  tab focus  r refresh  ? help  q quit        

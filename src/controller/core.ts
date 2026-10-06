@@ -20,6 +20,7 @@ import {
   type ResolutionDecision,
 } from "./messaging.js";
 import { ControllerOwnershipError, ProjectLock } from "./ownership.js";
+import type { StatusArea } from "./status.js";
 import {} from "../operator-policy.js";
 import { type FullAutoChange } from "../operator.js";
 import {} from "../plans.js";
@@ -969,6 +970,17 @@ export class ControllerCore {
 
   integrations(credential: string, limit = 20): readonly IntegrationRecord[] {
     return this.#areas.integrations.integrations(credential, limit);
+  }
+
+  pipelineCounts(credential: string): ReturnType<StatusArea["pipelineCounts"]> {
+    return this.#areas.status.pipelineCounts(credential);
+  }
+
+  awaitingConfirm(
+    credential: string,
+    limit = 20,
+  ): ReturnType<StatusArea["awaitingConfirm"]> {
+    return this.#areas.status.awaitingConfirm(credential, limit);
   }
 
   /** Confirmed or discarded integrations, newest first: their branch should be gone. */

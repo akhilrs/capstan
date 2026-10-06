@@ -1,6 +1,6 @@
 +- cstan dash -[ capstan ][ run active ]--------------------------------------------------------[ 15:02:23 ][ - 2s + ]-+
 | o SUPERVISED  supervisor-1 active; check acked 3m ago; 1 open finding      workers #########... 3/4   * answering 1s |
-+-[ supervision on ]---------------------------------------------------------------------------------------------------+
++----------------------------------------------------------------------------------------------------------------------+
 +-1.agents-------------------------[ 5 active ][ 1 ended ]-++=3.queue==========[ 1 stuck or failed ][ input clears 1 ]=+
 |   AGENT        ROLE       GEN STATE   ACTIVITY    AGE  Q ||     SEQ TO           STATE       AGE N DETAIL            |
 | ! developer-2  Developer  g1  STALLED ........  3m41s  2 ||>!   #41 developer-2  unacked   3m41s * ! no acknowledge~ |

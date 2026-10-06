@@ -115,6 +115,9 @@ export function helpOverlay(
       `  ${g.ended} ended   ${g.selected} selected row   ${g.thumb} scroll position`,
     ),
     text(theme, "  working = activity within 30 s or a message in flight"),
+    text(theme, "  top strip = waits on you: confirms, proposals, pauses"),
+    text(theme, "  queue shrinks to a line when no message is unresolved"),
+    text(theme, "  dim findings = target ended (stale), listed last"),
   ];
   return box(
     {

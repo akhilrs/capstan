@@ -15,6 +15,7 @@ import {
 import {
   agentSections,
   CHROME_ROWS,
+  COLLAPSED_QUEUE_ROWS,
   columnsOf,
   columnWidths,
   fillRows,
@@ -43,6 +44,7 @@ import {
 import {
   PIPELINE_ITEMS,
   pipelineItems,
+  queueCollapsed,
   queueRows,
   visibleAgents,
   type AgentRow,
@@ -54,6 +56,7 @@ import {
   type WorkRow,
 } from "./model.js";
 import { colorOfState, type ColorRole, type Theme } from "./theme.js";
+import { waitingStrip } from "./waiting.js";
 
 export type Link = "starting" | "ok" | "down" | "toolarge";
 
@@ -603,12 +606,11 @@ function messageDetail(m: MessageRow): string {
 function queuePanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
+  const collapsed = queueCollapsed(model);
   const rows = queueRows(model, view.problemsOnly);
-  const sec = queueSections(
-    bodyOf(ctx),
-    Math.max(1, rows.length),
-    rows.length > 0,
-  );
+  const sec = collapsed
+    ? { header: 0, list: 0, detail: 0, graphs: 0 }
+    : queueSections(bodyOf(ctx), Math.max(1, rows.length), rows.length > 0);
   const cols = resolveCols(cw, [
     { key: "glyph", title: " ", width: 1 },
     { key: "seq", title: "SEQ", width: 5, right: true },
@@ -622,7 +624,15 @@ function queuePanel(ctx: Ctx): Line[] {
   if (sec.header > 0) body.push(indent(tableHeader(cols, theme), ctx.w - 2));
   const selectedIndex = view.selected.queue;
   const win = windowOf(rows.length, selectedIndex, sec.list);
-  if (rows.length === 0)
+  if (collapsed) {
+    const max = Math.max(0, ...view.rings.unresolved);
+    body.push(
+      textLine(
+        ctx,
+        `no unresolved messages${max > 0 ? ` ${g.rule} max ${max} since dash start` : ""}`,
+      ),
+    );
+  } else if (rows.length === 0)
     body.push(
       textLine(
         ctx,
@@ -772,8 +782,12 @@ function findingsPanel(ctx: Ctx): Line[] {
   const { model, view, theme, g } = ctx;
   const cw = contentOf(ctx);
   const rows = model.findings;
+  const live = rows.filter((f) => !f.stale);
+  const stale = rows.filter((f) => f.stale);
   const body0 = bodyOf(ctx);
   const header = body0 >= 3 ? 1 : 0;
+  const avail = Math.max(0, body0 - header);
+  const captionRows = stale.length > 0 ? 1 : 0;
   const cols = resolveCols(cw, [
     { key: "glyph", title: " ", width: 1 },
     { key: "id", title: "ID", width: 6 },
@@ -790,55 +804,80 @@ function findingsPanel(ctx: Ctx): Line[] {
     { key: "int", title: "INT", width: 3 },
     { key: "reason", title: "REASON", width: 10, flex: true },
   ]);
-  const win = windowOf(rows.length, view.selected.findings, body0 - header);
+  // Live rows scroll on their own; stale rows only get what the live rows and the caption leave.
+  const cursor = view.selected.findings;
+  const liveCap = Math.max(0, avail - captionRows);
+  const liveWin = windowOf(
+    live.length,
+    Math.min(cursor, Math.max(0, live.length - 1)),
+    liveCap,
+  );
+  const liveShown = liveWin.end - liveWin.start;
+  const staleRoom = Math.max(0, avail - liveShown - captionRows);
+  const staleWin = windowOf(
+    stale.length,
+    Math.min(Math.max(0, cursor - live.length), Math.max(0, stale.length - 1)),
+    staleRoom,
+  );
   const body: Line[] = [];
   if (header > 0) body.push(indent(tableHeader(cols, theme), ctx.w - 2));
   if (rows.length === 0) body.push(textLine(ctx, "no open findings"));
-  rows.slice(win.start, win.end).forEach((f: FindingRow, i) =>
-    body.push(
-      tableRow(ctx, cols, {
-        selected: ctx.focused && win.start + i === view.selected.findings,
-        changed: view.highlight.has(`f:${f.id}`),
-        dim: f.targetState === "ended",
-        cells: {
-          glyph: f.needsOperator
+  const rowOf = (f: FindingRow, index: number): Line => {
+    const dimRole = theme.color("dim");
+    return tableRow(ctx, cols, {
+      selected: ctx.focused && index === cursor,
+      changed: view.highlight.has(`f:${f.id}`),
+      dim: f.stale,
+      cells: {
+        glyph: f.stale
+          ? span(g.ended, { color: dimRole })
+          : f.needsOperator
             ? span(g.attention, { color: theme.color("bad") })
             : span(g.idle, { color: theme.color("warn") }),
-          id: span(f.findingId.slice(0, 6), { color: theme.color("fg") }),
-          target: span(f.targetAgentId, { color: theme.color("fg") }),
-          sev: span(f.severity, { color: theme.color("fg") }),
-          state: span(f.needsOperator ? "ESCALATED" : f.state, {
-            color: theme.color(f.needsOperator ? "bad" : "warn"),
-          }),
-          int: span(`${f.interventions}/2`, { color: theme.color("dim") }),
-          reason: span(findingReason(f), {
-            color: theme.color("fg"),
-          }),
-        },
-      }),
-    ),
-  );
-  const needs = rows.filter(
-    (f) => f.needsOperator && f.targetState !== "ended",
-  ).length;
-  const orphaned = rows.filter((f) => f.targetState === "ended").length;
-  const unknown = rows.filter((f) => f.targetState === "unknown").length;
+        id: span(f.findingId.slice(0, 6), { color: theme.color("fg") }),
+        target: span(f.targetAgentId, { color: theme.color("fg") }),
+        sev: span(f.severity, { color: theme.color("fg") }),
+        state: f.stale
+          ? span(f.state, { color: dimRole })
+          : span(f.needsOperator ? "ESCALATED" : f.state, {
+              color: theme.color(f.needsOperator ? "bad" : "warn"),
+            }),
+        int: span(`${f.interventions}/2`, { color: theme.color("dim") }),
+        reason: span(findingReason(f), {
+          color: theme.color(f.stale ? "dim" : "fg"),
+        }),
+      },
+    });
+  };
+  live
+    .slice(liveWin.start, liveWin.end)
+    .forEach((f, i) => body.push(rowOf(f, liveWin.start + i)));
+  if (stale.length > 0 && avail > 0)
+    body.push(
+      styleLine(
+        textLine(
+          ctx,
+          `${g.rule.repeat(2)} ${stale.length} stale (target ended) ${g.rule.repeat(2)}`,
+        ),
+        { dim: true },
+      ),
+    );
+  stale
+    .slice(staleWin.start, staleWin.end)
+    .forEach((f, i) => body.push(rowOf(f, live.length + staleWin.start + i)));
+  const needs = live.filter((f) => f.needsOperator).length;
   return assemble(ctx, {
     id: "findings",
-    tabs: [
-      ...(needs > 0
+    tabs:
+      needs > 0
         ? [{ text: `${needs} needs operator`, color: theme.color("bad") }]
-        : []),
-      ...(orphaned > 0
-        ? [{ text: `${orphaned} target ended`, color: theme.color("dim") }]
-        : []),
-      ...(unknown > 0
-        ? [{ text: `${unknown} target unknown`, color: theme.color("dim") }]
-        : []),
-    ],
-    bottomRight: counter(ctx, view.selected.findings, rows.length, win),
+        : [],
+    bottomRight: counter(ctx, cursor, rows.length, {
+      start: liveWin.start,
+      end: liveWin.start + liveShown + (staleWin.end - staleWin.start),
+    }),
     body,
-    thumb: thumbRange(rows.length, body0 - header, win.start, body0 - header),
+    thumb: thumbRange(live.length, liveCap, liveWin.start, liveCap),
     thumbTop: header,
   });
 }
@@ -912,6 +951,15 @@ function wishFor(id: PanelId, model: DashModel, view: ViewState): PanelWish {
         stretch: false,
       };
     case "queue":
+      if (queueCollapsed(model))
+        return {
+          id,
+          min: COLLAPSED_QUEUE_ROWS,
+          want: COLLAPSED_QUEUE_ROWS,
+          weight: 1,
+          stretch: false,
+          collapsed: true,
+        };
       return {
         id,
         min: 3,
@@ -924,7 +972,13 @@ function wishFor(id: PanelId, model: DashModel, view: ViewState): PanelWish {
       return {
         id,
         min: 3,
-        want: CHROME_ROWS + 1 + count(model.findings.length),
+        want:
+          CHROME_ROWS +
+          1 +
+          count(
+            model.findings.filter((f) => !f.stale).length +
+              (model.findings.some((f) => f.stale) ? 1 : 0),
+          ),
         weight: 1,
         stretch: false,
       };
@@ -968,6 +1022,13 @@ function healthChip(
       reasonRole: "dim",
     };
   const findings = `${sup.openFindings} open finding${sup.openFindings === 1 ? "" : "s"}`;
+  if (sup.supervisor === null && h.workers === 0)
+    return {
+      text: `${g.idle} SUPERVISION IDLE`,
+      role: "dim",
+      reason: `starts with the next worker; ${findings}`,
+      reasonRole: "dim",
+    };
   if (sup.supervisor === null)
     return {
       text: `${g.idle} NO SUPERVISOR`,
@@ -1122,17 +1183,7 @@ function headerLines(
           ...right,
         ]),
       ];
-  const bottomTabs: Tab[] = [
-    {
-      text: `supervision ${h.supervision?.enabled === true ? "on" : "off"}`,
-      color: color("fg"),
-    },
-  ];
-  return [
-    top,
-    ...strip,
-    bottomBorder(W, { left: bottomTabs, focused: false }, g, border),
-  ];
+  return [top, ...strip, bottomBorder(W, { focused: false }, g, border)];
 }
 
 // ---------------------------------------------------------------- footer
@@ -1224,10 +1275,15 @@ export function buildFrame(
     ...pmStaleBanner(model, view, theme, g),
     ...headerLines(model, view, theme, g),
   ];
-  const bodyRows = rows - header.length - 1;
+  const strip = waitingStrip(model, view.size, view.nowMs, theme, g);
+  const bodyRows = rows - header.length - strip.length - 1;
   const layout = layoutFor(columns, rows);
   const widths = columnWidths(columns, layout.mode);
-  const plan = columnsOf(layout.mode, visiblePanels(model));
+  const plan = columnsOf(
+    layout.mode,
+    visiblePanels(model),
+    queueCollapsed(model),
+  );
   const shown: PanelId[] = [];
   const columnLines = plan.map((panels, index) => {
     const heights = fillRows(
@@ -1258,7 +1314,7 @@ export function buildFrame(
   const body: Line[] = [];
   for (let r = 0; r < bodyRows; r++)
     body.push(mergeSpans(columnLines.flatMap((column) => column[r] ?? [])));
-  const all = [...header, ...body, footerLine(view, theme, g)];
+  const all = [...header, ...strip, ...body, footerLine(view, theme, g)];
   const stale = view.link === "down" || view.link === "toolarge";
   const painted = stale
     ? all.map((l, i) =>
@@ -1268,6 +1324,7 @@ export function buildFrame(
       )
     : all;
   const lines = theme.ascii ? painted.map(asciiLine) : painted;
+  shown.sort((a, b) => PANEL_ORDER.indexOf(a) - PANEL_ORDER.indexOf(b));
   return { lines, shown };
 }
 

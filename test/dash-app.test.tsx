@@ -621,7 +621,7 @@ test("j and k move the cursor in the pipeline, queue and findings panels too", a
 
 test("an unfocused panel shows no cursor counter unless rows are hidden", async () => {
   const f = fixture(crowded(), {
-    size: { columns: 118, rows: 34 },
+    size: { columns: 118, rows: 26 },
     noColor: true,
   });
   const app = await open(f);
@@ -651,5 +651,54 @@ test("o on an ended agent says so and makes no call", async () => {
 test("the problems-only filter starts off", async () => {
   const app = await open(fixture(troubled()));
   assert.ok(app.lastFrame()!.includes("f problems only [ ]"));
+  app.unmount();
+});
+
+test("y, s and c on an empty or collapsed queue open no prompt and make no call", async () => {
+  const f = fixture(healthy(), { size: { columns: 120, rows: 36 } });
+  const app = await open(f);
+  assert.ok(app.lastFrame()!.includes("no unresolved messages"));
+  for (const key of ["y", "s", "c"]) {
+    app.stdin.write("3");
+    await settle();
+    app.stdin.write(key);
+    await settle();
+    assert.ok(!app.lastFrame()!.includes("Press y again"));
+  }
+  assert.deepEqual(f.calls, []);
+  app.unmount();
+});
+
+test("with the f filter on and messages present but none stuck the queue is open and says so", async () => {
+  const f = fixture(healthy({ messages: [message("m-ok", "queued")] }), {
+    size: { columns: 120, rows: 36 },
+  });
+  const app = await open(f);
+  app.stdin.write("3");
+  await settle();
+  app.stdin.write("f");
+  await settle();
+  const frame = app.lastFrame()!;
+  assert.ok(frame.includes("no delivery problems"));
+  app.stdin.write("y");
+  await settle();
+  assert.deepEqual(f.calls, []);
+  app.unmount();
+});
+
+test("tab order and panel numbers stay the same while the queue is collapsed", async () => {
+  const app = await open(
+    fixture(healthy(), { size: { columns: 160, rows: 45 } }),
+  );
+  for (const [key, title] of [
+    ["1", "¹agents"],
+    ["2", "²pipeline"],
+    ["3", "³queue"],
+    ["4", "⁴findings"],
+  ] as const) {
+    app.stdin.write(key);
+    await settle();
+    assert.ok(app.lastFrame()!.includes(title), title);
+  }
   app.unmount();
 });

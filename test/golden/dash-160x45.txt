@@ -1,6 +1,6 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────────────────────────────────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ● SUPERVISED  supervisor-1 active; check acked 3m ago; 1 open finding                                              workers █████████░░░ 3/4   ● answering 1s │
-╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├┤ f problems only [ ] ├━┓
 │   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │┃     SEQ TO           STATE       AGE N DETAIL                                ┃
 │ ▲ developer-2                 Developer  g1  STALLED ░░░░░░░░  3m41s  2 p4   │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledgement after 3 attempts ┃

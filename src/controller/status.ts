@@ -624,4 +624,61 @@ export class StatusArea {
       ),
     };
   }
+
+  /** Row counts per state of reports, reviews and integrations: one GROUP BY each. Operator-only. */
+  pipelineCounts(credential: string): {
+    readonly reports: Record<string, number>;
+    readonly reviews: Record<string, number>;
+    readonly integrations: Record<string, number>;
+  } {
+    this.kernel.authorize(credential, "controller:reconcile");
+    const group = (table: string): Record<string, number> => {
+      const counts: Record<string, number> = {};
+      for (const row of this.kernel.database
+        .prepare(
+          `SELECT state, COUNT(*) AS n FROM ${table} WHERE project_id = ? GROUP BY state`,
+        )
+        .all(this.kernel.projectId) as { state: string; n: number }[])
+        counts[row.state] = row.n;
+      return counts;
+    };
+    return {
+      reports: group("agent_reports"),
+      reviews: group("reviews"),
+      integrations: group("integrations"),
+    };
+  }
+
+  /** Integrations in state merged (waiting for confirmation), newest first, with their latest review state. */
+  awaitingConfirm(
+    credential: string,
+    limit = 20,
+  ): {
+    readonly integrationId: string;
+    readonly branch: string;
+    readonly createdAt: string;
+    readonly reviewState: string | null;
+  }[] {
+    this.kernel.authorize(credential, "controller:reconcile");
+    return (
+      this.kernel.database
+        .prepare(
+          `SELECT i.integration_id, i.branch, i.created_at,
+             (SELECT r.state FROM reviews r WHERE r.project_id = i.project_id AND r.subject_integration_id = i.integration_id
+              ORDER BY r.sequence DESC LIMIT 1) AS review_state
+           FROM integrations i WHERE i.project_id = ? AND i.state = 'merged' ORDER BY i.sequence DESC LIMIT ?`,
+        )
+        .all(this.kernel.projectId, limit) as {
+        integration_id: string;
+        branch: string;
+        created_at: string;
+        review_state: string | null;
+      }[]
+    ).map((r) => ({
+      integrationId: r.integration_id,
+      branch: r.branch,
+      createdAt: r.created_at,
+      reviewState: r.review_state,
+    }));
+  }
 }

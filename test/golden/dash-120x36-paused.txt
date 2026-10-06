@@ -1,6 +1,8 @@
 ╭─ cstan dash ─┤ capstan ├┤ run paused ├┤ PAUSED 5m: waiting for the user ├─────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ● SUPERVISED  supervisor-1 active; check acked 3m ago; 1 open finding      workers █████████░░░ 3/4   ● answering 1s │
-╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ▲ run paused: waiting for the user                                                                               5m00s 
+ ▲ developer-2 paused: inspect                                                                                    2m00s 
 ╭─¹agents──────────────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━━━━┤ 1 stuck or failed ├┤ input clears 1 ├━┓
 │   AGENT             ROLE       GEN STATE          AGE  Q │┃     SEQ TO           STATE       AGE N DETAIL            ┃
 │ * developer-2       Developer  g1  paused 2m    3m41s  2 │┃▌▲   #41 developer-2  unacked   3m41s ● ! no acknowledge… ┃
@@ -14,23 +16,21 @@
 │ reported 6  ──►  review 5  ──►  integrated 3             │┃ ! no acknowledgement after 3 attempts   can: retry, ski… ┃
 │ reports      ████████████▒▒   6  accepted 5  rejected 1  │┃ unresolved messages ─ now 5 ─ max 6 ─ since dash start   ┃
 │                                                          │┃                                                     ⢸    ┃
-│ reviews      ████████▓▓▓▒▒▒   5  passed 3  started 1  fi…│┃                                 ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
-│                                                          │┃               ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integrations █████████▓▓▓▓▓   3  merged 2  running 1     │┃ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ STAGE       STATE      WHO / COMMIT                  AGE │┃ ⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration running    7c1e0f2a                       5s │┃ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      started    no reviewer -> developer-…    40s │┃ oldest unresolved message (age) ─ now 3m41s ─ since das… ┃
-│ report      accepted   designer-1 8bf60fa          1m12s │┃                                             ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿ ┃
-│ report      accepted   developer-1 9abf487         3m00s │┃                                     ⢀⣀⣠⣤⣴⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration merged     5d02b9c4                    4m00s │┃                              ⣀⣀⣤⣤⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      findings   no reviewer -> developer-…  6m00s │┃                      ⣀⣀⣤⣤⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ review      passed     no reviewer -> designer-1…  9m00s │┃   ⣀⣤⣶⣿       ⣀⣀⣤⣤⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ report      rejected   developer-1 45fe0de           11m │┃ ⣶⣿⣿⣿⣿⣿⣀⣤⣤⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ report      accepted   developer-2 fb4a3d5           15m │┃ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
-│ integration merged     31aa8e07                      16m │┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/5 ├━┛
-│ review      passed     no reviewer -> developer-…    18m │╭─⁴findings───────────────────────────┤ 1 needs operator ├─╮
-│ review      passed     no reviewer -> developer-…    24m ││   ID     TARGET      SEV      STATE     INT REASON       │
-│ report      accepted   developer-0 5451671           26m ││ ▲ 0192a1 developer-2 high     ESCALATED 2/2 no progress… │
-│ report      accepted   developer-0 3f1d9a0           29m ││ ● 0192a4 developer-1 low      open      0/2 scope drift… │
-╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+│ reviews      ████████▓▓▓▒▒▒   5  passed 3  started 1  fi…│┃                                                     ⢸    ┃
+│                                                          │┃                                 ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
+│ integrations █████████▓▓▓▓▓   3  merged 2  running 1     │┃                                 ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸ ⣿⢸⣿⡇⣿⣿⣿⣿ ┃
+│ STAGE       STATE      WHO / COMMIT                  AGE │┃               ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integration running    7c1e0f2a                       5s █┃               ⢸ ⢸ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      started    no reviewer -> developer-…    40s █┃ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ report      accepted   designer-1 8bf60fa          1m12s █┃ ⡇ ⣿ ⢸ ⡇ ⣿ ⢸⣿⣿⢸⣿⡇⣿⣿⣿⢸⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ report      accepted   developer-1 9abf487         3m00s █┃ ⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ integration merged     5d02b9c4                    4m00s █┃ ⣿⢸⣿⡇⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      findings   no reviewer -> developer-…  6m00s █┃ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ review      passed     no reviewer -> designer-1…  9m00s █┃ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ┃
+│ report      rejected   developer-1 45fe0de           11m █┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤ 1/5 ├━┛
+│ report      accepted   developer-2 fb4a3d5           15m █╭─⁴findings───────────────────────────┤ 1 needs operator ├─╮
+│ integration merged     31aa8e07                      16m █│   ID     TARGET      SEV      STATE     INT REASON       │
+│ review      passed     no reviewer -> developer-…    18m ││ ▲ 0192a1 developer-2 high     ESCALATED 2/2 no progress… │
+│ review      passed     no reviewer -> developer-…    24m ││ ● 0192a4 developer-1 low      open      0/2 scope drift… │
+╰──────────────────────────────────────────────┤ 1-12/14 ├─╯╰──────────────────────────────────────────────────────────╯
  ↑↓ select  y retry  s skip  c cancel  f problems  tab focus  -/+ interval  p pause  r refresh  ? help  q quit          

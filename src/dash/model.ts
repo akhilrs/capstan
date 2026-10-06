@@ -70,7 +70,22 @@ export interface FindingRow {
   readonly needsOperator: boolean;
   /** `ended` and `unknown` (not in the agent list) targets cannot act on the finding any more. */
   readonly targetState: "active" | "ended" | "unknown";
+  /** The target is not active, so nobody can act on the finding any more (`targetState !== "active"`). */
+  readonly stale: boolean;
   readonly fingerprint: string;
+}
+
+export type WaitingKind =
+  "integration" | "proposal" | "agent-paused" | "run-paused";
+
+/** Something that waits for the operator: a confirm, a proposal to decide, or a pause to lift. */
+export interface WaitingItem {
+  readonly id: string;
+  readonly kind: WaitingKind;
+  /** One line, without the age. */
+  readonly label: string;
+  /** ISO time the wait began, the source of the age shown; null when unknown. */
+  readonly since: string | null;
 }
 
 export interface WorkRow {
@@ -139,6 +154,8 @@ export interface DashModel {
   };
   readonly findings: readonly FindingRow[];
   readonly work: readonly WorkRow[];
+  /** What waits for the operator, in the order shown; empty when nothing does. */
+  readonly waiting: readonly WaitingItem[];
   /** Samples for the sparklines. */
   readonly counts: { readonly unresolved: number; readonly working: number };
 }
@@ -180,11 +197,31 @@ function reviewLabel(r: Rec): string {
   return `${reviewer}${subject === "" ? "" : ` -> ${subject}`} r${num(r.round)}`;
 }
 
+/** The all-time per-state counts of one stage from `status.pipelineCounts`, or null when absent or malformed. */
+function trueCounts(
+  pipelineCounts: unknown,
+  key: string,
+): Record<string, number> | null {
+  if (typeof pipelineCounts !== "object" || pipelineCounts === null)
+    return null;
+  const raw = (pipelineCounts as Rec)[key];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return null;
+  const counts: Record<string, number> = {};
+  for (const [state, count] of Object.entries(raw as Rec)) {
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0)
+      return null;
+    if (count > 0) counts[clean(state)] = Math.floor(count);
+  }
+  return counts;
+}
+
 function stageOf(
   rows: readonly Rec[],
   stage: PipelineItem["stage"],
   idKey: string,
   label: (row: Rec) => string,
+  truth: Record<string, number> | null,
 ): PipelineStage {
   const counts: Record<string, number> = {};
   for (const row of rows) {
@@ -205,6 +242,13 @@ function stageOf(
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, PIPELINE_ITEMS);
+  if (truth !== null)
+    return {
+      counts: truth,
+      total: Object.values(truth).reduce((sum, n) => sum + n, 0),
+      capped: false,
+      items,
+    };
   return {
     counts,
     total: rows.length,
@@ -226,6 +270,47 @@ function operatorHeader(operator: unknown): {
       : {}),
     ...(list(grants).length > 0 ? { grants: list(grants).length } : {}),
   };
+}
+
+/** Confirms, proposals and pauses that wait for the operator. Each source is optional; a missing one adds nothing. */
+function waitingItems(status: Rec, pause: Rec): WaitingItem[] {
+  const items: WaitingItem[] = [];
+  for (const i of list(status.awaitingConfirm)) {
+    const id = text(i.integrationId);
+    items.push({
+      id: `integration:${id}`,
+      kind: "integration",
+      label: `integration ${id.slice(0, 8)} merged, review ${text(i.reviewState) || "none"}: cstan integrate confirm pending`,
+      since: textOrNull(i.createdAt),
+    });
+  }
+  for (const p of list(status.pendingProposals)) {
+    const id = text(p.proposalId);
+    items.push({
+      id: `proposal:${id}`,
+      kind: "proposal",
+      label: `proposal ${id} ${text(p.kind)} by ${text(p.proposer)}: ${text(p.reason)}`,
+      since: textOrNull(p.createdAt),
+    });
+  }
+  const run = pause.run as Rec | null | undefined;
+  if (typeof run === "object" && run !== null)
+    items.push({
+      id: "run-paused",
+      kind: "run-paused",
+      label: `run paused: ${text(run.reason)}`,
+      since: textOrNull(run.pausedAt),
+    });
+  for (const a of list(pause.agents)) {
+    const id = text(a.agentId);
+    items.push({
+      id: `agent-paused:${id}`,
+      kind: "agent-paused",
+      label: `${id} paused: ${text(a.reason)}`,
+      since: textOrNull(a.pausedAt),
+    });
+  }
+  return items;
 }
 
 export function buildDashModel(
@@ -404,11 +489,14 @@ export function buildDashModel(
 
   const findingRows = findings
     .filter((f) => f.state === "open" || f.state === "escalated")
-    .sort(
-      (x, y) =>
-        Number(y.state === "escalated") - Number(x.state === "escalated"),
-    )
     .map((f): FindingRow => {
+      const targetState = ((): FindingRow["targetState"] => {
+        const target = text(f.targetAgentId);
+        if (activeAgents.has(target)) return "active";
+        return agentRecords.some((a) => text(a.agentId) === target)
+          ? "ended"
+          : "unknown";
+      })();
       const row = {
         id: text(f.findingId),
         findingId: text(f.findingId),
@@ -418,13 +506,8 @@ export function buildDashModel(
         interventions: num(f.interventions),
         stateReason: textOrNull(f.stateReason),
         needsOperator: f.state === "escalated",
-        targetState: ((): FindingRow["targetState"] => {
-          const target = text(f.targetAgentId);
-          if (activeAgents.has(target)) return "active";
-          return agentRecords.some((a) => text(a.agentId) === target)
-            ? "ended"
-            : "unknown";
-        })(),
+        targetState,
+        stale: targetState !== "active",
       };
       return {
         ...row,
@@ -435,7 +518,13 @@ export function buildDashModel(
           row.targetState,
         ].join("|"),
       };
-    });
+    })
+    // Live findings first (escalated before open), then stale ones in the same order.
+    .sort(
+      (x, y) =>
+        Number(x.stale) - Number(y.stale) ||
+        Number(y.needsOperator) - Number(x.needsOperator),
+    );
 
   const clears = list(status.inputClears);
   const orphanPanes = list(status.orphanPanes).map((o) =>
@@ -490,13 +579,21 @@ export function buildDashModel(
         "report",
         "reportId",
         (r) => `${text(r.agentId)} ${commitShort(textOrNull(r.commitSha))}`,
+        trueCounts(status.pipelineCounts, "reports"),
       ),
-      reviews: stageOf(list(status.reviews), "review", "reviewId", reviewLabel),
+      reviews: stageOf(
+        list(status.reviews),
+        "review",
+        "reviewId",
+        reviewLabel,
+        trueCounts(status.pipelineCounts, "reviews"),
+      ),
       integrations: stageOf(
         list(status.integrations),
         "integration",
         "integrationId",
         (i) => `${text(i.integrationId).slice(0, 8)}`,
+        trueCounts(status.pipelineCounts, "integrations"),
       ),
     },
     queue: {
@@ -514,6 +611,7 @@ export function buildDashModel(
     },
     findings: findingRows,
     work,
+    waiting: waitingItems(status, pause),
     counts: {
       unresolved: messages.length,
       working: active.filter((a) => a.working).length,
@@ -599,6 +697,11 @@ export function queueRows(
   return problemsOnly
     ? model.queue.messages.filter((m) => m.problem !== null)
     : model.queue.messages;
+}
+
+/** The queue panel shrinks to a stub while no message is unresolved. */
+export function queueCollapsed(model: DashModel): boolean {
+  return model.queue.messages.length === 0;
 }
 
 /** Pipeline items of all three stages, newest first. */

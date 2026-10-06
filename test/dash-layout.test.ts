@@ -200,3 +200,50 @@ test("the pipeline collapses from the table to the stage bars to a flow line", (
   assert.equal(tight.stages, 3);
   assert.equal(tight.items, 3);
 });
+
+test("columnsOf moves the pipeline under the queue on the right while the queue is collapsed", () => {
+  const all = ["agents", "pipeline", "queue", "findings", "work"] as const;
+  assert.deepEqual(columnsOf("wide", all), [
+    ["agents", "pipeline"],
+    ["queue", "findings", "work"],
+  ]);
+  assert.deepEqual(columnsOf("wide", all, true), [
+    ["agents"],
+    ["queue", "pipeline", "findings", "work"],
+  ]);
+  assert.deepEqual(columnsOf("narrow", all, true), [[...all]]);
+});
+
+test("a collapsed queue keeps its three rows when focused and never takes leftover rows", () => {
+  const collapsed: PanelWish = {
+    id: "queue",
+    min: 3,
+    want: 3,
+    weight: 1,
+    stretch: false,
+    collapsed: true,
+  };
+  const single = fillRows(
+    40,
+    [
+      wish("agents", 3, 6, 4, true),
+      wish("pipeline", 3, 8, 2),
+      collapsed,
+      wish("findings", 3, 5, 1),
+    ],
+    "queue",
+  );
+  assert.equal(single.get("queue"), 3);
+  assert.equal(
+    [...single.values()].reduce((a, b) => a + b, 0),
+    40,
+  );
+  const right = fillRows(
+    30,
+    [collapsed, wish("pipeline", 3, 8, 2), wish("findings", 3, 5, 1)],
+    "queue",
+  );
+  assert.equal(right.get("queue"), 3);
+  const only = fillRows(20, [collapsed], "queue");
+  assert.equal(only.get("queue"), 20, "alone it has to take the rows");
+});

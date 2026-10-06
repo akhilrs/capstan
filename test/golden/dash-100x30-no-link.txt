@@ -1,7 +1,7 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────────────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ○ NO LINK                                                       workers ██████░░ 3/4   ○ 12s ago │
 │   controller not answering, retrying; showing the last good frame                                │
-╰─┤ supervision on ├───────────────────────────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents────────────────┤ 5 active ├┤ 1 ended ├─╮┏━³queue━━━━━━━━━━━━━━━━━━━┤ 1 stuck or failed ├━┓
 │   AGENT                  GEN STATE      AGE  Q │┃     SEQ TO           STATE       AGE DETAIL    ┃
 │ ▲ developer-2            g1  STALLED  3m41s  2 │┃▌▲   #41 developer-2  unacked   3m41s ! no ack… ┃

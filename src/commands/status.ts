@@ -11,6 +11,7 @@ import {
   ok,
   mapError,
   MAX_STATUS_REPORTS,
+  MAX_STATUS_PROPOSALS,
   type CommandEnv,
 } from "./shared.js";
 
@@ -112,6 +113,22 @@ export function statusHandlers(
               conflictReportId: i.conflictReportId,
               createdAt: i.createdAt,
             }));
+          result.pipelineCounts = core.pipelineCounts(call.credential);
+          result.awaitingConfirm = core.awaitingConfirm(
+            call.credential,
+            MAX_STATUS_REPORTS,
+          );
+          if (operatorConfig?.enabled === true && deps.operator !== undefined)
+            result.pendingProposals = deps.operator
+              .list({ states: ["proposed"], limit: MAX_STATUS_PROPOSALS })
+              .map((p) => ({
+                proposalId: p.proposalId,
+                kind: p.kind,
+                command: p.command,
+                proposer: p.proposerAgentId,
+                reason: p.reason,
+                createdAt: p.createdAt,
+              }));
           result.agentFindings = core
             .findings(call.credential, MAX_STATUS_REPORTS)
             .map((f) => ({

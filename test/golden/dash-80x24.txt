@@ -1,7 +1,7 @@
 ╭─ cstan dash ─┤ capstan ├┤ run active ├────────────────┤ 15:02:23 ├┤ - 2s + ├─╮
 │ ● SUPERVISED                                     workers ██████░░ 3/4   ● 1s │
 │   supervisor-1 active; check acked 3m ago; 1 open finding                    │
-╰─┤ supervision on ├───────────────────────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─¹agents──────────────────────────────────────────────┤ 5 active ├┤ 1 ended ├─╮
 │   AGENT                       ROLE       GEN STATE   ACTIVITY    AGE  Q PANE │
 │ ▲ developer-2                 Developer  g1  STALLED ░░░░░░░░  3m41s  2 p4   █

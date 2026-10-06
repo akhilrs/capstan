@@ -27,14 +27,25 @@ export function layoutFor(columns: number, rows: number): Layout {
   return { mode };
 }
 
-/** Panels per column: stacked in one column, or agents and pipeline left, the rest right. */
+/**
+ * Panels per column: stacked in one column, or agents and pipeline left, the rest right.
+ * While the queue is collapsed to a stub the pipeline joins the right column under it,
+ * so agents get the whole left column.
+ */
 export function columnsOf(
   mode: LayoutMode,
   panels: readonly PanelId[],
+  queueCollapsed = false,
 ): readonly (readonly PanelId[])[] {
   if (mode !== "wide") return [panels];
-  const left = panels.filter((p) => p === "agents" || p === "pipeline");
-  const right = panels.filter((p) => p !== "agents" && p !== "pipeline");
+  const onLeft = (p: PanelId) =>
+    p === "agents" || (p === "pipeline" && !queueCollapsed);
+  const left = panels.filter(onLeft);
+  const right = panels.filter((p) => !onLeft(p));
+  if (queueCollapsed) {
+    const rank = (p: PanelId) => (p === "queue" ? 0 : p === "pipeline" ? 1 : 2);
+    right.sort((a, b) => rank(a) - rank(b));
+  }
   return [left, right];
 }
 
@@ -58,6 +69,8 @@ export interface PanelWish {
   readonly weight: number;
   /** Whether the panel can use more than `want` rows (graphs, detail). */
   readonly stretch: boolean;
+  /** A stub that never takes spare rows, not even as blank interior rows. */
+  readonly collapsed?: boolean;
 }
 
 /** Panels dropped, in this order, when the column cannot pay every minimum. */
@@ -109,6 +122,7 @@ export function fillRows(
       STRETCH_ORDER.map((id) => stretching.find((w) => w.id === id)).find(
         (w) => w !== undefined,
       ) ??
+      [...shown].reverse().find((w) => w.collapsed !== true) ??
       shown[shown.length - 1]!;
     heights.set(target.id, heights.get(target.id)! + spare);
   }
@@ -201,6 +215,9 @@ export interface PipelineSections {
   readonly header: number;
   readonly items: number;
 }
+
+/** The collapsed queue: borders and one line. */
+export const COLLAPSED_QUEUE_ROWS = 3;
 
 /** Rows a gapped stage block takes: three bars and the two blank rows between them. */
 export const GAPPED_STAGE_ROWS = 5;
