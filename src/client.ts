@@ -9,9 +9,12 @@ import {
 } from "./daemon.js";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const START_TIMEOUT_MS = 10_000;
+// A cap, not a delay: a start returns the moment the daemon answers a ping, or
+// fails the moment the child exits. A loaded machine can take well over 10 s.
+const START_TIMEOUT_MS = 30_000;
 const POLL_MS = 100;
-const LOST_RACE_GRACE_MS = 3_000;
+// Long enough for the winning daemon to finish starting on a loaded machine.
+const LOST_RACE_GRACE_MS = 20_000;
 
 export type WireResult = {
   readonly kind: "response";

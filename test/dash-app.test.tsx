@@ -1,6 +1,10 @@
 // Colour must be on for the NO_COLOR comparison; this file runs in its own process.
+// The environment is set here, not inherited: a CI runner has no TTY and sets
+// CI and GITHUB_ACTIONS, which change the colour level chalk picks.
 process.env.FORCE_COLOR = "1";
-delete process.env.NO_COLOR;
+for (const name of ["NO_COLOR", "CI", "GITHUB_ACTIONS", "COLORTERM"])
+  delete process.env[name];
+process.env.TERM = "xterm-256color";
 
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
@@ -24,7 +28,7 @@ const { resolveSelection, rowIds, formatClock } =
   await import("../src/dash/app.js");
 const { buildDashModel } = await import("../src/dash/model.js");
 
-const COLOR = /\u001b\[(3[0-7]|9[0-7]|4[0-7]|38;5;\d+|48;5;\d+)m/;
+const COLOR = /\u001b\[(3[0-7]|9[0-7]|4[0-7]|[34]8;5;\d+|[34]8;2;\d+;\d+;\d+)m/;
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 
 interface Fixture {

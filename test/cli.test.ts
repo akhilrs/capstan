@@ -2202,7 +2202,10 @@ test("a project lock held by something that never answers fails a start within t
       const result = await invokeAsync(cwd, "start");
       assert.equal(result.status, 5, result.stderr);
       assert.match(result.stderr, /holds the project lock but does not answer/);
-      assert.ok(Date.now() - began < 9000, "did not wait for the full timeout");
+      assert.ok(
+        Date.now() - began < 28_000,
+        "did not wait for the full timeout",
+      );
     } finally {
       holder.close();
     }
