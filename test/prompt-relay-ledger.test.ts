@@ -53,7 +53,7 @@ const capture = (h: Harness) =>
     prompt: prompt(h.developer.agentId),
   });
 
-test("migrations are registered through 0035 and every earlier migration is still recorded", async () => {
+test("migrations are registered through 0036 and every earlier migration is still recorded", async () => {
   await withLedger((h, raw) => {
     const versions = raw((db) =>
       db
@@ -62,7 +62,7 @@ test("migrations are registered through 0035 and every earlier migration is stil
     ) as Array<{ version: number }>;
     assert.deepEqual(
       versions.map((entry) => entry.version),
-      Array.from({ length: 35 }, (_, index) => index + 1),
+      Array.from({ length: 36 }, (_, index) => index + 1),
     );
     assert.ok(h.core.stateVersion > 0);
   });

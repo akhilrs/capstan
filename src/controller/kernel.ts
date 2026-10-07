@@ -430,13 +430,13 @@ export class ControllerKernel {
     return row === undefined ? undefined : toAgentRecord(row);
   }
 
-  /** Every agent of the project in one query, ordered by agent id. */
-  agentRecords(): AgentRecord[] {
+  /** Every agent of the project in one query, ordered by agent id; with `activeOnly`, only those whose state is active. */
+  agentRecords(activeOnly = false): AgentRecord[] {
     return (
       this.database
         .prepare(
           `SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at
-           FROM agents WHERE project_id = ? ORDER BY agent_id`,
+           FROM agents WHERE project_id = ?${activeOnly ? " AND state = 'active'" : ""} ORDER BY agent_id`,
         )
         .all(this.projectId) as AgentRow[]
     ).map(toAgentRecord);

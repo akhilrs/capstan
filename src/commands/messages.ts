@@ -107,9 +107,7 @@ export function messageHandlers(
         const caller = agentOf(call.identity);
         let recipient: AgentRecord | undefined;
         if (target === "@pm") {
-          const pms = core
-            .listAgents()
-            .filter((a) => a.kind === "PM" && a.state === "active");
+          const pms = core.activeAgents().filter((a) => a.kind === "PM");
           if (pms.length > 1)
             return fail(
               "ambiguous_recipient",

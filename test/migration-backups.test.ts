@@ -193,9 +193,9 @@ test("upgrading a v30 ledger writes a backup before each later migration through
     database.close();
     const names = listing(directory).filter((n) => n.includes(".pre-v"));
     assert.equal(names.length, 2);
-    // The upgrade backs up before v31 to v35; the two newest stay.
+    // The upgrade backs up before v31 to v36; the two newest stay.
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v36-")));
     assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v35-")));
-    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v34-")));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -244,7 +244,8 @@ test("migration 0033 adds messages.action_needed, gives every existing message 0
       ).some((c) => c.name === "action_needed"),
     );
     before.close();
-    const database = await openDatabase(target);
+    // Keep one backup per migration after 0033 so the one this test looks for is not pruned.
+    const database = await openDatabase(target, { keepMigrationBackups: 4 });
     try {
       const rows = database
         .prepare("SELECT action_needed FROM messages")

@@ -10,6 +10,8 @@ import {
 import { sha256 } from "./canonical.js";
 import {
   DEFERRAL_REASONS,
+  FINAL_STATES,
+  MESSAGE_STATES,
   RESOLUTION_DECISIONS,
   isFinalState,
   isLegalTransition,
@@ -42,6 +44,16 @@ import {
   isMessageRejection,
   messageRecord,
 } from "./helpers.js";
+
+/**
+ * The states that are not final, as an SQL list. A query on it reads `messages` through `INDEXED BY messages_by_state`
+ * (migration 0036): without table statistics SQLite scans the whole table, acked history and message bodies included.
+ */
+export const OPEN_MESSAGE_STATES_SQL = MESSAGE_STATES.filter(
+  (state) => !FINAL_STATES.includes(state),
+)
+  .map((state) => `'${state}'`)
+  .join(", ");
 
 export class MessagesArea {
   constructor(
@@ -152,6 +164,13 @@ export class MessagesArea {
     return this.messageRowsFor(agentId).map(messageRecord);
   }
 
+  /** The agent's messages that are not final, oldest first; what `queueHead` and the PM mail summary read. */
+  openMessagesFor(agentId: string): readonly MessageRecord[] {
+    this.kernel.assertOpen();
+    safeId(agentId, "agent id");
+    return this.openMessageRowsFor(agentId).map(messageRecord);
+  }
+
   /** Unresolved messages of every agent: notified ones first (the operator's bell depends on them), then oldest first by sequence. */
   unresolvedMessages(
     credential: string,
@@ -165,7 +184,7 @@ export class MessagesArea {
       throw new TypeError("limit must be an integer from 1 to 1000");
     const rows = this.kernel.database
       .prepare(
-        "SELECT * FROM messages WHERE project_id = ? AND state NOT IN ('acked', 'acked_late', 'cancelled') ORDER BY (last_notified_at IS NULL), sequence LIMIT ?",
+        `SELECT * FROM messages INDEXED BY messages_by_state WHERE project_id = ? AND state IN (${OPEN_MESSAGE_STATES_SQL}) ORDER BY (last_notified_at IS NULL), sequence LIMIT ?`,
       )
       .all(this.kernel.projectId, limit + 1) as MessageRow[];
     return {
@@ -851,6 +870,14 @@ export class MessagesArea {
     return this.kernel.database
       .prepare(
         "SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence",
+      )
+      .all(this.kernel.projectId, agentId) as MessageRow[];
+  }
+
+  openMessageRowsFor(agentId: string): MessageRow[] {
+    return this.kernel.database
+      .prepare(
+        `SELECT * FROM messages INDEXED BY messages_by_state WHERE project_id = ? AND recipient_agent_id = ? AND state IN (${OPEN_MESSAGE_STATES_SQL}) ORDER BY sequence`,
       )
       .all(this.kernel.projectId, agentId) as MessageRow[];
   }

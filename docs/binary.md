@@ -52,11 +52,44 @@ runtime uses the built-in `node:sqlite`, so `better-sqlite3` and `fs-ext` are go
 ## Releases and install
 
 `npm run release` packs the npm tarball, builds both binaries (`npm run build:binary`) and writes
-`capstan-controller-<v>.tgz`, `cstan-<v>-linux-x64`, `cstan-<v>-linux-arm64`, the two `cstan-dash-<v>-linux-<arch>` files and a `SHA256SUMS` listing all of them to
+`capstan-controller-<v>.tgz`, `cstan-<v>-linux-x64`, `cstan-<v>-linux-arm64`, the two `cstan-front-<v>-linux-<arch>` files, the two `cstan-dash-<v>-linux-<arch>` files and a `SHA256SUMS` listing all of them to
 `release/` (or `$CSTAN_RELEASE_DIR`). It prints the `gh release create` command and never runs it.
 [`install.sh`](../install.sh) installs the binary for the machine when the release's `SHA256SUMS` lists it, checks it with
-`<binary> --version`, and links it; no Node is needed. `--no-binary` forces the npm tarball. See
+`<binary> --version`, and links it; no Node is needed. With `cstan-front` in the release the layout is the one under "The native front end". `--no-binary` forces the npm tarball. See
 [Install reference](reference/install.md).
+
+## The native front end (`cstan` beside `cstan-node`)
+
+`cstan-front` (source in `rust/crates/cstan`) is a small static Rust program, about 1 MB, that runs the commands an agent
+sends over the operator socket (`ping`, `send`, `inbox`, `ack`, `wait`, ...) without starting the 130 MB Node runtime, and
+hands every other command to the Node binary unchanged.
+
+- **Layout.** A binary install holds `current/bin/cstan` (the front end), `current/bin/cstan-node` (the SEA, the release asset
+  `cstan-<v>-<platform>`; only the installed file name changes) and, when present, `current/bin/cstan-dash`. The `cstan`
+  symlink in the bin directory points at `current/bin/cstan`. Without a front end the SEA is `current/bin/cstan`, as in 0.2.0.
+- **Hand-over.** The front end replaces itself with the Node implementation: `CSTAN_NODE_CLI` first (an absolute path; a
+  `.js` or `.mjs` file runs under `CSTAN_NODE` or `node`, anything else runs as it is), then `cstan-node` beside the front end.
+  A candidate that is the front end itself is skipped, so the hand-over cannot loop.
+- **Agents.** The per-agent `cstan` wrapper the daemon writes starts the front end and sets `CSTAN_NODE_CLI` to the SEA, or
+  to `cli.js` with `CSTAN_NODE` for the npm build. Under SEA the front end is `CSTAN_FRONT_END` when that names an
+  absolute executable file, else a `cstan` beside the binary that is not the binary itself. With none, the wrapper runs the Node CLI as before.
+- **Build.** `npm run build:cli` builds the host front end into `rust/target/release/cstan`;
+  `npm run build:cli -- --target linux-x64` (or `linux-arm64`) builds the musl binary into
+  `release/cstan-front-<version>-<target>`. `npm run release` builds both targets, lists them in `SHA256SUMS` and in the
+  `gh release create` command; `--no-front` skips them and a release without `cargo` fails unless `--no-front` is given.
+- **Install.** `install.sh` checks `cstan-front-<v>-<platform>` against `SHA256SUMS`, stages the SEA as `bin/cstan-node` and
+  the front end as `bin/cstan`, and keeps them only if `bin/cstan __front-version` prints `cstan-front <this release>`.
+  This is the **fallback rule**: a front end that does not run on this machine, or belongs to another release, is dropped
+  with a warning and the SEA stays `bin/cstan`; a release without the asset installs the SEA alone. `--front-binary <file>`
+  installs a file you have (checked against a `SHA256SUMS` beside it) and `--no-front` skips it. Uninstall removes the whole
+  `current` directory, both files included. Tarball installs have no front end.
+- **Old installers.** The asset names are unchanged, so an `install.sh` from 0.2.0 against a release with a front end
+  installs the SEA as `bin/cstan` and works as before.
+- **Operator restart** still replaces the file the coordinator runs from: the daemon is `cstan-node daemon`, and the restart
+  swaps `cstan-node`, not the front end.
+- **Checks without cargo.** `npm run check` runs `check:dash` (rustfmt, clippy and the tests of `dash/` and `rust/`, and the host
+  front end build the parity tests use). A machine without cargo sets **both** `CSTAN_SKIP_DASH_CHECK=1` (the Rust checks print
+  a loud `SKIPPED`) and `CSTAN_SKIP_FRONT_PARITY=1` (the tests that compare the front end with the Node CLI are skipped).
 
 ## The Rust dashboard (`cstan-dash`)
 
@@ -139,7 +172,12 @@ and git repo with `PATH` limited to the binary's directory plus `/usr/bin:/bin` 
 `--version`, `--help`, `init`, `start` (the daemon's `/proc/<pid>/exe` is the binary), `status`,
 `inbox --hook` (silent, exit 0), the agent wrapper, one `dash` frame in a pty, empty stderr, `stop` and that the
 daemon pid is gone. When `node` and `dist/` exist it also checks that the npm build and the binary open each
-other's ledgers. arm64 runs only on an arm64 host or with `qemu-aarch64` binfmt; otherwise it is skipped with a
+other's ledgers. When a front end is available (`release/cstan-front-<v>-<platform>`, the host build of `npm run build:cli`
+for x64, or `CSTAN_FRONT_SMOKE_BIN`) it repeats the run in the installed layout (`cstan` + `cstan-node`): `--version`,
+`init`, `start` (the daemon's `/proc/<pid>/exe` is `cstan-node`), agent-environment `ping`, `status`, `send`, `inbox`
+and `ack` with the operator key (without Herdr there is no agent token, so the daemon refuses some; the front end's stdout,
+stderr and exit code must equal `cstan-node`'s), a held agent `wait` (its `/proc/<pid>/exe` is the front end), the
+launcher's wrapper script, and `cstan dash` becoming `cstan-dash`. arm64 runs only on an arm64 host or with `qemu-aarch64` binfmt; otherwise it is skipped with a
 message. Without Herdr, `start` cannot open panes (it exits 4 after the daemon is up), so the launcher does not
 write the agent wrapper; the smoke test then runs a wrapper of the same one-line shape, and the launcher
 unit test (`test/sea.test.ts`) covers the generated script.

@@ -45,6 +45,9 @@ Options:
   --dash-binary <file>  Install this cstan-dash (the Rust dashboard) next to cstan. Verified against the
                         SHA256SUMS file next to it when there is one.
   --no-dash             Do not install cstan-dash even when the release has one.
+  --front-binary <file> Install this cstan front end (the Rust cstan-front) as bin/cstan, with the standalone
+                        binary as bin/cstan-node. Verified against the SHA256SUMS file next to it when there is one.
+  --no-front            Do not install the front end even when the release has one; the binary is bin/cstan.
   --tarball <path|url>  Install this npm tarball instead of a release (env CAPSTAN_TARBALL).
   --sha256 <hex>        Expected sha256 of the binary or tarball (env CAPSTAN_SHA256).
   --home <dir>          Install root (env CAPSTAN_HOME).
@@ -56,6 +59,9 @@ Options:
 
 A release that lists cstan-dash-<version>-<os>-<arch> in SHA256SUMS also gets cstan-dash, checked the same way;
 without it `cstan dash` runs the Node dashboard.
+A release that lists cstan-front-<version>-<os>-<arch> also gets the native front end: the binary install then holds
+bin/cstan (the front end, which serves agent commands itself and hands every other command to bin/cstan-node, the
+standalone binary). A front end that does not run here is dropped and the binary is installed as bin/cstan, as before.
 The binary needs no Node.js. The tarball path needs Node 24 and npm.
 Environment: CAPSTAN_RELEASE_BASE overrides https://github.com/akhilrs/capstan/releases (tests).
 Re-running the installer upgrades. Project .capstan/ directories are never touched.
@@ -77,6 +83,8 @@ parse_args() {
   NO_BINARY=0
   DASH_BINARY=""
   NO_DASH=0
+  FRONT_BINARY=""
+  NO_FRONT=0
   SHA256="${CAPSTAN_SHA256:-}"
   HOME_DIR="${CAPSTAN_HOME:-}"
   BIN_DIR="${CAPSTAN_BIN_DIR:-}"
@@ -84,26 +92,28 @@ parse_args() {
   UNINSTALL=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --version | --tarball | --binary | --dash-binary | --sha256 | --home | --bin-dir)
+      --version | --tarball | --binary | --dash-binary | --front-binary | --sha256 | --home | --bin-dir)
         [ $# -ge 2 ] || die "$1 needs a value"
         case "$1" in
           --version) VERSION="$2" ;;
           --tarball) TARBALL="$2" ;;
           --binary) BINARY="$2" ;;
           --dash-binary) DASH_BINARY="$2" ;;
+          --front-binary) FRONT_BINARY="$2" ;;
           --sha256) SHA256="$2" ;;
           --home) HOME_DIR="$2" ;;
           --bin-dir) BIN_DIR="$2" ;;
         esac
         shift 2
         ;;
-      --version=* | --tarball=* | --binary=* | --dash-binary=* | --sha256=* | --home=* | --bin-dir=*)
+      --version=* | --tarball=* | --binary=* | --dash-binary=* | --front-binary=* | --sha256=* | --home=* | --bin-dir=*)
         value="${1#*=}"
         case "$1" in
           --version=*) VERSION="$value" ;;
           --tarball=*) TARBALL="$value" ;;
           --binary=*) BINARY="$value" ;;
           --dash-binary=*) DASH_BINARY="$value" ;;
+          --front-binary=*) FRONT_BINARY="$value" ;;
           --sha256=*) SHA256="$value" ;;
           --home=*) HOME_DIR="$value" ;;
           --bin-dir=*) BIN_DIR="$value" ;;
@@ -116,6 +126,10 @@ parse_args() {
         ;;
       --no-dash)
         NO_DASH=1
+        shift
+        ;;
+      --no-front)
+        NO_FRONT=1
         shift
         ;;
       --uninstall)
@@ -143,6 +157,9 @@ parse_args() {
   [ -z "$BINARY" ] || [ -z "$TARBALL" ] || die "--binary and --tarball are exclusive"
   [ -z "$BINARY" ] || [ "$NO_BINARY" = 0 ] || die "--binary and --no-binary are exclusive"
   [ -z "$DASH_BINARY" ] || [ "$NO_DASH" = 0 ] || die "--dash-binary and --no-dash are exclusive"
+  [ -z "$FRONT_BINARY" ] || [ "$NO_FRONT" = 0 ] || die "--front-binary and --no-front are exclusive"
+  [ -z "$FRONT_BINARY" ] || [ -z "$TARBALL" ] || die "--front-binary goes with the standalone binary, not --tarball"
+  [ -z "$FRONT_BINARY" ] || [ "$NO_BINARY" = 0 ] || die "--front-binary goes with the standalone binary, not --no-binary"
   case "$HOME_DIR" in /*) ;; *) die "--home must be an absolute path: $HOME_DIR" ;; esac
   case "$BIN_DIR" in /*) ;; *) die "--bin-dir must be an absolute path: $BIN_DIR" ;; esac
   HOME_DIR="${HOME_DIR%/}"
@@ -420,6 +437,45 @@ obtain_dash() {
   say "cstan-dash checksum verified against SHA256SUMS."
 }
 
+# Fetches the front end into TMP_DIR, verifies it and sets FRONT_FILE (empty when none is installed). Only a binary
+# install gets one: the front end hands every other command to the standalone binary beside it. A release without a
+# cstan-front asset installs the binary alone.
+obtain_front() {
+  FRONT_FILE=""
+  [ "$NO_FRONT" = 0 ] || return 0
+  if [ -n "$FRONT_BINARY" ]; then
+    [ -f "$FRONT_BINARY" ] || die "cstan front end not found: $FRONT_BINARY"
+    FRONT_FILE="$TMP_DIR/cstan-front"
+    cp "$FRONT_BINARY" "$FRONT_FILE"
+    front_name="${FRONT_BINARY##*/}"
+    front_sums="${FRONT_BINARY%/*}/SHA256SUMS"
+    if [ -f "$front_sums" ]; then
+      front_expected="$(sums_entry "$front_sums" "$front_name")"
+      [ -n "$front_expected" ] || die "SHA256SUMS has no entry for $front_name; refusing to install."
+      [ "$(sha256_of "$FRONT_FILE")" = "$(lower "$front_expected")" ] ||
+        die "sha256 mismatch for $front_name; refusing to install."
+      say "cstan front end checksum verified against SHA256SUMS."
+    else
+      warn "installing the cstan front end without a SHA256SUMS file next to it: it is unverified."
+    fi
+    return 0
+  fi
+  [ -z "$BINARY" ] && [ -n "$PLATFORM" ] && [ -n "$VERSION" ] || return 0
+  front_base="$RELEASE_BASE/download/v$VERSION"
+  [ -f "$TMP_DIR/SHA256SUMS" ] || fetch "$front_base/SHA256SUMS" "$TMP_DIR/SHA256SUMS" || return 0
+  front_name="cstan-front-$VERSION-$PLATFORM"
+  front_expected="$(sums_entry "$TMP_DIR/SHA256SUMS" "$front_name")"
+  if [ -z "$front_expected" ]; then
+    say "Note: Capstan $VERSION has no cstan front end for $PLATFORM; installing the binary alone."
+    return 0
+  fi
+  FRONT_FILE="$TMP_DIR/cstan-front"
+  fetch "$front_base/$front_name" "$FRONT_FILE" || die "could not download $front_base/$front_name."
+  [ "$(sha256_of "$FRONT_FILE")" = "$(lower "$front_expected")" ] ||
+    die "sha256 mismatch for $front_name; refusing to install."
+  say "cstan front end checksum verified against SHA256SUMS."
+}
+
 installed_version() {
   [ -x "$CURRENT/bin/cstan" ] || return 0
   "$CURRENT/bin/cstan" --version 2>/dev/null </dev/null | sed -n 's/^cstan //p' | head -n 1 || true
@@ -456,6 +512,29 @@ stage_binary() {
   mkdir -p "$STAGING/bin"
   cp "$BIN_FILE" "$STAGING/bin/cstan"
   chmod 755 "$STAGING/bin/cstan"
+}
+
+# With a verified front end the layout is bin/cstan (the front end) and bin/cstan-node (the standalone binary the front
+# end hands everything else to). The front end is used only when `bin/cstan __front-version` runs here and names this
+# release; otherwise it is dropped with a warning and the binary stays bin/cstan, the layout of earlier releases.
+stage_front() {
+  [ -n "$FRONT_FILE" ] || return 0
+  cp "$FRONT_FILE" "$STAGING/bin/cstan-front.new"
+  chmod 755 "$STAGING/bin/cstan-front.new"
+  front_out="$("$STAGING/bin/cstan-front.new" __front-version </dev/null 2>/dev/null)" || front_out=""
+  front_version="${front_out#cstan-front }"
+  want_version="$VERSION"
+  if [ -z "$want_version" ]; then
+    want_version="$("$STAGING/bin/cstan" --version </dev/null 2>/dev/null | sed -n 's/^cstan //p' | head -n 1)" || want_version=""
+  fi
+  if [ "$front_version" = "$front_out" ] || [ -z "$front_version" ] || [ "$front_version" != "$want_version" ]; then
+    rm -f "$STAGING/bin/cstan-front.new"
+    FRONT_FILE=""
+    warn "the cstan front end does not run on this machine or is not release $want_version; installed the binary alone."
+    return 0
+  fi
+  mv "$STAGING/bin/cstan" "$STAGING/bin/cstan-node"
+  mv "$STAGING/bin/cstan-front.new" "$STAGING/bin/cstan"
 }
 
 # Puts the verified cstan-dash beside cstan, where the resolver looks for it. A file that does not run (for example
@@ -514,6 +593,9 @@ report_success() {
   say ""
   say "Installed cstan $VERSION"
   say "  command: $BIN_LINK -> $CURRENT/bin/cstan"
+  if [ -n "$FRONT_FILE" ]; then
+    say "  front end: $CURRENT/bin/cstan (agent commands run natively; everything else runs $CURRENT/bin/cstan-node)"
+  fi
   if [ -n "$DASH_FILE" ]; then
     say "  dashboard: $CURRENT/bin/cstan-dash (cstan dash uses it)"
   fi
@@ -579,13 +661,16 @@ main() {
   choose_kind
   if [ "$KIND" = binary ]; then
     obtain_binary
+    obtain_front
     obtain_dash
     prepare_install
     stage_binary
+    stage_front
     stage_dash
   else
     check_node
     obtain_tarball
+    FRONT_FILE=""
     obtain_dash
     prepare_install
     stage_tarball

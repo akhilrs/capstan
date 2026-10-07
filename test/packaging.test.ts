@@ -118,6 +118,11 @@ if [ "$1" = run ] && [ "$2" = build:binary ]; then
   for t in linux-x64 linux-arm64; do printf "binary-$t" > "release/cstan-$V-$t"; done
   exit 0
 fi
+if [ "$1" = run ] && [ "$2" = build:cli ]; then
+  mkdir -p release
+  for t in linux-x64 linux-arm64; do printf "front-$t" > "release/cstan-front-$V-$t"; done
+  exit 0
+fi
 if [ "$1" = run ] && [ "$2" = build:dash ]; then
   mkdir -p release
   for t in linux-x64 linux-arm64; do printf "dash-$t" > "release/cstan-dash-$V-$t"; done
@@ -127,7 +132,7 @@ exit 0
 `,
     { mode: 0o755 },
   );
-  // The release script wants cargo for cstan-dash; the stub npm builds the files.
+  // The release script wants cargo for cstan-dash and cstan-front; the stub npm builds the files.
   fs.writeFileSync(path.join(dir, "bin", "cargo"), "#!/bin/sh\nexit 0\n", {
     mode: 0o755,
   });
@@ -279,6 +284,8 @@ test("release script creates a missing nested release dir and writes SHA256SUMS"
       `${sha("tarball")}  stub-pkg-1.1.0.tgz\n` +
         `${sha("binary-linux-x64")}  cstan-1.1.0-linux-x64\n` +
         `${sha("binary-linux-arm64")}  cstan-1.1.0-linux-arm64\n` +
+        `${sha("front-linux-x64")}  cstan-front-1.1.0-linux-x64\n` +
+        `${sha("front-linux-arm64")}  cstan-front-1.1.0-linux-arm64\n` +
         `${sha("dash-linux-x64")}  cstan-dash-1.1.0-linux-x64\n` +
         `${sha("dash-linux-arm64")}  cstan-dash-1.1.0-linux-arm64\n`,
     );
@@ -321,6 +328,40 @@ test("release --no-dash leaves cstan-dash out; --dry-run lists it otherwise", ()
   } finally {
     box.cleanup();
   }
+});
+
+test("release --no-front leaves cstan-front out; --dry-run lists three assets per platform otherwise", () => {
+  const box = releaseSandbox();
+  try {
+    const dry = String(box.run(["--dry-run"]).stdout);
+    for (const platform of ["linux-x64", "linux-arm64"])
+      for (const name of ["cstan", "cstan-front", "cstan-dash"])
+        assert.match(dry, new RegExp(`  ${name}-1\\.1\\.0-${platform}\\n`));
+    const skipped = String(box.run(["--dry-run", "--no-front"]).stdout);
+    assert.doesNotMatch(skipped, /cstan-front-1/);
+    assert.match(skipped, /cstan-dash-1\.1\.0-linux-x64/);
+    const result = box.run(["--no-front"], {
+      STUB_PACK_OK: "1",
+      CSTAN_RELEASE_DIR: "out",
+    });
+    assert.equal(result.status, 0, String(result.stderr));
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(box.dir, "out", "SHA256SUMS"), "utf8"),
+      /cstan-front/,
+    );
+    assert.equal(
+      fs.existsSync(path.join(box.dir, "out", "cstan-front-1.1.0-linux-x64")),
+      false,
+    );
+  } finally {
+    box.cleanup();
+  }
+});
+
+test("package.json builds the front end with scripts/build-cli.mjs", () => {
+  assert.equal(pkg.scripts["build:cli"], "node scripts/build-cli.mjs");
+  assert.ok(fs.existsSync(path.join(root, "scripts", "build-cli.mjs")));
+  assert.match(pkg.scripts["format:check"], /scripts\/build-cli\.mjs/);
 });
 
 function lastCommitFiles(box: ReturnType<typeof releaseSandbox>): string[] {

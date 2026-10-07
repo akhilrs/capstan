@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,14 +19,17 @@ const fixture = path.join(
   "fixtures",
   "ledger-better-sqlite3.sqlite",
 );
-// The live ledger of the main checkout, when this machine has one. Only ever copied, never opened.
-const live = path.join(
-  process.env.CAPSTAN_LIVE_LEDGER_ROOT ??
-    "/home/akhil/Workspace/github.com/akhilrs/capstan",
-  ".capstan",
-  "state",
-  "controller.sqlite",
-);
+// The live ledger of the main checkout, when this machine has one. Only ever read through copy-ledger.
+function liveLedger(): string {
+  return path.join(
+    process.env.CAPSTAN_LIVE_LEDGER_ROOT ??
+      "/home/akhil/Workspace/github.com/akhilrs/capstan",
+    ".capstan",
+    "state",
+    "controller.sqlite",
+  );
+}
+const live = liveLedger();
 
 function header(file: string): Buffer {
   const fd = fs.openSync(file, "r");
@@ -51,10 +55,13 @@ async function checkOpens(
   try {
     const target = path.join(directory, "controller.sqlite");
     try {
-      fs.copyFileSync(source, target);
-      for (const suffix of ["-wal"])
-        if (fs.existsSync(source + suffix))
-          fs.copyFileSync(source + suffix, target + suffix);
+      // A consistent snapshot with the WAL folded in, so the header below is the ledger's own and bytes 24-27
+      // change only when a migration runs. The source is opened read-only and never written.
+      execFileSync(
+        process.execPath,
+        [path.join(root, "scripts", "copy-ledger.mjs"), source, directory],
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
     } catch (error) {
       // The live daemon may be mid-write; the committed fixture is the required gate.
       if (skip === undefined) throw error;
@@ -188,6 +195,38 @@ test(
     await checkOpens(live, "live", (reason) => t.skip(reason));
   },
 );
+
+test("a ledger whose writer keeps uncheckpointed WAL frames copies and opens with an unchanged header", async () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-compat-"));
+  const saved = process.env.CAPSTAN_LIVE_LEDGER_ROOT;
+  let writer: ReturnType<typeof openSqlite> | undefined;
+  try {
+    const state = path.join(scratchRoot, ".capstan", "state");
+    fs.mkdirSync(state, { recursive: true, mode: 0o700 });
+    const ledger = path.join(state, "controller.sqlite");
+    fs.copyFileSync(fixture, ledger);
+    // Bring it to this build, then keep a writer open that never checkpoints, as the live daemon can.
+    (await openDatabase(ledger)).close();
+    writer = openSqlite(ledger);
+    writer.pragma("journal_mode = wal");
+    writer.pragma("wal_autocheckpoint = 0");
+    writer.exec("CREATE TABLE IF NOT EXISTS scratch_wal(n INTEGER)");
+    for (let i = 0; i < 50; i++)
+      writer.prepare("INSERT INTO scratch_wal(n) VALUES (?)").run(i);
+    assert.ok(
+      fs.statSync(`${ledger}-wal`).size > 0,
+      "the writer left WAL frames behind",
+    );
+    process.env.CAPSTAN_LIVE_LEDGER_ROOT = scratchRoot;
+    assert.equal(liveLedger(), ledger);
+    await checkOpens(liveLedger(), "scratch live");
+  } finally {
+    if (saved === undefined) delete process.env.CAPSTAN_LIVE_LEDGER_ROOT;
+    else process.env.CAPSTAN_LIVE_LEDGER_ROOT = saved;
+    writer?.close();
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
 
 test("opening read-only reads the fixture copy", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-compat-"));

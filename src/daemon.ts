@@ -850,9 +850,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
               path.dirname(options.cliPath ?? process.argv[1] ?? ""),
             ));
       const notifyPm = (body: string, actionNeeded: boolean): void => {
-        const pm = core!
-          .listAgents()
-          .find((agent) => agent.kind === "PM" && agent.state === "active");
+        const pm = core!.activeAgents().find((agent) => agent.kind === "PM");
         if (pm === undefined) {
           detailLog("restart_pm_notice_skipped", { reason: "no active PM" });
           return;

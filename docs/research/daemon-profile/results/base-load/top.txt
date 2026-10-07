@@ -1,0 +1,67 @@
+total sampled 633.9s
+ 71.7%   454390ms  (idle) :0
+ 12.1%    76742ms  get src/controller/sqlite.js:64
+  9.8%    62341ms  all src/controller/sqlite.js:68
+  2.1%    13142ms  messagesFor src/controller/messages.js:66
+  1.9%    12219ms  (anon) src/controller/sqlite.js:71
+  0.6%     4093ms  packageReport src/controller/plan-packages.js:29
+  0.2%     1049ms  sent src/controller/plans.js:132
+  0.2%     1013ms  authenticateActor src/controller/auth.js:35
+  0.1%      677ms  (garbage collector) :0
+  0.1%      628ms  integrationAuthors src/controller/reviews.js:123
+  0.1%      463ms  lstat :0
+  0.1%      437ms  respond src/daemon.js:83
+  0.1%      437ms  spawnSync node:internal/child_process:1105
+  0.1%      414ms  packageOfBody src/plans.js:275
+  0.1%      412ms  planPackages src/controller/plan-packages.js:65
+  0.1%      366ms  spawn node:internal/child_process:355
+  0.1%      329ms  agentRow src/controller/kernel.js:51
+  0.0%      313ms  #integrationRow src/controller/integrations.js:194
+  0.0%      307ms  supervisionReason src/controller/core.js:720
+  0.0%      299ms  writeHeapSnapshot node:v8:84
+  0.0%      269ms  prepare src/controller/sqlite.js:90
+  0.0%      241ms  linkRow src/controller/links.js:87
+  0.0%      186ms  (program) :0
+  0.0%      140ms  writeUtf8String :0
+  0.0%      137ms  Hash node:internal/crypto/hash:90
+
+inclusive (capstan frames):
+ 12.1%  get src/controller/sqlite.js:64
+ 11.5%  handle src/daemon.js:123
+ 11.4%  (anon) src/daemon.js:334
+ 11.3%  (anon) src/commands.js:36
+ 11.3%  status src/commands/status.js:9
+ 11.0%  all src/controller/sqlite.js:68
+  8.2%  #tick src/driver.js:162
+  7.8%  tick src/reports.js:65
+  7.4%  unannouncedPlanNotices src/controller/core.js:354
+  7.4%  unannouncedPlanNotices src/controller/plans.js:130
+  7.3%  sent src/controller/plans.js:132
+  6.1%  messagesFor src/controller/core.js:583
+  4.9%  #advance src/driver.js:331
+  4.5%  planPackages src/controller/plan-packages.js:65
+  4.5%  (anon) src/controller/plan-packages.js:68
+  4.5%  #packageProgress src/controller/plan-packages.js:44
+  4.5%  statusSnapshot src/controller/core.js:727
+  4.5%  statusSnapshot src/controller/status.js:191
+  4.4%  #planStatusEntries src/controller/status.js:163
+  4.4%  (anon) src/controller/status.js:166
+  3.9%  messagesFor src/controller/messages.js:66
+  3.1%  #pmMessages src/driver.js:475
+  2.5%  advanceMessaging src/controller/message-notices.js:118
+  2.5%  advanceMessaging src/controller/core.js:654
+  2.5%  packageReport src/controller/plan-packages.js:29
+
+busy 179.5s of 633.9s sampled (28.3%); share of busy self time by owner:
+ 40.0%   11.3% of wall  status command
+ 29.0%    8.2% of wall  driver tick
+ 27.6%    7.8% of wall  report relay tick
+  1.5%    0.4% of wall  startup recovery (adopt, release, integrations, reviews)
+  0.6%    0.2% of wall  other commands (daemon handle)
+  0.4%    0.1% of wall  other: (garbage collector) 
+  0.2%    0.0% of wall  other: writeHeapSnapshot node:v8
+  0.1%    0.0% of wall  other: (program) 
+  0.1%    0.0% of wall  other: spawn node:internal/child_process
+  0.1%    0.0% of wall  supervision tick
+  0.0%    0.0% of wall  other: all src/controller/sqlite.js
+  0.0%    0.0% of wall  other: nextTick node:internal/process/task_queues

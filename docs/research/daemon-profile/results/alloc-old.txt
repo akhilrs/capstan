@@ -1,0 +1,5 @@
+8613 KB allocated per status call (100 calls, sampled)
+ 48.4%    4170 KB  all controller/sqlite.js:68
+ 36.8%    3173 KB  (anon) controller/sqlite.js:71
+  2.1%     178 KB  messageRecord controller/helpers.js:374
+  1.6%     141 KB  #integrationRecord controller/integrations.js:202

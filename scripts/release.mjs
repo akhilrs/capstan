@@ -21,6 +21,7 @@ const shrinkwrap = path.join(root, "npm-shrinkwrap.json");
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const withDash = !argv.includes("--no-dash");
+const withFront = !argv.includes("--no-front");
 
 function fail(message) {
   console.error(`release: ${message}`);
@@ -143,6 +144,10 @@ if (dryRun) {
     for (const target of dashTargets)
       console.log(`  cstan-dash-${version}-${target}`);
   else console.log("  (cstan-dash skipped: --no-dash)");
+  if (withFront)
+    for (const target of targets)
+      console.log(`  cstan-front-${version}-${target}`);
+  else console.log("  (cstan-front skipped: --no-front)");
   console.log("Dry run: nothing was changed.");
   process.exit(0);
 }
@@ -157,6 +162,13 @@ if (
 )
   fail(
     "cargo not found, so cstan-dash cannot be built; install Rust (https://rustup.rs) or pass --no-dash to release without it",
+  );
+if (
+  withFront &&
+  spawnSync("cargo", ["--version"], { stdio: "ignore" }).status !== 0
+)
+  fail(
+    "cargo not found, so the cstan front end cannot be built; install Rust (https://rustup.rs) or pass --no-front to release without it",
   );
 const originals = new Map(
   [pkgPath, lockPath, changelogPath].map((file) => [
@@ -249,7 +261,25 @@ function buildAssets() {
       dashes.push(`cstan-dash-${version}-${target}`);
     moveToReleaseDir(dashes);
   }
-  return [tarball, ...binaries, ...dashes];
+  const fronts = [];
+  if (withFront) {
+    const front = spawnSync(
+      "npm",
+      [
+        "run",
+        "build:cli",
+        "--",
+        ...targets.flatMap((target) => ["--target", target]),
+      ],
+      { cwd: root, stdio: "inherit" },
+    );
+    if (front.status !== 0)
+      throw new Error(`npm run build:cli failed (${front.status})`);
+    for (const target of targets)
+      fronts.push(`cstan-front-${version}-${target}`);
+    moveToReleaseDir(fronts);
+  }
+  return [tarball, ...binaries, ...fronts, ...dashes];
 }
 
 let assets;

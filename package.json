@@ -29,12 +29,13 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs && chmod 755 dist/src/cli.js",
     "test": "npm run build && node scripts/run-tests.mjs",
     "lint": "eslint src test site",
-    "format:check": "prettier --check src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/build-dash.mjs scripts/check-dash.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
-    "format": "prettier --write src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/build-dash.mjs scripts/check-dash.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
+    "format:check": "prettier --check src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/build-dash.mjs scripts/build-cli.mjs scripts/check-dash.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
+    "format": "prettier --write src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/build-dash.mjs scripts/build-cli.mjs scripts/check-dash.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
     "check:dash": "node scripts/check-dash.mjs",
     "check": "npm run lint && npm run format:check && npm run check:dash && npm test",
     "build:binary": "node scripts/build-binary.mjs",
     "build:dash": "node scripts/build-dash.mjs",
+    "build:cli": "node scripts/build-cli.mjs",
     "smoke:binary": "sh scripts/smoke-binary.sh"
   },
   "dependencies": {

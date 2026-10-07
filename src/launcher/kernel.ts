@@ -232,7 +232,7 @@ export class LauncherKernel {
   }
 
   activeAgents(): AgentRecord[] {
-    return this.core.listAgents().filter((a) => a.state === "active");
+    return [...this.core.activeAgents()];
   }
 
   /** The first of the role's seats that no active agent holds; an extra seat has the id `<role>-seat-<n>` and the display name `<role>.<n>`, which no role name can equal (role names allow no dot), so it never collides with another role's seat; the core allows one active agent per seat, so each concurrent worker needs its own. A disabled seat, or one made for another kind, is an operator-visible error and stops the walk even when a later seat is free; it is not something to route around. */

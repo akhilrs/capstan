@@ -24,6 +24,9 @@ import {
 } from "./helpers.js";
 
 export class PlansArea {
+  /** Leading texts of the plan notices known to be in the ledger. */
+  readonly #sentNotices = new Set<string>();
+
   constructor(
     readonly kernel: ControllerKernel,
     readonly areas: ControllerAreas,
@@ -243,13 +246,17 @@ export class PlansArea {
     this.kernel.authorize(credential, "controller:reconcile");
     const sent = (planId: string, lead: string): boolean => {
       const text = `Plan ${planId} ${lead}`;
-      return (
+      // Messages are never deleted or rewritten, so a notice found once stays found; only the missing ones
+      // are looked up again (a scan of every message body) on the next tick.
+      if (this.#sentNotices.has(text)) return true;
+      const present =
         this.kernel.database
           .prepare(
             "SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?",
           )
-          .get(this.kernel.projectId, text.length, text) !== undefined
-      );
+          .get(this.kernel.projectId, text.length, text) !== undefined;
+      if (present) this.#sentNotices.add(text);
+      return present;
     };
     const out: PlanNoticeRef[] = [];
     for (const plan of this.kernel.database

@@ -403,7 +403,7 @@ npm run check          # lint + format:check + test
 
 `npm run build` first removes `dist/` so output of deleted sources cannot linger. The daemon runs from `dist/`, so rebuilding in a live project briefly makes `cstan` unavailable; use the Operator restart (`cstan op propose --restart`), which swaps the build safely, instead of building under a running controller.
 
-A standalone Node-free binary (Linux x64 and arm64) comes from `npm run build:binary`; check it with `npm run smoke:binary`. `npm run release` builds the tarball and both binaries with `SHA256SUMS` and prints the publish command without running it. See [docs/binary.md](docs/binary.md).
+A standalone Node-free binary (Linux x64 and arm64) comes from `npm run build:binary`; check it with `npm run smoke:binary`. The native front end (`npm run build:cli`, Rust) answers agent commands without starting Node: a binary install puts it at `bin/cstan` and the Node binary at `bin/cstan-node`, and the front end hands every other command to `cstan-node` (or to `CSTAN_NODE_CLI` when set; `CSTAN_FRONT_END` names the front end the agent wrapper starts). A front end that does not run, or a release without one, leaves the binary as `bin/cstan`; `--no-front` and `--front-binary <file>` are `install.sh` options. A machine without cargo runs `npm run check` with both `CSTAN_SKIP_DASH_CHECK=1` and `CSTAN_SKIP_FRONT_PARITY=1`. `npm run release` builds the tarball, both binaries, both front ends and both dashboards with `SHA256SUMS` and prints the publish command without running it. See [docs/binary.md](docs/binary.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
 

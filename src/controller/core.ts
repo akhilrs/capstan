@@ -454,6 +454,11 @@ export class ControllerCore {
     return this.#areas.agents.listAgents();
   }
 
+  /** The agents whose state is active, ordered by agent id. */
+  activeAgents(): readonly AgentRecord[] {
+    return this.#areas.agents.activeAgents();
+  }
+
   agentRecord(agentId: string): AgentRecord | undefined {
     return this.#areas.agents.agentRecord(agentId);
   }
@@ -1200,6 +1205,11 @@ export class ControllerCore {
 
   messagesFor(agentId: string): readonly MessageRecord[] {
     return this.#areas.messages.messagesFor(agentId);
+  }
+
+  /** The agent's messages that are not final, oldest first. */
+  openMessagesFor(agentId: string): readonly MessageRecord[] {
+    return this.#areas.messages.openMessagesFor(agentId);
   }
 
   /** Unresolved messages of every agent: notified ones first (the operator's bell depends on them), then oldest first by sequence. */

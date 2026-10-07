@@ -3,6 +3,7 @@ import type { ControllerAreas } from "./areas.js";
 import { randomUUID } from "node:crypto";
 import { type AuthenticatedActor } from "./auth.js";
 import { sha256 } from "./canonical.js";
+import { OPEN_MESSAGE_STATES_SQL } from "./messages.js";
 import {
   evaluateMessaging,
   isFinalState,
@@ -373,7 +374,7 @@ export class MessageNoticesArea {
       (
         this.kernel.database
           .prepare(
-            `SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
+            `SELECT m.* FROM messages m INDEXED BY messages_by_state JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
              WHERE m.project_id = ? AND a.state = 'active' AND a.kind <> 'PM'
                AND m.state IN ('unacked', 'expired', 'failed')
                AND NOT EXISTS (SELECT 1 FROM pm_notices n WHERE n.project_id = m.project_id AND n.kind = 'delivery'
@@ -753,8 +754,8 @@ export class MessageNoticesArea {
       this.kernel.database
         .prepare(
           `SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id AND c.deferral_count = m.deferral_count) AS input_clear_recorded
-           FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
-           WHERE m.project_id = ? AND a.state = 'active' AND m.state NOT IN ('acked', 'acked_late', 'cancelled')
+           FROM messages m INDEXED BY messages_by_state JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id
+           WHERE m.project_id = ? AND a.state = 'active' AND m.state IN (${OPEN_MESSAGE_STATES_SQL})
            ORDER BY m.sequence`,
         )
         .all(this.kernel.projectId) as Array<

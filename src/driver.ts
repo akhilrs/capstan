@@ -281,7 +281,7 @@ export class DeliveryDriver {
     this.#tickSkips = new Map();
     this.#skippedAgents = new Set();
     this.#seen = new Set();
-    const agents = this.#core.listAgents().filter((a) => a.state === "active");
+    const agents = this.#core.activeAgents();
     const outcomes = new Map<string, Outcome>();
     for (const agent of agents) await this.#observe(agent, outcomes);
     this.#judgeLoss(agents, outcomes);
@@ -514,8 +514,8 @@ export class DeliveryDriver {
 
   #isHead(message: MessageRecord): boolean {
     return (
-      queueHead(this.#core.messagesFor(message.recipientAgentId))?.messageId ===
-      message.messageId
+      queueHead(this.#core.openMessagesFor(message.recipientAgentId))
+        ?.messageId === message.messageId
     );
   }
 
@@ -587,9 +587,11 @@ export class DeliveryDriver {
 
   /** A wake is answered when the message left the queued state or the PM pulled or acknowledged any message after it; one still queued after the next backoff step is logged once. */
   #judgeWakes(agents: readonly AgentRecord[]): void {
+    // With no wake outstanding there is nothing to judge, so the PM's whole mail history is not read.
+    if (this.#wakes.size === 0) return;
     const messages = agents
       .filter((a) => a.kind === "PM")
-      .flatMap((pm) => this.#pmMessages(pm));
+      .flatMap((pm) => this.#pmMessages(pm, "all"));
     const now = this.#now();
     for (const [messageId, wake] of [...this.#wakes]) {
       const message = messages.find((m) => m.messageId === messageId);
@@ -621,9 +623,15 @@ export class DeliveryDriver {
       if (!live.has(id)) this.#staleEpisodes.delete(id);
   }
 
-  #pmMessages(pm: AgentRecord): readonly MessageRecord[] {
+  /** The PM's messages: `open` (not final, what the stale judgement needs) or `all` (a wake also looks at what was pulled or acknowledged since). */
+  #pmMessages(
+    pm: AgentRecord,
+    which: "open" | "all",
+  ): readonly MessageRecord[] {
     try {
-      return this.#core.messagesFor(pm.agentId);
+      return which === "all"
+        ? this.#core.messagesFor(pm.agentId)
+        : this.#core.openMessagesFor(pm.agentId);
     } catch (error) {
       this.#log("pm_mail_failed", { error: String(error) });
       return [];
@@ -631,7 +639,7 @@ export class DeliveryDriver {
   }
 
   async #judgeStaleFor(pm: AgentRecord): Promise<void> {
-    const messages = this.#pmMessages(pm);
+    const messages = this.#pmMessages(pm, "open");
     const now = this.#now();
     const summary = pmMailSummary(messages, now, this.#pmStaleSeconds);
     const episode = this.#staleEpisodes.get(pm.agentId);
@@ -886,7 +894,7 @@ export class DeliveryDriver {
   }
 
   async #deliver(agent: AgentRecord): Promise<void> {
-    const head = queueHead(this.#core.messagesFor(agent.agentId));
+    const head = queueHead(this.#core.openMessagesFor(agent.agentId));
     if (
       head === undefined ||
       (head.state !== "queued" && head.state !== "deferred")

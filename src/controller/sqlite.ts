@@ -88,15 +88,21 @@ export class Statement {
     };
   }
 
+  /**
+   * Rows are made plain by giving the row node:sqlite just built `Object.prototype`, not by copying it: a copy
+   * doubles the allocation of every row read, which is most of what a polled `status` allocates.
+   */
   get(...params: Param[]): unknown {
     const row = this.#statement.get(...(params as SqlParam[]));
-    return row === undefined ? undefined : { ...row };
+    return row === undefined
+      ? undefined
+      : Object.setPrototypeOf(row, Object.prototype);
   }
 
   all(...params: Param[]): unknown[] {
-    return this.#statement
-      .all(...(params as SqlParam[]))
-      .map((row) => ({ ...row }));
+    const rows = this.#statement.all(...(params as SqlParam[]));
+    for (const row of rows) Object.setPrototypeOf(row, Object.prototype);
+    return rows;
   }
 }
 

@@ -1,0 +1,846 @@
+[
+  {
+    "name": "ping as agent",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["ping"],
+        "expect": {
+          "exit": 0,
+          "contains": ["pong: true"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "status as agent",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0,
+          "contains": ["projectId:", "agents:"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "status as pm",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0,
+          "contains": ["developer-1"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "status --json as agent",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["status", "--json"],
+        "expect": {
+          "exit": 0,
+          "contains": ["\"projectId\""]
+        }
+      }
+    ]
+  },
+  {
+    "name": "send, inbox and ack round trip",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "please start"],
+        "expect": {
+          "exit": 0,
+          "contains": ["messageId:"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "expect": {
+          "exit": 0,
+          "contains": ["please start", "[sent]"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ack", "$MESSAGE1"],
+        "expect": {
+          "exit": 0,
+          "contains": ["state: acked"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "expect": {
+          "exit": 0,
+          "contains": ["no messages"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "send with action flag",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "--action", "developer-1", "needs you"],
+        "expect": {
+          "exit": 0
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "expect": {
+          "exit": 0,
+          "contains": ["ACTION NEEDED", "needs you"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "send refusals",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "nobody-9", "hello"],
+        "expect": {
+          "exit": 4,
+          "contains": ["unknown_recipient"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["send", "pm-1", "to myself"],
+        "expect": {
+          "exit": 4,
+          "contains": ["self_send"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["send", "pm-1"],
+        "expect": {
+          "exit": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "ack refusals",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["ack"],
+        "expect": {
+          "exit": 3
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ack", "no-such-message"],
+        "expect": {
+          "exit": 4,
+          "contains": ["unknown_message"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "unread notice after send",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "look at this"],
+        "setup": true
+      },
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0,
+          "contains": ["notice: 1 message(s) wait for you"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ping"],
+        "expect": {
+          "exit": 0
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["plan", "show"],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "wait returns a message",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["wait"],
+        "during": {
+          "as": "pm",
+          "argv": ["send", "developer-1", "wake up"]
+        },
+        "expect": {
+          "exit": 0,
+          "contains": ["wake up"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "wait returns a queued message at once",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "already here"],
+        "setup": true
+      },
+      {
+        "as": "developer",
+        "argv": ["wait"],
+        "expect": {
+          "exit": 0,
+          "contains": ["already here"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "wait times out",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["wait"],
+        "expect": {
+          "exit": 0,
+          "contains": ["the wait timed out"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "wait refuses arguments",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["wait", "now"],
+        "expect": {
+          "exit": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "report refusals",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["report"],
+        "expect": {
+          "exit": 3
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["report", "not-a-commit", "done"],
+        "expect": {
+          "exit": 3
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["report", "0000000000000000000000000000000000000000", "done"],
+        "expect": {
+          "exit": 4,
+          "contains": ["report_rejected"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "request-review refusals",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["request-review"],
+        "expect": {
+          "exit": 4,
+          "contains": ["forbidden"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["request-review", "no-such-report"],
+        "expect": {
+          "exit": 4,
+          "contains": ["forbidden"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["request-review", "no-such-report", "reviewer"],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "plan show",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["plan", "show"],
+        "expect": {
+          "exit": 4,
+          "contains": ["not_configured"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "plan show unknown plan",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["plan", "show", "plan-99"],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "op show",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["op", "show"],
+        "expect": {
+          "exit": 4,
+          "contains": ["not_configured"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "op show unknown proposal",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["op", "show", "op-99"],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "plan show with an architect",
+    "toml": "[architect]\nenabled = true\nrole = \"architect\"\n\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\npermission_mode = \"acceptEdits\"\nallow = [\"Bash(git *)\"]\ndeny = [\"Write\", \"Edit\", \"NotebookEdit\", \"Agent\", \"Task\", \"Bash(git push)\", \"Bash(git push *)\", \"Bash(git merge *)\"]\nprompt = \"You plan and integrate.\"\n",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["plan", "show"],
+        "expect": {}
+      },
+      {
+        "as": "pm",
+        "argv": ["plan", "show", "plan-99"],
+        "expect": {}
+      },
+      {
+        "as": "developer",
+        "argv": ["plan", "show"],
+        "expect": {}
+      }
+    ]
+  },
+  {
+    "name": "pause and resume",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["pause", "--reason", "parity check"],
+        "expect": {
+          "exit": 0,
+          "contains": ["state: paused"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0,
+          "contains": ["PAUSED"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["resume", "--reason", "parity check done"],
+        "expect": {
+          "exit": 0,
+          "contains": ["state: active"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0
+        }
+      }
+    ]
+  },
+  {
+    "name": "pause and resume one agent",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["pause", "developer-1", "--reason", "hold"],
+        "expect": {
+          "exit": 0,
+          "contains": ["scope: agent"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0,
+          "contains": ["PAUSED"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["resume", "developer-1", "--reason", "go"],
+        "expect": {
+          "exit": 0,
+          "contains": ["state: active"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "pause without a reason",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["pause"],
+        "expect": {
+          "exit": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "observe an unknown agent",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["observe", "nobody-9"],
+        "expect": {
+          "exit": 4
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["observe", "nobody-9", "5"],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "finding refusals",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": [
+          "finding",
+          "developer-1",
+          "high",
+          "evidence",
+          "correction",
+          "done"
+        ],
+        "expect": {
+          "exit": 4,
+          "contains": ["forbidden"]
+        }
+      },
+      {
+        "as": "pm",
+        "argv": [
+          "finding",
+          "nobody-9",
+          "high",
+          "evidence",
+          "correction",
+          "done"
+        ],
+        "expect": {
+          "exit": 4
+        }
+      },
+      {
+        "as": "pm",
+        "argv": [
+          "finding",
+          "developer-1",
+          "bogus",
+          "evidence",
+          "correction",
+          "done"
+        ],
+        "expect": {
+          "exit": 4
+        }
+      }
+    ]
+  },
+  {
+    "name": "inbox --hook with no messages",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "expect": {
+          "exit": 0
+        }
+      }
+    ]
+  },
+  {
+    "name": "inbox --hook with messages",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "one"],
+        "setup": true
+      },
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "two"],
+        "setup": true
+      },
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "three"],
+        "setup": true
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "expect": {
+          "exit": 0,
+          "contains": ["3 Capstan message(s) are waiting"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "expect": {
+          "exit": 0,
+          "contains": ["3 message(s) to act on"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "inbox --hook with one message",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "just one"],
+        "setup": true
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "expect": {
+          "exit": 0,
+          "contains": ["1 Capstan message(s) are waiting"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "foreign socket",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "env": {
+          "CAPSTAN_SOCKET": "$ROOT/elsewhere/.capstan/state/control.sock"
+        },
+        "expect": {
+          "exit": 2,
+          "contains": ["is not the socket of the project you are in"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "env": {
+          "CAPSTAN_SOCKET": "$ROOT/elsewhere/.capstan/state/control.sock"
+        },
+        "expect": {
+          "exit": 0
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ping"],
+        "cwd": "other",
+        "expect": {
+          "exit": 2,
+          "contains": ["is not the socket of the project you are in"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "cwd": "other",
+        "expect": {
+          "exit": 0
+        }
+      }
+    ],
+    "dirs": ["other/.capstan"]
+  },
+  {
+    "name": "foreign socket allowed",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["ping"],
+        "cwd": "other",
+        "env": {
+          "CAPSTAN_ALLOW_FOREIGN_SOCKET": "1"
+        },
+        "expect": {
+          "exit": 0,
+          "contains": ["warning: CAPSTAN_SOCKET", "pong: true"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "cwd": "other",
+        "env": {
+          "CAPSTAN_ALLOW_FOREIGN_SOCKET": "1"
+        },
+        "expect": {
+          "exit": 0,
+          "contains": ["warning: CAPSTAN_SOCKET"]
+        }
+      }
+    ],
+    "dirs": ["other/.capstan"]
+  },
+  {
+    "name": "half an agent identity",
+    "steps": [
+      {
+        "as": "none",
+        "argv": ["status"],
+        "env": {
+          "CAPSTAN_TOKEN": "tok-only"
+        },
+        "expect": {
+          "exit": 3
+        }
+      },
+      {
+        "as": "none",
+        "argv": ["status"],
+        "env": {
+          "CAPSTAN_SOCKET": "$SOCKET"
+        },
+        "expect": {
+          "exit": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "daemon stopped",
+    "steps": [
+      {
+        "as": "operator",
+        "argv": ["stop"],
+        "setup": true
+      },
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "expect": {
+          "exit": 4,
+          "contains": ["the controller is not running"]
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ping"],
+        "expect": {
+          "exit": 4
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "expect": {
+          "exit": 4
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["wait"],
+        "expect": {
+          "exit": 4
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox", "--hook"],
+        "expect": {
+          "exit": 0
+        }
+      }
+    ]
+  },
+  {
+    "name": "operator command starts the daemon",
+    "steps": [
+      {
+        "as": "operator",
+        "argv": ["stop"],
+        "setup": true
+      },
+      {
+        "as": "operator",
+        "argv": ["status"],
+        "expect": {
+          "exit": 0
+        }
+      },
+      {
+        "as": "operator",
+        "argv": ["ping"],
+        "expect": {
+          "exit": 0,
+          "contains": ["pong: true"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "unknown command",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["frobnicate"],
+        "expect": {
+          "exit": 2,
+          "contains": ["usage: cstan"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "no command",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": [],
+        "expect": {
+          "exit": 2
+        }
+      }
+    ]
+  },
+  {
+    "name": "run from a subdirectory",
+    "steps": [
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "cwd": "."
+      }
+    ]
+  },
+  {
+    "name": "time zone Asia/Kolkata",
+    "steps": [
+      {
+        "as": "pm",
+        "argv": ["pause", "developer-1", "--reason", "zone"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["send", "developer-1", "zone message"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["status"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["status", "--json"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["inbox"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "developer",
+        "argv": ["ack", "$MESSAGE1"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      },
+      {
+        "as": "pm",
+        "argv": ["resume", "developer-1", "--reason", "zone done"],
+        "env": {
+          "TZ": "Asia/Kolkata"
+        }
+      }
+    ]
+  }
+]

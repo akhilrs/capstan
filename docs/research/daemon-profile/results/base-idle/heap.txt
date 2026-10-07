@@ -1,0 +1,30 @@
+live heap   11.75 MB, 92335 nodes
+   4.47 MB  string
+   4.15 MB  code
+   1.04 MB  array
+   0.69 MB  object shape
+   0.48 MB  closure
+   0.48 MB  hidden
+   0.33 MB  object
+   0.06 MB  native
+   0.03 MB  concatenated string
+   0.01 MB  regexp
+   0.01 MB  symbol
+   0.00 MB  sliced string
+   0.00 MB  number
+   0.00 MB  synthetic
+   0.00 MB  bigint
+
+by constructor (self size):
+   0.50 MB     2005x  array 
+   0.48 MB     1663x  array (object properties)
+   0.10 MB     1070x  object system / Context
+   0.08 MB     1381x  closure 
+   0.08 MB     1918x  object Object
+   0.06 MB      369x  array (object elements)
+   0.03 MB      578x  closure NodeError
+   0.03 MB      357x  object BuiltinModule
+   0.03 MB       37x  native system / JSArrayBufferData
+   0.02 MB      479x  closure native_bind
+   0.02 MB      237x  object Generator
+   0.02 MB      551x  object Array

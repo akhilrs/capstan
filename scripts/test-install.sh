@@ -1,6 +1,6 @@
 #!/bin/sh
-# Smoke test for install.sh. Builds the release assets (npm run release --no-dash: the npm tarball and the
-# standalone binaries; cstan-dash scenarios use fake dashboards, so cargo is not needed) and runs every install scenario against temp HOME / CAPSTAN_HOME /
+# Smoke test for install.sh. Builds the release assets (npm run release --no-dash --no-front: the npm tarball and the
+# standalone binaries; the cstan-dash and cstan-front scenarios use fake programs, so cargo is not needed) and runs every install scenario against temp HOME / CAPSTAN_HOME /
 # CAPSTAN_BIN_DIR dirs, for the npm tarball path (--no-binary / --tarball) and the binary path
 # (--binary, or a release whose SHA256SUMS lists the binary). Release scenarios use file://, so curl.
 # The build needs network for npm's dependency fetch and the Node archives of the binaries.
@@ -54,7 +54,7 @@ if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ]; then
   RELEASE_DIR="$CAPSTAN_TEST_RELEASE_DIR"
 else
   RELEASE_DIR="$SANDBOX/release"
-  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release -- --no-dash >"$SANDBOX/release.log" 2>&1) || {
+  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release -- --no-dash --no-front >"$SANDBOX/release.log" 2>&1) || {
     cat "$SANDBOX/release.log"
     echo "npm run release failed" >&2
     exit 1
@@ -66,10 +66,17 @@ SUMS="$RELEASE_DIR/SHA256SUMS"
   echo "missing $TGZ or $SUMS" >&2
   exit 1
 }
+# A release built with the front end and cstan-dash lists them too; the scenarios below that copy only the tarball and the
+# binary use a SHA256SUMS without those entries (they have their own scenarios with fakes or the real files).
+mkdir -p "$SANDBOX/base"
+grep -v -e " cstan-dash-" -e " cstan-front-" "$SUMS" >"$SANDBOX/base/SHA256SUMS" || true
+SUMS="$SANDBOX/base/SHA256SUMS"
 SHA="$(awk -v a="capstan-controller-$VERSION.tgz" '{ n = $2; sub(/.*\//, "", n); if (n == a) print $1 }' "$SUMS")"
 
 # new_env <name>: fresh temp HOME/CAPSTAN_HOME/CAPSTAN_BIN_DIR under the sandbox.
 new_env() {
+  # The previous scenario is done: drop its install and release copies, which hold a 130 MB binary each.
+  [ -z "${E:-}" ] || rm -rf "$E"
   E="$SANDBOX/$1"
   mkdir -p "$E/home"
   export HOME="$E/home" CAPSTAN_HOME="$E/share" CAPSTAN_BIN_DIR="$E/bin"
@@ -325,6 +332,167 @@ else
   check_not "tampered release binary is refused" run_install --version "$VERSION"
   check "the previous release install survives the refusal" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
   check "--uninstall removes the release install" run_install --uninstall
+
+  # --- the native front end (cstan-front) beside the binary -------------------------------------------------------------
+  # Fake front ends stand in for the real one: a script that answers __front-version and otherwise hands over to
+  # cstan-node beside it, which is all the installer relies on.
+  FAKEFRONT="$SANDBOX/fake-front"
+  FRONTNAME="cstan-front-$VERSION-$HOST_PLATFORM"
+  mkdir -p "$FAKEFRONT/ok" "$FAKEFRONT/broken" "$FAKEFRONT/stale"
+  cat >"$FAKEFRONT/ok/$FRONTNAME" <<FAKE
+#!/bin/sh
+if [ "\${1:-}" = __front-version ]; then echo "cstan-front $VERSION"; exit 0; fi
+exec "\$(dirname "\$(readlink -f "\$0")")/cstan-node" "\$@"
+FAKE
+  printf '#!/bin/sh\nexit 1\n' >"$FAKEFRONT/broken/$FRONTNAME"
+  printf '#!/bin/sh\necho "cstan-front 9.9.9"\n' >"$FAKEFRONT/stale/$FRONTNAME"
+  chmod 755 "$FAKEFRONT"/*/"$FRONTNAME"
+  sha_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d ' ' -f 1; else shasum -a 256 "$1" | cut -d ' ' -f 1; fi
+  }
+  # front_release <env-name> <fake kind or none>: a fake release with the binary, the tarball and that front end.
+  front_release() {
+    no_node_env "$1"
+    FREL="$E/releases/download/v$VERSION"
+    mkdir -p "$FREL"
+    ln -s "$BIN" "$FREL/$BINNAME"
+    ln -s "$TGZ" "$FREL/capstan-controller-$VERSION.tgz"
+    grep -e "  $BINNAME\$" -e "  capstan-controller-$VERSION.tgz\$" "$SUMS" >"$FREL/SHA256SUMS"
+    if [ "$2" != none ]; then
+      cp "$FAKEFRONT/$2/$FRONTNAME" "$FREL/"
+      printf '%s  %s\n' "$(sha_of "$FREL/$FRONTNAME")" "$FRONTNAME" >>"$FREL/SHA256SUMS"
+    fi
+    export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  }
+  same_file() { cmp -s "$1" "$2"; }
+
+  front_release frontrel ok
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release with a front end installs"
+  else
+    fail "release with a front end installs"
+    cat "$E/out"
+  fi
+  check "the front end is verified against SHA256SUMS" contains "$E/out" "front end checksum verified"
+  check "bin/cstan is the front end" same_file "$CAPSTAN_HOME/current/bin/cstan" "$FAKEFRONT/ok/$FRONTNAME"
+  check "bin/cstan-node is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan-node" "$BIN"
+  check "the bin symlink points at current/bin/cstan" test "$(readlink "$CAPSTAN_BIN_DIR/cstan")" = "$CAPSTAN_HOME/current/bin/cstan"
+  check "cstan --version runs through the front end" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  check "the success report names the front end" contains "$E/out" "front end: "
+  check "no staging file is left in bin" test -z "$(ls "$CAPSTAN_HOME/current/bin" | grep -v '^cstan\(-node\)\?$' || true)"
+  check "--uninstall removes both" run_install --uninstall
+  check_not "uninstall leaves no current" test -e "$CAPSTAN_HOME/current"
+  check_not "uninstall leaves no symlink" test -e "$CAPSTAN_BIN_DIR/cstan"
+
+  # An upgrade from a v0.2.0-style install (the binary as bin/cstan) puts the front end in front of the binary.
+  front_release frontup ok
+  mkdir -p "$E/local"
+  cp "$BIN" "$E/local/"
+  check "a v0.2.0-style install (--no-front)" run_install --binary "$E/local/$BINNAME" --no-front
+  check_not "that install has no cstan-node" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+  check "its bin/cstan is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan" "$BIN"
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "upgrading from the binary-only layout exits 0"
+  else
+    fail "upgrading from the binary-only layout exits 0"
+    cat "$E/out"
+  fi
+  check "after the upgrade bin/cstan is the front end" same_file "$CAPSTAN_HOME/current/bin/cstan" "$FAKEFRONT/ok/$FRONTNAME"
+  check "after the upgrade bin/cstan-node is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan-node" "$BIN"
+  check "the upgraded cstan runs" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  check "downgrading to the binary alone with --no-front" run_install --version "$VERSION" --no-front
+  check_not "--no-front leaves no cstan-node" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+  check "--no-front bin/cstan is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan" "$BIN"
+  check_not "--front-binary with --no-front is refused" run_install --version "$VERSION" --no-front --front-binary "$FAKEFRONT/ok/$FRONTNAME"
+
+  # The real front end, when the release directory holds one (npm run build:cli -- --target <platform>).
+  if [ -f "$RELEASE_DIR/$FRONTNAME" ]; then
+    mkdir -p "$FAKEFRONT/real"
+    cp "$RELEASE_DIR/$FRONTNAME" "$FAKEFRONT/real/"
+    front_release frontreal real
+    if run_install --version "$VERSION" >"$E/out" 2>&1; then
+      pass "release with the real front end installs"
+    else
+      fail "release with the real front end installs"
+      cat "$E/out"
+    fi
+    check "the real front end is bin/cstan" same_file "$CAPSTAN_HOME/current/bin/cstan" "$RELEASE_DIR/$FRONTNAME"
+    check "the real front end's cstan-node is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan-node" "$BIN"
+    check "the real front end prints its version" test "$("$CAPSTAN_HOME/current/bin/cstan" __front-version)" = "cstan-front $VERSION"
+    check "cstan --version runs through the real front end" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+    check "--uninstall removes the real front-end install" run_install --uninstall
+  else
+    echo "skip real front end scenarios: no $FRONTNAME in $RELEASE_DIR"
+  fi
+
+  # A release without cstan-front installs the binary as bin/cstan, as before.
+  front_release frontnone none
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "release without a front end installs"
+  else
+    fail "release without a front end installs"
+    cat "$E/out"
+  fi
+  check "the missing front end is noted" contains "$E/out" "no cstan front end for $HOST_PLATFORM"
+  check "bin/cstan is the binary (no front end)" same_file "$CAPSTAN_HOME/current/bin/cstan" "$BIN"
+  check_not "no cstan-node without a front end" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+  check "cstan runs without a front end" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+
+  # A front end that does not run, or belongs to another release, falls back to the binary-only layout.
+  for kind in broken stale; do
+    front_release "front$kind" "$kind"
+    if run_install --version "$VERSION" >"$E/out" 2>&1; then
+      pass "a $kind front end does not fail the install"
+    else
+      fail "a $kind front end does not fail the install"
+      cat "$E/out"
+    fi
+    check "a $kind front end is reported" contains "$E/out" "installed the binary alone"
+    check "a $kind front end leaves the binary as bin/cstan" same_file "$CAPSTAN_HOME/current/bin/cstan" "$BIN"
+    check_not "a $kind front end leaves no cstan-node" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+    check_not "a $kind front end leaves no staging file" test -e "$CAPSTAN_HOME/current/bin/cstan-front.new"
+    check "cstan runs after a $kind front end" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  done
+
+  # A tampered front end is refused and the previous install stays.
+  front_release fronttamper ok
+  check "install before tampering" run_install --version "$VERSION"
+  printf 'tamper' >>"$FREL/$FRONTNAME"
+  check_not "a tampered front end is refused" run_install --version "$VERSION"
+  check "the previous install survives it" same_file "$CAPSTAN_HOME/current/bin/cstan-node" "$BIN"
+
+  # --no-front and --front-binary.
+  front_release frontopt ok
+  check "--no-front installs the binary alone" run_install --version "$VERSION" --no-front
+  check_not "--no-front leaves no cstan-node (release)" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+  mkdir -p "$E/local"
+  cp "$BIN" "$FAKEFRONT/ok/$FRONTNAME" "$E/local/"
+  printf '%s  %s\n' "$(sha_of "$E/local/$FRONTNAME")" "$FRONTNAME" >"$E/local/SHA256SUMS"
+  grep "  $BINNAME\$" "$SUMS" >>"$E/local/SHA256SUMS"
+  check "--front-binary installs the given front end" run_install --binary "$E/local/$BINNAME" --front-binary "$E/local/$FRONTNAME"
+  check "--front-binary puts it at bin/cstan" same_file "$CAPSTAN_HOME/current/bin/cstan" "$FAKEFRONT/ok/$FRONTNAME"
+  printf '%s  %s\n' "$BAD" "$FRONTNAME" >"$E/local/SHA256SUMS"
+  check_not "--front-binary failing its SHA256SUMS is refused" run_install --binary "$E/local/$BINNAME" --front-binary "$E/local/$FRONTNAME"
+  check_not "--front-binary with --tarball is refused" run_install --tarball "$TGZ" --front-binary "$E/local/$FRONTNAME"
+  check "--uninstall removes the front-end install" run_install --uninstall
+  check_not "uninstall removed cstan-node" test -e "$CAPSTAN_HOME/current/bin/cstan-node"
+
+  # An installer from v0.2.0 against a release that has a front end still installs a working binary-only cstan.
+  OLD_INSTALLER="$SANDBOX/install-v0.2.0.sh"
+  if (cd "$ROOT" && git show v0.2.0:install.sh >"$OLD_INSTALLER" 2>/dev/null); then
+    front_release frontold ok
+    if sh "$OLD_INSTALLER" --version "$VERSION" </dev/null >"$E/out" 2>&1; then
+      pass "the v0.2.0 installer against a release with a front end exits 0"
+    else
+      fail "the v0.2.0 installer against a release with a front end exits 0"
+      cat "$E/out"
+    fi
+    check "the old installer's bin/cstan is the binary" same_file "$CAPSTAN_HOME/current/bin/cstan" "$BIN"
+    check "the old installer's cstan runs" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
+  else
+    echo "skip old-installer scenario: tag v0.2.0 is not in this clone"
+  fi
+  unset CAPSTAN_RELEASE_BASE
 
   # A release without a binary for this machine keeps the tarball path (it needs node).
   new_env nobin

@@ -25,11 +25,12 @@ export function statusHandlers(
   return {
     status(call) {
       try {
+        const agents = core.listAgents();
         const { supervision: legacy, ...snapshot } =
           core.statusSnapshot() as unknown as Record<string, unknown>;
         const result: Record<string, unknown> = {
           ...snapshot,
-          agents: core.listAgents(),
+          agents,
           // The live loop's state; `legacySupervision` is the old control row, which nothing enables any more.
           supervisionState: {
             enabled: deps.config?.supervision?.enabled === true,
@@ -66,13 +67,13 @@ export function statusHandlers(
             call.credential,
           );
           result.messagesTruncated = unresolved.truncated;
-          const pm = core
-            .listAgents()
-            .find((a) => a.kind === "PM" && a.state === "active");
+          const pm = agents.find(
+            (a) => a.kind === "PM" && a.state === "active",
+          );
           result.pmMail = null;
           if (pm !== undefined) {
             const summary = pmMailSummary(
-              core.messagesFor(pm.agentId),
+              core.openMessagesFor(pm.agentId),
               now(),
               (deps.config?.notifications?.pmStaleMinutes ??
                 DEFAULT_PM_STALE_MINUTES) * 60,

@@ -5,6 +5,9 @@
 # Runs each binary in a mkdtemp HOME and a temp git repository with a PATH that holds only the
 # binary's directory plus /usr/bin:/bin and no node. Skips a target whose binary is missing or
 # cannot run on this machine (arm64 needs qemu-aarch64 binfmt). Exit code 0 means every check passed.
+# With the native front end (npm run build:cli -- --target linux-x64, release/cstan-front-<version>-<platform>, or
+# CSTAN_FRONT_SMOKE_BIN=<path>) each runnable binary is also run in the installed layout: the front end as bin/cstan and
+# the binary as bin/cstan-node. Without a front end the layout-less checks above are all there is, as before.
 # Usage: scripts/smoke-binary.sh [binary...]   (default: release/cstan-<version>-linux-{x64,arm64})
 set -eu
 
@@ -65,6 +68,41 @@ wait_gone() {
   return 1
 }
 
+# front_binary <binary name>: the front end to test with (CSTAN_FRONT_SMOKE_BIN, the release build for this binary's
+# platform, or the host build of rust/ for x64); prints its path, or nothing when none runs here.
+front_binary() {
+  plat="${1#cstan-"$VERSION"-}"
+  case "$plat" in linux-x64 | linux-arm64) ;; *) plat="" ;; esac
+  for candidate in "${CSTAN_FRONT_SMOKE_BIN:-}" "${plat:+$ROOT/release/cstan-front-$VERSION-$plat}" \
+    "$( [ "$plat" = linux-x64 ] && printf '%s' "$ROOT/rust/${CARGO_TARGET_DIR:-target}/release/cstan" || true )"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    can_run "$candidate" || continue
+    [ "$("$candidate" __front-version 2>/dev/null)" = "cstan-front $VERSION" ] && printf '%s\n' "$candidate" && return 0
+  done
+  return 0
+}
+
+# hold_listener <socket>: a unix socket that accepts connections and never answers, so an agent command that waits for the
+# daemon keeps running while its /proc entry is read. Prints the listener's pid; prints nothing without python3 or node.
+hold_listener() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1])
+s.listen(8)
+conns = []
+while True:
+    conns.append(s.accept()[0])
+' "$1" >/dev/null 2>&1 &
+  elif [ -n "$NODE_BIN" ]; then
+    "$NODE_BIN" -e 'const n=require("net");n.createServer(()=>{}).listen(process.argv[1])' "$1" >/dev/null 2>&1 &
+  else
+    return 0
+  fi
+  printf '%s\n' "$!"
+}
+
 # dash_binary: the cstan-dash to test with (CSTAN_DASH_SMOKE_BIN, the x64 release build, or the build:dash output);
 # prints its path, or nothing when none runs here.
 dash_binary() {
@@ -92,6 +130,115 @@ dash_session() {
   ) | timeout -s KILL 25 env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm \
     PATH="$1:/usr/bin:/bin" script -qec "stty rows 45 cols 160; echo \$\$ >'$pidfile'; exec cstan dash --no-color" /dev/null \
     >"$out" 2>&1 || true
+}
+
+# smoke_front <binary> <real path> <front end>: the installed layout with the front end, bin/cstan (front end) and
+# bin/cstan-node (the binary), in a fresh project. Agent commands run natively in the front end; everything else is handed to
+# cstan-node. Without Herdr there is no agent token, so the agent environment uses the operator key: the daemon refuses
+# send, inbox and ack, and the point is that the front end answers exactly as cstan-node does.
+smoke_front() {
+  FNAME="$(basename "$1")"
+  FBIN="$DIR/front/bin"
+  mkdir -p "$FBIN" "$DIR/front/repo"
+  cp "$3" "$FBIN/cstan"
+  cp "$2" "$FBIN/cstan-node"
+  chmod 755 "$FBIN/cstan" "$FBIN/cstan-node"
+  FRONT_REAL="$(readlink -f "$FBIN/cstan")"
+  NODE_REAL="$(readlink -f "$FBIN/cstan-node")"
+  f() {
+    env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm PATH="$FBIN:/usr/bin:/bin" "$@"
+  }
+  echo "== $FNAME with the front end"
+  (cd "$DIR/front/repo" &&
+    git init -q . &&
+    git -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m init)
+  cd "$DIR/front/repo"
+  GOT="$(f cstan --version 2>&1)" || true
+  [ "$GOT" = "cstan $VERSION" ] && pass "$FNAME: front: --version is $GOT" || fail "$FNAME: front: --version printed '$GOT'"
+  check "$FNAME: front: init" f cstan init
+  f cstan start >"$DIR/front.start.out" 2>&1 || true
+  grep -q "running: true" "$DIR/front.start.out" && pass "$FNAME: front: start" || fail "$FNAME: front: start ($(head -c 300 "$DIR/front.start.out"))"
+  FPID="$(cat .capstan/state/daemon.pid 2>/dev/null || true)"
+  DAEMON_PIDS="$DAEMON_PIDS $FPID"
+  if [ -n "$FPID" ] && [ "$(readlink -f "/proc/$FPID/exe" 2>/dev/null)" = "$NODE_REAL" ]; then
+    pass "$FNAME: front: the daemon pid $FPID runs cstan-node"
+  else
+    fail "$FNAME: front: the daemon pid '$FPID' is not cstan-node"
+  fi
+
+  # The agent environment: the front end and cstan-node must answer alike, byte for byte, exit code included.
+  KEY="$(cat .capstan/operator.key 2>/dev/null || true)"
+  SOCK="$DIR/front/repo/.capstan/state/control.sock"
+  a() { f env CAPSTAN_TOKEN="$KEY" CAPSTAN_SOCKET="$SOCK" "$@"; }
+  for line in "ping" "status" "send pm hello" "inbox pm" "ack 00000000-0000-0000-0000-000000000000"; do
+    # shellcheck disable=SC2086
+    a cstan $line >"$DIR/front.a.out" 2>"$DIR/front.a.err" && RC1=0 || RC1=$?
+    # shellcheck disable=SC2086
+    a cstan-node $line >"$DIR/front.b.out" 2>"$DIR/front.b.err" && RC2=0 || RC2=$?
+    if [ "$RC1" = "$RC2" ] && cmp -s "$DIR/front.a.out" "$DIR/front.b.out" && cmp -s "$DIR/front.a.err" "$DIR/front.b.err"; then
+      pass "$FNAME: front: agent-env '$line' answers like cstan-node (exit $RC1)"
+    else
+      fail "$FNAME: front: agent-env '$line' differs from cstan-node (exit $RC1 vs $RC2; $(head -c 200 "$DIR/front.a.err") / $(head -c 200 "$DIR/front.b.err"))"
+    fi
+  done
+  OUT="$(f cstan inbox --hook 2>&1)" && RC=0 || RC=$?
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "$FNAME: front: inbox --hook silent, exit 0" || fail "$FNAME: front: inbox --hook rc=$RC output '$OUT'"
+
+  # An agent command that waits keeps running: its executable is the front end, not cstan-node.
+  HOLD="$DIR/hold.sock"
+  LPID="$(hold_listener "$HOLD")"
+  if [ -z "$LPID" ]; then
+    echo "skip $FNAME: front: held agent command (no python3 or node for a listener)"
+  else
+    i=0
+    while [ "$i" -lt 50 ] && [ ! -S "$HOLD" ]; do sleep 0.1; i=$((i + 1)); done
+    # Run outside the project: a socket that is not the project's is refused as foreign there.
+    (cd "$DIR" && exec env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$FBIN:/usr/bin:/bin" CAPSTAN_TOKEN="$KEY" CAPSTAN_SOCKET="$HOLD" \
+      cstan wait >/dev/null 2>&1) &
+    WPID=$!
+    sleep 1
+    WEXE="$(readlink -f "/proc/$WPID/exe" 2>/dev/null || true)"
+    [ "$WEXE" = "$FRONT_REAL" ] && pass "$FNAME: front: /proc/$WPID/exe of an agent-env wait is the front end" ||
+      fail "$FNAME: front: an agent-env wait runs '$WEXE'"
+    kill "$WPID" 2>/dev/null || true
+    kill "$LPID" 2>/dev/null || true
+    wait "$WPID" 2>/dev/null || true
+  fi
+
+  # The wrapper the launcher writes for agents execs the front end when one sits beside the binary.
+  if [ -n "$NODE_BIN" ] && [ -f "$ROOT/dist/src/launcher/shared.js" ]; then
+    SCRIPT="$("$NODE_BIN" --input-type=module -e '
+      const { cstanWrapperScript } = await import(process.argv[1]);
+      process.stdout.write(cstanWrapperScript("/n", "/c.js", { env: {}, sea: true, execPath: process.argv[2] }));
+    ' "$ROOT/dist/src/launcher/shared.js" "$FBIN/cstan-node" 2>/dev/null)" || SCRIPT=""
+    case "$SCRIPT" in
+      *"exec '$FBIN/cstan' \"\$@\""*) pass "$FNAME: front: the agent wrapper execs the front end" ;;
+      *) fail "$FNAME: front: the agent wrapper is '$SCRIPT'" ;;
+    esac
+  else
+    echo "skip $FNAME: front: wrapper script (no node or dist/ build)"
+  fi
+
+  # cstan dash still becomes cstan-dash when it sits beside the pair.
+  if command -v script >/dev/null 2>&1; then
+    DASHBIN="$(dash_binary)"
+    if [ -z "$DASHBIN" ] || [ "$(uname -m)" != x86_64 ]; then
+      echo "skip $FNAME: front: rust dash (no runnable x86-64 cstan-dash)"
+    else
+      cp "$DASHBIN" "$FBIN/cstan-dash"
+      dash_session "$FBIN" front
+      EXE="$(cat "$DIR/dash.front.exe" 2>/dev/null || true)"
+      [ "$(basename "$EXE")" = cstan-dash ] && pass "$FNAME: front: cstan dash becomes cstan-dash" ||
+        fail "$FNAME: front: cstan dash runs '$EXE'"
+      rm -f "$FBIN/cstan-dash"
+    fi
+  fi
+
+  ERR="$(f cstan status 2>&1 >/dev/null)" || true
+  [ -z "$ERR" ] && pass "$FNAME: front: nothing on stderr" || fail "$FNAME: front: stderr '$ERR'"
+  check "$FNAME: front: stop" f cstan stop
+  if [ -n "$FPID" ] && wait_gone "$FPID"; then pass "$FNAME: front: daemon pid gone"; else fail "$FNAME: front: daemon pid $FPID still alive"; fi
+  cd "$DIR"
 }
 
 smoke() {
@@ -247,6 +394,12 @@ smoke() {
     (cd "$DIR/repo2" && c cstan stop >/dev/null 2>&1) || true
   else
     echo "skip $NAME: ledger compatibility (no node or dist/ build)"
+  fi
+  FRONT="$(front_binary "$NAME")"
+  if [ -n "$FRONT" ]; then
+    smoke_front "$BINARY" "$REAL" "$FRONT"
+  else
+    echo "skip $NAME: front end (build it with npm run build:cli -- --target linux-x64, or set CSTAN_FRONT_SMOKE_BIN)"
   fi
   cd "$ROOT"
 }

@@ -739,20 +739,30 @@ export class FindingsArea {
       )
       .get(this.kernel.projectId) as
       { agent_id: string; state: string } | undefined;
-    const check = this.kernel.database
+    // Newest check first: SQLite walks messages from the newest and stops at the first one that is a check, which is
+    // quick while checks are recent. With no check at all it would read every message, so that case is answered first.
+    const anyCheck = this.kernel.database
       .prepare(
-        `SELECT m.message_id, m.state, m.queued_at, m.acked_at
-         FROM supervision_checks c JOIN messages m ON m.project_id = c.project_id AND m.message_id = c.message_id
-         WHERE c.project_id = ? ORDER BY m.sequence DESC LIMIT 1`,
+        "SELECT 1 AS present FROM supervision_checks WHERE project_id = ? LIMIT 1",
       )
-      .get(this.kernel.projectId) as
-      | {
-          message_id: string;
-          state: string;
-          queued_at: string;
-          acked_at: string | null;
-        }
-      | undefined;
+      .get(this.kernel.projectId);
+    const check =
+      anyCheck === undefined
+        ? undefined
+        : (this.kernel.database
+            .prepare(
+              `SELECT m.message_id, m.state, m.queued_at, m.acked_at
+               FROM supervision_checks c JOIN messages m ON m.project_id = c.project_id AND m.message_id = c.message_id
+               WHERE c.project_id = ? ORDER BY m.sequence DESC LIMIT 1`,
+            )
+            .get(this.kernel.projectId) as
+            | {
+                message_id: string;
+                state: string;
+                queued_at: string;
+                acked_at: string | null;
+              }
+            | undefined);
     const open = this.kernel.database
       .prepare(
         "SELECT COUNT(*) AS n FROM agent_findings WHERE project_id = ? AND state = 'open'",

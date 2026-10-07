@@ -1,0 +1,67 @@
+total sampled 634.9s
+ 97.6%   619951ms  (idle) :0
+  1.2%     7634ms  all src/controller/sqlite.js:68
+  0.3%     1993ms  writeHeapSnapshot node:v8:84
+  0.2%     1104ms  get src/controller/sqlite.js:64
+  0.1%      491ms  spawnSync node:internal/child_process:1105
+  0.1%      487ms  spawn node:internal/child_process:355
+  0.1%      418ms  (anon) src/controller/message-notices.js:465
+  0.1%      381ms  (anon) src/controller/sqlite.js:71
+  0.1%      335ms  (garbage collector) :0
+  0.0%      303ms  authenticateActor src/controller/auth.js:35
+  0.0%      191ms  (program) :0
+  0.0%      157ms  lstat :0
+  0.0%       95ms  exec src/controller/sqlite.js:103
+  0.0%       60ms  close src/controller/sqlite.js:142
+  0.0%       59ms  pauseState src/controller/pauses.js:124
+  0.0%       53ms  evaluateMessaging src/controller/messaging.js:159
+  0.0%       52ms  run src/controller/sqlite.js:57
+  0.0%       45ms  prepare src/controller/sqlite.js:90
+  0.0%       43ms  compileSourceTextModule node:internal/modules/esm/utils:355
+  0.0%       36ms  openMessageRowsFor src/controller/messages.js:554
+  0.0%       35ms  update node:internal/crypto/hash:134
+  0.0%       31ms  Hash node:internal/crypto/hash:90
+  0.0%       31ms  readFileUtf8 :0
+  0.0%       27ms  assertHeld src/controller/ownership.js:130
+  0.0%       25ms  #judgeStale src/driver.js:469
+
+inclusive (capstan frames):
+  1.3%  all src/controller/sqlite.js:68
+  0.8%  tick src/reports.js:65
+  0.5%  #tick src/driver.js:162
+  0.4%  unannouncedReviews src/controller/core.js:309
+  0.4%  unannouncedReviews src/controller/reviews.js:322
+  0.4%  #advance src/driver.js:331
+  0.4%  mutate src/controller/kernel.js:61
+  0.4%  #notifyHead src/driver.js:530
+  0.4%  messageMutation src/controller/messages.js:597
+  0.4%  recordNotification src/controller/core.js:644
+  0.4%  recordNotification src/controller/message-notices.js:44
+  0.4%  advanceMessaging src/controller/core.js:662
+  0.4%  advanceMessaging src/controller/message-notices.js:119
+  0.3%  (anon) src/controller/message-notices.js:46
+  0.3%  messageRowsFor src/controller/messages.js:549
+  0.2%  #evaluateMessaging src/controller/message-notices.js:432
+  0.2%  get src/controller/sqlite.js:64
+  0.2%  (anon) src/controller/message-notices.js:465
+  0.2%  unannouncedReports src/controller/core.js:281
+  0.2%  unannouncedReports src/controller/reports.js:177
+  0.1%  authorize src/controller/kernel.js:170
+  0.1%  releaseResources src/launcher/release.js:191
+  0.1%  authenticateActor src/controller/auth.js:35
+  0.1%  hasStoredRequest src/controller/kernel.js:177
+  0.1%  unannouncedPlanNotices src/controller/core.js:358
+
+busy 14.9s of 634.9s sampled (2.4%); share of busy self time by owner:
+ 33.3%    0.8% of wall  report relay tick
+ 21.2%    0.5% of wall  driver tick
+ 14.1%    0.3% of wall  other: all src/controller/sqlite.js
+ 13.3%    0.3% of wall  other: writeHeapSnapshot node:v8
+  7.1%    0.2% of wall  startup recovery (adopt, release, integrations, reviews)
+  2.2%    0.1% of wall  other: (garbage collector) 
+  1.5%    0.0% of wall  other: spawn node:internal/child_process
+  1.3%    0.0% of wall  other: (program) 
+  0.7%    0.0% of wall  supervision tick
+  0.5%    0.0% of wall  other: (anon) src/controller/sqlite.js
+  0.5%    0.0% of wall  other: exec src/controller/sqlite.js
+  0.4%    0.0% of wall  other: close src/controller/sqlite.js

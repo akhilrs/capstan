@@ -1,0 +1,14 @@
+# new-protocol 2026-10-07T17:44:36+05:30 dist=/tmp/capstan-prof/dist-new node=v24.6.0
+status n=200 p50=23.8ms p95=28.2ms max=34.4ms
+idle:
+cpu run 1: 0.7% of one core over 60s
+cpu run 2: 0.8% of one core over 60s
+cpu run 3: 0.7% of one core over 60s
+under status 0.9/s:
+cpu run 1: 3.2% of one core over 60s
+cpu run 2: 3.0% of one core over 60s
+cpu run 3: 3.1% of one core over 60s
+replay 0.9/s 340s n=305 p50=25.8ms p95=32.3ms max=53.4ms failed=0
+VmRSS: 105044 kB
+RssAnon: 51816 kB
+RssFile: 53228 kB

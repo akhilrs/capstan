@@ -1,0 +1,5 @@
+1625 KB allocated per status call (100 calls, sampled)
+ 51.3%     834 KB  all controller/sqlite.js:74
+  7.5%     122 KB  (anon) client.js:40
+  7.5%     121 KB  handleWriteReq node:internal/stream_base_commons:46
+  7.5%     121 KB  decode node:internal/encoding:440

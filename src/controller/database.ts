@@ -239,6 +239,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  36: {
+    version: 36,
+    name: "0036_daemon_profile_indexes.sql",
+    url: new URL(
+      "../../migrations/0036_daemon_profile_indexes.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 /** The highest migration version this build knows. */

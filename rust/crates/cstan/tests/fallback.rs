@@ -7,8 +7,25 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::RwLock;
 
 const FRONT: &str = env!("CARGO_BIN_EXE_cstan");
+
+/// Writing an executable while another test thread forks leaves the fork's child holding the write descriptor until it
+/// execs, so exec'ing the file fails with ETXTBSY ("Text file busy"). Writers of executables hold this lock for
+/// writing, and every spawn from the tests holds it for reading, so a fork never overlaps an open write descriptor.
+static FORK_GUARD: RwLock<()> = RwLock::new(());
+
+fn write_executable(path: &Path, contents: &str) {
+    let _guard = FORK_GUARD.write().unwrap_or_else(|e| e.into_inner());
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn copy_executable(from: &Path, to: &Path) {
+    let _guard = FORK_GUARD.write().unwrap_or_else(|e| e.into_inner());
+    std::fs::copy(from, to).unwrap();
+}
 
 struct Scratch(PathBuf);
 
@@ -34,7 +51,7 @@ impl Drop for Scratch {
 /// A Node stand-in: records argc, argv (NUL separated), the environment and stdin under `$STUB_OUT`, then exits with
 /// `$STUB_EXIT` or kills itself with `$STUB_SIGNAL`.
 fn write_stub(path: &Path) {
-    std::fs::write(
+    write_executable(
         path,
         "#!/bin/sh\n\
          printf '%s\\n' \"$#\" > \"$STUB_OUT.argc\"\n\
@@ -43,9 +60,7 @@ fn write_stub(path: &Path) {
          cat > \"$STUB_OUT.stdin\"\n\
          [ -n \"$STUB_SIGNAL\" ] && kill -s \"$STUB_SIGNAL\" $$\n\
          exit \"${STUB_EXIT:-0}\"\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
 }
 
 struct Run {
@@ -65,7 +80,10 @@ fn run(front: &Path, args: &[OsString], env: &[(&str, OsString)], stdin: &[u8], 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().unwrap();
+    let mut child = {
+        let _guard = FORK_GUARD.read().unwrap_or_else(|e| e.into_inner());
+        command.spawn().unwrap()
+    };
     child.stdin.take().unwrap().write_all(stdin).unwrap();
     let output = child.wait_with_output().unwrap();
     Run {
@@ -338,7 +356,7 @@ fn node_is_found_beside_the_front_end_and_never_loops() {
     let scratch = Scratch::new("resolve");
     let bin = scratch.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::copy(FRONT, bin.join("cstan")).unwrap();
+    copy_executable(Path::new(FRONT), &bin.join("cstan"));
     let out = scratch.path().join("o");
     let base = [
         ("STUB_OUT", out.clone().into_os_string()),
@@ -417,12 +435,10 @@ fn node_is_found_beside_the_front_end_and_never_loops() {
 fn a_js_file_runs_under_node_from_cstan_node_or_the_path() {
     let scratch = Scratch::new("script");
     let fake_node = scratch.path().join("fake-node");
-    std::fs::write(
+    write_executable(
         &fake_node,
         "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$STUB_OUT.argv\"\nexit 6\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&fake_node, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let cli = scratch.path().join("cli.js");
     std::fs::write(&cli, "").unwrap();
     let out = scratch.path().join("o");
@@ -455,7 +471,7 @@ fn a_js_file_runs_under_node_from_cstan_node_or_the_path() {
     // Without CSTAN_NODE the first `node` on PATH is used.
     let path_dir = scratch.path().join("pathdir");
     std::fs::create_dir_all(&path_dir).unwrap();
-    std::fs::copy(&fake_node, path_dir.join("node")).unwrap();
+    copy_executable(&fake_node, &path_dir.join("node"));
     let env = [
         ("CSTAN_NODE_CLI", cli.clone().into_os_string()),
         ("STUB_OUT", out.clone().into_os_string()),
@@ -471,6 +487,7 @@ fn a_js_file_runs_under_node_from_cstan_node_or_the_path() {
 
 #[test]
 fn the_front_version_is_printed_for_the_installer() {
+    let _guard = FORK_GUARD.read().unwrap_or_else(|e| e.into_inner());
     let result = Command::new(FRONT)
         .arg("__front-version")
         .env_clear()

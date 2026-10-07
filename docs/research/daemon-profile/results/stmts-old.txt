@@ -1,0 +1,59 @@
+agents 505, active PM 1
+
+## report relay tick, first pass (what a restarted daemon pays once): 157.6 ms wall, 50 statements, 155.2 ms in SQL
+   145.5 ms    40x  SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?
+     4.5 ms     1x  SELECT * FROM reviews WHERE project_id = ? AND state IN ('passed', 'findings') AND notified_message_id IS NULL ORDER BY sequence LIMIT ?
+     2.4 ms     1x  SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at FROM agents WHERE project_id = ? ORDER BY agent_id
+     1.5 ms     1x  SELECT * FROM agent_reports WHERE project_id = ? AND state = 'accepted' AND notified_message_id IS NULL ORDER BY sequence LIMIT ?
+     0.7 ms     4x  SELECT a.actor_id, a.project_id, a.role, a.seat_id, rc.capability FROM actors a JOIN capability_grants cg ON cg.project_id = a.project_id AND cg.actor
+     0.3 ms     1x  SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence
+     0.2 ms     1x  SELECT s.plan_id, s.integration_id FROM plan_signoffs s JOIN plans p ON p.project_id = s.project_id AND p.plan_id = s.plan_id WHERE s.project_id = ? A
+     0.1 ms     1x  SELECT * FROM agent_finding_notices WHERE project_id = ? AND message_id IS NULL ORDER BY sequence LIMIT ?
+
+## report relay tick, steady state (every 2 s): 146.1 ms wall, 50 statements, 145.2 ms in SQL
+   135.0 ms    40x  SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?
+     4.3 ms     1x  SELECT * FROM reviews WHERE project_id = ? AND state IN ('passed', 'findings') AND notified_message_id IS NULL ORDER BY sequence LIMIT ?
+     3.4 ms     1x  SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at FROM agents WHERE project_id = ? ORDER BY agent_id
+     1.3 ms     1x  SELECT * FROM agent_reports WHERE project_id = ? AND state = 'accepted' AND notified_message_id IS NULL ORDER BY sequence LIMIT ?
+     0.7 ms     4x  SELECT a.actor_id, a.project_id, a.role, a.seat_id, rc.capability FROM actors a JOIN capability_grants cg ON cg.project_id = a.project_id AND cg.actor
+     0.3 ms     1x  SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence
+     0.2 ms     1x  SELECT s.plan_id, s.integration_id FROM plan_signoffs s JOIN plans p ON p.project_id = s.project_id AND p.plan_id = s.plan_id WHERE s.project_id = ? A
+     0.2 ms     1x  SELECT * FROM agent_finding_notices WHERE project_id = ? AND message_id IS NULL ORDER BY sequence LIMIT ?
+
+## driver tick, first pass (also applies the transitions that are due): 224.7 ms wall, 96 statements, 210.5 ms in SQL
+    84.9 ms     2x  SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id AND c.deferral_count = m.de
+    70.1 ms     2x  SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence
+    42.5 ms     1x  SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id WHERE m.project_id = ? AND a.state = 'ac
+     4.0 ms     1x  SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at FROM agents WHERE project_id = ? ORDER BY agent_id
+     3.2 ms    12x  SELECT started_at, ended_at FROM agent_waits WHERE project_id = ? AND agent_id = ? AND (ended_at IS NULL OR ended_at >= ?)
+     1.1 ms     2x  SELECT message_id, COUNT(*) AS n, MAX(sent_at) AS last FROM pm_wakes WHERE project_id = ? GROUP BY message_id
+     0.7 ms    12x  SELECT herdr_state, observed_at FROM agent_state_history WHERE project_id = ? AND agent_id = ? AND observed_at >= ? ORDER BY sequence
+     0.6 ms     3x  SELECT a.actor_id, a.project_id, a.role, a.seat_id, rc.capability FROM actors a JOIN capability_grants cg ON cg.project_id = a.project_id AND cg.actor
+     0.5 ms    18x  SELECT MAX(resumed_at) AS at FROM pauses WHERE project_id = ? AND resumed_at IS NOT NULL AND (scope = 'run' OR agent_id = ?)
+     0.4 ms     2x  SELECT agent_id, kind, last_activity_at FROM agents WHERE project_id = ? AND state = 'active'
+
+## driver tick, steady state (every 2 s): 160.9 ms wall, 45 statements, 159.0 ms in SQL
+    63.8 ms     2x  SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence
+    44.4 ms     1x  SELECT m.*, EXISTS (SELECT 1 FROM message_input_clears c WHERE c.project_id = m.project_id AND c.message_id = m.message_id AND c.deferral_count = m.de
+    43.3 ms     1x  SELECT m.* FROM messages m JOIN agents a ON a.project_id = m.project_id AND a.agent_id = m.recipient_agent_id WHERE m.project_id = ? AND a.state = 'ac
+     3.1 ms     1x  SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at FROM agents WHERE project_id = ? ORDER BY agent_id
+     1.7 ms     6x  SELECT started_at, ended_at FROM agent_waits WHERE project_id = ? AND agent_id = ? AND (ended_at IS NULL OR ended_at >= ?)
+     0.4 ms     1x  SELECT message_id, COUNT(*) AS n, MAX(sent_at) AS last FROM pm_wakes WHERE project_id = ? GROUP BY message_id
+     0.4 ms     6x  SELECT herdr_state, observed_at FROM agent_state_history WHERE project_id = ? AND agent_id = ? AND observed_at >= ? ORDER BY sequence
+     0.4 ms     2x  SELECT a.actor_id, a.project_id, a.role, a.seat_id, rc.capability FROM actors a JOIN capability_grants cg ON cg.project_id = a.project_id AND cg.actor
+     0.4 ms     9x  SELECT MAX(resumed_at) AS at FROM pauses WHERE project_id = ? AND resumed_at IS NOT NULL AND (scope = 'run' OR agent_id = ?)
+     0.3 ms     1x  SELECT agent_id, kind, last_activity_at FROM agents WHERE project_id = ? AND state = 'active'
+
+## status command (over the socket): 136.2 ms wall, 307 statements, 125.8 ms in SQL
+    36.6 ms     1x  SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence
+    27.4 ms    72x  SELECT r.report_id FROM agent_reports r JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation WHERE
+    17.9 ms     6x  SELECT state FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings') ORDER BY sequence DESC LIMIT 1
+    10.7 ms     1x  SELECT json_extract(e.payload_json, '$.details.reason') AS reason FROM supervision_control c LEFT JOIN controller_events e ON e.project_id = c.project
+    10.7 ms     1x  SELECT * FROM messages WHERE project_id = ? AND state NOT IN ('acked', 'acked_late', 'cancelled') ORDER BY (last_notified_at IS NULL), sequence LIMIT 
+     6.2 ms     2x  SELECT agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at FROM agents WHERE project_id = ? ORDER BY agent_id
+     3.0 ms    68x  SELECT 1 AS present FROM integration_reports ir JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id WHERE ir.
+     2.0 ms    12x  SELECT a.actor_id, a.project_id, a.role, a.seat_id, rc.capability FROM actors a JOIN capability_grants cg ON cg.project_id = a.project_id AND cg.actor
+     1.9 ms    20x  SELECT r.* FROM integration_reports ir JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id WHERE ir.project_id = ? AND
+     1.4 ms    25x  SELECT * FROM plan_packages WHERE project_id = ? AND plan_id = ? ORDER BY package_id
+
+status latency in-process n=30 p50=121.6ms p95=127.9ms

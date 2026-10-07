@@ -161,6 +161,12 @@ export class AgentsArea {
     return this.kernel.agentRecords();
   }
 
+  /** The agents whose state is active, ordered by agent id: `listAgents()` without the history of ended ones. */
+  activeAgents(): readonly AgentRecord[] {
+    this.kernel.assertOpen();
+    return this.kernel.agentRecords(true);
+  }
+
   agentRecord(agentId: string): AgentRecord | undefined {
     this.kernel.assertOpen();
     return this.kernel.agentRecord(agentId);

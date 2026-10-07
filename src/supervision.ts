@@ -45,9 +45,7 @@ export function startSupervision(options: {
       stopped
     )
       return;
-    const agents = options.core
-      .listAgents()
-      .filter((agent) => agent.state === "active");
+    const agents = options.core.activeAgents();
     if (agents.filter((agent) => agent.kind === "PM").length !== 1) return;
     const workers = agents.filter(
       (agent) => agent.kind === "Developer" || agent.kind === "Verifier",

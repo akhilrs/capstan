@@ -1,0 +1,14 @@
+# base-protocol 2026-10-07T16:33:36+05:30 dist=/tmp/capstan-prof/dist-base node=v24.6.0
+status n=200 p50=134.5ms p95=473.1ms max=493.0ms
+idle:
+cpu run 1: 16.1% of one core over 60s
+cpu run 2: 15.7% of one core over 60s
+cpu run 3: 16.5% of one core over 60s
+under status 0.9/s:
+cpu run 1: 29.1% of one core over 60s
+cpu run 2: 26.2% of one core over 60s
+cpu run 3: 26.7% of one core over 60s
+replay 0.9/s 312s n=280 p50=280.1ms p95=981.5ms max=1534.5ms failed=0
+VmRSS: 219028 kB
+RssAnon: 165840 kB
+RssFile: 53188 kB
