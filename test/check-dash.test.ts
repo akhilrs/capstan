@@ -66,7 +66,7 @@ test("CSTAN_SKIP_DASH_CHECK=1 turns the missing cargo into a loud skip", () => {
   });
 });
 
-test("cargo under $HOME/.cargo/bin is found when PATH lacks it and runs fmt, clippy and test", () => {
+test("cargo under $HOME/.cargo/bin is found when PATH lacks it and runs fmt, clippy and test in dash/ and rust/ and builds rust/ for release", () => {
   withHome((home) => {
     const log = path.join(home, "calls.log");
     fakeCargo(path.join(home, ".cargo", "bin"), log);
@@ -76,8 +76,26 @@ test("cargo under $HOME/.cargo/bin is found when PATH lacks it and runs fmt, cli
       "fmt --check",
       "clippy --all-targets --locked -- -D warnings",
       "test --locked",
+      "fmt --check",
+      "clippy --all-targets --locked -- -D warnings",
+      "test --locked",
+      "build --release --locked",
     ]);
   });
+});
+
+test("dash/ and rust/ have the same toolchain file", () => {
+  const read = (directory: string) =>
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "..",
+        "..",
+        directory,
+        "rust-toolchain.toml",
+      ),
+    );
+  assert.ok(read("dash").equals(read("rust")));
 });
 
 test("a failing cargo step stops the check with its status", () => {

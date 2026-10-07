@@ -8,6 +8,7 @@ coverage/
 *.db
 /release/
 /dash/target/
+/rust/target/
 .nexora.toml
 .nexora.toml~
 

@@ -1,17 +1,16 @@
 //! The operator socket: one connection per call, one JSON line each way.
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use serde_json::{json, Value};
+use capstan_wire::{AfterSend, Timeout, WireError};
+use serde_json::Value;
 
 use crate::model::{to_wire_call, DashAction};
 use crate::view::Link;
 
-pub const MAX_FRAME_BYTES: usize = 65_536;
-pub const MAX_RESPONSE_BYTES: usize = 1_048_576;
-pub const TIMEOUT: Duration = Duration::from_secs(5);
+pub const MAX_FRAME_BYTES: usize = capstan_wire::MAX_FRAME_BYTES;
+pub const MAX_RESPONSE_BYTES: usize = capstan_wire::MAX_RESPONSE_BYTES;
+pub const TIMEOUT: Duration = capstan_wire::DEFAULT_TIMEOUT;
 
 /// Why a call produced no daemon answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,46 +67,14 @@ impl Client {
 
     /// One request on a fresh connection.
     pub fn call(&self, command: &str, args: &[String]) -> Result<Response, ClientError> {
-        let frame =
-            json!({"v": 1, "credential": self.credential, "command": command, "args": args})
-                .to_string();
-        if frame.len() > MAX_FRAME_BYTES {
-            return Err(ClientError::RequestTooLarge);
-        }
-        let deadline = Instant::now() + self.timeout;
-        let mut stream = UnixStream::connect(&self.socket).map_err(|_| ClientError::Unreachable)?;
-        stream
-            .set_write_timeout(Some(self.timeout))
-            .map_err(|_| ClientError::Unreachable)?;
-        stream
-            .write_all(frame.as_bytes())
-            .and_then(|()| stream.write_all(b"\n"))
-            .map_err(|_| ClientError::Unreachable)?;
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut chunk = [0u8; 16 * 1024];
-        let newline = loop {
-            if let Some(at) = bytes.iter().position(|b| *b == b'\n') {
-                break at;
-            }
-            if bytes.len() > MAX_RESPONSE_BYTES {
-                return Err(ClientError::TooLarge);
-            }
-            let left = deadline
-                .checked_duration_since(Instant::now())
-                .filter(|d| !d.is_zero())
-                .ok_or(ClientError::Unreachable)?;
-            stream
-                .set_read_timeout(Some(left))
-                .map_err(|_| ClientError::Unreachable)?;
-            match stream.read(&mut chunk) {
-                Ok(0) | Err(_) => return Err(ClientError::Unreachable),
-                Ok(n) => bytes.extend_from_slice(&chunk[..n]),
-            }
-        };
-        if newline > MAX_RESPONSE_BYTES {
-            return Err(ClientError::TooLarge);
-        }
-        parse_response(&bytes[..newline])
+        let frame = capstan_wire::frame(&self.credential, command, args)
+            .map_err(|_| ClientError::RequestTooLarge)?;
+        let line = capstan_wire::call(&self.socket, &frame, Timeout::Deadline(self.timeout))
+            .map_err(|error| match error {
+                WireError::AfterSend(AfterSend::TooLarge) => ClientError::TooLarge,
+                _ => ClientError::Unreachable,
+            })?;
+        parse_response(&line)
     }
 
     /// The operator `status` result; any refusal is "unreachable" for the link.
