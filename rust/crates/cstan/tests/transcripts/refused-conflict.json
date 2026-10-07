@@ -1,0 +1,38 @@
+{
+  "name": "refused-conflict",
+  "argv": [
+    "report",
+    "abc",
+    "s"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":false,\"code\":\"conflict\",\"message\":\"state changed; try again\"}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"report\",\"args\":[\"abc\",\"s\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: conflict: state changed; try again\n",
+    "exit": 4
+  }
+}

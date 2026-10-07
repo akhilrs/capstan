@@ -1,0 +1,38 @@
+{
+  "name": "refused-invalid-request",
+  "argv": [
+    "send",
+    "pm-1",
+    "x"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"args must be at most 64 non-empty strings\"}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"send\",\"args\":[\"pm-1\",\"x\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: args must be at most 64 non-empty strings\n",
+    "exit": 3
+  }
+}

@@ -1,4 +1,6 @@
 /** Constants, types and the error shared by the launcher and its collaborators. */
+import fs from "node:fs";
+import path from "node:path";
 import type { CapstanConfig } from "../config/capstan-config.js";
 import type { ControllerCore } from "../controller/core.js";
 import { shellQuote, type HerdrAdapter } from "../herdr/adapter.js";
@@ -80,9 +82,67 @@ export function selfInvocation(node: string, cliPath: string): string {
   return `${shellQuote(node)} ${shellQuote(cliPath)}`;
 }
 
-/** The per-agent `cstan` wrapper script put first on every agent's PATH. */
-export function cstanWrapperScript(node: string, cliPath: string): string {
-  return `#!/bin/sh\nexec ${selfInvocation(node, cliPath)} "$@"\n`;
+function executableFile(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function realOrSelf(file: string): string {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
+
+/** Where the process runs, for `frontEndPath`; tests pass their own. */
+export interface FrontEndSite {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly execPath?: string;
+  readonly sea?: boolean;
+}
+
+/**
+ * The native front end an agent's `cstan` should start, or undefined for the plain Node CLI: `CSTAN_FRONT_END` when it
+ * names an absolute executable file, else under SEA a `cstan` beside the binary that is not the binary itself.
+ */
+export function frontEndPath(site: FrontEndSite = {}): string | undefined {
+  const env = site.env ?? process.env;
+  const execPath = site.execPath ?? process.execPath;
+  const configured = env.CSTAN_FRONT_END;
+  if (configured !== undefined && configured !== "")
+    return path.isAbsolute(configured) && executableFile(configured)
+      ? configured
+      : undefined;
+  if (!(site.sea ?? isSea())) return undefined;
+  const sibling = path.join(path.dirname(execPath), "cstan");
+  return executableFile(sibling) && realOrSelf(sibling) !== realOrSelf(execPath)
+    ? sibling
+    : undefined;
+}
+
+/**
+ * The per-agent `cstan` wrapper script put first on every agent's PATH. With a front end it starts that and tells it where
+ * the Node CLI is (`CSTAN_NODE_CLI`, and `CSTAN_NODE` for a CLI file); without one it runs the Node CLI itself.
+ */
+export function cstanWrapperScript(
+  node: string,
+  cliPath: string,
+  site: FrontEndSite = {},
+): string {
+  const front = frontEndPath(site);
+  const sea = site.sea ?? isSea();
+  const execPath = site.execPath ?? process.execPath;
+  if (front === undefined)
+    return `#!/bin/sh\nexec ${sea ? shellQuote(execPath) : `${shellQuote(node)} ${shellQuote(cliPath)}`} "$@"\n`;
+  const environment = sea
+    ? `CSTAN_NODE_CLI=${shellQuote(execPath)}`
+    : `CSTAN_NODE_CLI=${shellQuote(cliPath)} CSTAN_NODE=${shellQuote(node)}`;
+  return `#!/bin/sh\n${environment} exec ${shellQuote(front)} "$@"\n`;
 }
 
 export class LauncherError extends Error {

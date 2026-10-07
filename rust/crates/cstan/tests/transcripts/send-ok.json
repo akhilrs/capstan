@@ -1,0 +1,38 @@
+{
+  "name": "send-ok",
+  "argv": [
+    "send",
+    "pm-1",
+    "hello there"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"messageId\":\"m-7\"}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"send\",\"args\":[\"pm-1\",\"hello there\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "messageId: m-7\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

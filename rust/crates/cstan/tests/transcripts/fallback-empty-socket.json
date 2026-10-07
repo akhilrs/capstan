@@ -1,0 +1,30 @@
+{
+  "name": "fallback-empty-socket",
+  "argv": [
+    "ping"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set, and CAPSTAN_SOCKET must be an absolute path\n",
+    "exit": 3
+  }
+}

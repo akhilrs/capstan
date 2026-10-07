@@ -1,0 +1,38 @@
+{
+  "name": "report-ok",
+  "argv": [
+    "report",
+    "0123456789abcdef0123456789abcdef01234567",
+    "summary"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"reportId\":\"r-1\"}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"report\",\"args\":[\"0123456789abcdef0123456789abcdef01234567\",\"summary\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "reportId: r-1\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

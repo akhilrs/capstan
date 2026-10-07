@@ -1,0 +1,36 @@
+{
+  "name": "status-pm-mail-stale-no-id",
+  "argv": [
+    "status"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"controller\":{\"pid\":4242,\"projectRoot\":\"/work/proj\",\"ledgerPath\":\"/work/proj/.capstan/state/controller.sqlite\"},\"pmMail\":{\"pending\":1,\"oldestAgeSeconds\":59,\"stale\":true}}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"status\",\"args\":[]}",
+  "fallback": false,
+  "node": {
+    "stdout": "project /work/proj\nledger /work/proj/.capstan/state/controller.sqlite\nPM MAIL STALE: 1 message(s) pending, oldest 0 min (-)\ncontroller: pid: 4242\nprojectRoot: /work/proj\nledgerPath: /work/proj/.capstan/state/controller.sqlite\npmMail: pending: 1\noldestAgeSeconds: 59\nstale: true\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

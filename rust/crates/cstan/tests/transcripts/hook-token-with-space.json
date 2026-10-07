@@ -1,0 +1,37 @@
+{
+  "name": "hook-token-with-space",
+  "argv": [
+    "inbox",
+    "--hook"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok en",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"count\":2}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok en\",\"command\":\"inbox\",\"args\":[\"--hook\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"2 Capstan message(s) are waiting for you (oldest 0 min). Run cstan inbox now and ack each one before you continue or report.\"}}\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

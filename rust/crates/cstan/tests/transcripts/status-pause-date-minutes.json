@@ -1,0 +1,36 @@
+{
+  "name": "status-pause-date-minutes",
+  "argv": [
+    "status"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"controller\":{\"pid\":4242,\"projectRoot\":\"/work/proj\",\"ledgerPath\":\"/work/proj/.capstan/state/controller.sqlite\"},\"pause\":{\"run\":{\"reason\":\"r\",\"actorId\":\"a\",\"pausedAt\":\"2026-10-07T11:50:00Z\"}}}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"status\",\"args\":[]}",
+  "fallback": false,
+  "node": {
+    "stdout": "project /work/proj\nledger /work/proj/.capstan/state/controller.sqlite\nPAUSED (10m): r by a\ncontroller: pid: 4242\nprojectRoot: /work/proj\nledgerPath: /work/proj/.capstan/state/controller.sqlite\npause: run: reason: r\nactorId: a\npausedAt: 2026-10-07T11:50:00Z\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

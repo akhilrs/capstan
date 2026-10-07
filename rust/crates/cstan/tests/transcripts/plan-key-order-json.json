@@ -1,0 +1,38 @@
+{
+  "name": "plan-key-order-json",
+  "argv": [
+    "plan",
+    "show",
+    "--json"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"b\":1,\"2\":0,\"a\":2,\"b\":3,\"1\":9,\"\": \"empty key\",\"10\":1,\"9\":2}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"plan\",\"args\":[\"show\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "{\n  \"1\": 9,\n  \"2\": 0,\n  \"9\": 2,\n  \"10\": 1,\n  \"b\": 3,\n  \"a\": 2,\n  \"\": \"empty key\"\n}\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "report-nested-render",
+  "argv": [
+    "report",
+    "0123456789abcdef0123456789abcdef01234567",
+    "done"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"state\":\"accepted\",\"nested\":{\"list\":[1,[2,3],{\"deep\":null}],\"flag\":true,\"none\":null},\"empty\":{},\"emptyList\":[],\"text\":\"multi\\nline\"}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"report\",\"args\":[\"0123456789abcdef0123456789abcdef01234567\",\"done\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "state: accepted\nnested: list: 1\n2\n3\ndeep: null\nflag: true\nnone: null\nempty: \nemptyList: \ntext: multi\nline\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

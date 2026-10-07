@@ -1,0 +1,36 @@
+{
+  "name": "status-pause-run-and-agents",
+  "argv": [
+    "status"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"controller\":{\"pid\":4242,\"projectRoot\":\"/work/proj\",\"ledgerPath\":\"/work/proj/.capstan/state/controller.sqlite\"},\"pause\":{\"run\":{\"reason\":\"operator break\",\"actorId\":\"operator\",\"pausedAt\":\"2026-10-07T11:00:00Z\"},\"agents\":[{\"agentId\":\"developer-1\",\"reason\":\"check\",\"actorId\":\"pm-1\",\"pausedAt\":\"2026-10-07T11:59:30Z\"},{\"agentId\":null,\"reason\":\"no id\",\"actorId\":\"pm-1\",\"pausedAt\":\"2026-10-04T11:59:30Z\"},{\"reason\":\"x\",\"actorId\":\"y\"}]}}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"status\",\"args\":[]}",
+  "fallback": false,
+  "node": {
+    "stdout": "project /work/proj\nledger /work/proj/.capstan/state/controller.sqlite\nPAUSED (1h): operator break by operator\nPAUSED (30s) developer-1: check by pm-1\nPAUSED (3d) : no id by pm-1\nPAUSED (-) : x by y\ncontroller: pid: 4242\nprojectRoot: /work/proj\nledgerPath: /work/proj/.capstan/state/controller.sqlite\npause: run: reason: operator break\nactorId: operator\npausedAt: 2026-10-07T11:00:00Z\nagents: agentId: developer-1\nreason: check\nactorId: pm-1\npausedAt: 2026-10-07T11:59:30Z\nagentId: null\nreason: no id\nactorId: pm-1\npausedAt: 2026-10-04T11:59:30Z\nreason: x\nactorId: y\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "fallback-token-space",
+  "argv": [
+    "ping"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok en",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: CAPSTAN_TOKEN must not contain whitespace or control characters\n",
+    "exit": 3
+  }
+}

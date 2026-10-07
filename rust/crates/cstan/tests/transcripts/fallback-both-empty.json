@@ -1,0 +1,29 @@
+{
+  "name": "fallback-both-empty",
+  "argv": [
+    "ping"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "CAPSTAN_TOKEN": "",
+    "CAPSTAN_SOCKET": ""
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: operator commands need the operator credential in .capstan of the working directory: Capstan project directory must be private and owned by the current user\n",
+    "exit": 3
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "spawn-warning",
+  "argv": [
+    "spawn",
+    "developer",
+    "--task",
+    "plan-1/pkg"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"state\":\"started\",\"agentId\":\"developer-9\",\"warning\":\"[env] pass names that are not set: FOO\"}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"spawn\",\"args\":[\"developer\",\"--task\",\"plan-1/pkg\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "state: started\nagentId: developer-9\nwarning: [env] pass names that are not set: FOO\n",
+    "stderr": "warning: [env] pass names that are not set: FOO\n",
+    "exit": 0
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "hook-no-env",
+  "argv": [
+    "inbox",
+    "--hook"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  }
+}

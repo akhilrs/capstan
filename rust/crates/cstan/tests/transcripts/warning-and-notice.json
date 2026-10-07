@@ -1,0 +1,37 @@
+{
+  "name": "warning-and-notice",
+  "argv": [
+    "release",
+    "developer-2"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"state\":\"released\",\"warning\":\"w\",\"unread\":{\"count\":2,\"oldestQueuedAt\":\"2026-10-07T11:00:00Z\"}}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"release\",\"args\":[\"developer-2\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "state: released\nwarning: w\nunread: count: 2\noldestQueuedAt: 2026-10-07T11:00:00Z\n",
+    "stderr": "notice: 2 message(s) wait for you (oldest 60 min): run cstan inbox\nwarning: w\n",
+    "exit": 0
+  }
+}

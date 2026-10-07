@@ -1,0 +1,30 @@
+{
+  "name": "hook-no-token",
+  "argv": [
+    "inbox",
+    "--hook"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "a"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  }
+}

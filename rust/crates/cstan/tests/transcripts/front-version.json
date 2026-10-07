@@ -1,0 +1,20 @@
+{
+  "name": "front-version",
+  "argv": [
+    "__front-version"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [],
+    "files": [],
+    "links": []
+  },
+  "cwd": ".",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": null
+}

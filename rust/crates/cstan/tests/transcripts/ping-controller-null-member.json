@@ -1,0 +1,36 @@
+{
+  "name": "ping-controller-null-member",
+  "argv": [
+    "ping"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"controller\":{\"projectRoot\":null,\"ledgerPath\":\"/led\"},\"projectRoot\":\"/top\",\"ledgerPath\":\"/topled\"}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"ping\",\"args\":[]}",
+  "fallback": false,
+  "node": {
+    "stdout": "project /top\nledger /led\ncontroller: projectRoot: null\nledgerPath: /led\nprojectRoot: /top\nledgerPath: /topled\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "fallback-replacement-character",
+  "argv": [
+    "send",
+    "pm-1",
+    "bad � text"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: a command argument holds a replacement character, so its text was not valid UTF-8\n",
+    "exit": 3
+  }
+}

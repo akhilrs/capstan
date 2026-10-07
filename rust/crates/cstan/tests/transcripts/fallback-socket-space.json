@@ -1,0 +1,29 @@
+{
+  "name": "fallback-socket-space",
+  "argv": [
+    "ping"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/free dir/s.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "free dir"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "free dir",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: CAPSTAN_SOCKET must not contain whitespace or control characters\n",
+    "exit": 3
+  }
+}

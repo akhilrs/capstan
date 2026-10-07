@@ -1,0 +1,20 @@
+[package]
+name = "cstan-front"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The native cstan front end: agent commands over the operator socket, everything else handed to the Node CLI"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "cstan_front"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cstan"
+path = "src/main.rs"
+
+[dependencies]
+capstan-wire = { path = "../wire" }

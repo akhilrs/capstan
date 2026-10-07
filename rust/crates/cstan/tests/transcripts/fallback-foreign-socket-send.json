@@ -1,0 +1,33 @@
+{
+  "name": "fallback-foreign-socket-send",
+  "argv": [
+    "send",
+    "pm-1",
+    "x"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/other/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper",
+      "other/.capstan/state"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: CAPSTAN_SOCKET ($ROOT/other/.capstan/state/control.sock) is not the socket of the project you are in ($ROOT/proj, socket $ROOT/proj/.capstan/state/control.sock); nothing was sent. Unset CAPSTAN_SOCKET and CAPSTAN_TOKEN, or set CAPSTAN_ALLOW_FOREIGN_SOCKET=1 to use it anyway\n",
+    "exit": 2
+  }
+}
