@@ -239,10 +239,15 @@ fi
 check "wget-resolved install runs" test "$(cstan --version 2>/dev/null)" = "cstan $VERSION"
 check "no stray text in the resolved version" contains "$E/out" "Installed cstan $VERSION\$"
 
+# new_env wipes $E, so keep the stub (the pre-release case only needs the stub's canned redirect)
+STUBKEEP="$SANDBOX/stubkeep"; rm -rf "$STUBKEEP"; mkdir -p "$STUBKEEP"; cp -R "$E/stub" "$STUBKEEP/stub"
 new_env badloc
-STUB_LOCATION="https://github.com/akhilrs/capstan/releases/tag/v1.2.3-rc1" PATH="$E/stub:$PATH" \
+CAPSTAN_FETCHER=wget STUB_ROOT="$STUBKEEP" CAPSTAN_RELEASE_BASE="http://stub.invalid/releases" \
+  STUB_LOCATION="https://github.com/akhilrs/capstan/releases/tag/v1.2.3-rc1" PATH="$STUBKEEP/stub:$PATH" \
   run_install --no-binary >"$E/out" 2>&1 && fail "pre-release latest tag is refused" || pass "pre-release latest tag is refused"
+check "the refusal names the pre-release tag it could not read" contains "$E/out" "could not read a release version from http://stub.invalid/releases/latest (got: .*/v1.2.3-rc1)"
 check_not "nothing installed for a bad latest tag" test -e "$CAPSTAN_HOME/current"
+rm -rf "$STUBKEEP"
 unset CAPSTAN_FETCHER CAPSTAN_RELEASE_BASE STUB_LOCATION STUB_ROOT
 for bad in "0.1.1 [following]" "1.2" "1.2.3.4" "v1.2.3" "1.2.3-rc1" "1..3" ".1.2" "a.b.c" "1.2.3 "; do
   check_not "--version '$bad' is rejected" run_install --version "$bad" --tarball "$TGZ"
