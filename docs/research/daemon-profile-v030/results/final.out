@@ -1,0 +1,138 @@
+=== final-base-1 start 2026-10-08T09:55:01+05:30 load 4.79 6.50 8.23
+pid 8762 2026-10-08T09:55:09+05:30 load 4.81 6.45 8.20 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 7.8% (user 4.8 sys 3.0) children 1.0% (user 0.3 sys 0.6) total 8.8% of one core over 60s; herdr calls 208 (3.47/s); threads MainThread:8762=6.3% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.2% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 4.81/6.45/8.20 -> 6.16/6.55/8.12
+cpu run 2: own 8.1% (user 4.9 sys 3.1) children 1.2% (user 0.3 sys 0.9) total 9.3% of one core over 60s; herdr calls 216 (3.60/s); threads MainThread:8762=6.4% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.2% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 6.16/6.55/8.12 -> 4.16/5.92/7.81
+cpu run 3: own 7.9% (user 4.8 sys 3.0) children 1.3% (user 0.3 sys 1.0) total 9.2% of one core over 60s; herdr calls 205 (3.42/s); threads MainThread:8762=6.3% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.2% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 4.16/5.92/7.81 -> 4.01/5.57/7.56
+cpu run 4: own 7.8% (user 4.6 sys 3.2) children 1.3% (user 0.3 sys 1.0) total 9.1% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:8762=6.4% V8Worker:8767=0.2% V8Worker:8768=0.1% V8Worker:8769=0.1% V8Worker:8770=0.1% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 4.01/5.57/7.56 -> 4.29/5.32/7.35
+cpu run 5: own 7.5% (user 4.4 sys 3.1) children 1.3% (user 0.3 sys 0.9) total 8.8% of one core over 60s; herdr calls 211 (3.51/s); threads MainThread:8762=6.3% V8Worker:8767=0.2% V8Worker:8768=0.1% V8Worker:8769=0.1% V8Worker:8770=0.1% libuv-worker:8782=0.1% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 4.29/5.32/7.35 -> 5.00/5.33/7.22
+cpu run 6: own 7.7% (user 4.6 sys 3.2) children 1.3% (user 0.2 sys 1.1) total 9.1% of one core over 60s; herdr calls 207 (3.45/s); threads MainThread:8762=6.4% V8Worker:8767=0.2% V8Worker:8768=0.1% V8Worker:8769=0.1% V8Worker:8770=0.1% libuv-worker:8782=0.1% libuv-worker:8783=0.1% libuv-worker:8784=0.1% libuv-worker:8785=0.2%; load 5.00/5.33/7.22 -> 3.24/4.76/6.91
+cpu run 7: own 7.8% (user 4.6 sys 3.2) children 1.4% (user 0.2 sys 1.1) total 9.2% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:8762=6.4% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.1% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 3.24/4.76/6.91 -> 2.49/4.25/6.59
+cpu run 8: own 7.7% (user 4.5 sys 3.1) children 1.3% (user 0.2 sys 1.1) total 9.0% of one core over 60s; herdr calls 204 (3.40/s); threads MainThread:8762=6.2% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.2% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 2.49/4.25/6.59 -> 2.55/3.92/6.33
+cpu run 9: own 7.8% (user 4.6 sys 3.2) children 1.3% (user 0.2 sys 1.1) total 9.1% of one core over 60s; herdr calls 198 (3.30/s); threads MainThread:8762=6.4% V8Worker:8767=0.2% V8Worker:8768=0.2% V8Worker:8769=0.2% V8Worker:8770=0.2% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 2.55/3.92/6.33 -> 3.17/3.83/6.15
+cpu run 10: own 7.5% (user 4.5 sys 3.0) children 1.1% (user 0.2 sys 0.9) total 8.7% of one core over 60s; herdr calls 192 (3.20/s); threads MainThread:8762=6.2% V8Worker:8767=0.1% V8Worker:8768=0.2% V8Worker:8769=0.1% V8Worker:8770=0.1% libuv-worker:8782=0.2% libuv-worker:8783=0.2% libuv-worker:8784=0.2% libuv-worker:8785=0.2%; load 3.17/3.83/6.15 -> 2.73/3.61/5.94
+VmRSS: 259988 kB
+RssAnon: 232884 kB
+RssFile: 27104 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-base-1 end 2026-10-08T10:05:21+05:30 load 2.87 3.60 5.89
+=== final-after-1 start 2026-10-08T10:05:21+05:30 load 2.87 3.60 5.89
+pid 20380 2026-10-08T10:05:29+05:30 load 2.88 3.59 5.88 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 1.8% (user 1.2 sys 0.6) children 0.6% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 210 (3.50/s); threads MainThread:20380=1.6%; load 2.81/3.56/5.86 -> 5.75/4.17/5.91
+cpu run 2: own 1.7% (user 1.1 sys 0.5) children 0.7% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 230 (3.83/s); threads MainThread:20380=1.5%; load 5.75/4.17/5.91 -> 5.78/4.64/5.98
+cpu run 3: own 1.5% (user 1.0 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.1% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:20380=1.3%; load 5.78/4.64/5.98 -> 6.13/4.92/6.00
+cpu run 4: own 1.4% (user 1.0 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.1% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:20380=1.3%; load 6.13/4.92/6.00 -> 5.57/5.01/5.96
+cpu run 5: own 1.4% (user 1.0 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.2% of one core over 60s; herdr calls 226 (3.76/s); threads MainThread:20380=1.4%; load 5.57/5.01/5.96 -> 4.94/4.98/5.89
+cpu run 6: own 1.9% (user 1.2 sys 0.7) children 0.7% (user 0.5 sys 0.2) total 2.6% of one core over 60s; herdr calls 223 (3.72/s); threads MainThread:20380=1.7%; load 4.94/4.98/5.89 -> 5.86/5.24/5.93
+cpu run 7: own 1.4% (user 0.9 sys 0.5) children 0.6% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:20380=1.3%; load 5.86/5.24/5.93 -> 5.11/5.16/5.86
+cpu run 8: own 1.4% (user 0.8 sys 0.5) children 0.7% (user 0.5 sys 0.2) total 2.0% of one core over 60s; herdr calls 226 (3.77/s); threads MainThread:20380=1.3%; load 5.11/5.16/5.86 -> 4.55/5.02/5.76
+cpu run 9: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.4 sys 0.3) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:20380=1.3%; load 4.55/5.02/5.76 -> 5.54/5.21/5.78
+cpu run 10: own 1.6% (user 1.1 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.3% of one core over 60s; herdr calls 216 (3.60/s); threads MainThread:20380=1.5%; load 5.54/5.21/5.78 -> 6.49/5.54/5.86
+VmRSS: 99656 kB
+RssAnon: 46912 kB
+RssFile: 52744 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-after-1 end 2026-10-08T10:15:41+05:30 load 6.12 5.51 5.85
+=== final-base-2 start 2026-10-08T10:15:41+05:30 load 6.12 5.51 5.85
+pid 4022 2026-10-08T10:15:49+05:30 load 5.95 5.49 5.84 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 8.2% (user 3.0 sys 5.2) children 0.7% (user 0.2 sys 0.5) total 8.8% of one core over 62s; herdr calls 123 (1.97/s); threads MainThread:4022=7.5% V8Worker:4028=0.1% V8Worker:4029=0.1% V8Worker:4030=0.1% V8Worker:4031=0.1% libuv-worker:4051=0.1% libuv-worker:4052=0.1% libuv-worker:4053=0.1% libuv-worker:4054=0.1%; load 5.95/5.49/5.84 -> 19.15/8.92/6.97
+cpu run 2: own 5.1% (user 0.2 sys 4.9) children 0.1% (user 0.0 sys 0.1) total 5.2% of one core over 74s; herdr calls 2 (0.03/s); threads MainThread:4022=5.0%; load 28.90/12.05/8.06 -> 52.69/23.31/12.33
+cpu run 3: own 15.7% (user 4.8 sys 10.8) children 1.2% (user 0.2 sys 0.9) total 16.8% of one core over 60s; herdr calls 201 (3.35/s); threads MainThread:4022=14.0% V8Worker:4028=0.2% V8Worker:4029=0.2% V8Worker:4030=0.2% V8Worker:4031=0.2% libuv-worker:4051=0.2% libuv-worker:4052=0.2% libuv-worker:4053=0.2% libuv-worker:4054=0.2%; load 192.63/156.76/86.31 -> 78.80/130.83/81.82
+cpu run 4: own 8.2% (user 5.2 sys 3.0) children 1.1% (user 0.3 sys 0.8) total 9.3% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:4022=6.6% V8Worker:4028=0.2% V8Worker:4029=0.2% V8Worker:4030=0.2% V8Worker:4031=0.2% libuv-worker:4051=0.2% libuv-worker:4052=0.2% libuv-worker:4053=0.2% libuv-worker:4054=0.2%; load 78.80/130.83/81.82 -> 32.56/108.02/77.04
+cpu run 5: own 8.0% (user 4.9 sys 3.1) children 1.0% (user 0.3 sys 0.7) total 9.0% of one core over 60s; herdr calls 209 (3.48/s); threads MainThread:4022=6.4% V8Worker:4028=0.2% V8Worker:4029=0.2% V8Worker:4030=0.2% V8Worker:4031=0.2% libuv-worker:4051=0.2% libuv-worker:4052=0.2% libuv-worker:4053=0.2% libuv-worker:4054=0.2%; load 32.56/108.02/77.04 -> 17.46/89.88/72.74
+cpu run 6: own 10.7% (user 1.4 sys 9.3) children 0.3% (user 0.0 sys 0.3) total 11.0% of one core over 60s; herdr calls 18 (0.30/s); threads MainThread:4022=10.3% V8Worker:4030=0.2%; load 17.46/89.88/72.74 -> 27.33/78.66/70.01
+cpu run 7: own 11.5% (user 1.0 sys 10.5) children 0.1% (user 0.0 sys 0.1) total 11.6% of one core over 65s; herdr calls 5 (0.08/s); threads MainThread:4022=11.1% V8Worker:4028=0.1% V8Worker:4029=0.1% V8Worker:4031=0.1%; load 27.33/78.66/70.01 -> 37.25/71.06/67.94
+cpu run 8: own 8.8% (user 1.4 sys 7.5) children 0.2% (user 0.0 sys 0.2) total 9.0% of one core over 61s; herdr calls 20 (0.33/s); threads MainThread:4022=8.4% V8Worker:4028=0.1% libuv-worker:4054=0.1%; load 37.25/71.06/67.94 -> 38.13/65.04/66.08
+cpu run 9: own 8.8% (user 0.5 sys 8.3) children 0.1% (user 0.0 sys 0.1) total 8.9% of one core over 63s; herdr calls 2 (0.03/s); threads MainThread:4022=8.7% V8Worker:4029=0.1%; load 38.13/65.04/66.08 -> 45.57/61.73/64.85
+cpu run 10: own 5.2% (user 0.1 sys 5.1) children 0.0% (user 0.0 sys 0.0) total 5.2% of one core over 75s; herdr calls 0 (0.00/s); threads MainThread:4022=5.2%; load 47.77/61.92/64.90 -> 54.92/60.65/64.19
+VmRSS: 118392 kB
+RssAnon: 98540 kB
+RssFile: 19852 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-base-2 end 2026-10-08T10:37:17+05:30 load 44.21 58.00 63.27
+=== final-after-2 start 2026-10-08T10:37:17+05:30 load 44.21 58.00 63.27
+pid 30375 2026-10-08T10:37:25+05:30 load 41.07 57.12 62.95 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 1.8% (user 1.2 sys 0.7) children 0.7% (user 0.4 sys 0.2) total 2.5% of one core over 60s; herdr calls 221 (3.68/s); threads MainThread:30375=1.7%; load 41.07/57.12/62.95 -> 18.51/47.69/59.34
+cpu run 2: own 1.6% (user 1.0 sys 0.6) children 0.6% (user 0.4 sys 0.2) total 2.2% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:30375=1.4%; load 18.51/47.69/59.34 -> 8.58/39.56/55.81
+cpu run 3: own 1.4% (user 0.9 sys 0.5) children 0.7% (user 0.4 sys 0.2) total 2.1% of one core over 60s; herdr calls 226 (3.77/s); threads MainThread:30375=1.3%; load 8.58/39.56/55.81 -> 4.69/32.83/52.48
+cpu run 4: own 1.4% (user 0.9 sys 0.5) children 0.6% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:30375=1.3%; load 4.69/32.83/52.48 -> 3.17/27.25/49.33
+cpu run 5: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.5 sys 0.2) total 2.0% of one core over 60s; herdr calls 222 (3.70/s); threads MainThread:30375=1.3%; load 3.17/27.25/49.33 -> 2.70/22.74/46.40
+cpu run 6: own 1.8% (user 1.1 sys 0.7) children 0.6% (user 0.4 sys 0.2) total 2.5% of one core over 60s; herdr calls 223 (3.72/s); threads MainThread:30375=1.7%; load 2.70/22.74/46.40 -> 3.18/19.21/43.70
+cpu run 7: own 1.4% (user 1.0 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:30375=1.3%; load 3.18/19.21/43.70 -> 2.40/16.08/41.09
+cpu run 8: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 222 (3.70/s); threads MainThread:30375=1.3%; load 2.40/16.08/41.09 -> 2.80/13.70/38.70
+cpu run 9: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.5 sys 0.2) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:30375=1.3%; load 2.80/13.70/38.70 -> 2.71/11.68/36.44
+cpu run 10: own 1.6% (user 1.0 sys 0.6) children 0.7% (user 0.4 sys 0.3) total 2.3% of one core over 60s; herdr calls 227 (3.78/s); threads MainThread:30375=1.5%; load 2.71/11.68/36.44 -> 2.24/9.91/34.28
+VmRSS: 101592 kB
+RssAnon: 47800 kB
+RssFile: 53792 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-after-2 end 2026-10-08T10:47:36+05:30 load 2.04 9.49 33.75
+=== final-base-3 start 2026-10-08T10:47:36+05:30 load 2.04 9.49 33.75
+pid 9960 2026-10-08T10:47:45+05:30 load 2.12 9.38 33.59 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 7.9% (user 4.8 sys 3.1) children 1.0% (user 0.3 sys 0.6) total 8.9% of one core over 60s; herdr calls 208 (3.47/s); threads MainThread:9960=6.3% V8Worker:9966=0.2% V8Worker:9967=0.2% V8Worker:9968=0.2% V8Worker:9969=0.2% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 2.12/9.38/33.59 -> 2.66/8.23/31.68
+cpu run 2: own 7.0% (user 4.5 sys 2.5) children 1.1% (user 0.3 sys 0.8) total 8.1% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:9960=5.7% V8Worker:9966=0.2% V8Worker:9967=0.2% V8Worker:9968=0.2% V8Worker:9969=0.2% libuv-worker:9980=0.1% libuv-worker:9981=0.2% libuv-worker:9982=0.1% libuv-worker:9983=0.1%; load 2.66/8.23/31.68 -> 3.54/7.39/29.92
+cpu run 3: own 7.3% (user 4.3 sys 3.0) children 1.0% (user 0.4 sys 0.7) total 8.4% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:9960=5.9% V8Worker:9966=0.1% V8Worker:9967=0.2% V8Worker:9968=0.2% V8Worker:9969=0.1% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 3.54/7.39/29.92 -> 2.64/6.44/28.18
+cpu run 4: own 7.7% (user 4.6 sys 3.1) children 1.3% (user 0.3 sys 0.9) total 9.0% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:9960=6.3% V8Worker:9966=0.2% V8Worker:9967=0.2% V8Worker:9968=0.1% V8Worker:9969=0.1% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 2.64/6.44/28.18 -> 2.29/5.64/26.54
+cpu run 5: own 7.7% (user 4.6 sys 3.0) children 1.3% (user 0.3 sys 1.1) total 9.0% of one core over 60s; herdr calls 205 (3.41/s); threads MainThread:9960=6.2% V8Worker:9966=0.1% V8Worker:9967=0.2% V8Worker:9968=0.1% V8Worker:9969=0.2% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 2.29/5.64/26.54 -> 1.73/4.88/24.97
+cpu run 6: own 7.9% (user 4.6 sys 3.4) children 1.5% (user 0.2 sys 1.3) total 9.4% of one core over 60s; herdr calls 216 (3.60/s); threads MainThread:9960=6.6% V8Worker:9966=0.2% V8Worker:9967=0.1% V8Worker:9968=0.2% V8Worker:9969=0.1% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 1.73/4.88/24.97 -> 1.68/4.28/23.51
+cpu run 7: own 7.6% (user 4.2 sys 3.4) children 1.3% (user 0.3 sys 1.0) total 9.0% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:9960=6.3% V8Worker:9966=0.1% V8Worker:9967=0.1% V8Worker:9968=0.1% V8Worker:9969=0.1% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 1.68/4.28/23.51 -> 1.31/3.72/22.11
+cpu run 8: own 7.8% (user 4.6 sys 3.2) children 1.5% (user 0.2 sys 1.2) total 9.3% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:9960=6.4% V8Worker:9966=0.2% V8Worker:9967=0.2% V8Worker:9968=0.2% V8Worker:9969=0.2% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 1.31/3.72/22.11 -> 1.61/3.36/20.83
+cpu run 9: own 7.8% (user 4.4 sys 3.4) children 1.5% (user 0.3 sys 1.2) total 9.3% of one core over 60s; herdr calls 212 (3.53/s); threads MainThread:9960=6.5% V8Worker:9966=0.1% V8Worker:9967=0.1% V8Worker:9968=0.1% V8Worker:9969=0.2% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 1.61/3.36/20.83 -> 1.82/3.09/19.64
+cpu run 10: own 7.8% (user 4.5 sys 3.3) children 1.5% (user 0.3 sys 1.2) total 9.3% of one core over 60s; herdr calls 213 (3.55/s); threads MainThread:9960=6.4% V8Worker:9966=0.1% V8Worker:9967=0.1% V8Worker:9968=0.1% V8Worker:9969=0.1% libuv-worker:9980=0.2% libuv-worker:9981=0.2% libuv-worker:9982=0.2% libuv-worker:9983=0.2%; load 1.82/3.09/19.64 -> 1.67/2.80/18.50
+VmRSS: 288668 kB
+RssAnon: 234764 kB
+RssFile: 53904 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-base-3 end 2026-10-08T10:57:56+05:30 load 1.95 2.82 18.34
+=== final-after-3 start 2026-10-08T10:57:56+05:30 load 1.95 2.82 18.34
+pid 19664 2026-10-08T10:58:04+05:30 load 1.95 2.80 18.17 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 1.8% (user 1.2 sys 0.6) children 0.6% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:19664=1.6%; load 1.95/2.80/18.17 -> 1.67/2.61/17.14
+cpu run 2: own 1.5% (user 0.9 sys 0.6) children 0.7% (user 0.4 sys 0.2) total 2.2% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:19664=1.4% V8Worker:19675=0.1%; load 1.67/2.61/17.14 -> 2.24/2.59/16.22
+cpu run 3: own 1.5% (user 1.0 sys 0.5) children 0.7% (user 0.5 sys 0.2) total 2.3% of one core over 60s; herdr calls 226 (3.77/s); threads MainThread:19664=1.4%; load 2.24/2.59/16.22 -> 2.68/2.70/15.40
+cpu run 4: own 1.5% (user 0.9 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.2% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:19664=1.4%; load 2.68/2.70/15.40 -> 3.73/2.96/14.69
+cpu run 5: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.4 sys 0.3) total 2.0% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:19664=1.3%; load 3.73/2.96/14.69 -> 2.66/2.80/13.90
+cpu run 6: own 1.9% (user 1.3 sys 0.6) children 0.7% (user 0.5 sys 0.2) total 2.5% of one core over 60s; herdr calls 230 (3.83/s); threads MainThread:19664=1.7%; load 2.66/2.80/13.90 -> 2.25/2.65/13.15
+cpu run 7: own 1.4% (user 0.8 sys 0.6) children 0.7% (user 0.4 sys 0.2) total 2.1% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:19664=1.3%; load 2.25/2.65/13.15 -> 4.53/3.27/12.71
+cpu run 8: own 1.3% (user 0.8 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.0% of one core over 60s; herdr calls 222 (3.70/s); threads MainThread:19664=1.3%; load 4.53/3.27/12.71 -> 3.25/3.14/12.07
+cpu run 9: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:19664=1.3%; load 3.25/3.14/12.07 -> 7.18/4.08/11.82
+cpu run 10: own 1.5% (user 1.0 sys 0.5) children 0.7% (user 0.5 sys 0.2) total 2.2% of one core over 60s; herdr calls 220 (3.66/s); threads MainThread:19664=1.4%; load 7.18/4.08/11.82 -> 5.97/4.40/11.45
+VmRSS: 101344 kB
+RssAnon: 47496 kB
+RssFile: 53848 kB
+cpu.txt
+herdr-calls.txt
+memreport.json
+mem.txt
+proc-end.txt
+proc-start.txt
+proc-status-end.txt
+=== final-after-3 end 2026-10-08T11:08:16+05:30 load 5.52 4.35 11.36

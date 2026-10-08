@@ -1,0 +1,5 @@
+pid 19426 2026-10-08T09:08:50+05:30 load 5.13 5.98 8.87 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 1.7% (user 1.2 sys 0.6) children 0.6% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 210 (3.50/s); threads MainThread:19426=1.6%; load 5.13/5.98/8.87 -> 8.80/7.05/9.07
+cpu run 2: own 1.6% (user 1.1 sys 0.5) children 0.7% (user 0.5 sys 0.2) total 2.3% of one core over 60s; herdr calls 230 (3.83/s); threads MainThread:19426=1.4%; load 8.80/7.05/9.07 -> 6.76/6.77/8.84
+cpu run 3: own 1.4% (user 0.9 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.1% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:19426=1.3%; load 6.76/6.77/8.84 -> 4.58/6.10/8.48
+cpu run 4: own 1.5% (user 1.1 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.2% of one core over 60s; herdr calls 226 (3.77/s); threads MainThread:19426=1.4%; load 4.58/6.10/8.48 -> 4.16/5.81/8.24

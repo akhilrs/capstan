@@ -1,0 +1,11 @@
+pid 20380 2026-10-08T10:05:29+05:30 load 2.88 3.59 5.88 cwd /tmp/capstan-prof-v030/s/root
+cpu run 1: own 1.8% (user 1.2 sys 0.6) children 0.6% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 210 (3.50/s); threads MainThread:20380=1.6%; load 2.81/3.56/5.86 -> 5.75/4.17/5.91
+cpu run 2: own 1.7% (user 1.1 sys 0.5) children 0.7% (user 0.4 sys 0.2) total 2.4% of one core over 60s; herdr calls 230 (3.83/s); threads MainThread:20380=1.5%; load 5.75/4.17/5.91 -> 5.78/4.64/5.98
+cpu run 3: own 1.5% (user 1.0 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.1% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:20380=1.3%; load 5.78/4.64/5.98 -> 6.13/4.92/6.00
+cpu run 4: own 1.4% (user 1.0 sys 0.4) children 0.7% (user 0.4 sys 0.2) total 2.1% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:20380=1.3%; load 6.13/4.92/6.00 -> 5.57/5.01/5.96
+cpu run 5: own 1.4% (user 1.0 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.2% of one core over 60s; herdr calls 226 (3.76/s); threads MainThread:20380=1.4%; load 5.57/5.01/5.96 -> 4.94/4.98/5.89
+cpu run 6: own 1.9% (user 1.2 sys 0.7) children 0.7% (user 0.5 sys 0.2) total 2.6% of one core over 60s; herdr calls 223 (3.72/s); threads MainThread:20380=1.7%; load 4.94/4.98/5.89 -> 5.86/5.24/5.93
+cpu run 7: own 1.4% (user 0.9 sys 0.5) children 0.6% (user 0.4 sys 0.2) total 2.0% of one core over 60s; herdr calls 215 (3.58/s); threads MainThread:20380=1.3%; load 5.86/5.24/5.93 -> 5.11/5.16/5.86
+cpu run 8: own 1.4% (user 0.8 sys 0.5) children 0.7% (user 0.5 sys 0.2) total 2.0% of one core over 60s; herdr calls 226 (3.77/s); threads MainThread:20380=1.3%; load 5.11/5.16/5.86 -> 4.55/5.02/5.76
+cpu run 9: own 1.3% (user 0.9 sys 0.4) children 0.7% (user 0.4 sys 0.3) total 2.0% of one core over 60s; herdr calls 219 (3.65/s); threads MainThread:20380=1.3%; load 4.55/5.02/5.76 -> 5.54/5.21/5.78
+cpu run 10: own 1.6% (user 1.1 sys 0.5) children 0.7% (user 0.4 sys 0.3) total 2.3% of one core over 60s; herdr calls 216 (3.60/s); threads MainThread:20380=1.5%; load 5.54/5.21/5.78 -> 6.49/5.54/5.86

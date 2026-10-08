@@ -136,6 +136,134 @@ export async function readProcTable(): Promise<ProcessTable> {
   return entries.filter((entry): entry is ProcessEntry => entry !== undefined);
 }
 
+/** The reads the walker makes of `/proc`; tests replace them. */
+export interface ProcIo {
+  /** Thread ids of a process; throws ENOENT when it is gone. */
+  threads(pid: number): Promise<string[]>;
+  /** The `children` list of one thread; throws ENOENT when the thread is gone or the kernel has no such file. */
+  children(pid: number, thread: string): Promise<string>;
+  /** The content of `/proc/<pid>/stat`; throws ENOENT or ESRCH when the process is gone. */
+  stat(pid: number): Promise<string>;
+}
+
+const procIo: ProcIo = {
+  threads: (pid) => fs.promises.readdir(`/proc/${pid}/task`),
+  children: (pid, thread) =>
+    fs.promises.readFile(`/proc/${pid}/task/${thread}/children`, "utf8"),
+  stat: (pid) => fs.promises.readFile(`/proc/${pid}/stat`, "utf8"),
+};
+
+const GONE: ReadonlySet<string> = new Set(["ENOENT", "ESRCH"]);
+const isGone = (error: unknown): boolean =>
+  GONE.has((error as NodeJS.ErrnoException).code ?? "");
+
+/** How long after a failed read the walker lets the caller read the whole table before it tries `children` lists again. */
+export const CHILDREN_RETRY_MS = 60_000;
+
+/**
+ * Finds the processes `toolProcesses(await readProcTable(), shellPid)` counts by following `children` lists from the
+ * shell pid instead of reading the stat of every process on the machine. `read` returns undefined when the caller has
+ * to read the whole table: for good when the kernel has no `children` lists (no CONFIG_PROC_CHILDREN), and for
+ * CHILDREN_RETRY_MS after any other failure (a transient EMFILE, a permission error), after which it tries again.
+ */
+export class ToolProcessWalker {
+  #supported: boolean | undefined;
+  #retryAt = 0;
+
+  constructor(
+    private readonly io: ProcIo = procIo,
+    private readonly now: () => number = Date.now,
+    private readonly retryMs: number = CHILDREN_RETRY_MS,
+    private readonly self: number = process.pid,
+  ) {}
+
+  async read(shellPid: number): Promise<ProcessEntry[] | undefined> {
+    if (this.#supported === false || this.now() < this.#retryAt)
+      return undefined;
+    try {
+      if (this.#supported === undefined) this.#supported = await this.#probe();
+      if (!this.#supported) return undefined;
+      return await this.#walk(shellPid);
+    } catch {
+      this.#retryAt = this.now() + this.retryMs;
+      return undefined;
+    }
+  }
+
+  /** The kernel has `children` lists when this process's own list can be read: a missing file is the answer, any other failure throws. */
+  async #probe(): Promise<boolean> {
+    try {
+      await this.io.children(this.self, String(this.self));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
+  async #childPids(pid: number): Promise<number[]> {
+    let threads: string[];
+    try {
+      threads = await this.io.threads(pid);
+    } catch (error) {
+      if (isGone(error)) return [];
+      throw error;
+    }
+    const lists = await Promise.all(
+      threads.map(async (thread) => {
+        try {
+          return await this.io.children(pid, thread);
+        } catch (error) {
+          if (isGone(error)) return ""; // the thread exited
+          throw error;
+        }
+      }),
+    );
+    return lists
+      .flatMap((text) => text.split(" ").filter((id) => id !== ""))
+      .map(Number);
+  }
+
+  async #entries(pid: number): Promise<ProcessEntry[]> {
+    const found = await Promise.all(
+      (await this.#childPids(pid)).map(async (id) => {
+        try {
+          return parseProcStat(id, await this.io.stat(id));
+        } catch (error) {
+          if (isGone(error)) return undefined; // the process exited
+          throw error;
+        }
+      }),
+    );
+    return found.filter((entry): entry is ProcessEntry => entry !== undefined);
+  }
+
+  async #walk(shellPid: number): Promise<ProcessEntry[]> {
+    const counted: ProcessEntry[] = [];
+    const seen = new Set<number>([shellPid]);
+    const add = async (entry: ProcessEntry): Promise<void> => {
+      if (seen.has(entry.pid)) return;
+      seen.add(entry.pid);
+      counted.push(entry);
+      for (const child of await this.#entries(entry.pid)) await add(child);
+    };
+    for (const host of await this.#entries(shellPid))
+      for (const tool of await this.#entries(host.pid))
+        if (SHELLS.has(shellName(tool.comm))) await add(tool);
+    return counted;
+  }
+}
+
+const defaultWalker = new ToolProcessWalker();
+
+/** The tool processes under a pane's shell pid, or undefined when the whole table has to be read. */
+export async function readToolProcesses(
+  shellPid: number,
+): Promise<ProcessEntry[] | undefined> {
+  if (process.platform !== "linux") return undefined;
+  return defaultWalker.read(shellPid);
+}
+
 /** `[[dd-]hh:]mm:ss[.cc]` in milliseconds. */
 export function parsePsTime(text: string): number | undefined {
   const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(text);
@@ -185,10 +313,20 @@ async function readPsTable(): Promise<ProcessTable> {
 export const defaultProcessTableReader: ProcessTableReader = () =>
   process.platform === "linux" ? readProcTable() : readPsTable();
 
+/** Finds the tool processes under a shell pid, or undefined when the caller has to read the whole table. */
+export type ToolProcessReader = (
+  shellPid: number,
+) => Promise<ProcessEntry[] | undefined>;
+
 export class HerdrProcessProbe implements ProcessActivityProbe {
   constructor(
     private readonly runner: HerdrRunner,
     private readonly readTable: ProcessTableReader = defaultProcessTableReader,
+    // Only the production probe follows `children` lists; a probe given its own table reader (a test) reads that table.
+    private readonly readTools: ToolProcessReader | undefined = readTable ===
+    defaultProcessTableReader
+      ? readToolProcesses
+      : undefined,
   ) {}
 
   async sample(paneId: string): Promise<ProcessSample> {
@@ -209,7 +347,10 @@ export class HerdrProcessProbe implements ProcessActivityProbe {
       shellPid <= 0
     )
       throw new Error("herdr process info has no shell_pid");
-    return { processes: toolProcesses(await this.readTable(), shellPid) };
+    const direct = await this.readTools?.(shellPid);
+    return {
+      processes: direct ?? toolProcesses(await this.readTable(), shellPid),
+    };
   }
 }
 

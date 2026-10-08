@@ -1,0 +1,4 @@
+# second round (after the PM's follow-up): a new snapshot for the final runs
+$ node scripts/copy-ledger.mjs /home/akhil/Workspace/github.com/akhilrs/nexora/.capstan/state/controller.sqlite /tmp/capstan-prof-v030/ledger
+/tmp/capstan-prof-v030/ledger/controller.sqlite
+$ (setup.sh) read live capstan.toml (awk, [operator] removed)

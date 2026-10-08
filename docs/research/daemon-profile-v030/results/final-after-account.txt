@@ -1,0 +1,48 @@
+
+### final-after-1: process total 2.21% of one core (MainThread 1.42%), 10 one-minute windows
+
+| Cost | % of one core | Share of process CPU |
+| --- | --- | --- |
+| herdr `agent get` spawns (JS side: spawn, pipes, JSON) | 0.70 | 32% |
+| child processes (shim for `herdr`): cutime + cstime | 0.68 | 31% |
+| other main-thread work (deliver, supervision, request handling, sqlite helpers, startup) | 0.20 | 9% |
+| driver: #advance (advanceMessaging, delivery notices) | 0.20 | 9% |
+| V8 GC and native on the main thread | 0.11 | 5% |
+| process-activity probe (`pane process-info` spawn + /proc scan) | 0.09 | 4% |
+| report relay tick (every 2 s) | 0.04 | 2% |
+| driver: PM mail re-read (#judgeWakes, #judgeStale) | 0.04 | 2% |
+| helper threads: V8 GC workers (V8Worker x4) | 0.00 | 0% |
+| helper threads: libuv workers (async fs reads of the /proc scan) | 0.00 | 0% |
+| sum of the named costs | 2.05 | 93% |
+
+### final-after-2: process total 2.16% of one core (MainThread 1.41%), 10 one-minute windows
+
+| Cost | % of one core | Share of process CPU |
+| --- | --- | --- |
+| herdr `agent get` spawns (JS side: spawn, pipes, JSON) | 0.70 | 32% |
+| child processes (shim for `herdr`): cutime + cstime | 0.67 | 31% |
+| other main-thread work (deliver, supervision, request handling, sqlite helpers, startup) | 0.20 | 9% |
+| driver: #advance (advanceMessaging, delivery notices) | 0.20 | 9% |
+| V8 GC and native on the main thread | 0.10 | 5% |
+| process-activity probe (`pane process-info` spawn + /proc scan) | 0.09 | 4% |
+| report relay tick (every 2 s) | 0.04 | 2% |
+| driver: PM mail re-read (#judgeWakes, #judgeStale) | 0.04 | 2% |
+| helper threads: V8 GC workers (V8Worker x4) | 0.00 | 0% |
+| helper threads: libuv workers (async fs reads of the /proc scan) | 0.00 | 0% |
+| sum of the named costs | 2.03 | 94% |
+
+### final-after-3: process total 2.19% of one core (MainThread 1.41%), 10 one-minute windows
+
+| Cost | % of one core | Share of process CPU |
+| --- | --- | --- |
+| herdr `agent get` spawns (JS side: spawn, pipes, JSON) | 0.70 | 32% |
+| child processes (shim for `herdr`): cutime + cstime | 0.69 | 32% |
+| other main-thread work (deliver, supervision, request handling, sqlite helpers, startup) | 0.20 | 9% |
+| driver: #advance (advanceMessaging, delivery notices) | 0.20 | 9% |
+| V8 GC and native on the main thread | 0.10 | 5% |
+| process-activity probe (`pane process-info` spawn + /proc scan) | 0.09 | 4% |
+| report relay tick (every 2 s) | 0.04 | 2% |
+| driver: PM mail re-read (#judgeWakes, #judgeStale) | 0.04 | 2% |
+| helper threads: V8 GC workers (V8Worker x4) | 0.01 | 0% |
+| helper threads: libuv workers (async fs reads of the /proc scan) | 0.00 | 0% |
+| sum of the named costs | 2.06 | 94% |

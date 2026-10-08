@@ -1,0 +1,4 @@
+== base pid 19928 cwd /tmp/capstan-prof-v030/s/root
+{"connections":60,"rssAnonKbBefore":117968,"idleConnectionsHeldKb":118116,"perIdleConnectionKb":2.5,"afterStatusBurstKb":158284,"burstKbPerConnection":671.9,"burstMs":2282,"failed":0,"fiveSecondsAfterKb":158744}
+== new pid 5231 cwd /tmp/capstan-prof-v030/s/root
+{"connections":60,"rssAnonKbBefore":43300,"idleConnectionsHeldKb":43304,"perIdleConnectionKb":0.1,"afterStatusBurstKb":47352,"burstKbPerConnection":67.5,"burstMs":1786,"failed":0,"fiveSecondsAfterKb":47536}

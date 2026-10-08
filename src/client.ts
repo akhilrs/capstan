@@ -1,5 +1,15 @@
 import { spawn } from "node:child_process";
-import { selfCommand } from "./sea.js";
+import {
+  ADDED_NODE_OPTION_VARIABLE,
+  DAEMON_SEMI_SPACE_FLAG,
+} from "./node-options.js";
+import { isSea, selfCommand } from "./sea.js";
+
+export {
+  ADDED_NODE_OPTION_VARIABLE,
+  DAEMON_SEMI_SPACE_FLAG,
+  restoreNodeOptions,
+} from "./node-options.js";
 import fs from "node:fs";
 import net from "node:net";
 import {
@@ -138,6 +148,34 @@ export function scrubEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return copy;
 }
 
+/** The command, arguments and environment that start the daemon: the CLI's own, with the young-generation cap unless one is already set. */
+export function daemonCommand(
+  env: NodeJS.ProcessEnv,
+  cliPath?: string,
+  sea: boolean = isSea(),
+): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const self = selfCommand(["daemon"], cliPath);
+  const capped = (list: readonly string[]): boolean =>
+    list.some((flag) => flag.startsWith("--max-semi-space-size"));
+  const environment = scrubEnvironment(env);
+  delete environment[ADDED_NODE_OPTION_VARIABLE];
+  if (!sea)
+    return {
+      ...self,
+      args: capped(self.args)
+        ? self.args
+        : [DAEMON_SEMI_SPACE_FLAG, ...self.args],
+      env: environment,
+    };
+  // The standalone binary has no node flags of its own; it reads them from NODE_OPTIONS.
+  const options = environment.NODE_OPTIONS ?? "";
+  if (!capped(options.split(/\s+/))) {
+    environment.NODE_OPTIONS = `${options} ${DAEMON_SEMI_SPACE_FLAG}`.trim();
+    environment[ADDED_NODE_OPTION_VARIABLE] = DAEMON_SEMI_SPACE_FLAG;
+  }
+  return { ...self, env: environment };
+}
+
 export function openDaemonLog(logPath: string): number {
   const flags =
     fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW;
@@ -215,10 +253,10 @@ export async function ensureDaemon(
   let spawnError: string | undefined;
   let lostRaceAt: number | undefined;
   try {
-    const self = selfCommand(["daemon"], options.cliPath);
+    const self = daemonCommand(options.env, options.cliPath);
     const child = spawn(self.command, self.args, {
       cwd: options.projectRoot,
-      env: scrubEnvironment(options.env),
+      env: self.env,
       detached: true,
       stdio: ["ignore", fd, fd],
     });

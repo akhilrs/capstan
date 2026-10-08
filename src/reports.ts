@@ -89,6 +89,8 @@ export function startReportRelay(options: {
 }): ReportRelay {
   let running = false;
   let backoffUntil = 0;
+  /** The ledger version at which the last full pass found nothing to announce: until a mutation moves it, a pass would find nothing again. */
+  let quietAtVersion = -1;
   const tick = (): void => {
     if (running || Date.now() < backoffUntil) return;
     running = true;
@@ -110,16 +112,23 @@ export function startReportRelay(options: {
           options.log("finding_sweep_failed", { error: String(error) });
         }
       }
+      // What is announced depends only on the ledger, and every ledger change moves its version.
+      const version = options.core.stateVersion;
+      if (version === quietAtVersion) return;
       // Nothing to do, and nothing written, until a PM is active.
       // The core announces only when exactly one PM is active; use the same condition.
       if (
         options.core.activeAgents().filter((agent) => agent.kind === "PM")
           .length !== 1
-      )
+      ) {
+        quietAtVersion = version;
         return;
+      }
+      let found = false;
       for (const report of options.core.unannouncedReports(
         options.credential,
       )) {
+        found = true;
         const result = options.core.announceReport(
           newContext(options.core, options.credential),
           report.reportId,
@@ -134,6 +143,7 @@ export function startReportRelay(options: {
       for (const review of options.core.unannouncedReviews(
         options.credential,
       )) {
+        found = true;
         const result = options.core.announceReview(
           newContext(options.core, options.credential),
           review.reviewId,
@@ -147,6 +157,7 @@ export function startReportRelay(options: {
       for (const notice of options.core.unannouncedPlanNotices(
         options.credential,
       )) {
+        found = true;
         const result = options.core.announcePlanNotice(
           newContext(options.core, options.credential),
           notice,
@@ -160,6 +171,7 @@ export function startReportRelay(options: {
       for (const notice of options.core.unannouncedFindingNotices(
         options.credential,
       )) {
+        found = true;
         const result = options.core.announceFindingNotice(
           newContext(options.core, options.credential),
           notice.noticeId,
@@ -171,6 +183,7 @@ export function startReportRelay(options: {
           event: notice.event,
         });
       }
+      if (!found) quietAtVersion = version;
     } catch (error) {
       options.log("report_relay_failed", { error: String(error) });
     } finally {

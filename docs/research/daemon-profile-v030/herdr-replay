@@ -1,0 +1,36 @@
+#!/bin/sh
+# Herdr replay shim (stands in for `herdr`; no live Herdr call is ever made). Logs every call to
+# @SCRATCH@/herdr-calls.log (arguments only, shell builtins, so the log itself spawns nothing) and answers from
+# @SCRATCH@/replay.map (agent pane status shell_pid kind), process-info.tpl (test/fixtures/herdr-process-info.json)
+# and screen.ansi (test/fixtures/claude-idle-empty.ansi).
+S=@SCRATCH@
+echo "$*" >> "$S/herdr-calls.log"
+[ "$1" = --session ] && shift 2
+case "$1 $2" in
+"agent get")
+  while read -r id pane status spid kind; do
+    case "$3" in *-"$id")
+      printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_status":"%s","pane_id":"%s","name":"%s"},"type":"agent_info"}}\n' "$status" "$pane" "$3"; exit 0;;
+    esac
+  done < "$S/replay.map"
+  printf '{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"no such agent"}}\n' >&2; exit 1;;
+"pane get")
+  while read -r id pane status spid kind; do
+    [ "$pane" = "$3" ] && { printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","agent":"claude","agent_status":"%s"},"type":"pane_info"}}\n' "$pane" "$status"; exit 0; }
+  done < "$S/replay.map"
+  printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","agent_status":"idle"},"type":"pane_info"}}\n' "$3";;
+"pane process-info")
+  pane=$4
+  while read -r id p status spid kind; do
+    if [ "$p" = "$pane" ]; then
+      printf '{"id":"cli:pane:process_info","result":{"process_info":{"foreground_process_group_id":%s,"foreground_processes":[{"argv":["/bin/sh"],"cmdline":"/bin/sh","cwd":"/tmp","name":"sh","pid":%s}],"pane_id":"%s","shell_pid":%s},"type":"pane_process_info"}}\n' "$spid" "$spid" "$pane" "$spid"; exit 0
+    fi
+  done < "$S/replay.map"
+  printf '{"id":"x","error":{"code":"pane_not_found","message":"no pane"}}\n' >&2; exit 1;;
+"pane read")
+  while IFS= read -r line; do printf '%s\n' "$line"; done < "$S/screen.ansi";;
+*)
+  case "$1" in --version) echo "herdr 0.0.0-replay"; exit 0;; esac
+  printf '{"id":"cli:other","result":{}}\n';;
+esac
+exit 0

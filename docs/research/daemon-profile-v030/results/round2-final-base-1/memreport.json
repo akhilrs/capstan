@@ -1,0 +1,149 @@
+{
+ "memoryUsageMb": {
+  "rss": 154.6,
+  "heapTotal": 22.8,
+  "heapUsed": 12.3,
+  "external": 16.1,
+  "arrayBuffers": 14
+ },
+ "v8Spaces": [
+  {
+   "space": "read_only_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "new_space",
+   "sizeMb": 8,
+   "usedMb": 2.6,
+   "availableMb": 1.4
+  },
+  {
+   "space": "old_space",
+   "sizeMb": 11,
+   "usedMb": 8,
+   "availableMb": 2.9
+  },
+  {
+   "space": "code_space",
+   "sizeMb": 1.5,
+   "usedMb": 1.2,
+   "availableMb": 0.3
+  },
+  {
+   "space": "shared_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "trusted_space",
+   "sizeMb": 2,
+   "usedMb": 1.3,
+   "availableMb": 0.7
+  },
+  {
+   "space": "shared_trusted_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "new_large_object_space",
+   "sizeMb": 0.2,
+   "usedMb": 0.2,
+   "availableMb": 3.8
+  },
+  {
+   "space": "large_object_space",
+   "sizeMb": 0.3,
+   "usedMb": 0.3,
+   "availableMb": 0
+  },
+  {
+   "space": "code_large_object_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "shared_large_object_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "shared_trusted_large_object_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  },
+  {
+   "space": "trusted_large_object_space",
+   "sizeMb": 0,
+   "usedMb": 0,
+   "availableMb": 0
+  }
+ ],
+ "heap": {
+  "total_heap_size": 23,
+  "total_heap_size_executable": 1.5,
+  "total_physical_size": 19,
+  "total_available_size": 4274.3,
+  "used_heap_size": 13.5,
+  "heap_size_limit": 4288,
+  "malloced_memory": 0.6,
+  "peak_malloced_memory": 2.5,
+  "does_zap_garbage": 0,
+  "number_of_native_contexts": 0,
+  "number_of_detached_contexts": 0,
+  "total_global_handles_size": 0.1,
+  "used_global_handles_size": 0,
+  "external_memory": 16.1
+ },
+ "anonTotalMb": 102.4,
+ "largestAnonMappingsMb": [
+  {
+   "range": "13f2a000-17bee000",
+   "name": "[heap]",
+   "anonMb": 60.6
+  },
+  {
+   "range": "7f4c18000000-7f4c1829b000",
+   "name": "",
+   "anonMb": 2.4
+  },
+  {
+   "range": "7f4c0f800000-7f4c10000000",
+   "name": "",
+   "anonMb": 2
+  },
+  {
+   "range": "7f4c20000000-7f4c3fdc0000",
+   "name": "",
+   "anonMb": 1.8
+  },
+  {
+   "range": "7f4c14000000-7f4c1417a000",
+   "name": "",
+   "anonMb": 1.5
+  },
+  {
+   "range": "7f4c08000000-7f4c08177000",
+   "name": "",
+   "anonMb": 1.5
+  },
+  {
+   "range": "7f4c04000000-7f4c04131000",
+   "name": "",
+   "anonMb": 1.2
+  },
+  {
+   "range": "7f4bf8000000-7f4bf8130000",
+   "name": "",
+   "anonMb": 1.2
+  }
+ ],
+ "smallAnonMappings": 158
+}

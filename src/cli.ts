@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { entryPath, isSea } from "./sea.js";
+import { entryPath, isSea, restoreNodeOptions } from "./sea.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -1208,7 +1208,7 @@ async function runCli(argv: string[]): Promise<number> {
   }
   if (command === "daemon") {
     if (rest.length !== 0) usage();
-    const { config, credential } = loadOperator(cwd);
+    const { config, credential } = (restoreNodeOptions(), loadOperator(cwd)); // the spawn's young-generation cap is read: children must not inherit it
     const stamp = (): string => new Date().toISOString();
     const capstan = fs.existsSync(path.join(cwd, CONFIG_FILE_NAME))
       ? loadRoleConfig(cwd)

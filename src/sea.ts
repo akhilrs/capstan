@@ -2,6 +2,8 @@ import path from "node:path";
 import sea from "node:sea";
 import { fileURLToPath } from "node:url";
 
+export { restoreNodeOptions } from "./node-options.js";
+
 /** True when running from the standalone single-executable binary. */
 export function isSea(): boolean {
   return seaOverride ?? sea.isSea();

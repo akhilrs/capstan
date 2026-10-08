@@ -126,6 +126,12 @@ export const PM_WAKE_TEXT = "Run cstan inbox: a teammate has written to you.";
 
 type Outcome = "ok" | "not_found" | "other";
 
+/** What a wake judgement needs of a PM's whole mail: each message's state, and the latest time anything was pulled or acknowledged. */
+interface MailDigest {
+  readonly stateById: ReadonlyMap<string, string>;
+  readonly latestPullMs: number;
+}
+
 /** The Herdr error codes that mean the agent or its pane is gone (a missing session, workspace or tab is not). */
 const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
   "agent_not_found",
@@ -191,6 +197,15 @@ export class DeliveryDriver {
   readonly #lastSampleMs = new Map<string, number>();
   readonly #probeFailed = new Set<string>();
   readonly #pmStaleSeconds: number;
+  /** Message lists by agent as of one ledger version: every mutation bumps the version, so a list read at the current version is current. */
+  readonly #openMail = new Map<
+    string,
+    { version: number; messages: readonly MessageRecord[] }
+  >();
+  readonly #mailDigest = new Map<
+    string,
+    { version: number; digest: MailDigest }
+  >();
   /** The last wake typed for each message this process woke the PM for. */
   readonly #wakes = new Map<
     string,
@@ -299,7 +314,7 @@ export class DeliveryDriver {
       )
         await this.#deliver(agent);
     await this.#updateStuck();
-    this.#forget();
+    this.#forget(agents);
   }
 
   async #observe(
@@ -514,8 +529,8 @@ export class DeliveryDriver {
 
   #isHead(message: MessageRecord): boolean {
     return (
-      queueHead(this.#core.openMessagesFor(message.recipientAgentId))
-        ?.messageId === message.messageId
+      queueHead(this.#openMessages(message.recipientAgentId))?.messageId ===
+      message.messageId
     );
   }
 
@@ -589,18 +604,16 @@ export class DeliveryDriver {
   #judgeWakes(agents: readonly AgentRecord[]): void {
     // With no wake outstanding there is nothing to judge, so the PM's whole mail history is not read.
     if (this.#wakes.size === 0) return;
-    const messages = agents
+    const digests = agents
       .filter((a) => a.kind === "PM")
-      .flatMap((pm) => this.#pmMessages(pm, "all"));
+      .map((pm) => this.#pmDigest(pm));
     const now = this.#now();
     for (const [messageId, wake] of [...this.#wakes]) {
-      const message = messages.find((m) => m.messageId === messageId);
-      const pulledSince = messages.some((m) =>
-        [m.sentAt, m.ackedAt].some(
-          (at) => at !== null && Date.parse(at) > wake.wakeAt,
-        ),
-      );
-      if (message === undefined || message.state !== "queued" || pulledSince) {
+      const state = digests
+        .map((d) => d.stateById.get(messageId))
+        .find((s) => s !== undefined);
+      const pulledSince = digests.some((d) => d.latestPullMs > wake.wakeAt);
+      if (state === undefined || state !== "queued" || pulledSince) {
         this.#wakes.delete(messageId);
         continue;
       }
@@ -623,23 +636,53 @@ export class DeliveryDriver {
       if (!live.has(id)) this.#staleEpisodes.delete(id);
   }
 
-  /** The PM's messages: `open` (not final, what the stale judgement needs) or `all` (a wake also looks at what was pulled or acknowledged since). */
-  #pmMessages(
-    pm: AgentRecord,
-    which: "open" | "all",
-  ): readonly MessageRecord[] {
+  /** The PM's messages that are not final, which is what the stale judgement needs. */
+  #pmMessages(pm: AgentRecord): readonly MessageRecord[] {
     try {
-      return which === "all"
-        ? this.#core.messagesFor(pm.agentId)
-        : this.#core.openMessagesFor(pm.agentId);
+      return this.#openMessages(pm.agentId);
     } catch (error) {
       this.#log("pm_mail_failed", { error: String(error) });
       return [];
     }
   }
 
+  /** The agent's open messages, read again only when the ledger changed since the last read. */
+  #openMessages(agentId: string): readonly MessageRecord[] {
+    const version = this.#core.stateVersion;
+    const hit = this.#openMail.get(agentId);
+    if (hit?.version === version) return hit.messages;
+    const messages = this.#core.openMessagesFor(agentId);
+    this.#openMail.set(agentId, { version, messages });
+    return messages;
+  }
+
+  /** A wake also looks at what was pulled or acknowledged since, so it reads the PM's whole mail; only a digest of it is kept. */
+  #pmDigest(pm: AgentRecord): MailDigest {
+    const version = this.#core.stateVersion;
+    const hit = this.#mailDigest.get(pm.agentId);
+    if (hit?.version === version) return hit.digest;
+    let digest: MailDigest;
+    try {
+      const stateById = new Map<string, string>();
+      let latestPullMs = Number.NEGATIVE_INFINITY;
+      for (const m of this.#core.messagesFor(pm.agentId)) {
+        stateById.set(m.messageId, m.state);
+        for (const at of [m.sentAt, m.ackedAt]) {
+          const ms = at === null ? Number.NaN : Date.parse(at);
+          if (ms > latestPullMs) latestPullMs = ms;
+        }
+      }
+      digest = { stateById, latestPullMs };
+    } catch (error) {
+      this.#log("pm_mail_failed", { error: String(error) });
+      return { stateById: new Map(), latestPullMs: Number.NEGATIVE_INFINITY };
+    }
+    this.#mailDigest.set(pm.agentId, { version, digest });
+    return digest;
+  }
+
   async #judgeStaleFor(pm: AgentRecord): Promise<void> {
-    const messages = this.#pmMessages(pm, "open");
+    const messages = this.#pmMessages(pm);
     const now = this.#now();
     const summary = pmMailSummary(messages, now, this.#pmStaleSeconds);
     const episode = this.#staleEpisodes.get(pm.agentId);
@@ -894,7 +937,7 @@ export class DeliveryDriver {
   }
 
   async #deliver(agent: AgentRecord): Promise<void> {
-    const head = queueHead(this.#core.openMessagesFor(agent.agentId));
+    const head = queueHead(this.#openMessages(agent.agentId));
     if (
       head === undefined ||
       (head.state !== "queued" && head.state !== "deferred")
@@ -989,7 +1032,12 @@ export class DeliveryDriver {
   }
 
   /** Drops once-keys whose condition did not occur this tick and failure counts of messages that left the delivery queue. */
-  #forget(): void {
+  #forget(agents: readonly AgentRecord[]): void {
+    const active = new Set(agents.map((a) => a.agentId));
+    for (const id of [...this.#openMail.keys()])
+      if (!active.has(id)) this.#openMail.delete(id);
+    for (const id of [...this.#mailDigest.keys()])
+      if (!active.has(id)) this.#mailDigest.delete(id);
     for (const key of [...this.#once])
       if (!this.#seen.has(key)) this.#once.delete(key);
     for (const messageId of [...this.#failures.keys()]) {

@@ -1,0 +1,111 @@
+# new-idle-prof: node attribute.mjs cpu.cpuprofile (TOP=40)
+profile wall 396.5s, busy 9.8s (2.5% of wall)
+ 45.7% of busy   1.13% of wall     4485 ms  driver: herdr agent get per agent (spawn + pipes + JSON)
+ 13.4% of busy   0.33% of wall     1317 ms  driver: #advance (advanceMessaging, notices)
+  5.9% of busy   0.15% of wall      579 ms  driver: process-activity probe (pane process-info + /proc scan)
+  4.0% of busy   0.10% of wall      397 ms  other: writeHeapSnapshot node:v8:84
+  3.7% of busy   0.09% of wall      368 ms  (program) native, unattributed by V8
+  3.4% of busy   0.09% of wall      337 ms  V8 garbage collector (main thread)
+  2.7% of busy   0.07% of wall      261 ms  driver: #deliver / #updateStuck / forget
+  2.6% of busy   0.06% of wall      255 ms  report relay tick
+  2.6% of busy   0.06% of wall      252 ms  driver: #judgeWakes / #judgeStale PM message reads
+  2.2% of busy   0.06% of wall      220 ms  daemon request handling (client calls)
+  1.5% of busy   0.04% of wall      147 ms  supervision tick
+  1.5% of busy   0.04% of wall      146 ms  other: spawn node:internal/child_process:355
+  1.4% of busy   0.03% of wall      134 ms  other: exec src/controller/sqlite.js:110
+  1.2% of busy   0.03% of wall      121 ms  other: all src/controller/sqlite.js:74
+  0.9% of busy   0.02% of wall       84 ms  driver: other tick work
+  0.5% of busy   0.01% of wall       50 ms  other: nextTick node:internal/process/task_queues:113
+  0.5% of busy   0.01% of wall       45 ms  other: compileSourceTextModule node:internal/modules/esm/utils:355
+  0.3% of busy   0.01% of wall       30 ms  other: compileForInternalLoader node:internal/bootstrap/realm:383
+  0.2% of busy   0.01% of wall       24 ms  other: runJson src/herdr/runner.js:116
+  0.2% of busy   0.00% of wall       19 ms  other: (anon) src/dash/format.js:1
+  0.2% of busy   0.00% of wall       18 ms  other: processTicksAndRejections node:internal/process/task_queues:72
+  0.2% of busy   0.00% of wall       17 ms  other: Socket._destroy node:net:808
+  0.1% of busy   0.00% of wall       14 ms  other: emit node:events:455
+  0.1% of busy   0.00% of wall       14 ms  other: unlink :0
+  0.1% of busy   0.00% of wall       13 ms  other: processPromiseRejections node:internal/process/promises:439
+  0.1% of busy   0.00% of wall       13 ms  other: shutdown :0
+  0.1% of busy   0.00% of wall       13 ms  other: spawnSync node:internal/child_process:1105
+  0.1% of busy   0.00% of wall       11 ms  other: getPackageScopeConfig :0
+  0.1% of busy   0.00% of wall       10 ms  other: _destroy node:internal/streams/destroy:90
+  0.1% of busy   0.00% of wall        9 ms  other: compileFunction :0
+  0.1% of busy   0.00% of wall        9 ms  other: (anon) node:internal/per_context/primordials:383
+  0.1% of busy   0.00% of wall        8 ms  other: get src/controller/sqlite.js:68
+  0.1% of busy   0.00% of wall        8 ms  other: (anon) src/herdr/runner.js:64
+  0.1% of busy   0.00% of wall        8 ms  other: Readable.read node:internal/streams/readable:645
+  0.1% of busy   0.00% of wall        8 ms  other: (anon) :0
+  0.1% of busy   0.00% of wall        8 ms  other: Socket._final node:net:530
+  0.1% of busy   0.00% of wall        7 ms  other: onStreamRead node:internal/stream_base_commons:166
+  0.1% of busy   0.00% of wall        7 ms  other: defaultLoad node:internal/modules/esm/load:58
+  0.1% of busy   0.00% of wall        7 ms  other: childPids src/herdr/process-activity.js:105
+  0.1% of busy   0.00% of wall        6 ms  other: concat node:buffer:588
+
+# node ../daemon-profile/top.mjs cpu.cpuprofile 25
+total sampled 396.5s
+ 97.5%   386736ms  (idle) :0
+  1.0%     3944ms  spawn node:internal/child_process:355
+  0.5%     1833ms  all src/controller/sqlite.js:74
+  0.1%      421ms  get src/controller/sqlite.js:68
+  0.1%      397ms  writeHeapSnapshot node:v8:84
+  0.1%      368ms  (program) :0
+  0.1%      337ms  (garbage collector) :0
+  0.0%      168ms  exec src/controller/sqlite.js:110
+  0.0%      138ms  get stateVersion src/controller/kernel.js:156
+  0.0%      117ms  lstat :0
+  0.0%       88ms  nextTick node:internal/process/task_queues:113
+  0.0%       84ms  hasStoredRequest src/controller/kernel.js:177
+  0.0%       72ms  close :0
+  0.0%       65ms  normalizeSpawnArguments node:child_process:567
+  0.0%       48ms  get inputRevision src/controller/kernel.js:163
+  0.0%       45ms  compileSourceTextModule node:internal/modules/esm/utils:355
+  0.0%       42ms  authenticateActor src/controller/auth.js:35
+  0.0%       42ms  resumedMsFor src/controller/pauses.js:155
+  0.0%       40ms  prepare src/controller/sqlite.js:97
+  0.0%       36ms  pauseState src/controller/pauses.js:124
+  0.0%       32ms  credentialHash src/controller/auth.js:15
+  0.0%       31ms  compileForInternalLoader node:internal/bootstrap/realm:383
+  0.0%       29ms  (anon) src/herdr/runner.js:37
+  0.0%       27ms  lstatSync node:fs:1695
+  0.0%       27ms  Hash node:internal/crypto/hash:90
+
+inclusive (capstan frames):
+  1.4%  #tick src/driver.js:165
+  1.1%  #observe src/driver.js:188
+  1.0%  (anon) src/herdr/runner.js:37
+  1.0%  runJson src/herdr/runner.js:116
+  1.0%  agentState src/herdr/adapter.js:175
+  0.9%  #agentStateByHerdrName src/herdr/adapter.js:179
+  0.9%  #stateFor src/herdr/adapter.js:371
+  0.8%  agentObservation src/herdr/adapter.js:134
+  0.5%  all src/controller/sqlite.js:74
+  0.3%  #advance src/driver.js:334
+  0.3%  advanceMessaging src/controller/core.js:662
+  0.3%  advanceMessaging src/controller/message-notices.js:119
+  0.3%  #evaluateMessaging src/controller/message-notices.js:432
+  0.2%  (anon) src/controller/message-notices.js:465
+  0.2%  #deliver src/driver.js:749
+  0.2%  loop src/driver.js:123
+  0.2%  tick src/driver.js:143
+  0.2%  (anon) src/driver.js:133
+  0.1%  stateFor src/herdr/adapter.js:66
+  0.1%  guardedSend src/herdr/adapter-input.js:22
+  0.1%  guardedSend src/herdr/adapter.js:445
+  0.1%  recordAgentObservation src/controller/core.js:213
+  0.1%  recordAgentObservation src/controller/agents.js:92
+  0.1%  authorize src/controller/kernel.js:170
+  0.1%  get src/controller/sqlite.js:68
+
+busy 9.8s of 396.5s sampled (2.5%); share of busy self time by owner:
+ 55.8%    1.4% of wall  driver tick
+  4.7%    0.1% of wall  other: spawn node:internal/child_process
+  4.0%    0.1% of wall  other: writeHeapSnapshot node:v8
+  3.7%    0.1% of wall  other: (program) 
+  3.5%    0.1% of wall  other: all src/controller/sqlite.js
+  3.4%    0.1% of wall  other: (garbage collector) 
+  2.6%    0.1% of wall  report relay tick
+  2.1%    0.1% of wall  startup recovery (adopt, release, integrations, reviews)
+  1.6%    0.0% of wall  other: exec src/controller/sqlite.js
+  1.6%    0.0% of wall  other: get src/controller/sqlite.js
+  1.5%    0.0% of wall  supervision tick
+  0.9%    0.0% of wall  other: get stateVersion src/controller/kernel.js
