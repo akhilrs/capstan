@@ -1,0 +1,26 @@
+[
+  {
+    "case": "gap",
+    "message": "migration ledger has a gap before version 4"
+  },
+  {
+    "case": "newer",
+    "message": "database schema version 37 is newer than this controller"
+  },
+  {
+    "case": "renamed",
+    "message": "unknown migration record 2"
+  },
+  {
+    "case": "checksum",
+    "message": "migration 0001_initial.sql checksum changed"
+  },
+  {
+    "case": "tables-without-ledger",
+    "message": "database has tables but no migration ledger"
+  },
+  {
+    "case": "invalid-utf8",
+    "message": "migration 0001_initial.sql is not valid UTF-8"
+  }
+]
