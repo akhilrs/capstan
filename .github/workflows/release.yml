@@ -102,10 +102,59 @@ jobs:
           path: release/cstan-dash-*
           if-no-files-found: error
 
+  front:
+    name: cstan-front ${{ matrix.target }}
+    needs: cstan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # The arm64 build is best effort: when it fails the release goes out without it (see the publish job).
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            triple: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            optional: false
+          - target: linux-arm64
+            triple: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            optional: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.6.x
+      - name: musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.triple }}
+        working-directory: rust
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.triple }}
+      # scripts/build-cli.mjs runs cargo build --release --locked -p cstan-front for the musl triple.
+      - name: Build
+        run: npm run build:cli -- --target ${{ matrix.target }}
+      - name: Check it runs
+        run: |
+          out="$(./release/cstan-front-${{ needs.cstan.outputs.version }}-${{ matrix.target }} __front-version)"
+          echo "$out"
+          test "$out" = "cstan-front ${{ needs.cstan.outputs.version }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cstan-front-${{ matrix.target }}
+          path: release/cstan-front-*
+          if-no-files-found: error
+
   publish:
     name: SHA256SUMS and GitHub release
-    needs: [cstan, dash]
-    # The arm64 dash may have failed; the x64 one and cstan must have worked.
+    needs: [cstan, dash, front]
+    # The arm64 dash and front end may have failed; the x64 ones and cstan must have worked.
     if: ${{ !cancelled() && needs.cstan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -122,7 +171,7 @@ jobs:
       - name: SHA256SUMS
         run: |
           cd assets
-          for f in "capstan-controller-$VERSION.tgz" "cstan-$VERSION-linux-x64" "cstan-$VERSION-linux-arm64" "cstan-dash-$VERSION-linux-x64"; do
+          for f in "capstan-controller-$VERSION.tgz" "cstan-$VERSION-linux-x64" "cstan-$VERSION-linux-arm64" "cstan-dash-$VERSION-linux-x64" "cstan-front-$VERSION-linux-x64"; do
             test -f "$f" || { echo "missing asset $f" >&2; exit 1; }
           done
           chmod 755 cstan-*
@@ -133,10 +182,10 @@ jobs:
           {
             echo "### Release $GITHUB_REF_NAME"
             echo
-            if [ -f "assets/cstan-dash-$VERSION-linux-arm64" ]; then
-              echo "All assets built: cstan and cstan-dash for linux-x64 and linux-arm64."
+            if [ -f "assets/cstan-dash-$VERSION-linux-arm64" ] && [ -f "assets/cstan-front-$VERSION-linux-arm64" ]; then
+              echo "All assets built: cstan, cstan-dash and cstan-front for linux-x64 and linux-arm64."
             else
-              echo "**cstan-dash for linux-arm64 was not built** (the aarch64 musl build failed). The release has cstan-dash for linux-x64 only; the installer installs cstan alone on arm64 and \`cstan dash\` uses the Node dashboard there."
+              echo "**The linux-arm64 build of cstan-dash or cstan-front is missing** (the aarch64 musl build failed). The release has them for linux-x64 only; the installer installs cstan alone on arm64, \`cstan dash\` uses the Node dashboard there and agent commands run in the Node binary."
             fi
             echo
             echo '```'
