@@ -84,6 +84,7 @@ sends over the operator socket (`ping`, `send`, `inbox`, `ack`, `wait`, ...) and
   Every other refusal (an unknown key, a bad value, a prompt file that is missing or outside the project, a file that is not a
   regular file, owned by another user or writable by group or others, a credential-shaped value, ...) is answered natively with
   the Node text.
+
 - **Residual risk: the two TOML parsers.** Node reads TOML with `smol-toml` 1.8, Rust with the `toml` crate 1.1 (TOML 1.1).
   They disagree at the edges. The dangerous direction is Rust reading a file Node refuses: `config check` would then succeed
   natively where Node reports an error. It is covered by the corpus (the Node tests' configurations and TOML edge cases), by a
@@ -107,6 +108,15 @@ sends over the operator socket (`ping`, `send`, `inbox`, `ack`, `wait`, ...) and
   `npm run build:cli -- --target linux-x64` (or `linux-arm64`) builds the musl binary into
   `release/cstan-front-<version>-<target>`. `npm run release` builds both targets, lists them in `SHA256SUMS` and in the
   `gh release create` command; `--no-front` skips them and a release without `cargo` fails unless `--no-front` is given.
+- **Musl cross builds.** For `--target`, `build-cli` runs `cargo zigbuild` (same flags, `--locked`, same output names) when both
+  `cargo-zigbuild` and `zig` are on `PATH`, and prints which it used. Otherwise it runs plain `cargo build`. cstan-front is
+  pure Rust, so either works for it; zig matters for crates with bundled C, such as `capstan-ledger` (rusqlite's bundled
+  SQLite), which cannot be cross-built to musl without a C cross toolchain. Local setup, all optional:
+  `cargo install cargo-zigbuild --locked`, `zig` from https://ziglang.org/download (or your package manager), and
+  `rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl`. Then
+  `cargo zigbuild --release --locked -p capstan-ledger --target aarch64-unknown-linux-musl` (run in `rust/`) builds the
+  ledger and `ledger-probe` for either target. CI (`release.yml`, `ci.yml`) is unchanged: it builds with `musl-tools` on
+  GitHub runners and does not need zig. `build-dash` is unchanged (cstan-dash has no C dependencies).
 - **Install.** `install.sh` checks `cstan-front-<v>-<platform>` against `SHA256SUMS`, stages the SEA as `bin/cstan-node` and
   the front end as `bin/cstan`, and keeps them only if `bin/cstan __front-version` prints `cstan-front <this release>`.
   This is the **fallback rule**: a front end that does not run on this machine, or belongs to another release, is dropped

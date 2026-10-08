@@ -39,10 +39,37 @@ function parseTargets(argv) {
   return requested;
 }
 
-function cargo(args) {
+function available(command, args) {
+  return spawnSync(command, args, { stdio: "ignore" }).status === 0;
+}
+
+// cargo-zigbuild supplies a C cross toolchain, which crates with bundled C (capstan-ledger's SQLite) need for musl.
+// Both cargo-zigbuild and zig must be found; otherwise the plain cargo build below runs, as before.
+let zigbuild;
+function useZigbuild() {
+  zigbuild ??=
+    available("cargo-zigbuild", ["--version"]) && available("zig", ["version"]);
+  return zigbuild;
+}
+
+function cargo(args, musl = false) {
+  const zig = musl && useZigbuild();
+  if (musl)
+    console.log(
+      zig
+        ? "build-cli: using cargo zigbuild for the musl target"
+        : "build-cli: cargo-zigbuild or zig not found; using plain cargo build (C dependencies will not cross-build)",
+    );
   const result = spawnSync(
     "cargo",
-    ["build", "--release", "--locked", "-p", "cstan-front", ...args],
+    [
+      zig ? "zigbuild" : "build",
+      "--release",
+      "--locked",
+      "-p",
+      "cstan-front",
+      ...args,
+    ],
     {
       cwd: rustDir,
       stdio: "inherit",
@@ -63,7 +90,7 @@ try {
   }
   for (const target of targets) {
     const triple = TARGETS[target];
-    cargo(["--target", triple]);
+    cargo(["--target", triple], true);
     fs.mkdirSync(releaseDir, { recursive: true });
     const out = path.join(releaseDir, `cstan-front-${version}-${target}`);
     fs.copyFileSync(path.join(targetDir, triple, "release", "cstan"), out);
