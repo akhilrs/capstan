@@ -19,13 +19,17 @@ export function restoreNodeOptions(env: NodeJS.ProcessEnv = process.env): void {
   if (added === undefined) return;
   delete env[ADDED_NODE_OPTION_VARIABLE];
   const options = env.NODE_OPTIONS ?? "";
+  // The spawn appended the flag, so the last token equal to it is the one it added; everything else stays as written.
+  let found: RegExpMatchArray | undefined;
+  for (const token of options.matchAll(/\S+/g))
+    if (token[0] === added) found = token;
+  if (found?.index === undefined) return;
+  const start = found.index;
+  const end = start + added.length;
   const rest =
-    options === added
-      ? ""
-      : options.endsWith(` ${added}`)
-        ? options.slice(0, -added.length - 1)
-        : undefined;
-  if (rest === undefined) return;
-  if (rest === "") delete env.NODE_OPTIONS;
+    options.slice(0, start).trim() === ""
+      ? options.slice(end).replace(/^\s+/, "")
+      : options.slice(0, start).replace(/\s+$/, "") + options.slice(end);
+  if (rest.trim() === "") delete env.NODE_OPTIONS;
   else env.NODE_OPTIONS = rest;
 }

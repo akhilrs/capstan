@@ -217,6 +217,40 @@ test("the standalone binary's NODE_OPTIONS cap is taken back out by the daemon, 
   assert.equal(changed.NODE_OPTIONS, "--something-else");
 });
 
+test("restoreNodeOptions removes only the token the daemon added, wherever it is", () => {
+  const flag = DAEMON_SEMI_SPACE_FLAG;
+  const restore = (options: string): string | undefined => {
+    const env: NodeJS.ProcessEnv = {
+      [ADDED_NODE_OPTION_VARIABLE]: flag,
+      NODE_OPTIONS: options,
+    };
+    restoreNodeOptions(env);
+    assert.equal(env[ADDED_NODE_OPTION_VARIABLE], undefined);
+    return env.NODE_OPTIONS;
+  };
+  assert.equal(restore(`--a --b ${flag}`), "--a --b");
+  assert.equal(restore(`${flag} --a --b`), "--a --b");
+  assert.equal(restore(`--a ${flag} --b`), "--a --b");
+  assert.equal(restore(`--a   ${flag}   --b  --c`), "--a   --b  --c");
+  assert.equal(restore(`  ${flag}  --a`), "--a");
+  assert.equal(restore(`--a ${flag} --b ${flag}`), `--a ${flag} --b`);
+  assert.equal(restore(`--a ${flag}x --b`), `--a ${flag}x --b`);
+  assert.equal(
+    restore(`--a --max-semi-space-size=16 ${flag}`),
+    "--a --max-semi-space-size=16",
+  );
+  assert.equal(
+    restore(`--max-semi-space-size=16 ${flag} --b`),
+    "--max-semi-space-size=16 --b",
+  );
+  assert.equal(restore(flag), undefined);
+  assert.equal(restore(` ${flag} `), undefined);
+  // The user's own options stay when the marker is absent.
+  const own: NodeJS.ProcessEnv = { NODE_OPTIONS: `--a ${flag} --b` };
+  restoreNodeOptions(own);
+  assert.equal(own.NODE_OPTIONS, `--a ${flag} --b`);
+});
+
 // A heap-statistics check, not a run of the standalone binary (none is built here): node itself stands in for the binary
 // and reads the flag from NODE_OPTIONS exactly as a single-executable app does (execArgvExtension "env", the default).
 test("a daemon started with the standalone binary's environment has the young-generation cap, and a child it spawns does not", () => {
