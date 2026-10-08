@@ -1,0 +1,30 @@
+{
+  "name": "config-check-role-without-host",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n\n[roles.ghost]\nkind = \"Developer\"\nhost = \"nowhere\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: roles.ghost.host does not name a configured host\n",
+    "exit": 3
+  }
+}

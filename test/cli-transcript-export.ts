@@ -9,6 +9,7 @@
  */
 import { spawn } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +21,7 @@ import {
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { configCheckCases } from "./config-parity-export.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 export const TRANSCRIPT_DIRECTORY = path.join(
@@ -73,6 +75,9 @@ export interface Transcript {
     readonly dirs: readonly string[];
     readonly files: readonly string[];
     readonly links: readonly { readonly path: string; readonly to: string }[];
+    /** Files with their text (mode 0600 unless `modes` says otherwise); absent when a transcript has none. */
+    readonly contents?: Readonly<Record<string, string>>;
+    readonly modes?: Readonly<Record<string, number>>;
   };
   /** Relative to the scratch directory. */
   readonly cwd: string;
@@ -100,6 +105,8 @@ interface Case {
   readonly dirs?: readonly string[];
   readonly files?: readonly string[];
   readonly links?: readonly { readonly path: string; readonly to: string }[];
+  readonly contents?: Readonly<Record<string, string>>;
+  readonly modes?: Readonly<Record<string, number>>;
   readonly cwd?: string;
   readonly socket?: string;
   readonly reply?: Reply;
@@ -1327,6 +1334,7 @@ function buildCases(): Case[] {
       skipNode: true,
     },
   );
+  add(...configCheckCases());
   return cases;
 }
 
@@ -1452,6 +1460,11 @@ async function record(source: Case): Promise<Transcript> {
       mkdirSync(path.dirname(path.join(scratch, file)), { recursive: true });
       writeFileSync(path.join(scratch, file), "");
     }
+    for (const [file, text] of Object.entries(source.contents ?? {})) {
+      mkdirSync(path.dirname(path.join(scratch, file)), { recursive: true });
+      writeFileSync(path.join(scratch, file), text, { mode: 0o600 });
+      chmodSync(path.join(scratch, file), source.modes?.[file] ?? 0o600);
+    }
     for (const link of source.links ?? [])
       symlinkSync(path.join(scratch, link.to), path.join(scratch, link.path));
     mkdirSync(path.join(scratch, source.cwd ?? "."), { recursive: true });
@@ -1481,6 +1494,8 @@ async function record(source: Case): Promise<Transcript> {
         dirs: source.dirs ?? [],
         files: source.files ?? [],
         links: source.links ?? [],
+        ...(source.contents === undefined ? {} : { contents: source.contents }),
+        ...(source.modes === undefined ? {} : { modes: source.modes }),
       },
       cwd: source.cwd ?? ".",
       now: NOW,

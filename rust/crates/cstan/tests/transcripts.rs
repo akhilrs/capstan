@@ -176,6 +176,24 @@ fn replay_in(transcript: &Value, name: &str, scratch: &Path, root: &str) -> Resu
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "").unwrap();
     }
+    if let Some(Value::Object(members)) = layout.get("contents") {
+        let modes = layout.get("modes");
+        for (file, text) in members {
+            let file = file.to_utf8().unwrap();
+            let Value::String(text) = text else {
+                panic!("{text:?}")
+            };
+            let path = scratch.join(&file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text.to_utf8().unwrap()).unwrap();
+            let mode = match modes.and_then(|m| m.get(&file)) {
+                Some(Value::Number(n)) => *n as u32,
+                _ => 0o600,
+            };
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode))
+                .unwrap();
+        }
+    }
     if let Some(Value::Array(links)) = layout.get("links") {
         for link in links {
             std::os::unix::fs::symlink(

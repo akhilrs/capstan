@@ -1,0 +1,30 @@
+{
+  "name": "config-check-no-pm",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"Developer\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: exactly one role must have kind PM\n",
+    "exit": 3
+  }
+}

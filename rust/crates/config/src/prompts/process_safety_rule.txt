@@ -1,0 +1,1 @@
+Process safety: never signal (kill, pkill, killall) or stop (cstan stop) a controller daemon or any process you did not start yourself; never use pkill -f or killall; before signalling a process you started, check /proc/<pid>/cwd and its command line.

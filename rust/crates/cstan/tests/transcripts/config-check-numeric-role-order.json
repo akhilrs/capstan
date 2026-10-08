@@ -1,0 +1,30 @@
+{
+  "name": "config-check-numeric-role-order",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n[hosts.claude]\nkind = \"claude\"\n[roles.zeta]\nkind = \"PM\"\nhost = \"claude\"\n[roles.10]\nkind = \"Developer\"\nhost = \"claude\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$\n",
+    "exit": 3
+  }
+}

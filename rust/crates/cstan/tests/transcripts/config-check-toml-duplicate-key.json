@@ -1,0 +1,30 @@
+{
+  "name": "config-check-toml-duplicate-key",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\nschema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": true,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: capstan.toml is not valid TOML at line 2, column 1\n",
+    "exit": 3
+  }
+}

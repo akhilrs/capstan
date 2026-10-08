@@ -1,0 +1,33 @@
+{
+  "name": "config-check-writable-by-group",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
+    },
+    "modes": {
+      "proj/capstan.toml": 432
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: capstan.toml must not be writable by group or others\n",
+    "exit": 3
+  }
+}

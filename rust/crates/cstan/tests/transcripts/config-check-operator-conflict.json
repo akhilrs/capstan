@@ -1,0 +1,30 @@
+{
+  "name": "config-check-operator-conflict",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n\n[operator]\nenabled = true\nrole = \"developer\"\nauto_approve = [\"rm -rf x\"]\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: operator.auto_approve[0] contains \"rm\", \"-r\", \"-f\", which always needs a human decision\n",
+    "exit": 3
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "config-check-prompt-file-outside",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\nprompt_file = \"../outside.md\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n",
+      "outside.md": "outside\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: roles.pm.prompt_file must stay inside the project\n",
+    "exit": 3
+  }
+}

@@ -1,0 +1,4617 @@
+[
+ {
+  "name": "captured-0001",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0002",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "5ee9ed39761a7f4ecaf5012a7d7efe6f56e736a48dc839db1da5df231b937744",
+   "bytes": 3373
+  }
+ },
+ {
+  "name": "captured-0003",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "76503f383c9dd4b96a462f0dc1422d2484b727f466cfeabea98af6e2f5691245",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "captured-0004",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a973e32e6df36dbb3c6f87cd0d532c7b6226a97be6749954afbad9d5e994955f",
+   "bytes": 3366
+  }
+ },
+ {
+  "name": "captured-0005",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d3139a0dcaac6ec8f3cc0cd3d3f4741225948c0a8523a4551556b701fff251d7",
+   "bytes": 3366
+  }
+ },
+ {
+  "name": "captured-0006",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "4a06d62d7dc8d60236faac98c51e3eb59e96aa26894d4320107c557fe42fbc31",
+   "bytes": 3369
+  }
+ },
+ {
+  "name": "captured-0007",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be between 1 and 1440"
+  }
+ },
+ {
+  "name": "captured-0008",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be between 1 and 1440"
+  }
+ },
+ {
+  "name": "captured-0009",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be between 1 and 1440"
+  }
+ },
+ {
+  "name": "captured-0010",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0011",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0012",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.pm_stale_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0013",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes"
+  }
+ },
+ {
+  "name": "captured-0014",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "f21c6a55bacc52f8c896dcd66a1a0caec132f29d741c725800436f88c3443fd2",
+   "bytes": 6737
+  }
+ },
+ {
+  "name": "captured-0015",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0016",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b23776a8e99da0c6f6feef96219208a67fb2837946a04a298abe83f99693ea4c",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0017",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "dc838e35a9eeca1c1a8cf130543198770084ebe4bbdf1f86954b1aa46bb59d91",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "captured-0018",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "captured-0019",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "captured-0020",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "captured-0021",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "captured-0022",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "captured-0023",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "captured-0024",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "captured-0025",
+  "outcome": {
+   "kind": "error",
+   "message": "limits has 1 unknown key(s); allowed: max_workers"
+  }
+ },
+ {
+  "name": "captured-0026",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "2d853fded06e4ef86904647935566bcb8a2d6005ffe174b86ecd2eb4c0fd5f83",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0027",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "1668ae2fc9cfd3a18dc32ce4f219d6702786f8bdbfc66a1381f69978761caf72",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "captured-0028",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be between 1 and 50"
+  }
+ },
+ {
+  "name": "captured-0029",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be between 1 and 50"
+  }
+ },
+ {
+  "name": "captured-0030",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be between 1 and 50"
+  }
+ },
+ {
+  "name": "captured-0031",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be an integer"
+  }
+ },
+ {
+  "name": "captured-0032",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be an integer"
+  }
+ },
+ {
+  "name": "captured-0033",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger.keep_migration_backups must be an integer"
+  }
+ },
+ {
+  "name": "captured-0034",
+  "outcome": {
+   "kind": "error",
+   "message": "ledger has 1 unknown key(s); allowed: keep_migration_backups"
+  }
+ },
+ {
+  "name": "captured-0035",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0036",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "1e3f4182ba3c4ecd9013417774e9379c4df4cdc6f88be9345d489a8cd64099ae",
+   "bytes": 3419
+  }
+ },
+ {
+  "name": "captured-0037",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0038",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0039",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0040",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0041",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0042",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0043",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0044",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "captured-0045",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass must be an array of variable names"
+  }
+ },
+ {
+  "name": "captured-0046",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not start with CAPSTAN_: those variables belong to Capstan"
+  }
+ },
+ {
+  "name": "captured-0047",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be PATH: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0048",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be HOME: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0049",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be TERM: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0050",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be IFS: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0051",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be PS1: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0052",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be PROMPT_COMMAND: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0053",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be BASH_ENV: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0054",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be SHELLOPTS: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0055",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be LD_PRELOAD: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0056",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be NODE_OPTIONS: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0057",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be ZDOTDIR: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0058",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be SHELL: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0059",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be LD_DEBUG: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0060",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be DYLD_INSERT_LIBRARIES: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0061",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be GIT_SSH_COMMAND: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0062",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be GIT_DIR: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0063",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be BASH_FUNC_X: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0064",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be BASH_XTRACEFD: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0065",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must not be PS0: Capstan already sets it or it changes how an agent's shell, loader or git behaves"
+  }
+ },
+ {
+  "name": "captured-0066",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[2] repeats A"
+  }
+ },
+ {
+  "name": "captured-0067",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass exceeds 32 names"
+  }
+ },
+ {
+  "name": "captured-0068",
+  "outcome": {
+   "kind": "error",
+   "message": "env has 1 unknown key(s); allowed: pass"
+  }
+ },
+ {
+  "name": "captured-0069",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0070",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "9816745fa3092cbecc0aebb61068bc5cf7c83adf1cfc578db8f3a23387d7ead2",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "captured-0071",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.spawn must be one of tab, pane"
+  }
+ },
+ {
+  "name": "captured-0072",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.spawn must be one of tab, pane"
+  }
+ },
+ {
+  "name": "captured-0073",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.spawn must be one of tab, pane"
+  }
+ },
+ {
+  "name": "captured-0074",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.spawn must be one of tab, pane"
+  }
+ },
+ {
+  "name": "captured-0075",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.spawn must be one of tab, pane"
+  }
+ },
+ {
+  "name": "captured-0076",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.split must be one of auto, right, down"
+  }
+ },
+ {
+  "name": "captured-0077",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.split must be one of auto, right, down"
+  }
+ },
+ {
+  "name": "captured-0078",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.split must be one of auto, right, down"
+  }
+ },
+ {
+  "name": "captured-0079",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.pm_width_percent must be between 30 and 80"
+  }
+ },
+ {
+  "name": "captured-0080",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.pm_width_percent must be between 30 and 80"
+  }
+ },
+ {
+  "name": "captured-0081",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.pm_width_percent must be an integer"
+  }
+ },
+ {
+  "name": "captured-0082",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.pm_width_percent must be an integer"
+  }
+ },
+ {
+  "name": "captured-0083",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_columns must be between 1 and 500"
+  }
+ },
+ {
+  "name": "captured-0084",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_columns must be between 1 and 500"
+  }
+ },
+ {
+  "name": "captured-0085",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_columns must be an integer"
+  }
+ },
+ {
+  "name": "captured-0086",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_columns must be an integer"
+  }
+ },
+ {
+  "name": "captured-0087",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_rows must be between 1 and 200"
+  }
+ },
+ {
+  "name": "captured-0088",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_rows must be between 1 and 200"
+  }
+ },
+ {
+  "name": "captured-0089",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_rows must be between 1 and 200"
+  }
+ },
+ {
+  "name": "captured-0090",
+  "outcome": {
+   "kind": "error",
+   "message": "layout.min_pane_rows must be an integer"
+  }
+ },
+ {
+  "name": "captured-0091",
+  "outcome": {
+   "kind": "error",
+   "message": "layout has 1 unknown key(s); allowed: spawn, split, pm_width_percent, min_pane_columns, min_pane_rows"
+  }
+ },
+ {
+  "name": "captured-0092",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "4bc2099692c9dd0a16336f2d4b5d2be435d4e74004f251c3ed5238b266182fed",
+   "bytes": 3271
+  }
+ },
+ {
+  "name": "captured-0093",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b615f5860bc119f72aa8793f93546c037d52e6c535ea86da99424db6589e8d6d",
+   "bytes": 3294
+  }
+ },
+ {
+  "name": "captured-0094",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "719754942ec59034e5b57156dca728d8a99d7261969bdb46c5c1dad6ec17d5ba",
+   "bytes": 3369
+  }
+ },
+ {
+  "name": "captured-0095",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a20d3cd83495bcec0a3055a92f3e112be07c14995cb9ca053a9ee128e9fb5150",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0096",
+  "outcome": {
+   "kind": "error",
+   "message": "herdr_session must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  }
+ },
+ {
+  "name": "captured-0097",
+  "outcome": {
+   "kind": "error",
+   "message": "herdr_session must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0098",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.herdr and notifications.fallback must not both be false"
+  }
+ },
+ {
+  "name": "captured-0099",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications.herdr must be true or false"
+  }
+ },
+ {
+  "name": "captured-0100",
+  "outcome": {
+   "kind": "error",
+   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes"
+  }
+ },
+ {
+  "name": "captured-0101",
+  "outcome": {
+   "kind": "error",
+   "message": "schema_version must be the integer 1"
+  }
+ },
+ {
+  "name": "captured-0102",
+  "outcome": {
+   "kind": "error",
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+  }
+ },
+ {
+  "name": "captured-0103",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+  }
+ },
+ {
+  "name": "captured-0104",
+  "outcome": {
+   "kind": "error",
+   "message": "exactly one role must have kind PM"
+  }
+ },
+ {
+  "name": "captured-0105",
+  "outcome": {
+   "kind": "error",
+   "message": "exactly one role must have kind PM"
+  }
+ },
+ {
+  "name": "captured-0106",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.host does not name a configured host"
+  }
+ },
+ {
+  "name": "captured-0107",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.kind must be one of PM, Developer, Verifier, Supervisor"
+  }
+ },
+ {
+  "name": "captured-0108",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.kind must be one of claude, codex, omp"
+  }
+ },
+ {
+  "name": "captured-0109",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.permission_mode must be one of default, acceptEdits, plan, auto"
+  }
+ },
+ {
+  "name": "captured-0110",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "captured-0111",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.wait_timeout_seconds (60) must be below hosts.claude.shell_command_timeout_seconds (60)"
+  }
+ },
+ {
+  "name": "captured-0112",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.stall_after_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0113",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.max_deferral_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0114",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.max_deferral_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0115",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts must be a table"
+  }
+ },
+ {
+  "name": "captured-0116",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer sets both prompt and prompt_file"
+  }
+ },
+ {
+  "name": "captured-0117",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file must be relative to the project"
+  }
+ },
+ {
+  "name": "captured-0118",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file does not exist"
+  }
+ },
+ {
+  "name": "captured-0119",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0120",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow exceeds 64 entries"
+  }
+ },
+ {
+  "name": "captured-0121",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow[0] must not start with a dash"
+  }
+ },
+ {
+  "name": "captured-0122",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.deny[0] must not start with a dash"
+  }
+ },
+ {
+  "name": "captured-0123",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model must not start with a dash"
+  }
+ },
+ {
+  "name": "captured-0124",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0125",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file does not exist"
+  }
+ },
+ {
+  "name": "captured-0126",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml must be a regular file"
+  }
+ },
+ {
+  "name": "captured-0127",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml is not valid UTF-8"
+  }
+ },
+ {
+  "name": "captured-0128",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml does not exist"
+  }
+ },
+ {
+  "name": "captured-0129",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d03f546fe513fe8d4001640da34e43ac6a40e86821e73835fe6b26648386198e",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0130",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d03f546fe513fe8d4001640da34e43ac6a40e86821e73835fe6b26648386198e",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0131",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "920731faf6e2e6e0bbc8374f5292f0d991a464f078d6c7774ce74f92d9d5031a",
+   "bytes": 3440
+  }
+ },
+ {
+  "name": "captured-0132",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "1b7bcc87ca59cd673a97f61294f6b395856f8dfd955a4fa5217449e01d0d1f42",
+   "bytes": 3438
+  }
+ },
+ {
+  "name": "captured-0133",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0134",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0135",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0136",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0137",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0138",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0139",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0140",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow[0] must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0141",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0142",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0143",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0144",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "32800629164af23cae74b03f89d3d0a5f6c6ff07f6fbe69d0585153090818320",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0145",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0146",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model must not have leading or trailing whitespace"
+  }
+ },
+ {
+  "name": "captured-0147",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow[0] must not have leading or trailing whitespace"
+  }
+ },
+ {
+  "name": "captured-0148",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0149",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0150",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0151",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0152",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0153",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "5ad2554c09e5cffec277d1d9c4e74d7fc07a72f902be70afa939fd3543d91d27",
+   "bytes": 3373
+  }
+ },
+ {
+  "name": "captured-0154",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a6491f6ead2a52049eed003cd794b47dcccf7ad15e41848b529935364274d370",
+   "bytes": 3382
+  }
+ },
+ {
+  "name": "captured-0155",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "6816d3bff14af65f1ff96040dfc1b7b4483b62a75618ed99986720beb96bd12b",
+   "bytes": 3369
+  }
+ },
+ {
+  "name": "captured-0156",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "4e6504636f51941cd950f95d33f63d27c4ccc727dd107f50d62f7daf1a368379",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0157",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0158",
+  "outcome": {
+   "kind": "error",
+   "message": "roles role name looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0159",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts host name looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0160",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0161",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0162",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0163",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.claude.command must be an executable name or path"
+  }
+ },
+ {
+  "name": "captured-0164",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0165",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "2e2841a22f408c43c62b07ef9e5130eba02c685d8a187e32cc2f4ef41bd0c78f",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0166",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file must not be empty"
+  }
+ },
+ {
+  "name": "captured-0167",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0168",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "759157d4bc4b380f07019b688bf542a3659c7683a5b36793368c96565497ae1f",
+   "bytes": 3366
+  }
+ },
+ {
+  "name": "captured-0169",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.worker_ack_timeout_seconds must be between 1 and 86400"
+  }
+ },
+ {
+  "name": "captured-0170",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.worker_ack_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0171",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0172",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml must not be writable by group or others"
+  }
+ },
+ {
+  "name": "captured-0173",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0174",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml must be a regular file"
+  }
+ },
+ {
+  "name": "captured-0175",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 1, column 9"
+  }
+ },
+ {
+  "name": "captured-0176",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 2, column 38"
+  }
+ },
+ {
+  "name": "captured-0177",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.model looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0178",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.allow[0] looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0179",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0180",
+  "outcome": {
+   "kind": "error",
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+  }
+ },
+ {
+  "name": "captured-0181",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "captured-0182",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.permission_mode must be one of default, acceptEdits, plan, auto"
+  }
+ },
+ {
+  "name": "captured-0183",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "48cd4a73a2993b78d79403188430cec8b0ab601307ec25f71eebd09f0dedf261",
+   "bytes": 3452
+  }
+ },
+ {
+  "name": "captured-0184",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "72d1c59eb63ce687889d5f8a811a58a7617870078b7e4b278268af1a6d27c461",
+   "bytes": 3452
+  }
+ },
+ {
+  "name": "captured-0185",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer.prompt_file does not exist"
+  }
+ },
+ {
+  "name": "captured-0186",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b3b1708d9d97275b623c2997515020e709f5dc8fd5b009f4c0f947cc79822cdf",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "captured-0187",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "24765be06f1bdd1da087ea550fb90895a98db2f1b0bdc76f45f4bad501e2fd56",
+   "bytes": 3971
+  }
+ },
+ {
+  "name": "captured-0188",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a2ca97a60077b06d7aba6ee684c90f500b2df99907e71a1799c5e563ca8e961a",
+   "bytes": 3772
+  }
+ },
+ {
+  "name": "captured-0189",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "2f1b3ca2ce01e1d69ae27d60e6afa4aa808be067ceda843e4b70b633d0fce34b",
+   "bytes": 3795
+  }
+ },
+ {
+  "name": "captured-0190",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "f54dbe0b00d26e62e114aa591739d6936559d81747716c5fdd2873b65a284814",
+   "bytes": 3365
+  }
+ },
+ {
+  "name": "captured-0191",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "0ccd764dee090a854499b74835585bae7685e62ed3590920b8175e31885c0df1",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "captured-0192",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be between 60 and 86400"
+  }
+ },
+ {
+  "name": "captured-0193",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be between 60 and 86400"
+  }
+ },
+ {
+  "name": "captured-0194",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be between 60 and 86400"
+  }
+ },
+ {
+  "name": "captured-0195",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be between 60 and 86400"
+  }
+ },
+ {
+  "name": "captured-0196",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0197",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0198",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.finding_check_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0199",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "54fe1164fd95b22e8e4972693be1d64d6416c4d1003bb06ba80633b0970ccf3b",
+   "bytes": 4061
+  }
+ },
+ {
+  "name": "captured-0200",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm: a PM role is read-only by design and only a claude host can enforce that; host cx is codex"
+  }
+ },
+ {
+  "name": "captured-0201",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.watch: a Supervisor role is read-only by design and only a claude host can enforce that; host om is omp"
+  }
+ },
+ {
+  "name": "captured-0202",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev: allow and deny are Claude Code tool rules and host cx (codex) cannot enforce them"
+  }
+ },
+ {
+  "name": "captured-0203",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev2: allow and deny are Claude Code tool rules and host om (omp) cannot enforce them"
+  }
+ },
+ {
+  "name": "captured-0204",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev.permission_mode must be acceptEdits or auto on host cx (codex), which runs unattended with full access (set it on the role or in [defaults])"
+  }
+ },
+ {
+  "name": "captured-0205",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev2.permission_mode must be acceptEdits or auto on host om (omp), which runs unattended with full access (set it on the role or in [defaults])"
+  }
+ },
+ {
+  "name": "captured-0206",
+  "outcome": {
+   "kind": "error",
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+  }
+ },
+ {
+  "name": "captured-0207",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.abcdefghijklmnopq: the role name is longer than 16 characters, so an agent name with the project prefix would not fit Herdr's 32"
+  }
+ },
+ {
+  "name": "captured-0208",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "13532ec6b65a61ee68c52c00da1e1f3f3772eed4c97da4275bab6ab380d416d5",
+   "bytes": 3780
+  }
+ },
+ {
+  "name": "captured-0209",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "18054fe79a012bd2f0bc9aa88350467dced9c9cf9b8f3650cef2ca7a83cdca27",
+   "bytes": 3511
+  }
+ },
+ {
+  "name": "captured-0210",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "1834a657ff79c3b044f70bcebb06c335d64e2af113097c1a3f2a927f6d88242f",
+   "bytes": 3366
+  }
+ },
+ {
+  "name": "captured-0211",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.pm_wake_after_seconds must be between 0 and 3600"
+  }
+ },
+ {
+  "name": "captured-0212",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.pm_wake_after_seconds must be between 0 and 3600"
+  }
+ },
+ {
+  "name": "captured-0213",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.pm_wake_interval_seconds must be between 10 and 3600"
+  }
+ },
+ {
+  "name": "captured-0214",
+  "outcome": {
+   "kind": "error",
+   "message": "timers.max_busy_deferral_seconds must be between 60 and 86400"
+  }
+ },
+ {
+  "name": "captured-0215",
+  "outcome": {
+   "kind": "error",
+   "message": "supervision.check_seconds must be between 60 and 3600"
+  }
+ },
+ {
+  "name": "captured-0216",
+  "outcome": {
+   "kind": "error",
+   "message": "supervision.check_seconds must be between 60 and 3600"
+  }
+ },
+ {
+  "name": "captured-0217",
+  "outcome": {
+   "kind": "error",
+   "message": "supervision.enabled must be true or false"
+  }
+ },
+ {
+  "name": "captured-0218",
+  "outcome": {
+   "kind": "error",
+   "message": "supervision has 1 unknown key(s); allowed: enabled, check_seconds"
+  }
+ },
+ {
+  "name": "captured-0219",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b219fcbdcabe6b6b3a902a92911300ae56cad0d49a7e18f33f8618f0e8332444",
+   "bytes": 4783
+  }
+ },
+ {
+  "name": "captured-0220",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "ea93349a2f11b1d7ab2c8f4db5a860dc560e9c188393d583b954ed8816559c3e",
+   "bytes": 4837
+  }
+ },
+ {
+  "name": "captured-0221",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "bb61d55de1068d829789d27fda230c342d1a18499a8f60a2bfa2338933aa835f",
+   "bytes": 4796
+  }
+ },
+ {
+  "name": "captured-0222",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults has 1 unknown key(s); allowed: model, permission_mode, PM, Developer, Verifier, Supervisor"
+  }
+ },
+ {
+  "name": "captured-0223",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults has 1 unknown key(s); allowed: model, permission_mode, PM, Developer, Verifier, Supervisor"
+  }
+ },
+ {
+  "name": "captured-0224",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.PM.permission_mode must be one of default, acceptEdits, plan, auto"
+  }
+ },
+ {
+  "name": "captured-0225",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.model must not start with a dash"
+  }
+ },
+ {
+  "name": "captured-0226",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.Developer.model looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0227",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.model must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0228",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.PM must be a table"
+  }
+ },
+ {
+  "name": "captured-0229",
+  "outcome": {
+   "kind": "error",
+   "message": "defaults.PM has 1 unknown key(s); allowed: model, permission_mode"
+  }
+ },
+ {
+  "name": "captured-0230",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev.permission_mode must be acceptEdits or auto on host cx (codex), which runs unattended with full access (set it on the role or in [defaults])"
+  }
+ },
+ {
+  "name": "captured-0231",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "612cf85ece8ce4078e4009bfdc7723dff194deaa426ef09af2aed2ea843d4872",
+   "bytes": 3510
+  }
+ },
+ {
+  "name": "captured-0232",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0233",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "93fb3e5ebda1e38f13edd10ef06ebfcb6a8ace4dd998d8e51adeb8bf8eb9cea1",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0234",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7fea6baefc23c750691231c142c3f27fbadcfee8115a538565fe7406e12f8110",
+   "bytes": 3702
+  }
+ },
+ {
+  "name": "captured-0235",
+  "outcome": {
+   "kind": "error",
+   "message": "architect has 1 unknown key(s); allowed: enabled, role, plan_review, reviewer_role, max_packages, count_toward_worker_limit, high_risk_triggers"
+  }
+ },
+ {
+  "name": "captured-0236",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.enabled must be true or false"
+  }
+ },
+ {
+  "name": "captured-0237",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.plan_review must be one of high_risk, always, never"
+  }
+ },
+ {
+  "name": "captured-0238",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.role must match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "captured-0239",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.reviewer_role must match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "captured-0240",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.max_packages must be between 1 and 20"
+  }
+ },
+ {
+  "name": "captured-0241",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.max_packages must be between 1 and 20"
+  }
+ },
+ {
+  "name": "captured-0242",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.count_toward_worker_limit must be true or false"
+  }
+ },
+ {
+  "name": "captured-0243",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.high_risk_triggers must be an array of strings"
+  }
+ },
+ {
+  "name": "captured-0244",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.role \"missing\" does not name a configured role"
+  }
+ },
+ {
+  "name": "captured-0245",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.role \"reviewer\" must be a Developer role; roles.reviewer.kind is Verifier"
+  }
+ },
+ {
+  "name": "captured-0246",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.role \"pm\" must be a Developer role; roles.pm.kind is PM"
+  }
+ },
+ {
+  "name": "captured-0247",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.reviewer_role \"missing\" does not name a configured role"
+  }
+ },
+ {
+  "name": "captured-0248",
+  "outcome": {
+   "kind": "error",
+   "message": "architect.reviewer_role \"architect\" must be a Verifier role; roles.architect.kind is Developer"
+  }
+ },
+ {
+  "name": "captured-0249",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.architect: the architect role needs a claude host so its deny rules are enforced; host other is codex"
+  }
+ },
+ {
+  "name": "captured-0250",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b0b517fdb627a69b53be2e8013b17e730f0be9c3135043d2a3f087ee0b5f922b",
+   "bytes": 12726
+  }
+ },
+ {
+  "name": "captured-0251",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0252",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d59484ef538017a650ba542f2478ddff38c812f11d16b6fb51e7756ec79cb72f",
+   "bytes": 3373
+  }
+ },
+ {
+  "name": "captured-0253",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c67f9b093ce288710169802b3546d3ff5736079694bb5972806c975fae0908ba",
+   "bytes": 3371
+  }
+ },
+ {
+  "name": "captured-0254",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "1fccef761f11b25230d8b47d2bb5de78e2c4ead266cbe5cc18a789fcafa08b78",
+   "bytes": 3365
+  }
+ },
+ {
+  "name": "captured-0255",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "53a0450e720846115f24942b2a12dd22f63a8bb1b4b4d27eb646e399d6c71c75",
+   "bytes": 3192
+  }
+ },
+ {
+  "name": "captured-0256",
+  "outcome": {
+   "kind": "error",
+   "message": "nexora has 1 unknown key(s); allowed: track, default_action"
+  }
+ },
+ {
+  "name": "captured-0257",
+  "outcome": {
+   "kind": "error",
+   "message": "nexora.track must be one of ask, always, never"
+  }
+ },
+ {
+  "name": "captured-0258",
+  "outcome": {
+   "kind": "error",
+   "message": "nexora.track must be one of ask, always, never"
+  }
+ },
+ {
+  "name": "captured-0259",
+  "outcome": {
+   "kind": "error",
+   "message": "nexora.default_action must be one of create, link, none"
+  }
+ },
+ {
+  "name": "captured-0260",
+  "outcome": {
+   "kind": "error",
+   "message": "nexora.track = \"always\" contradicts nexora.default_action = \"none\"; use track = \"never\" to turn tracking off"
+  }
+ },
+ {
+  "name": "captured-0261",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d59484ef538017a650ba542f2478ddff38c812f11d16b6fb51e7756ec79cb72f",
+   "bytes": 3373
+  }
+ },
+ {
+  "name": "captured-0262",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "04b8616371cf001ee0c7968ce6d9be04d0b87855dc40b1b06981b76751739903",
+   "bytes": 3194
+  }
+ },
+ {
+  "name": "captured-0263",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d28ff72b95832c9fa18273afd8a329b72bc9525670e783b2653a7d43d0505de6",
+   "bytes": 3192
+  }
+ },
+ {
+  "name": "captured-0264",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "f21c6a55bacc52f8c896dcd66a1a0caec132f29d741c725800436f88c3443fd2",
+   "bytes": 6737
+  }
+ },
+ {
+  "name": "captured-0265",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0266",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "96ba6dee111d352dd7b8c8a645c18fd22130cf5852dd62c08da26792fe7bc457",
+   "bytes": 3447
+  }
+ },
+ {
+  "name": "captured-0267",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "5a8869e4121532299ffcb777449e80a54192f780f4a54e3a79689cb5496649b4",
+   "bytes": 3438
+  }
+ },
+ {
+  "name": "captured-0268",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7a1af5bf5973ceddefdc603b5a4ab007e6624d19d174447084e451115e4f5abf",
+   "bytes": 3439
+  }
+ },
+ {
+  "name": "captured-0269",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c853cdc5cb08daa6beb263fbeddddf6a7b415e08b8ea45ec9beddf5d039c369a",
+   "bytes": 3441
+  }
+ },
+ {
+  "name": "captured-0270",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0271",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0272",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0273",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0274",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0275",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0276",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0277",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0278",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0279",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0280",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0281",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0282",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0283",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.setup_timeout_seconds is set without worktree.setup"
+  }
+ },
+ {
+  "name": "captured-0284",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree has 1 unknown key(s); allowed: setup, setup_timeout_seconds, teardown, teardown_timeout_seconds"
+  }
+ },
+ {
+  "name": "captured-0285",
+  "outcome": {
+   "kind": "error",
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+  }
+ },
+ {
+  "name": "captured-0286",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "f7e1b9e9431c951158c2210fc3affa970a43a346aa5dac23f9abd2e29f360f73",
+   "bytes": 3481
+  }
+ },
+ {
+  "name": "captured-0287",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "363554339312dc660052610aa37a52aadedab4edb591acdbeb2b82dc562901d5",
+   "bytes": 3498
+  }
+ },
+ {
+  "name": "captured-0288",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "f2c69ef9bed625315301dd3b13e6e34e9aceeaad96d125ae7b4a0b59f41f39eb",
+   "bytes": 3473
+  }
+ },
+ {
+  "name": "captured-0289",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "5f12132db979850fe0b50715fa17cb90d7e0f43630e140ca9e1833dc4e67bd1a",
+   "bytes": 3476
+  }
+ },
+ {
+  "name": "captured-0290",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0291",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown must be a non-empty string"
+  }
+ },
+ {
+  "name": "captured-0292",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0293",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0294",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0295",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0296",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0297",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0298",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0299",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0300",
+  "outcome": {
+   "kind": "error",
+   "message": "worktree.teardown_timeout_seconds is set without worktree.teardown"
+  }
+ },
+ {
+  "name": "captured-0301",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c5f1d7928ddabade16e264d43d40ba68218ee30f313bc32714bbc0f912c0ec05",
+   "bytes": 7559
+  }
+ },
+ {
+  "name": "captured-0302",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "75c4f06448326c99184182949ac3ed6fb095a222b4427b085fcacebd162ea5b6",
+   "bytes": 3366
+  }
+ },
+ {
+  "name": "captured-0303",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7fe8cb91e3837f6f70d22844771423bad02e00a2f6d8369e7b608a7817c8a94e",
+   "bytes": 3364
+  }
+ },
+ {
+  "name": "captured-0304",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "9a5ada68c8c5a748b092ad7f20505ae2320260bbf0266c3896245c58ce547286",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "captured-0305",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay.capture_ttl_seconds must be between 60 and 3600"
+  }
+ },
+ {
+  "name": "captured-0306",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay.capture_ttl_seconds must be between 60 and 3600"
+  }
+ },
+ {
+  "name": "captured-0307",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay.capture_ttl_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0308",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay.capture_ttl_seconds must be an integer"
+  }
+ },
+ {
+  "name": "captured-0309",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay.enabled must be true or false"
+  }
+ },
+ {
+  "name": "captured-0310",
+  "outcome": {
+   "kind": "error",
+   "message": "prompt_relay has 1 unknown key(s); allowed: enabled, capture_ttl_seconds"
+  }
+ },
+ {
+  "name": "captured-0311",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b90211888e3a14cc600fdb257041dfc32e75c1ff587589c585c624e09043ba49",
+   "bytes": 6735
+  }
+ },
+ {
+  "name": "captured-0312",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.designer.prompt_file does not exist"
+  }
+ },
+ {
+  "name": "captured-0313",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "18763881da1cde53616539b9e2cf5f51c8abbea4eac48022854d6121c1c38a4f",
+   "bytes": 3437
+  }
+ },
+ {
+  "name": "captured-0314",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d0f7e0bad3911dd4c744f24889c9f1bb93fa6963e0ab0b3196397b71f1759eb4",
+   "bytes": 3924
+  }
+ },
+ {
+  "name": "captured-0315",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "60d72124c1f8a98d8fa26f80ad4bf2d11c96abcdefea1360e0daba7c1b75fa70",
+   "bytes": 3923
+  }
+ },
+ {
+  "name": "captured-0316",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a8cbe287a710ea017c19430a031bc0e46c2e15a13b97f4e7368f70280ae7b765",
+   "bytes": 4502
+  }
+ },
+ {
+  "name": "captured-0317",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.role \"operator\" does not name a configured role"
+  }
+ },
+ {
+  "name": "captured-0318",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.role \"operator\" must be a Developer role; roles.operator.kind is Verifier"
+  }
+ },
+ {
+  "name": "captured-0319",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator: the operator role needs a claude host so its deny rules are enforced; host omp is omp"
+  }
+ },
+ {
+  "name": "captured-0320",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.role \"architect\" must differ from architect.role"
+  }
+ },
+ {
+  "name": "captured-0321",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.role \"operator\" must differ from architect.role"
+  }
+ },
+ {
+  "name": "captured-0322",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[0] must be a Bash(cstan ...) rule; the operator role may not allow Bash"
+  }
+ },
+ {
+  "name": "captured-0323",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[0] must be a Bash(cstan ...) rule; the operator role may not allow Bash(*)"
+  }
+ },
+ {
+  "name": "captured-0324",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[0] must be a Bash(cstan ...) rule; the operator role may not allow Bash(git *)"
+  }
+ },
+ {
+  "name": "captured-0325",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[0] must be a Bash(cstan ...) rule; the operator role may not allow Bash(cstan *; rm x)"
+  }
+ },
+ {
+  "name": "captured-0326",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[0] must be a Bash(cstan ...) rule; the operator role may not allow Read"
+  }
+ },
+ {
+  "name": "captured-0327",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.allow[1] must be a Bash(cstan ...) rule; the operator role may not allow Bash"
+  }
+ },
+ {
+  "name": "captured-0328",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Write: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0329",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Edit: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0330",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include NotebookEdit: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0331",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Agent: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0332",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Task: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0333",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Read: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0334",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Glob: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0335",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.operator.deny must include Grep: the operator role may not read or edit project files or start subagents"
+  }
+ },
+ {
+  "name": "captured-0336",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7e713204c25eda0078590dd7aaa09c2c8a2d15fc9fc149c7dc29b4d321f29fe7",
+   "bytes": 4502
+  }
+ },
+ {
+  "name": "captured-0337",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.timeout_seconds (400) must not exceed operator.max_timeout_seconds (300)"
+  }
+ },
+ {
+  "name": "captured-0338",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.max_timeout_seconds must be between 1 and 3600"
+  }
+ },
+ {
+  "name": "captured-0339",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.output_tail_bytes must be between 1 and 12288"
+  }
+ },
+ {
+  "name": "captured-0340",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.max_pending_proposals must be between 1 and 50"
+  }
+ },
+ {
+  "name": "captured-0341",
+  "outcome": {
+   "kind": "error",
+   "message": "operator has 1 unknown key(s); allowed: enabled, role, auto_approve, auto_approve_prefix, timeout_seconds, max_timeout_seconds, output_tail_bytes, proposal_ttl_minutes, approval_ttl_minutes, max_pending_proposals, count_toward_worker_limit, restart_health_timeout_seconds, restart_idle_wait_seconds, session_grant_max_minutes, full_auto_default_minutes, full_auto_max_minutes"
+  }
+ },
+ {
+  "name": "captured-0342",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "9e1cf2f732eddbfee2edc545154c0abbf752f628978305c62f056ac3745cb1f6",
+   "bytes": 3997
+  }
+ },
+ {
+  "name": "captured-0343",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0344",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0345",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0346",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0347",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0348",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] is not on the read-only allowlist (OPERATOR_AUTO_ALLOWLIST)"
+  }
+ },
+ {
+  "name": "captured-0349",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"ext-diff\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0350",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"ext-diff\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0351",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0352",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0353",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0354",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0355",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0356",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0357",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0358",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must be one line of letters, digits, space and _ . / : = @ % + , - only"
+  }
+ },
+ {
+  "name": "captured-0359",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must not start with a variable assignment"
+  }
+ },
+ {
+  "name": "captured-0360",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must not start with a variable assignment"
+  }
+ },
+ {
+  "name": "captured-0361",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"-c\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0362",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"-c\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0363",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"push\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0364",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"push\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0365",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"rm\", \"-r\", \"-f\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0366",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"rm\", \"-r\", \"-f\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0367",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"reset\", \"hard\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0368",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"reset\", \"hard\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0369",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0370",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0371",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0372",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0373",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0374",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0375",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"output\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0376",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"output\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0377",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"-O\", \"-c\", \"-d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0378",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"-O\", \"-c\", \"-d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0379",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"npm\", \"script-shell\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0380",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"npm\", \"script-shell\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0381",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"npm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0382",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"npm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0383",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"make\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0384",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"make\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0385",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"rm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0386",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"rm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0387",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"rm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0388",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"rm\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0389",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"clean\", \"-x\", \"-d\", \"-f\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0390",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"clean\", \"-x\", \"-d\", \"-f\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0391",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"push\", \"force\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0392",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"push\", \"force\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0393",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"push\", \"exec\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0394",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"push\", \"exec\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0395",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"-D\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0396",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"-D\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0397",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"-d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0398",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"-d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0399",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0400",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"d\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0401",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] contains \"delete\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0402",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] contains \"delete\", which always needs a human decision"
+  }
+ },
+ {
+  "name": "captured-0403",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must have single spaces and no leading or trailing space"
+  }
+ },
+ {
+  "name": "captured-0404",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must have single spaces and no leading or trailing space"
+  }
+ },
+ {
+  "name": "captured-0405",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] must not have leading or trailing whitespace"
+  }
+ },
+ {
+  "name": "captured-0406",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve_prefix[0] must not have leading or trailing whitespace"
+  }
+ },
+ {
+  "name": "captured-0407",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.auto_approve[0] looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "captured-0408",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "e52568358f640331f33cbbf89dae46c4822c0aa54fdd69acaa2197df73a306b5",
+   "bytes": 7449
+  }
+ },
+ {
+  "name": "captured-0409",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d63eb251df358ddda5e72419b5cdfc56d5d70abbbc2329e665fc9a2b54938df0",
+   "bytes": 4502
+  }
+ },
+ {
+  "name": "captured-0410",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.session_grant_max_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0411",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.session_grant_max_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0412",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.session_grant_max_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0413",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_default_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0414",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_default_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0415",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_default_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0416",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_max_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0417",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_max_minutes must be between 1 and 480"
+  }
+ },
+ {
+  "name": "captured-0418",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_max_minutes must be an integer"
+  }
+ },
+ {
+  "name": "captured-0419",
+  "outcome": {
+   "kind": "error",
+   "message": "operator.full_auto_default_minutes (90) must not exceed operator.full_auto_max_minutes (60)"
+  }
+ },
+ {
+  "name": "captured-0420",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c2fb27dba1c497cef878631c318158cb16e04b2b9464991f8677a6cbdc1aab13",
+   "bytes": 6942
+  }
+ },
+ {
+  "name": "captured-0421",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(*)"
+  }
+ },
+ {
+  "name": "captured-0422",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash"
+  }
+ },
+ {
+  "name": "captured-0423",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(git *)"
+  }
+ },
+ {
+  "name": "captured-0424",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(curl * | sh)"
+  }
+ },
+ {
+  "name": "captured-0425",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(curl x; id)"
+  }
+ },
+ {
+  "name": "captured-0426",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(curl $(id))"
+  }
+ },
+ {
+  "name": "captured-0427",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Bash(python *)"
+  }
+ },
+ {
+  "name": "captured-0428",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Agent"
+  }
+ },
+ {
+  "name": "captured-0429",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Write"
+  }
+ },
+ {
+  "name": "captured-0430",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Edit"
+  }
+ },
+ {
+  "name": "captured-0431",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Edit(src/**)"
+  }
+ },
+ {
+  "name": "captured-0432",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] is not on the researcher allowlist; the researcher role may not allow Write(docs/research)"
+  }
+ },
+ {
+  "name": "captured-0433",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] must name one tool, not a whole server; the researcher role may not allow mcp__playwright"
+  }
+ },
+ {
+  "name": "captured-0434",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] must not allow the MCP tool browser_file_upload: tools that upload, run code, evaluate scripts, install or touch files are refused"
+  }
+ },
+ {
+  "name": "captured-0435",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] must not allow the MCP tool browser_run_code_unsafe: tools that upload, run code, evaluate scripts, install or touch files are refused"
+  }
+ },
+ {
+  "name": "captured-0436",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] must not allow the MCP tool browser_evaluate: tools that upload, run code, evaluate scripts, install or touch files are refused"
+  }
+ },
+ {
+  "name": "captured-0437",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] must not allow the MCP tool install_x: tools that upload, run code, evaluate scripts, install or touch files are refused"
+  }
+ },
+ {
+  "name": "captured-0438",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[11] names MCP server other, which is not in this role's mcp list"
+  }
+ },
+ {
+  "name": "captured-0439",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Agent: the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0440",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Task: the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0441",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include NotebookEdit: the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0442",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git push): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0443",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git push *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0444",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git merge *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0445",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git rebase *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0446",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git reset *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0447",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git remote *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0448",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git config *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0449",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git checkout *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0450",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git switch *): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0451",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -d*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0452",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --data*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0453",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -F*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0454",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --form*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0455",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -T*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0456",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --upload-file*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0457",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -X*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0458",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --request*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0459",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --json*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0460",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -o*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0461",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --output*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0462",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -O*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0463",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --remote-name*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0464",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -K*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0465",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --config*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0466",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -u*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0467",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --user*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0468",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -c*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0469",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --cookie-jar*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0470",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * -D*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0471",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --dump-header*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0472",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --trace*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0473",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --stderr*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0474",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --create-dirs*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0475",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --libcurl*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0476",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --hsts*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0477",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --alt-svc*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0478",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * --etag-save*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0479",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * file:*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0480",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl * @*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0481",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -d*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0482",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --data*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0483",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -F*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0484",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --form*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0485",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -T*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0486",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --upload-file*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0487",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -X*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0488",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --request*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0489",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --json*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0490",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -o*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0491",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --output*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0492",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -O*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0493",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --remote-name*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0494",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -K*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0495",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --config*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0496",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -u*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0497",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --user*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0498",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -c*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0499",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --cookie-jar*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0500",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl -D*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0501",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --dump-header*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0502",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --trace*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0503",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --stderr*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0504",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --create-dirs*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0505",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --libcurl*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0506",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --hsts*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0507",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --alt-svc*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0508",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl --etag-save*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0509",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl *%output{*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0510",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl file:*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0511",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(curl @*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0512",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny must include Bash(git * --output*): the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0513",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.permission_mode must be \"default\" for the researcher role; it is \"acceptEdits\""
+  }
+ },
+ {
+  "name": "captured-0514",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.permission_mode must be \"default\" for the researcher role; it is \"auto\""
+  }
+ },
+ {
+  "name": "captured-0515",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.role \"researcher\" must be a Developer role; roles.researcher.kind is Verifier"
+  }
+ },
+ {
+  "name": "captured-0516",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher: the researcher role needs a claude host so its allow and deny rules are enforced; host omp is omp"
+  }
+ },
+ {
+  "name": "captured-0517",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.mcp[0] does not name a configured [mcp_servers] table"
+  }
+ },
+ {
+  "name": "captured-0518",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.architect.deny must include Agent: the researcher role may not start subagents, push, or send or save data with curl"
+  }
+ },
+ {
+  "name": "captured-0519",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.role \"researcher\" must differ from architect.role"
+  }
+ },
+ {
+  "name": "captured-0520",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.role \"researcher\" must differ from operator.role"
+  }
+ },
+ {
+  "name": "captured-0521",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher has 1 unknown key(s); allowed: enabled, role, output_dir, user_agent"
+  }
+ },
+ {
+  "name": "captured-0522",
+  "outcome": {
+   "kind": "error",
+   "message": "mcp_servers.x has 1 unknown key(s); allowed: command, args"
+  }
+ },
+ {
+  "name": "captured-0523",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.output_dir must be a repo-relative directory with no '..', no leading '/' and only letters, digits, '.', '_', '-' and '/'"
+  }
+ },
+ {
+  "name": "captured-0524",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.output_dir must be a repo-relative directory with no '..', no leading '/' and only letters, digits, '.', '_', '-' and '/'"
+  }
+ },
+ {
+  "name": "captured-0525",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.user_agent must be one printable line with no quote characters"
+  }
+ },
+ {
+  "name": "captured-0526",
+  "outcome": {
+   "kind": "error",
+   "message": "researcher.user_agent contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "captured-0527",
+  "outcome": {
+   "kind": "error",
+   "message": "mcp_servers has a server name that does not match ^[a-z][a-z0-9_-]{0,31}$"
+  }
+ },
+ {
+  "name": "captured-0528",
+  "outcome": {
+   "kind": "error",
+   "message": "mcp_servers.y.command must not start with a dash"
+  }
+ },
+ {
+  "name": "captured-0529",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "95edff245113923cc857bb379d20125a7f7b7161ad0f228573c00f182132aabb",
+   "bytes": 6930
+  }
+ },
+ {
+  "name": "captured-0530",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow[4] is not on the researcher allowlist; the researcher role may not allow Write(docs/research/**)"
+  }
+ },
+ {
+  "name": "captured-0531",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "8d2fcf1994d585b18000cc58c385ef2b08ed2531d0d36c8d002f51ea4ecd1214",
+   "bytes": 4151
+  }
+ },
+ {
+  "name": "captured-0532",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "8ce3362029ad79ff21d9634564eacf26d01f3ca6c317766866144fa4342c93bd",
+   "bytes": 4150
+  }
+ },
+ {
+  "name": "captured-0533",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.w.mcp is a Claude Code option and host omp (omp) cannot enforce it"
+  }
+ },
+ {
+  "name": "captured-0534",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.w.mcp[1] repeats playwright"
+  }
+ },
+ {
+  "name": "captured-0535",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a0e78563941e4fbe4072922110827bc314e338bc465fedaeee2ff9099c6889a1",
+   "bytes": 4129
+  }
+ },
+ {
+  "name": "captured-0536",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "bff65fabac3577d3e21e4e5fd4724f375d6aa8dd131c6f9a437467fc8dfc60d9",
+   "bytes": 4355
+  }
+ },
+ {
+  "name": "captured-0537",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "11a31bb9186809430bae5b697f2c0d57cc876a1a719ec1235cb24ca9045f4da6",
+   "bytes": 3911
+  }
+ },
+ {
+  "name": "captured-0538",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "e4a4d4475004ea24856db6e377cbb91430a1968c9705d318a94a7de26911acd7",
+   "bytes": 3702
+  }
+ },
+ {
+  "name": "captured-0539",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "99be2a747447ced2dd8247a8db0dc1a5d30175e79a38408faedb72f47887dc27",
+   "bytes": 10567
+  }
+ },
+ {
+  "name": "captured-0540",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7acf90275234e771f7f0feafb9680dbb708b8af8f4200a80690570a8eccac1a2",
+   "bytes": 3920
+  }
+ },
+ {
+  "name": "captured-0541",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "bf53a3031a2dfcff339c70b9480801fb92075701c1eacd92bf7517fa836259de",
+   "bytes": 3940
+  }
+ },
+ {
+  "name": "captured-0542",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "01ff8b069bc02f462494bab6b53bafff338ea4fc44ff2d82040bc97403b85453",
+   "bytes": 3829
+  }
+ },
+ {
+  "name": "captured-0543",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "6a088e701c22f2b59bf118ac9556a3b20f57c2c609294c58764baa584a0fa1c3",
+   "bytes": 3827
+  }
+ },
+ {
+  "name": "captured-0544",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "4768f842404103160e12fd6eccf4c4e91f12735483052b6824f62f370fdd98e9",
+   "bytes": 8336
+  }
+ },
+ {
+  "name": "captured-0545",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.deny exceeds 128 entries"
+  }
+ },
+ {
+  "name": "captured-0546",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.researcher.allow exceeds 64 entries"
+  }
+ },
+ {
+  "name": "captured-0547",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "4beeca569165db09685a98c82a24581c99e47969b64e4e2a5c7fe695c0f25e96",
+   "bytes": 3444
+  }
+ },
+ {
+  "name": "edge-valid",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-oversize",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml exceeds 65536 bytes"
+  }
+ },
+ {
+  "name": "edge-exactly-max",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-empty",
+  "outcome": {
+   "kind": "error",
+   "message": "schema_version must be the integer 1"
+  }
+ },
+ {
+  "name": "edge-bom",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-double-bom",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 1, column 1"
+  }
+ },
+ {
+  "name": "edge-crlf",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-lone-cr",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-invalid-utf8",
+  "outcome": {
+   "kind": "error",
+   "message": "capstan.toml is not valid UTF-8"
+  }
+ },
+ {
+  "name": "edge-nul",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 13, column 1"
+  }
+ },
+ {
+  "name": "edge-big-integer",
+  "outcome": {
+   "kind": "error",
+   "message": "schema_version must be the integer 1"
+  }
+ },
+ {
+  "name": "edge-big-integer-limit",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "edge-i64-max",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "edge-negative-integer",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be between 1 and 16"
+  }
+ },
+ {
+  "name": "edge-hex-integer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-octal-integer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-binary-integer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-underscore-integer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "69f1cf79fcbbf7e22132fe2b876ee496c2f9179d7743555ab76f61716a7ebe05",
+   "bytes": 3368
+  }
+ },
+ {
+  "name": "edge-leading-zero-integer",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 15, column 15"
+  }
+ },
+ {
+  "name": "edge-plus-integer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-float-integer",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-exponent-float",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-nan",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-inf",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-date",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-datetime",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-local-time",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-short-time",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-short-datetime",
+  "outcome": {
+   "kind": "error",
+   "message": "limits.max_workers must be an integer"
+  }
+ },
+ {
+  "name": "edge-dotted-keys",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-dotted-then-table",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+  }
+ },
+ {
+  "name": "edge-table-then-dotted",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-inline-tables",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-inline-newline",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-inline-trailing-comma",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-inline-extend",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 3, column 2"
+  }
+ },
+ {
+  "name": "edge-duplicate-key",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+  }
+ },
+ {
+  "name": "edge-duplicate-table",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 14, column 2"
+  }
+ },
+ {
+  "name": "edge-duplicate-in-inline",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 2, column 39"
+  }
+ },
+ {
+  "name": "edge-array-of-tables",
+  "outcome": {
+   "kind": "error",
+   "message": "mcp_servers must be a table"
+  }
+ },
+ {
+  "name": "edge-array-in-array",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[0] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "edge-mixed-array",
+  "outcome": {
+   "kind": "error",
+   "message": "env.pass[1] must be an upper-case variable name (letters, digits and underscore, at most 64 characters)"
+  }
+ },
+ {
+  "name": "edge-array-trailing-comma",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d00a1a788817ee0598dddf4648dd1cbb0c7b3447de9bf04597b55c4fa69698e6",
+   "bytes": 3382
+  }
+ },
+ {
+  "name": "edge-array-comments",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d523615930a24351f5fbe6988fc363f5ab2df712ebc1c14b43f8fd16171e559d",
+   "bytes": 3393
+  }
+ },
+ {
+  "name": "edge-unicode-role-name",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-unicode-host-name",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts has a host name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-quoted-keys",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-empty-key",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+  }
+ },
+ {
+  "name": "edge-numeric-keys",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-numeric-order",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-proto-key",
+  "outcome": {
+   "kind": "error",
+   "message": "mcp_servers has a server name that does not match ^[a-z][a-z0-9_-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-proto-dotted",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+  }
+ },
+ {
+  "name": "edge-literal-string",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
+   "bytes": 2963
+  }
+ },
+ {
+  "name": "edge-multiline-string",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7ff92875ecf2e222a5695fbbb38dbb734fc04b04f43c14ee33d477a637b33956",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-multiline-literal",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "8eb1455decbd06c866b44b16848cb886fa46d82b976f5ab5ebcea7df35440a41",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-line-continuation",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "2bca49c6e11abc9a0a00ae9dd917e28631b071d747123db61d88f1a21dc5f8ce",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-escape-unicode",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "3aa402ed017270630aa8371e8da763bf49a6797406c7f9fbb16b4dc986b6a325",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-escape-hex",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "bd07cc2b051567a319f7b890b2022bf62fc9e58bf460da09c6d7de68541f4589",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-escape-esc",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "edge-escape-bad",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 9, column 12"
+  }
+ },
+ {
+  "name": "edge-escape-surrogate",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 9, column 16"
+  }
+ },
+ {
+  "name": "edge-escape-too-big",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 9, column 20"
+  }
+ },
+ {
+  "name": "edge-control-in-string",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 9, column 12"
+  }
+ },
+ {
+  "name": "edge-del-in-string",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 9, column 12"
+  }
+ },
+ {
+  "name": "edge-tab-in-string",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c9a19e1c9839b1e47b52660c624f05f9ad1f18c78c6eb1f7091bc52de26c19cb",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-comment-control",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 13, column 8"
+  }
+ },
+ {
+  "name": "edge-comment-del",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 13, column 8"
+  }
+ },
+ {
+  "name": "edge-unterminated-string",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 15, column 10"
+  }
+ },
+ {
+  "name": "edge-unterminated-table",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 14, column 2"
+  }
+ },
+ {
+  "name": "edge-bare-key-chars",
+  "outcome": {
+   "kind": "error",
+   "message": "project has 1 unknown key(s); allowed: name"
+  }
+ },
+ {
+  "name": "edge-no-newline-end",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-tabs",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
+   "bytes": 3367
+  }
+ },
+ {
+  "name": "edge-vertical-tab",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 13, column 1"
+  }
+ },
+ {
+  "name": "edge-nbsp",
+  "outcome": {
+   "kind": "parse-error",
+   "message": "capstan.toml is not valid TOML at line 13, column 1"
+  }
+ },
+ {
+  "name": "edge-secret-in-name",
+  "outcome": {
+   "kind": "error",
+   "message": "roles role name looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "edge-numeric-and-secret-names",
+  "outcome": {
+   "kind": "error",
+   "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-supplementary-length",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name exceeds 256 characters"
+  }
+ },
+ {
+  "name": "edge-project-name-bidi",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "edge-project-name-zwj",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "edge-project-name-tag",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "edge-project-name-nbsp",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "dcefc11c85337164bfe79ecc5041ce570b9e554534d803505b602792a58f83f6",
+   "bytes": 3369
+  }
+ },
+ {
+  "name": "edge-project-name-edge-space",
+  "outcome": {
+   "kind": "error",
+   "message": "project.name must not have leading or trailing whitespace"
+  }
+ },
+ {
+  "name": "edge-prompt-multiline-tab",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "a960f1335ee2046b5c2017e74c9897e015ce4b745a3f8a74bbf2931de3ca5e68",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-prompt-cr",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt contains control, format or line-separator characters"
+  }
+ },
+ {
+  "name": "edge-bearer",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "edge-bearer-no-digit",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "417589a04d9f088f9caac393032f42ba44a0c8a32dc2af309ea120c5894a45e2",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-bearer-word",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "b701f24b09ed88ce3e8731b89c23168bc79609ed39b1a297774a2825ed6b0b3f",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-private-key",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "edge-private-key-lower",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d3788a554505a823378c4c12a583bc8e27823669860a73e268c8171dce846070",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-aws-key",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "edge-github-token",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm.prompt looks like a credential; capstan.toml must not hold secrets"
+  }
+ },
+ {
+  "name": "edge-sk-token-short",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "d585b0a32f902835d1aeb8005c630328aba641a945dbea3b42f0e6a211fb03ad",
+   "bytes": 3431
+  }
+ },
+ {
+  "name": "edge-sk-token-after-word",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c9d4f4e13e8a455cfb410eb5d2319fe06eb3d159f3f0cf2a2dec8ca7885bee78",
+   "bytes": 3431
+  }
+ }
+]

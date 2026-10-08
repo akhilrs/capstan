@@ -29,8 +29,10 @@ version = "0.1.0"
 dependencies = [
  "capstan-wire",
  "indexmap",
+ "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "toml",
 ]

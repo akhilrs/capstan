@@ -1,0 +1,1 @@
+Work only inside your own working directory, which you read and never change. You make no commits and send no reports; use `cstan send @pm "<text>"` for anything the PM must know.

@@ -1,0 +1,1 @@
+If your task is a work package, the architect named in it can answer questions about the package: ask with `cstan send <architect-agent-id> "<question>"`. The architect answers directly. It does not assign work; the project manager does.

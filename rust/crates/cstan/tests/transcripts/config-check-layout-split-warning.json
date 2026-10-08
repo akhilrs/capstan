@@ -1,0 +1,30 @@
+{
+  "name": "config-check-layout-split-warning",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n\n[layout]\nsplit = \"right\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "{\n  \"schemaVersion\": 1,\n  \"projectName\": null,\n  \"herdrSession\": \"default\",\n  \"notifications\": {\n    \"herdr\": true,\n    \"fallback\": true,\n    \"pmStaleMinutes\": 10\n  },\n  \"timers\": {\n    \"maxDeferralSeconds\": 120,\n    \"maxBusyDeferralSeconds\": 3600,\n    \"pmAckTimeoutSeconds\": 600,\n    \"pmNotifyAfterSeconds\": 300,\n    \"notifyIntervalSeconds\": 600,\n    \"stallAfterSeconds\": 900,\n    \"workerAckTimeoutSeconds\": 600,\n    \"findingCheckSeconds\": 1800,\n    \"pmWakeAfterSeconds\": 20,\n    \"pmWakeIntervalSeconds\": 120\n  },\n  \"supervision\": {\n    \"enabled\": true,\n    \"checkSeconds\": 300\n  },\n  \"architect\": {\n    \"enabled\": false,\n    \"role\": \"architect\",\n    \"planReview\": \"high_risk\",\n    \"reviewerRole\": null,\n    \"maxPackages\": 8,\n    \"countTowardWorkerLimit\": false,\n    \"highRiskTriggers\": [\n      \"schema or migrations\",\n      \"security or auth\",\n      \"public contracts or wire formats\",\n      \"cross-cutting changes\"\n    ]\n  },\n  \"operator\": {\n    \"configured\": false,\n    \"enabled\": false,\n    \"role\": \"operator\",\n    \"autoApprove\": [],\n    \"autoApprovePrefix\": [],\n    \"timeoutSeconds\": 300,\n    \"maxTimeoutSeconds\": 1800,\n    \"outputTailBytes\": 8192,\n    \"proposalTtlMinutes\": 60,\n    \"approvalTtlMinutes\": 10,\n    \"maxPendingProposals\": 5,\n    \"countTowardWorkerLimit\": false,\n    \"restartHealthTimeoutSeconds\": 60,\n    \"restartIdleWaitSeconds\": 120,\n    \"sessionGrantMaxMinutes\": 60,\n    \"fullAutoDefaultMinutes\": 30,\n    \"fullAutoMaxMinutes\": 120\n  },\n  \"researcher\": {\n    \"configured\": false,\n    \"enabled\": false,\n    \"role\": \"researcher\",\n    \"outputDir\": \"docs/research\",\n    \"userAgent\": \"capstan-researcher/1.0 (research bot; contact: project owner)\"\n  },\n  \"mcpServers\": [],\n  \"promptRelay\": {\n    \"present\": false,\n    \"enabled\": false,\n    \"captureTtlSeconds\": 600\n  },\n  \"nexora\": {\n    \"track\": \"ask\",\n    \"defaultAction\": \"create\"\n  },\n  \"limits\": {\n    \"maxWorkers\": 3\n  },\n  \"ledger\": {\n    \"keepMigrationBackups\": 3\n  },\n  \"layout\": {\n    \"spawn\": \"tab\",\n    \"pmWidthPercent\": 60,\n    \"minPaneColumns\": 60,\n    \"minPaneRows\": 12\n  },\n  \"env\": {\n    \"pass\": []\n  },\n  \"hosts\": [\n    {\n      \"name\": \"claude\",\n      \"kind\": \"claude\",\n      \"command\": \"claude\",\n      \"shellCommandTimeoutSeconds\": 120,\n      \"waitTimeoutSeconds\": 90\n    }\n  ],\n  \"roles\": [\n    {\n      \"name\": \"pm\",\n      \"kind\": \"PM\",\n      \"host\": \"claude\",\n      \"model\": null,\n      \"permissionMode\": \"default\",\n      \"allow\": [],\n      \"deny\": [\n        \"Write\",\n        \"Edit\",\n        \"NotebookEdit\",\n        \"Agent\",\n        \"Task\"\n      ],\n      \"hooks\": \"off\",\n      \"prompt\": {\n        \"source\": \"none\",\n        \"path\": null,\n        \"hash\": null\n      },\n      \"mcp\": [],\n      \"configHash\": \"c7bf880a8c6b8da1bc46cddf22866ce60c0d7d37e2ed6e76f9adcb4db619dc64\"\n    },\n    {\n      \"name\": \"developer\",\n      \"kind\": \"Developer\",\n      \"host\": \"claude\",\n      \"model\": null,\n      \"permissionMode\": \"default\",\n      \"allow\": [],\n      \"deny\": [],\n      \"hooks\": \"off\",\n      \"prompt\": {\n        \"source\": \"none\",\n        \"path\": null,\n        \"hash\": null\n      },\n      \"mcp\": [],\n      \"configHash\": \"6409fa9ef4718a374a75cf219f1199c3c5ef3359ea2b856205d46ee178ac8a29\"\n    }\n  ],\n  \"warnings\": [\n    \"layout.split is ignored: the PM pane keeps the left layout.pm_width_percent of its tab and worker panes stack in the column on its right\",\n    \"nexora.track is \\\"ask\\\" but .nexora.toml is missing from the project root, so the PM will not track work in Nexora; set track = \\\"never\\\" in [nexora] to silence this\"\n  ]\n}\n",
+    "stderr": "warning: layout.split is ignored: the PM pane keeps the left layout.pm_width_percent of its tab and worker panes stack in the column on its right\nwarning: nexora.track is \"ask\" but .nexora.toml is missing from the project root, so the PM will not track work in Nexora; set track = \"never\" in [nexora] to silence this\n",
+    "exit": 0
+  }
+}

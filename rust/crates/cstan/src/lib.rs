@@ -2,6 +2,7 @@
 //! CLI (`src/cli.ts`) does them; every other command, and every case where the Node CLI would word a refusal, is handed to
 //! Node unchanged (`Outcome::Fallback`). The front end speaks the wire protocol only: it knows no daemon internals.
 pub mod agent;
+pub mod config_check;
 pub mod jsops;
 pub mod render;
 
@@ -40,6 +41,9 @@ pub enum Fallback {
     FrameTooLarge,
     /// Nothing reached the daemon.
     NotSent,
+    /// `config check` could not be answered natively: invalid TOML, a text the TOML parsers may read differently, an
+    /// unreadable or missing file.
+    ConfigDeferred,
 }
 
 /// The end of a run.
@@ -128,6 +132,9 @@ pub fn run(context: &Context) -> Outcome {
     }
     if command == "inbox" && context.args.len() == 2 && context.args[1] == "--hook" {
         return run_hook(context);
+    }
+    if command == "config" {
+        return config_check::run(context);
     }
     if !NATIVE.contains(&command) {
         return Outcome::Fallback(Fallback::NotNative);

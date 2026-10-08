@@ -1,0 +1,30 @@
+{
+  "name": "config-check-prompt-file-missing",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {
+      "proj/capstan.toml": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\nprompt_file = \"nope.md\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
+    }
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: roles.pm.prompt_file does not exist\n",
+    "exit": 3
+  }
+}

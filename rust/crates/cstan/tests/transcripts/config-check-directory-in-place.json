@@ -1,0 +1,29 @@
+{
+  "name": "config-check-directory-in-place",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj",
+      "proj/capstan.toml"
+    ],
+    "files": [],
+    "links": [],
+    "contents": {}
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": null,
+  "request": null,
+  "fallback": false,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: capstan.toml must be a regular file\n",
+    "exit": 3
+  }
+}

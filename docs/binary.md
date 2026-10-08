@@ -61,8 +61,38 @@ runtime uses the built-in `node:sqlite`, so `better-sqlite3` and `fs-ext` are go
 ## The native front end (`cstan` beside `cstan-node`)
 
 `cstan-front` (source in `rust/crates/cstan`) is a small static Rust program, about 1 MB, that runs the commands an agent
-sends over the operator socket (`ping`, `send`, `inbox`, `ack`, `wait`, ...) without starting the 130 MB Node runtime, and
-hands every other command to the Node binary unchanged.
+sends over the operator socket (`ping`, `send`, `inbox`, `ack`, `wait`, ...) and `cstan config check` without starting the
+130 MB Node runtime, and hands every other command to the Node binary unchanged.
+
+- **What it serves natively.** In an agent environment: `status` (without `--watch`), `ping`, `inbox` (and the `inbox --hook`
+  of the PostToolUse hook), `ack`, `wait`, `report`, `ask`, `request-review`, `integrate`, `plan`, `op`, `link`, `review`,
+  `finding`, `observe`, `prompt`, `send`, `pause`, `resume`, `spawn`, `release` and `replace`. In any environment:
+  `__front-version` and **`config check`**. Everything else (`init`, `start`, `stop`, `dash`, `config sync`, `daemon`,
+  `herdr-config`, `inspect`, `cancel`, `status --watch`, `--version`, `--help`, ...) goes to Node.
+- **`config check`.** The front end reads `capstan.toml` in the current directory, resolves it and prints the same JSON, the
+  same `warning:` lines on stderr and the same exit code as Node (`cstan: <text>` and exit 3 for a refusal). The module
+  (`rust/crates/config`) is reached only from this command: no other command parses a configuration or builds a prompt.
+  It hands the command to Node, unchanged, when:
+  - the text is not valid TOML for the Rust parser (Node words that error with a line and column, which Rust does not
+    reproduce);
+  - the text is TOML the two parsers may read differently, so Rust must not answer: a float or a date anywhere, an integer
+    beyond 64 bits, the key `__proto__`, a line break inside an inline table `{ ... }`, a second byte order mark (the list is
+    `rust/crates/config/src/disagreements.rs`, one rule per disagreement the differential run found);
+  - there is no `capstan.toml` in the directory (Node words that case), the file cannot be read for another reason (for example permission denied) or anything else unexpected happens;
+  - the arguments are not exactly `config check` (`config check x`, `config sync`, `config`).
+
+  Every other refusal (an unknown key, a bad value, a prompt file that is missing or outside the project, a file that is not a
+  regular file, owned by another user or writable by group or others, a credential-shaped value, ...) is answered natively with
+  the Node text.
+- **Residual risk: the two TOML parsers.** Node reads TOML with `smol-toml` 1.8, Rust with the `toml` crate 1.1 (TOML 1.1).
+  They disagree at the edges. The dangerous direction is Rust reading a file Node refuses: `config check` would then succeed
+  natively where Node reports an error. It is covered by the corpus (the Node tests' configurations and TOML edge cases), by a
+  seeded differential run (`test/config-parity-export.ts --differential`, mutating the corpus: token deletion and
+  duplication, quote and bracket damage, escapes, numbers, dates, keys, line endings) whose Rust side
+  (`CAPSTAN_CONFIG_DIFFERENTIAL=<file> cargo test -p capstan-config --test differential`) fails on any text Rust reads and
+  Node refuses, and by the rule list above. A file outside what those runs reached could still be read by Rust and refused by
+  Node: then `cstan config check` prints the configuration instead of an error. Nothing else depends on it: the daemon, `start`
+  and `config sync` load the configuration in Node.
 
 - **Layout.** A binary install holds `current/bin/cstan` (the front end), `current/bin/cstan-node` (the SEA, the release asset
   `cstan-<v>-<platform>`; only the installed file name changes) and, when present, `current/bin/cstan-dash`. The `cstan`
