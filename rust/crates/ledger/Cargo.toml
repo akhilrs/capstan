@@ -1,0 +1,26 @@
+[package]
+name = "capstan-ledger"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The capstan ledger: SQLite storage shared with the Node implementation"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "capstan_ledger"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ledger-probe"
+path = "src/bin/ledger-probe.rs"
+
+[dependencies]
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+sha2 = "=0.10.9"
+libc = "=0.2.190"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+serde_json = "=1.0.151"

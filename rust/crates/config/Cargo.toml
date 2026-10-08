@@ -1,0 +1,22 @@
+[package]
+name = "capstan-config"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The capstan configuration reader and writer"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_config"
+path = "src/lib.rs"
+
+[dependencies]
+capstan-wire = { path = "../wire" }
+toml = "=1.1.6+spec-1.1.0"
+serde = "=1.0.229"
+serde_json = "=1.0.151"
+indexmap = "=2.14.2"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

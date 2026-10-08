@@ -18,3 +18,4 @@ path = "src/main.rs"
 
 [dependencies]
 capstan-wire = { path = "../wire" }
+capstan-config = { path = "../config" }
