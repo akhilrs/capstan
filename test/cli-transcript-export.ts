@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -1333,8 +1334,19 @@ function substitute(text: string, scratch: string): string {
   return text.split("$ROOT").join(scratch);
 }
 
+/** The version `cstan --version` prints. Transcripts hold `$VERSION` for it, so a release bump cannot make them stale. */
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+    version: string;
+  }
+).version;
+
 function restore(text: string, scratch: string): string {
-  return text.split(scratch).join("$ROOT");
+  return text
+    .split(scratch)
+    .join("$ROOT")
+    .split(`cstan ${PACKAGE_VERSION}\n`)
+    .join("cstan $VERSION\n");
 }
 
 function replyBytes(reply: Reply): Buffer | null {

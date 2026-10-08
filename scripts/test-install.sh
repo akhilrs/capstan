@@ -46,6 +46,16 @@ contains() { grep -q -- "$2" "$1"; }
 REAL_CACHE="$(npm config get cache 2>/dev/null || true)"
 [ -z "$REAL_CACHE" ] || export npm_config_cache="$REAL_CACHE"
 
+# The checkout this runs from must come out exactly as it went in: the release step commits, tags and bumps versions,
+# so it runs in a throwaway clone (below). repo_state is compared at the end.
+repo_state() {
+  git -C "$ROOT" rev-parse HEAD
+  git -C "$ROOT" for-each-ref --format='%(refname) %(objectname)'
+  git -C "$ROOT" tag -l
+  git -C "$ROOT" status --porcelain
+}
+STATE_BEFORE="$(repo_state)"
+
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/capstan-install-test.XXXXXX")"
 VERSION="$(node -p "require('$ROOT/package.json').version")"
 
@@ -53,12 +63,37 @@ VERSION="$(node -p "require('$ROOT/package.json').version")"
 if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ]; then
   RELEASE_DIR="$CAPSTAN_TEST_RELEASE_DIR"
 else
-  RELEASE_DIR="$SANDBOX/release"
-  (cd "$ROOT" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release -- --no-dash --no-front >"$SANDBOX/release.log" 2>&1) || {
+  RELEASE_DIR="$SANDBOX/assets"
+  # release.mjs bumps package.json, commits and tags, so run it in a clone of HEAD (plus any uncommitted tracked
+  # changes, committed in the clone only). node_modules is shared; the clone is removed with the sandbox.
+  CLONE="$SANDBOX/src"
+  git clone -q --local --no-hardlinks "$ROOT" "$CLONE" >"$SANDBOX/release.log" 2>&1 || {
+    cat "$SANDBOX/release.log"
+    echo "git clone of the source checkout failed" >&2
+    exit 1
+  }
+  git -C "$CLONE" config user.name "install test"
+  git -C "$CLONE" config user.email "install-test@invalid"
+  git -C "$CLONE" config commit.gpgsign false
+  git -C "$CLONE" config tag.gpgsign false
+  if ! git -C "$ROOT" diff --quiet HEAD; then
+    git -C "$ROOT" diff --binary HEAD | git -C "$CLONE" apply &&
+      git -C "$CLONE" commit -q -a -m "chore: uncommitted changes under test" || {
+      echo "could not copy uncommitted changes into the clone" >&2
+      exit 1
+    }
+  fi
+  [ ! -d "$ROOT/node_modules" ] || ln -s "$ROOT/node_modules" "$CLONE/node_modules"
+  # An explicit next patch version: the clone has every tag, so the commit-derived one may be "nothing to release".
+  NEXT="$(node -e 'const v=require(process.argv[1]).version.split(".").map(Number);v[2]++;console.log(v.join("."))' "$CLONE/package.json")"
+  (cd "$CLONE" && CSTAN_RELEASE_DIR="$RELEASE_DIR" npm run release -- --no-dash --no-front --version "$NEXT" >"$SANDBOX/release.log" 2>&1) || {
     cat "$SANDBOX/release.log"
     echo "npm run release failed" >&2
     exit 1
   }
+  VERSION="$NEXT"
+  # The assets are copied out; drop the build tree (it holds the downloaded Node binaries) to save disk.
+  rm -rf "${CLONE:?}/release" "${CLONE:?}/dist"
 fi
 TGZ="$RELEASE_DIR/capstan-controller-$VERSION.tgz"
 SUMS="$RELEASE_DIR/SHA256SUMS"
@@ -585,6 +620,17 @@ else
   check_not "--dash-binary failing its SHA256SUMS is refused" run_install --tarball "$TGZ" --sha256 "$SHA" --dash-binary "$FAKEDASH/$DASHNAME"
   check_not "--dash-binary with --no-dash is refused" run_install --tarball "$TGZ" --sha256 "$SHA" --dash-binary "$FAKEDASH/$DASHNAME" --no-dash
   unset CAPSTAN_RELEASE_BASE
+fi
+
+# The source checkout is untouched: same HEAD, refs, tags and status as before the run.
+STATE_AFTER="$(repo_state)"
+if [ "$STATE_BEFORE" = "$STATE_AFTER" ]; then
+  pass "the source checkout's HEAD, refs, tags and status are unchanged"
+else
+  fail "the source checkout's HEAD, refs, tags and status are unchanged"
+  printf '%s\n' "$STATE_BEFORE" >"$SANDBOX/state.before"
+  printf '%s\n' "$STATE_AFTER" >"$SANDBOX/state.after"
+  diff "$SANDBOX/state.before" "$SANDBOX/state.after" || true
 fi
 
 echo

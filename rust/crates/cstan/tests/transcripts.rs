@@ -147,7 +147,9 @@ impl Daemon {
 }
 
 fn expected_string(value: &Value, key: &str, scratch: &str) -> String {
-    string(value, key).replace("$ROOT", scratch)
+    string(value, key)
+        .replace("$ROOT", scratch)
+        .replace("$VERSION", VERSION)
 }
 
 fn replay(file: &Path, index: usize) -> Result<(), String> {

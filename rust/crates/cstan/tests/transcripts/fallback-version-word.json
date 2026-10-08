@@ -23,7 +23,7 @@
   "request": null,
   "fallback": true,
   "node": {
-    "stdout": "cstan 0.2.0\n",
+    "stdout": "cstan $VERSION\n",
     "stderr": "",
     "exit": 0
   }
