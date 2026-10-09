@@ -346,8 +346,35 @@ impl OperatorService for Scripted {
             input.reason,
             input.force_restart
         ));
+        // The three classes of Node's `refuse`: a kernel ControllerError is its bare message, an authentication or an
+        // authorization error goes through mapError.
+        match input.command.as_str() {
+            "controller refuses" => {
+                return Err(
+                    capstan_kernel::KernelError::controller("unknown operator proposal").into(),
+                )
+            }
+            "conflict refuses" => {
+                return Err(capstan_kernel::KernelError::conflict("the ledger moved").into())
+            }
+            "unauthenticated" => {
+                return Err(capstan_kernel::KernelError::Authentication("no".into()).into())
+            }
+            "unauthorized" => {
+                return Err(capstan_kernel::KernelError::Authorization(
+                    "not allowed to propose".into(),
+                )
+                .into())
+            }
+            "type error" => {
+                return Err(
+                    capstan_kernel::KernelError::type_error("the command must be text").into(),
+                )
+            }
+            _ => {}
+        }
         if input.command == "refuse me" {
-            return Err(OperatorError::new("queue_full", "too many proposals"));
+            return Err(OperatorError::new("queue_full", "too many proposals").into());
         }
         let mut proposal = Scripted::proposal("prop-1", "ops-1", "pending");
         if input.kind == ProposalKind::Restart {
@@ -416,7 +443,7 @@ impl OperatorService for Scripted {
     fn revoke_grant(&self, _credential: &str, grant_id: &str) -> OperatorResult<Value> {
         self.log(format!("revoke {grant_id}"));
         if grant_id == "grant-404" {
-            return Err(OperatorError::new("unknown_grant", "no such grant"));
+            return Err(OperatorError::new("unknown_grant", "no such grant").into());
         }
         Ok(json!({"grantId": grant_id, "kind": "exact", "text": "ls", "endedReason": "revoked"}))
     }
@@ -501,6 +528,34 @@ fn op_propose_is_the_operator_agents_and_validates_its_arguments() {
     // A refusal of the service is `code: message`.
     let refusal = world.refused("ops-1", "op", &["propose", "refuse me", "why"], "rejected");
     assert_eq!(refusal, "queue_full: too many proposals");
+}
+
+#[test]
+fn op_refusals_are_worded_in_the_three_classes_of_nodes_refuse() {
+    let service = Arc::new(Scripted::default());
+    let world = World::new(None, Some(service));
+    let refused = |command: &str, code: &str| {
+        world.refused("ops-1", "op", &["propose", command, "why"], code)
+    };
+    // (1) an OperatorError is `code: message` (above); (2) a ControllerError and its subclasses are the bare message,
+    // a conflict included; (3) everything else is mapError's.
+    assert_eq!(
+        refused("controller refuses", "rejected"),
+        "unknown operator proposal"
+    );
+    assert_eq!(refused("conflict refuses", "rejected"), "the ledger moved");
+    assert_eq!(
+        refused("unauthenticated", "unauthorized"),
+        "credential not accepted"
+    );
+    assert_eq!(
+        refused("unauthorized", "forbidden"),
+        "not allowed to propose"
+    );
+    assert_eq!(
+        refused("type error", "invalid_request"),
+        "the command must be text"
+    );
 }
 
 #[test]

@@ -6,6 +6,7 @@
 //! kernel crate. Every method blocks; the worker that runs commands has its own thread and takes the kernel per ledger
 //! step, never while a command runs.
 
+use capstan_kernel::KernelError;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -39,7 +40,51 @@ impl fmt::Display for OperatorError {
 
 impl std::error::Error for OperatorError {}
 
-pub type OperatorResult<T> = Result<T, OperatorError>;
+/// What an `OperatorService` call can fail with, in the three classes Node's op handler tells apart (src/commands/
+/// operator.ts `refuse`): an `OperatorError` (`code: message`), a kernel refusal (the handler words it with the shared
+/// error mapping) and nothing else. A kernel error is carried as it is, never turned into a code.
+#[derive(Debug)]
+pub enum OperatorFailure {
+    Operator(OperatorError),
+    Kernel(KernelError),
+}
+
+impl OperatorFailure {
+    /// The `OperatorError` code, when this is one.
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Operator(error) => Some(&error.code),
+            Self::Kernel(_) => None,
+        }
+    }
+}
+
+impl From<OperatorError> for OperatorFailure {
+    fn from(error: OperatorError) -> Self {
+        Self::Operator(error)
+    }
+}
+
+impl From<KernelError> for OperatorFailure {
+    fn from(error: KernelError) -> Self {
+        Self::Kernel(error)
+    }
+}
+
+impl fmt::Display for OperatorFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Operator(error) => error.fmt(f),
+            Self::Kernel(error) => f.write_str(&error.message()),
+        }
+    }
+}
+
+impl std::error::Error for OperatorFailure {}
+
+pub type OperatorResult<T> = Result<T, OperatorFailure>;
+/// The coordinator's refusals are always `OperatorError`s.
+pub type RestartOutcomeResult<T> = Result<T, OperatorError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProposalKind {
@@ -162,9 +207,9 @@ pub struct RestartPreflight {
 /// `RestartCoordinator`.
 pub trait RestartCoordinator: Send + Sync {
     /// Refuses with a code when a restart could not start now; returns a warning for the PM notice, or none.
-    fn preflight(&self) -> OperatorResult<RestartPreflight>;
+    fn preflight(&self) -> RestartOutcomeResult<RestartPreflight>;
     /// Starts the restart of an approved restart proposal (its JSON record).
-    fn run(&self, proposal: &Value) -> OperatorResult<()>;
+    fn run(&self, proposal: &Value) -> RestartOutcomeResult<()>;
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -220,7 +265,8 @@ impl StubOperator {
                 Err(OperatorError::new(
                     "not_implemented",
                     format!("the stub operator has no answer for {method}"),
-                ))
+                )
+                .into())
             })
     }
 
@@ -327,8 +373,8 @@ pub struct StubRestart {
 #[derive(Default)]
 struct StubRestartState {
     calls: Vec<String>,
-    preflight: Option<OperatorResult<RestartPreflight>>,
-    run: Option<OperatorResult<()>>,
+    preflight: Option<RestartOutcomeResult<RestartPreflight>>,
+    run: Option<RestartOutcomeResult<()>>,
 }
 
 impl StubRestart {
@@ -340,17 +386,17 @@ impl StubRestart {
         lock(&self.state).calls.clone()
     }
 
-    pub fn set_preflight(&self, answer: OperatorResult<RestartPreflight>) {
+    pub fn set_preflight(&self, answer: RestartOutcomeResult<RestartPreflight>) {
         lock(&self.state).preflight = Some(answer);
     }
 
-    pub fn set_run(&self, answer: OperatorResult<()>) {
+    pub fn set_run(&self, answer: RestartOutcomeResult<()>) {
         lock(&self.state).run = Some(answer);
     }
 }
 
 impl RestartCoordinator for StubRestart {
-    fn preflight(&self) -> OperatorResult<RestartPreflight> {
+    fn preflight(&self) -> RestartOutcomeResult<RestartPreflight> {
         let mut state = lock(&self.state);
         state.calls.push("preflight".into());
         state
@@ -359,7 +405,7 @@ impl RestartCoordinator for StubRestart {
             .unwrap_or(Ok(RestartPreflight::default()))
     }
 
-    fn run(&self, proposal: &Value) -> OperatorResult<()> {
+    fn run(&self, proposal: &Value) -> RestartOutcomeResult<()> {
         let mut state = lock(&self.state);
         state.calls.push(format!(
             "run {}",
@@ -386,8 +432,8 @@ mod tests {
         };
         assert_eq!(operator.propose("c", input()).unwrap()["proposalId"], "p1");
         assert_eq!(
-            operator.propose("c", input()).unwrap_err().code,
-            "not_implemented"
+            operator.propose("c", input()).unwrap_err().code(),
+            Some("not_implemented")
         );
         assert_eq!(operator.full_auto_status(), FullAutoStatus::Off);
         assert_eq!(operator.calls().len(), 3);

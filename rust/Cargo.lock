@@ -185,6 +185,7 @@ dependencies = [
  "base64",
  "capstan-config",
  "capstan-kernel",
+ "capstan-ledger",
  "getrandom 0.4.3",
  "libc",
  "regex",

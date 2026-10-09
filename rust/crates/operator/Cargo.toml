@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 capstan-kernel = { path = "../kernel" }
 capstan-config = { path = "../config" }
+capstan-ledger = { path = "../ledger" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "=0.10.9"

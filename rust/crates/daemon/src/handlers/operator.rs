@@ -2,15 +2,17 @@
 //! through the `OperatorService` trait of the operator crate (`deps.operator`).
 
 use super::shared::{
-    describe_full_auto, describe_grant_record, describe_proposal, fail, is_safe_agent_id, ok,
-    CommandCall, CommandEnv, CommandResponse, ErrorCode, MAX_STATUS_PROPOSALS,
+    describe_full_auto, describe_grant_record, describe_proposal, fail, is_safe_agent_id,
+    map_kernel_error, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode,
+    MAX_STATUS_PROPOSALS,
 };
 use super::HandlerMap;
 use capstan_kernel::helpers::js_trim;
 use capstan_kernel::records::RESTART_COMMAND_TEXT;
+use capstan_kernel::KernelError;
 use capstan_operator::api::{
-    DecideInput, Decision, FullAutoOnInput, GrantKind, ListFilter, OperatorError, OperatorService,
-    ProposalKind, ProposeInput, SessionGrantInput,
+    DecideInput, Decision, FullAutoOnInput, GrantKind, ListFilter, OperatorFailure,
+    OperatorService, ProposalKind, ProposeInput, SessionGrantInput,
 };
 use serde_json::{json, Value};
 
@@ -19,15 +21,38 @@ pub fn register(map: &mut HandlerMap) {
     map.insert("op", op);
 }
 
-/// `refuse` of the Node handler for what the service raises.
-fn refuse(error: &OperatorError) -> CommandResponse {
-    fail(
-        ErrorCode::Rejected,
-        format!("{}: {}", error.code, error.message),
+/// `error instanceof ControllerError`: the class and its subclasses (the conflicts, transition and binding errors).
+fn is_controller_error(error: &KernelError) -> bool {
+    matches!(
+        error,
+        KernelError::Controller(_)
+            | KernelError::MutationConflict(_)
+            | KernelError::RunPaused(_)
+            | KernelError::IdempotencyConflict(_)
+            | KernelError::StateVersionConflict(_)
+            | KernelError::InputRevisionConflict(_)
+            | KernelError::TransitionAuthorization(_)
+            | KernelError::MessageTransition { .. }
+            | KernelError::CandidateBinding(_)
     )
 }
 
-fn answered(result: Result<Value, OperatorError>) -> CommandResponse {
+/// `refuse` of the Node handler for what the service raises: an `OperatorError` is `code: message`, a `ControllerError`
+/// (and its subclasses) is its bare message, anything else goes through `mapError`.
+fn refuse(error: &OperatorFailure) -> CommandResponse {
+    match error {
+        OperatorFailure::Operator(error) => fail(
+            ErrorCode::Rejected,
+            format!("{}: {}", error.code, error.message),
+        ),
+        OperatorFailure::Kernel(error) if is_controller_error(error) => {
+            fail(ErrorCode::Rejected, error.message())
+        }
+        OperatorFailure::Kernel(error) => map_kernel_error(error),
+    }
+}
+
+fn answered(result: Result<Value, OperatorFailure>) -> CommandResponse {
     match result {
         Ok(proposal) => ok(describe_proposal(&proposal)),
         Err(error) => refuse(&error),
