@@ -166,7 +166,23 @@ impl HerdrRunner for ProcessRunner {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
-        let status = child.wait();
+        // The pipes can close while the child keeps running: the same deadline still applies to the exit.
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) if failure.is_some() => break child.wait(),
+                Ok(None) if Instant::now() >= deadline => {
+                    failure = Some(HerdrError::new(
+                        "timeout",
+                        format!("herdr {first} timed out"),
+                    ));
+                    let _ = child.kill();
+                    break child.wait();
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                Err(error) => break Err(error),
+            }
+        };
         if let Some(error) = failure {
             return Err(error);
         }

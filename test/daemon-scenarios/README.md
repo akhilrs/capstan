@@ -47,13 +47,18 @@ with an id and credential derived from the group, scenario name and seed), then:
       "b": { "from": "main", "files": { "a.txt": "b" }, "message": "feat: b" }
     }
   },
+  "config": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\nwait_timeout_seconds = 1\n...",
   "requires": ["messages"],
   "requests": []
 }
 ```
 
 `mode: "socket"` replays the whole scenario against the real `cstan-daemon` over its socket instead of in process.
-`requires` lists other groups whose routes the scenario reaches (informational).
+`config` (optional) is the text of the project's `capstan.toml`, written (mode 0600) into the scratch project before the ledger is
+touched, on both sides: the Node export and the Rust replay. The daemon reads it as it would in a real project (host wait limits,
+roles); it is recorded in the transcript as `config`. A wait whose host limit is one second is how a wait timeout is recorded:
+the hooks move the seeded clock by the delay of every timer under a second that fires, so the limit passes in about as much real
+time. `requires` lists other groups whose routes the scenario reaches (informational).
 
 ## Requests
 
@@ -62,6 +67,7 @@ with an id and credential derived from the group, scenario name and seed), then:
 { "as": "none", "frame": "{not json" }
 { "as": "operator", "frame": { "json": { "v": 1, "credential": "$credential", "command": "ping", "args": [] } } }
 { "frame": { "base64": "/w==" } }
+{ "as": "none", "frame": "...", "idle_connections": 64, "hold_ms": 1500 }
 { "frame": { "repeat": { "prefix": "...", "text": "a", "times": 65000, "suffix": "..." } }, "newline": false, "hold_ms": 6000 }
 ```
 
@@ -72,6 +78,8 @@ with an id and credential derived from the group, scenario name and seed), then:
 - Requests are **steps, each answered before the next**. `concurrent: true` sends the request right after the daemon _started_
   the previous one (a barrier on a `request_start` line the hooks write when `identify` begins), without waiting for its answer.
   A request that is not concurrent waits for every earlier one to be answered and logged.
+- `idle_connections: N` first opens N connections that send nothing and keeps them until the request is answered (a
+  **`socket`-layer** step); with 64 the request is the one beyond the daemon's connection limit.
 - Raw bytes, `newline: false` (a partial frame), `hold_ms` (keep the connection open that long and record only the outcome:
   was it closed by the daemon, what was answered; never a duration) and frames above 65536 bytes make a request a
   **`socket`-layer** step. Everything else is a **`dispatch`-layer** step.
@@ -94,6 +102,11 @@ answered), `closed`, `finished` (completion order), optional `tablesDiff`), `log
   compared as JSON (the order of members is not compared), the log entry without `ts` and `ms`, and the table diffs. Every
   request makes the same clock and randomness readings in both implementations (one at the start, one for `ms`, one for the log
   line's `ts`), so rows written later keep the same timestamps and ids.
+- A scenario with a `concurrent` step (or `"mode": "socket"`) is replayed as a whole against a real `cstan-daemon` over its
+  socket, one thread per request. A concurrent request is sent once the daemon has _started_ the previous one: it answered, or,
+  for a `wait`, its row is in the ledger's `agent_waits` (the Rust daemon writes no `request_start` line). A request that is
+  not concurrent first waits for every earlier one. Answers are compared as JSON with ids and times by their shape (this
+  daemon reads the system clock and randomness), the completion order (`finished`) is not compared, and the daemon's exit code is.
 - A step that reaches a route whose handler is still a stub (`shared::unported`) is **pending**; a `socket` step is run against
   a real `cstan-daemon` in a fresh scratch project (so it must not depend on what earlier steps did) and is pending while the
   server is a stub. `CAPSTAN_DAEMON_PARITY_STRICT=1` fails on any pending step.

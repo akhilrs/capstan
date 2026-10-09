@@ -8,9 +8,9 @@
 //!    the seeded environment of the daemon run and every request frame of the `dispatch` layer goes through
 //!    `handlers::handle_frame`: the same code a connection runs. The response line, the log entry (compared without its
 //!    `ts` and `ms`; the clock readings they stand for are made all the same) and the ledger's table diffs are compared.
-//!    A step of the `socket` layer (a frame beyond the limit, a partial frame, a held connection, a concurrent request) is
-//!    pending: it needs the server of d2b-srv.
-//!  - **socket mode** (`"mode": "socket"` in the scenario): the real `cstan-daemon` is started in the scratch project and
+//!    A step of the `socket` layer (a frame beyond the limit, a partial frame, a held connection) is replayed against a real
+//!    `cstan-daemon` in a project of its own.
+//!  - **socket mode** (`"mode": "socket"` in the scenario, and every scenario with a `concurrent` step): the real `cstan-daemon` is started in the scratch project and
 //!    spoken to over its socket; only the responses are compared (the binary reads the system clock). While the server is a
 //!    stub (it logs `serve_not_implemented`) every step is pending.
 //!
@@ -276,6 +276,13 @@ fn prepare(scenario: &Value) -> Result<Scratch, String> {
     let dir = private_tempdir();
     let identity = Identity::of(&scenario["project"]);
     let state = write_project(dir.path(), &identity);
+    if let Some(config) = scenario["config"].as_str() {
+        use std::os::unix::fs::PermissionsExt;
+        let file = dir.path().join("capstan.toml");
+        std::fs::write(&file, config).map_err(|e| format!("capstan.toml: {e}"))?;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("capstan.toml: {e}"))?;
+    }
     if scenario.get("repo").is_some() {
         let heads = build_repo(dir.path(), &scenario["repo"]);
         let expected = scenario["repo"]["heads"]
@@ -330,7 +337,12 @@ pub fn replay_scenario(group: &str, baseline: &Value, scenario: &Value) -> Repor
         status: Status::Passed,
         steps: Vec::new(),
     };
-    if scenario["mode"] == "socket" {
+    // A concurrent step depends on the requests around it being in flight together, which a handler call cannot be: the
+    // scenario then runs as a whole over the socket.
+    let concurrent = scenario["steps"]
+        .as_array()
+        .is_some_and(|steps| steps.iter().any(|s| s["concurrent"] == true));
+    if scenario["mode"] == "socket" || concurrent {
         let indices: Vec<usize> = (0..scenario["steps"].as_array().map_or(0, Vec::len)).collect();
         over_socket(&mut report, scenario, &indices, true);
         return report;
@@ -443,7 +455,7 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
             layer: layer.clone(),
             status: Status::Passed,
         };
-        if layer == "socket" || step["concurrent"] == true {
+        if layer == "socket" {
             step_report.status =
                 Status::Pending("a connection-level step needs the server of d2b-srv".to_string());
             pending_any = true;
@@ -525,12 +537,54 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
 
 // ------------------------------------------------------------------------------------------------ socket mode
 
-fn exchange(
-    socket: &Path,
-    bytes: &[u8],
-    newline: bool,
-    hold: Option<u64>,
-) -> Result<(Option<String>, bool), String> {
+type Exchanged = Result<(Option<String>, bool), String>;
+
+/// The rows of the ledger's wait table (a wait begins by writing one).
+fn wait_rows(database: &Path) -> usize {
+    rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .and_then(|c| {
+            c.query_row("SELECT COUNT(*) FROM agent_waits", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        })
+        .map_or(0, |n| n as usize)
+}
+
+static UUID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").expect("a pattern")
+});
+static STAMP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z").expect("a pattern"));
+
+/// The daemon of a socket run reads the system clock and system randomness, so the ids and times in an answer are
+/// compared by their shape.
+fn by_shape(text: &str) -> String {
+    let ids = UUID.replace_all(text, "<id>");
+    STAMP.replace_all(&ids, "<time>").into_owned()
+}
+
+/// A step's answer against what the export recorded.
+fn judge(step: &Value, response: Option<String>, closed: bool, paths: &[String]) -> Status {
+    let expected = step["response"].as_str();
+    let got = response.as_deref().map(|text| redact(text, paths));
+    let same = match (expected, got.as_deref()) {
+        (None, None) => true,
+        (Some(want), Some(got)) => same_response(&by_shape(want), &by_shape(got)),
+        _ => false,
+    };
+    if same && closed == step["closed"].as_bool().unwrap_or(true) {
+        Status::Passed
+    } else {
+        Status::Failed(format!(
+            "expected {:?} (closed {}) but got {:?} (closed {closed})",
+            expected.map(clip),
+            step["closed"],
+            got.as_deref().map(clip)
+        ))
+    }
+}
+
+fn exchange(socket: &Path, bytes: &[u8], newline: bool, hold: Option<u64>) -> Exchanged {
     let mut stream = UnixStream::connect(socket).map_err(|e| format!("connect: {e}"))?;
     let wait = Duration::from_millis(hold.unwrap_or(20_000));
     stream.set_read_timeout(Some(wait)).ok();
@@ -611,35 +665,73 @@ fn over_socket(report: &mut Report, scenario: &Value, indices: &[usize], whole: 
         Some(_) => {
             let socket = scratch.state.join("control.sock");
             let paths = paths_of(scratch.dir.path());
+            let database =
+                capstan_ledger::resolve_database_path(&scratch.state).expect("the ledger path");
+            let mut flights: Vec<(usize, std::thread::JoinHandle<Exchanged>)> = Vec::new();
+            let mut last: Option<(usize, usize)> = None; // the previous step and the wait rows when it was sent
+            let settle = |flights: &mut Vec<(usize, std::thread::JoinHandle<Exchanged>)>,
+                          results: &mut Vec<StepReport>| {
+                for (index, flight) in flights.drain(..) {
+                    let status = match flight.join().expect("an exchange thread") {
+                        Err(why) => Status::Failed(why),
+                        Ok((response, closed)) => judge(&steps[index], response, closed, &paths),
+                    };
+                    results.push(step_report(index, status));
+                }
+            };
             for &index in indices {
                 let step = &steps[index];
+                if let (true, Some((before, rows))) = (step["concurrent"] == true, last) {
+                    // The ordering barrier: this request is sent once the daemon has started the previous one (it answered,
+                    // or, for a wait, its row is in the ledger).
+                    let waits = steps[before]["command"] == "wait";
+                    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+                    let started = loop {
+                        let answered = flights
+                            .iter()
+                            .find(|(i, _)| *i == before)
+                            .is_none_or(|(_, f)| f.is_finished());
+                        if answered || (waits && wait_rows(&database) > rows) {
+                            break true;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            break false;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    };
+                    if !started {
+                        results.push(step_report(
+                            index,
+                            Status::Failed(format!("request {before} never started")),
+                        ));
+                        continue;
+                    }
+                } else {
+                    settle(&mut flights, &mut results);
+                }
+                last = Some((index, wait_rows(&database)));
                 let bytes = frame_bytes(&step["frame"]);
                 let newline = step["newline"] != false;
                 let hold = step["hold_ms"].as_u64();
-                let status = match exchange(&socket, &bytes, newline, hold) {
-                    Err(why) => Status::Failed(why),
-                    Ok((response, closed)) => {
-                        let expected = step["response"].as_str();
-                        let got = response.as_deref().map(|text| redact(text, &paths));
-                        let same = match (expected, got.as_deref()) {
-                            (None, None) => true,
-                            (Some(want), Some(got)) => same_response(want, got),
-                            _ => false,
-                        };
-                        if same && closed == step["closed"].as_bool().unwrap_or(true) {
-                            Status::Passed
-                        } else {
-                            Status::Failed(format!(
-                                "expected {:?} (closed {}) but got {:?} (closed {closed})",
-                                expected.map(clip),
-                                step["closed"],
-                                got.as_deref().map(clip)
-                            ))
+                let idle = step["idle_connections"].as_u64().unwrap_or(0);
+                let socket = socket.clone();
+                flights.push((
+                    index,
+                    std::thread::spawn(move || {
+                        // Connections that send nothing; the request that follows is the one beyond the limit.
+                        let held: Vec<UnixStream> = (0..idle)
+                            .map(|_| UnixStream::connect(&socket).expect("an idle connection"))
+                            .collect();
+                        if idle > 0 {
+                            std::thread::sleep(Duration::from_millis(200));
                         }
-                    }
-                };
-                results.push(step_report(index, status));
+                        let outcome = exchange(&socket, &bytes, newline, hold);
+                        drop(held);
+                        outcome
+                    }),
+                ));
             }
+            settle(&mut flights, &mut results);
             let exit = daemon.terminate();
             if whole && exit != scenario["exit"].as_i64().map(|code| code as i32) {
                 extra = Some(format!(

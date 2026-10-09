@@ -60,6 +60,8 @@ export interface Hooks {
   paused<T>(fn: () => T): T;
   /** The next bytes of the stream without the hooks being active (for expectations that need them). */
   stream: SeededStream;
+  /** Moves the seeded clock forward without a reading (a timer that elapsed). */
+  advance(ms: number): void;
   restore(): void;
 }
 
@@ -146,6 +148,9 @@ export function installHooks(seed: string): Hooks {
       }
     },
     paused: pausedCall,
+    advance: (ms: number) => {
+      clock += ms;
+    },
     restore: () => {
       (crypto as { randomUUID: unknown }).randomUUID = original.randomUUID;
       (crypto as { randomBytes: unknown }).randomBytes = original.randomBytes;

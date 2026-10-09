@@ -82,6 +82,8 @@ interface RequestSource {
   newline?: boolean;
   concurrent?: boolean;
   hold_ms?: number;
+  /** Open this many connections that send nothing and stay open until the request is answered. */
+  idle_connections?: number;
   dump?: boolean;
 }
 
@@ -105,8 +107,12 @@ interface RepoSource {
 interface ScenarioSource {
   name: string;
   seed?: string;
+  /** `socket` replays the whole scenario against the real daemon over its socket. */
+  mode?: "socket";
   setup?: SetupStep[];
   repo?: RepoSource;
+  /** The text of the project's `capstan.toml` (mode 0600), written before the ledger is touched. */
+  config?: string;
   requires?: string[];
   requests: RequestSource[];
 }
@@ -608,6 +614,25 @@ function exchange(
   });
 }
 
+/**
+ * Connections that send nothing. Each is connected before the next opens and the server accepts in order, so the request
+ * that follows is the one beyond the connection limit.
+ */
+async function openIdle(
+  socketPath: string,
+  count: number,
+): Promise<net.Socket[]> {
+  const sockets: net.Socket[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const socket = net.connect(socketPath);
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolve) => socket.once("connect", resolve));
+    sockets.push(socket);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  return sockets;
+}
+
 /** What a transcript redacts: the scratch project's path, and the daemon's process id. */
 function redactor(directory: string): (text: string) => string {
   const paths = new Set([directory, realpathSync(directory)]);
@@ -633,6 +658,10 @@ async function runScenario(
   let daemon: Daemon | undefined;
   try {
     const stateDirectory = writeProject(directory, identity);
+    if (source.config !== undefined)
+      writeFileSync(path.join(directory, "capstan.toml"), source.config, {
+        mode: 0o600,
+      });
     const heads =
       source.repo === undefined ? undefined : buildRepo(directory, source.repo);
     // The ledger's migration timestamps come from the system clock in both implementations; migrating first keeps them
@@ -692,7 +721,8 @@ async function runScenario(
       const layer =
         frame.bytes.length > MAX_FRAME_BYTES ||
         !withNewline ||
-        request.hold_ms !== undefined
+        request.hold_ms !== undefined ||
+        request.idle_connections !== undefined
           ? "socket"
           : "dispatch";
       if (request.concurrent === true && previous !== undefined) {
@@ -721,9 +751,16 @@ async function runScenario(
       if (request.command !== undefined) record.command = request.command;
       if (request.concurrent === true) record.concurrent = true;
       if (request.hold_ms !== undefined) record.hold_ms = request.hold_ms;
+      if (request.idle_connections !== undefined)
+        record.idle_connections = request.idle_connections;
       steps.push(record);
+      const idle =
+        request.idle_connections === undefined
+          ? []
+          : await openIdle(socketPath, request.idle_connections);
       pending.push(
         exchange(socketPath, payload, request.hold_ms).then((outcome) => {
+          for (const socket of idle) socket.destroy();
           mine.done = true;
           finished += 1;
           record.response =
@@ -755,6 +792,7 @@ async function runScenario(
     const sequence: { [key: string]: Json } = {
       name: source.name,
       seed,
+      ...(source.mode === undefined ? {} : { mode: source.mode }),
       requires: source.requires ?? [],
       project: {
         projectId: identity.projectId,
@@ -762,6 +800,7 @@ async function runScenario(
         credential: identity.credential,
       },
       ...(setup === undefined ? {} : { setup }),
+      ...(source.config === undefined ? {} : { config: source.config }),
       ...(source.repo === undefined
         ? {}
         : { repo: { ...(stable(source.repo) as object), heads: heads! } }),

@@ -87,6 +87,25 @@
           "hold_ms": 1000
         }
       ]
+    },
+    {
+      "name": "connection-limit",
+      "requests": [
+        {
+          "as": "none",
+          "label": "the 65th connection is closed at once",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "x",
+              "command": "ping",
+              "args": []
+            }
+          },
+          "idle_connections": 64,
+          "hold_ms": 1500
+        }
+      ]
     }
   ]
 }

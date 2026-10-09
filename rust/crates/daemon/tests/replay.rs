@@ -144,3 +144,48 @@ fn arguments_are_a_usage_error() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("usage: cstan-daemon"));
 }
+
+/// A scenario of wait.json by name, taken from the committed transcript.
+fn wait_scenario(name: &str) -> (serde_json::Value, serde_json::Value) {
+    let document = read_transcript(&transcripts_dir().join("wait.json"));
+    let scenario = document["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == name)
+        .unwrap_or_else(|| panic!("wait.json has no {name}"))
+        .clone();
+    (document["baseline"].clone(), scenario)
+}
+
+#[test]
+fn concurrent_steps_are_replayed_over_the_socket_and_compared() {
+    let (baseline, mut scenario) = wait_scenario("wait-then-send");
+    assert!(scenario["steps"][1]["concurrent"] == true);
+    let report = common::replay::replay_scenario("wait", &baseline, &scenario);
+    assert_eq!(report.status, Status::Passed, "{}", report.line());
+    assert_eq!(report.count(|s| *s == Status::Passed), 3);
+    // A different answer for the concurrent send is a failure, not a pending step.
+    scenario["steps"][1]["response"] =
+        serde_json::json!(r#"{"ok":false,"code":"error","message":"no"}"#);
+    let report = common::replay::replay_scenario("wait", &baseline, &scenario);
+    assert!(
+        matches!(report.status, Status::Failed(_)),
+        "{}",
+        report.line()
+    );
+}
+
+#[test]
+fn the_scenario_config_is_the_projects_capstan_toml() {
+    // wait-timeout only times out after the host's one-second limit if the daemon read the configuration.
+    let (baseline, scenario) = wait_scenario("wait-timeout");
+    assert!(scenario["config"]
+        .as_str()
+        .unwrap()
+        .contains("wait_timeout_seconds = 1"));
+    let started = std::time::Instant::now();
+    let report = common::replay::replay_scenario("wait", &baseline, &scenario);
+    assert_eq!(report.status, Status::Passed, "{}", report.line());
+    assert!(started.elapsed() < Duration::from_secs(30));
+}

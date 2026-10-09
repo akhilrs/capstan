@@ -8,6 +8,7 @@
  *    `Date.now()`, `randomUUID()` and `randomBytes()` of the daemon is one reading of a deterministic stream;
  *  - keeps the daemon's periodic timers (the report relay ticks every two seconds and reads the clock) from ever firing,
  *    so the number of clock readings depends on the requests alone;
+ *  - makes a timer of under a second that fires move the seeded clock by its delay (the poll of a wait that times out);
  *  - writes one `{"event":"request_start"}` line to standard output whenever the daemon starts to identify a request's
  *    credential. The exporter uses these lines as a barrier (a concurrent request is sent after the previous one started);
  *    they are not log entries and never reach a transcript.
@@ -36,6 +37,25 @@ globalThis.setInterval = ((
     ? // A timer that never fires but is still a real Timeout, so `unref` and `clearInterval` work on it.
       realSetInterval(() => undefined, 2_147_483_647)
     : realSetInterval(handler, ms, ...args)) as typeof setInterval;
+
+// A timer that fires moves the seeded clock by its delay, so a wait with a limit ends after the timers it slept (about
+// the limit in real time) and not after as many readings of a clock that only counts them.
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = ((
+  handler: (...args: unknown[]) => void,
+  ms?: number,
+  ...args: unknown[]
+) =>
+  typeof handler === "function" && (ms ?? 0) > 0 && (ms ?? 0) < 1_000
+    ? realSetTimeout(
+        (...inner: unknown[]) => {
+          hooks.advance(ms!);
+          handler(...inner);
+        },
+        ms,
+        ...args,
+      )
+    : realSetTimeout(handler, ms, ...args)) as unknown as typeof setTimeout;
 
 const identify = ControllerCore.prototype.identify;
 ControllerCore.prototype.identify = function (

@@ -151,6 +151,22 @@ fn a_run_that_takes_too_long_is_killed_and_reported() {
 }
 
 #[test]
+fn a_child_that_closes_its_streams_and_keeps_running_is_killed_at_the_deadline() {
+    let _guard = exclusive();
+    let directory = tempfile::tempdir().unwrap();
+    let binary = script(directory.path(), "exec >&- 2>&-\nexec sleep 20");
+    let started = Instant::now();
+    let error = runner(binary, Some(300))
+        .run(&args(&["pane", "read"]), &RunOptions::default())
+        .unwrap_err();
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str()),
+        ("timeout", "herdr pane timed out")
+    );
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
 fn output_over_the_limit_is_an_error() {
     let _guard = exclusive();
     let directory = tempfile::tempdir().unwrap();
