@@ -30,10 +30,6 @@ fn parity_integrate_dir() -> PathBuf {
     common::crate_dir().join("tests").join("parity-integrate")
 }
 
-fn strict() -> bool {
-    std::env::var("CAPSTAN_KERNEL_PARITY_STRICT").is_ok_and(|v| v == "1")
-}
-
 struct SharedEnv(Rc<SeededEnv>);
 
 impl Env for SharedEnv {
@@ -446,8 +442,8 @@ fn every_integration_scenario_replays() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert!(
-        !strict() || pending.is_empty(),
-        "pending scenarios under CAPSTAN_KERNEL_PARITY_STRICT=1:\n{}",
+        !common::strict() || pending.is_empty(),
+        "pending scenarios in strict mode (CAPSTAN_KERNEL_PARITY_STRICT=0 allows them):\n{}",
         pending.join("\n")
     );
     assert!(passed + pending.len() > 0, "the file holds no scenario");

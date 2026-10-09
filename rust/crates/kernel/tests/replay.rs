@@ -1,7 +1,8 @@
 //! The parity harness of the kernel: replays the sequences Node exported (tests/parity/*.json) and checks the plan-body,
 //! text and notice helpers and the method list against the fixtures Node wrote.
 //!
-//! `CAPSTAN_KERNEL_PARITY_STRICT=1` makes a pending sequence (one that reached an area not ported yet) a failure.
+//! Strict mode is the default: a pending sequence (one that reached an operation not ported yet) is a failure
+//! (`common::strict`; tests/strict.rs holds the rest of the gate).
 
 mod common;
 
@@ -9,29 +10,20 @@ use capstan_kernel::helpers::*;
 use capstan_kernel::plan_body::*;
 use capstan_kernel::records::{AgentFindingRow, AgentReportRow, AgentRow, ReviewRow};
 use common::replay::{first_difference, replay_directory, Report, Status};
-use common::{crate_dir, fixture, parity_dir, read_json};
+use common::{crate_dir, failing, fixture, parity_dir, read_json, strict};
 use serde_json::{json, Value};
 
-fn strict() -> bool {
-    std::env::var("CAPSTAN_KERNEL_PARITY_STRICT").is_ok_and(|v| v == "1")
-}
-
 fn summarize(reports: &[Report]) -> (usize, usize, Vec<String>) {
-    let mut failures = Vec::new();
     let (mut passed, mut pending) = (0, 0);
     for report in reports {
         println!("{}", report.line());
         match &report.status {
             Status::Passed => passed += 1,
-            Status::Pending(_) => {
-                pending += 1;
-                if strict() {
-                    failures.push(report.line());
-                }
-            }
-            Status::Failed(_) => failures.push(report.line()),
+            Status::Pending(_) => pending += 1,
+            Status::Failed(_) => {}
         }
     }
+    let failures = failing(reports, strict());
     println!(
         "{passed} passed, {pending} pending, {} failed",
         failures.len()

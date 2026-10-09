@@ -9,6 +9,8 @@ pub mod core;
 pub mod dispatch;
 pub mod env;
 pub mod errors;
+#[doc(hidden)]
+pub mod export_file;
 pub mod helpers;
 pub mod integrate;
 pub mod json;
@@ -16,9 +18,6 @@ pub mod kernel;
 pub mod plan_body;
 pub mod records;
 pub mod types;
-
-#[cfg(test)]
-mod export_file;
 
 pub use crate::core::Core;
 pub use crate::env::{Env, SeededEnv, SystemEnv};

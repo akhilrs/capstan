@@ -127,7 +127,6 @@ pub fn list_operator_grants(kernel: &Kernel, limit: Option<i64>) -> KernelResult
 
 /// `endOperatorGrantsOf`: the session grants approved for an agent's proposals end when the agent is released or
 /// replaced. The caller owns the transaction.
-#[allow(dead_code)] // called through a placeholder in agents.rs until the swap
 pub(crate) fn end_operator_grants_of(kernel: &Kernel, agent_id: &str) -> KernelResult<()> {
     execute(
         &kernel.database,

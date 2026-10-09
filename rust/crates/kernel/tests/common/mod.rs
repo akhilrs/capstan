@@ -16,6 +16,35 @@ pub fn repo_root() -> PathBuf {
     crate_dir().join("..").join("..").join("..")
 }
 
+/// Strict mode, the default: a sequence or scenario that reaches an `Unported` operation (pending) is a failure, so
+/// `cargo test` fails on any operation that is not ported. `CAPSTAN_KERNEL_PARITY_STRICT=0` allows pending while a
+/// package is being developed; any other value, or none, is strict.
+pub fn strict() -> bool {
+    strict_from(
+        std::env::var("CAPSTAN_KERNEL_PARITY_STRICT")
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// `strict` for a given value of CAPSTAN_KERNEL_PARITY_STRICT.
+pub fn strict_from(value: Option<&str>) -> bool {
+    value != Some("0")
+}
+
+/// The report lines that fail the run: every failed sequence, and in strict mode every pending one as well.
+pub fn failing(reports: &[replay::Report], strict: bool) -> Vec<String> {
+    reports
+        .iter()
+        .filter(|report| match report.status {
+            replay::Status::Passed => false,
+            replay::Status::Pending(_) => strict,
+            replay::Status::Failed(_) => true,
+        })
+        .map(replay::Report::line)
+        .collect()
+}
+
 pub fn parity_dir() -> PathBuf {
     crate_dir().join("tests").join("parity")
 }
@@ -27,37 +56,7 @@ pub fn read_json(path: &Path) -> Value {
     unpack(value)
 }
 
-/// Replaces every `{"$d": n}` of a packed export by dictionary entry `n` (an entry refers only to earlier ones) and
-/// drops the dictionary; any other value is returned as it is.
-pub fn unpack(mut value: Value) -> Value {
-    fn expand(value: &mut Value, dict: &[Value]) {
-        match value {
-            Value::Object(map) => {
-                if let (1, Some(n)) = (map.len(), map.get("$d").and_then(Value::as_u64)) {
-                    *value = dict[n as usize].clone();
-                } else {
-                    map.values_mut().for_each(|v| expand(v, dict));
-                }
-            }
-            Value::Array(items) => items.iter_mut().for_each(|v| expand(v, dict)),
-            _ => {}
-        }
-    }
-    let packed = value["format"] == 2 && value["dict"].is_array();
-    if !packed {
-        return value;
-    }
-    let Some(Value::Array(entries)) = value.as_object_mut().and_then(|m| m.remove("dict")) else {
-        return value;
-    };
-    let mut dict: Vec<Value> = Vec::with_capacity(entries.len());
-    for mut entry in entries {
-        expand(&mut entry, &dict);
-        dict.push(entry);
-    }
-    expand(&mut value, &dict);
-    value
-}
+pub use capstan_kernel::export_file::unpack;
 
 /// A fixture of the repository's `test/fixtures` tree.
 pub fn fixture(relative: &str) -> Value {

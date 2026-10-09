@@ -100,6 +100,29 @@ export function stable(value: unknown): Json {
   return out;
 }
 
+/**
+ * `value` as JSON data with its keys in the order they were written (`undefined` becomes null, as in `stable`). Step
+ * arguments are recorded this way: Node ran on them in this order, and some of what a controller stores is the caller's
+ * JSON as written (a report's `evidence`), so the Rust replay must be handed the same order.
+ */
+export function authored(value: unknown): Json {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== "object") return value as Json;
+  if (Array.isArray(value)) return value.map(authored);
+  const out: { [key: string]: Json } = {};
+  for (const [key, entry] of Object.entries(value)) out[key] = authored(entry);
+  return out;
+}
+
+/** `object` with its own keys in code-unit order and everything below them as it is. */
+export function sortedKeys(object: { [key: string]: Json }): {
+  [key: string]: Json;
+} {
+  const out: { [key: string]: Json } = {};
+  for (const key of Object.keys(object).sort()) out[key] = object[key]!;
+  return out;
+}
+
 function text(value: unknown): string {
   return JSON.stringify(stable(value), null, 2) + "\n";
 }
@@ -310,7 +333,7 @@ async function runSequence(source: SequenceSource): Promise<Json> {
           ) as Record<string, unknown>;
           const options = spec.options ?? {};
           const stateDir = spec.stateDir ?? "dir";
-          record.args = stable([{ project: resolved, stateDir, options }]);
+          record.args = authored([{ project: resolved, stateDir, options }]);
           const stateDirectory = stateDir === "dir" ? directory : stateDir;
           if (stateDir === "dir" && step.op === "open") {
             // The ledger's migration timestamps come from the system clock in both implementations; migrating first
@@ -352,7 +375,7 @@ async function runSequence(source: SequenceSource): Promise<Json> {
             args.push(made);
           }
           args.push(...(resolve(step.args ?? [], context, on) as unknown[]));
-          record.args = stable(
+          record.args = authored(
             step.context === undefined ? args : args.slice(1),
           );
           const handle = context.handles.get(on);
@@ -393,13 +416,13 @@ async function runSequence(source: SequenceSource): Promise<Json> {
       }
       if (step.dump === true || step.op === "dump")
         record.tables = dumpTables(path.join(directory, "controller.sqlite"));
-      records.push(record);
+      records.push(sortedKeys(record));
     }
-    return stable({
+    return sortedKeys({
       name: source.name,
       seed,
       requires: source.requires ?? [],
-      project: project as never,
+      project: stable(project),
       steps: records,
       tables: dumpTables(path.join(directory, "controller.sqlite")),
     });
@@ -570,10 +593,17 @@ export function pack(document: { [key: string]: Json }): {
  * An export file as text: the header fields on one line each, then the dictionary and every record of the list
  * fields (`sequences`, `scenarios`, `cases`, `dict`, and each table of `baseline`) on a line of their own.
  */
-export function packedText(document: { [key: string]: Json }): string {
+export function packedText(
+  document: { [key: string]: Json },
+  options: { keepOrder?: boolean } = {},
+): string {
   const lines: string[] = [];
+  // `keepOrder`: only the top-level keys are sorted; the document sorts or keeps the order of everything below them.
+  const packed = pack(document);
   for (const [key, value] of Object.entries(
-    stable(pack(document)) as { [key: string]: Json },
+    options.keepOrder === true
+      ? sortedKeys(packed)
+      : (stable(packed) as { [key: string]: Json }),
   )) {
     if (Array.isArray(value))
       lines.push(
@@ -599,12 +629,23 @@ function groupText(
   sequences: Json[],
   baseline?: Tables,
 ): string {
-  return packedText({
-    format: 2,
-    group,
-    ...(baseline === undefined ? {} : { baseline: baseline as never }),
-    sequences,
-  });
+  return packedText(
+    {
+      format: 2,
+      group,
+      ...(baseline === undefined ? {} : { baseline: baseline as never }),
+      sequences: sequences.map((sequence) => {
+        const { steps, ...rest } = sequence as { [key: string]: Json };
+        return sortedKeys({
+          ...rest,
+          steps: (steps as Json[]).map((step) =>
+            sortedKeys(step as { [key: string]: Json }),
+          ),
+        });
+      }),
+    },
+    { keepOrder: true },
+  );
 }
 
 async function sequenceGroups(): Promise<Map<string, string>> {

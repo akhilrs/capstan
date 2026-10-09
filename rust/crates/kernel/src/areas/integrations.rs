@@ -608,8 +608,15 @@ pub fn integration_commit_info(kernel: &Kernel, integration_id: &str) -> KernelR
 /// `plannedCommitInfo`: the commit info of reports that are not yet an integration, in the order given.
 pub fn planned_commit_info(kernel: &Kernel, report_ids: &Value) -> KernelResult<Value> {
     kernel.assert_open()?;
-    let Some(ids) = report_ids.as_array() else {
-        return Err(KernelError::type_error("reportIds is not iterable"));
+    // A string is iterable in JavaScript: `for (const id of "r1")` visits its characters.
+    let characters: Vec<Value>;
+    let ids = match report_ids {
+        Value::Array(ids) => ids,
+        Value::String(text) => {
+            characters = text.chars().map(|c| Value::String(c.to_string())).collect();
+            &characters
+        }
+        _ => return Err(KernelError::type_error("reportIds is not iterable")),
     };
     let mut reports: Vec<AgentReportRow> = Vec::new();
     for id in ids {
@@ -901,7 +908,6 @@ pub fn running_integrations(kernel: &Kernel, credential: &str) -> KernelResult<V
 }
 
 /// `mergedIntegrationsForSummary`; `agents.rs` calls it once its placeholder is swapped for this.
-#[allow(dead_code)]
 pub(crate) fn merged_integrations_for_summary(kernel: &Kernel) -> KernelResult<Vec<Value>> {
     query_all(
         &kernel.database,

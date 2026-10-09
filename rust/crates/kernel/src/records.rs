@@ -94,20 +94,6 @@ pub fn cancel_reason_text(reason: &str) -> Option<&'static str> {
     }
 }
 
-/// What the controller checked in git for a report; the agent never supplies it.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ReportEvidence {
-    pub generation: i64,
-    pub branch: String,
-    pub base_sha: Option<String>,
-    pub commit_exists: bool,
-    pub branch_tip: Option<String>,
-    pub is_ancestor_of_tip: bool,
-    pub is_ancestor_of_base: bool,
-    pub checked_at: String,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentReportRecord {
@@ -121,7 +107,9 @@ pub struct AgentReportRecord {
     pub summary: String,
     pub state: String,
     pub reason: Option<String>,
-    pub evidence: ReportEvidence,
+    /// What the controller checked in git for the report, as the caller wrote it (`evidence_json` is kept verbatim, extra
+    /// keys and key order included, and shown the same way).
+    pub evidence: Value,
     pub notified_message_id: Option<String>,
     pub created_at: String,
 }

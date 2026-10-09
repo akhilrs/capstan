@@ -1,8 +1,7 @@
 //! The agent records and lifecycle (src/controller/agents.ts).
 //!
-//! Ending, replacing and restarting an agent reach into areas other packages port (notices, pauses, findings, operator,
-//! messages, links, plans, integrations). Until those exist the calls are the placeholders of `cross`, one per target,
-//! each `Unported`; the sequences that reach them are tagged `requires` in test/kernel-sequences/agents.json.
+//! Ending, replacing and restarting an agent reach into the notices, pauses, findings, operator, messages, links, plans
+//! and integrations areas.
 
 use crate::auth::{
     authenticate_actor, credential_hash, issue_credential, new_actor_id, AuthenticatedActor,
@@ -25,98 +24,12 @@ use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
-use super::{actors, messages, status};
+use super::{
+    actors, findings, integrations, links, message_notices, messages, operator_grants,
+    operator_proposals, pauses, plans, status,
+};
 
 const HERDR_STATES: [&str; 5] = ["idle", "working", "blocked", "done", "unknown"];
-
-/// Calls into areas that are not ported yet. Each is named after the function it becomes (`crate::areas::<area>::<fn>`)
-/// and carries the Node signature; swapping one for the real call changes nothing else in this file.
-mod cross {
-    use super::*;
-    use crate::records::AgentFindingRow;
-
-    fn pending<T>(what: &str) -> KernelResult<T> {
-        Err(KernelError::Unported(what.into()))
-    }
-
-    /// `messageNotices.closeWaits(agentId: string, now: string): void`.
-    pub fn close_waits(_kernel: &Kernel, _agent_id: &str, _now: &str) -> KernelResult<()> {
-        pending("messageNotices.closeWaits")
-    }
-
-    /// `pauses.pauseRows(): PauseRecord[]`, each `{ scope, agentId, reason, actorId, pausedAt }`, oldest first.
-    pub fn pause_rows(_kernel: &Kernel) -> KernelResult<Vec<Value>> {
-        pending("pauses.pauseRows")
-    }
-
-    /// `pauses.closePause(scope: "run" | "agent", agentId: string | null, reason: string, actorId: string, now: string): void`.
-    pub fn close_pause(
-        _kernel: &Kernel,
-        _scope: &str,
-        _agent_id: Option<&str>,
-        _reason: &str,
-        _actor_id: &str,
-        _now: &str,
-    ) -> KernelResult<()> {
-        pending("pauses.closePause")
-    }
-
-    /// `findings.closeFinding(actor, context, finding: AgentFindingRow, state: "cancelled", reason: string, now: string): void`.
-    pub fn close_finding(
-        _kernel: &Kernel,
-        _actor: &AuthenticatedActor,
-        _context: &MutationContext,
-        _finding: &AgentFindingRow,
-        _state: &str,
-        _reason: &str,
-        _now: &str,
-    ) -> KernelResult<()> {
-        pending("findings.closeFinding")
-    }
-
-    /// `operatorProposals.cancelUnstartedOperatorProposalsOf(agentId: string, now: string): void`.
-    pub fn cancel_unstarted_operator_proposals_of(
-        _kernel: &Kernel,
-        _agent_id: &str,
-        _now: &str,
-    ) -> KernelResult<()> {
-        pending("operatorProposals.cancelUnstartedOperatorProposalsOf")
-    }
-
-    /// `operatorGrants.endOperatorGrantsOf(agentId: string): void`.
-    pub fn end_operator_grants_of(_kernel: &Kernel, _agent_id: &str) -> KernelResult<()> {
-        pending("operatorGrants.endOperatorGrantsOf")
-    }
-
-    /// `messages.cancelMessagesOf(actor, context, agentId: string, reason: string, now: string, keepFailed = false): string[]`.
-    pub fn cancel_messages_of(
-        _kernel: &Kernel,
-        _actor: &AuthenticatedActor,
-        _context: &MutationContext,
-        _agent_id: &str,
-        _reason: &str,
-        _now: &str,
-        _keep_failed: bool,
-    ) -> KernelResult<Vec<String>> {
-        pending("messages.cancelMessagesOf")
-    }
-
-    /// `external_links` rows as `links.linkRecord(row)` shows them (`SELECT * FROM external_links WHERE project_id = ?
-    /// ORDER BY linked_at, ref_kind, ref_id`, each through `linkRecord`).
-    pub fn link_records(_kernel: &Kernel) -> KernelResult<Vec<Value>> {
-        pending("links.linkRecord")
-    }
-
-    /// `plans.openPlansForSummary(): PmRestartSummary["plans"]`.
-    pub fn open_plans_for_summary(_kernel: &Kernel) -> KernelResult<Vec<Value>> {
-        pending("plans.openPlansForSummary")
-    }
-
-    /// `integrations.mergedIntegrationsForSummary(): PmRestartSummary["integrations"]`.
-    pub fn merged_integrations_for_summary(_kernel: &Kernel) -> KernelResult<Vec<Value>> {
-        pending("integrations.mergedIntegrationsForSummary")
-    }
-}
 
 fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
@@ -346,19 +259,19 @@ pub fn end_agent(
             actors::assert_seat_free_of_authority(kernel, &agent.seat_id)?;
             let now = kernel.now();
             actors::revoke_seat_actors(kernel, &agent.seat_id, &now)?;
-            cross::close_waits(kernel, agent_id, &now)?;
+            message_notices::close_waits(kernel, agent_id, &now)?;
             execute(
                 &kernel.database,
                 "UPDATE agents SET state = 'ended', ended_at = ? WHERE project_id = ? AND agent_id = ?",
                 [&now, &kernel.project_id, agent_id],
             )?;
             // An agent that is no longer active cannot stay paused: close its pause in the same transaction.
-            let open_pause = cross::pause_rows(kernel)?.into_iter().find(|pause| {
-                pause["scope"] == "agent" && pause["agentId"].as_str() == Some(agent_id)
+            let open_pause = pauses::pause_rows(kernel)?.into_iter().find(|pause| {
+                pause.scope == "agent" && pause.agent_id.as_deref() == Some(agent_id)
             });
             if let Some(open_pause) = open_pause {
                 let reason = "agent ended";
-                cross::close_pause(
+                pauses::close_pause(
                     kernel,
                     "agent",
                     Some(agent_id),
@@ -375,7 +288,7 @@ pub fn end_agent(
                     "active",
                     "agent.resume",
                     agent.generation,
-                    &json!({"reason": reason, "scope": "agent", "pausedReason": open_pause["reason"]}),
+                    &json!({"reason": reason, "scope": "agent", "pausedReason": open_pause.reason}),
                 )?;
             }
             let ended_plan_reviews = query_all(
@@ -408,16 +321,16 @@ pub fn end_agent(
                 } else {
                     "raiser_ended"
                 };
-                cross::close_finding(kernel, actor, context, finding, "cancelled", reason, &now)?;
+                findings::close_finding(kernel, actor, context, finding, "cancelled", Some(reason), &now)?;
             }
-            cross::cancel_unstarted_operator_proposals_of(kernel, agent_id, &now)?;
-            cross::end_operator_grants_of(kernel, agent_id)?;
+            operator_proposals::cancel_unstarted_operator_proposals_of(kernel, agent_id, &now)?;
+            operator_grants::end_operator_grants_of(kernel, agent_id)?;
             let unacknowledged: Vec<String> = messages::message_rows_for(kernel, agent_id)?
                 .into_iter()
                 .filter(|row| !is_final_state(&row.state))
                 .map(|row| row.message_id)
                 .collect();
-            let cancelled = cross::cancel_messages_of(
+            let cancelled = messages::cancel_messages_of(
                 kernel, actor, context, agent_id, "agent_ended", &now, true,
             )?;
             let branch: Option<String> = match given_branch {
@@ -500,15 +413,15 @@ fn replace_generation(
         "UPDATE agents SET actor_id = ?, generation = ?, last_activity_at = ? WHERE project_id = ? AND agent_id = ?",
         rusqlite::params![actor_id, generation, now, kernel.project_id, agent_id],
     )?;
-    cross::close_waits(kernel, agent_id, &now)?;
-    cross::cancel_unstarted_operator_proposals_of(kernel, agent_id, &now)?;
-    cross::end_operator_grants_of(kernel, agent_id)?;
+    message_notices::close_waits(kernel, agent_id, &now)?;
+    operator_proposals::cancel_unstarted_operator_proposals_of(kernel, agent_id, &now)?;
+    operator_grants::end_operator_grants_of(kernel, agent_id)?;
     execute(
         &kernel.database,
         "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) SELECT ?, ?, COALESCE(MAX(sequence), 0) + 1, 'unknown', MAX(?, COALESCE(MAX(observed_at), '')) FROM agent_state_history WHERE project_id = ? AND agent_id = ?",
         rusqlite::params![kernel.project_id, agent_id, now, kernel.project_id, agent_id],
     )?;
-    let cancelled = cross::cancel_messages_of(
+    let cancelled = messages::cancel_messages_of(
         kernel,
         actor,
         context,
@@ -637,7 +550,7 @@ fn restart_summary(
         message["body"] = Value::String(body);
         bounded.push(message);
     }
-    let mut all_links = cross::link_records(kernel)?;
+    let mut all_links = links::link_records(kernel)?;
     all_links.sort_by_key(|link| std::cmp::Reverse(link["drift"].as_bool() == Some(true)));
     if all_links.len() > MAX_SUMMARY_LINKS {
         truncated = true;
@@ -671,8 +584,8 @@ fn restart_summary(
         })
         .collect();
     let mut messages_out = bounded;
-    let mut plans = cross::open_plans_for_summary(kernel)?;
-    let mut integrations = cross::merged_integrations_for_summary(kernel)?;
+    let mut plans = plans::open_plans_for_summary(kernel)?;
+    let mut integrations = integrations::merged_integrations_for_summary(kernel)?;
     let objective = objective_of(brief.as_deref())?;
     let generated_at = kernel.now();
     let render = |open_work: &[Value],

@@ -24,7 +24,7 @@ A sequence runs in its own scratch directory (`tempDir`), with a clock that star
 1 ms per reading and a randomness stream seeded by `seed`. Unless `"open": false`, the exporter first opens a controller
 (handle `main`) on a default project whose owner credential is `$owner.credential`. `requires` lists the groups other than
 the sequence's own whose operations it reaches: when the Rust kernel answers a step with `Unported`, a sequence with
-`requires` is reported as pending (a failure under `CAPSTAN_KERNEL_PARITY_STRICT=1`), a sequence without it fails.
+`requires` is reported as pending, a sequence without it fails. Strict mode is the default, so pending is a failure too; `CAPSTAN_KERNEL_PARITY_STRICT=0` allows it while a group is being ported. `cross.json` holds sequences across all groups and `captured.json` those captured from the controller suites (`test/kernel-capture-hooks.ts`); every `ControllerCore` method must be in some sequence (`rust/crates/kernel/tests/strict.rs`).
 
 ## Steps
 

@@ -427,6 +427,12 @@ impl Run {
     fn step(&mut self, step: &Value) -> Result<(), StepFault> {
         let on = step["on"].as_str().unwrap_or("main").to_string();
         let op = step["op"].as_str().unwrap_or("");
+        if is_unresolved_reference(step) {
+            // The exporter could not resolve a `$name.path` of the step (the earlier step it names failed or has no such
+            // field): the step never reached the controller, so there is nothing to run, only the counters to check.
+            self.check_counters(step, &on)?;
+            return self.check_tables(step);
+        }
         let result = match op {
             "open" => self.open(step, false),
             "openReadOnly" => self.open(step, true),
@@ -444,8 +450,13 @@ impl Run {
             },
         };
         self.compare(step, result)?;
+        self.check_counters(step, &on)?;
+        self.check_tables(step)
+    }
+
+    fn check_counters(&self, step: &Value, on: &str) -> Result<(), StepFault> {
         if step.get("stateVersion").is_some() {
-            let core = self.handles.get(&on).ok_or_else(|| {
+            let core = self.handles.get(on).ok_or_else(|| {
                 StepFault::Failed(format!(
                     "{}: no handle {on} for the counters",
                     step_label(step)
@@ -460,6 +471,10 @@ impl Run {
                 return Err(StepFault::Failed(format!("{}: {diff}", step_label(step))));
             }
         }
+        Ok(())
+    }
+
+    fn check_tables(&self, step: &Value) -> Result<(), StepFault> {
         if let Some(expected) = step.get("tablesDiff") {
             let actual = diff_tables(
                 &self.baseline,
@@ -472,6 +487,16 @@ impl Run {
         }
         Ok(())
     }
+}
+
+/// A step the exporter failed before it called the controller, because a reference of its arguments did not resolve
+/// (`unknown reference $name` or `$name.path does not resolve`): it records no `args`.
+fn is_unresolved_reference(step: &Value) -> bool {
+    step.get("args").is_none()
+        && step["error"] == "Error"
+        && step["message"].as_str().is_some_and(|m| {
+            m.starts_with("unknown reference ") || m.ends_with(" does not resolve")
+        })
 }
 
 fn step_label(step: &Value) -> String {

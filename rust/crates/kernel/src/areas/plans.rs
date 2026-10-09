@@ -631,7 +631,6 @@ pub(crate) fn queue_plan_notice(
 
 /// `openPlansForSummary`: plans a restarted PM still has to follow; `agents.rs` calls it once its placeholder is swapped
 /// for this.
-#[allow(dead_code)]
 pub(crate) fn open_plans_for_summary(kernel: &Kernel) -> KernelResult<Vec<Value>> {
     let rows = query_all(
         &kernel.database,

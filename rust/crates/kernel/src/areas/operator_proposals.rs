@@ -1225,7 +1225,6 @@ pub fn cancel_operator_proposal(
 
 /// `cancelUnstartedOperatorProposalsOf`: the proposals of an agent that has not started, cancelled because the agent
 /// ends or is replaced. The caller owns the transaction.
-#[allow(dead_code)] // called through a placeholder in agents.rs until the swap
 pub(crate) fn cancel_unstarted_operator_proposals_of(
     kernel: &Kernel,
     agent_id: &str,

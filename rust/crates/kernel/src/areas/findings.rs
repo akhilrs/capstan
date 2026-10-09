@@ -840,6 +840,16 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             Some(call(supervision_reason(kernel, credential)))
         }
         "supervisionActivity" => Some(call(supervision_activity(kernel))),
+        // The first argument of `sweepFindings` is a function, which a JSON step cannot carry: the step reaches the deadline
+        // check and then fails calling it, as Node does.
+        "sweepFindings" => Some(call(match a.value(1).as_f64() {
+            Some(seconds) if seconds.fract() == 0.0 && seconds >= 1.0 => {
+                Err(KernelError::type_error("newContext is not a function"))
+            }
+            _ => Err(KernelError::type_error(
+                "the deadline must be a positive number of seconds",
+            )),
+        })),
         _ => None,
     }
 }
