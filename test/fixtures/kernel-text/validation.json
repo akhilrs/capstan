@@ -1,0 +1,1962 @@
+{
+  "findingText": [
+    {
+      "input": "",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "",
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 20,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 1500,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 20,
+      "result": {
+        "ok": "padded"
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 1500,
+      "result": {
+        "ok": "padded"
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 1500,
+      "result": {
+        "ok": "line one\nline two\nline three\nline four"
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 20,
+      "result": {
+        "ok": "nel\nnext\nls\nps"
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 1500,
+      "result": {
+        "ok": "nel\nnext\nls\nps"
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 20,
+      "result": {
+        "ok": "tab here vt ff"
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 1500,
+      "result": {
+        "ok": "tab here vt ff"
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 1500,
+      "result": {
+        "ok": "control nul bell escape del c1"
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 1500,
+      "result": {
+        "ok": "format zero zwj  rtl wj bom soft"
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 20,
+      "result": {
+        "ok": "nonchar    end"
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 1500,
+      "result": {
+        "ok": "nonchar    end"
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 1500,
+      "result": {
+        "ok": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 1500,
+      "result": {
+        "ok": "é combining क्ष 각"
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 1500,
+      "result": {
+        "ok": "nbsp em　ideographic"
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 1500,
+      "result": {
+        "ok": "⠀braille ᅟᅠㅤﾠ fillers"
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 1500,
+      "result": {
+        "ok": "ansi  [31mred [0m  [1;4munder [0m  [2J [H"
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 1500,
+      "result": {
+        "ok": "osc  ]0;title after  ]8;;http://x \\link ]8;; \\"
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 1500,
+      "result": {
+        "ok": "dcs  Pq#0;2;0;0;0 \\ apc  _data \\ pm  ^x \\ sos  Xy \\"
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 1500,
+      "result": {
+        "ok": "c1 csi  31m red  0;t  done  dcs  end"
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 1500,
+      "result": {
+        "ok": "unterminated  ]0;title no end"
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 1500,
+      "result": {
+        "ok": "unterminated csi  [31"
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 20,
+      "result": {
+        "ok": "escape alone"
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 1500,
+      "result": {
+        "ok": "escape alone"
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 1500,
+      "result": {
+        "ok": "two char  M  7  (B  ="
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 20,
+      "result": {
+        "ok": "intro           lone"
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 1500,
+      "result": {
+        "ok": "intro           lone"
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 1500 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 1500,
+      "result": {
+        "ok": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀"
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 1500,
+      "result": {
+        "ok": "mix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\n [0m"
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 20,
+      "result": {
+        "ok": "� replacement �"
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 1500,
+      "result": {
+        "ok": "� replacement �"
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be at most 20 bytes",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 1500,
+      "result": {
+        "ok": "RTL אבג العربية"
+      }
+    },
+    {
+      "input": 5,
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": 5,
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 20,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 1500,
+      "result": {
+        "error": {
+          "message": "evidence must be text",
+          "name": "TypeError"
+        }
+      }
+    }
+  ],
+  "safeText": [
+    {
+      "input": "",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " ",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "plain text",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "plain text"
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "ok": "  padded  "
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "  padded  "
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "ok": "  padded  "
+      }
+    },
+    {
+      "input": "  padded  ",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "  padded  "
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷"
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "é combining क्ष 각"
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "é combining क्ष 각"
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": " nbsp em　ideographic "
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": " nbsp em　ideographic "
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "⠀braille ᅟᅠㅤﾠ fillers"
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "⠀braille ᅟᅠㅤﾠ fillers"
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "intro      lone",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 500 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 500 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 500 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 500 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must not contain control, format or line-separator characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "​​​",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "� replacement �"
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "� replacement �",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "� replacement �"
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "ok": "RTL אבג العربية"
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must be at most 10 characters",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "ok": "RTL אבג العربية"
+      }
+    },
+    {
+      "input": 5,
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": 5,
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": 5,
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": 5,
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": null,
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 10,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 500,
+      "multiline": false,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 10,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    },
+    {
+      "input": {},
+      "max": 500,
+      "multiline": true,
+      "result": {
+        "error": {
+          "message": "the field must contain visible text",
+          "name": "TypeError"
+        }
+      }
+    }
+  ]
+}

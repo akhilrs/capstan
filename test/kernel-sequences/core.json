@@ -1,0 +1,1964 @@
+{
+  "sequences": [
+    {
+      "name": "bootstrap",
+      "steps": [
+        {
+          "op": "projectId",
+          "args": []
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "inputRevision",
+          "args": []
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"],
+          "as": "ownerId"
+        },
+        {
+          "op": "identify",
+          "args": ["$internal.credential"],
+          "as": "internalId"
+        },
+        {
+          "op": "identify",
+          "args": ["xxxxxxxxxx"]
+        },
+        {
+          "op": "identify",
+          "args": ["nobody-nobody-nobody-nobody-nobody-nobody"]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "activeAgents",
+          "args": []
+        },
+        {
+          "op": "agentRecord",
+          "args": ["nobody"]
+        },
+        {
+          "op": "roleDefinitions",
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "reopen",
+      "steps": [
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "open",
+          "args": [{}]
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"]
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "name": "Another Name"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "ownerCredential": "wrong-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "ownerCredential": "$internal.credential"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "ownerCredential": "short"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [{}]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "open-refusals",
+      "open": false,
+      "steps": [
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "projectId": "-bad"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "projectId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "projectId": "has space"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "stateDir": "relative/state"
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "initialInputs": [
+                  {
+                    "kind": "project_config",
+                    "content": {}
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "initialInputs": [
+                  {
+                    "kind": "project_config",
+                    "content": {}
+                  },
+                  {
+                    "kind": "project_config",
+                    "content": {}
+                  },
+                  {
+                    "kind": "task_brief",
+                    "content": {}
+                  },
+                  {
+                    "kind": "policy",
+                    "content": {}
+                  },
+                  {
+                    "kind": "plan",
+                    "content": {}
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "name": "   "
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "ownerCredential": "short"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "initialInputs": [
+                  {
+                    "kind": "project_config",
+                    "content": {}
+                  },
+                  {
+                    "kind": "task_brief",
+                    "content": {}
+                  },
+                  {
+                    "kind": "acceptance_criteria",
+                    "content": {
+                      "criteria": []
+                    }
+                  },
+                  {
+                    "kind": "policy",
+                    "content": {}
+                  },
+                  {
+                    "kind": "plan",
+                    "content": {}
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "initialInputs": [
+                  {
+                    "kind": "project_config",
+                    "content": {}
+                  },
+                  {
+                    "kind": "task_brief",
+                    "content": {}
+                  },
+                  {
+                    "kind": "acceptance_criteria",
+                    "content": ["a", "a"]
+                  },
+                  {
+                    "kind": "policy",
+                    "content": {}
+                  },
+                  {
+                    "kind": "plan",
+                    "content": {}
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "options": {
+                "runtimeWorkspacePath": "relative/path"
+              }
+            }
+          ]
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "options": {
+                "workspaceRoot": "/dev/null"
+              }
+            }
+          ]
+        },
+        {
+          "op": "dump"
+        },
+        {
+          "op": "open",
+          "args": [
+            {
+              "project": {
+                "initialInputs": [
+                  {
+                    "kind": "project_config",
+                    "content": {
+                      "z": 1,
+                      "a": [
+                        3,
+                        {
+                          "y": 2,
+                          "b": 1
+                        }
+                      ],
+                      "10": 1,
+                      "9": 2
+                    }
+                  },
+                  {
+                    "kind": "task_brief",
+                    "content": "text"
+                  },
+                  {
+                    "kind": "acceptance_criteria",
+                    "content": ["one", "two"]
+                  },
+                  {
+                    "kind": "policy",
+                    "content": null
+                  },
+                  {
+                    "kind": "plan",
+                    "content": [1.5, true, null]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "second-open-and-read-only",
+      "steps": [
+        {
+          "op": "open",
+          "args": [{}],
+          "on": "second"
+        },
+        {
+          "op": "openReadOnly",
+          "args": [{}],
+          "on": "ro"
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"],
+          "on": "ro"
+        },
+        {
+          "op": "roleDefinitions",
+          "args": [],
+          "on": "ro"
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "on": "ro"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-ro1",
+            "idempotencyKey": "idem-ro1"
+          },
+          "args": [
+            {
+              "seatId": "s1",
+              "name": "dev",
+              "role": "Developer"
+            }
+          ],
+          "on": "ro"
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-ro2",
+            "idempotencyKey": "idem-ro2"
+          },
+          "args": [[]],
+          "on": "ro"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-ro3",
+            "idempotencyKey": "idem-ro3"
+          },
+          "args": [
+            {
+              "displayName": "x",
+              "role": "operator"
+            }
+          ],
+          "on": "ro"
+        },
+        {
+          "op": "close",
+          "on": "ro"
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "on": "ro"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-ro4",
+            "idempotencyKey": "idem-ro4"
+          },
+          "args": [
+            {
+              "seatId": "s1",
+              "name": "dev",
+              "role": "Developer"
+            }
+          ],
+          "on": "ro"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1"
+          },
+          "args": [
+            {
+              "seatId": "s1",
+              "name": "dev",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "roleDefinitions",
+          "args": []
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "openReadOnly",
+          "args": [
+            {
+              "project": {
+                "name": "Not This"
+              }
+            }
+          ],
+          "on": "ro2"
+        },
+        {
+          "op": "openReadOnly",
+          "args": [{}],
+          "on": "ro3"
+        },
+        {
+          "op": "projectId",
+          "args": [],
+          "on": "ro3"
+        }
+      ]
+    },
+    {
+      "name": "actors",
+      "steps": [
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat1",
+            "idempotencyKey": "idem-seat1"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat2",
+            "idempotencyKey": "idem-seat2"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "developer",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat3",
+            "idempotencyKey": "idem-seat3"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat4",
+            "idempotencyKey": "idem-seat4"
+          },
+          "args": [
+            {
+              "seatId": "seat-bad",
+              "name": "x",
+              "role": "operator"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat5",
+            "idempotencyKey": "idem-seat5"
+          },
+          "args": [
+            {
+              "seatId": "seat-extra",
+              "name": "x",
+              "role": "Verifier",
+              "note": "extra key"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act1",
+            "idempotencyKey": "idem-act1"
+          },
+          "args": [
+            {
+              "displayName": "The PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "identify",
+          "args": ["$pm.credential"]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act2",
+            "idempotencyKey": "idem-act2"
+          },
+          "args": [
+            {
+              "displayName": "Dup",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act3",
+            "idempotencyKey": "idem-act3"
+          },
+          "args": [
+            {
+              "displayName": "NoSeat",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act4",
+            "idempotencyKey": "idem-act4"
+          },
+          "args": [
+            {
+              "displayName": "OpSeat",
+              "role": "operator",
+              "seatId": "seat-dev"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act5",
+            "idempotencyKey": "idem-act5"
+          },
+          "args": [
+            {
+              "displayName": "Mismatch",
+              "role": "Developer",
+              "seatId": "seat-pm"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act6",
+            "idempotencyKey": "idem-act6"
+          },
+          "args": [
+            {
+              "displayName": "Unknown",
+              "role": "Developer",
+              "seatId": "seat-none"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act7",
+            "idempotencyKey": "idem-act7"
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act8",
+            "idempotencyKey": "idem-act8"
+          },
+          "args": [
+            {
+              "displayName": "Second operator",
+              "role": "operator"
+            }
+          ],
+          "as": "op2"
+        },
+        {
+          "op": "identify",
+          "args": ["$op2.credential"]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act9",
+            "idempotencyKey": "idem-act9"
+          },
+          "args": [
+            {
+              "displayName": "Bad role",
+              "role": "Wizard"
+            }
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"],
+          "as": "ownerId"
+        },
+        {
+          "op": "identify",
+          "args": ["$internal.credential"],
+          "as": "internalId"
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rev1",
+            "idempotencyKey": "idem-rev1"
+          },
+          "args": ["$internalId.actorId"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rev2",
+            "idempotencyKey": "idem-rev2"
+          },
+          "args": ["$ownerId.actorId"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rev3",
+            "idempotencyKey": "idem-rev3"
+          },
+          "args": ["no-such-actor"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rev4",
+            "idempotencyKey": "idem-rev4"
+          },
+          "args": ["$pm.actorId"],
+          "dump": true
+        },
+        {
+          "op": "identify",
+          "args": ["$pm.credential"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rev5",
+            "idempotencyKey": "idem-rev5"
+          },
+          "args": ["$pm.actorId"]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act10",
+            "idempotencyKey": "idem-act10"
+          },
+          "args": [
+            {
+              "displayName": "New PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm2"
+        },
+        {
+          "op": "identify",
+          "args": ["$pm2.credential"]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$pm2.credential",
+            "requestId": "req-seat6",
+            "idempotencyKey": "idem-seat6"
+          },
+          "args": [
+            {
+              "seatId": "seat-z",
+              "name": "z",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$dev.credential",
+            "requestId": "req-act11",
+            "idempotencyKey": "idem-act11"
+          },
+          "args": [
+            {
+              "displayName": "By dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$op2.credential",
+            "requestId": "req-rev6",
+            "idempotencyKey": "idem-rev6"
+          },
+          "args": ["$dev.actorId"]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-seat7",
+            "idempotencyKey": "idem-seat7"
+          },
+          "args": [
+            {
+              "seatId": "seat-int",
+              "name": "i",
+              "role": "Verifier"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "role-definitions",
+      "steps": [
+        {
+          "op": "roleDefinitions",
+          "args": []
+        },
+        {
+          "op": "roleKind",
+          "args": ["developer"]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r1",
+            "idempotencyKey": "idem-r1"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "roleDefinitions",
+          "args": []
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r2",
+            "idempotencyKey": "idem-r2"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r3",
+            "idempotencyKey": "idem-r3"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "codex",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "roleDefinitions",
+          "args": []
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r4",
+            "idempotencyKey": "idem-r4"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "codex",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "roleKind",
+          "args": ["pm"]
+        },
+        {
+          "op": "roleKind",
+          "args": ["developer"]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r5",
+            "idempotencyKey": "idem-r5"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "codex",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "roleKind",
+          "args": ["pm"]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r6",
+            "idempotencyKey": "idem-r6"
+          },
+          "args": [
+            [
+              {
+                "name": "Bad",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r7",
+            "idempotencyKey": "idem-r7"
+          },
+          "args": [
+            [
+              {
+                "name": "x",
+                "kind": "operator",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r8",
+            "idempotencyKey": "idem-r8"
+          },
+          "args": [
+            [
+              {
+                "name": "x",
+                "kind": "PM",
+                "host": "Claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r9",
+            "idempotencyKey": "idem-r9"
+          },
+          "args": [
+            [
+              {
+                "name": "x",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "ABC"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r10",
+            "idempotencyKey": "idem-r10"
+          },
+          "args": [
+            [
+              {
+                "name": "x",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "x",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat1",
+            "idempotencyKey": "idem-seat1"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "pm",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r12",
+            "idempotencyKey": "idem-r12"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "codex",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r13",
+            "idempotencyKey": "idem-r13"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r1",
+            "idempotencyKey": "idem-r1",
+            "expectedVersion": 2
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r1",
+            "idempotencyKey": "idem-r1",
+            "expectedVersion": 2
+          },
+          "args": [[]]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz",
+            "requestId": "req-r20",
+            "idempotencyKey": "idem-r20"
+          },
+          "args": [[]]
+        }
+      ]
+    },
+    {
+      "name": "idempotency",
+      "steps": [
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-s1",
+            "idempotencyKey": "idem-s1"
+          },
+          "args": [
+            {
+              "seatId": "seat-a",
+              "name": "a",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-s1",
+            "idempotencyKey": "idem-s1",
+            "expectedVersion": 1
+          },
+          "args": [
+            {
+              "seatId": "seat-a",
+              "name": "a",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-s1",
+            "idempotencyKey": "idem-s1",
+            "expectedVersion": 1
+          },
+          "args": [
+            {
+              "seatId": "seat-b",
+              "name": "b",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-other",
+            "idempotencyKey": "idem-s1",
+            "expectedVersion": 1
+          },
+          "args": [
+            {
+              "seatId": "seat-a",
+              "name": "a",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-s1",
+            "idempotencyKey": "idem-s2"
+          },
+          "args": [
+            {
+              "seatId": "seat-c",
+              "name": "c",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-s1",
+            "idempotencyKey": "idem-s1",
+            "expectedVersion": 99
+          },
+          "args": [
+            {
+              "seatId": "seat-a",
+              "name": "a",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1"
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-a"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1",
+            "expectedVersion": 2
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-a"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1",
+            "expectedVersion": 2
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-a"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1",
+            "expectedVersion": 2
+          },
+          "args": [
+            {
+              "displayName": "Other",
+              "role": "Developer",
+              "seatId": "seat-a"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c2",
+            "idempotencyKey": "idem-c2"
+          },
+          "args": [
+            {
+              "displayName": "Second operator",
+              "role": "operator"
+            }
+          ],
+          "as": "op2"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$op2.credential",
+            "requestId": "req-c1",
+            "idempotencyKey": "idem-c1",
+            "expectedVersion": 2
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-a"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c2",
+            "idempotencyKey": "idem-c2",
+            "expectedVersion": 3
+          },
+          "args": [
+            {
+              "displayName": "Second operator",
+              "role": "operator"
+            }
+          ]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-v1",
+            "idempotencyKey": "idem-v1"
+          },
+          "args": ["no-such"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-v1",
+            "idempotencyKey": "idem-v1"
+          },
+          "args": ["no-such"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-v1",
+            "idempotencyKey": "idem-v1"
+          },
+          "args": ["another-one"]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-sy1",
+            "idempotencyKey": "idem-sy1"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-sy1",
+            "idempotencyKey": "idem-sy1",
+            "expectedVersion": 4
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-sy1",
+            "idempotencyKey": "idem-sy1",
+            "expectedVersion": 4
+          },
+          "args": [[]]
+        }
+      ]
+    },
+    {
+      "name": "conflicts-and-validation",
+      "steps": [
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-a",
+            "idempotencyKey": "idem-a",
+            "expectedVersion": 5
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-b",
+            "idempotencyKey": "idem-b",
+            "inputRevision": 2
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-c",
+            "idempotencyKey": "idem-c",
+            "expectedVersion": 0
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-d",
+            "idempotencyKey": "idem-d",
+            "inputRevision": 0
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-e",
+            "idempotencyKey": "idem-e",
+            "expectedVersion": 1.5
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "bad id!",
+            "idempotencyKey": "idem-f"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-g",
+            "idempotencyKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "",
+            "idempotencyKey": "idem-h"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "a.b_c:d-e",
+            "idempotencyKey": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-j",
+            "idempotencyKey": "idem-j"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-k",
+            "idempotencyKey": "idem-k"
+          },
+          "args": [
+            {
+              "seatId": "t",
+              "name": "n",
+              "role": "Wizard"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        }
+      ]
+    },
+    {
+      "name": "credentials",
+      "steps": [
+        {
+          "op": "identify",
+          "args": [""]
+        },
+        {
+          "op": "identify",
+          "args": ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+        },
+        {
+          "op": "identify",
+          "args": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+        },
+        {
+          "op": "identify",
+          "args": [
+            "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+          ]
+        },
+        {
+          "op": "identify",
+          "args": [
+            "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+          ]
+        },
+        {
+          "op": "identify",
+          "args": [
+            "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "short",
+            "requestId": "req-a",
+            "idempotencyKey": "idem-a"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+            "requestId": "req-b",
+            "idempotencyKey": "idem-b"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-c",
+            "idempotencyKey": "idem-c"
+          },
+          "args": [
+            {
+              "seatId": "s",
+              "name": "n",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-d",
+            "idempotencyKey": "idem-d"
+          },
+          "args": [
+            {
+              "displayName": "x",
+              "role": "operator"
+            }
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["$internal.credential"]
+        }
+      ]
+    },
+    {
+      "name": "agent-dependent",
+      "requires": ["messages"],
+      "steps": [
+        {
+          "op": "recordAgentLost",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-l1",
+            "idempotencyKey": "idem-l1"
+          },
+          "args": [
+            {
+              "agentId": "nobody"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentLost",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-l2",
+            "idempotencyKey": "idem-l2"
+          },
+          "args": [
+            {
+              "agentId": "bad id"
+            }
+          ]
+        },
+        {
+          "op": "agentSeed",
+          "args": ["nobody"]
+        },
+        {
+          "op": "isAgentReplaced",
+          "args": ["nobody"]
+        },
+        {
+          "op": "isAgentReplaced",
+          "args": ["bad id"]
+        },
+        {
+          "op": "seatActorIds",
+          "args": ["$internal.credential", "seat-dev"]
+        },
+        {
+          "op": "seatActorIds",
+          "args": ["$owner.credential", "seat-dev"]
+        },
+        {
+          "op": "recordAgentReplaced",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rp1",
+            "idempotencyKey": "idem-rp1"
+          },
+          "args": [
+            {
+              "predecessorId": "a",
+              "successorId": "b"
+            }
+          ]
+        },
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-r1",
+            "idempotencyKey": "idem-r1"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-seat1",
+            "idempotencyKey": "idem-seat1"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "developer",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-act1",
+            "idempotencyKey": "idem-act1"
+          },
+          "args": [
+            {
+              "displayName": "Dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-ag1",
+            "idempotencyKey": "idem-ag1"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev",
+              "actorId": "$dev.actorId"
+            }
+          ]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "agentSeed",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "recordAgentLost",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-l3",
+            "idempotencyKey": "idem-l3"
+          },
+          "args": [
+            {
+              "agentId": "dev-1"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

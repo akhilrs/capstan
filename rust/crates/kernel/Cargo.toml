@@ -1,0 +1,29 @@
+[package]
+name = "capstan-kernel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The capstan controller kernel: the Rust port of the controller core"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_kernel"
+path = "src/lib.rs"
+
+[dependencies]
+capstan-ledger = { path = "../ledger" }
+capstan-config = { path = "../config" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+aes-gcm = "=0.10.3"
+base64 = "=0.22.1"
+getrandom = "=0.4.3"
+rusqlite = "=0.40.2"
+libc = "=0.2.190"
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode"] }
+unicode-segmentation = "=1.13.3"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
