@@ -246,11 +246,6 @@ fn report_checked(
             let mut violations = Vec::new();
             for commit in &commits {
                 for (rule, reason) in check_commit_message(&commit.message, commit.parents) {
-                    let reason = if rule == "subject-format" {
-                        subject_reason(&commit.message).unwrap_or_else(|| reason.to_string())
-                    } else {
-                        reason.to_string()
-                    };
                     violations.push((commit, rule, reason));
                 }
             }
@@ -616,56 +611,4 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
         ),
         Err(IntegrateError::Kernel(error)) => map_kernel_error(&error),
     })
-}
-
-/// `parseCommitSubject`'s reason for the first line of `message` (`checkCommitMessage` of src/conventions.ts), which the
-/// kernel's check does not carry.
-fn subject_reason(message: &str) -> Option<String> {
-    let normalized = message.replace("\r\n", "\n").replace('\r', "\n");
-    let subject = normalized.split('\n').next().unwrap_or("");
-    let shape = "subject must look like 'type(scope)!: description' with a space after the colon";
-    // /^([a-z]+)(?:\(([^()\s]*)\))?(!)?: (.*)$/
-    let kind_end = subject
-        .find(|c: char| !c.is_ascii_lowercase())
-        .unwrap_or(subject.len());
-    if kind_end == 0 {
-        return Some(shape.to_string());
-    }
-    let kind = &subject[..kind_end];
-    let mut rest = &subject[kind_end..];
-    let mut scope: Option<&str> = None;
-    if let Some(inner) = rest.strip_prefix('(') {
-        let Some(close) =
-            inner.find(|c: char| matches!(c, '(' | ')') || capstan_kernel::helpers::is_js_space(c))
-        else {
-            return Some(shape.to_string());
-        };
-        if !inner[close..].starts_with(')') {
-            return Some(shape.to_string());
-        }
-        scope = Some(&inner[..close]);
-        rest = &inner[close + 1..];
-    }
-    rest = rest.strip_prefix('!').unwrap_or(rest);
-    let Some(description) = rest.strip_prefix(": ") else {
-        return Some(shape.to_string());
-    };
-    if description.contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
-        return Some(shape.to_string());
-    }
-    if !capstan_kernel::plan_body::COMMIT_TYPES.contains(&kind) {
-        return Some(format!(
-            "unknown type '{kind}'; use one of {}",
-            capstan_kernel::plan_body::COMMIT_TYPES.join(", ")
-        ));
-    }
-    if scope == Some("") {
-        return Some("scope must not be empty".to_string());
-    }
-    if capstan_kernel::helpers::js_trim(description).is_empty()
-        || description.starts_with(capstan_kernel::helpers::is_js_space)
-    {
-        return Some("description must start right after one space and not be empty".to_string());
-    }
-    None
 }

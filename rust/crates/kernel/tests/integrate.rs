@@ -528,14 +528,18 @@ fn naming_conventions_are_node_s() {
     for case in cases["messages"].as_array().unwrap() {
         let message = case["message"].as_str().unwrap();
         let parents = case["parents"].as_u64().unwrap() as usize;
-        let rules: Vec<&str> = check_commit_message(message, parents)
-            .into_iter()
-            .map(|(rule, _)| rule)
-            .collect();
+        let found = check_commit_message(message, parents);
+        let rules: Vec<&str> = found.iter().map(|(rule, _)| *rule).collect();
+        let reasons: Vec<&str> = found.iter().map(|(_, reason)| reason.as_str()).collect();
         check(
             &format!("checkCommitMessage({message:?}, {parents})"),
             case["rules"].clone(),
             json!(rules),
+        );
+        check(
+            &format!("checkCommitMessage({message:?}, {parents}) reasons"),
+            case["reasons"].clone(),
+            json!(reasons),
         );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

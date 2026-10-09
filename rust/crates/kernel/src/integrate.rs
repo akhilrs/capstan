@@ -92,22 +92,28 @@ pub struct ParsedSubject {
     pub description: String,
 }
 
-/// `parseCommitSubject` (the `ok` case; the reason texts are not needed here).
-pub fn parse_commit_subject(subject: &str) -> Option<ParsedSubject> {
+const SUBJECT_SHAPE: &str =
+    "subject must look like 'type(scope)!: description' with a space after the colon";
+
+/// `parseCommitSubject`: the parsed subject, or the reason it breaks `subject-format`.
+pub fn parse_commit_subject_reason(subject: &str) -> Result<ParsedSubject, String> {
+    let shape = || SUBJECT_SHAPE.to_string();
     // /^([a-z]+)(?:\(([^()\s]*)\))?(!)?: (.*)$/
     let kind_end = subject
         .find(|c: char| !c.is_ascii_lowercase())
         .unwrap_or(subject.len());
     if kind_end == 0 {
-        return None;
+        return Err(shape());
     }
     let kind = &subject[..kind_end];
     let mut rest = &subject[kind_end..];
     let mut scope: Option<String> = None;
     if let Some(inner) = rest.strip_prefix('(') {
-        let close = inner.find(|c: char| matches!(c, '(' | ')') || is_js_space(c))?;
+        let close = inner
+            .find(|c: char| matches!(c, '(' | ')') || is_js_space(c))
+            .ok_or_else(shape)?;
         if !inner[close..].starts_with(')') {
-            return None;
+            return Err(shape());
         }
         scope = Some(inner[..close].to_string());
         rest = &inner[close + 1..];
@@ -119,20 +125,23 @@ pub fn parse_commit_subject(subject: &str) -> Option<ParsedSubject> {
         }
         None => false,
     };
-    let description = rest.strip_prefix(": ")?;
+    let description = rest.strip_prefix(": ").ok_or_else(shape)?;
     if description.chars().any(is_line_terminator) {
-        return None;
+        return Err(shape());
     }
     if !COMMIT_TYPES.contains(&kind) {
-        return None;
+        return Err(format!(
+            "unknown type '{kind}'; use one of {}",
+            COMMIT_TYPES.join(", ")
+        ));
     }
     if scope.as_deref() == Some("") {
-        return None;
+        return Err("scope must not be empty".to_string());
     }
     if js_trim(description).is_empty() || description.starts_with(is_js_space) {
-        return None;
+        return Err("description must start right after one space and not be empty".to_string());
     }
-    Some(ParsedSubject {
+    Ok(ParsedSubject {
         kind: kind.to_string(),
         scope,
         breaking,
@@ -140,31 +149,42 @@ pub fn parse_commit_subject(subject: &str) -> Option<ParsedSubject> {
     })
 }
 
+/// `parseCommitSubject` (the `ok` case).
+pub fn parse_commit_subject(subject: &str) -> Option<ParsedSubject> {
+    parse_commit_subject_reason(subject).ok()
+}
+
 /// `checkCommitMessage`: the rules a message breaks, as `(rule, reason)`.
-pub fn check_commit_message(message: &str, parents: usize) -> Vec<(&'static str, &'static str)> {
+pub fn check_commit_message(message: &str, parents: usize) -> Vec<(&'static str, String)> {
     let mut out = Vec::new();
     let normalized = message.replace("\r\n", "\n").replace('\r', "\n");
     let lines: Vec<&str> = normalized.split('\n').collect();
     if parents < 2 {
-        if parse_commit_subject(lines[0]).is_none() {
-            out.push(("subject-format", "subject format"));
+        if let Err(reason) = parse_commit_subject_reason(lines[0]) {
+            out.push(("subject-format", reason));
         }
         if lines.len() > 1 && !js_trim(lines[1]).is_empty() {
             out.push((
                 "body-separation",
-                "leave a blank line between the subject and the body",
+                "leave a blank line between the subject and the body".to_string(),
             ));
         }
     }
     if lines.iter().any(|l| is_claude_co_author(l)) {
-        out.push(("claude-co-author", "remove the Claude Co-Authored-By line"));
+        out.push((
+            "claude-co-author",
+            "remove the Claude Co-Authored-By line".to_string(),
+        ));
     }
     if lines.iter().any(|l| {
         l.trim_start_matches(is_js_space)
             .to_lowercase()
             .starts_with("claude-session:")
     }) {
-        out.push(("claude-session", "remove the Claude-Session line"));
+        out.push((
+            "claude-session",
+            "remove the Claude-Session line".to_string(),
+        ));
     }
     if lines.iter().any(|l| {
         let lower = l.to_lowercase();
@@ -174,7 +194,7 @@ pub fn check_commit_message(message: &str, parents: usize) -> Vec<(&'static str,
     }) {
         out.push((
             "claude-code-footer",
-            "remove the 'Generated with Claude Code' footer",
+            "remove the 'Generated with Claude Code' footer".to_string(),
         ));
     }
     out
