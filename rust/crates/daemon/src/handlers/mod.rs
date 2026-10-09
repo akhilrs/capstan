@@ -129,6 +129,11 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
     ROUTES.iter().find(|route| route.name == command)
 }
 
+/// The routes the inline switch of src/daemon.ts serves, not `commands.handlers`: Node logs them without argument counts and
+/// does not add the unread notice to their answers. They have handlers here (`status` serves `ping`, `agents` serves
+/// `shutdown`) because Rust has no switch.
+pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
+
 /// The handler modules, in the order their `register` functions run.
 pub const MODULES: [&str; 10] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
@@ -341,10 +346,11 @@ pub fn dispatch_with(
     };
     let arg_bytes: usize = args.iter().map(String::len).sum();
     let arg_count = args.len();
+    let builtin = BUILTIN_ROUTES.contains(&command);
     let counted = |response: Option<CommandResponse>| Dispatched {
         response,
-        arg_count: Some(arg_count),
-        arg_bytes: Some(arg_bytes),
+        arg_count: (!builtin).then_some(arg_count),
+        arg_bytes: (!builtin).then_some(arg_bytes),
     };
     if let Some(stage) = route.stub {
         return counted(Some(fail(
@@ -369,7 +375,7 @@ pub fn dispatch_with(
         limit_ms: if command == "wait" { limit_ms } else { None },
     };
     let response = handler(&env, &call).map(|response| {
-        if matches!(command, "inbox" | "wait" | "op") {
+        if matches!(command, "inbox" | "wait" | "op") || builtin {
             response
         } else {
             with_notice(&env, &call, response)
@@ -424,6 +430,18 @@ pub fn handle_frame(
     frame: &[u8],
     signal: &AbortSignal,
     response_limit: usize,
+) -> FrameOutcome {
+    handle_frame_with(deps, frame, signal, response_limit, &mut |_, _| {})
+}
+
+/// `handle_frame` with the hook of `dispatch_with`: `on_limit(limit_ms, is_wait)` runs right before a handler that has a
+/// time limit starts, which is where the server arms the connection's timer.
+pub fn handle_frame_with(
+    deps: &Deps,
+    frame: &[u8],
+    signal: &AbortSignal,
+    response_limit: usize,
+    on_limit: &mut dyn FnMut(u64, bool),
 ) -> FrameOutcome {
     let started = deps.kernel.now_ms();
     let elapsed = |deps: &Deps| deps.kernel.now_ms() - started;
@@ -485,7 +503,7 @@ pub fn handle_frame(
         Err(capstan_kernel::KernelError::Authentication(_)) => return unauthorized(deps),
         Err(_) => return internal_error(deps, response_limit),
     };
-    let dispatched = dispatch(
+    let dispatched = dispatch_with(
         deps,
         &identity,
         &Request {
@@ -494,6 +512,7 @@ pub fn handle_frame(
             args: request.get("args"),
         },
         signal,
+        on_limit,
     );
     let mut entry = LogEntry::new(command, "closed");
     entry.actor_id = Some(identity.actor_id.clone());

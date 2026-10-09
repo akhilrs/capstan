@@ -1,0 +1,92 @@
+{
+  "scenarios": [
+    {
+      "name": "frame-limits",
+      "requests": [
+        {
+          "as": "none",
+          "label": "a second frame after the newline is discarded",
+          "frame": "{not json\n{\"v\":1,\"credential\":\"x\",\"command\":\"ping\",\"args\":[]}",
+          "hold_ms": 1000
+        },
+        {
+          "as": "none",
+          "label": "70000 bytes after the first newline are discarded",
+          "frame": {
+            "repeat": {
+              "prefix": "{not json\n",
+              "text": "x",
+              "times": 70000,
+              "suffix": ""
+            }
+          },
+          "newline": false,
+          "hold_ms": 1000
+        },
+        {
+          "as": "none",
+          "label": "a carriage return before the newline is whitespace",
+          "frame": "{\"v\":1,\"credential\":\"nope\",\"command\":\"ping\",\"args\":[]}\r"
+        },
+        {
+          "as": "none",
+          "label": "a lone newline is an empty frame",
+          "frame": ""
+        },
+        {
+          "as": "none",
+          "label": "65537 bytes without a newline drop the connection",
+          "frame": {
+            "repeat": {
+              "prefix": "",
+              "text": "a",
+              "times": 65537,
+              "suffix": ""
+            }
+          },
+          "newline": false,
+          "hold_ms": 1000
+        },
+        {
+          "as": "none",
+          "label": "65536 bytes without a newline wait for the timeout",
+          "frame": {
+            "repeat": {
+              "prefix": "",
+              "text": "a",
+              "times": 65536,
+              "suffix": ""
+            }
+          },
+          "newline": false,
+          "hold_ms": 1500
+        }
+      ]
+    },
+    {
+      "name": "timeouts",
+      "requests": [
+        {
+          "as": "none",
+          "label": "a partial frame is dropped after 5 seconds",
+          "frame": "{\"v\":1,\"command\":\"pi",
+          "newline": false,
+          "hold_ms": 6500
+        },
+        {
+          "as": "none",
+          "label": "a connection that sends nothing is dropped after 5 seconds",
+          "frame": "",
+          "newline": false,
+          "hold_ms": 6500
+        },
+        {
+          "as": "none",
+          "label": "an answered connection stays open for the client to close",
+          "frame": "{\"v\":1,\"credential\":\"nope\",\"command\":\"ping\",\"args\":[]}",
+          "hold_ms": 1000
+        }
+      ]
+    }
+  ]
+}

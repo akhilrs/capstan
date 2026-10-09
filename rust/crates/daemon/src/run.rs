@@ -2,13 +2,16 @@
 //! working directory, open the kernel with the project lock (exit 4 when another controller holds it), run the startup
 //! sequence, serve until a stop is requested, and shut down in Node's order.
 //!
-//! This is the initial version handed to d2b-srv: opening, the startup sequence, signals and the ordered shutdown are
-//! here; `serve` is a stub that keeps the lock and waits for the stop (it logs `daemon:serve_not_implemented`), so a
-//! daemon built from this code already excludes a Node daemon and the other way round.
+//! The order is Node's: open the kernel (the project lock), close the stale waits, reconcile prompt relay, sync the roles,
+//! build the launcher and operator (`Wiring`; the restart ingest and the Operator's recovery run right after), start the
+//! server, adopt the recorded panes in the background and then start the ticks and the recovery and relay loops, announce
+//! `ready`. On a stop: no new connections, the relay, the adoption, the ticks, the restart watch, the operator, the server
+//! drain (1 s), the kernel (the lock is free), the socket and the pid file.
 
 use crate::deps::{
     render_log_line, startup_sequence, DaemonOptions, Deps, KernelHandle, LogEntry, Logger,
 };
+use crate::server::{DaemonServer, ServerOptions};
 use capstan_config::RoleConfig;
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::types::{InitialProject, ProjectInput};
@@ -30,7 +33,8 @@ pub const EXIT_INVALID: i32 = 3;
 pub const EXIT_BLOCKED: i32 = 4;
 pub const EXIT_RUNTIME: i32 = 5;
 
-/// The log event of a daemon whose server is not ported yet.
+/// The log event a daemon without a server logged while the server was a stub. No longer written; the transcript replay still
+/// looks for it to tell a stub from a server.
 pub const SERVE_STUB_EVENT: &str = "serve_not_implemented";
 
 /// Why the daemon ended with a failure: the exit code and the line printed after `cstan-daemon: `.
@@ -417,24 +421,78 @@ pub fn remove_pid_file(path: &Path) {
     }
 }
 
-// ------------------------------------------------------------------------------------------------ serve
+// ------------------------------------------------------------------------------------------------ wiring
 
-/// What `serve` did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Served {
-    /// The server ran until the stop was requested.
-    Stopped,
+/// Names the restart proposals (by plan) whose helper is still working.
+pub type SkipRestarts = Box<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// What the launcher, operator and loops wiring hands back to the run function (the parts of `runDaemon` that belong to
+/// the restart module and are not part of the service traits).
+#[derive(Default)]
+pub struct Built {
+    /// Runs before the Operator's recovery: the result of a restart that just ended is ingested first.
+    pub before_operator_recover: Option<Box<dyn FnOnce() + Send>>,
+    /// Names the restart proposals whose helper is still working (`skipRestartsWithLivePlan`).
+    pub skip_restarts_with_plan: Option<SkipRestarts>,
+    /// Ends the restart result timer and the known-good snapshot (`stopRestartWatch`).
+    pub stop_restart_watch: Option<Box<dyn FnOnce() + Send>>,
 }
 
-/// Serves the control socket until the stop is requested. A stub until d2b-srv: it only logs that the server is not ported
-/// and keeps the lock until the stop request, which is what lets the lock exclusion be tested.
-pub fn serve(deps: &Deps) -> Served {
-    deps.detail_log(
-        SERVE_STUB_EVENT,
-        json!({"socket": deps.options.socket_path().to_string_lossy()}),
+/// Brings the configured roles into the ledger as the daemon starts (`options.syncRoles`).
+pub type SyncRoles = Arc<dyn Fn(&Deps) -> Result<(), String> + Send + Sync>;
+
+/// Builds the launcher, the Operator service, the restart coordinator, the herdr adapter, the driver view and the loops
+/// into `deps`, after the role sync and before the server starts. The default build installs none of them (the commands that
+/// need a launcher answer `not_configured`, as with `CAPSTAN_LAUNCH=off`).
+pub type BuildFn = Box<dyn FnOnce(&mut Deps) -> Built + Send>;
+
+/// The pieces of the daemon that other packages provide as trait objects.
+#[derive(Default)]
+pub struct Wiring {
+    /// Replaces the default role sync (`syncConfiguredRoles`), which runs when the daemon has a configuration.
+    pub sync_roles: Option<SyncRoles>,
+    pub build: Option<BuildFn>,
+}
+
+/// `syncConfiguredRoles` of src/cli.ts: the configured roles are the desired role definitions; a state version conflict is
+/// retried once, a second one asks for the command to be run again.
+pub fn sync_configured_roles(deps: &Deps) -> Result<(), String> {
+    let Some(config) = &deps.options.capstan else {
+        return Ok(());
+    };
+    let desired = Value::Array(
+        config
+            .roles
+            .iter()
+            .map(|role| {
+                json!({
+                    "name": role.name,
+                    "kind": role.kind,
+                    "host": role.host,
+                    "configHash": role.config_hash,
+                })
+            })
+            .collect(),
     );
-    deps.shutdown.wait();
-    Served::Stopped
+    for attempt in 0.. {
+        let (credential, desired) = (deps.credential().to_string(), desired.clone());
+        let outcome = deps.kernel.run(move |core| {
+            let context = crate::deps::new_context(core, &credential)?;
+            core.sync_role_definitions(&context, &desired)
+        });
+        match outcome {
+            Ok(_) => return Ok(()),
+            Err(KernelError::StateVersionConflict(_)) if attempt == 0 => {}
+            Err(KernelError::StateVersionConflict(_)) => {
+                return Err(
+                    "role sync conflicted with another change twice; run the command again"
+                        .to_string(),
+                )
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    unreachable!("the loop returns")
 }
 
 // ------------------------------------------------------------------------------------------------ run
@@ -447,14 +505,31 @@ fn announce(options: &DaemonOptions, event: &str) {
 
 /// Runs the daemon until SIGTERM, SIGINT or the shutdown command (`runDaemon`).
 pub fn run_daemon(options: DaemonOptions) -> Result<(), RunError> {
+    run_daemon_with(options, Wiring::default())
+}
+
+/// `run_daemon` with the launcher, operator and loops wiring of the caller.
+pub fn run_daemon_with(options: DaemonOptions, wiring: Wiring) -> Result<(), RunError> {
     let shutdown = crate::deps::ShutdownHandle::new();
     let signals = install_signals(shutdown.clone());
-    let outcome = run_with(options, shutdown);
+    let outcome = run_with(options, wiring, shutdown);
     restore_signals(signals);
     outcome
 }
 
-fn run_with(options: DaemonOptions, shutdown: crate::deps::ShutdownHandle) -> Result<(), RunError> {
+/// What `runDaemon`'s `finally` has to undo, in the order it was built.
+#[derive(Default)]
+struct Running {
+    server: Option<DaemonServer>,
+    adoption: Option<std::thread::JoinHandle<()>>,
+    stop_restart_watch: Option<Box<dyn FnOnce() + Send>>,
+}
+
+fn run_with(
+    options: DaemonOptions,
+    wiring: Wiring,
+    shutdown: crate::deps::ShutdownHandle,
+) -> Result<(), RunError> {
     let kernel_options = KernelOptions {
         workspace_root: Some(options.workspace_root.clone()),
         runtime_workspace_path: None,
@@ -479,24 +554,107 @@ fn run_with(options: DaemonOptions, shutdown: crate::deps::ShutdownHandle) -> Re
     };
     let mut deps = Deps::new(kernel.clone(), options, sink);
     deps.shutdown = shutdown;
-    if deps.shutdown.requested() {
-        kernel.close();
-        return Ok(());
+    let mut running = Running::default();
+    let outcome = if deps.shutdown.requested() {
+        Ok(())
+    } else {
+        serve(&mut deps, wiring, &mut running)
+    };
+    // The handlers stay until the very end so a second signal during close cannot kill the process and leave the socket and
+    // pid file behind. The socket goes last: once it is gone, the project lock is already free, so a stop followed by a
+    // start never loses the lock to a dying daemon. Order: no new connections, no new ticks, then abort and await every
+    // running handler, so nothing touches the database after it closes.
+    if let Some(server) = &running.server {
+        server.stop_accepting();
     }
-    startup_sequence(&deps);
-    // Panes recorded before a restart are re-registered first, in the background, so the socket binds at once; the
-    // loops start only after (d2b-srv and d2b-loops fill this in).
-    serve(&deps);
-    // The order of Node's `finally`: no new ticks, the operator and the launcher's work end, then the kernel closes (the
-    // lock is free once it does), then the socket.
     deps.loops.stop_relay();
+    if let Some(adoption) = running.adoption.take() {
+        let _ = adoption.join();
+    }
     deps.loops.stop_ticks();
+    if let Some(stop) = running.stop_restart_watch.take() {
+        stop();
+    }
     if let Some(operator) = &deps.operator {
         operator.stop();
     }
+    if let Some(server) = &running.server {
+        server.drain();
+    }
     kernel.close();
     announce(&deps.options, "lock_released");
+    if let Some(server) = &running.server {
+        if let Err(error) = server.cleanup() {
+            deps.detail_log("socket_cleanup_failed", json!({"error": error.to_string()}));
+        }
+        announce(&deps.options, "socket_removed");
+    }
     remove_pid_file(&deps.options.pid_path());
+    outcome
+}
+
+/// Everything between the open and the wait for the stop, in Node's order: stale waits, prompt relay, role sync, the
+/// launcher and operator, the server, the adoption of recorded panes and the loops that wait for it.
+fn serve(deps: &mut Deps, wiring: Wiring, running: &mut Running) -> Result<(), RunError> {
+    startup_sequence(deps);
+    let sync = wiring.sync_roles.or_else(|| {
+        deps.options
+            .capstan
+            .is_some()
+            .then(|| Arc::new(sync_configured_roles) as SyncRoles)
+    });
+    if let Some(sync) = &sync {
+        // A role change the ledger refuses (for example a retired role that still has an active agent) must not keep the
+        // daemon down; launch reports it.
+        if let Err(error) = sync(deps) {
+            deps.detail_log("role_sync_failed", json!({"error": error}));
+        }
+    }
+    let built = wiring.build.map(|build| build(deps)).unwrap_or_default();
+    running.stop_restart_watch = built.stop_restart_watch;
+    if let Some(operator) = deps.operator.clone() {
+        // Order matters: the result of a restart that just ended is ingested first, then the run rows that were running
+        // when the last controller stopped are abandoned, except a restart whose helper is still working.
+        if let Some(ingest) = built.before_operator_recover {
+            ingest();
+        }
+        let skip = built.skip_restarts_with_plan;
+        operator.recover(
+            skip.as_ref()
+                .map(|skip| skip.as_ref() as &dyn Fn(&str) -> bool),
+        );
+        operator.start(None);
+    }
+    let server = DaemonServer::start(deps.clone(), ServerOptions::new(deps.options.socket_path()))
+        .map_err(|error| RunError::new(EXIT_RUNTIME, error.to_string()))?;
+    running.server = Some(server);
+    // Panes recorded before a restart are re-registered first, in the background, so the socket binds at once; the loops
+    // start only after.
+    let adoption = {
+        let deps = deps.clone();
+        std::thread::Builder::new()
+            .name("adoption".into())
+            .spawn(move || {
+                if let Some(launcher) = &deps.launcher {
+                    if let Err(error) = launcher.adopt_all() {
+                        deps.detail_log(
+                            "adopt_failed",
+                            json!({"error": format!("LauncherError: {}", error.message)}),
+                        );
+                    }
+                }
+                if !deps.shutdown.requested() {
+                    deps.loops.start_ticks(&deps);
+                    deps.loops.recover_and_relay(&deps);
+                }
+            })
+            .map_err(|error| RunError::new(EXIT_RUNTIME, error.to_string()))?
+    };
+    running.adoption = Some(adoption);
+    write_pid_file(&deps.options.pid_path())
+        .map_err(|error| RunError::new(EXIT_RUNTIME, error.to_string()))?;
+    announce(&deps.options, "ready");
+    deps.shutdown.wait();
     Ok(())
 }
 

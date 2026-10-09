@@ -1,0 +1,429 @@
+{
+  "scenarios": [
+    {
+      "name": "wait-refusals",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        }
+      ],
+      "requests": [
+        {
+          "as": "operator",
+          "command": "wait",
+          "label": "the operator cannot wait"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "wait",
+          "args": ["x"],
+          "label": "wait takes no arguments"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "wait",
+          "args": ["--now"],
+          "label": "the PM passes an argument"
+        }
+      ]
+    },
+    {
+      "name": "wait-pulls-queued-mail",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "waiting for you"
+            }
+          ],
+          "as": "m1"
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "needs action",
+              "actionNeeded": true
+            }
+          ],
+          "as": "m2"
+        }
+      ],
+      "requests": [
+        {
+          "as": "agent:dev-1",
+          "command": "wait",
+          "label": "mail is already queued: the wait answers at once",
+          "dump": true
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "inbox",
+          "label": "the mail was delivered by the wait"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "status",
+          "label": "an agent's status after a wait"
+        }
+      ]
+    },
+    {
+      "name": "wait-pulls-for-the-pm",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "for the PM"
+            }
+          ],
+          "as": "m1"
+        }
+      ],
+      "requests": [
+        {
+          "as": "agent:pm-1",
+          "command": "wait",
+          "label": "the PM's queued mail ends the wait at once",
+          "dump": true
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "ack",
+          "args": ["$m1.messageId"],
+          "label": "the PM acknowledges after the wait",
+          "dump": true
+        }
+      ]
+    }
+  ]
+}

@@ -425,6 +425,8 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
         sink,
     );
     startup_sequence(&deps);
+    // The `ready` announcement of Node's daemon takes a timestamp, which is one reading of the seeded clock.
+    let _ = kernel.now_ms();
     let paths = paths_of(scratch.dir.path());
     let signal = AbortSignal::new();
     let mut pending_any = false;

@@ -1,0 +1,806 @@
+{
+  "scenarios": [
+    {
+      "name": "management-without-a-launcher",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ],
+          "as": "agent_dev2"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        }
+      ],
+      "requests": [
+        {
+          "as": "operator",
+          "command": "launch",
+          "label": "launch without a launcher"
+        },
+        {
+          "as": "operator",
+          "command": "launch",
+          "args": ["x"],
+          "label": "launch with arguments is answered by the missing launcher"
+        },
+        {
+          "as": "operator",
+          "command": "pm-restart",
+          "label": "pm-restart without a launcher"
+        },
+        {
+          "as": "operator",
+          "command": "pm-restart",
+          "args": ["x"],
+          "label": "pm-restart with arguments"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "launch",
+          "label": "a worker cannot launch"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "spawn",
+          "args": ["developer"],
+          "label": "a worker cannot spawn"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "label": "spawn needs a role"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["Bad_Name"],
+          "label": "a role name that is not valid"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--task"],
+          "label": "a flag without a value"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--wat", "x"],
+          "label": "an unknown flag"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--task", "a", "--task", "b"],
+          "label": "a flag given twice"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--task", "bad task!"],
+          "label": "a task that is not valid"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--task", "plan-1/pkg-1", "--type", "nope"],
+          "label": "a branch type that does not exist"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--title", "bad\u0001title"],
+          "label": "a title with a control character"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer", "--title", "  \t\n  "],
+          "label": "a title that is empty after folding"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": [
+            "developer",
+            "--task",
+            "plan-1/pkg-1",
+            "--type",
+            "feat",
+            "--title",
+            "Add the thing"
+          ],
+          "label": "a spawn that is valid but has no launcher"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "spawn",
+          "args": ["developer"],
+          "label": "the PM may spawn: no launcher"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "replace",
+          "args": ["dev-1"],
+          "label": "a worker cannot replace"
+        },
+        {
+          "as": "operator",
+          "command": "replace",
+          "label": "replace needs an agent id"
+        },
+        {
+          "as": "operator",
+          "command": "replace",
+          "args": ["bad id!"],
+          "label": "replace with an id that is not valid"
+        },
+        {
+          "as": "operator",
+          "command": "replace",
+          "args": ["dev-1"],
+          "label": "replace without a launcher"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "release",
+          "args": ["dev-2"],
+          "label": "a worker cannot release"
+        },
+        {
+          "as": "operator",
+          "command": "release",
+          "args": ["dev-1", "dev-2"],
+          "label": "release names two agents"
+        },
+        {
+          "as": "operator",
+          "command": "release",
+          "args": ["dev-1"],
+          "label": "release without a launcher"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "release",
+          "args": ["dev-1"],
+          "label": "the PM may release: no launcher"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "label": "peek needs an agent id"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["bad id!"],
+          "label": "peek with an id that is not valid"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["dev-1", "0"],
+          "label": "lines below 1"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["dev-1", "121"],
+          "label": "lines above 120"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["dev-1", "007"],
+          "label": "lines with a leading zero"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["dev-1", "120", "extra"],
+          "label": "too many arguments"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["dev-1"],
+          "label": "peek without a launcher"
+        },
+        {
+          "as": "operator",
+          "command": "peek",
+          "args": ["operator"],
+          "label": "peek of the operator itself"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "peek",
+          "args": ["dev-2"],
+          "label": "a worker cannot peek"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "observe",
+          "args": ["dev-2"],
+          "label": "a worker cannot observe"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "observe",
+          "args": ["dev-1"],
+          "label": "the PM observes without a launcher"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "observe",
+          "args": ["pm-1"],
+          "label": "the PM cannot observe itself"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "observe",
+          "args": ["dev-1", "abc"],
+          "label": "lines that are not a number"
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "observe",
+          "label": "observe needs an agent id"
+        }
+      ]
+    },
+    {
+      "name": "pause-and-resume",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ],
+          "as": "agent_dev2"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        }
+      ],
+      "requests": [
+        {
+          "as": "operator",
+          "command": "pause",
+          "label": "pause needs a reason"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason"],
+          "label": "--reason without a text"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason", "a", "--reason", "b"],
+          "label": "--reason twice"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason", "x", "dev-1", "dev-2"],
+          "label": "two agents"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--bogus", "--reason", "x"],
+          "label": "an unknown flag"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["bad id!", "--reason", "x"],
+          "label": "an agent id that is not valid"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["nobody", "--reason", "x"],
+          "label": "an agent that does not exist"
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason", "x", "--interrupt"],
+          "label": "--interrupt without prompt relay"
+        },
+        {
+          "as": "operator",
+          "command": "resume",
+          "args": ["--reason", "x", "--interrupt"],
+          "label": "resume does not take --interrupt"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "pause",
+          "args": ["--reason", "x"],
+          "label": "a worker cannot pause"
+        },
+        {
+          "as": "operator",
+          "command": "resume",
+          "args": ["--reason", "nothing is paused"],
+          "label": "resume of a run that is not paused",
+          "dump": true
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason", "maintenance window"],
+          "label": "the operator pauses the run",
+          "dump": true
+        },
+        {
+          "as": "operator",
+          "command": "pause",
+          "args": ["--reason", "again"],
+          "label": "pausing a paused run"
+        },
+        {
+          "as": "operator",
+          "command": "launch",
+          "label": "launch is refused while the run is paused"
+        },
+        {
+          "as": "operator",
+          "command": "spawn",
+          "args": ["developer"],
+          "label": "spawn is refused while the run is paused"
+        },
+        {
+          "as": "operator",
+          "command": "status",
+          "label": "status shows the pause"
+        },
+        {
+          "as": "operator",
+          "command": "resume",
+          "args": ["--reason", "done"],
+          "label": "resume the run",
+          "dump": true
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "pause",
+          "args": ["dev-1", "--reason", "looking at it"],
+          "label": "the PM pauses a worker",
+          "dump": true
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "pause",
+          "args": ["dev-1", "--reason", "twice"],
+          "label": "pausing a paused worker"
+        },
+        {
+          "as": "operator",
+          "command": "resume",
+          "args": ["dev-1", "--reason", "back"],
+          "label": "the operator resumes the worker",
+          "dump": true
+        },
+        {
+          "as": "agent:pm-1",
+          "command": "pause",
+          "args": ["pm-1", "--reason", "the PM itself"],
+          "label": "the PM pauses itself",
+          "dump": true
+        },
+        {
+          "as": "operator",
+          "command": "launch",
+          "label": "launch after the resume"
+        }
+      ]
+    },
+    {
+      "name": "shutdown",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent_dev1"
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM 1",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ],
+          "as": "agent_pm"
+        }
+      ],
+      "requests": [
+        {
+          "as": "agent:dev-1",
+          "command": "shutdown",
+          "label": "a worker cannot shut the daemon down"
+        },
+        {
+          "as": "operator",
+          "command": "shutdown",
+          "label": "the operator stops the daemon"
+        }
+      ]
+    }
+  ]
+}
