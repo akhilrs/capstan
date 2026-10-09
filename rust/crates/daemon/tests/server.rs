@@ -209,6 +209,21 @@ impl Fixture {
             .collect()
     }
 
+    /// Waits until the log has `count` entries for `command`.
+    fn wait_for_log_count(&self, command: &str, count: usize) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if self.log_codes(command).len() >= count {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!(
+            "fewer than {count} log entries for {command}: {:?}",
+            self.logs.lock().unwrap()
+        );
+    }
+
     /// Waits until the log has an entry for `command` with `code`.
     fn wait_for_log(&self, command: &str, code: &str) {
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -731,6 +746,9 @@ fn unanswerable_frames_get_the_node_answers() {
         "invalid_request",
         "a frame of exactly 64 KiB is read"
     );
+    // The server writes an answer before it logs the request (as Node's does), so the second entry can still be on its
+    // way when the client has the answer: wait for it instead of reading the log at once.
+    fixture.wait_for_log_count("?", 2);
     let codes = fixture.log_codes("?");
     assert_eq!(
         codes,

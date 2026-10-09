@@ -1525,6 +1525,9 @@ function conventionCases(): Json {
     "chore: x\r\n\r\nbody",
     "chore: x\r\rbody",
     "not conventional\n\nbody",
+    "wip: x\n\nbody",
+    "chore(): x\n\nbody",
+    "chore:  x\n\nbody",
     "chore: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
     "chore: x\n\n  co-authored-by: Some Claude Person",
     "chore: x\n\nCo-authored-by: Claudette <c@example.com>",
@@ -1567,6 +1570,7 @@ function conventionCases(): Json {
         message,
         parents,
         rules: checkCommitMessage(message, parents).map((r) => r.rule),
+        reasons: checkCommitMessage(message, parents).map((r) => r.reason),
       })),
     ),
   } as unknown as Json;

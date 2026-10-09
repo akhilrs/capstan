@@ -477,7 +477,16 @@ pub fn sync_configured_roles(deps: &Deps) -> Result<(), String> {
     for attempt in 0.. {
         let (credential, desired) = (deps.credential().to_string(), desired.clone());
         let outcome = deps.kernel.run(move |core| {
-            let context = crate::deps::new_context(core, &credential)?;
+            // The context of the Node CLI (`context` of src/cli.ts): one bare uuid is both the request id and the
+            // idempotency key, unlike `newContext`'s `req-` and `idem-` ids, and the ledger rows record them.
+            let id = core.kernel().env.uuid();
+            let context = capstan_kernel::types::MutationContext {
+                credential,
+                request_id: id.clone(),
+                idempotency_key: id,
+                expected_version: core.state_version()?,
+                input_revision: core.input_revision()?,
+            };
             core.sync_role_definitions(&context, &desired)
         });
         match outcome {

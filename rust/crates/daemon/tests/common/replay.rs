@@ -642,32 +642,9 @@ impl GitPort for ReplayGit {
     }
 }
 
-/// `syncConfiguredRoles` as the Node CLI runs it: the context of src/cli.ts (`context`) carries one id as its request id and
-/// its idempotency key, unlike `newContext`'s `req-` and `idem-` ids.
+/// The daemon's own role sync (`syncConfiguredRoles`), so the ledger rows it writes are compared with Node's.
 fn sync_roles(deps: &Deps) -> Option<String> {
-    let config = deps.options.capstan.as_ref()?;
-    let desired = Value::Array(
-        config
-            .roles
-            .iter()
-            .map(|role| {
-                json!({"name": role.name, "kind": role.kind, "host": role.host, "configHash": role.config_hash})
-            })
-            .collect(),
-    );
-    let credential = deps.credential().to_string();
-    let outcome = deps.kernel.run(move |core| {
-        let id = core.kernel().env.uuid();
-        let context = capstan_kernel::types::MutationContext {
-            credential,
-            request_id: id.clone(),
-            idempotency_key: id,
-            expected_version: core.state_version()?,
-            input_revision: core.input_revision()?,
-        };
-        core.sync_role_definitions(&context, &desired)
-    });
-    outcome.err().map(|error| error.to_string())
+    capstan_daemon::run::sync_configured_roles(deps).err()
 }
 
 fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch: &Scratch) {
