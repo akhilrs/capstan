@@ -1,0 +1,1549 @@
+{
+  "sequences": [
+    {
+      "name": "delivery-sent",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {},
+        {
+          "steps": [
+            {
+              "op": "enqueueMessage",
+              "context": {
+                "credential": "$pm.credential"
+              },
+              "args": [
+                {
+                  "recipientAgentId": "dev-1",
+                  "body": "a second one"
+                }
+              ],
+              "as": "m3"
+            }
+          ]
+        },
+        {
+          "steps": [
+            {
+              "op": "ackMessage",
+              "context": {
+                "credential": "$dev.credential"
+              },
+              "args": ["$m1.messageId"]
+            }
+          ]
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "implement the thing"
+            }
+          ],
+          "as": "m1"
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "ver-1",
+              "body": "please verify"
+            }
+          ],
+          "as": "m2"
+        }
+      ]
+    },
+    {
+      "name": "busy-and-blocked",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "dev-1": "working",
+              "ver-1": "blocked",
+              "pm-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "deferred": "agent_busy"
+              },
+              "pane-ver": {
+                "deferred": "agent_blocked"
+              }
+            }
+          }
+        },
+        {},
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": "idle",
+              "ver-1": "idle"
+            },
+            "send": {
+              "pane-dev": "sent",
+              "pane-ver": "sent"
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "busy first"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "ver-1",
+              "body": "blocked first"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "input-not-empty-clear",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "deferred": "input_not_empty"
+              }
+            }
+          }
+        },
+        {
+          "at": 20000,
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "cleared": true,
+                "text": "half-typed",
+                "keys": [["C-u", "clear the line"]]
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-dev": "sent"
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "after the half typed line"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "timers": {
+          "maxDeferralSeconds": 0.001
+        }
+      }
+    },
+    {
+      "name": "clear-refusals",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "deferred": "input_not_empty"
+              },
+              "pane-ver": {
+                "deferred": "input_not_empty"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "error": "DeferralNotElapsed"
+              },
+              "pane-ver": {
+                "error": "NotIdle"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "error": "InputUnreadable:dialog"
+              },
+              "pane-ver": {
+                "error": "ClearFailed"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "error": "InputUnreadable:permission_prompt"
+              },
+              "pane-ver": {
+                "error": "ClearFailed"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "error": "Error:boom"
+              },
+              "pane-ver": {
+                "error": "ClearFailed"
+              }
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "stuck behind a draft"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "ver-1",
+              "body": "also behind one"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "timers": {
+          "maxDeferralSeconds": 0.001
+        }
+      }
+    },
+    {
+      "name": "clear-unrecordable",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "deferred": "input_not_empty"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "clear": {
+              "pane-dev": {
+                "cleared": true,
+                "text": ""
+              }
+            }
+          },
+          "repeat": 4
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "behind an empty clear"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "timers": {
+          "maxDeferralSeconds": 0.001
+        }
+      }
+    },
+    {
+      "name": "input-unreadable",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "deferred": "input_not_empty",
+                "detail": "the input line is unreadable",
+                "blocker": "dialog"
+              }
+            }
+          }
+        },
+        {
+          "repeat": 2
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-dev": {
+                "deferred": "input_not_empty"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-dev": "sent"
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "behind a dialog"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "send-failure-limit",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "error": "HerdrError:send_failed:herdr said no"
+              },
+              "pane-ver": {
+                "error": "PhaseError"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "panes": {
+              "sup-1": null
+            }
+          }
+        },
+        {},
+        {
+          "adapter": {
+            "panes": {
+              "sup-1": "pane-sup"
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "never typed"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "ver-1",
+              "body": "phase"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "sup-1",
+              "body": "no pane"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "send-errors",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": {
+                "hookThenError": "SendAfterRecordError"
+              },
+              "pane-ver": {
+                "error": "InvalidArgumentError"
+              },
+              "pane-sup": {
+                "error": "Error:unexpected"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-sup": {
+                "error": "UnknownPaneError"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-sup": {
+                "error": "AgentPaneMismatch"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "send": {
+              "pane-sup": "sent"
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "after record"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "ver-1",
+              "body": "refused text"
+            }
+          ]
+        },
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "sup-1",
+              "body": "plain error"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pane-mismatch-stuck",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "entries": {
+              "pane-dev": "someone-else"
+            }
+          }
+        },
+        {
+          "repeat": 10
+        },
+        {
+          "adapter": {
+            "entries": {
+              "pane-dev": null
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "wrong pane"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agent-lost",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": {
+                "error": "HerdrError:pane_not_found"
+              }
+            }
+          },
+          "repeat": 4
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": {
+                "error": "Error:flaky"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": {
+                "error": "HerdrError:agent_not_found"
+              }
+            }
+          },
+          "repeat": 3
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": "idle"
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "to a pane that went away"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "herdr-restart-suppression",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "observe": {
+              "pm-1": {
+                "error": "HerdrError:agent_not_found"
+              },
+              "dev-1": {
+                "error": "HerdrError:agent_not_found"
+              },
+              "ver-1": {
+                "error": "HerdrError:agent_not_found"
+              },
+              "sup-1": {
+                "error": "HerdrError:agent_not_found"
+              }
+            }
+          },
+          "repeat": 10
+        },
+        {
+          "repeat": 4
+        },
+        {
+          "adapter": {
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {}
+      ]
+    },
+    {
+      "name": "pm-wake",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "working",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "observe": {
+              "pm-1": "idle"
+            },
+            "wake": {
+              "pane-pm": "pm_not_idle"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "wake": {
+              "pane-pm": "input_not_empty"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "wake": {
+              "pane-pm": {
+                "error": "Error:wake broke"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "wake": {
+              "pane-pm": "sent"
+            }
+          }
+        },
+        {
+          "at": 100000
+        },
+        {
+          "at": 200000
+        },
+        {
+          "steps": [
+            {
+              "op": "pullMessage",
+              "context": {
+                "credential": "$pm.credential"
+              },
+              "args": []
+            }
+          ]
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "a teammate wrote"
+            }
+          ],
+          "as": "w1"
+        }
+      ],
+      "config": {
+        "timers": {
+          "pmWakeAfterSeconds": 0.001,
+          "pmWakeIntervalSeconds": 30,
+          "pmNotifyAfterSeconds": 3600
+        }
+      }
+    },
+    {
+      "name": "pm-wake-failure",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "wake": {
+              "pane-pm": {
+                "hookThenError": "HerdrError:send_failed:typing failed"
+              }
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "wake me"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "timers": {
+          "pmWakeAfterSeconds": 0.001,
+          "pmWakeIntervalSeconds": 30
+        }
+      }
+    },
+    {
+      "name": "pm-notify",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {},
+        {
+          "adapter": {
+            "notify": {
+              "error": "HerdrError:notification_not_shown:the pane is not shown"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "notify": {
+              "error": "HerdrError:timeout"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "notify": {
+              "error": "InvalidArgumentError:text refused"
+            }
+          }
+        },
+        {
+          "adapter": {
+            "notify": "ok"
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "needs the operator"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "timers": {
+          "pmNotifyAfterSeconds": 0.001,
+          "notifyIntervalSeconds": 0.001,
+          "pmWakeAfterSeconds": 0
+        }
+      }
+    },
+    {
+      "name": "pm-notify-fallback-only",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "needs the operator"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "channels": {
+          "herdr": false,
+          "fallback": true
+        },
+        "timers": {
+          "pmNotifyAfterSeconds": 0.001,
+          "pmWakeAfterSeconds": 0
+        }
+      }
+    },
+    {
+      "name": "pm-stale",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {
+          "at": 599000
+        },
+        {
+          "at": 601000
+        },
+        {
+          "at": 700000
+        },
+        {
+          "steps": [
+            {
+              "op": "pullMessage",
+              "context": {
+                "credential": "$pm.credential"
+              },
+              "args": []
+            },
+            {
+              "op": "ackMessage",
+              "context": {
+                "credential": "$pm.credential"
+              },
+              "args": ["$s1.messageId"]
+            }
+          ]
+        },
+        {
+          "at": 800000
+        },
+        {
+          "at": 900000,
+          "steps": [
+            {
+              "op": "enqueueMessage",
+              "context": {
+                "credential": "$ver.credential"
+              },
+              "args": [
+                {
+                  "recipientAgentId": "pm-1",
+                  "body": "new news"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 2000000
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "pm-1",
+              "body": "old news"
+            }
+          ],
+          "as": "s1"
+        }
+      ],
+      "config": {
+        "pmStaleSeconds": 600,
+        "timers": {
+          "pmWakeAfterSeconds": 0
+        }
+      },
+      "pmMail": "pm-1"
+    },
+    {
+      "name": "stall-and-process-activity",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "dev-1": "working",
+              "pm-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "probe": {
+              "pane-dev": {
+                "processes": [
+                  {
+                    "pid": 100,
+                    "ppid": 50,
+                    "comm": "cargo",
+                    "cpuMs": 1000
+                  },
+                  {
+                    "pid": 101,
+                    "ppid": 100,
+                    "comm": "rustc",
+                    "cpuMs": 500
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "at": 20000,
+          "adapter": {
+            "probe": {
+              "pane-dev": {
+                "processes": [
+                  {
+                    "pid": 100,
+                    "ppid": 50,
+                    "comm": "cargo",
+                    "cpuMs": 2500
+                  },
+                  {
+                    "pid": 101,
+                    "ppid": 100,
+                    "comm": "rustc",
+                    "cpuMs": 1250
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "at": 20000
+        },
+        {
+          "at": 25000
+        },
+        {
+          "at": 40000,
+          "adapter": {
+            "probe": {
+              "pane-dev": {
+                "error": "HerdrError:process_info_failed:no shell"
+              }
+            }
+          }
+        },
+        {
+          "at": 60000,
+          "adapter": {
+            "observe": {
+              "dev-1": "idle"
+            }
+          }
+        },
+        {
+          "at": 80000
+        }
+      ],
+      "config": {
+        "timers": {
+          "stallAfterSeconds": 0.001
+        }
+      }
+    },
+    {
+      "name": "blocked-attention",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "dev-1": "blocked",
+              "pm-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {
+          "repeat": 3
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": "idle"
+            }
+          }
+        }
+      ],
+      "config": {
+        "timers": {
+          "stallAfterSeconds": 0.001
+        }
+      }
+    },
+    {
+      "name": "paused-agent",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        },
+        {},
+        {
+          "steps": [
+            {
+              "op": "resumeAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "agentId": "dev-1",
+                  "reason": "back"
+                }
+              ]
+            }
+          ]
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "held back"
+            }
+          ]
+        },
+        {
+          "op": "pauseAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "reason": "operator hold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "adapter-errors-then-recovery",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": {
+                "error": "Error:herdr is down"
+              },
+              "dev-1": {
+                "error": "Error:herdr is down"
+              },
+              "ver-1": {
+                "error": "Error:herdr is down"
+              },
+              "sup-1": {
+                "error": "Error:herdr is down"
+              }
+            },
+            "send": {
+              "pane-dev": {
+                "error": "HerdrError:server_down"
+              }
+            }
+          }
+        },
+        {
+          "repeat": 2
+        },
+        {
+          "adapter": {
+            "observe": {
+              "dev-1": "idle",
+              "pm-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "send": {
+              "pane-dev": "sent"
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "through the outage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-pane",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm"
+            },
+            "observe": {
+              "pm-1": "idle"
+            }
+          }
+        },
+        {
+          "repeat": 11
+        },
+        {
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "pm-1": "idle",
+              "dev-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "enqueueMessage",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "recipientAgentId": "dev-1",
+              "body": "nobody home"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "probe-failure",
+      "loop": "driver",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 0,
+          "adapter": {
+            "panes": {
+              "pm-1": "pane-pm",
+              "dev-1": "pane-dev",
+              "ver-1": "pane-ver",
+              "sup-1": "pane-sup"
+            },
+            "observe": {
+              "dev-1": "working",
+              "pm-1": "idle",
+              "ver-1": "idle",
+              "sup-1": "idle"
+            },
+            "probe": {
+              "pane-dev": {
+                "error": "HerdrError:process_info_failed"
+              }
+            }
+          }
+        },
+        {
+          "at": 20000
+        },
+        {
+          "at": 40000
+        }
+      ]
+    }
+  ]
+}

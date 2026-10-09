@@ -1,0 +1,1144 @@
+{
+  "sequences": [
+    {
+      "name": "recover-running",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": "00000000000000000000000000000000000000f1"
+              }
+            }
+          }
+        },
+        {}
+      ],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        }
+      ]
+    },
+    {
+      "name": "recover-branch-stays",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": "00000000000000000000000000000000000000f1"
+              },
+              "delete": {
+                "capstan/integration/int-1": false
+              }
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        }
+      ]
+    },
+    {
+      "name": "recover-without-a-branch",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [{}],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        }
+      ]
+    },
+    {
+      "name": "recover-git-error",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": {
+                  "error": "Error:git is gone"
+                }
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": "00000000000000000000000000000000000000f1"
+              },
+              "delete": {
+                "capstan/integration/int-1": {
+                  "error": "Error:cannot delete"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        }
+      ]
+    },
+    {
+      "name": "recover-settled-branches",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": "00000000000000000000000000000000000000f1",
+                "capstan/integration/int-2": "00000000000000000000000000000000000000f9"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "git": {
+              "tips": {
+                "capstan/integration/int-1": "00000000000000000000000000000000000000f1",
+                "capstan/integration/int-2": "00000000000000000000000000000000000000f2"
+              },
+              "delete": {
+                "capstan/integration/int-1": false,
+                "capstan/integration/int-2": {
+                  "error": "Error:locked"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        },
+        {
+          "op": "finishIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "outcome": {
+                "kind": "merged",
+                "headSha": "00000000000000000000000000000000000000f1"
+              }
+            }
+          ]
+        },
+        {
+          "op": "settleIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "outcome": "discarded"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-2",
+              "reportIds": ["$r2.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-2",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-2"
+        },
+        {
+          "op": "finishIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-2",
+              "outcome": {
+                "kind": "merged",
+                "headSha": "00000000000000000000000000000000000000f2"
+              }
+            }
+          ]
+        },
+        {
+          "op": "settleIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-2",
+              "outcome": "discarded"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recover-coverage",
+      "loop": "recover",
+      "preset": "team",
+      "ticks": [
+        {
+          "adapter": {
+            "git": {
+              "covered": []
+            }
+          }
+        },
+        {
+          "adapter": {
+            "git": {
+              "covered": {
+                "error": "Error:git failed"
+              }
+            }
+          }
+        },
+        {
+          "adapter": {
+            "git": {
+              "covered": [
+                {
+                  "reportId": "$r2.record.reportId",
+                  "how": "ancestor"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to integrate",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "More work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r2"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r2.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "fine"
+            }
+          ]
+        },
+        {
+          "op": "beginIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "reportIds": ["$r1.record.reportId"],
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "branch": "capstan/integration/int-1",
+              "requestedBy": "pm"
+            }
+          ],
+          "as": "int-1"
+        },
+        {
+          "op": "finishIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "outcome": {
+                "kind": "merged",
+                "headSha": "00000000000000000000000000000000000000f1"
+              }
+            }
+          ]
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "int-1",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "the integration is fine"
+            }
+          ]
+        },
+        {
+          "op": "settleIntegration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "integrationId": "int-1",
+              "outcome": "confirmed"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

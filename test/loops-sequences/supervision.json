@@ -1,0 +1,203 @@
+{
+  "sequences": [
+    {
+      "name": "supervisor-spawned-when-workers-run",
+      "loop": "supervision",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 15000
+        },
+        {
+          "at": 30000,
+          "adapter": {
+            "spawn": {
+              "error": "LauncherError:no_capacity:no capacity"
+            }
+          }
+        },
+        {
+          "at": 60000
+        },
+        {
+          "at": 91000,
+          "adapter": {
+            "spawn": "ok"
+          }
+        }
+      ],
+      "setup": [
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "sup-1",
+            {
+              "reason": "not running"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "supervisor-checked-and-released",
+      "loop": "supervision",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 15000
+        },
+        {
+          "at": 30000
+        },
+        {
+          "at": 45000,
+          "steps": [
+            {
+              "op": "endAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                "dev-1",
+                {
+                  "reason": "done"
+                }
+              ]
+            },
+            {
+              "op": "endAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                "ver-1",
+                {
+                  "reason": "done"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 100000
+        },
+        {
+          "at": 700000,
+          "adapter": {
+            "release": {
+              "error": "LauncherError:release_failed:release failed"
+            }
+          }
+        },
+        {
+          "at": 720000
+        },
+        {
+          "at": 800000,
+          "adapter": {
+            "release": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "name": "supervision-off",
+      "loop": "supervision",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 15000
+        },
+        {
+          "at": 30000
+        }
+      ],
+      "setup": [
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "sup-1",
+            {
+              "reason": "not running"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "supervision": {
+          "enabled": false,
+          "checkSeconds": 60
+        }
+      }
+    },
+    {
+      "name": "supervision-without-role",
+      "loop": "supervision",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 15000
+        }
+      ],
+      "setup": [
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "sup-1",
+            {
+              "reason": "not running"
+            }
+          ]
+        }
+      ],
+      "config": {
+        "supervisorRole": null
+      }
+    },
+    {
+      "name": "supervision-needs-one-pm",
+      "loop": "supervision",
+      "preset": "team",
+      "ticks": [
+        {
+          "at": 15000
+        }
+      ],
+      "setup": [
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "sup-1",
+            {
+              "reason": "not running"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "pm-1",
+            {
+              "reason": "gone"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

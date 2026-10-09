@@ -1,0 +1,1102 @@
+{
+  "sequences": [
+    {
+      "name": "report-announced-when-a-pm-arrives",
+      "loop": "relay",
+      "preset": null,
+      "ticks": [
+        {
+          "at": 2000
+        },
+        {
+          "at": 4000
+        },
+        {
+          "at": 6000,
+          "steps": [
+            {
+              "op": "createSeat",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "seatId": "seat-pm",
+                  "name": "seat-pm",
+                  "role": "PM"
+                }
+              ]
+            },
+            {
+              "op": "createActor",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "displayName": "pm",
+                  "role": "PM",
+                  "seatId": "seat-pm"
+                }
+              ],
+              "as": "pm"
+            },
+            {
+              "op": "registerAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "agentId": "pm-1",
+                  "roleName": "pm",
+                  "seatId": "seat-pm",
+                  "actorId": "$pm.actorId"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 8000
+        },
+        {
+          "at": 10000,
+          "steps": [
+            {
+              "op": "recordAgentReport",
+              "context": {
+                "credential": "$dev.credential"
+              },
+              "args": [
+                {
+                  "commitSha": "000000000000000000000000000000000000000c",
+                  "summary": "A third commit",
+                  "evidence": {
+                    "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                    "branch": "feat/dev-1",
+                    "branchTip": "000000000000000000000000000000000000000c",
+                    "checkedAt": "2026-01-01T00:00:00.000Z",
+                    "commitExists": true,
+                    "isAncestorOfBase": false,
+                    "isAncestorOfTip": true,
+                    "generation": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 12000
+        },
+        {
+          "at": 14000
+        }
+      ],
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "verifier",
+                "kind": "Verifier",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "supervisor",
+                "kind": "Supervisor",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "seat-dev",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev",
+              "actorId": "$dev.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-ver",
+              "name": "seat-ver",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "ver",
+              "role": "Verifier",
+              "seatId": "seat-ver"
+            }
+          ],
+          "as": "ver"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "roleName": "verifier",
+              "seatId": "seat-ver",
+              "actorId": "$ver.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-sup",
+              "name": "seat-sup",
+              "role": "Supervisor"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "sup",
+              "role": "Supervisor",
+              "seatId": "seat-sup"
+            }
+          ],
+          "as": "sup"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "sup-1",
+              "roleName": "supervisor",
+              "seatId": "seat-sup",
+              "actorId": "$sup.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Finished the work",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000b",
+              "summary": "A second commit",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000b",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nothing-before-a-pm",
+      "loop": "relay",
+      "preset": null,
+      "ticks": [
+        {
+          "at": 2000
+        },
+        {
+          "at": 4000
+        }
+      ],
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "verifier",
+                "kind": "Verifier",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "supervisor",
+                "kind": "Supervisor",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "seat-dev",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev",
+              "actorId": "$dev.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-ver",
+              "name": "seat-ver",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "ver",
+              "role": "Verifier",
+              "seatId": "seat-ver"
+            }
+          ],
+          "as": "ver"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "roleName": "verifier",
+              "seatId": "seat-ver",
+              "actorId": "$ver.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-sup",
+              "name": "seat-sup",
+              "role": "Supervisor"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "sup",
+              "role": "Supervisor",
+              "seatId": "seat-sup"
+            }
+          ],
+          "as": "sup"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "sup-1",
+              "roleName": "supervisor",
+              "seatId": "seat-sup",
+              "actorId": "$sup.actorId"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "review-announced-when-a-pm-arrives",
+      "loop": "relay",
+      "preset": null,
+      "ticks": [
+        {
+          "at": 2000
+        },
+        {
+          "at": 4000,
+          "steps": [
+            {
+              "op": "createSeat",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "seatId": "seat-pm2",
+                  "name": "seat-pm2",
+                  "role": "PM"
+                }
+              ]
+            },
+            {
+              "op": "createActor",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "displayName": "pm2",
+                  "role": "PM",
+                  "seatId": "seat-pm2"
+                }
+              ],
+              "as": "pm2"
+            },
+            {
+              "op": "registerAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "agentId": "pm-2",
+                  "roleName": "pm",
+                  "seatId": "seat-pm2",
+                  "actorId": "$pm2.actorId"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 6000
+        },
+        {
+          "at": 8000
+        }
+      ],
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "verifier",
+                "kind": "Verifier",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "supervisor",
+                "kind": "Supervisor",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "seat-dev",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev",
+              "actorId": "$dev.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-ver",
+              "name": "seat-ver",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "ver",
+              "role": "Verifier",
+              "seatId": "seat-ver"
+            }
+          ],
+          "as": "ver"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "roleName": "verifier",
+              "seatId": "seat-ver",
+              "actorId": "$ver.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-sup",
+              "name": "seat-sup",
+              "role": "Supervisor"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "sup",
+              "role": "Supervisor",
+              "seatId": "seat-sup"
+            }
+          ],
+          "as": "sup"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "sup-1",
+              "roleName": "supervisor",
+              "seatId": "seat-sup",
+              "actorId": "$sup.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "pm",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-ver-1",
+              "worktreePath": "/tmp/wt/ver-1",
+              "branch": "feat/ver-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentReport",
+          "context": {
+            "credential": "$dev.credential"
+          },
+          "args": [
+            {
+              "commitSha": "000000000000000000000000000000000000000a",
+              "summary": "Work to review",
+              "evidence": {
+                "baseSha": "0123456789abcdef0123456789abcdef01234567",
+                "branch": "feat/dev-1",
+                "branchTip": "000000000000000000000000000000000000000a",
+                "checkedAt": "2026-01-01T00:00:00.000Z",
+                "commitExists": true,
+                "isAncestorOfBase": false,
+                "isAncestorOfTip": true,
+                "generation": 1
+              }
+            }
+          ],
+          "as": "r1"
+        },
+        {
+          "op": "beginReview",
+          "context": {
+            "credential": "$pm.credential"
+          },
+          "args": [
+            {
+              "subjectId": "$r1.record.reportId",
+              "reviewerRole": "verifier",
+              "reviewerAgentId": "ver-1"
+            }
+          ],
+          "as": "rv"
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "pm-1",
+            {
+              "reason": "restarted"
+            }
+          ]
+        },
+        {
+          "op": "completeReview",
+          "context": {
+            "credential": "$ver.credential"
+          },
+          "args": [
+            {
+              "verdict": "pass",
+              "text": "looks right"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "findings-swept-and-announced",
+      "loop": "relay",
+      "preset": null,
+      "ticks": [
+        {
+          "at": 2000
+        },
+        {
+          "at": 4000,
+          "steps": [
+            {
+              "op": "createSeat",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "seatId": "seat-pm",
+                  "name": "seat-pm",
+                  "role": "PM"
+                }
+              ]
+            },
+            {
+              "op": "createActor",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "displayName": "pm",
+                  "role": "PM",
+                  "seatId": "seat-pm"
+                }
+              ],
+              "as": "pm"
+            },
+            {
+              "op": "registerAgent",
+              "context": {
+                "credential": "$owner.credential"
+              },
+              "args": [
+                {
+                  "agentId": "pm-1",
+                  "roleName": "pm",
+                  "seatId": "seat-pm",
+                  "actorId": "$pm.actorId"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 6000
+        },
+        {
+          "at": 8000
+        }
+      ],
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "verifier",
+                "kind": "Verifier",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "supervisor",
+                "kind": "Supervisor",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev",
+              "name": "seat-dev",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "dev",
+              "role": "Developer",
+              "seatId": "seat-dev"
+            }
+          ],
+          "as": "dev"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev",
+              "actorId": "$dev.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-ver",
+              "name": "seat-ver",
+              "role": "Verifier"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "ver",
+              "role": "Verifier",
+              "seatId": "seat-ver"
+            }
+          ],
+          "as": "ver"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "ver-1",
+              "roleName": "verifier",
+              "seatId": "seat-ver",
+              "actorId": "$ver.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-sup",
+              "name": "seat-sup",
+              "role": "Supervisor"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "sup",
+              "role": "Supervisor",
+              "seatId": "seat-sup"
+            }
+          ],
+          "as": "sup"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "sup-1",
+              "roleName": "supervisor",
+              "seatId": "seat-sup",
+              "actorId": "$sup.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-dev-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "raiseFinding",
+          "context": {
+            "credential": "$sup.credential"
+          },
+          "args": [
+            {
+              "targetAgentId": "dev-1",
+              "severity": "medium",
+              "evidence": "the build is red again and again",
+              "correction": "fix the build",
+              "doneWhen": "the build is green"
+            }
+          ],
+          "as": "f1"
+        }
+      ],
+      "config": {
+        "findingCheckSeconds": 1
+      }
+    }
+  ]
+}
