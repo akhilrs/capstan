@@ -88,6 +88,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstan-daemon"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "capstan-config",
+ "capstan-herdr",
+ "capstan-kernel",
+ "capstan-launcher",
+ "capstan-ledger",
+ "capstan-operator",
+ "capstan-wire",
+ "getrandom 0.4.3",
+ "libc",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "capstan-herdr"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.4.3",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "capstan-kernel"
 version = "0.1.0"
 dependencies = [
@@ -108,6 +148,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstan-launcher"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "capstan-config",
+ "capstan-herdr",
+ "capstan-kernel",
+ "getrandom 0.4.3",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "capstan-ledger"
 version = "0.1.0"
 dependencies = [
@@ -116,6 +175,24 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "capstan-operator"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "capstan-config",
+ "capstan-kernel",
+ "getrandom 0.4.3",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]

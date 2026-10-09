@@ -1,0 +1,777 @@
+{
+  "scenarios": [
+    {
+      "name": "ping-and-status",
+      "requests": [
+        {
+          "as": "operator",
+          "command": "ping",
+          "label": "ping answers with the controller's location"
+        },
+        {
+          "as": "operator",
+          "command": "status",
+          "label": "status of a fresh project"
+        },
+        {
+          "as": "operator",
+          "command": "status",
+          "args": ["ignored"],
+          "label": "status takes no arguments but accepts some"
+        }
+      ]
+    },
+    {
+      "name": "authentication",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-spare",
+              "name": "seat-spare",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Spare",
+              "role": "Developer",
+              "seatId": "seat-spare"
+            }
+          ],
+          "as": "spare"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent1"
+        }
+      ],
+      "requests": [
+        {
+          "as": "none",
+          "command": "ping",
+          "label": "no credential"
+        },
+        {
+          "as": "token:not-a-credential",
+          "command": "ping",
+          "label": "a credential nobody holds"
+        },
+        {
+          "as": "operator",
+          "label": "a credential that is not a string",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": 5,
+              "command": "ping",
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a null credential",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": null,
+              "command": "ping",
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a seat actor that is neither operator nor agent",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$spare.credential",
+              "command": "ping",
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "ping",
+          "label": "an agent is accepted"
+        }
+      ]
+    },
+    {
+      "name": "unknown-and-forbidden",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-spare",
+              "name": "seat-spare",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Spare",
+              "role": "Developer",
+              "seatId": "seat-spare"
+            }
+          ],
+          "as": "spare"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent1"
+        }
+      ],
+      "requests": [
+        {
+          "as": "operator",
+          "command": "no-such-command",
+          "label": "unknown command"
+        },
+        {
+          "as": "operator",
+          "command": "constructor",
+          "label": "an inherited object member is not a route"
+        },
+        {
+          "as": "operator",
+          "command": "__proto__",
+          "label": "__proto__ is not a route"
+        },
+        {
+          "as": "operator",
+          "command": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "label": "a command name of 65 characters is a malformed request"
+        },
+        {
+          "as": "operator",
+          "command": "ack",
+          "label": "an agent command refused to the operator"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "peek",
+          "args": ["dev-1"],
+          "label": "an operator command refused to an agent"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "assign",
+          "label": "assign is an operator command"
+        }
+      ]
+    },
+    {
+      "name": "invalid-requests",
+      "requests": [
+        {
+          "as": "none",
+          "label": "not JSON",
+          "frame": "{not json"
+        },
+        {
+          "as": "none",
+          "label": "an empty frame",
+          "frame": ""
+        },
+        {
+          "as": "none",
+          "label": "JSON null",
+          "frame": "null"
+        },
+        {
+          "as": "none",
+          "label": "a JSON array",
+          "frame": "[1,2]"
+        },
+        {
+          "as": "none",
+          "label": "a JSON string",
+          "frame": "\"ping\""
+        },
+        {
+          "as": "none",
+          "label": "a byte order mark before the JSON",
+          "frame": "\ufeff{\"v\":1}"
+        },
+        {
+          "as": "none",
+          "label": "bytes that are not UTF-8",
+          "frame": {
+            "base64": "/w=="
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a version other than 1",
+          "frame": {
+            "json": {
+              "v": 2,
+              "credential": "$credential",
+              "command": "ping",
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "no version",
+          "frame": {
+            "json": {
+              "credential": "$credential",
+              "command": "ping"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a command that is not a string",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$credential",
+              "command": 7,
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "an empty command",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$credential",
+              "command": "",
+              "args": []
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "command": "ping",
+          "args": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16"
+          ],
+          "label": "16 arguments are accepted"
+        },
+        {
+          "as": "operator",
+          "command": "ping",
+          "args": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17"
+          ],
+          "label": "17 arguments are refused"
+        },
+        {
+          "as": "operator",
+          "label": "args that is not an array",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$credential",
+              "command": "ping",
+              "args": "x"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "an argument that is not a string",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$credential",
+              "command": "ping",
+              "args": ["a", 3]
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "an empty argument",
+          "frame": {
+            "json": {
+              "v": 1,
+              "credential": "$credential",
+              "command": "ping",
+              "args": [""]
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a frame of exactly 65536 bytes is read",
+          "frame": {
+            "repeat": {
+              "prefix": "{\"v\":1,\"credential\":\"x\",\"command\":\"ping\",\"args\":[\"",
+              "text": "a",
+              "times": 65483,
+              "suffix": "\"]}"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a frame of 65537 bytes drops the connection",
+          "frame": {
+            "repeat": {
+              "prefix": "{\"v\":1,\"credential\":\"x\",\"command\":\"ping\",\"args\":[\"",
+              "text": "a",
+              "times": 65484,
+              "suffix": "\"]}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "stub-routes",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-spare",
+              "name": "seat-spare",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Spare",
+              "role": "Developer",
+              "seatId": "seat-spare"
+            }
+          ],
+          "as": "spare"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent1"
+        }
+      ],
+      "requests": [
+        {
+          "as": "operator",
+          "command": "assign",
+          "label": "a stub route answers not_implemented"
+        },
+        {
+          "as": "operator",
+          "command": "assign",
+          "args": ["a", "b"],
+          "label": "with arguments"
+        },
+        {
+          "as": "agent:dev-1",
+          "command": "ask",
+          "args": ["question"],
+          "label": "an agent's stub route"
+        }
+      ]
+    },
+    {
+      "name": "legacy-control",
+      "setup": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-spare",
+              "name": "seat-spare",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Spare",
+              "role": "Developer",
+              "seatId": "seat-spare"
+            }
+          ],
+          "as": "spare"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ],
+          "as": "agent1"
+        }
+      ],
+      "requests": [
+        {
+          "as": "none",
+          "label": "no token",
+          "frame": "{\"action\":\"status\"}"
+        },
+        {
+          "as": "none",
+          "label": "a wrong token",
+          "frame": "{\"action\":\"status\",\"token\":\"nope\"}"
+        },
+        {
+          "as": "operator",
+          "label": "status",
+          "frame": {
+            "json": {
+              "action": "status",
+              "token": "$credential"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "inspect of an unknown id",
+          "frame": {
+            "json": {
+              "action": "inspect",
+              "id": "nothing",
+              "token": "$credential"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "inspect without an id",
+          "frame": {
+            "json": {
+              "action": "inspect",
+              "token": "$credential"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "an unknown action",
+          "frame": {
+            "json": {
+              "action": "restart",
+              "token": "$credential"
+            }
+          }
+        },
+        {
+          "as": "operator",
+          "label": "a long action name is cut in the log",
+          "frame": {
+            "json": {
+              "action": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "token": "$credential"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

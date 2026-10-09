@@ -445,3 +445,209 @@ test("lock interop: a running Node scratch daemon makes Rust refuse", () => {
     removeTempDir(directory);
   }
 });
+
+// ---------------------------------------------------------------------------------------------- the Rust daemon
+
+/** The Rust daemon the tests run: CSTAN_DAEMON_BIN, else the host release build of the Rust workspace. */
+function daemonBinary(): string {
+  const configured = process.env.CSTAN_DAEMON_BIN;
+  const file =
+    configured !== undefined && configured !== ""
+      ? configured
+      : path.join(
+          path.resolve(root, "rust", process.env.CARGO_TARGET_DIR ?? "target"),
+          "release",
+          "cstan-daemon",
+        );
+  assert.ok(
+    existsSync(file),
+    `cstan-daemon is missing (${file}): build it with \`npm run check:dash\` or \`cargo build --release -p capstan-daemon\` in rust/, or set CSTAN_DAEMON_BIN`,
+  );
+  return file;
+}
+
+function daemonEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env, CAPSTAN_LAUNCH: "off" } as NodeJS.ProcessEnv;
+  for (const name of [
+    "CAPSTAN_TOKEN",
+    "CAPSTAN_SOCKET",
+    "CAPSTAN_AGENT_ID",
+    "CSTAN_NODE_CLI",
+    "CSTAN_NODE",
+    "CSTAN_FRONT_END",
+  ])
+    delete env[name];
+  return env;
+}
+
+function initProject(directory: string): void {
+  const result = spawnSync(process.execPath, [NODE_CLI, "init"], {
+    cwd: directory,
+    encoding: "utf8",
+    env: daemonEnv(),
+    timeout: 60_000,
+  });
+  assert.equal(result.status, 0, `cstan init: ${result.stderr}`);
+}
+
+interface Running {
+  readonly child: ReturnType<typeof spawn>;
+  readonly output: string[];
+  readonly exit: Promise<number | null>;
+}
+
+function run(command: string, args: string[], directory: string): Running {
+  const child = spawn(command, args, {
+    cwd: directory,
+    env: daemonEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const output: string[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => output.push(String(chunk)));
+  child.stderr?.on("data", (chunk: Buffer) => output.push(String(chunk)));
+  const exit = new Promise<number | null>((resolve) =>
+    child.once("exit", (code) => resolve(code)),
+  );
+  return { child, output, exit };
+}
+
+async function until(condition: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, `timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function stopRunning(daemon: Running): Promise<number | null> {
+  daemon.child.kill("SIGTERM");
+  return await daemon.exit;
+}
+
+function migrationsOf(directory: string): unknown {
+  return dump(path.join(directory, ".capstan", "state", "controller.sqlite"))
+    .migrations;
+}
+
+const rustDaemon = (directory: string): Running =>
+  run(daemonBinary(), [], directory);
+const nodeDaemon = (directory: string): Running =>
+  run(process.execPath, [NODE_CLI, "daemon"], directory);
+const ready = (daemon: Running): boolean =>
+  daemon.output.join("").includes('"event":"ready"');
+const rustHolding = (daemon: Running): boolean =>
+  daemon.output.join("").includes("serve_not_implemented");
+
+test("lock interop: a Node daemon holding a project makes cstan-daemon exit 4", async () => {
+  const directory = scratch();
+  try {
+    initProject(directory);
+    const holder = nodeDaemon(directory);
+    try {
+      await until(() => ready(holder), "the Node daemon to be ready");
+      const rust = rustDaemon(directory);
+      assert.equal(await rust.exit, 4, rust.output.join(""));
+      assert.match(
+        rust.output.join(""),
+        /another cooperating controller owns this project/,
+      );
+    } finally {
+      await stopRunning(holder);
+    }
+  } finally {
+    removeTempDir(directory);
+  }
+});
+
+test("lock interop: a cstan-daemon holding a project makes the Node daemon exit 4 (ensureDaemon's lost-race path)", async () => {
+  const directory = scratch();
+  try {
+    initProject(directory);
+    const holder = rustDaemon(directory);
+    try {
+      await until(
+        () => rustHolding(holder) || ready(holder),
+        "cstan-daemon to hold the project",
+      );
+      const node = nodeDaemon(directory);
+      assert.equal(await node.exit, 4, node.output.join(""));
+      assert.match(
+        node.output.join(""),
+        /another cooperating controller owns this project/,
+      );
+    } finally {
+      assert.equal(await stopRunning(holder), 0);
+    }
+    // The lock is free again: a Node daemon starts.
+    const after = nodeDaemon(directory);
+    try {
+      await until(() => ready(after), "the Node daemon to start after");
+    } finally {
+      await stopRunning(after);
+    }
+  } finally {
+    removeTempDir(directory);
+  }
+});
+
+test("a ledger written by Node opens in cstan-daemon and back with unchanged migration checksums", async () => {
+  const directory = scratch();
+  try {
+    initProject(directory);
+    const first = nodeDaemon(directory);
+    try {
+      await until(() => ready(first), "the Node daemon to be ready");
+    } finally {
+      assert.equal(await stopRunning(first), 0);
+    }
+    const written = migrationsOf(directory);
+    assert.ok((written as unknown[]).length > 0);
+
+    const rust = rustDaemon(directory);
+    try {
+      await until(
+        () => rustHolding(rust) || ready(rust),
+        "cstan-daemon to open the ledger",
+      );
+    } finally {
+      assert.equal(await stopRunning(rust), 0);
+    }
+    assert.deepEqual(migrationsOf(directory), written);
+
+    const second = nodeDaemon(directory);
+    try {
+      await until(() => ready(second), "the Node daemon to reopen the ledger");
+    } finally {
+      assert.equal(await stopRunning(second), 0);
+    }
+    assert.deepEqual(migrationsOf(directory), written);
+  } finally {
+    removeTempDir(directory);
+  }
+});
+
+test("a ledger first written by cstan-daemon opens in Node", async () => {
+  const directory = scratch();
+  try {
+    initProject(directory);
+    const rust = rustDaemon(directory);
+    try {
+      await until(
+        () => rustHolding(rust) || ready(rust),
+        "cstan-daemon to create the ledger",
+      );
+    } finally {
+      assert.equal(await stopRunning(rust), 0);
+    }
+    const written = migrationsOf(directory);
+    const node = nodeDaemon(directory);
+    try {
+      await until(() => ready(node), "the Node daemon to open the ledger");
+    } finally {
+      assert.equal(await stopRunning(node), 0);
+    }
+    assert.deepEqual(migrationsOf(directory), written);
+  } finally {
+    removeTempDir(directory);
+  }
+});

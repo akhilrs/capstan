@@ -1,0 +1,28 @@
+[package]
+name = "capstan-herdr"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The Herdr layer of the capstan daemon: the runner, the adapter and their interfaces"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_herdr"
+path = "src/lib.rs"
+
+# Every external crate the daemon phase may need is pinned here and in the sibling crates (the versions the kernel
+# already pins), so no later package touches Cargo.lock.
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "=0.10.9"
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode"] }
+libc = "=0.2.190"
+getrandom = "=0.4.3"
+base64 = "=0.22.1"
+unicode-segmentation = "=1.13.3"
+unicode-normalization = { version = "=0.1.25", default-features = false }
+
+[dev-dependencies]
+tempfile = "=3.27.0"

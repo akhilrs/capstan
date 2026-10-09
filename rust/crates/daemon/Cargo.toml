@@ -1,0 +1,40 @@
+[package]
+name = "capstan-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The capstan controller daemon: handlers, server and loops over the kernel"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cstan-daemon"
+path = "src/main.rs"
+
+# Every external crate the daemon phase may need is pinned here and in the sibling crates (the versions the kernel
+# already pins), so no later package touches Cargo.lock.
+[dependencies]
+capstan-herdr = { path = "../herdr" }
+capstan-launcher = { path = "../launcher" }
+capstan-operator = { path = "../operator" }
+capstan-kernel = { path = "../kernel" }
+capstan-ledger = { path = "../ledger" }
+capstan-config = { path = "../config" }
+capstan-wire = { path = "../wire" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "=0.10.9"
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode"] }
+libc = "=0.2.190"
+getrandom = "=0.4.3"
+base64 = "=0.22.1"
+unicode-segmentation = "=1.13.3"
+unicode-normalization = { version = "=0.1.25", default-features = false }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+rusqlite = "=0.40.2"
