@@ -17,6 +17,7 @@ path = "src/lib.rs"
 capstan-herdr = { path = "../herdr" }
 capstan-kernel = { path = "../kernel" }
 capstan-config = { path = "../config" }
+capstan-wire = { path = "../wire" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "=0.10.9"

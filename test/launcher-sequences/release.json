@@ -1,0 +1,180 @@
+{
+  "sequences": [
+    {
+      "name": "release-clean",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "options": { "title": "Tidy" } },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" },
+        { "op": "spawn", "role": "developer", "options": { "title": "Again" } }
+      ]
+    },
+    {
+      "name": "release-dirty-worktree",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "write",
+          "dir": "$dev.worktreePath",
+          "file": "node_modules/x/index.js",
+          "text": "x\n"
+        },
+        {
+          "op": "write",
+          "dir": "$dev.worktreePath",
+          "file": "README.md",
+          "text": "changed\n"
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "release-keeps-a-branch-with-commits",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Work" },
+          "as": "dev"
+        },
+        {
+          "op": "write",
+          "dir": "$dev.worktreePath",
+          "file": "a.txt",
+          "text": "a\n"
+        },
+        { "op": "git", "cwd": "$dev.worktreePath", "args": ["add", "-A"] },
+        {
+          "op": "git",
+          "cwd": "$dev.worktreePath",
+          "args": ["commit", "-q", "-m", "feat: a"]
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" },
+        { "op": "spawn", "role": "developer", "options": { "title": "Work" } }
+      ]
+    },
+    {
+      "name": "release-refusals",
+      "steps": [
+        { "op": "release", "agent": "nobody" },
+        { "op": "launch_pm" },
+        { "op": "release", "agent": "pm-1" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "release-leaves-an-open-pane-for-the-next-start",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_busy",
+            "message": "pane is busy"
+          }
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" },
+        { "op": "adopt_all" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "release-pane-already-closed",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_not_found",
+            "message": "no such pane"
+          }
+        },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "release-pane-gone",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        { "op": "stub", "do": "gone", "pane": "w3:p1" },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "release-worktree-already-removed",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "git",
+          "args": ["worktree", "remove", "--force", "$dev.worktreePath"]
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "release-worktree-removal-refused",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        { "op": "git", "args": ["worktree", "lock", "$dev.worktreePath"] },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" },
+        { "op": "git", "args": ["worktree", "unlock", "$dev.worktreePath"] },
+        { "op": "adopt_all" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "release-pane-mode",
+      "config": { "layout": { "spawn": "pane" } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "release", "agent": "developer2-1" },
+        { "op": "spawn", "role": "developer" }
+      ]
+    },
+    {
+      "name": "release-cancels-open-messages",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "send",
+          "from": "pm-1",
+          "to": "developer-1",
+          "body": "Please do X"
+        },
+        {
+          "op": "send",
+          "from": "pm-1",
+          "to": "developer-1",
+          "body": "And then Y"
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    }
+  ]
+}

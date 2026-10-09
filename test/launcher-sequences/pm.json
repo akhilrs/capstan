@@ -1,0 +1,452 @@
+{
+  "sequences": [
+    {
+      "name": "launch-pm",
+      "steps": [
+        {
+          "op": "launch_pm",
+          "as": "pm"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "in_flight"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-not-synced",
+      "config": {
+        "synced": false
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-codex",
+      "config": {
+        "hostOf": {
+          "pm": "codex"
+        }
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-omp-with-architect",
+      "config": {
+        "hostOf": {
+          "pm": "omp"
+        },
+        "architect": {
+          "counts": false
+        },
+        "operator": {
+          "counts": false,
+          "enabled": true
+        },
+        "researcher": {
+          "enabled": true
+        },
+        "promptRelay": true
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-blocked-at-startup",
+      "steps": [
+        {
+          "op": "stub",
+          "do": "start_status",
+          "value": "blocked_at_startup"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "observation",
+          "value": "blocked"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-hub-fails",
+      "steps": [
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "createWorkspace",
+          "error": {
+            "kind": "herdr",
+            "code": "session_down",
+            "message": "herdr is not running"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-start-fails",
+      "steps": [
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": {
+            "kind": "herdr",
+            "code": "start_failed",
+            "message": "claude did not start"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-tab-fails-and-recovers",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "no such pane"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-env-pass",
+      "config": {
+        "pass": ["TOKEN_ONE", "TOKEN_TWO"],
+        "base": {
+          "TOKEN_TWO": "two"
+        }
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "operator_environment"
+        }
+      ]
+    },
+    {
+      "name": "restart-pm",
+      "steps": [
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "restart-pm-start-fails",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": {
+            "kind": "herdr",
+            "code": "start_failed",
+            "message": "claude did not start"
+          }
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "restart_pm"
+        }
+      ]
+    },
+    {
+      "name": "restart-pm-old-pane-stays-open",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_busy",
+            "message": "pane is busy"
+          }
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "restart-pm-old-pane-reused",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w1:p1",
+          "terminalId": "term:reused"
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-without-a-live-pane",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "herdr",
+            "code": "herdr_down",
+            "message": "herdr is not answering"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "hub-whose-workspace-is-gone",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the watch pane is gone"
+          },
+          "times": 2
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "createTab",
+          "error": {
+            "kind": "herdr",
+            "code": "workspace_not_found",
+            "message": "no such workspace"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        }
+      ]
+    },
+    {
+      "name": "hub-that-cannot-be-adopted",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "herdr",
+            "code": "herdr_down",
+            "message": "herdr is not answering"
+          },
+          "times": 2
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        }
+      ]
+    },
+    {
+      "name": "hub-watch-tab-fails",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the watch pane is gone"
+          },
+          "times": 2
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "createTab",
+          "error": {
+            "kind": "herdr",
+            "code": "tab_failed",
+            "message": "no tab"
+          }
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "launch-pm-without-a-path-in-the-environment",
+      "config": {
+        "base": {
+          "PATH": ""
+        }
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "operator_environment"
+        }
+      ]
+    }
+  ]
+}

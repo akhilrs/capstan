@@ -1,0 +1,176 @@
+{
+  "sequences": [
+    {
+      "name": "replace-with-seed",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix", "task": "req-1" },
+          "as": "dev"
+        },
+        {
+          "op": "write",
+          "dir": "$dev.worktreePath",
+          "file": "a.txt",
+          "text": "a\n"
+        },
+        { "op": "git", "cwd": "$dev.worktreePath", "args": ["add", "-A"] },
+        {
+          "op": "git",
+          "cwd": "$dev.worktreePath",
+          "args": ["commit", "-q", "-m", "feat: a"]
+        },
+        {
+          "op": "git",
+          "cwd": "$dev.worktreePath",
+          "args": ["rev-parse", "HEAD"],
+          "as": "first"
+        },
+        {
+          "op": "report",
+          "agent": "developer-1",
+          "commit": "$first.stdout",
+          "summary": "wrote a.txt, \"quoted\" and more"
+        },
+        {
+          "op": "send",
+          "from": "pm-1",
+          "to": "developer-1",
+          "body": "Please also add b.txt now, with \"quotes\""
+        },
+        {
+          "op": "write",
+          "dir": "$dev.worktreePath",
+          "file": "b.txt",
+          "text": "b\n"
+        },
+        { "op": "git", "cwd": "$dev.worktreePath", "args": ["add", "-A"] },
+        {
+          "op": "git",
+          "cwd": "$dev.worktreePath",
+          "args": ["commit", "-q", "-m", "feat: b"]
+        },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "replace-without-a-report",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix it" }
+        },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "replace", "agent": "developer-2" }
+      ]
+    },
+    {
+      "name": "replace-an-ended-agent",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix it" }
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "replace", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "replace-refusals",
+      "steps": [
+        { "op": "replace", "agent": "nobody" },
+        { "op": "launch_pm" },
+        { "op": "replace", "agent": "pm-1" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "replace", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "replace-leaves-a-pane-it-cannot-close",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_busy",
+            "message": "pane is busy"
+          }
+        },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "adopt_all" },
+        { "op": "replace", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "replace-whose-start-fails",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix it" }
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "createWorktree",
+          "error": {
+            "kind": "herdr",
+            "code": "worktree_failed",
+            "message": "herdr refused the worktree"
+          }
+        },
+        { "op": "replace", "agent": "developer-1" },
+        { "op": "replace", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "replace-in-another-host",
+      "config": { "hostOf": { "developer": "codex" } },
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix it" }
+        },
+        { "op": "replace", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "replace-explicit-branch",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix it" }
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "branch": "chore/developer-1-fix-it" }
+        },
+        { "op": "release", "agent": "developer-1" },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "branch": "chore/developer-1-fix-it" }
+        }
+      ]
+    }
+  ]
+}

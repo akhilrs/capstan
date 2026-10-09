@@ -155,6 +155,7 @@ dependencies = [
  "capstan-config",
  "capstan-herdr",
  "capstan-kernel",
+ "capstan-wire",
  "getrandom 0.4.3",
  "libc",
  "regex",
