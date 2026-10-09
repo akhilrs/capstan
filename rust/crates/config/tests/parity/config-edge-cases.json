@@ -760,6 +760,76 @@
   ]
  },
  {
+  "name": "edge-daemon-rust",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\nimplementation = \"rust\"\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-node",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\nimplementation = \"node\"\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-empty",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-bad-value",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\nimplementation = \"go\"\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-wrong-type",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\nimplementation = 1\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-unknown-key",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n\n[daemon]\nbinary = \"x\"\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
+  "name": "edge-daemon-not-table",
+  "entries": [
+   {
+    "path": "capstan.toml",
+    "text": "daemon = \"rust\"\nschema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.reviewer]\nkind = \"Verifier\"\nhost = \"claude\"\n",
+    "mode": 384
+   }
+  ]
+ },
+ {
   "name": "edge-supplementary-length",
   "entries": [
    {

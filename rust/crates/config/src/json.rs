@@ -303,6 +303,12 @@ impl RoleConfig {
             }
             members.push(("worktree", object(tree)));
         }
+        if let Some(implementation) = &self.daemon_implementation {
+            members.push((
+                "daemon",
+                object(vec![("implementation", text(implementation))]),
+            ));
+        }
         members.push(("env", object(vec![("pass", strings(&self.env_pass))])));
         members.push(("hosts", Value::Array(self.hosts.iter().map(host).collect())));
         members.push(("roles", Value::Array(self.roles.iter().map(role).collect())));

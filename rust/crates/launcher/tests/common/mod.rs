@@ -316,6 +316,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
                 teardown: text(w, "teardown"),
                 teardown_timeout_seconds: w.get("teardownTimeoutSeconds").and_then(Value::as_i64),
             }),
+        daemon_implementation: None,
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

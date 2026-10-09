@@ -314,6 +314,14 @@ export type ResolvedPromptRelay = {
   readonly captureTtlSeconds: number;
 };
 
+export const DAEMON_IMPLEMENTATIONS = ["node", "rust"] as const;
+export type DaemonImplementation = (typeof DAEMON_IMPLEMENTATIONS)[number];
+
+export type ResolvedDaemon = {
+  /** Which controller daemon `cstan start` runs; the environment variable CSTAN_DAEMON wins over the file. */
+  readonly implementation: DaemonImplementation;
+};
+
 export type CapstanConfig = {
   readonly schemaVersion: 1;
   readonly projectName: string | null;
@@ -333,6 +341,8 @@ export type CapstanConfig = {
   readonly layout: ResolvedLayout;
   /** Absent when `[worktree]` sets no `setup`. */
   readonly worktree?: ResolvedWorktree;
+  /** Present only when `[daemon]` is in the file; absent means the Node daemon. */
+  readonly daemon?: ResolvedDaemon;
   /** Things the loader accepted but the operator should know (an ignored key); `cstan config check` prints them. */
   readonly warnings: readonly string[];
   readonly env: ResolvedEnvironment;

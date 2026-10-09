@@ -278,6 +278,8 @@ pub struct RoleConfig {
     pub ledger: Ledger,
     pub layout: Layout,
     pub worktree: Option<Worktree>,
+    /// `[daemon] implementation`; `None` when the table is absent (the Node daemon).
+    pub daemon_implementation: Option<String>,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

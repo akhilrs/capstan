@@ -731,7 +731,7 @@
   "name": "captured-0102",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -1291,7 +1291,7 @@
   "name": "captured-0180",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -1482,7 +1482,7 @@
   "name": "captured-0206",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -2060,7 +2060,7 @@
   "name": "captured-0285",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -4486,6 +4486,58 @@
   "outcome": {
    "kind": "error",
    "message": "roles has a role name that does not match ^[a-z][a-z0-9-]{0,31}$"
+  }
+ },
+ {
+  "name": "edge-daemon-rust",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "7523bf88689de6289d65343db59f3d62ae46b4a0230c7d802b17cea89d24f2d1",
+   "bytes": 3415
+  }
+ },
+ {
+  "name": "edge-daemon-node",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "58e5cb4bf1d263ce8834d225b5eec9dd3cc1f17c6415cc174a95c38cf55e9574",
+   "bytes": 3415
+  }
+ },
+ {
+  "name": "edge-daemon-empty",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "58e5cb4bf1d263ce8834d225b5eec9dd3cc1f17c6415cc174a95c38cf55e9574",
+   "bytes": 3415
+  }
+ },
+ {
+  "name": "edge-daemon-bad-value",
+  "outcome": {
+   "kind": "error",
+   "message": "daemon.implementation must be one of node, rust"
+  }
+ },
+ {
+  "name": "edge-daemon-wrong-type",
+  "outcome": {
+   "kind": "error",
+   "message": "daemon.implementation must be one of node, rust"
+  }
+ },
+ {
+  "name": "edge-daemon-unknown-key",
+  "outcome": {
+   "kind": "error",
+   "message": "daemon has 1 unknown key(s); allowed: implementation"
+  }
+ },
+ {
+  "name": "edge-daemon-not-table",
+  "outcome": {
+   "kind": "error",
+   "message": "daemon must be a table"
   }
  },
  {

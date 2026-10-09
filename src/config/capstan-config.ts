@@ -32,6 +32,7 @@ import {
 import {
   CONFIG_FILE_NAME,
   type CapstanConfig,
+  DAEMON_IMPLEMENTATIONS,
   ConfigError,
   DEFAULT_HERDR_SESSION,
   DEFAULT_KEEP_MIGRATION_BACKUPS,
@@ -49,6 +50,7 @@ import {
   MAX_WORKTREE_SETUP_TIMEOUT_SECONDS,
   MAX_WORKTREE_TEARDOWN_TIMEOUT_SECONDS,
   NEXORA_PROJECT_FILE,
+  type ResolvedDaemon,
   type ResolvedEnvironment,
   type ResolvedLayout,
   type ResolvedLedger,
@@ -165,6 +167,7 @@ export function parseCapstanConfig(
       "ledger",
       "layout",
       "worktree",
+      "daemon",
       "env",
       "hosts",
       "roles",
@@ -332,6 +335,22 @@ export function parseCapstanConfig(
 
   const worktree = resolveWorktree(optionalTable(root.worktree, "worktree"));
 
+  const daemonTable = optionalTable(root.daemon, "daemon");
+  rejectUnknownKeys(daemonTable, ["implementation"], "daemon");
+  const daemon: ResolvedDaemon | undefined =
+    root.daemon === undefined
+      ? undefined
+      : {
+          implementation:
+            daemonTable.implementation === undefined
+              ? "node"
+              : enumValue(
+                  daemonTable.implementation,
+                  "daemon.implementation",
+                  DAEMON_IMPLEMENTATIONS,
+                ),
+        };
+
   const envTable = optionalTable(root.env, "env");
   rejectUnknownKeys(envTable, ["pass"], "env");
   const env: ResolvedEnvironment = {
@@ -403,6 +422,7 @@ export function parseCapstanConfig(
     ledger,
     layout,
     ...(worktree === undefined ? {} : { worktree }),
+    ...(daemon === undefined ? {} : { daemon }),
     env,
     hosts,
     roles,

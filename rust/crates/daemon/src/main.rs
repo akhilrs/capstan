@@ -1,7 +1,10 @@
 //! `cstan-daemon`: the controller daemon of one project (the working directory), as `cstan daemon` is in Node. It takes no
 //! arguments; the hidden `__restart-helper <plan>` runs the restart helper that the Operator's restart starts detached.
 
-use capstan_daemon::run::{announce_line, daemon_options, run_daemon, EXIT_USAGE};
+use capstan_daemon::ports::{cli_site, launch_disabled, wiring, WiringInput};
+use capstan_daemon::run::{
+    announce_line, daemon_options, run_daemon_with, EXIT_RUNTIME, EXIT_USAGE,
+};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -36,7 +39,21 @@ fn main() {
     options.announce = Some(Arc::new(|event: &str, pid: u32| {
         let _ = writeln!(std::io::stdout(), "{}", announce_line(event, pid));
     }));
-    if let Err(error) = run_daemon(options) {
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => fail(EXIT_RUNTIME, &error.to_string()),
+    };
+    // The real Herdr adapter, launcher, Operator and loops; CAPSTAN_LAUNCH=off keeps the daemon away from Herdr as in Node.
+    let input = WiringInput {
+        cli: cli_site(&std::env::vars().collect(), &executable),
+        executable,
+        launch: !launch_disabled(),
+    };
+    let wired = match wiring(&options, input) {
+        Ok(wired) => wired,
+        Err(error) => fail(error.exit_code, &error.message),
+    };
+    if let Err(error) = run_daemon_with(options, wired) {
         fail(error.exit_code, &error.message);
     }
 }

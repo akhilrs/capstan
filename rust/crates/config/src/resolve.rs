@@ -86,6 +86,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             "ledger",
             "layout",
             "worktree",
+            "daemon",
             "env",
             "hosts",
             "roles",
@@ -255,6 +256,20 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
 
     let worktree = resolve_worktree(optional_table(root.get("worktree"), "worktree")?)?;
 
+    let daemon_table = optional_table(root.get("daemon"), "daemon")?;
+    reject_unknown_keys(daemon_table, &["implementation"], "daemon")?;
+    let daemon_implementation = if root.get("daemon").is_some() {
+        Some(
+            match daemon_table.get("implementation") {
+                None => "node",
+                value => enum_value(value, "daemon.implementation", &["node", "rust"])?,
+            }
+            .to_string(),
+        )
+    } else {
+        None
+    };
+
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, &["pass"], "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
@@ -318,6 +333,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         ledger,
         layout,
         worktree,
+        daemon_implementation,
         env_pass,
         hosts,
         roles,

@@ -3,7 +3,14 @@ import {
   ADDED_NODE_OPTION_VARIABLE,
   DAEMON_SEMI_SPACE_FLAG,
 } from "./node-options.js";
-import { isSea, selfCommand } from "./sea.js";
+import path from "node:path";
+import { loadCapstanConfig } from "./config/capstan-config.js";
+import {
+  ConfigError,
+  DAEMON_IMPLEMENTATIONS,
+  type DaemonImplementation,
+} from "./config/types.js";
+import { entryPath, isSea, selfCommand } from "./sea.js";
 
 export {
   ADDED_NODE_OPTION_VARIABLE,
@@ -148,12 +155,106 @@ export function scrubEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return copy;
 }
 
-/** The command, arguments and environment that start the daemon: the CLI's own, with the young-generation cap unless one is already set. */
+const RUST_DAEMON_NAME = "cstan-daemon";
+
+/** A bad daemon selection (`CSTAN_DAEMON`, or `[daemon]` in capstan.toml): a configuration error, which exits like one. */
+export class DaemonSelectionError extends TypeError {
+  override readonly name = "DaemonSelectionError";
+}
+
+/**
+ * Which daemon implementation to start: CSTAN_DAEMON wins over capstan.toml's `[daemon] implementation`, and a project
+ * with neither (or with no readable capstan.toml: the daemon reports that itself) gets the Node daemon.
+ */
+export function selectDaemon(
+  env: NodeJS.ProcessEnv,
+  projectRoot?: string,
+): DaemonImplementation {
+  const fromEnv = env.CSTAN_DAEMON;
+  if (fromEnv !== undefined && fromEnv !== "") {
+    const found = DAEMON_IMPLEMENTATIONS.find((name) => name === fromEnv);
+    if (found === undefined)
+      throw new DaemonSelectionError(
+        `CSTAN_DAEMON must be one of ${DAEMON_IMPLEMENTATIONS.join(", ")}`,
+      );
+    return found;
+  }
+  if (projectRoot === undefined) return "node";
+  try {
+    return loadCapstanConfig(projectRoot).daemon?.implementation ?? "node";
+  } catch (error) {
+    // A bad value is a config error; any other problem with the file is for the daemon and `cstan config check` to report.
+    if (error instanceof ConfigError && error.message.includes("daemon"))
+      throw new DaemonSelectionError(error.message);
+    return "node";
+  }
+}
+
+/** The Rust daemon binary: CSTAN_DAEMON_BIN, else `cstan-daemon` beside the running executable or the CLI's dist directory. */
+function rustDaemonBinary(env: NodeJS.ProcessEnv, cliPath?: string): string {
+  const named = env.CSTAN_DAEMON_BIN;
+  const fail = (reason: string): never => {
+    throw new ControllerUnavailableError(
+      "start_failed",
+      `the Rust daemon could not be started: ${reason}`,
+    );
+  };
+  const usable = (file: string): boolean => {
+    try {
+      fs.accessSync(file, fs.constants.X_OK);
+      return fs.statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+  if (named !== undefined && named !== "") {
+    if (!path.isAbsolute(named))
+      return fail("CSTAN_DAEMON_BIN must be an absolute path");
+    if (!usable(named))
+      return fail(`CSTAN_DAEMON_BIN ${named} is not an executable file`);
+    return named;
+  }
+  const beside = [path.dirname(process.execPath)];
+  if (!isSea() && cliPath !== undefined) {
+    const directory = path.dirname(cliPath);
+    beside.unshift(directory, path.dirname(directory));
+  }
+  for (const directory of beside) {
+    const candidate = path.join(directory, RUST_DAEMON_NAME);
+    if (usable(candidate)) return candidate;
+  }
+  return fail(
+    `no ${RUST_DAEMON_NAME} beside the cstan executable; set CSTAN_DAEMON_BIN to its absolute path or use implementation = "node"`,
+  );
+}
+
+/** The command, arguments and environment that start the daemon: the CLI's own, with the young-generation cap unless one is already set; the Rust daemon binary when it is selected. */
 export function daemonCommand(
   env: NodeJS.ProcessEnv,
   cliPath?: string,
   sea: boolean = isSea(),
+  projectRoot?: string,
 ): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  if (selectDaemon(env, projectRoot) === "rust") {
+    const environment = scrubEnvironment(env);
+    delete environment[ADDED_NODE_OPTION_VARIABLE];
+    // The daemon is not a CLI: the `cstan` it puts on its agents' PATH runs the Node CLI that started it.
+    if (
+      environment.CSTAN_NODE_CLI === undefined ||
+      environment.CSTAN_NODE_CLI === ""
+    ) {
+      if (sea) environment.CSTAN_NODE_CLI = process.execPath;
+      else {
+        environment.CSTAN_NODE_CLI = cliPath ?? entryPath();
+        environment.CSTAN_NODE = process.execPath;
+      }
+    }
+    return {
+      command: rustDaemonBinary(env, cliPath),
+      args: [],
+      env: environment,
+    };
+  }
   const self = selfCommand(["daemon"], cliPath);
   const capped = (list: readonly string[]): boolean =>
     list.some((flag) => flag.startsWith("--max-semi-space-size"));
@@ -253,7 +354,12 @@ export async function ensureDaemon(
   let spawnError: string | undefined;
   let lostRaceAt: number | undefined;
   try {
-    const self = daemonCommand(options.env, options.cliPath);
+    const self = daemonCommand(
+      options.env,
+      options.cliPath,
+      undefined,
+      options.projectRoot,
+    );
     const child = spawn(self.command, self.args, {
       cwd: options.projectRoot,
       env: self.env,
