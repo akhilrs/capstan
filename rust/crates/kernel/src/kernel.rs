@@ -39,6 +39,8 @@ pub struct Kernel {
     pub internal_actor_id: String,
     pub read_only: bool,
     pub env: Box<dyn Env>,
+    /// `PromptRelayArea.#config`: set by `configurePromptRelay`, read by the prompt relay area.
+    pub(crate) prompt_relay: RefCell<crate::areas::prompt_relay::PromptRelayConfig>,
     closed: Cell<bool>,
 }
 
@@ -219,6 +221,7 @@ impl Kernel {
                 internal_actor_id: internal,
                 read_only: false,
                 env,
+                prompt_relay: RefCell::default(),
                 closed: Cell::new(false),
             })
         })();
@@ -268,6 +271,7 @@ impl Kernel {
             internal_actor_id: internal,
             read_only: true,
             env,
+            prompt_relay: RefCell::default(),
             closed: Cell::new(false),
         })
     }
