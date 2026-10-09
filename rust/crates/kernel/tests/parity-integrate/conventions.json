@@ -1,0 +1,1647 @@
+{
+  "branches": [
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1",
+      "planTitle": null
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "plan-1",
+      "name": "integration/plan-1-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c",
+      "planTitle": null
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "a_b.c",
+      "name": "integration/a-b-c-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "planTitle": null
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "integration/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead",
+      "planTitle": null
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "--lead--",
+      "name": "integration/lead-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x",
+      "planTitle": null
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "",
+      "name": "integration/x-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de",
+      "planTitle": null
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "Ünï-cöde",
+      "name": "integration/n-c-de-work",
+      "planTitle": "!!!"
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "planTitle": null
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "planTitle": ""
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-build-the-thing",
+      "planTitle": "Build the thing"
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-zazolc-eclair-ss",
+      "planTitle": "Zażółć Éclair ß"
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-fine-1-2-abc",
+      "planTitle": "ﬁne ½ ＡＢＣ"
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-word-word-word-word-word-word",
+      "planTitle": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-work",
+      "planTitle": "日本語"
+    },
+    {
+      "integrationId": "7e16d310-1ab4-42fb-bee9-62929e2cb7e2",
+      "name": "integration/7e16d310-1ab4-42fb-bee9-62929e2cb7e2-work",
+      "planTitle": "!!!"
+    }
+  ],
+  "messages": [
+    {
+      "message": "chore: x\n\nbody",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nbody",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\nbody without blank",
+      "parents": 1,
+      "rules": [
+        "body-separation"
+      ]
+    },
+    {
+      "message": "chore: x\nbody without blank",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n  \nbody",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n  \nbody",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\r\n\r\nbody",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\r\n\r\nbody",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\r\rbody",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\r\rbody",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "not conventional\n\nbody",
+      "parents": 1,
+      "rules": [
+        "subject-format"
+      ]
+    },
+    {
+      "message": "not conventional\n\nbody",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+      "parents": 1,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+      "parents": 2,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\n  co-authored-by: Some Claude Person",
+      "parents": 1,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\n  co-authored-by: Some Claude Person",
+      "parents": 2,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Claudette <c@example.com>",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Claudette <c@example.com>",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: not_claude_ <c@example.com>",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: not_claude_ <c@example.com>",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: claude-3 <c@example.com>",
+      "parents": 1,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: claude-3 <c@example.com>",
+      "parents": 2,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Human <NOREPLY@ANTHROPIC.COM>",
+      "parents": 1,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Human <NOREPLY@ANTHROPIC.COM>",
+      "parents": 2,
+      "rules": [
+        "claude-co-author"
+      ]
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Human <h@example.com>",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nCo-authored-by: Human <h@example.com>",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nthanks to co-authored-by: Claude",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nthanks to co-authored-by: Claude",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nClaude-Session: abc",
+      "parents": 1,
+      "rules": [
+        "claude-session"
+      ]
+    },
+    {
+      "message": "chore: x\n\nClaude-Session: abc",
+      "parents": 2,
+      "rules": [
+        "claude-session"
+      ]
+    },
+    {
+      "message": "chore: x\n\n   CLAUDE-SESSION: abc",
+      "parents": 1,
+      "rules": [
+        "claude-session"
+      ]
+    },
+    {
+      "message": "chore: x\n\n   CLAUDE-SESSION: abc",
+      "parents": 2,
+      "rules": [
+        "claude-session"
+      ]
+    },
+    {
+      "message": "chore: x\n\nnot Claude-Session: abc",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nnot Claude-Session: abc",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nGenerated with Claude Code",
+      "parents": 1,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\nGenerated with Claude Code",
+      "parents": 2,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\nGenerated with [Claude Code](https://claude.com)",
+      "parents": 1,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\nGenerated with [Claude Code](https://claude.com)",
+      "parents": 2,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\ngenerated with  claude code",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\ngenerated with  claude code",
+      "parents": 2,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nbuilt 🤖",
+      "parents": 1,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\nbuilt 🤖",
+      "parents": 2,
+      "rules": [
+        "claude-code-footer"
+      ]
+    },
+    {
+      "message": "chore: x\n\nplain body",
+      "parents": 1,
+      "rules": []
+    },
+    {
+      "message": "chore: x\n\nplain body",
+      "parents": 2,
+      "rules": []
+    }
+  ],
+  "slugs": [
+    {
+      "max": 30,
+      "slug": "build-the-thing",
+      "title": "Build the thing"
+    },
+    {
+      "max": 40,
+      "slug": "build-the-thing",
+      "title": "Build the thing"
+    },
+    {
+      "max": 1,
+      "slug": "b",
+      "title": "Build the thing"
+    },
+    {
+      "max": 5,
+      "slug": "build",
+      "title": "Build the thing"
+    },
+    {
+      "max": 30,
+      "slug": "leading-and-trailing",
+      "title": "  --Leading and trailing--  "
+    },
+    {
+      "max": 40,
+      "slug": "leading-and-trailing",
+      "title": "  --Leading and trailing--  "
+    },
+    {
+      "max": 1,
+      "slug": "l",
+      "title": "  --Leading and trailing--  "
+    },
+    {
+      "max": 5,
+      "slug": "leadi",
+      "title": "  --Leading and trailing--  "
+    },
+    {
+      "max": 30,
+      "slug": "upper-lower-123",
+      "title": "UPPER lower 123"
+    },
+    {
+      "max": 40,
+      "slug": "upper-lower-123",
+      "title": "UPPER lower 123"
+    },
+    {
+      "max": 1,
+      "slug": "u",
+      "title": "UPPER lower 123"
+    },
+    {
+      "max": 5,
+      "slug": "upper",
+      "title": "UPPER lower 123"
+    },
+    {
+      "max": 30,
+      "slug": "under-score-and-dot-slash",
+      "title": "under_score and.dot/slash"
+    },
+    {
+      "max": 40,
+      "slug": "under-score-and-dot-slash",
+      "title": "under_score and.dot/slash"
+    },
+    {
+      "max": 1,
+      "slug": "u",
+      "title": "under_score and.dot/slash"
+    },
+    {
+      "max": 5,
+      "slug": "under",
+      "title": "under_score and.dot/slash"
+    },
+    {
+      "max": 30,
+      "slug": "zazolc-gesla-jazn",
+      "title": "Zażółć gęślą jaźń"
+    },
+    {
+      "max": 40,
+      "slug": "zazolc-gesla-jazn",
+      "title": "Zażółć gęślą jaźń"
+    },
+    {
+      "max": 1,
+      "slug": "z",
+      "title": "Zażółć gęślą jaźń"
+    },
+    {
+      "max": 5,
+      "slug": "zazol",
+      "title": "Zażółć gęślą jaźń"
+    },
+    {
+      "max": 30,
+      "slug": "creme-brulee-a-la-facon",
+      "title": "Crème brûlée à la façon"
+    },
+    {
+      "max": 40,
+      "slug": "creme-brulee-a-la-facon",
+      "title": "Crème brûlée à la façon"
+    },
+    {
+      "max": 1,
+      "slug": "c",
+      "title": "Crème brûlée à la façon"
+    },
+    {
+      "max": 5,
+      "slug": "creme",
+      "title": "Crème brûlée à la façon"
+    },
+    {
+      "max": 30,
+      "slug": "angstrom-unicode-nandu",
+      "title": "Ångström Ünïcödé Ñandú"
+    },
+    {
+      "max": 40,
+      "slug": "angstrom-unicode-nandu",
+      "title": "Ångström Ünïcödé Ñandú"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "Ångström Ünïcödé Ñandú"
+    },
+    {
+      "max": 5,
+      "slug": "angst",
+      "title": "Ångström Ünïcödé Ñandú"
+    },
+    {
+      "max": 30,
+      "slug": "strasse-ss-ss",
+      "title": "Straße ẞ ß"
+    },
+    {
+      "max": 40,
+      "slug": "strasse-ss-ss",
+      "title": "Straße ẞ ß"
+    },
+    {
+      "max": 1,
+      "slug": "s",
+      "title": "Straße ẞ ß"
+    },
+    {
+      "max": 5,
+      "slug": "stras",
+      "title": "Straße ẞ ß"
+    },
+    {
+      "max": 30,
+      "slug": "aero-oresund-oeuvre-aether-oeu",
+      "title": "Ærø Øresund Œuvre æther œuf"
+    },
+    {
+      "max": 40,
+      "slug": "aero-oresund-oeuvre-aether-oeuf",
+      "title": "Ærø Øresund Œuvre æther œuf"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "Ærø Øresund Œuvre æther œuf"
+    },
+    {
+      "max": 5,
+      "slug": "aero",
+      "title": "Ærø Øresund Œuvre æther œuf"
+    },
+    {
+      "max": 30,
+      "slug": "da-nang-duong",
+      "title": "Đà Nẵng đường"
+    },
+    {
+      "max": 40,
+      "slug": "da-nang-duong",
+      "title": "Đà Nẵng đường"
+    },
+    {
+      "max": 1,
+      "slug": "d",
+      "title": "Đà Nẵng đường"
+    },
+    {
+      "max": 5,
+      "slug": "da-na",
+      "title": "Đà Nẵng đường"
+    },
+    {
+      "max": 30,
+      "slug": "lodz-latwo",
+      "title": "Łódź łatwo"
+    },
+    {
+      "max": 40,
+      "slug": "lodz-latwo",
+      "title": "Łódź łatwo"
+    },
+    {
+      "max": 1,
+      "slug": "l",
+      "title": "Łódź łatwo"
+    },
+    {
+      "max": 5,
+      "slug": "lodz",
+      "title": "Łódź łatwo"
+    },
+    {
+      "max": 30,
+      "slug": "thor-and-durda-thdthd",
+      "title": "Þor and Ðurđa þðÞÐ"
+    },
+    {
+      "max": 40,
+      "slug": "thor-and-durda-thdthd",
+      "title": "Þor and Ðurđa þðÞÐ"
+    },
+    {
+      "max": 1,
+      "slug": "t",
+      "title": "Þor and Ðurđa þðÞÐ"
+    },
+    {
+      "max": 5,
+      "slug": "thor",
+      "title": "Þor and Ðurđa þðÞÐ"
+    },
+    {
+      "max": 30,
+      "slug": "fine-flow-ffi-st-ij-ij-dz-dz-d",
+      "title": "ﬁne ﬂow ﬃ ﬆ ĳ Ĳ ǆ ǅ Ǆ"
+    },
+    {
+      "max": 40,
+      "slug": "fine-flow-ffi-st-ij-ij-dz-dz-dz",
+      "title": "ﬁne ﬂow ﬃ ﬆ ĳ Ĳ ǆ ǅ Ǆ"
+    },
+    {
+      "max": 1,
+      "slug": "f",
+      "title": "ﬁne ﬂow ﬃ ﬆ ĳ Ĳ ǆ ǅ Ǆ"
+    },
+    {
+      "max": 5,
+      "slug": "fine",
+      "title": "ﬁne ﬂow ﬃ ﬆ ĳ Ĳ ǆ ǅ Ǆ"
+    },
+    {
+      "max": 30,
+      "slug": "abc-abc-123",
+      "title": "ＡＢＣ ａｂｃ １２３"
+    },
+    {
+      "max": 40,
+      "slug": "abc-abc-123",
+      "title": "ＡＢＣ ａｂｃ １２３"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "ＡＢＣ ａｂｃ １２３"
+    },
+    {
+      "max": 5,
+      "slug": "abc-a",
+      "title": "ＡＢＣ ａｂｃ １２３"
+    },
+    {
+      "max": 30,
+      "slug": "xii-viii-viii-1-2-a",
+      "title": "ⅩⅡ Ⅷ ⅷ ① ② ⒜"
+    },
+    {
+      "max": 40,
+      "slug": "xii-viii-viii-1-2-a",
+      "title": "ⅩⅡ Ⅷ ⅷ ① ② ⒜"
+    },
+    {
+      "max": 1,
+      "slug": "x",
+      "title": "ⅩⅡ Ⅷ ⅷ ① ② ⒜"
+    },
+    {
+      "max": 5,
+      "slug": "xii-v",
+      "title": "ⅩⅡ Ⅷ ⅷ ① ② ⒜"
+    },
+    {
+      "max": 30,
+      "slug": "x2-y3-1-4-1-2-3-4-1-2",
+      "title": "x² y₃ ¼ ½ ¾ 1⁄2"
+    },
+    {
+      "max": 40,
+      "slug": "x2-y3-1-4-1-2-3-4-1-2",
+      "title": "x² y₃ ¼ ½ ¾ 1⁄2"
+    },
+    {
+      "max": 1,
+      "slug": "x",
+      "title": "x² y₃ ¼ ½ ¾ 1⁄2"
+    },
+    {
+      "max": 5,
+      "slug": "x2-y3",
+      "title": "x² y₃ ¼ ½ ¾ 1⁄2"
+    },
+    {
+      "max": 30,
+      "slug": "c-f-kg-m2",
+      "title": "℃ ℉ ㎏ ㎡ ㈱ ㌔"
+    },
+    {
+      "max": 40,
+      "slug": "c-f-kg-m2",
+      "title": "℃ ℉ ㎏ ㎡ ㈱ ㌔"
+    },
+    {
+      "max": 1,
+      "slug": "c",
+      "title": "℃ ℉ ㎏ ㎡ ㈱ ㌔"
+    },
+    {
+      "max": 5,
+      "slug": "c-f-k",
+      "title": "℃ ℉ ㎏ ㎡ ㈱ ㌔"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "ﷺ ﷲ"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "ﷺ ﷲ"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "ﷺ ﷲ"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "ﷺ ﷲ"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "日本語のテスト"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "日本語のテスト"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "日本語のテスト"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "日本語のテスト"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "한국어 테스트 각 힣"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "한국어 테스트 각 힣"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "한국어 테스트 각 힣"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "한국어 테스트 각 힣"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "العربية עברית"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "العربية עברית"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "العربية עברית"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "العربية עברית"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "Привіт мир й ё Й Ё"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "Привіт мир й ё Й Ё"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "Привіт мир й ё Й Ё"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "Привіт мир й ё Й Ё"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "Ελληνικά ΐ ά Σίσυφος ΑΣ"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "Ελληνικά ΐ ά Σίσυφος ΑΣ"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "Ελληνικά ΐ ά Σίσυφος ΑΣ"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "Ελληνικά ΐ ά Σίσυφος ΑΣ"
+    },
+    {
+      "max": 30,
+      "slug": "turkce-istanbul-i",
+      "title": "Türkçe İstanbul ı I"
+    },
+    {
+      "max": 40,
+      "slug": "turkce-istanbul-i",
+      "title": "Türkçe İstanbul ı I"
+    },
+    {
+      "max": 1,
+      "slug": "t",
+      "title": "Türkçe İstanbul ı I"
+    },
+    {
+      "max": 5,
+      "slug": "turkc",
+      "title": "Türkçe İstanbul ı I"
+    },
+    {
+      "max": 30,
+      "slug": "emoji-and-and",
+      "title": "emoji 🙂 and 👍🏽 and 🇯🇵"
+    },
+    {
+      "max": 40,
+      "slug": "emoji-and-and",
+      "title": "emoji 🙂 and 👍🏽 and 🇯🇵"
+    },
+    {
+      "max": 1,
+      "slug": "e",
+      "title": "emoji 🙂 and 👍🏽 and 🇯🇵"
+    },
+    {
+      "max": 5,
+      "slug": "emoji",
+      "title": "emoji 🙂 and 👍🏽 and 🇯🇵"
+    },
+    {
+      "max": 30,
+      "slug": "e-a-o-combining",
+      "title": "é ä ộ combining"
+    },
+    {
+      "max": 40,
+      "slug": "e-a-o-combining",
+      "title": "é ä ộ combining"
+    },
+    {
+      "max": 1,
+      "slug": "e",
+      "title": "é ä ộ combining"
+    },
+    {
+      "max": 5,
+      "slug": "e-a-o",
+      "title": "é ä ộ combining"
+    },
+    {
+      "max": 30,
+      "slug": "viet-nam-ee-e-e",
+      "title": "Việt Nam ếệ Ế Ệ"
+    },
+    {
+      "max": 40,
+      "slug": "viet-nam-ee-e-e",
+      "title": "Việt Nam ếệ Ế Ệ"
+    },
+    {
+      "max": 1,
+      "slug": "v",
+      "title": "Việt Nam ếệ Ế Ệ"
+    },
+    {
+      "max": 5,
+      "slug": "viet",
+      "title": "Việt Nam ếệ Ế Ệ"
+    },
+    {
+      "max": 30,
+      "slug": "aiou-uuuu-a",
+      "title": "ǎǐǒǔ ǖǘǚǜ Ǎ"
+    },
+    {
+      "max": 40,
+      "slug": "aiou-uuuu-a",
+      "title": "ǎǐǒǔ ǖǘǚǜ Ǎ"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "ǎǐǒǔ ǖǘǚǜ Ǎ"
+    },
+    {
+      "max": 5,
+      "slug": "aiou",
+      "title": "ǎǐǒǔ ǖǘǚǜ Ǎ"
+    },
+    {
+      "max": 30,
+      "slug": "s-c-o-o-a",
+      "title": "ṩ ḉ ǭ ȫ ǻ"
+    },
+    {
+      "max": 40,
+      "slug": "s-c-o-o-a",
+      "title": "ṩ ḉ ǭ ȫ ǻ"
+    },
+    {
+      "max": 1,
+      "slug": "s",
+      "title": "ṩ ḉ ǭ ȫ ǻ"
+    },
+    {
+      "max": 5,
+      "slug": "s-c-o",
+      "title": "ṩ ḉ ǭ ȫ ǻ"
+    },
+    {
+      "max": 30,
+      "slug": "n-s-n",
+      "title": "ŉ ſ ʼn"
+    },
+    {
+      "max": 40,
+      "slug": "n-s-n",
+      "title": "ŉ ſ ʼn"
+    },
+    {
+      "max": 1,
+      "slug": "n",
+      "title": "ŉ ſ ʼn"
+    },
+    {
+      "max": 5,
+      "slug": "n-s-n",
+      "title": "ŉ ſ ʼn"
+    },
+    {
+      "max": 30,
+      "slug": "zero-width-space",
+      "title": "​ zero width　space"
+    },
+    {
+      "max": 40,
+      "slug": "zero-width-space",
+      "title": "​ zero width　space"
+    },
+    {
+      "max": 1,
+      "slug": "z",
+      "title": "​ zero width　space"
+    },
+    {
+      "max": 5,
+      "slug": "zero",
+      "title": "​ zero width　space"
+    },
+    {
+      "max": 30,
+      "slug": "tab-new-line",
+      "title": "tab\tnew\nline"
+    },
+    {
+      "max": 40,
+      "slug": "tab-new-line",
+      "title": "tab\tnew\nline"
+    },
+    {
+      "max": 1,
+      "slug": "t",
+      "title": "tab\tnew\nline"
+    },
+    {
+      "max": 5,
+      "slug": "tab-n",
+      "title": "tab\tnew\nline"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": "日本語"
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": "日本語"
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": "日本語"
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": "日本語"
+    },
+    {
+      "max": 30,
+      "slug": "work",
+      "title": ""
+    },
+    {
+      "max": 40,
+      "slug": "work",
+      "title": ""
+    },
+    {
+      "max": 1,
+      "slug": "work",
+      "title": ""
+    },
+    {
+      "max": 5,
+      "slug": "work",
+      "title": ""
+    },
+    {
+      "max": 30,
+      "slug": "word-word-word-word-word-word",
+      "title": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "max": 40,
+      "slug": "word-word-word-word-word-word-word-word",
+      "title": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "max": 1,
+      "slug": "w",
+      "title": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "max": 5,
+      "slug": "word",
+      "title": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+    },
+    {
+      "max": 30,
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "ÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅ"
+    },
+    {
+      "max": 40,
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "ÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅ"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "ÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅ"
+    },
+    {
+      "max": 5,
+      "slug": "aaaaa",
+      "title": "ÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅÀÁÂÃÄÅ"
+    },
+    {
+      "max": 30,
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "ａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａ"
+    },
+    {
+      "max": 40,
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "ａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａ"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "ａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａ"
+    },
+    {
+      "max": 5,
+      "slug": "aaaaa",
+      "title": "ａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａａ"
+    },
+    {
+      "max": 30,
+      "slug": "pokemon-pikachu-raichu-025",
+      "title": "Pokémon: Pikachu & Raichu #025"
+    },
+    {
+      "max": 40,
+      "slug": "pokemon-pikachu-raichu-025",
+      "title": "Pokémon: Pikachu & Raichu #025"
+    },
+    {
+      "max": 1,
+      "slug": "p",
+      "title": "Pokémon: Pikachu & Raichu #025"
+    },
+    {
+      "max": 5,
+      "slug": "pokem",
+      "title": "Pokémon: Pikachu & Raichu #025"
+    },
+    {
+      "max": 30,
+      "slug": "abc-abc",
+      "title": "ᴀʙᴄ ⓐⓑⓒ ⒶⒷⒸ"
+    },
+    {
+      "max": 40,
+      "slug": "abc-abc",
+      "title": "ᴀʙᴄ ⓐⓑⓒ ⒶⒷⒸ"
+    },
+    {
+      "max": 1,
+      "slug": "a",
+      "title": "ᴀʙᴄ ⓐⓑⓒ ⒶⒷⒸ"
+    },
+    {
+      "max": 5,
+      "slug": "abc-a",
+      "title": "ᴀʙᴄ ⓐⓑⓒ ⒶⒷⒸ"
+    },
+    {
+      "max": 30,
+      "slug": "st",
+      "title": "ꜰ ꜱ ﬅ ﬓ"
+    },
+    {
+      "max": 40,
+      "slug": "st",
+      "title": "ꜰ ꜱ ﬅ ﬓ"
+    },
+    {
+      "max": 1,
+      "slug": "s",
+      "title": "ꜰ ꜱ ﬅ ﬓ"
+    },
+    {
+      "max": 5,
+      "slug": "st",
+      "title": "ꜰ ꜱ ﬅ ﬓ"
+    }
+  ],
+  "subjects": [
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "add it",
+        "scope": null,
+        "type": "feat"
+      },
+      "subject": "feat: add it"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "add it",
+        "scope": "core",
+        "type": "feat"
+      },
+      "subject": "feat(core): add it"
+    },
+    {
+      "parsed": {
+        "breaking": true,
+        "description": "add it",
+        "scope": "core",
+        "type": "feat"
+      },
+      "subject": "feat(core)!: add it"
+    },
+    {
+      "parsed": {
+        "breaking": true,
+        "description": "add it",
+        "scope": null,
+        "type": "feat"
+      },
+      "subject": "feat!: add it"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "x",
+        "scope": "a.b/c_d-e",
+        "type": "fix"
+      },
+      "subject": "fix(a.b/c_d-e): x"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "undo",
+        "scope": null,
+        "type": "revert"
+      },
+      "subject": "revert: undo"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "pretty",
+        "scope": null,
+        "type": "style"
+      },
+      "subject": "style: pretty"
+    },
+    {
+      "parsed": null,
+      "subject": "wibble: unknown type"
+    },
+    {
+      "parsed": null,
+      "subject": "Feat: capital"
+    },
+    {
+      "parsed": null,
+      "subject": "feat:no space"
+    },
+    {
+      "parsed": null,
+      "subject": "feat:  two spaces"
+    },
+    {
+      "parsed": null,
+      "subject": "feat: "
+    },
+    {
+      "parsed": null,
+      "subject": "feat:"
+    },
+    {
+      "parsed": null,
+      "subject": "feat: \t"
+    },
+    {
+      "parsed": null,
+      "subject": "feat(): empty scope"
+    },
+    {
+      "parsed": null,
+      "subject": "feat(a b): space in scope"
+    },
+    {
+      "parsed": null,
+      "subject": "feat(a(b)): nested"
+    },
+    {
+      "parsed": null,
+      "subject": "feat(a)(b): twice"
+    },
+    {
+      "parsed": null,
+      "subject": "feat (a): space before"
+    },
+    {
+      "parsed": null,
+      "subject": "feat(a)): extra"
+    },
+    {
+      "parsed": null,
+      "subject": ": nothing"
+    },
+    {
+      "parsed": null,
+      "subject": ""
+    },
+    {
+      "parsed": null,
+      "subject": "chore: tidy up"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "café 日本",
+        "scope": null,
+        "type": "chore"
+      },
+      "subject": "chore: café 日本"
+    },
+    {
+      "parsed": null,
+      "subject": "chore: a\rb"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "explain: more",
+        "scope": "readme",
+        "type": "docs"
+      },
+      "subject": "docs(readme): explain: more"
+    },
+    {
+      "parsed": {
+        "breaking": true,
+        "description": "break",
+        "scope": null,
+        "type": "build"
+      },
+      "subject": "build!: break"
+    },
+    {
+      "parsed": {
+        "breaking": false,
+        "description": "faster ",
+        "scope": "db",
+        "type": "perf"
+      },
+      "subject": "perf(db): faster "
+    },
+    {
+      "parsed": null,
+      "subject": "ci:  nbsp start"
+    },
+    {
+      "parsed": null,
+      "subject": "test: x"
+    }
+  ],
+  "suffixes": [
+    {
+      "branch": "integration/plan-1",
+      "n": 1,
+      "name": "integration/plan-1"
+    },
+    {
+      "branch": "integration/plan-1",
+      "n": 2,
+      "name": "integration/plan-1-2"
+    },
+    {
+      "branch": "integration/plan-1",
+      "n": 3,
+      "name": "integration/plan-1-3"
+    },
+    {
+      "branch": "integration/plan-1",
+      "n": 10,
+      "name": "integration/plan-1-10"
+    },
+    {
+      "branch": "integration/plan-1",
+      "n": 99,
+      "name": "integration/plan-1-99"
+    },
+    {
+      "branch": "integration/plan-1",
+      "n": 999,
+      "name": "integration/plan-1-999"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 1,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 2,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 3,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-3"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 10,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 99,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-99"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 999,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-999"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 1,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/."
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 2,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 3,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-3"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 10,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 99,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-99"
+    },
+    {
+      "branch": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-/.",
+      "n": 999,
+      "name": "integration/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-999"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 1,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 2,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-2"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 3,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-3"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 10,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-10"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 99,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-99"
+    },
+    {
+      "branch": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.-b",
+      "n": 999,
+      "name": "integration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-999"
+    }
+  ]
+}
