@@ -1396,15 +1396,13 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
-
-    /// Every message body of every sequence of the exported ops group.
+    /// Every message body of every sequence of the exported ops group (the baseline has no messages, so a sequence's
+    /// added message rows are all of its messages).
     fn exported_message_bodies() -> Vec<String> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/parity/ops.json");
-        let export: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let export = crate::export_file::parity_group("ops");
         let mut bodies = Vec::new();
         for sequence in export["sequences"].as_array().unwrap() {
-            let Some(messages) = sequence["tables"].get("messages") else {
+            let Some(messages) = sequence["tablesDiff"].get("messages") else {
                 continue;
             };
             let column = messages["columns"]
@@ -1413,7 +1411,7 @@ mod tests {
                 .iter()
                 .position(|c| c == "body")
                 .expect("the messages table has a body");
-            for row in messages["rows"].as_array().unwrap() {
+            for row in messages["added"].as_array().unwrap() {
                 bodies.push(row[column].as_str().unwrap().to_string());
             }
         }

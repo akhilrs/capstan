@@ -103,6 +103,47 @@ fn a_broken_expectation_is_reported_with_the_first_difference() {
     }
 }
 
+#[test]
+fn a_table_mismatch_is_reported_decoded() {
+    // The exported file is packed (a dictionary of repeated values); a failure must name table, row and column.
+    let scratch = tempfile::tempdir().unwrap();
+    let core = read_json(&parity_dir().join("core.json"));
+    let mut sequence = core["sequences"][0].clone();
+    // The bootstrap sequence adds nothing to the baseline; claim one extra project row and one wrong value.
+    sequence["tablesDiff"] = json!({"projects": {"added": [["not-the-project", "x"]]}});
+    std::fs::write(
+        scratch.path().join("broken.json"),
+        serde_json::to_string(&json!({"group": "broken", "format": 1, "sequences": [sequence]}))
+            .unwrap(),
+    )
+    .unwrap();
+    let reports = replay_directory(scratch.path());
+    match &reports[0].status {
+        Status::Failed(detail) => {
+            assert!(detail.contains("table projects"), "{detail}");
+            assert!(!detail.contains("$d"), "{detail}");
+        }
+        other => panic!("{other:?}"),
+    }
+    // A wrong value in a row both sides have names the column.
+    let baseline = &core["baseline"];
+    let row = baseline["projects"]["rows"][0].clone();
+    let mut wrong = row.clone();
+    wrong[1] = json!("a-wrong-value");
+    let message = common::replay::first_tables_difference(
+        &json!({"projects": {"added": [wrong]}}),
+        &json!({"projects": {"added": [row]}}),
+        baseline,
+        "tables",
+    )
+    .unwrap();
+    let column = baseline["projects"]["columns"][1].as_str().unwrap();
+    assert!(
+        message.contains(&format!("column {column}: Node has \"a-wrong-value\"")),
+        "{message}"
+    );
+}
+
 // ----------------------------------------------------------------------------------------------- core method list
 
 fn snake(name: &str) -> String {

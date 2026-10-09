@@ -915,15 +915,12 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
-
     /// Every refusal `relayTextProblem` can give is exported from the prompt-relay sequence, with Node's message. (The
     /// refusal for a text that is not well-formed UTF-16 cannot be exported: a lone surrogate is not valid in a Rust
     /// string or in the fixture JSON that Rust reads.)
     #[test]
     fn every_relay_text_refusal_occurs_in_the_export() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/parity/ops.json");
-        let export: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let export = crate::export_file::parity_group("ops");
         let sequence = export["sequences"]
             .as_array()
             .unwrap()

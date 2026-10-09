@@ -168,6 +168,169 @@ pub fn dump_tables(file: &Path) -> Value {
     Value::Object(out)
 }
 
+/// What changed in `current` against `baseline` (both as `dump_tables` returns them), the way the exporter records it:
+/// per table the rows only in `current` (`added`) and the rows only in the baseline (`removed`), each in dump order;
+/// `columns` where the baseline has no such table or other columns; unchanged tables are left out.
+pub fn diff_tables(baseline: &Value, current: &Value) -> Value {
+    let mut names: Vec<&String> = baseline
+        .as_object()
+        .into_iter()
+        .chain(current.as_object())
+        .flat_map(|tables| tables.keys())
+        .collect();
+    names.sort();
+    names.dedup();
+    let rows_of = |tables: &Value, name: &str| -> Vec<Value> {
+        tables[name]["rows"].as_array().cloned().unwrap_or_default()
+    };
+    let mut out = Map::new();
+    for name in names {
+        let was = rows_of(baseline, name);
+        let now = rows_of(current, name);
+        let mut count: BTreeMap<String, usize> = BTreeMap::new();
+        for row in &was {
+            *count.entry(row.to_string()).or_default() += 1;
+        }
+        let mut added = Vec::new();
+        for row in &now {
+            match count.get_mut(&row.to_string()) {
+                Some(left) if *left > 0 => *left -= 1,
+                _ => added.push(row.clone()),
+            }
+        }
+        let mut removed = Vec::new();
+        for row in &was {
+            if let Some(left) = count.get_mut(&row.to_string()) {
+                if *left > 0 {
+                    *left -= 1;
+                    removed.push(row.clone());
+                }
+            }
+        }
+        let columns_changed =
+            current.get(name).is_some() && baseline[name]["columns"] != current[name]["columns"];
+        if added.is_empty() && removed.is_empty() && !columns_changed {
+            continue;
+        }
+        let mut entry = Map::new();
+        if columns_changed {
+            entry.insert("columns".into(), current[name]["columns"].clone());
+        }
+        if !added.is_empty() {
+            entry.insert("added".into(), Value::Array(added));
+        }
+        if !removed.is_empty() {
+            entry.insert("removed".into(), Value::Array(removed));
+        }
+        out.insert(name.clone(), Value::Object(entry));
+    }
+    Value::Object(out)
+}
+
+/// The first place two table diffs (see `diff_tables`) differ, in the terms of the ledger: the table, the list, the row
+/// (its first column) and the column, with both values decoded; the fixture's dictionary is long expanded by then.
+pub fn first_tables_difference(
+    expected: &Value,
+    actual: &Value,
+    baseline: &Value,
+    label: &str,
+) -> Option<String> {
+    if expected == actual {
+        return None;
+    }
+    let tables = |v: &Value| -> Vec<String> {
+        v.as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut names = tables(expected);
+    names.extend(tables(actual));
+    names.sort();
+    names.dedup();
+    let empty = Vec::new();
+    for name in names {
+        let (e, a) = (&expected[&name], &actual[&name]);
+        if e == a {
+            continue;
+        }
+        let columns_of = |v: &Value| -> Option<Vec<String>> {
+            v["columns"]
+                .as_array()
+                .or(baseline[&name]["columns"].as_array())
+                .map(|c| {
+                    c.iter()
+                        .map(|x| x.as_str().unwrap_or("?").to_string())
+                        .collect()
+                })
+        };
+        let (expected_columns, actual_columns) = (columns_of(e), columns_of(a));
+        if expected_columns != actual_columns {
+            return Some(format!(
+                "{label}: table {name}: expected columns {expected_columns:?} but got {actual_columns:?}"
+            ));
+        }
+        let columns = expected_columns.unwrap_or_default();
+        for list in ["added", "removed"] {
+            let (x, y) = (
+                e[list].as_array().unwrap_or(&empty),
+                a[list].as_array().unwrap_or(&empty),
+            );
+            for i in 0..x.len().max(y.len()) {
+                let here = format!("{label}: table {name}, {list} row {i}");
+                match (x.get(i), y.get(i)) {
+                    (Some(p), Some(q)) if p == q => {}
+                    (Some(p), Some(q)) if p[0] == q[0] => {
+                        let column = (0..p.as_array().map_or(0, Vec::len))
+                            .find(|&j| p[j] != q[j])
+                            .unwrap_or(0);
+                        let key = columns.first().map_or("?", String::as_str);
+                        return Some(format!(
+                            "{here} ({key} = {}): column {}: Node has {} but Rust has {}",
+                            clip(&p[0]),
+                            columns.get(column).map_or("?", String::as_str),
+                            clip(&p[column]),
+                            clip(&q[column])
+                        ));
+                    }
+                    (Some(p), Some(q)) => {
+                        return Some(format!(
+                            "{here}: Node has the row {} but Rust has the row {} (a row is missing or extra)",
+                            clip(p),
+                            clip(q)
+                        ))
+                    }
+                    (Some(p), None) => {
+                        return Some(format!("{here}: the row {} is missing in Rust", clip(p)))
+                    }
+                    (None, Some(q)) => {
+                        return Some(format!("{here}: Rust has the extra row {}", clip(q)))
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+    }
+    first_difference(expected, actual, label)
+}
+
+/// The full baseline ledger of the parity export: `baseline` of the group file `core.json` in `dir`, else of the
+/// committed parity directory.
+pub fn baseline_of(dir: &Path) -> Value {
+    let own = dir.join("core.json");
+    let file = if own.exists() {
+        own
+    } else {
+        super::parity_dir().join("core.json")
+    };
+    let core = super::read_json(&file);
+    assert!(
+        core["baseline"].is_object(),
+        "{} has no baseline",
+        file.display()
+    );
+    core["baseline"].clone()
+}
+
 /// What a step did, in the shape the exporter records it: `result`, or `error` and `message`.
 fn outcome_of(result: &Result<Value, KernelError>) -> Value {
     match result {
@@ -194,6 +357,8 @@ struct Run {
     handles: BTreeMap<String, Core>,
     env: Rc<SeededEnv>,
     requires: bool,
+    /// The full ledger every recorded table diff is against.
+    baseline: Value,
 }
 
 impl Run {
@@ -295,9 +460,13 @@ impl Run {
                 return Err(StepFault::Failed(format!("{}: {diff}", step_label(step))));
             }
         }
-        if let Some(tables) = step.get("tables") {
-            let actual = dump_tables(&self.directory.join("controller.sqlite"));
-            if let Some(diff) = first_difference(tables, &actual, "tables") {
+        if let Some(expected) = step.get("tablesDiff") {
+            let actual = diff_tables(
+                &self.baseline,
+                &dump_tables(&self.directory.join("controller.sqlite")),
+            );
+            if let Some(diff) = first_tables_difference(expected, &actual, &self.baseline, "tables")
+            {
                 return Err(StepFault::Failed(format!("{}: {diff}", step_label(step))));
             }
         }
@@ -310,7 +479,7 @@ fn step_label(step: &Value) -> String {
 }
 
 /// Replays one sequence of a group file.
-pub fn replay_sequence(sequence: &Value) -> Status {
+pub fn replay_sequence(sequence: &Value, baseline: &Value) -> Status {
     let seed = sequence["seed"].as_str().unwrap_or("");
     let directory = super::private_tempdir();
     let mut run = Run {
@@ -320,6 +489,7 @@ pub fn replay_sequence(sequence: &Value) -> Status {
         requires: sequence["requires"]
             .as_array()
             .is_some_and(|r| !r.is_empty()),
+        baseline: baseline.clone(),
     };
     let mut status = Status::Passed;
     for (index, step) in sequence["steps"]
@@ -342,8 +512,13 @@ pub fn replay_sequence(sequence: &Value) -> Status {
         }
     }
     if status == Status::Passed {
-        let actual = dump_tables(&directory.path().join("controller.sqlite"));
-        if let Some(diff) = first_difference(&sequence["tables"], &actual, "tables") {
+        let actual = diff_tables(
+            baseline,
+            &dump_tables(&directory.path().join("controller.sqlite")),
+        );
+        if let Some(diff) =
+            first_tables_difference(&sequence["tablesDiff"], &actual, baseline, "tables")
+        {
             status = Status::Failed(format!("final dump: {diff}"));
         }
     }
@@ -362,6 +537,7 @@ pub fn replay_directory(dir: &Path) -> Vec<Report> {
         .filter(|path| path.extension().is_some_and(|e| e == "json"))
         .collect();
     files.sort();
+    let baseline = baseline_of(dir);
     let mut reports = Vec::new();
     for file in files {
         let group = super::read_json(&file);
@@ -370,7 +546,7 @@ pub fn replay_directory(dir: &Path) -> Vec<Report> {
             reports.push(Report {
                 group: name.clone(),
                 sequence: sequence["name"].as_str().unwrap_or("?").to_string(),
-                status: replay_sequence(&sequence),
+                status: replay_sequence(&sequence, &baseline),
             });
         }
     }

@@ -22,6 +22,16 @@
  * position, counters from the handle), `as` names the result for later `$name.path` references. The record of a step is
  * its resolved `context` and `args`, then `result` or `error` (class name) and `message`, and the counters; the record of
  * a sequence ends with a dump of every table. Time and randomness: see test/kernel-parity-hooks.ts.
+ *
+ * File format (2). Keeping the files small, nothing is lost: (1) core.json has `baseline`, the full ledger (every table
+ * with rows: `columns` and `rows`) the bootstrap sequence ends with; every dump of every sequence, in every group, is
+ * recorded as `tablesDiff` instead of `tables`: per table the rows only in the dump (`added`) and only in the baseline
+ * (`removed`), each in dump order, and `columns` where they differ from the baseline's (a changed row is one removed
+ * and one added); unchanged tables are left out. (2) `dict` lists the strings of 16 or more characters and the table
+ * rows that occur more than once in the file; each occurrence is `{"$d": index}`, and an entry refers only to earlier
+ * entries. Readers expand the dictionary and re-derive the diff of their own ledger before comparing (unpack and
+ * diff_tables in rust/crates/kernel/tests/common), so a failure names the table, row and column. One sequence per line.
+ * The kernel-integrate export (kernel-integrate-export.ts) writes the same format with its smallest scenario as baseline.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -412,14 +422,194 @@ export function sequenceFiles(): string[] {
     .sort();
 }
 
-/** A parity group file: the header, then one sequence per line (compact, to keep the committed fixtures small). */
-function groupText(group: string, sequences: Json[]): string {
-  const lines = sequences.map((sequence) => JSON.stringify(stable(sequence)));
-  return `{"format":1,"group":${JSON.stringify(group)},"sequences":[\n${lines.join(",\n")}\n]}\n`;
+export type Tables = { [table: string]: { columns: string[]; rows: Json[][] } };
+
+/**
+ * What changed in `tables` against `baseline`: per table, the rows only in `tables` (`added`) and the rows only in
+ * the baseline (`removed`), each in dump order; a changed row is a removed and an added one. `columns` is recorded
+ * where the baseline has no such table or other columns. Unchanged tables are left out.
+ */
+export function diffTables(baseline: Tables, tables: Tables): Json {
+  const out: { [table: string]: Json } = {};
+  const names = new Set([...Object.keys(baseline), ...Object.keys(tables)]);
+  for (const name of [...names].sort()) {
+    const was = baseline[name];
+    const now = tables[name];
+    const count = new Map<string, number>();
+    for (const row of was?.rows ?? []) {
+      const key = JSON.stringify(row);
+      count.set(key, (count.get(key) ?? 0) + 1);
+    }
+    const added: Json[] = [];
+    for (const row of now?.rows ?? []) {
+      const key = JSON.stringify(row);
+      const left = count.get(key) ?? 0;
+      if (left > 0) count.set(key, left - 1);
+      else added.push(row);
+    }
+    const removed: Json[] = [];
+    for (const row of was?.rows ?? []) {
+      const key = JSON.stringify(row);
+      const left = count.get(key) ?? 0;
+      if (left > 0) {
+        count.set(key, left - 1);
+        removed.push(row);
+      }
+    }
+    const columnsChanged =
+      now !== undefined &&
+      JSON.stringify(was?.columns) !== JSON.stringify(now.columns);
+    if (added.length === 0 && removed.length === 0 && !columnsChanged) continue;
+    out[name] = {
+      ...(columnsChanged ? { columns: now.columns } : {}),
+      ...(added.length > 0 ? { added } : {}),
+      ...(removed.length > 0 ? { removed } : {}),
+    };
+  }
+  return out;
+}
+
+/** A sequence with every table dump replaced by its difference against the baseline (`tables` becomes `tablesDiff`). */
+export function compactSequence(sequence: Json, baseline: Tables): Json {
+  const { tables, steps, ...rest } = sequence as { [key: string]: Json };
+  return {
+    ...rest,
+    steps: (steps as Json[]).map((step) => {
+      const { tables: dump, ...record } = step as { [key: string]: Json };
+      return dump === undefined
+        ? record
+        : { ...record, tablesDiff: diffTables(baseline, dump as never) };
+    }),
+    tablesDiff: diffTables(baseline, tables as never),
+  };
+}
+
+const REF = "$d";
+const SHORTEST_STRING = 16;
+const SHORTEST_ROW = 40;
+
+/**
+ * Lossless size reduction of an export file: a string of 16 or more characters that occurs more than once, and then
+ * a table row (an element of an `added` or `removed` list) that does, is written once to `dict` and replaced by
+ * `{"$d": index}` everywhere (a dictionary entry refers only to earlier entries). Readers expand it first
+ * (`unpack` in tests/common/mod.rs); the document itself says nothing else about it.
+ */
+export function pack(document: { [key: string]: Json }): {
+  [key: string]: Json;
+} {
+  const strings = new Map<string, number>();
+  const countStrings = (value: Json): void => {
+    if (typeof value === "string") {
+      if (value.length >= SHORTEST_STRING)
+        strings.set(value, (strings.get(value) ?? 0) + 1);
+    } else if (Array.isArray(value)) value.forEach(countStrings);
+    else if (value !== null && typeof value === "object") {
+      if (REF in value) throw new Error(`the export has a ${REF} key`);
+      Object.values(value).forEach(countStrings);
+    }
+  };
+  countStrings(document);
+  const dict: Json[] = [];
+  const stringIndex = new Map<string, number>();
+  for (const [value, count] of strings)
+    if (count > 1) {
+      stringIndex.set(value, dict.length);
+      dict.push(value);
+    }
+  const replaceStrings = (value: Json): Json => {
+    if (typeof value === "string") {
+      const index = stringIndex.get(value);
+      return index === undefined ? value : { [REF]: index };
+    }
+    if (Array.isArray(value)) return value.map(replaceStrings);
+    if (value !== null && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([key, x]) => [key, replaceStrings(x)]),
+      );
+    return value;
+  };
+  const shortened = replaceStrings(document) as { [key: string]: Json };
+  const rows = new Map<string, number>();
+  const countRows = (value: Json, key?: string): void => {
+    if (Array.isArray(value)) {
+      if (key === "added" || key === "removed")
+        for (const row of value) {
+          const text = JSON.stringify(row);
+          if (text.length >= SHORTEST_ROW)
+            rows.set(text, (rows.get(text) ?? 0) + 1);
+        }
+      else value.forEach((x) => countRows(x));
+    } else if (value !== null && typeof value === "object")
+      for (const [k, x] of Object.entries(value)) countRows(x, k);
+  };
+  countRows(shortened);
+  const rowIndex = new Map<string, number>();
+  for (const [text, count] of rows)
+    if (count > 1) {
+      rowIndex.set(text, dict.length);
+      dict.push(JSON.parse(text) as Json);
+    }
+  const replaceRows = (value: Json, key?: string): Json => {
+    if (Array.isArray(value))
+      return key === "added" || key === "removed"
+        ? value.map((row) => {
+            const index = rowIndex.get(JSON.stringify(row));
+            return index === undefined ? row : { [REF]: index };
+          })
+        : value.map((x) => replaceRows(x));
+    if (value !== null && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([k, x]) => [k, replaceRows(x, k)]),
+      );
+    return value;
+  };
+  return { dict, ...(replaceRows(shortened) as { [key: string]: Json }) };
+}
+
+/**
+ * An export file as text: the header fields on one line each, then the dictionary and every record of the list
+ * fields (`sequences`, `scenarios`, `cases`, `dict`, and each table of `baseline`) on a line of their own.
+ */
+export function packedText(document: { [key: string]: Json }): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(
+    stable(pack(document)) as { [key: string]: Json },
+  )) {
+    if (Array.isArray(value))
+      lines.push(
+        `${JSON.stringify(key)}:[\n${value.map((x) => JSON.stringify(x)).join(",\n")}\n]`,
+      );
+    else if (key === "baseline" && value !== null && typeof value === "object")
+      lines.push(
+        `${JSON.stringify(key)}:{\n${Object.entries(value)
+          .map(
+            ([name, table]) =>
+              `${JSON.stringify(name)}:${JSON.stringify(table)}`,
+          )
+          .join(",\n")}\n}`,
+      );
+    else lines.push(`${JSON.stringify(key)}:${JSON.stringify(value)}`);
+  }
+  return `{${lines.join(",\n")}}\n`;
+}
+
+/** A parity group file: the header (with the full baseline in core.json), then one sequence per line. */
+function groupText(
+  group: string,
+  sequences: Json[],
+  baseline?: Tables,
+): string {
+  return packedText({
+    format: 2,
+    group,
+    ...(baseline === undefined ? {} : { baseline: baseline as never }),
+    sequences,
+  });
 }
 
 async function sequenceGroups(): Promise<Map<string, string>> {
   const out = new Map<string, string>();
+  const runs = new Map<string, Json[]>();
   for (const file of sequenceFiles()) {
     const group = file.slice(0, -".json".length);
     const source = JSON.parse(
@@ -433,11 +623,24 @@ async function sequenceGroups(): Promise<Map<string, string>> {
       names.add(sequence.name);
       sequences.push(await runSequence(sequence));
     }
+    runs.set(group, sequences);
+  }
+  // The baseline is the ledger the core group's bootstrap sequence ends with; core.json records it in full.
+  const bootstrap = (runs.get("core") ?? []).find(
+    (sequence) => (sequence as { name?: Json }).name === "bootstrap",
+  ) as { tables?: Tables } | undefined;
+  if (bootstrap?.tables === undefined)
+    throw new Error("the core group needs a bootstrap sequence (the baseline)");
+  const baseline = bootstrap.tables;
+  for (const [group, sequences] of runs)
     out.set(
       `${EXPORT_LAYOUT.parity}/${group}.json`,
-      groupText(group, sequences),
+      groupText(
+        group,
+        sequences.map((sequence) => compactSequence(sequence, baseline)),
+        group === "core" ? baseline : undefined,
+      ),
     );
-  }
   return out;
 }
 

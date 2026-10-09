@@ -18,7 +18,7 @@ use capstan_kernel::integrate::{
 use capstan_kernel::types::{InitialProject, MutationContext};
 use capstan_kernel::{Core, KernelError, KernelOptions, SeededEnv};
 use capstan_ledger::{open_database, OpenOptions};
-use common::replay::{dump_tables, first_difference};
+use common::replay::{diff_tables, dump_tables, first_difference, first_tables_difference};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -206,7 +206,7 @@ enum Status {
     Failed(String),
 }
 
-fn replay_scenario(scenario: &Value) -> Status {
+fn replay_scenario(scenario: &Value, baseline: &Value) -> Status {
     let seed = scenario["seed"].as_str().unwrap_or("");
     let requires = scenario["requires"]
         .as_array()
@@ -394,17 +394,25 @@ fn replay_scenario(scenario: &Value) -> Status {
                 break 'steps;
             }
         }
-        if let Some(tables) = step.get("tables") {
-            let actual = dump_tables(&state_dir.path().join("controller.sqlite"));
-            if let Some(diff) = first_difference(tables, &actual, "tables") {
+        if let Some(expected) = step.get("tablesDiff") {
+            let actual = diff_tables(
+                baseline,
+                &dump_tables(&state_dir.path().join("controller.sqlite")),
+            );
+            if let Some(diff) = first_tables_difference(expected, &actual, baseline, "tables") {
                 status = fail(diff);
                 break 'steps;
             }
         }
     }
     if status == Status::Passed {
-        let actual = dump_tables(&state_dir.path().join("controller.sqlite"));
-        if let Some(diff) = first_difference(&scenario["tables"], &actual, "tables") {
+        let actual = diff_tables(
+            baseline,
+            &dump_tables(&state_dir.path().join("controller.sqlite")),
+        );
+        if let Some(diff) =
+            first_tables_difference(&scenario["tablesDiff"], &actual, baseline, "tables")
+        {
             status = Status::Failed(format!("final dump: {diff}"));
         }
     }
@@ -423,7 +431,7 @@ fn every_integration_scenario_replays() {
     let mut passed = 0;
     for scenario in scenarios["scenarios"].as_array().unwrap() {
         let name = scenario["name"].as_str().unwrap_or("?");
-        match replay_scenario(scenario) {
+        match replay_scenario(scenario, &scenarios["baseline"]) {
             Status::Passed => passed += 1,
             Status::Pending(detail) => pending.push(format!("{name}: {detail}")),
             Status::Failed(detail) => failures.push(format!("{name}: {detail}")),

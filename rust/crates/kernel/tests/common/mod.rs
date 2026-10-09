@@ -20,9 +20,43 @@ pub fn parity_dir() -> PathBuf {
     crate_dir().join("tests").join("parity")
 }
 
+/// A JSON file; an export file that is packed (`format` 2, see `pack` in test/kernel-parity-export.ts) comes back expanded.
 pub fn read_json(path: &Path) -> Value {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    let value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    unpack(value)
+}
+
+/// Replaces every `{"$d": n}` of a packed export by dictionary entry `n` (an entry refers only to earlier ones) and
+/// drops the dictionary; any other value is returned as it is.
+pub fn unpack(mut value: Value) -> Value {
+    fn expand(value: &mut Value, dict: &[Value]) {
+        match value {
+            Value::Object(map) => {
+                if let (1, Some(n)) = (map.len(), map.get("$d").and_then(Value::as_u64)) {
+                    *value = dict[n as usize].clone();
+                } else {
+                    map.values_mut().for_each(|v| expand(v, dict));
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|v| expand(v, dict)),
+            _ => {}
+        }
+    }
+    let packed = value["format"] == 2 && value["dict"].is_array();
+    if !packed {
+        return value;
+    }
+    let Some(Value::Array(entries)) = value.as_object_mut().and_then(|m| m.remove("dict")) else {
+        return value;
+    };
+    let mut dict: Vec<Value> = Vec::with_capacity(entries.len());
+    for mut entry in entries {
+        expand(&mut entry, &dict);
+        dict.push(entry);
+    }
+    expand(&mut value, &dict);
+    value
 }
 
 /// A fixture of the repository's `test/fixtures` tree.

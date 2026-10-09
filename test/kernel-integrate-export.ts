@@ -50,17 +50,19 @@ import {
   type IntegrationGit,
 } from "../src/integration.js";
 import { installHooks, SeededStream } from "./kernel-parity-hooks.js";
-import { dumpTables, stable } from "./kernel-parity-export.js";
+import {
+  compactSequence,
+  dumpTables,
+  packedText,
+  stable,
+  type Tables,
+} from "./kernel-parity-export.js";
 import { removeTempDir, tempDir } from "./tmp.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 export const INTEGRATE_DIRECTORY = "rust/crates/kernel/tests/parity-integrate";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-
-function text(value: unknown): string {
-  return JSON.stringify(stable(value), null, 2) + "\n";
-}
 
 // ------------------------------------------------------------------------------------------------ git environment
 
@@ -1577,23 +1579,47 @@ export async function exportFiles(): Promise<Map<string, string>> {
   const files = new Map<string, string>();
   const runs: Json[] = [];
   for (const scenario of scenarios()) runs.push(await runScenario(scenario));
-  files.set(`${INTEGRATE_DIRECTORY}/scenarios.json`, text({ scenarios: runs }));
+  // The baseline is the ledger of the scenario with the fewest rows; scenarios.json records it in full.
+  const rowCount = (run: Json): number =>
+    Object.values((run as { tables: Tables }).tables).reduce(
+      (sum, table) => sum + table.rows.length,
+      0,
+    );
+  const smallest = runs.reduce((best, run) =>
+    rowCount(run) < rowCount(best) ? run : best,
+  );
+  const baseline = (smallest as { tables: Tables }).tables;
+  files.set(
+    `${INTEGRATE_DIRECTORY}/scenarios.json`,
+    packedText({
+      format: 2,
+      baseline: baseline as never,
+      scenarios: runs.map((run) => compactSequence(run, baseline)),
+    }),
+  );
   files.set(
     `${INTEGRATE_DIRECTORY}/squash.json`,
-    text({
+    packedText({
+      format: 2,
       cases: squashCases().map(({ name, info, subjects }) => {
         const message = squashMessage(info, new Map(Object.entries(subjects)));
-        return {
+        return stable({
           name,
           info,
           subjects,
           subject: message.subject,
           body: message.body,
-        };
+        });
       }),
     }),
   );
-  files.set(`${INTEGRATE_DIRECTORY}/conventions.json`, text(conventionCases()));
+  files.set(
+    `${INTEGRATE_DIRECTORY}/conventions.json`,
+    packedText({
+      format: 2,
+      ...(conventionCases() as { [key: string]: Json }),
+    }),
+  );
   return files;
 }
 

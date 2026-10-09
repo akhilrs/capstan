@@ -17,6 +17,9 @@ pub mod plan_body;
 pub mod records;
 pub mod types;
 
+#[cfg(test)]
+mod export_file;
+
 pub use crate::core::Core;
 pub use crate::env::{Env, SeededEnv, SystemEnv};
 pub use crate::errors::{KernelError, KernelResult};
