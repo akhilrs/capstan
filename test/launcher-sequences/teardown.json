@@ -1,0 +1,160 @@
+{
+  "sequences": [
+    {
+      "name": "teardown-with-a-matching-terminal",
+      "config": {
+        "worktree": { "teardown": "./cleanup.sh", "teardownTimeoutSeconds": 5 }
+      },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "teardown-of-a-reused-pane-id",
+      "config": {
+        "worktree": { "teardown": "./cleanup.sh", "teardownTimeoutSeconds": 5 }
+      },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w3:p1",
+          "terminalId": "term:reused-by-another-agent"
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "teardown-of-a-pane-whose-tokens-name-another-agent",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w3:p1",
+          "terminalId": "term:w3:p1",
+          "agent": "developer-9",
+          "project": "project"
+        },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "teardown-of-a-pane-of-another-project",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w3:p1",
+          "terminalId": "term:w3:p1",
+          "agent": "developer-1",
+          "project": "another"
+        },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "teardown-without-a-recorded-terminal-id",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "paneIdentity",
+          "error": {
+            "kind": "herdr",
+            "code": "identity_failed",
+            "message": "no identity"
+          }
+        },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        { "op": "release", "agent": "developer-1" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "paneIdentity",
+          "error": {
+            "kind": "herdr",
+            "code": "identity_failed",
+            "message": "no identity"
+          }
+        },
+        { "op": "spawn", "role": "developer", "as": "two" },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w4:p1",
+          "terminalId": "term:other",
+          "agent": "developer-2"
+        },
+        { "op": "release", "agent": "developer-2" }
+      ]
+    },
+    {
+      "name": "teardown-commands-that-fail",
+      "config": { "worktree": { "teardown": "./cleanup.sh" } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "spawn", "role": "supervisor" },
+        {
+          "op": "stub",
+          "do": "teardown",
+          "outcomes": [
+            {
+              "status": "failed",
+              "exitCode": 3,
+              "output": "boom\u001b[31m red"
+            },
+            { "status": "timeout" },
+            { "status": "failed", "exitCode": null, "output": "" }
+          ]
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "release", "agent": "developer2-1" },
+        { "op": "release", "agent": "supervisor-1" }
+      ]
+    },
+    {
+      "name": "teardown-runs-once-for-a-worktree-that-exists",
+      "config": { "worktree": { "teardown": "./cleanup.sh" } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "git",
+          "args": ["worktree", "remove", "--force", "$dev.worktreePath"]
+        },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "teardown-after-a-pane-move",
+      "config": {
+        "layout": { "spawn": "pane" },
+        "worktree": { "teardown": "./cleanup.sh" }
+      },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w1:p11",
+          "terminalId": "term:somebody-else"
+        },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    }
+  ]
+}

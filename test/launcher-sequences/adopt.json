@@ -1,0 +1,561 @@
+{
+  "sequences": [
+    {
+      "name": "adopt-after-a-daemon-restart",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": {
+            "title": "One"
+          }
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": {
+            "title": "Two"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "release",
+          "agent": "developer-1"
+        },
+        {
+          "op": "launch_pm"
+        }
+      ]
+    },
+    {
+      "name": "adopt-a-restarted-pm",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "restart_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "adopt_all"
+        }
+      ]
+    },
+    {
+      "name": "adopt-a-lost-pane",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": {
+            "title": "One"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the pane is gone"
+          }
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": {
+            "title": "One"
+          }
+        }
+      ]
+    },
+    {
+      "name": "adopt-a-lost-pane-whose-id-was-reused",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": {
+            "title": "One"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "identity",
+          "pane": "w3:p1",
+          "terminalId": "term:somebody-else"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "agent_pane_mismatch",
+            "message": "the pane belongs to another agent"
+          }
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "adopt-fails-for-another-reason",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "herdr",
+            "code": "herdr_down",
+            "message": "herdr is not answering"
+          }
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "adopt_all"
+        }
+      ]
+    },
+    {
+      "name": "adopt-the-watch-pane",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the watch pane is gone"
+          }
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptShellPane",
+          "error": {
+            "kind": "herdr",
+            "code": "herdr_down",
+            "message": "herdr is not answering"
+          }
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "adopt_all"
+        }
+      ]
+    },
+    {
+      "name": "adopt-finishes-the-cleanup-of-an-ended-agent",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "as": "dev"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_busy",
+            "message": "pane is busy"
+          }
+        },
+        {
+          "op": "release",
+          "agent": "developer-1"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "status"
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "observe-an-agent",
+      "config": {
+        "promptRelay": true
+      },
+      "steps": [
+        {
+          "op": "observe",
+          "agent": "nobody"
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        },
+        {
+          "op": "stub",
+          "do": "screen",
+          "pane": "w3:p1",
+          "text": "\u001b[1mhello\u001b[0m\r\nworld\u0007"
+        },
+        {
+          "op": "observe",
+          "agent": "developer-1",
+          "lines": 5
+        },
+        {
+          "op": "stub",
+          "do": "observation",
+          "value": "working"
+        },
+        {
+          "op": "observe",
+          "agent": "developer-1"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "readScreen",
+          "error": {
+            "kind": "herdr",
+            "code": "read_failed",
+            "message": "cannot read"
+          }
+        },
+        {
+          "op": "observe",
+          "agent": "developer-1"
+        },
+        {
+          "op": "stub",
+          "do": "working",
+          "pane": "w3:p1"
+        },
+        {
+          "op": "interrupt",
+          "agent": "developer-1"
+        },
+        {
+          "op": "interrupt",
+          "agent": "pm-1"
+        },
+        {
+          "op": "release",
+          "agent": "developer-1"
+        },
+        {
+          "op": "observe",
+          "agent": "developer-1"
+        },
+        {
+          "op": "interrupt",
+          "agent": "developer-1"
+        }
+      ]
+    },
+    {
+      "name": "interrupt-needs-the-prompt-relay",
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        },
+        {
+          "op": "interrupt",
+          "agent": "developer-1"
+        }
+      ]
+    },
+    {
+      "name": "adopt-closes-the-stray-of-an-interrupted-move",
+      "config": {
+        "layout": {
+          "spawn": "pane"
+        }
+      },
+      "steps": [
+        {
+          "op": "stub",
+          "do": "layout_size",
+          "width": 100,
+          "height": 20
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "as": "dev"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the pane is gone"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "gone",
+          "pane": "w3:p1"
+        },
+        {
+          "op": "stub",
+          "do": "strays",
+          "directory": "<worktrees>/developer-1",
+          "panes": [
+            {
+              "paneId": "w1:p20",
+              "workspaceId": "w1"
+            },
+            {
+              "paneId": "w9:p1",
+              "workspaceId": "w9"
+            }
+          ]
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "adopt-leaves-two-strays-alone",
+      "config": {
+        "layout": {
+          "spawn": "pane"
+        }
+      },
+      "steps": [
+        {
+          "op": "stub",
+          "do": "layout_size",
+          "width": 100,
+          "height": 20
+        },
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "as": "dev"
+        },
+        {
+          "op": "stub",
+          "do": "forget_registry"
+        },
+        {
+          "op": "reopen"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "adoptPane",
+          "error": {
+            "kind": "pane_gone",
+            "message": "the pane is gone"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "gone",
+          "pane": "w3:p1"
+        },
+        {
+          "op": "stub",
+          "do": "strays",
+          "directory": "<worktrees>/developer-1",
+          "panes": [
+            {
+              "paneId": "w1:p20",
+              "workspaceId": "w1"
+            },
+            {
+              "paneId": "w1:p21",
+              "workspaceId": "w1"
+            }
+          ]
+        },
+        {
+          "op": "adopt_all"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    },
+    {
+      "name": "spawn-cleans-up-the-stray-of-an-interrupted-move",
+      "config": {
+        "layout": {
+          "spawn": "pane"
+        }
+      },
+      "steps": [
+        {
+          "op": "launch_pm"
+        },
+        {
+          "op": "spawn",
+          "role": "developer"
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "placePane",
+          "error": {
+            "kind": "pane_lost",
+            "message": "the pane was lost in the move"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_not_found",
+            "message": "no such pane"
+          }
+        },
+        {
+          "op": "stub",
+          "do": "strays",
+          "directory": "<worktrees>/developer2-1",
+          "panes": [
+            {
+              "paneId": "w1:p20",
+              "workspaceId": "w1"
+            }
+          ]
+        },
+        {
+          "op": "spawn",
+          "role": "developer2"
+        },
+        {
+          "op": "status"
+        }
+      ]
+    }
+  ]
+}

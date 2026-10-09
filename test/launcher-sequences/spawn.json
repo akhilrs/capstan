@@ -1,0 +1,471 @@
+{
+  "sequences": [
+    {
+      "name": "spawn-tab-per-role",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix the parser" },
+          "as": "dev"
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "task": "req-1", "type": "fix" }
+        },
+        { "op": "spawn", "role": "supervisor" },
+        { "op": "status" },
+        { "op": "in_flight" }
+      ]
+    },
+    {
+      "name": "spawn-review-branch",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "git", "args": ["rev-parse", "HEAD"], "as": "head" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "baseSha": "$head.stdout", "reviewTarget": "report-12" }
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "baseSha": "$head.stdout", "reviewTarget": "report-12" }
+        }
+      ]
+    },
+    {
+      "name": "spawn-branch-names-are-free",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Same Title" }
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "git", "args": ["branch", "chore/developer-2-same-title"] },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Same Title" }
+        },
+        { "op": "git", "args": ["branch", "chore/developer-3-other-2"] },
+        { "op": "spawn", "role": "developer", "options": { "title": "Other" } }
+      ]
+    },
+    {
+      "name": "spawn-hosts",
+      "config": { "hostOf": { "developer": "codex", "developer2": "omp" } },
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "On codex" }
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "title": "On omp" }
+        }
+      ]
+    },
+    {
+      "name": "spawn-special-roles",
+      "config": {
+        "maxWorkers": 2,
+        "architect": { "counts": false },
+        "operator": { "counts": false, "enabled": true },
+        "researcher": { "enabled": true },
+        "promptRelay": true
+      },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "architect" },
+        { "op": "spawn", "role": "operator" },
+        {
+          "op": "spawn",
+          "role": "researcher",
+          "options": { "title": "Survey" }
+        },
+        { "op": "spawn", "role": "developer" },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "spawn", "role": "supervisor" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-special-roles-count",
+      "config": {
+        "maxWorkers": 2,
+        "architect": { "counts": true },
+        "operator": { "counts": true, "enabled": true }
+      },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "architect" },
+        { "op": "spawn", "role": "operator" },
+        { "op": "spawn", "role": "developer" }
+      ]
+    },
+    {
+      "name": "spawn-refusals",
+      "steps": [
+        { "op": "spawn", "role": "developer" },
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "nobody" },
+        { "op": "spawn", "role": "pm" },
+        { "op": "spawn", "role": "developer", "options": { "baseSha": "abc" } },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "task": "bad ref!" }
+        },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "a\u0001b" }
+        },
+        { "op": "spawn", "role": "developer", "options": { "title": "  " } },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "task": "plan-9/pkg" }
+        },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-worker-limit",
+      "config": { "maxWorkers": 1 },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "spawn", "role": "supervisor" },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "spawn", "role": "developer2" }
+      ]
+    },
+    {
+      "name": "spawn-limit-names-the-stuck-cleanup",
+      "config": { "maxWorkers": 1 },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "closePane",
+          "error": {
+            "kind": "herdr",
+            "code": "pane_busy",
+            "message": "pane is busy"
+          }
+        },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-operator-disabled",
+      "config": { "operator": { "counts": false, "enabled": false } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "operator" },
+        { "op": "spawn", "role": "developer" }
+      ]
+    },
+    {
+      "name": "spawn-operator-without-a-table",
+      "config": {
+        "operator": { "counts": false, "enabled": false, "table": false }
+      },
+      "steps": [{ "op": "launch_pm" }, { "op": "spawn", "role": "operator" }]
+    },
+    {
+      "name": "spawn-role-not-synced",
+      "steps": [{ "op": "launch_pm" }, { "op": "spawn", "role": "developer" }],
+      "config": { "synced": false }
+    },
+    {
+      "name": "spawn-pane-layout",
+      "config": { "layout": { "spawn": "pane" } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer", "options": { "title": "First" } },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "title": "Second" }
+        },
+        { "op": "stub", "do": "zoomed", "value": true },
+        { "op": "spawn", "role": "supervisor" },
+        { "op": "stub", "do": "zoomed", "value": false },
+        { "op": "release", "agent": "developer-1" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-pane-no-room",
+      "config": { "layout": { "spawn": "pane" } },
+      "steps": [
+        { "op": "stub", "do": "layout_size", "width": 100, "height": 20 },
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" }
+      ]
+    },
+    {
+      "name": "spawn-pane-layout-fails",
+      "config": { "layout": { "spawn": "pane" } },
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "paneLayout",
+          "error": {
+            "kind": "herdr",
+            "code": "layout_failed",
+            "message": "no layout"
+          }
+        },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "placePane",
+          "error": {
+            "kind": "pane_lost",
+            "message": "the pane was lost in the move"
+          }
+        },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-fails-at-the-worktree",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "createWorktree",
+          "error": {
+            "kind": "herdr",
+            "code": "worktree_failed",
+            "message": "herdr refused the worktree"
+          }
+        },
+        { "op": "spawn", "role": "developer" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-retries-the-start",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": {
+            "kind": "shell_not_ready",
+            "message": "the shell is not ready"
+          }
+        },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "times": 3,
+          "error": { "kind": "prompt_unrecognized", "message": "no prompt yet" }
+        },
+        { "op": "spawn", "role": "developer2" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": { "kind": "shell_not_ready", "message": "first failure" }
+        },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": { "kind": "phase", "message": "the pane is tainted" }
+        },
+        { "op": "spawn", "role": "developer2" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "startAgent",
+          "error": {
+            "kind": "herdr",
+            "code": "start_failed",
+            "message": "no such command"
+          }
+        },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-trust-dialog",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "stub", "do": "start_status", "value": "blocked_at_startup" },
+        { "op": "spawn", "role": "developer" },
+        { "op": "stub", "do": "dialog_handled", "value": false },
+        { "op": "spawn", "role": "developer2" }
+      ]
+    },
+    {
+      "name": "spawn-setup-command",
+      "config": { "worktree": { "setup": "npm ci", "setupTimeoutSeconds": 7 } },
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "spawn", "role": "developer" },
+        {
+          "op": "stub",
+          "do": "setup",
+          "outcomes": [
+            {
+              "status": "failed",
+              "exitCode": 2,
+              "output": "npm ERR! nope\u001b[31m red"
+            }
+          ]
+        },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "stub", "do": "setup", "outcomes": [{ "status": "timeout" }] },
+        { "op": "spawn", "role": "developer2" },
+        {
+          "op": "stub",
+          "do": "setup",
+          "outcomes": [{ "status": "failed", "exitCode": null, "output": "" }]
+        },
+        { "op": "spawn", "role": "developer2" },
+        { "op": "status" }
+      ]
+    },
+    {
+      "name": "spawn-describe-fails",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "reportMetadata",
+          "error": {
+            "kind": "herdr",
+            "code": "metadata_failed",
+            "message": "no sidebar"
+          }
+        },
+        { "op": "spawn", "role": "developer" }
+      ]
+    },
+    {
+      "name": "spawn-terminal-id-unknown",
+      "steps": [
+        { "op": "launch_pm" },
+        {
+          "op": "stub",
+          "do": "fail",
+          "method": "paneIdentity",
+          "error": {
+            "kind": "herdr",
+            "code": "identity_failed",
+            "message": "no identity"
+          }
+        },
+        { "op": "spawn", "role": "developer", "as": "dev" },
+        { "op": "release", "agent": "developer-1" }
+      ]
+    },
+    {
+      "name": "spawn-env-pass",
+      "config": {
+        "pass": ["TOKEN_ONE", "TOKEN_TWO"],
+        "base": { "TOKEN_ONE": "one" }
+      },
+      "steps": [{ "op": "launch_pm" }, { "op": "spawn", "role": "developer" }]
+    },
+    {
+      "name": "rename-branch-for-task",
+      "steps": [
+        { "op": "launch_pm" },
+        { "op": "rename_branch_for_task", "agent": "nobody", "task": "req-1" },
+        {
+          "op": "spawn",
+          "role": "developer",
+          "options": { "title": "Fix the parser" }
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer-1",
+          "task": "bad ref"
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer-1",
+          "task": "plan-9/pkg"
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer-1",
+          "task": "req-1"
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer-1",
+          "task": "req-1"
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer-1",
+          "task": "req-2"
+        },
+        {
+          "op": "spawn",
+          "role": "developer2",
+          "options": { "title": "Other" },
+          "as": "two"
+        },
+        {
+          "op": "write",
+          "dir": "$two.worktreePath",
+          "file": "a.txt",
+          "text": "a\n"
+        },
+        { "op": "git", "cwd": "$two.worktreePath", "args": ["add", "-A"] },
+        {
+          "op": "git",
+          "cwd": "$two.worktreePath",
+          "args": ["commit", "-q", "-m", "feat: a"]
+        },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "developer2-1",
+          "task": "req-3"
+        },
+        { "op": "spawn", "role": "supervisor" },
+        { "op": "git", "args": ["branch", "feat/req-4-supervisor"] },
+        {
+          "op": "rename_branch_for_task",
+          "agent": "supervisor-1",
+          "task": "req-4"
+        },
+        { "op": "status" }
+      ]
+    }
+  ]
+}
