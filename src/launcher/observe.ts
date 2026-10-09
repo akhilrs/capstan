@@ -164,9 +164,17 @@ export class ObserveOps {
   }
 
   async adoptNow(budget: Budget): Promise<void> {
-    for (const orphan of this.k.core.orphanPanes(this.k.credential)) {
+    for (const orphan of this.k.core.orphanPaneTerminals(this.k.credential)) {
       try {
-        await this.k.close(orphan.paneId);
+        if (orphan.terminalId === null) {
+          // Without a terminal id an orphan cannot be told apart from the PM's new pane (same agent token): it is never closed, only dropped once Herdr no longer has it.
+          if ((await this.k.adapter.paneIdentity(orphan.paneId)) !== undefined)
+            continue;
+        } else
+          await this.k.closeOwned(orphan.paneId, {
+            agentId: orphan.agentId,
+            terminalId: orphan.terminalId,
+          });
         this.k.core.clearOrphanPane(this.k.context(), orphan.paneId);
       } catch {
         // Still open; it stays listed.
@@ -225,12 +233,18 @@ export class ObserveOps {
       } catch (error) {
         if (error instanceof PaneGone || error instanceof AgentPaneMismatch) {
           this.k.log("pane_lost", { agentId: row.agentId });
+          // Read before the row is cleared: the pane id may now be another agent's, and only this terminal id tells.
+          const terminalId = this.k.core.paneTerminalId(
+            this.k.credential,
+            row.agentId,
+          );
           this.k.core.clearAgentPane(this.k.context(), row.agentId);
           if (agent.kind !== "PM")
             await this.k.releaser.cleanupAgent(
               row.agentId,
               {
                 paneId: row.paneId,
+                terminalId,
                 ...(this.k.releaser.interruptedMove(row.workspaceId)
                   ? { moveMayHaveHappened: true }
                   : {}),

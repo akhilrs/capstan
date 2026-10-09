@@ -201,6 +201,7 @@ test("migration 0014 adds one table and leaves every existing row unchanged", as
           { version: 34, name: "0034_agent_pane_task.sql" },
           { version: 35, name: "0035_status_query_indexes.sql" },
           { version: 36, name: "0036_daemon_profile_indexes.sql" },
+          { version: 37, name: "0037_pane_terminal_ids.sql" },
         ],
       );
       assert.equal(

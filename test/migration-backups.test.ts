@@ -193,9 +193,9 @@ test("upgrading a v30 ledger writes a backup before each later migration through
     database.close();
     const names = listing(directory).filter((n) => n.includes(".pre-v"));
     assert.equal(names.length, 2);
-    // The upgrade backs up before v31 to v36; the two newest stay.
+    // The upgrade backs up before v31 to v37; the two newest stay.
+    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v37-")));
     assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v36-")));
-    assert.ok(names.some((n) => n.startsWith("controller.sqlite.pre-v35-")));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -245,7 +245,7 @@ test("migration 0033 adds messages.action_needed, gives every existing message 0
     );
     before.close();
     // Keep one backup per migration after 0033 so the one this test looks for is not pruned.
-    const database = await openDatabase(target, { keepMigrationBackups: 4 });
+    const database = await openDatabase(target, { keepMigrationBackups: 5 });
     try {
       const rows = database
         .prepare("SELECT action_needed FROM messages")
@@ -312,7 +312,8 @@ test("migration 0034 adds agent_panes.task_ref and task_title as NULL on every e
       .all();
     assert.ok(oldRows.length > 0, "the fixture has agent_panes rows");
     before.close();
-    const database = await openDatabase(target);
+    // Keep one backup per migration after 0034 so the one this test looks for is not pruned.
+    const database = await openDatabase(target, { keepMigrationBackups: 4 });
     try {
       assert.ok(columns(database).includes("task_ref"));
       assert.ok(columns(database).includes("task_title"));
@@ -357,6 +358,78 @@ test("migration 0034 adds agent_panes.task_ref and task_title as NULL on every e
     assert.ok(
       listing(directory).some((n) =>
         n.startsWith("controller.sqlite.pre-v34-"),
+      ),
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("migration 0037 adds agent_panes.terminal_id and orphan_panes.terminal_id as NULL on every existing row, is backed up first and its CHECKs reject bad values", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capstan-backups-"));
+  try {
+    const target = path.join(directory, "controller.sqlite");
+    fs.copyFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "..",
+        "..",
+        "test",
+        "fixtures",
+        "ledger-better-sqlite3.sqlite",
+      ),
+      target,
+    );
+    const columns = (
+      db: { prepare(sql: string): { all(): unknown[] } },
+      table: string,
+    ): string[] =>
+      (
+        db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+      ).map((c) => c.name);
+    const before = openSqlite(target);
+    assert.ok(!columns(before, "agent_panes").includes("terminal_id"));
+    assert.ok(!columns(before, "orphan_panes").includes("terminal_id"));
+    const rows = (
+      before.prepare("SELECT COUNT(*) AS n FROM agent_panes").get() as {
+        n: number;
+      }
+    ).n;
+    assert.ok(rows > 0, "the fixture has agent_panes rows");
+    before.close();
+    const database = await openDatabase(target);
+    try {
+      for (const table of ["agent_panes", "orphan_panes"]) {
+        assert.ok(columns(database, table).includes("terminal_id"));
+        assert.equal(
+          (
+            database
+              .prepare(
+                `SELECT COUNT(*) AS n FROM ${table} WHERE terminal_id IS NOT NULL`,
+              )
+              .get() as { n: number }
+          ).n,
+          0,
+        );
+      }
+      for (const value of ["", "a b", "a;b", "a".repeat(129)])
+        assert.throws(
+          () =>
+            database
+              .prepare("UPDATE agent_panes SET terminal_id = ?")
+              .run(value),
+          (error: Error) => error instanceof Error,
+          `terminal_id ${JSON.stringify(value)}`,
+        );
+      database
+        .prepare("UPDATE agent_panes SET terminal_id = ?")
+        .run("term_65d5f7a45f83b5a");
+    } finally {
+      database.close();
+    }
+    assert.ok(
+      listing(directory).some((n) =>
+        n.startsWith("controller.sqlite.pre-v37-"),
       ),
     );
   } finally {

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { tempDir } from "./tmp.js";
-import { PaneLost } from "../src/herdr/adapter.js";
+import { PaneLost, type PaneIdentity } from "../src/herdr/adapter.js";
 import { HerdrError } from "../src/herdr/runner.js";
 import type {
   CaptureOutcome,
@@ -11,6 +11,9 @@ import type {
 import type { GitRunner, LauncherAdapter } from "../src/launcher.js";
 
 export const SHA = "b".repeat(40);
+
+/** The terminal id the stub gives a pane it has no other identity for. */
+export const stubTerminalId = (paneId: string): string => `term:${paneId}`;
 
 export interface StartCall {
   name: string;
@@ -337,6 +340,28 @@ export class StubAdapter implements LauncherAdapter {
     this.labels.push(`${workspaceId}:${label}`);
   }
 
+  /** What Herdr says a pane is, per pane id; a pane not listed answers with a terminal id derived from its id and the tokens reported for it. */
+  readonly identities = new Map<string, PaneIdentity>();
+  /** Pane ids Herdr no longer has. */
+  readonly gonePanes = new Set<string>();
+  readonly identified: string[] = [];
+  async paneIdentity(paneId: string): Promise<PaneIdentity | undefined> {
+    this.identified.push(paneId);
+    if (
+      this.gonePanes.has(paneId) ||
+      (this.closeMissingThrows && !this.entries.has(paneId))
+    )
+      return undefined;
+    const listed = this.identities.get(paneId);
+    if (listed !== undefined) return listed;
+    const tokens = this.metadata.findLast((m) => m.target === paneId)?.tokens;
+    return {
+      terminalId: stubTerminalId(paneId),
+      agent: tokens?.agent,
+      project: tokens?.project,
+    };
+  }
+
   async closePane(paneId: string) {
     this.calls.push(`close:${paneId}`);
     if (this.closeError) throw this.closeError;
@@ -427,6 +452,15 @@ export class StubGit implements GitRunner {
   removeStderr = "";
   worktreeDirtyCount() {
     return this.dirty;
+  }
+  /** Worktree paths whose directories are gone. */
+  missing = new Set<string>();
+  prunes = 0;
+  worktreePresent(worktreePath: string) {
+    return !this.missing.has(worktreePath);
+  }
+  pruneWorktrees() {
+    this.prunes += 1;
   }
   /** Names of the calls that matter for ordering, in call order. */
   order: string[] = [];

@@ -29,6 +29,7 @@ export type LauncherAdapter = Pick<
   | "startAgent"
   | "answerTrustDialog"
   | "closePane"
+  | "paneIdentity"
   | "adoptPane"
   | "adoptShellPane"
   | "reportMetadata"
@@ -56,6 +57,10 @@ export interface GitRunner {
     readonly removed: boolean;
     readonly stderr: string;
   };
+  /** Whether the worktree's directory still exists; a worktree removed by hand (or by an earlier cleanup) does not. */
+  worktreePresent(worktreePath: string): boolean;
+  /** `git worktree prune`: forgets worktrees whose directories are gone. */
+  pruneWorktrees(): void;
   /** How many files are untracked or modified in the worktree; null when git cannot tell. */
   worktreeDirtyCount(worktreePath: string): number | null;
   /** Atomic compare-and-delete: only when the branch still points at `sha`. */

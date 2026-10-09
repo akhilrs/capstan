@@ -5,7 +5,7 @@
   },
   {
     "case": "newer",
-    "message": "database schema version 37 is newer than this controller"
+    "message": "database schema version 38 is newer than this controller"
   },
   {
     "case": "renamed",

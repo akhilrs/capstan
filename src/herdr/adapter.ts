@@ -58,6 +58,7 @@ export {
 } from "./adapter-input.js";
 export type {
   PaneEntry,
+  PaneIdentity,
   PaneLayoutView,
   PanePhase,
   PaneRole,
@@ -621,6 +622,12 @@ export class HerdrAdapter {
     ...args: Parameters<PaneOperations["renameWorkspace"]>
   ): ReturnType<PaneOperations["renameWorkspace"]> {
     return this.#paneOperations.renameWorkspace(...args);
+  }
+
+  paneIdentity(
+    ...args: Parameters<PaneOperations["paneIdentity"]>
+  ): ReturnType<PaneOperations["paneIdentity"]> {
+    return this.#paneOperations.paneIdentity(...args);
   }
 
   closePane(

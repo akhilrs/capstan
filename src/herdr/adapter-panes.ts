@@ -35,6 +35,14 @@ export interface PaneEntry {
   readonly workspaceId?: string;
 }
 
+export interface PaneIdentity {
+  readonly terminalId: string | undefined;
+  /** The `agent` token, when one was reported for the pane. */
+  readonly agent: string | undefined;
+  /** The `project` token, when one was reported for the pane. */
+  readonly project: string | undefined;
+}
+
 export interface PaneLayoutView {
   readonly tabId: string;
   readonly workspaceId: string;
@@ -428,6 +436,37 @@ export class PaneOperations {
       workspaceId,
       requireLabel(label),
     ]);
+  }
+  /**
+   * Who a pane belongs to as Herdr shows it now: its terminal id and the
+   * `agent` and `project` tokens Capstan reported for it. Undefined when Herdr
+   * has no such pane. Herdr reuses short pane ids, so this is what tells an
+   * agent's pane from a newer pane that was given the same id.
+   */
+  async paneIdentity(paneId: string): Promise<PaneIdentity | undefined> {
+    requireMatch(paneId, PANE_PATTERN, "pane id");
+    let result: Record<string, unknown>;
+    try {
+      result = await runJson(this.core.run, ["pane", "get", paneId]);
+    } catch (error) {
+      if (error instanceof HerdrError && /not_found|no_such/.test(error.code))
+        return undefined;
+      throw error;
+    }
+    const pane = this.core.record(result.pane, "pane");
+    const tokens =
+      typeof pane.tokens === "object" &&
+      pane.tokens !== null &&
+      !Array.isArray(pane.tokens)
+        ? (pane.tokens as Record<string, unknown>)
+        : {};
+    const text = (value: unknown): string | undefined =>
+      typeof value === "string" && value !== "" ? value : undefined;
+    return {
+      terminalId: text(pane.terminal_id),
+      agent: text(tokens.agent),
+      project: text(tokens.project),
+    };
   }
   async closePane(paneId: string): Promise<void> {
     requireMatch(paneId, PANE_PATTERN, "pane id");

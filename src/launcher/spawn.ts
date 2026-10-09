@@ -150,6 +150,7 @@ export class SpawnOps {
         branch?: string;
         baseSha?: string;
         moveMayHaveHappened?: boolean;
+        paneCreatedHere?: boolean;
       } = {};
       let step = "worktree";
       try {
@@ -180,6 +181,8 @@ export class SpawnOps {
         });
         info.worktreePath = tree.path;
         info.paneId = tree.paneId;
+        info.paneCreatedHere = true;
+        const terminalId = await this.k.terminalOf(tree.paneId, agent.agentId);
         this.k.core.recordAgentPane(this.k.context(), {
           agentId: agent.agentId,
           workspaceId: tree.workspaceId,
@@ -188,6 +191,7 @@ export class SpawnOps {
           branch,
           baseSha,
           ...taskFields,
+          ...(terminalId === null ? {} : { terminalId }),
         });
         if (this.k.config.worktree !== undefined) {
           step = "setup";
@@ -217,6 +221,10 @@ export class SpawnOps {
             paneId = outcome.placed.paneId;
             placement = "pane";
             info.paneId = paneId;
+            const placedTerminal = await this.k.terminalOf(
+              paneId,
+              agent.agentId,
+            );
             this.k.core.recordAgentPane(this.k.context(), {
               agentId: agent.agentId,
               workspaceId: outcome.placed.workspaceId,
@@ -225,6 +233,9 @@ export class SpawnOps {
               branch,
               baseSha,
               ...taskFields,
+              ...(placedTerminal === null
+                ? {}
+                : { terminalId: placedTerminal }),
             });
             info.moveMayHaveHappened = false;
           } else {

@@ -53,7 +53,7 @@ const capture = (h: Harness) =>
     prompt: prompt(h.developer.agentId),
   });
 
-test("migrations are registered through 0036 and every earlier migration is still recorded", async () => {
+test("migrations are registered through 0037 and every earlier migration is still recorded", async () => {
   await withLedger((h, raw) => {
     const versions = raw((db) =>
       db
@@ -62,7 +62,7 @@ test("migrations are registered through 0036 and every earlier migration is stil
     ) as Array<{ version: number }>;
     assert.deepEqual(
       versions.map((entry) => entry.version),
-      Array.from({ length: 36 }, (_, index) => index + 1),
+      Array.from({ length: 37 }, (_, index) => index + 1),
     );
     assert.ok(h.core.stateVersion > 0);
   });
@@ -71,7 +71,9 @@ test("migrations are registered through 0036 and every earlier migration is stil
 test("an existing ledger that lacks 0030 migrates, keeps its data and backfills the PM grant", async () => {
   await withLedger(async (h, raw) => {
     raw((db) => {
-      db.exec(`ALTER TABLE agent_panes DROP COLUMN task_ref;
+      db.exec(`ALTER TABLE agent_panes DROP COLUMN terminal_id;
+        ALTER TABLE orphan_panes DROP COLUMN terminal_id;
+        ALTER TABLE agent_panes DROP COLUMN task_ref;
         ALTER TABLE agent_panes DROP COLUMN task_title;
         ALTER TABLE messages DROP COLUMN action_needed;
         DROP TABLE pauses;

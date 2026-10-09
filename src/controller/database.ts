@@ -247,6 +247,14 @@ const migrations: Readonly<
       import.meta.url,
     ),
   },
+  37: {
+    version: 37,
+    name: "0037_pane_terminal_ids.sql",
+    url: new URL(
+      "../../migrations/0037_pane_terminal_ids.sql",
+      import.meta.url,
+    ),
+  },
 };
 
 /** The highest migration version this build knows. */

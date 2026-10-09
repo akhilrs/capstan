@@ -75,6 +75,10 @@ export function defaultGit(projectRoot: string): GitRunner {
         ),
       };
     },
+    worktreePresent: (worktreePath) => fs.existsSync(worktreePath),
+    pruneWorktrees() {
+      git(["worktree", "prune"]);
+    },
     worktreeDirtyCount(worktreePath) {
       const result = spawnSync(
         "git",

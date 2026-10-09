@@ -72,11 +72,13 @@ export interface AgentPaneInput {
   /** The task the worker was spawned for; omitted (never undefined) when it has none, so stored requests replay. */
   readonly taskRef?: string;
   readonly taskTitle?: string;
+  /** Herdr's terminal id of the pane; omitted when it is not known. Replaced, never kept, when the pane changes. */
+  readonly terminalId?: string;
 }
 
 export interface AgentPaneRecord extends Omit<
   AgentPaneInput,
-  "taskRef" | "taskTitle"
+  "taskRef" | "taskTitle" | "terminalId"
 > {
   readonly generation: number;
   readonly taskRef: string | null;

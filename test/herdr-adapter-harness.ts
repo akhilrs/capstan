@@ -40,6 +40,8 @@ export interface FakePane {
   status: string;
   screen: string;
   checkout: string;
+  terminalId?: string;
+  tokens?: Record<string, unknown>;
 }
 export class FakeHerdr {
   readonly calls: string[][] = [];
@@ -158,6 +160,10 @@ export class FakeHerdr {
           pane_id: pane.paneId,
           agent_status: pane.status,
           ...(pane.agent ? { agent: "claude" } : {}),
+          ...(pane.terminalId === undefined
+            ? {}
+            : { terminal_id: pane.terminalId }),
+          ...(pane.tokens === undefined ? {} : { tokens: pane.tokens }),
         },
       });
     }

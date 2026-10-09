@@ -1245,3 +1245,145 @@ test("replace continues the predecessor's branch at its accepted commit, saves u
     w.cleanup();
   }
 });
+
+test("an ended agent's pane id that Herdr gave to a newer agent's pane is never closed by spawn, release or a restart", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    // The worktree removal is refused, so the ended agent's row stays and every later operation looks at it again.
+    w.git.removeOk = false;
+    w.git.removeStderr = "fatal: worktree contains modified files";
+    await w.launcher.release(old.agentId);
+    assert.ok(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === old.agentId),
+    );
+    const project = w.adapter.metadata.find(
+      (m) => m.tokens.agent === old.agentId,
+    )!.tokens.project!;
+    // Herdr reused the old short pane id for a newer agent's pane.
+    w.adapter.identities.set(old.paneId, {
+      terminalId: "term_newer",
+      agent: "developer-9",
+      project,
+    });
+    w.adapter.entries.set(old.paneId, { agent: "developer-9" });
+    const closesOfOld = () =>
+      w.adapter.calls.filter((c) => c === `close:${old.paneId}`).length;
+    const before = closesOfOld();
+    const next = await w.launcher.spawn("developer");
+    await w.launcher.release(next.agentId);
+    await w.reopen().adoptAll();
+    assert.equal(closesOfOld(), before, "the reused pane id is never closed");
+    assert.ok(
+      w.adapter.calls.includes(`close:${next.paneId}`),
+      "the released agent's own pane is closed",
+    );
+    assert.deepEqual(
+      w.adapter.entries.get(old.paneId),
+      { agent: "developer-9" },
+      "the newer agent's registration is kept",
+    );
+    assert.ok(
+      w.events.some(
+        (e) =>
+          e.event === "pane_not_owned" &&
+          e.details?.agentId === old.agentId &&
+          e.details?.paneId === old.paneId,
+      ),
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a pane that matches neither the recorded terminal id nor, on a row without one, both tokens is left open", async () => {
+  const w = await world();
+  try {
+    await launched(w);
+    const old = await w.launcher.spawn("developer");
+    const project = w.adapter.metadata.find(
+      (m) => m.tokens.agent === old.agentId,
+    )!.tokens.project!;
+    // Same agent token, but another terminal: a pane id reused by a pane that copied the token is still not this agent's.
+    w.adapter.identities.set(old.paneId, {
+      terminalId: "term_other",
+      agent: old.agentId,
+      project,
+    });
+    const released = await w.launcher.release(old.agentId);
+    assert.equal(released.paneClosed, true, "the agent's own pane is gone");
+    assert.equal(w.adapter.calls.includes(`close:${old.paneId}`), false);
+  } finally {
+    w.cleanup();
+  }
+});
+
+test("a worktree whose directory is gone, or that git says is not a working tree, counts as removed and its teardown never runs again", async () => {
+  let runs = 0;
+  const w = await world(
+    true,
+    true,
+    3,
+    {},
+    {
+      worktree: TEARDOWN,
+      runTeardown: async () => {
+        runs += 1;
+        return { status: "ok" };
+      },
+    },
+  );
+  try {
+    await launched(w);
+    // An agent whose removal was refused and whose directory was then deleted by hand: the row of the reported bug.
+    const gone = await w.launcher.spawn("developer");
+    w.git.removeOk = false;
+    w.git.removeStderr = "fatal: worktree contains modified files";
+    await w.launcher.release(gone.agentId);
+    assert.equal(runs, 1);
+    w.git.missing.add(gone.worktreePath);
+    // An agent whose worktree git no longer knows.
+    const unknown = await w.launcher.spawn("developer");
+    assert.equal(runs, 1, "a missing worktree has nothing to tear down");
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === gone.agentId),
+      false,
+      "the finished cleanup's row is gone",
+    );
+    w.git.removeStderr = `fatal: '${unknown.worktreePath}' is not a working tree`;
+    const released = await w.launcher.release(unknown.agentId);
+    assert.equal(released.worktreeRemoved, true);
+    assert.equal(runs, 2);
+    assert.equal(
+      w.core.agentPanes(w.owner).some((r) => r.agentId === unknown.agentId),
+      false,
+    );
+    assert.ok(w.git.prunes >= 2);
+    const teardownsBefore = w.events.filter(
+      (e) => e.event === "teardown_started",
+    ).length;
+    const removalsBefore = w.git.removed.length;
+    const identifiedBefore = w.adapter.identified.length;
+    w.git.removeOk = true;
+    const later = await w.launcher.spawn("developer");
+    await w.reopen().adoptAll();
+    assert.equal(
+      w.events.filter((e) => e.event === "teardown_started").length,
+      teardownsBefore,
+      "no finished teardown is started again",
+    );
+    assert.equal(w.git.removed.length, removalsBefore);
+    assert.deepEqual(
+      w.adapter.identified
+        .slice(identifiedBefore)
+        .filter((p) => p === gone.paneId || p === unknown.paneId),
+      [],
+      "no pane of a finished cleanup is looked at, let alone closed",
+    );
+    assert.deepEqual(w.launcher.status().cleanupFailed, []);
+    await w.launcher.release(later.agentId);
+  } finally {
+    w.cleanup();
+  }
+});

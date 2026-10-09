@@ -714,3 +714,31 @@ test("a tab is renamed with checked text, and a new workspace reports its first 
     h.fake.cleanup();
   }
 });
+
+test("paneIdentity reads a pane's terminal id and its agent and project tokens, and a pane Herdr no longer has is undefined", async () => {
+  const h = harness();
+  try {
+    const pane = h.fake.add("worker", SHELL_READY);
+    pane.terminalId = "term_65d5f7a45f83b5a";
+    pane.tokens = { agent: "developer-3", project: "capstan", role: "dev" };
+    assert.deepEqual(await h.adapter.paneIdentity(pane.paneId), {
+      terminalId: "term_65d5f7a45f83b5a",
+      agent: "developer-3",
+      project: "capstan",
+    });
+    const bare = h.fake.add("worker", SHELL_READY);
+    bare.tokens = { agent: 7 };
+    assert.deepEqual(await h.adapter.paneIdentity(bare.paneId), {
+      terminalId: undefined,
+      agent: undefined,
+      project: undefined,
+    });
+    assert.equal(await h.adapter.paneIdentity("w99:p9"), undefined);
+    await assert.rejects(
+      h.adapter.paneIdentity("not a pane"),
+      InvalidArgumentError,
+    );
+  } finally {
+    h.fake.cleanup();
+  }
+});

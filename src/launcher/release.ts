@@ -11,6 +11,9 @@ import {
   type SpawnResult,
 } from "./shared.js";
 
+/** Git's answer for a path that is not (or no longer) one of its worktrees. */
+const NOT_A_WORKTREE = /is not a working tree/;
+
 export class ReleaseOps {
   constructor(private readonly k: LauncherKernel) {}
 
@@ -228,6 +231,10 @@ export class ReleaseOps {
       baseSha?: string;
       /** True only when a pane move was started and its result never reached the ledger. */
       moveMayHaveHappened?: boolean;
+      /** The pane's Herdr terminal id recorded at spawn; read from the ledger row when omitted. */
+      terminalId?: string | null;
+      /** True only when this operation made the pane, so its id cannot have been given to another pane yet. */
+      paneCreatedHere?: boolean;
     },
     options: {
       readonly lost?: "found_dead_at_start";
@@ -281,6 +288,10 @@ export class ReleaseOps {
       baseSha?: string;
       /** True only when a pane move was started and its result never reached the ledger. */
       moveMayHaveHappened?: boolean;
+      /** The pane's Herdr terminal id recorded at spawn; read from the ledger row when omitted. */
+      terminalId?: string | null;
+      /** True only when this operation made the pane, so its id cannot have been given to another pane yet. */
+      paneCreatedHere?: boolean;
     },
   ): Promise<ReleaseOutcome> {
     const budget = this.k.budget(CLEANUP_BUDGET_MS);
@@ -289,7 +300,15 @@ export class ReleaseOps {
       paneClosed = false;
       if (this.k.within(budget)) {
         try {
-          const existed = await this.k.close(info.paneId);
+          const existed = info.paneCreatedHere
+            ? await this.k.close(info.paneId)
+            : (await this.k.closeOwned(info.paneId, {
+                agentId,
+                terminalId:
+                  info.terminalId === undefined
+                    ? this.k.core.paneTerminalId(this.k.credential, agentId)
+                    : info.terminalId,
+              })) === "closed";
           paneClosed = true;
           if (
             !existed &&
@@ -337,7 +356,15 @@ export class ReleaseOps {
       }
     }
     let worktreeRemoved: boolean | null = null;
-    if (worktreePath !== undefined) {
+    if (
+      worktreePath !== undefined &&
+      !this.k.git.worktreePresent(worktreePath)
+    ) {
+      // Already gone: nothing to tear down, and the cleanup is finished, so the row goes and it is never tried again.
+      this.k.git.pruneWorktrees();
+      this.k.log("worktree_gone", { agentId, worktreePath });
+      worktreeRemoved = true;
+    } else if (worktreePath !== undefined) {
       await this.k.setup.teardownWorktree(agentId, worktreePath, budget);
       this.k.log("worktree_removing", {
         agentId,
@@ -348,6 +375,16 @@ export class ReleaseOps {
         heldByOther ? undefined : info.branch,
       );
       worktreeRemoved = removal.removed;
+      // A directory git no longer knows as a worktree has nothing left for git to remove; retrying would fail the same way forever.
+      if (!worktreeRemoved && NOT_A_WORKTREE.test(removal.stderr)) {
+        this.k.git.pruneWorktrees();
+        this.k.log("worktree_gone", {
+          agentId,
+          worktreePath,
+          stderr: removal.stderr,
+        });
+        worktreeRemoved = true;
+      }
       if (!worktreeRemoved) {
         this.k.log("worktree_kept", {
           agentId,

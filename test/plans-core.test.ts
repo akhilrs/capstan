@@ -1407,6 +1407,8 @@ test("migration 0023 keeps existing review rows and accepts plan reviews afterwa
 
 function undoMigration0031(db: Database): void {
   db.exec(`
+    ALTER TABLE agent_panes DROP COLUMN terminal_id;
+    ALTER TABLE orphan_panes DROP COLUMN terminal_id;
     ALTER TABLE agent_panes DROP COLUMN task_ref;
     ALTER TABLE agent_panes DROP COLUMN task_title;
     ALTER TABLE messages DROP COLUMN action_needed;

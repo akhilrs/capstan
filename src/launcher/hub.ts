@@ -81,6 +81,10 @@ export class HubOps {
         timeoutMs: START_TIMEOUT_MS,
       });
       this.k.agentsStarted += 1;
+      const terminalId = await this.k.terminalOf(
+        workspace.paneId,
+        agent.agentId,
+      );
       this.k.core.recordAgentPane(this.k.context(), {
         agentId: agent.agentId,
         workspaceId: workspace.workspaceId,
@@ -88,6 +92,7 @@ export class HubOps {
         worktreePath: null,
         branch: null,
         baseSha: null,
+        ...(terminalId === null ? {} : { terminalId }),
       });
       await this.k.describe({
         paneId: workspace.paneId,
@@ -386,12 +391,21 @@ export class HubOps {
           .find((r) => r.agentId === agent.agentId)?.paneId ??
         undefined;
       if (oldPane !== undefined) {
+        const terminalId = this.k.core.paneTerminalId(
+          this.k.credential,
+          agent.agentId,
+        );
         try {
-          await this.k.close(oldPane);
+          // The old pane id may have been given to another pane since; only the PM's own pane is closed.
+          await this.k.closeOwned(oldPane, {
+            agentId: agent.agentId,
+            terminalId,
+          });
         } catch (error) {
           this.k.core.recordOrphanPane(this.k.context(), {
             agentId: agent.agentId,
             paneId: oldPane,
+            ...(terminalId === null ? {} : { terminalId }),
           });
           this.k.adapter.forgetPane(oldPane);
           this.k.log("old_pane_not_closed", {

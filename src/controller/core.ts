@@ -553,7 +553,11 @@ export class ControllerCore {
   /** A live pane of a replaced PM that could not be closed; kept in the ledger so a daemon restart still knows it. */
   recordOrphanPane(
     context: MutationContext,
-    input: { readonly paneId: string; readonly agentId: string },
+    input: {
+      readonly paneId: string;
+      readonly agentId: string;
+      readonly terminalId?: string;
+    },
   ): { readonly recorded: true } {
     return this.#areas.panes.recordOrphanPane(context, input);
   }
@@ -571,8 +575,22 @@ export class ControllerCore {
     return this.#areas.panes.orphanPanes(credential);
   }
 
+  /** The orphan panes with the Herdr terminal id each had when it was recorded (null when it was not known). */
+  orphanPaneTerminals(credential: string): readonly {
+    readonly paneId: string;
+    readonly agentId: string;
+    readonly terminalId: string | null;
+  }[] {
+    return this.#areas.panes.orphanPaneTerminals(credential);
+  }
+
   agentPanes(credential: string): readonly AgentPaneRecord[] {
     return this.#areas.panes.agentPanes(credential);
+  }
+
+  /** The Herdr terminal id recorded with an agent's pane; null when there is no row or it was not known. */
+  paneTerminalId(credential: string, agentId: string): string | null {
+    return this.#areas.panes.paneTerminalId(credential, agentId);
   }
 
   /**

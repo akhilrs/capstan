@@ -24,6 +24,7 @@ export class PanesArea {
       [input.paneId, "pane id"],
     ] as const)
       if (value !== null) safeId(value, label);
+    if (input.terminalId !== undefined) safeId(input.terminalId, "terminal id");
     if (
       input.worktreePath !== null &&
       (!path.isAbsolute(input.worktreePath) ||
@@ -62,15 +63,16 @@ export class PanesArea {
         const now = this.kernel.now();
         this.kernel.database
           .prepare(
-            `INSERT INTO agent_panes(project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at, task_ref, task_title)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO agent_panes(project_id, agent_id, workspace_id, pane_id, worktree_path, branch, base_sha, generation, created_at, updated_at, task_ref, task_title, terminal_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(project_id, agent_id) DO UPDATE SET
                workspace_id = excluded.workspace_id, pane_id = excluded.pane_id,
                worktree_path = excluded.worktree_path, branch = excluded.branch,
                base_sha = excluded.base_sha, generation = excluded.generation,
                updated_at = excluded.updated_at,
                task_ref = COALESCE(excluded.task_ref, agent_panes.task_ref),
-               task_title = COALESCE(excluded.task_title, agent_panes.task_title)`,
+               task_title = COALESCE(excluded.task_title, agent_panes.task_title),
+               terminal_id = excluded.terminal_id`,
           )
           .run(
             this.kernel.projectId,
@@ -85,6 +87,7 @@ export class PanesArea {
             now,
             input.taskRef ?? null,
             input.taskTitle ?? null,
+            input.terminalId ?? null,
           );
         return {
           value: { recorded: true as const },
@@ -212,10 +215,16 @@ export class PanesArea {
   /** A live pane of a replaced PM that could not be closed; kept in the ledger so a daemon restart still knows it. */
   recordOrphanPane(
     context: MutationContext,
-    input: { readonly paneId: string; readonly agentId: string },
+    input: {
+      readonly paneId: string;
+      readonly agentId: string;
+      /** Omitted when the pane's terminal id is not known. */
+      readonly terminalId?: string;
+    },
   ): { readonly recorded: true } {
     safeId(input.paneId, "pane id");
     safeId(input.agentId, "agent id");
+    if (input.terminalId !== undefined) safeId(input.terminalId, "terminal id");
     return this.kernel.mutate(
       context,
       "orphan_pane.record",
@@ -226,13 +235,14 @@ export class PanesArea {
           throw new ControllerError("an orphan pane belongs to a known agent");
         this.kernel.database
           .prepare(
-            "INSERT OR IGNORE INTO orphan_panes(project_id, pane_id, agent_id, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO orphan_panes(project_id, pane_id, agent_id, created_at, terminal_id) VALUES (?, ?, ?, ?, ?)",
           )
           .run(
             this.kernel.projectId,
             input.paneId,
             input.agentId,
             this.kernel.now(),
+            input.terminalId ?? null,
           );
         return {
           value: { recorded: true as const },
@@ -291,17 +301,46 @@ export class PanesArea {
   orphanPanes(
     credential: string,
   ): readonly { readonly paneId: string; readonly agentId: string }[] {
+    return this.orphanPaneTerminals(credential).map((row) => ({
+      paneId: row.paneId,
+      agentId: row.agentId,
+    }));
+  }
+
+  /** The orphan panes with the Herdr terminal id each had when it was recorded (null when it was not known). */
+  orphanPaneTerminals(credential: string): readonly {
+    readonly paneId: string;
+    readonly agentId: string;
+    readonly terminalId: string | null;
+  }[] {
     this.kernel.authorize(credential, "controller:reconcile");
     return (
       this.kernel.database
         .prepare(
-          "SELECT pane_id, agent_id FROM orphan_panes WHERE project_id = ? ORDER BY created_at, pane_id",
+          "SELECT pane_id, agent_id, terminal_id FROM orphan_panes WHERE project_id = ? ORDER BY created_at, pane_id",
         )
         .all(this.kernel.projectId) as Array<{
         pane_id: string;
         agent_id: string;
+        terminal_id: string | null;
       }>
-    ).map((row) => ({ paneId: row.pane_id, agentId: row.agent_id }));
+    ).map((row) => ({
+      paneId: row.pane_id,
+      agentId: row.agent_id,
+      terminalId: row.terminal_id,
+    }));
+  }
+
+  /** The Herdr terminal id recorded with an agent's pane; null when there is no row or it was not known. */
+  paneTerminalId(credential: string, agentId: string): string | null {
+    this.kernel.authorize(credential, "controller:reconcile");
+    const row = this.kernel.database
+      .prepare(
+        "SELECT terminal_id FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+      )
+      .get(this.kernel.projectId, agentId) as
+      { terminal_id: string | null } | undefined;
+    return row?.terminal_id ?? null;
   }
 
   agentPanes(credential: string): readonly AgentPaneRecord[] {

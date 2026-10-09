@@ -38,6 +38,8 @@ import {
 } from "./shared.js";
 import type { SpawnOps } from "./spawn.js";
 
+const SAFE_TERMINAL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
 export class LauncherKernel {
   readonly core: ControllerCore;
   readonly adapter: LauncherAdapter;
@@ -508,6 +510,70 @@ export class LauncherKernel {
       }
       throw error;
     }
+  }
+
+  /**
+   * Closes the pane recorded for `owner` only while Herdr still shows it as
+   * that agent's: the terminal id recorded at spawn matches, and the pane's
+   * `agent` and `project` tokens, when set, name this agent and project. A row
+   * recorded without a terminal id needs both tokens to match. Herdr reuses
+   * short pane ids, so a pane that fails the check belongs to someone else
+   * (often a newer agent) and is left alone. "gone" and "not_owned" both mean
+   * the agent's pane is no longer open.
+   */
+  async closeOwned(
+    paneId: string,
+    owner: { readonly agentId: string; readonly terminalId: string | null },
+  ): Promise<"closed" | "gone" | "not_owned"> {
+    const identity = await this.adapter.paneIdentity(paneId);
+    if (identity === undefined) {
+      this.adapter.forgetPane(paneId);
+      return "gone";
+    }
+    const tokensAgree =
+      (identity.agent === undefined || identity.agent === owner.agentId) &&
+      (identity.project === undefined || identity.project === this.project);
+    const owned =
+      owner.terminalId !== null
+        ? identity.terminalId === owner.terminalId && tokensAgree
+        : identity.agent === owner.agentId && identity.project === this.project;
+    if (!owned) {
+      this.log("pane_not_owned", {
+        agentId: owner.agentId,
+        paneId,
+        terminalId: identity.terminalId ?? null,
+        recordedTerminalId: owner.terminalId,
+        paneAgent: identity.agent ?? null,
+        paneProject: identity.project ?? null,
+      });
+      this.forgetStale(paneId, owner.agentId);
+      return "not_owned";
+    }
+    return (await this.close(paneId)) ? "closed" : "gone";
+  }
+
+  /** Drops a registry entry for `paneId` only when it is this agent's; an entry another agent holds under a reused id stays. */
+  private forgetStale(paneId: string, agentId: string): void {
+    const entry = this.adapter.paneEntry(paneId);
+    if (entry !== undefined && entry.agent === agentId)
+      this.adapter.forgetPane(paneId);
+  }
+
+  /** Herdr's terminal id of a pane this operation just made; null when Herdr does not report one, so the pane is recorded without it. */
+  async terminalOf(paneId: string, agentId: string): Promise<string | null> {
+    try {
+      const terminalId = (await this.adapter.paneIdentity(paneId))?.terminalId;
+      if (terminalId !== undefined && SAFE_TERMINAL_ID.test(terminalId))
+        return terminalId;
+      this.log("terminal_id_unknown", { agentId, paneId });
+    } catch (error) {
+      this.log("terminal_id_unknown", {
+        agentId,
+        paneId,
+        error: String(error),
+      });
+    }
+    return null;
   }
 
   within(budget: Budget): boolean {
