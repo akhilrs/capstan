@@ -21,11 +21,16 @@ use super::process::Daemon;
 use super::project::{build_repo, write_project, Identity};
 use super::tables::{describe_tables_difference, diff_tables, dump_tables};
 use super::{private_tempdir, read_transcript, seeded_env};
-use capstan_daemon::deps::{startup_sequence, DaemonOptions, Deps, KernelHandle, LogEntry, Logger};
+use capstan_daemon::deps::{
+    startup_sequence, CommitInspection, DaemonOptions, Deps, GitError, GitPort, GitResult,
+    InspectCommitInput, KernelHandle, LogEntry, Logger, NewCommit, NewCommitMessages,
+    NewCommitMessagesInput,
+};
 use capstan_daemon::handlers::handle_frame;
 use capstan_daemon::handlers::shared::{is_unported, AbortSignal, CommandResponse, ErrorCode};
 use capstan_daemon::handlers::MAX_RESPONSE_BYTES;
 use capstan_daemon::run::SERVE_STUB_EVENT;
+use capstan_kernel::integrate::{GitRepo, IntegrateError};
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::Core;
 use regex::Regex;
@@ -390,6 +395,281 @@ fn finish(report: &mut Report, extra: Option<String>) {
     };
 }
 
+/// The git of a scenario's scratch repository: `GitPort` over `GitRepo` for what the kernel's pipeline has, and the
+/// two checks of src/git.ts that report uses (`inspectCommit`, `newCommitMessages`), with the same arguments and the same
+/// clean environment. Merging and coverage are the kernel pipeline's own (`capstan_kernel::integrate`), not the port's.
+pub struct ReplayGit {
+    root: PathBuf,
+    repo: GitRepo,
+}
+
+impl ReplayGit {
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            repo: GitRepo::new(root),
+        }
+    }
+
+    /// `runGit`: the exit code and standard output.
+    fn run(&self, args: &[&str]) -> GitResult<(i32, String)> {
+        let output = std::process::Command::new("git")
+            .arg("--no-replace-objects")
+            .arg("-C")
+            .arg(&self.root)
+            .args(args)
+            .env_clear()
+            .env(
+                "PATH",
+                std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()),
+            )
+            .env("LC_ALL", "C")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| failure(&format!("git could not be run ({e})")))?;
+        let code = output
+            .status
+            .code()
+            .ok_or_else(|| failure("git could not be run"))?;
+        Ok((code, String::from_utf8_lossy(&output.stdout).into_owned()))
+    }
+
+    fn is_ancestor(&self, ancestor: &str, descendant: &str) -> GitResult<bool> {
+        match self
+            .run(&["merge-base", "--is-ancestor", ancestor, descendant])?
+            .0
+        {
+            0 => Ok(true),
+            1 => Ok(false),
+            _ => Err(failure("git could not compare the commits")),
+        }
+    }
+}
+
+fn failure(message: &str) -> GitError {
+    GitError {
+        message: message.to_string(),
+    }
+}
+
+fn from_integrate(error: IntegrateError) -> GitError {
+    GitError {
+        message: error.message(),
+    }
+}
+
+fn is_full_sha(text: &str) -> bool {
+    text.len() == 40
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+impl GitPort for ReplayGit {
+    fn commit_exists(&self, sha: &str) -> GitResult<bool> {
+        self.repo.commit_exists(sha).map_err(from_integrate)
+    }
+
+    fn inspect_commit(&self, input: &InspectCommitInput) -> GitResult<CommitInspection> {
+        if !is_full_sha(&input.sha) {
+            return Err(failure("the commit id must be 40 lowercase hex characters"));
+        }
+        if input
+            .base_sha
+            .as_deref()
+            .is_some_and(|base| !is_full_sha(base))
+        {
+            return Err(failure("the base commit id is not a full id"));
+        }
+        let (code, format) = self.run(&["rev-parse", "--show-object-format"])?;
+        if code != 0 {
+            return Err(failure(
+                "git could not report the repository's object format (git 2.29 or newer is needed)",
+            ));
+        }
+        if format.trim() != "sha1" {
+            return Err(failure("only sha1 repositories are supported"));
+        }
+        let reference = format!("refs/heads/{}", input.branch);
+        if self.run(&["check-ref-format", &reference])?.0 != 0 {
+            return Err(failure("the recorded branch name is not a valid ref"));
+        }
+        let (code, tip_text) = self.run(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{reference}^{{commit}}"),
+        ])?;
+        if code != 0 && code != 1 {
+            return Err(failure("git could not read the branch"));
+        }
+        let tip = (code == 0).then(|| tip_text.trim().to_string());
+        if tip.as_deref().is_some_and(|tip| !is_full_sha(tip)) {
+            return Err(failure("git gave an unexpected branch tip"));
+        }
+        let (code, _) = self.run(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{}^{{commit}}", input.sha),
+        ])?;
+        if code != 0 && code != 1 {
+            return Err(failure("git could not look the commit up"));
+        }
+        let commit_exists = code == 0;
+        let mut committed_at = None;
+        if commit_exists {
+            let (code, stamp) = self.run(&[
+                "show",
+                "-s",
+                "--format=%ct",
+                &format!("{}^{{commit}}", input.sha),
+            ])?;
+            let seconds = stamp.trim().parse::<i64>();
+            match (code, seconds) {
+                (0, Ok(seconds)) => {
+                    committed_at = Some(capstan_ledger::iso_from_millis(seconds * 1000));
+                }
+                _ => return Err(failure("git could not read the commit time")),
+            }
+        }
+        let is_ancestor_of_tip = match (&tip, commit_exists) {
+            (Some(tip), true) => self.is_ancestor(&input.sha, tip)?,
+            _ => false,
+        };
+        let is_ancestor_of_base = match (&input.base_sha, commit_exists) {
+            (Some(base), true) => self.is_ancestor(&input.sha, base)?,
+            _ => false,
+        };
+        Ok(CommitInspection {
+            commit_exists,
+            branch_tip: tip,
+            is_ancestor_of_tip,
+            is_ancestor_of_base,
+            committed_at,
+        })
+    }
+
+    fn new_commit_messages(&self, input: &NewCommitMessagesInput) -> GitResult<NewCommitMessages> {
+        if !is_full_sha(&input.sha) || !is_full_sha(&input.base_sha) {
+            return Err(failure("the commit ids must be full ids"));
+        }
+        let reference = format!("refs/heads/{}", input.own_branch);
+        if self.run(&["check-ref-format", &reference])?.0 != 0 {
+            return Err(failure("the recorded branch name is not a valid ref"));
+        }
+        let mut excluded = String::new();
+        for c in input.own_branch.chars() {
+            if matches!(c, '*' | '?' | '[' | '\\') {
+                excluded.push('\\');
+            }
+            excluded.push(c);
+        }
+        let (code, listed) = self.run(&[
+            "rev-list",
+            "--reverse",
+            &format!("--max-count={}", input.limit + 1),
+            &input.sha,
+            &format!("^{}", input.base_sha),
+            "^HEAD",
+            "--not",
+            &format!("--exclude={excluded}"),
+            "--branches",
+        ])?;
+        if code != 0 {
+            return Err(failure("git could not list the new commits"));
+        }
+        let shas: Vec<&str> = listed.split('\n').filter(|line| !line.is_empty()).collect();
+        if shas.len() > input.limit {
+            return Ok(NewCommitMessages::TooMany);
+        }
+        let mut out = Vec::new();
+        for sha in shas {
+            if !is_full_sha(sha) {
+                return Err(failure("git gave an unexpected commit id"));
+            }
+            let (code, shown) = self.run(&["show", "-s", "--format=%P%x00%B", sha])?;
+            if code != 0 {
+                return Err(failure("git could not read a commit message"));
+            }
+            let Some(cut) = shown.find('\0') else {
+                return Err(failure("git gave an unexpected commit"));
+            };
+            out.push(NewCommit {
+                sha: sha.to_string(),
+                parents: shown[..cut].split(' ').filter(|p| !p.is_empty()).count(),
+                message: shown[cut + 1..].to_string(),
+            });
+        }
+        Ok(NewCommitMessages::Commits(out))
+    }
+
+    fn head_commit(&self) -> GitResult<String> {
+        self.repo.head_commit().map_err(from_integrate)
+    }
+
+    fn commit_subject(&self, sha: &str) -> GitResult<Option<String>> {
+        self.repo.commit_subject(sha).map_err(from_integrate)
+    }
+
+    fn merge(&self, _input: &Value) -> GitResult<Value> {
+        Err(failure(
+            "the replay merges through capstan_kernel::integrate",
+        ))
+    }
+
+    fn branch_tip(&self, branch: &str) -> GitResult<Option<String>> {
+        self.repo.branch_tip(branch).map_err(from_integrate)
+    }
+
+    fn is_in_head(&self, sha: &str) -> GitResult<bool> {
+        self.repo.is_in_head(sha).map_err(from_integrate)
+    }
+
+    fn delete_branch(&self, branch: &str, sha: &str) -> GitResult<bool> {
+        self.repo
+            .delete_branch_at(branch, sha)
+            .map_err(from_integrate)
+    }
+
+    fn covered_reports(&self, _head: &str, _reports: &Value, _options: &Value) -> GitResult<Value> {
+        Err(failure(
+            "the replay covers reports through capstan_kernel::integrate",
+        ))
+    }
+}
+
+/// `syncConfiguredRoles` as the Node CLI runs it: the context of src/cli.ts (`context`) carries one id as its request id and
+/// its idempotency key, unlike `newContext`'s `req-` and `idem-` ids.
+fn sync_roles(deps: &Deps) -> Option<String> {
+    let config = deps.options.capstan.as_ref()?;
+    let desired = Value::Array(
+        config
+            .roles
+            .iter()
+            .map(|role| {
+                json!({"name": role.name, "kind": role.kind, "host": role.host, "configHash": role.config_hash})
+            })
+            .collect(),
+    );
+    let credential = deps.credential().to_string();
+    let outcome = deps.kernel.run(move |core| {
+        let id = core.kernel().env.uuid();
+        let context = capstan_kernel::types::MutationContext {
+            credential,
+            request_id: id.clone(),
+            idempotency_key: id,
+            expected_version: core.state_version()?,
+            input_revision: core.input_revision()?,
+        };
+        core.sync_role_definitions(&context, &desired)
+    });
+    outcome.err().map(|error| error.to_string())
+}
+
 fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch: &Scratch) {
     let seed = scenario["seed"].as_str().unwrap_or("").to_string();
     let database = capstan_ledger::resolve_database_path(&scratch.state).expect("the ledger path");
@@ -427,16 +707,40 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
             lines.lock().unwrap().push(line);
         })
     };
-    let deps = Deps::new(
-        kernel.clone(),
-        DaemonOptions::new(
-            scratch.state.clone(),
-            scratch.identity.initial_project(),
-            scratch.dir.path().to_path_buf(),
-        ),
-        sink,
+    let mut options = DaemonOptions::new(
+        scratch.state.clone(),
+        scratch.identity.initial_project(),
+        scratch.dir.path().to_path_buf(),
     );
+    // The configuration of the scenario, loaded as `run::daemon_options` loads it.
+    if scenario["config"].is_string() {
+        match capstan_config::load_role_config(scratch.dir.path()) {
+            Ok(config) => options.capstan = Some(Arc::new(config)),
+            Err(error) => {
+                report.status = Status::Failed(format!("capstan.toml does not load: {error}"));
+                return;
+            }
+        }
+    }
+    let mut deps = Deps::new(kernel.clone(), options, sink);
+    // A scenario with a repository runs git on it, as the Node daemon does on its project.
+    if scenario.get("repo").is_some() {
+        deps.git = Arc::new(ReplayGit::new(scratch.dir.path()));
+    }
+    // `main` logs the warnings of the configuration first; with a configuration the daemon syncs its roles right after
+    // the startup sequence, as `run::serve` does.
+    if let Some(config) = &deps.options.capstan {
+        for warning in &config.warnings {
+            let line = json!({"ts": "-", "command": "daemon:config_warning", "detail": warning});
+            lines.lock().unwrap().push(line.to_string());
+            // Node stamps the line with the seeded clock; `cstan-daemon` reads the system clock for it.
+            let _ = kernel.now_ms();
+        }
+    }
     startup_sequence(&deps);
+    if let Some(error) = sync_roles(&deps) {
+        deps.detail_log("role_sync_failed", json!({"error": error}));
+    }
     // The `ready` announcement of Node's daemon takes a timestamp, which is one reading of the seeded clock.
     let _ = kernel.now_ms();
     let paths = paths_of(scratch.dir.path());
