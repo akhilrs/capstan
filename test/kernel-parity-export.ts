@@ -219,7 +219,7 @@ function errorOf(error: unknown): { name: string; message: string } {
   };
 }
 
-/** Every table of the ledger, each row's values in column order, rows ordered by all columns. */
+/** Every table of the ledger that has rows (empty tables are left out), each row's values in column order, rows ordered by all columns. */
 export function dumpTables(file: string): Json {
   const database = openSqlite(file, { readOnly: true, timeout: 5_000 });
   try {
@@ -244,6 +244,7 @@ export function dumpTables(file: string): Json {
       const rows = database
         .prepare(`SELECT ${columns.join(", ")} FROM ${name} ORDER BY ${order}`)
         .all() as Array<Record<string, unknown>>;
+      if (rows.length === 0) continue;
       out[name] = {
         columns,
         rows: rows.map((row) => columns.map((c) => stable(row[c]))),
@@ -411,6 +412,12 @@ export function sequenceFiles(): string[] {
     .sort();
 }
 
+/** A parity group file: the header, then one sequence per line (compact, to keep the committed fixtures small). */
+function groupText(group: string, sequences: Json[]): string {
+  const lines = sequences.map((sequence) => JSON.stringify(stable(sequence)));
+  return `{"format":1,"group":${JSON.stringify(group)},"sequences":[\n${lines.join(",\n")}\n]}\n`;
+}
+
 async function sequenceGroups(): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   for (const file of sequenceFiles()) {
@@ -428,7 +435,7 @@ async function sequenceGroups(): Promise<Map<string, string>> {
     }
     out.set(
       `${EXPORT_LAYOUT.parity}/${group}.json`,
-      text({ group, format: 1, sequences }),
+      groupText(group, sequences),
     );
   }
   return out;
@@ -949,6 +956,21 @@ const TEXT_SAMPLES = [
   "RTL אבג العربية",
 ];
 
+/** JSON texts whose parsed value Node prints back with `JSON.stringify`; Rust reads the same text and must print the same. */
+const JSON_TEXT_SAMPLES: string[] = [
+  "null",
+  "true",
+  "[]",
+  "{}",
+  '{"b":1,"a":2,"c":{"z":1,"y":{"k":2,"j":3},"x":[{"n":1,"m":2}]}}',
+  '{"b":1,"2":"two","a":2,"10":"ten","1":"one","01":"zero-one","4294967295":"max","4294967294":"last"}',
+  '{"x":{"3":1,"b":2,"1":3,"a":4}}',
+  "[0,-0,1,-1,1.5,1e21,1e-7,123456789012345680000,1.2e-10,0.000001,100,5e-324,1.7976931348623157e308,0.1,-1e-7]",
+  '{"unicode":"é€😀\\u0000\\u001f\\u007f\\u2028\\u2029","esc":"\\"\\\\\\b\\f\\n\\r\\t\\/","key é":1,"k\\n":2}',
+  '[{"a":[],"b":{}},[[]],[{}]]',
+  '  {  "pad" : [ 1 , 2 ] }  ',
+];
+
 function textFixtures(): Map<string, string> {
   const out = new Map<string, string>();
   out.set(
@@ -984,6 +1006,15 @@ function textFixtures(): Map<string, string> {
           result: cutAtCharacters(input, limit),
         })),
       ),
+    }),
+  );
+  out.set(
+    `${EXPORT_LAYOUT.text}/json-stringify.json`,
+    text({
+      stringify: JSON_TEXT_SAMPLES.map((input) => ({
+        input,
+        result: JSON.stringify(JSON.parse(input)),
+      })),
     }),
   );
   const outcome = (fn: () => unknown): Json => {

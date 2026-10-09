@@ -11,6 +11,7 @@ pub mod env;
 pub mod errors;
 pub mod helpers;
 pub mod integrate;
+pub mod json;
 pub mod kernel;
 pub mod plan_body;
 pub mod records;

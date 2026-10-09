@@ -1,0 +1,4348 @@
+{
+  "sequences": [
+    {
+      "name": "register-agent",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "bad id",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "bad seat",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "bad actor"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "Developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "nonesuch",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "pm",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-missing",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-pm",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "missing-actor"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "activeAgents",
+          "args": []
+        },
+        {
+          "op": "agentRecord",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "agentRecord",
+          "args": ["dev-9"]
+        },
+        {
+          "op": "agentRecord",
+          "args": ["bad id"]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-9",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev2.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$pm.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$owner.credential"]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "activeAgents",
+          "args": []
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-3",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": [
+            {
+              "agentId": "dev-3",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "short"
+          },
+          "args": [
+            {
+              "agentId": "dev-3",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "register-revoked-and-replay",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["$dev1.actorId"]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_fixed"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-fixed",
+            "idempotencyKey": "idem-fixed",
+            "expectedVersion": "$v_idem_fixed"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-fixed",
+            "idempotencyKey": "idem-fixed",
+            "expectedVersion": "$v_idem_fixed"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-other",
+            "idempotencyKey": "idem-fixed",
+            "expectedVersion": "$v_idem_fixed"
+          },
+          "args": [
+            {
+              "agentId": "dev-x",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "expectedVersion": 1
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev2.credential"]
+        },
+        {
+          "op": "revokeActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["$dev2.actorId"]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev2.credential"]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "observations",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "working"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "working"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_fx"
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fx",
+            "idempotencyKey": "idem-fx",
+            "expectedVersion": "$v_idem_fx"
+          },
+          "args": ["dev-1", "blocked"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fx",
+            "idempotencyKey": "idem-fx",
+            "expectedVersion": "$v_idem_fx"
+          },
+          "args": ["dev-1", "blocked"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "done"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "unknown"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "sleeping"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", null]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["bad id", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-9", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$owner.credential",
+            "expectedVersion": 1
+          },
+          "args": ["dev-1", "idle"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "pm-restart-records",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "pm-1"]
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "bad id"]
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "nobody"]
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$dev1.credential", "pm-1"]
+        },
+        {
+          "op": "pmRestarts",
+          "args": [
+            "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz",
+            "pm-1"
+          ]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", 1]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", 1]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", 0]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", -3]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["bad id", 1]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["pm-1", 1]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["pm-1", 1]
+        },
+        {
+          "op": "stateVersion",
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "agent-panes",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-1",
+              "taskRef": "plan-1/pkg-a",
+              "taskTitle": "First title"
+            }
+          ]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": null,
+              "paneId": "pane-2",
+              "worktreePath": null,
+              "branch": null,
+              "baseSha": null
+            }
+          ]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "req-7"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-2"
+            }
+          ]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-2"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-9"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$dev1.credential", "dev-1"]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-9",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "bad id",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "bad ws",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "bad pane",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "bad term"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": null
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "relative/path",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/\u0007bell",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/​zero",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/ line",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "-leading",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "has space",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789ABCDEF0123456789ABCDEF01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef012345670"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "plan-1/pkg-a"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "REQ-1"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "a/b/c"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "bad ref"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": ""
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": ".dot"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "x/"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "PM-148:x._-y"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": ""
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": " leading"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "trailing "
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "double  space"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "tab\there"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "new\nline"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "nb  sp"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "zero​width"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskTitle": "single space ok"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential",
+            "expectedVersion": 1
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_fixed"
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fixed",
+            "idempotencyKey": "idem-fixed",
+            "expectedVersion": "$v_idem_fixed"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fixed",
+            "idempotencyKey": "idem-fixed",
+            "expectedVersion": "$v_idem_fixed"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-9"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["bad id"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["dev-2"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_clr"
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-clr",
+            "idempotencyKey": "idem-clr",
+            "expectedVersion": "$v_idem_clr"
+          },
+          "args": ["dev-2"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-clr",
+            "idempotencyKey": "idem-clr",
+            "expectedVersion": "$v_idem_clr"
+          },
+          "args": ["dev-2"]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-2"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "agent-pane-of-ended-agent",
+      "requires": ["messages", "plans", "ops"],
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "taskRef": "plan-1/pkg-a",
+              "taskTitle": "Work",
+              "terminalId": "term-1"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "pane-reuse-and-terminal-id",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-9",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-a"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "workspaceId": "ws-1",
+              "paneId": "pane-9",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-2",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-b"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-10",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-a"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-11",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "clearAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-9",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-c",
+              "taskRef": "req-1"
+            }
+          ]
+        },
+        {
+          "op": "agentPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-1"]
+        },
+        {
+          "op": "paneTerminalId",
+          "args": ["$internal.credential", "dev-2"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "fallback-pane",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "fallbackPane",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "pane-f"
+            }
+          ]
+        },
+        {
+          "op": "fallbackPane",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-2",
+              "paneId": "pane-g"
+            }
+          ]
+        },
+        {
+          "op": "fallbackPane",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "bad ws",
+              "paneId": "pane-g"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "bad pane"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "p"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "pane-f"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "pane-f"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_fb"
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fb",
+            "idempotencyKey": "idem-fb",
+            "expectedVersion": "$v_idem_fb"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "pane-f"
+            }
+          ]
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-fb",
+            "idempotencyKey": "idem-fb",
+            "expectedVersion": "$v_idem_fb"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-1",
+              "paneId": "pane-f"
+            }
+          ]
+        },
+        {
+          "op": "fallbackPane",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": []
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": []
+        },
+        {
+          "op": "fallbackPane",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": []
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_cf"
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-cf",
+            "idempotencyKey": "idem-cf",
+            "expectedVersion": "$v_idem_cf"
+          },
+          "args": []
+        },
+        {
+          "op": "recordFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "workspaceId": "ws-3",
+              "paneId": "pane-h"
+            }
+          ]
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-cf",
+            "idempotencyKey": "idem-cf",
+            "expectedVersion": "$v_idem_cf"
+          },
+          "args": []
+        },
+        {
+          "op": "clearFallbackPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "orphan-panes",
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "orphanPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "orphanPaneTerminals",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-1",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-2",
+              "agentId": "dev-1",
+              "terminalId": "term-2"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-2",
+              "agentId": "dev-2",
+              "terminalId": "term-other"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-3",
+              "agentId": "dev-2",
+              "terminalId": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-4",
+              "agentId": "dev-9"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "bad pane",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "bad id"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "dev-1",
+              "terminalId": "bad term"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "dev-1",
+              "terminalId": null
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "dev-1",
+              "terminalId": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": [
+            {
+              "paneId": "op-5",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_op"
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-op",
+            "idempotencyKey": "idem-op",
+            "expectedVersion": "$v_idem_op"
+          },
+          "args": [
+            {
+              "paneId": "op-6",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "recordOrphanPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-op",
+            "idempotencyKey": "idem-op",
+            "expectedVersion": "$v_idem_op"
+          },
+          "args": [
+            {
+              "paneId": "op-6",
+              "agentId": "dev-1"
+            }
+          ]
+        },
+        {
+          "op": "orphanPanes",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "orphanPaneTerminals",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "orphanPanes",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "orphanPaneTerminals",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["op-2"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["op-2"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["op-nope"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["bad pane"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["op-1"]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_oc"
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-oc",
+            "idempotencyKey": "idem-oc",
+            "expectedVersion": "$v_idem_oc"
+          },
+          "args": ["op-1"]
+        },
+        {
+          "op": "clearOrphanPane",
+          "context": {
+            "credential": "$internal.credential",
+            "requestId": "req-oc",
+            "idempotencyKey": "idem-oc",
+            "expectedVersion": "$v_idem_oc"
+          },
+          "args": ["op-1"]
+        },
+        {
+          "op": "orphanPaneTerminals",
+          "args": ["$internal.credential"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "end-agent",
+      "requires": ["messages", "plans", "ops"],
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "recordAgentPane",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "workspaceId": "ws-1",
+              "paneId": "pane-1",
+              "worktreePath": "/tmp/wt/dev-1",
+              "branch": "feat/dev-1",
+              "baseSha": "0123456789abcdef0123456789abcdef01234567",
+              "terminalId": "term-1"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-9"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["bad id"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "nobody-credential-0123456789-abcdefghijklmnopqrstuvwxyz"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential",
+            "expectedVersion": 1
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "agentRecord",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "activeAgents",
+          "args": []
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "dev-2",
+            {
+              "lost": "found_dead_at_start"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "dev-2",
+            {
+              "lost": "found_dead_at_start"
+            }
+          ]
+        },
+        {
+          "op": "listAgents",
+          "args": []
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "end-agent-options-and-seed",
+      "requires": ["messages", "plans", "ops"],
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev2",
+              "name": "seat-dev2",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 2",
+              "role": "Developer",
+              "seatId": "seat-dev2"
+            }
+          ],
+          "as": "dev2"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-2",
+              "roleName": "developer",
+              "seatId": "seat-dev2",
+              "actorId": "$dev2.actorId"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "dev-1",
+            {
+              "branch": "feat/gone"
+            }
+          ]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            "dev-2",
+            {
+              "lost": "found_dead_at_start",
+              "branch": "feat/dev-2"
+            }
+          ]
+        },
+        {
+          "op": "agentSeed",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "agentSeed",
+          "args": ["dev-2"]
+        },
+        {
+          "op": "agentSeed",
+          "args": ["dev-9"]
+        },
+        {
+          "op": "isAgentReplaced",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "agentHasReports",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "agentHasReports",
+          "args": ["dev-9"]
+        },
+        {
+          "op": "agentHasReports",
+          "args": ["bad id"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "replace-generation",
+      "requires": ["messages", "plans", "ops"],
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-9"]
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["bad id"]
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_rp"
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rp",
+            "idempotencyKey": "idem-rp",
+            "expectedVersion": "$v_idem_rp"
+          },
+          "args": ["dev-1"],
+          "as": "gen2"
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rp",
+            "idempotencyKey": "idem-rp",
+            "expectedVersion": "$v_idem_rp"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "identify",
+          "args": ["$dev1.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$gen2.credential"]
+        },
+        {
+          "op": "recordAgentObservation",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["dev-1", "working"]
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"],
+          "as": "gen3"
+        },
+        {
+          "op": "identify",
+          "args": ["$gen2.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$gen3.credential"]
+        },
+        {
+          "op": "agentRecord",
+          "args": ["dev-1"]
+        },
+        {
+          "op": "endAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "replaceAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    },
+    {
+      "name": "restart-pm-generation",
+      "requires": ["messages", "plans", "ops"],
+      "steps": [
+        {
+          "op": "syncRoleDefinitions",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            [
+              {
+                "name": "developer",
+                "kind": "Developer",
+                "host": "claude",
+                "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "name": "pm",
+                "kind": "PM",
+                "host": "claude",
+                "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-pm",
+              "name": "seat-pm",
+              "role": "PM"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "PM",
+              "role": "PM",
+              "seatId": "seat-pm"
+            }
+          ],
+          "as": "pm"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "pm-1",
+              "roleName": "pm",
+              "seatId": "seat-pm",
+              "actorId": "$pm.actorId"
+            }
+          ]
+        },
+        {
+          "op": "createSeat",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "seatId": "seat-dev1",
+              "name": "seat-dev1",
+              "role": "Developer"
+            }
+          ]
+        },
+        {
+          "op": "createActor",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "displayName": "Dev 1",
+              "role": "Developer",
+              "seatId": "seat-dev1"
+            }
+          ],
+          "as": "dev1"
+        },
+        {
+          "op": "registerAgent",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": [
+            {
+              "agentId": "dev-1",
+              "roleName": "developer",
+              "seatId": "seat-dev1",
+              "actorId": "$dev1.actorId"
+            }
+          ]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["dev-1"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["pm-9"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["bad id"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$dev1.credential"
+          },
+          "args": ["pm-1"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["pm-1"],
+          "as": "pm2"
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "pm-1"]
+        },
+        {
+          "op": "identify",
+          "args": ["$pm.credential"]
+        },
+        {
+          "op": "identify",
+          "args": ["$pm2.credential"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential"
+          },
+          "args": ["pm-1"],
+          "as": "pm3"
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "pm-1"]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", 1]
+        },
+        {
+          "op": "pmRestarts",
+          "args": ["$internal.credential", "pm-1"]
+        },
+        {
+          "op": "markPmRestartsConsumed",
+          "context": {
+            "credential": "$internal.credential"
+          },
+          "args": ["pm-1", 5]
+        },
+        {
+          "op": "stateVersion",
+          "args": [],
+          "as": "v_idem_rs"
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rs",
+            "idempotencyKey": "idem-rs",
+            "expectedVersion": "$v_idem_rs"
+          },
+          "args": ["pm-1"]
+        },
+        {
+          "op": "restartAgentGeneration",
+          "context": {
+            "credential": "$owner.credential",
+            "requestId": "req-rs",
+            "idempotencyKey": "idem-rs",
+            "expectedVersion": "$v_idem_rs"
+          },
+          "args": ["pm-1"]
+        },
+        {
+          "op": "dump"
+        }
+      ]
+    }
+  ]
+}

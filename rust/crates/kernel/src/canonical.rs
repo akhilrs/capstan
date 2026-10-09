@@ -32,7 +32,7 @@ pub fn canonical_json(value: &Value) -> String {
     out
 }
 
-fn array_index(key: &str) -> Option<u64> {
+pub(crate) fn array_index(key: &str) -> Option<u64> {
     let bytes = key.as_bytes();
     if bytes.is_empty() || bytes.len() > 10 || !bytes.iter().all(u8::is_ascii_digit) {
         return None;
@@ -48,7 +48,7 @@ fn compare_utf16(a: &str, b: &str) -> Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
-fn write_string(out: &mut String, text: &str) {
+pub(crate) fn write_string(out: &mut String, text: &str) {
     out.push_str(&serde_json::to_string(text).expect("a string always serializes"));
 }
 

@@ -53,6 +53,6 @@ the sequence's own whose operations it reaches: when the Rust kernel answers a s
 
 For every step the export records `op`, `on`, the resolved `context` and `args`, then `result` or `error` (the error class
 name) with `message`, and the project's `stateVersion` and `inputRevision` while the handle is open. After the last step it
-records `tables`: every table of the ledger, rows ordered by all columns (`schema_migrations.applied_at` left out,
+records `tables`: every table of the ledger that has rows (empty tables are left out), rows ordered by all columns (`schema_migrations.applied_at` left out,
 because the migration timestamps come from the system clock in both implementations; the ledger is migrated before the
 first open for the same reason).

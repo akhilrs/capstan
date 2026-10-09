@@ -296,6 +296,22 @@ fn squash_subjects_are_node_s_text() {
 // -------------------------------------------------------------------------------------------------- text helpers
 
 #[test]
+fn json_stringify_matches_node() {
+    let fixture = fixture("kernel-text/json-stringify.json");
+    let cases = fixture["stringify"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for case in cases {
+        let input = case["input"].as_str().unwrap();
+        let value: Value = serde_json::from_str(input).unwrap();
+        assert_eq!(
+            Value::String(capstan_kernel::json::stringify(&value)),
+            case["result"],
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn text_helpers_match_node_on_the_corpus() {
     let text = fixture("kernel-text/text.json");
     for case in text["normalizeText"].as_array().unwrap() {

@@ -115,7 +115,7 @@ pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<
     }
 }
 
-/// Every table of the ledger as the Node exporter dumps it.
+/// Every table of the ledger that has rows, as the Node exporter dumps it (empty tables are left out).
 pub fn dump_tables(file: &Path) -> Value {
     let conn =
         rusqlite::Connection::open_with_flags(file, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -161,7 +161,9 @@ pub fn dump_tables(file: &Path) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .collect();
-        out.insert(name, json!({"columns": columns, "rows": rows}));
+        if !rows.is_empty() {
+            out.insert(name, json!({"columns": columns, "rows": rows}));
+        }
     }
     Value::Object(out)
 }
