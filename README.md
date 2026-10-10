@@ -72,7 +72,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux or macOS; `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). On Linux x64 and arm64 the installer downloads a standalone binary and needs no Node.js. Where a release has no binary for your machine (or with `--no-binary`) it installs the npm tarball, which needs Node.js 24.6 or newer (`>=24.6 <25`) with npm. Nothing is compiled either way: the runtime uses the built-in `node:sqlite`.
+**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`, and needs no Node.js, npm or compiler. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -80,16 +80,10 @@ Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` 
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh
 ```
 
-Or install the release tarball with npm directly:
+Pin a version (0.4.0 or newer) or uninstall:
 
 ```sh
-npm install --global https://github.com/akhilrs/capstan/releases/download/v0.1.1/capstan-controller-0.1.1.tgz
-```
-
-Pin a version, force the npm tarball, or uninstall:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --version 0.1.1
+curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --version 0.4.0
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
@@ -141,12 +135,12 @@ A `cstan` run from that checkout (`dist/src/cli.js`) finds `dash/target/release/
 > [!NOTE]
 > `cstan-dash` binaries come from tagged releases, on the [Releases page](https://github.com/akhilrs/capstan/releases). CI runs on branches and pull requests do not publish them.
 
-Bun has not been tested since the native dependencies were removed. When installed that way `cstan` still runs on Node 24. The recommended installs are the `curl` one-liner above (standalone binary on Linux x64/arm64) or the npm tarball (see [docs/reference/install.md](docs/reference/install.md#bun)).
+Bun is not used: the install is two static binaries, so there is nothing for it to install.
 
 Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
 
 > [!NOTE]
-> The installer downloads a GitHub release. Binaries, the npm tarball and `SHA256SUMS` are on the [Releases page](https://github.com/akhilrs/capstan/releases). To build from source, see [Development](#development).
+> The installer downloads a GitHub release. The binaries and `SHA256SUMS` are on the [Releases page](https://github.com/akhilrs/capstan/releases). To build from source, see [Development](#development).
 
 Then, in the root of the git repository you want the team to work on. If the folder is not a repository yet, or has no commit, run `cstan init --git` instead: it runs `git init` when needed, lists the files it will commit, and creates an initial commit (`chore: initial commit`) of the current files, honouring your `.gitignore`. Capstan never runs git init or commits without that flag; `cstan start` refuses to run until the requirement is met.
 
@@ -403,7 +397,7 @@ npm run check          # lint + format:check + test
 
 `npm run build` first removes `dist/` so output of deleted sources cannot linger. The daemon runs from `dist/`, so rebuilding in a live project briefly makes `cstan` unavailable; use the Operator restart (`cstan op propose --restart`), which swaps the build safely, instead of building under a running controller.
 
-A standalone Node-free binary (Linux x64 and arm64) comes from `npm run build:binary`; check it with `npm run smoke:binary`. The native front end (`npm run build:cli`, Rust) answers agent commands without starting Node: a binary install puts it at `bin/cstan` and the Node binary at `bin/cstan-node`, and the front end hands every other command to `cstan-node` (or to `CSTAN_NODE_CLI` when set; `CSTAN_FRONT_END` names the front end the agent wrapper starts). A front end that does not run, or a release without one, leaves the binary as `bin/cstan`; `--no-front` and `--front-binary <file>` are `install.sh` options. A machine without cargo runs `npm run check` with both `CSTAN_SKIP_DASH_CHECK=1` and `CSTAN_SKIP_FRONT_PARITY=1`. `npm run release` builds the tarball, both binaries, both front ends and both dashboards with `SHA256SUMS` and prints the publish command without running it. See [docs/binary.md](docs/binary.md).
+The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild. `npm run smoke:binary` runs built binaries with no node on `PATH`; `npm run check:release` checks the version files, the workflow, the installer and `tools/release`. See [docs/binary.md](docs/binary.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
 
@@ -415,7 +409,7 @@ Issues and pull requests are welcome; contributions are accepted under the [MIT 
 - write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) (`<type>[(scope)][!]: <description>`; types `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, `revert`);
 - name branches `<type>/<task-id>-<slug>` (or `chore/<agent-id>-<slug>` for ad-hoc work); Capstan creates worker and integration (`integration/<plan-id>-<slug>`) branches for you, and older `capstan/<agent>-g<n>` branches still work;
 - leave AI attribution out of commits and pull requests: no `Co-Authored-By` line naming Claude, no `Claude-Session` line, no "Generated with Claude Code" footer (`cstan report` refuses commits that have one);
-- releases follow [SemVer](https://semver.org): `npm run release` picks the version from the commits, writes `CHANGELOG.md`, builds the assets and tags locally (`--dry-run` previews it, `--version X.Y.Z` overrides it). See [Branches, commits and releases](docs/reference/workflow.md#branches-commits-and-releases) and [Releases](docs/reference/commands.md#releases);
+- releases follow [SemVer](https://semver.org): `scripts/release.sh` picks the version from the commits, writes `VERSION`, `package.json`, the lockfile and `CHANGELOG.md`, and tags locally (`--dry-run` previews it, `--version X.Y.Z` overrides it); pushing the tag starts the Release workflow. See [Branches, commits and releases](docs/reference/workflow.md#branches-commits-and-releases) and [Releases](docs/reference/commands.md#releases);
 - describe behaviour as the code has it, and update the [reference docs](docs/reference/) with any change to commands, config keys or messages;
 - for design changes, read the relevant note in [`docs/design/`](docs/design/) and [`decisions/`](decisions/) first.
 

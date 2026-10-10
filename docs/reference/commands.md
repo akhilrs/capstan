@@ -133,15 +133,14 @@ To fix a `commit_message` refusal: reword the commit (`git commit --amend` for t
 
 ## Releases
 
-`npm run release` (`scripts/release.mjs`) is run by the person who releases, from a clean checkout; it is not a `cstan` command. It follows [SemVer](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): it picks the next version from the commits since the last `v*` tag, updates `package.json`, the lockfile and `CHANGELOG.md`, builds the tarball and both binaries, commits `chore(release): v<version>` and creates a local annotated tag. Nothing is pushed or published.
+`scripts/release.sh` is run by the person who releases, from a clean checkout; it is not a `cstan` command. It is POSIX `sh` plus `tools/release`, a small Rust program (a separate cargo workspace) that reads the commit history, so it needs `cargo`. It follows [SemVer](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): it picks the next version from the commits since the last `v*` tag, updates `VERSION`, `package.json`, the lockfile and `CHANGELOG.md`, commits `chore(release): v<version>` and creates a local annotated tag. It builds nothing, and nothing is pushed or published: pushing the tag starts `.github/workflows/release.yml`.
 
-| Option               | Effect                                                                                             |
-| -------------------- | -------------------------------------------------------------------------------------------------- |
-| `--dry-run`          | Print the current and next version and the changelog section; change nothing.                      |
-| `--version X.Y.Z`    | Use this version instead of the computed one. It must be higher than the current version.          |
-| `--allow-dirty-lock` | Continue although `package-lock.json` differs from HEAD; those changes go into the release commit. |
+| Option            | Effect                                                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `--dry-run`       | Print the current and next version, the changelog section and the assets; change nothing. |
+| `--version X.Y.Z` | Use this version instead of the computed one. It must be higher than the current version. |
 
-It refuses to run with uncommitted tracked changes (except under `--dry-run`, which warns), when nothing releasable (`feat`, `fix`, `perf`, `revert` or a breaking change) came since the last tag, and when the tag already exists. If a build step fails, the files are restored and nothing is committed or tagged. If committing or tagging fails, it prints the undo steps: `git tag -d v<version>` and, only when the release commit was created, `git reset --hard HEAD~1`. Publish with the `gh release create` command it prints.
+It refuses to run with uncommitted tracked changes, when nothing releasable (`feat`, `fix`, `perf`, `revert` or a breaking change) came since the last tag, and when the tag already exists. If the files cannot be written it restores them and nothing is committed or tagged. If committing or tagging fails, it prints the undo steps: `git tag -d v<version>` and, only when the release commit was created, `git reset --hard HEAD~1`. Publish by pushing the commit and the tag: `git push origin HEAD v<version>`.
 
 ## Controller messages
 

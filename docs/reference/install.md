@@ -1,18 +1,21 @@
 # Install reference
 
-Capstan installs as the `cstan` command. [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the standalone binary of a release (no Node.js needed), checks it against `SHA256SUMS`, and links the command. Where the release has no binary for the machine, or with `--no-binary`, it installs the npm tarball instead (Node 24 and npm). It never reads stdin and never uses `sudo`.
+Capstan installs as two static Rust binaries: `cstan` (the command, which is also the controller daemon) and `cstan-dash` (the dashboard). [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the two binaries of a release, checks them against `SHA256SUMS`, and links the command. There is no Node.js, npm or SEA step. It never reads stdin and never uses `sudo`.
 
-> Releases (binaries, the npm tarball and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
+> Releases (the four binaries and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
+
+> **Until 0.4.0 is released.** The installer on `main` installs only releases from `0.4.0` on (`FIRST_RUST_VERSION` in `install.sh`), and `0.4.0` is the first release cut after the Rust cutover. Until it is published, `install.sh` from `main` installs nothing: it says that the Rust release is not out yet and prints the `install.sh` of the latest published tag (`v0.3.0`) to run instead. The window ends when `0.4.0` is released.
 
 ## Requirements
 
-| Need                              | Why                                                                                                                                        | Fix if missing                                                                           |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| Linux or macOS                    | Other systems are not supported                                                                                                            | —                                                                                        |
-| Node.js 24 (`>=24.6 <25`) and npm | **Tarball path only** (`--tarball`, `--no-binary`, or a release with no binary for this machine). The binary path needs no Node            | `nvm install 24 && nvm use 24`, or `fnm use 24`                                          |
-| `curl` or `wget`                  | Downloads (not needed for a local-path `--binary` or `--tarball`)                                                                          | Install either                                                                           |
-| `sha256sum` or `shasum`           | Checksum verification                                                                                                                      | Part of coreutils / macOS                                                                |
-| `git`, with at least one commit   | **Hard requirement at run time.** Workers get their own git worktree and branch from HEAD; reports, reviews, plans and integration use git | `git init && git add -A && git commit -m "chore: initial commit"`, or `cstan init --git` |
+| Need                            | Why                                                                                                                                        | Fix if missing                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Linux, x64 or arm64             | The only platforms with published binaries (static musl builds)                                                                            | —                                                                                        |
+| `curl` or `wget`                | Downloads (not needed for a local-path `--binary`)                                                                                         | Install either                                                                           |
+| `sha256sum` or `shasum`         | Checksum verification                                                                                                                      | Part of coreutils                                                                        |
+| `git`, with at least one commit | **Hard requirement at run time.** Workers get their own git worktree and branch from HEAD; reports, reviews, plans and integration use git | `git init && git add -A && git commit -m "chore: initial commit"`, or `cstan init --git` |
+
+Node.js is not needed to install or to run Capstan.
 
 ### The project's git repository
 
@@ -23,9 +26,7 @@ The installer only warns when `git` is missing, but Capstan itself needs the pro
 - A detached HEAD is supported: workers branch from the commit HEAD points to.
 - A repository with no commits is refused until it has one.
 
-Nothing is compiled on either path: there is no `make`, C++ compiler, `python3` or `node-gyp` step. The runtime uses the built-in `node:sqlite`.
-
-`curl` is required when the release base or tarball is a `file://` URL (wget cannot fetch those; the installer says so). With only `wget`, the latest-release lookup reads the `Location` header of the `releases/latest` redirect (`wget --max-redirect=0 -S`); pin `--version` if that fails.
+`curl` is required when the release base is a `file://` URL (wget cannot fetch those; the installer says so). With only `wget`, the latest-release lookup reads the `Location` header of the `releases/latest` redirect (`wget --max-redirect=0 -S`); pin `--version` if that fails.
 
 The installer fails with a fix hint for each of these. It only warns when `git`, `herdr` or `claude` are missing, when the bin directory is not on `PATH` (it prints the `export` line), and when another `cstan` earlier on `PATH` shadows the new one.
 
@@ -38,61 +39,74 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 ### Options and environment variables
 
-| Option                  | Environment            | Meaning                                                                                                                                                                                                 |
-| ----------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--version <x.y.z>`     | `CAPSTAN_VERSION`      | Release to install. Default: the latest, read from the redirect of `https://github.com/akhilrs/capstan/releases/latest` (no API call).                                                                  |
-| `--binary <path\|url>`  | `CAPSTAN_BINARY`       | Install this standalone binary instead of a release. Verified against `--sha256`, or against the `SHA256SUMS` file next to it (a `SHA256SUMS` without an entry for the file aborts). For local testing. |
-| `--no-binary`           | —                      | Install the npm tarball even when the release has a binary for this machine.                                                                                                                            |
-| `--dash-binary <file>`  | —                      | Install this `cstan-dash` (the Rust dashboard) beside `cstan`. Verified against the `SHA256SUMS` next to it when there is one.                                                                          |
-| `--no-dash`             | —                      | Do not install `cstan-dash`.                                                                                                                                                                            |
-| `--tarball <path\|url>` | `CAPSTAN_TARBALL`      | Install this npm tarball instead of a release. Skips the release lookup. For local testing.                                                                                                             |
-| `--sha256 <hex>`        | `CAPSTAN_SHA256`       | Expected checksum. With `--binary` or `--tarball` it can be the only verification; with a release it must also match `SHA256SUMS`.                                                                      |
-| `--home <dir>`          | `CAPSTAN_HOME`         | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                                                                                                                 |
-| `--bin-dir <dir>`       | `CAPSTAN_BIN_DIR`      | Where the `cstan` symlink goes. Default `$HOME/.local/bin`. Must be absolute.                                                                                                                           |
-| `--uninstall`           | —                      | Remove the install and the bin symlink.                                                                                                                                                                 |
-| `--help`                | —                      | Print the options.                                                                                                                                                                                      |
-| —                       | `CAPSTAN_RELEASE_BASE` | Replaces `https://github.com/akhilrs/capstan/releases`. For tests.                                                                                                                                      |
+| Option                 | Environment            | Meaning                                                                                                                                                                                                     |
+| ---------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--version <x.y.z>`    | `CAPSTAN_VERSION`      | Release to install. Default: the latest, read from the redirect of `https://github.com/akhilrs/capstan/releases/latest` (no API call). Below `0.4.0` it is refused (see [Older releases](#older-releases)). |
+| `--binary <path\|url>` | `CAPSTAN_BINARY`       | Install this `cstan` instead of a release. Verified against `--sha256`, or against the `SHA256SUMS` file next to it (a `SHA256SUMS` without an entry for the file aborts). For local testing.               |
+| `--dash-binary <file>` | —                      | Install this `cstan-dash` beside `cstan`. Verified against the `SHA256SUMS` next to it when there is one.                                                                                                   |
+| `--no-dash`            | —                      | Do not install `cstan-dash`.                                                                                                                                                                                |
+| `--sha256 <hex>`       | `CAPSTAN_SHA256`       | Expected checksum of `cstan`. With `--binary` it can be the only verification; with a release it must also match `SHA256SUMS`.                                                                              |
+| `--home <dir>`         | `CAPSTAN_HOME`         | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                                                                                                                     |
+| `--bin-dir <dir>`      | `CAPSTAN_BIN_DIR`      | Where the `cstan` symlink goes. Default `$HOME/.local/bin`. Must be absolute.                                                                                                                               |
+| `--uninstall`          | —                      | Remove the install and the bin symlink.                                                                                                                                                                     |
+| `--help`               | —                      | Print the options.                                                                                                                                                                                          |
+| —                      | `CAPSTAN_RELEASE_BASE` | Replaces `https://github.com/akhilrs/capstan/releases`. For tests.                                                                                                                                          |
 
-Options win over environment variables.
+Options win over environment variables. `--tarball`, `--no-binary` and `--front-binary` of earlier installers are gone.
 
-**Which path.** `--binary` installs a binary. `--tarball` or `--no-binary` installs the tarball. Otherwise the installer reads the release's `SHA256SUMS`: if it lists `cstan-<version>-<os>-<arch>` for this machine (`linux-x64` or `linux-arm64`; macOS binaries are not published) it installs that binary, and if not it says so and installs the tarball (older releases have no binaries).
+**What a release holds.** `cstan-<version>-linux-x64`, `cstan-<version>-linux-arm64`, `cstan-dash-<version>-linux-x64`, `cstan-dash-<version>-linux-arm64` and `SHA256SUMS`. The installer picks the architecture from `uname -m` (`x86_64`/`amd64` is `x64`, `aarch64`/`arm64` is `arm64`; anything else, and any other OS, is refused), downloads both binaries and checks each against `SHA256SUMS`. A release whose `SHA256SUMS` lacks either entry for this machine is refused as incomplete.
 
-**The dashboard.** When the release's `SHA256SUMS` also lists `cstan-dash-<version>-<os>-<arch>`, the installer downloads it, checks the sha256 (a mismatch aborts and leaves the previous install alone) and puts it at `current/bin/cstan-dash`, for binary and tarball installs alike. A release without it installs `cstan` alone with a note. `--no-dash` skips it.
+### Older releases
+
+`0.4.0` is the first release this installer installs. A release before it (`0.1.1`, `0.2.0`, `0.3.0`) shipped a Node standalone binary or an npm tarball, and its own `install.sh` installs it. Asking for one prints that and the URL to run:
+
+```text
+error: Capstan 0.3.0 predates the Rust release 0.4.0, which is the first this installer installs.
+Run that tag's own installer instead:
+  curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/v0.3.0/install.sh | sh -s -- --version 0.3.0
+```
+
+When the **latest** published release is below `0.4.0` the installer says the Rust release is not out yet and names the latest tag's installer the same way. A local `--binary` is not subject to the cutoff.
 
 ### The dashboard binary (`cstan-dash`)
 
-`cstan dash` uses `cstan-dash` for lower CPU and memory, and runs the Node dashboard when none is found (it then prints one hint line after it exits). Search order, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running `cstan` (`current/bin/`); `<repo>/dash/target/release/cstan-dash` when running from `dist/src/cli.js`; `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`. `CSTAN_DASH=node` always runs the Node dashboard; `CSTAN_DASH=rust` fails when no binary is found. A candidate that cannot be started falls back to the Node dashboard. In a source checkout build it with `npm run build:dash` (needs Rust). The operator credential reaches it as `CSTAN_DASH_CREDENTIAL` in its environment, readable only by the same user. See [Standalone binary](../binary.md).
+`cstan dash` runs `cstan-dash`. There is no Node dashboard any more. Search order, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running `cstan` (`current/bin/`); `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`. A candidate must answer `--version` with `cstan-dash <version>` before it is used. When none is found `cstan dash` prints one line and exits 2. The operator credential reaches it as `CSTAN_DASH_CREDENTIAL` in its environment, readable only by the same user.
 
 ## Layout and upgrades
 
 ```text
-$CAPSTAN_HOME/current/            the installed build
-$CAPSTAN_HOME/current/bin/cstan   the real entry point: the binary itself, or (tarball) the npm entry point
-$CAPSTAN_BIN_DIR/cstan            symlink to the entry point above
+$CAPSTAN_HOME/current/               the installed build
+$CAPSTAN_HOME/current/bin/cstan      the command and the controller daemon
+$CAPSTAN_HOME/current/bin/cstan-dash the dashboard
+$CAPSTAN_BIN_DIR/cstan               symlink to the entry point above
 ```
 
-For a binary the installer copies the verified file to `$CAPSTAN_HOME/staging.<pid>/bin/cstan` (mode 755). For the tarball it runs `npm install --global --prefix "$CAPSTAN_HOME/staging.<pid>" --omit=dev --no-audit --no-fund <tarball>`. Either way it runs the staged `cstan --version` and checks it prints `cstan <version>` (and the pinned `--version`, when given). Only then does it swap the staging directory into `current` (`current` → `current.old` → removed). Two consequences:
+The installer copies the verified files to `$CAPSTAN_HOME/staging.<pid>/bin/` (mode 755), runs the staged `cstan --version` and `cstan-dash --version`, and checks they print `cstan <version>` and `cstan-dash <version>` (and the pinned `--version`, when given). Only then does it swap the staging directory into `current` (`current` → `current.old` → removed). Two consequences:
 
 - The installed path `$CAPSTAN_HOME/current/bin/cstan` is the same across upgrades, so the `.capstan/bin/cstan` wrappers that projects generate keep working.
 - A failed install (download, checksum, version check) leaves the previous version untouched. A trap removes the staging directory and temp files on any exit.
 
 Re-running the installer is the upgrade path. If the version is already installed it says so and reinstalls anyway, which also repairs a broken install.
 
-After an upgrade, **running controllers keep the old build** until you run `cstan stop && cstan start`. Lazy imports in a live controller (restart, migrations) can read the new files, so restart promptly.
+### Upgrading from an earlier layout
 
-**Operator restart.** `cstan op propose --restart` works from the standalone binary (see [docs/binary.md](../binary.md#operator-restart)), but the safe way to upgrade after re-running the installer is `cstan stop`, wait until `cstan ping` fails, then `cstan start`.
+The swap replaces the whole `current` directory, so whatever an earlier installer wrote is removed. Each of these upgrades in place:
 
-**Operator restart is unsupported for the npm-tarball install.** `cstan op propose --restart` assumes a repository checkout: it derives `distDir` from the CLI path and renames `dist` and hashes `package.json` under the project root. It is untested against an installed copy; restart a controller with `cstan stop && cstan start` instead.
+| Earlier install (from)                                  | What was in `current`                                                                                     | After the upgrade                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Node SEA binary (`0.2.0`, `0.3.0`)                      | `bin/cstan` (the Node standalone binary), maybe `bin/cstan-dash`                                          | `bin/cstan` and `bin/cstan-dash`, both Rust |
+| Rust front end with `cstan-node` (`0.3.0`)              | `bin/cstan` (the front end), `bin/cstan-node` (the Node binary), `bin/cstan-dash`                         | `bin/cstan-node` is gone                    |
+| npm global prefix (the `0.1.1`–`0.3.0` tarball install) | `bin/cstan` → `../lib/node_modules/capstan-controller/…`, the package and its `node_modules` under `lib/` | `lib/` and the npm files are gone           |
+
+The installer says which earlier layout it replaced. It does not stop a daemon. If processes of the old install in `current` are still running, most likely a project's controller daemon, it warns and says to run `cstan stop` and `cstan start` in each project: **running controllers keep the old build until you do.** Wait until `cstan ping` fails after the stop before starting again. Project `.capstan/` directories are never touched, and the ledger migrates on the next start.
 
 If `$CAPSTAN_BIN_DIR/cstan` exists and is not a symlink into `$CAPSTAN_HOME`, the installer stops rather than overwrite it.
 
 ## Verification
 
-A release download must match the `SHA256SUMS` file published beside the binary or tarball (`sha256sum` or `shasum -a 256`). A mismatch, a missing `SHA256SUMS` or a missing entry aborts before anything is installed. A `--binary` or `--tarball` without `--sha256` (and, for `--binary`, without a `SHA256SUMS` beside it) installs with a warning that it is unverified.
+A release download must match the `SHA256SUMS` file published beside the binaries (`sha256sum` or `shasum -a 256`). A mismatch, a missing `SHA256SUMS` or a missing entry aborts before anything is installed. A `--binary` without `--sha256` (and without a `SHA256SUMS` beside it) installs with a warning that it is unverified.
 
-The checksum comes from the same origin as the tarball, so it protects **integrity** (corruption, a truncated or swapped file) and not **authenticity** (a compromised release would carry a matching sum). Releases are not signed. Truncation of the installer script itself is handled differently: all logic is in functions and `main "$@"` is the last line, so a partial download runs nothing.
-
-On the tarball path npm still fetches the runtime dependencies from the registry during the install. The binary path downloads one file.
+The checksum comes from the same origin as the binaries, so it protects **integrity** (corruption, a truncated or swapped file) and not **authenticity** (a compromised release would carry a matching sum). Releases are not signed. Truncation of the installer script itself is handled differently: all logic is in functions and `main "$@"` is the last line, so a partial download runs nothing.
 
 ## Uninstall
 
@@ -100,44 +114,38 @@ On the tarball path npm still fetches the runtime dependencies from the registry
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
-Removes either kind of install: `$CAPSTAN_HOME/current`, any staging directories and the bin symlink, the symlink only when it points into `$CAPSTAN_HOME`. A `cstan` link that points elsewhere is left alone. Running it twice is fine. It never touches your projects' `.capstan/` directories (ledger, operator key, config); delete those yourself. Stop controllers first with `cstan stop`.
+Removes `$CAPSTAN_HOME/current`, any staging directories and the bin symlink, the symlink only when it points into `$CAPSTAN_HOME`. A `cstan` link that points elsewhere is left alone. Running it twice is fine. It never touches your projects' `.capstan/` directories (ledger, operator key, config); delete those yourself. Stop controllers first with `cstan stop`.
 
 ## Testing with local files
 
+`sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with no `node` on `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-linux-<arch>`, `cstan-dash-<v>-linux-<arch>` and `SHA256SUMS`) to install that too.
+
+To try a release by hand without GitHub, serve a `download/v<version>/` directory with the four binaries and `SHA256SUMS` and point `CAPSTAN_RELEASE_BASE` at it (`file://` or `python3 -m http.server`), or install one binary directly:
+
 ```sh
-npm run release        # writes release/capstan-controller-<version>.tgz, cstan-<version>-linux-{x64,arm64} and release/SHA256SUMS
-sh install.sh --binary release/cstan-0.1.1-linux-x64 --home /tmp/cap-home --bin-dir /tmp/cap-bin   # SHA256SUMS beside it verifies it
-sh install.sh --tarball release/capstan-controller-0.1.1.tgz --sha256 "$(cut -d' ' -f1 release/SHA256SUMS)" \
-  --home /tmp/cap-home --bin-dir /tmp/cap-bin
+sh install.sh --binary release/cstan-0.4.0-linux-x64 --dash-binary release/cstan-dash-0.4.0-linux-x64 \
+  --home /tmp/cap-home --bin-dir /tmp/cap-bin   # the SHA256SUMS beside them verifies them
 ```
 
-Test a release download without GitHub by serving `download/v<version>/` (the tarball, the binaries and `SHA256SUMS`) and pointing `CAPSTAN_RELEASE_BASE` at it, with a `file://` or `python3 -m http.server` URL.
-
-`sh scripts/test-install.sh` runs the full smoke test against temporary directories: syntax, truncation safety, and for both paths a fresh install, re-install over an existing one, wrong checksum, `--version` pin, uninstall and a tampered download. The binary scenarios run `cstan --version` with no `node` on `PATH`. It builds the release assets first (`npm run release`, which needs network for the Node archives of the binaries) unless `CAPSTAN_TEST_RELEASE_DIR` names a directory that already holds them. It uses `file://` bases, so it needs curl; to cover wget, serve `download/v<version>/` with `python3 -m http.server` and set `CAPSTAN_RELEASE_BASE` to the `http://` URL.
+`sh scripts/smoke-binary.sh [cstan binary]` runs the built binaries (no `node` on `PATH`): init, a daemon, status, ping, the agent commands, stop, a Node-made ledger migrating, and `cstan dash` in a pty. See [the release test map](../test-map/release.md).
 
 ## Troubleshooting
 
-- **"Node 24 is required"**: only on the tarball path. Switch (`nvm use 24`, `fnm use 24`), open a new shell if needed and re-run, or install the standalone binary, which needs no Node.
+- **"predates the Rust release" or "is not out yet"**: see [Older releases](#older-releases). Run the install.sh of the tag it names.
 - **`cstan: command not found`**: add the bin directory to `PATH`, for example `export PATH="$HOME/.local/bin:$PATH"` in your shell profile.
 - **Another `cstan` runs instead**: the installer warns when an earlier `PATH` entry shadows it (a leftover `npm link`, for instance). Remove it or reorder `PATH`.
 - **Cannot read the latest release**: the `releases/latest` redirect format could change; pin with `--version <x.y.z>`.
 - **Controller still runs old code after upgrading**: `cstan stop && cstan start`.
-
-## Bun
-
-Bun is not tested since the native dependencies were removed. `cstan` runs on Node 24 through its shebang, so it still runs on Node when installed that way. The recommended installs are the `curl` one-liner (standalone binary on Linux x64/arm64, needs neither Bun nor Node) or the npm tarball.
-
-History: before the native dependencies (`fs-ext`, `better-sqlite3`) were removed, a plain `bun install -g` gave a broken `cstan` because Bun skipped the native build. That no longer applies.
+- **"unsupported OS" or "no Capstan binary for the CPU"**: only Linux x64 and arm64 are published.
 
 ## Maintainer release steps
 
 The user runs these; the installer and agents do not publish.
 
 ```sh
-npm run release                                  # tarball, both binaries, both cstan-dash and SHA256SUMS in release/ (--no-dash skips cstan-dash; --dry-run lists the assets)
-git tag v0.1.1 && git push origin main v0.1.1
-gh release create v0.1.1 release/capstan-controller-0.1.1.tgz release/cstan-0.1.1-linux-x64 \
-  release/cstan-0.1.1-linux-arm64 release/cstan-dash-0.1.1-linux-x64 release/cstan-dash-0.1.1-linux-arm64 release/SHA256SUMS --title v0.1.1 --notes "Capstan 0.1.1"
+scripts/release.sh --dry-run          # the next version, the changelog section and the assets the tag will build
+scripts/release.sh                    # bump VERSION, package.json, the lockfile and CHANGELOG.md; commit; tag locally
+git push origin HEAD v0.4.0           # starts .github/workflows/release.yml
 ```
 
-`npm run release` builds the binaries (about 130 MB each; the first run downloads the Node archives from nodejs.org) and prints the exact `gh release create` command; it never runs it. The asset names must be `capstan-controller-<version>.tgz` and `cstan-<version>-<os>-<arch>`, with `SHA256SUMS` listing all of them, on tag `v<version>`. Set `CSTAN_RELEASE_DIR` to write somewhere other than `release/`. Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.
+`scripts/release.sh` needs `cargo` (it builds `tools/release`); its options are `--dry-run` and `--version X.Y.Z`, and it refuses to run with a dirty tree. It builds no asset. The Release workflow, started by the tag, checks the tag against `VERSION`, builds `cstan` and `cstan-dash` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `cargo-zigbuild`, runs `--version` of each pair on an x64 runner and on the native `ubuntu-24.04-arm` runner, and only then writes `SHA256SUMS` and the GitHub release. `VERSION` is the single version source: `rust/crates/cstan/build.rs` and `dash/build.rs` read it (`CSTAN_VERSION` overrides it; a build outside the repository falls back to the crate version), and `scripts/check-version.sh` fails when `package.json` or the lockfile differ until the npm files go away. `scripts/check-release-workflow.sh` checks the workflow (`--build` also builds both triples locally). Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.

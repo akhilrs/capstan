@@ -24,7 +24,6 @@
   },
   "scripts": {
     "prepack": "npm run build",
-    "release": "node scripts/release.mjs",
     "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs && chmod 755 dist/src/cli.js",
     "test": "npm run build && node scripts/run-tests.mjs",
@@ -33,7 +32,8 @@
     "format": "prettier --write src test scripts/clean-dist.mjs scripts/copy-migrations.mjs scripts/build-binary.mjs scripts/build-dash.mjs scripts/build-cli.mjs scripts/copy-ledger.mjs scripts/check-dash.mjs scripts/check-rust-daemon.mjs scripts/shadow-daemon.mjs scripts/sea-config.json package.json tsconfig.json eslint.config.js",
     "check:dash": "node scripts/check-dash.mjs",
     "check:rust-daemon": "node scripts/check-rust-daemon.mjs",
-    "check": "npm run lint && npm run format:check && npm run check:dash && npm run check:rust-daemon && npm test",
+    "check:release": "sh scripts/check-version.sh && sh scripts/check-release-workflow.sh && sh scripts/test-install.sh && cargo test --locked --manifest-path tools/release/Cargo.toml",
+    "check": "npm run lint && npm run format:check && npm run check:dash && npm run check:rust-daemon && npm run check:release && npm test",
     "build:binary": "node scripts/build-binary.mjs",
     "build:dash": "node scripts/build-dash.mjs",
     "build:cli": "node scripts/build-cli.mjs",
