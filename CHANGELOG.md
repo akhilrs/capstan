@@ -2,6 +2,40 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.4.0 (2026-10-10)
+
+### Breaking changes
+
+- **cutover:** Rust port phase 3B: Rust-only release, core suites on Rust (9c12749)
+
+### Features
+
+- **daemon:** Rust port phase 3A: frozen parity corpus, Rust client (ef1403f)
+- **cli:** Rust port phase 3B: every cstan command native, Node hand-off removed (5540a87)
+- **operator:** Rust daemon port phase 2b: opt-in Rust daemon with Node (be41e82)
+- **kernel:** Rust daemon port phase 2a: kernel library with Node parity (d62487b)
+- **config:** Port the controller daemon to Rust, phase 1 (978e31d)
+
+### Bug fixes
+
+- **ci:** clean shellcheck findings and make the process-probe test (c620c96)
+- **ledger:** retry a contended project lock before reporting it held (b3f0606)
+- **daemon:** match Node's role-sync ids, commit-message reasons (81b9f17)
+- **launcher:** never close a reused pane id or retry a finished teardown (0b0007a)
+- **daemon:** restore NODE_OPTIONS when the added flag is not last (4d1cab3)
+
+### Tests
+
+- **daemon:** replay concurrent steps over the socket and record config (a1b5165)
+- **install:** run the release step in a throwaway clone (8b04ed0)
+
+### Build
+
+- **cli:** use cargo zigbuild for musl targets when zig is available (b1d0714)
+
+### CI
+
+- split CI into parallel stage jobs, drop the Node job and the release (eae0275)
 ## Unreleased
 
 Rust is the only implementation (the first release with it is 0.4.0). `scripts/release.sh` writes the 0.4.0 section from the commits; fold these notes into it.
