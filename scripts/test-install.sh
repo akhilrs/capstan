@@ -106,6 +106,8 @@ new_env() {
   mkdir -p "$E/home" "$E/stub"
   export HOME="$E/home" CAPSTAN_HOME="$E/share" CAPSTAN_BIN_DIR="$E/bin"
   unset XDG_DATA_HOME CAPSTAN_VERSION CAPSTAN_BINARY CAPSTAN_SHA256 CAPSTAN_RELEASE_BASE CAPSTAN_FETCHER
+  # hermetic default: a base with no release in it, so a case that forgets its own base cannot reach GitHub
+  export CAPSTAN_RELEASE_BASE="file://$E/no-release"
   PATH="$CAPSTAN_BIN_DIR:$BASE_PATH"
   export PATH
   git config --global user.name test >/dev/null 2>&1 || true
@@ -459,8 +461,15 @@ fi
 check_not "the removed --tarball option is unknown" run_install --tarball /nonexistent
 check_not "the removed --no-binary option is unknown" run_install --no-binary
 check_not "the removed --front-binary option is unknown" run_install --front-binary /nonexistent
-check_not "a bin-dir entry that is not ours is refused" sh -c '
-  mkdir -p "$CAPSTAN_BIN_DIR"; : >"$CAPSTAN_BIN_DIR/cstan"; sh "$1" --version "$2" </dev/null' _ "$INSTALLER" "$VERSION"
+new_env foreign
+make_release "$E/releases" "$VERSION"
+export CAPSTAN_RELEASE_BASE="file://$E/releases"
+mkdir -p "$CAPSTAN_BIN_DIR"
+printf 'not ours\n' >"$CAPSTAN_BIN_DIR/cstan"
+check_not "a bin-dir entry that is not ours is refused" run_install --version "$VERSION" --no-dash
+if run_install --version "$VERSION" --no-dash >"$E/out" 2>&1; then :; fi
+check "the refusal says the entry is not a Capstan symlink" contains "$E/out" "already exists and is not a symlink from a Capstan install"
+check "the foreign file is left unchanged" sh -c '[ ! -L "$1" ] && [ "$(cat "$1")" = "not ours" ]' _ "$CAPSTAN_BIN_DIR/cstan"
 
 # --- 10. uninstall ---------------------------------------------------------------------------------
 new_env uninstall
