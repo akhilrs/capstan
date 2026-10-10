@@ -84,8 +84,8 @@ test("the differential generator makes the same cases from the same seed", () =>
   );
 });
 
-// The front end binary against the Node CLI over the `config check` scenarios of the CLI transcripts: the same stdout,
-// stderr and exit code, and the cases the front end must not answer go to Node (a stand-in for it records the hand-over).
+// The Rust cstan against the Node CLI over the `config check` scenarios of the CLI transcripts: the same stdout, stderr and
+// exit code for every case, and no case is handed to Node (a stand-in for Node records any hand-over, and is never run).
 let frontEnd: string | null = null;
 let missing: string | undefined;
 try {
@@ -120,7 +120,7 @@ if (missing !== undefined) {
   });
 } else {
   test(
-    "cstan config check: the front end and the Node CLI print the same, and only the deferred cases reach Node",
+    "cstan config check: the Rust cstan and the Node CLI print the same, and nothing reaches Node",
     { skip: frontEnd === null ? "CSTAN_SKIP_FRONT_PARITY=1" : false },
     () => {
       assert.ok(frontEnd !== null);
@@ -156,40 +156,26 @@ if (missing !== undefined) {
                 status: result.status,
               };
             };
+            const viaFront = run(frontEnd as string, source.argv);
             const viaStub = run(frontEnd as string, source.argv, {
               CSTAN_NODE_CLI: stub,
             });
-            if (source.fallback === true) {
-              handedOver += 1;
-              assert.deepEqual(
-                viaStub,
-                {
-                  stdout: `${HANDED} ${source.argv.join(" ")}\n`,
-                  stderr: "",
-                  status: 77,
-                },
-                `${source.name} must go to Node`,
-              );
-            } else {
-              natively += 1;
-              assert.ok(
-                !viaStub.stdout.startsWith(HANDED),
-                `${source.name} must be answered by the front end`,
-              );
-            }
+            // The Node CLI is not consulted: the stand-in is never run, and naming it changes nothing.
+            if (viaStub.stdout.startsWith(HANDED)) handedOver += 1;
+            assert.equal(
+              viaStub.stdout.startsWith(HANDED),
+              false,
+              `${source.name} must be answered by the Rust cstan`,
+            );
+            assert.deepEqual(viaStub, viaFront, source.name);
+            natively += 1;
             if (source.skipNode === true) continue;
             const viaNode = run(process.execPath, [NODE_CLI, ...source.argv]);
-            const viaFront = run(frontEnd as string, source.argv, {
-              CSTAN_NODE_CLI: NODE_CLI,
-              CSTAN_NODE: process.execPath,
-            });
             assert.deepEqual(
               viaFront,
               viaNode,
               `${source.name}: stdout, stderr and exit code`,
             );
-            if (source.fallback !== true)
-              assert.deepEqual(viaStub, viaNode, source.name);
           } finally {
             rmSync(scratch, { recursive: true, force: true });
           }
@@ -197,10 +183,8 @@ if (missing !== undefined) {
       } finally {
         rmSync(stubDirectory, { recursive: true, force: true });
       }
-      assert.ok(
-        natively >= 25 && handedOver >= 10,
-        `${natively} native, ${handedOver} handed over`,
-      );
+      assert.equal(handedOver, 0, `${handedOver} handed over to Node`);
+      assert.ok(natively >= 35, `${natively} answered natively`);
     },
   );
 }

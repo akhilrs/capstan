@@ -1,34 +1,37 @@
-//! `cstan`: the native commands run here; anything else replaces this process with the Node CLI.
-use std::ffi::{OsStr, OsString};
+//! `cstan`: every command runs here; the commands only a process can do (the daemon, the restart helper, the watch loop,
+//! the hand-over to `cstan-dash`) are done by this entry point.
+use std::ffi::OsString;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cstan_front::{run, Context, Outcome};
-
-const NOT_FOUND: &str =
-    "cstan: the Node implementation was not found (install cstan-node beside cstan or set CSTAN_NODE_CLI)\n";
+use cstan_front::watch::{fetch_status, watch_status};
+use cstan_front::{run, Context, ExecPlan, Outcome, Serve, WatchPlan};
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-    if let Some(code) = serve_lifecycle(&args) {
-        std::process::exit(code);
-    }
-    let outcome = match std::env::current_dir() {
-        Ok(cwd) => run(&Context {
-            args: args.clone(),
-            env: env.clone(),
-            cwd,
-            now_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_millis() as f64),
-        }),
-        Err(_) => Outcome::Fallback(cstan_front::Fallback::NotNative),
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(error) => {
+            eprintln!("cstan: {error}");
+            std::process::exit(5);
+        }
     };
-    match outcome {
+    let cli_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("cstan"));
+    let context = Context {
+        args,
+        env: env.clone(),
+        cwd: cwd.clone(),
+        now_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_millis() as f64),
+        cli_path,
+        terminal: None,
+    };
+    match run(&context) {
         Outcome::Done {
             stdout,
             stderr,
@@ -39,77 +42,53 @@ fn main() {
             let _ = std::io::stderr().write_all(&stderr);
             std::process::exit(exit);
         }
-        Outcome::Fallback(_) => hand_to_node(&args, &env),
-    }
-}
-
-/// `cstan daemon` (no further arguments) runs the controller daemon of the project in the working directory, and
-/// `cstan __restart-helper <plan>` the detached restart helper (any other arguments are Node's): the same entries as the thin `cstan-daemon`. Returns the
-/// exit code, or None for any other command.
-fn serve_lifecycle(args: &[OsString]) -> Option<i32> {
-    match args.first().and_then(|a| a.to_str()) {
-        Some("daemon") if args.len() == 1 => Some(match std::env::current_dir() {
-            Ok(cwd) => capstan_daemon::cli::serve_cli(&cwd, &std::env::vars().collect()),
-            Err(error) => {
-                eprintln!("cstan: {error}");
-                capstan_daemon::run::EXIT_RUNTIME
-            }
-        }),
-        Some("__restart-helper") if args.len() == 2 => {
-            Some(capstan_daemon::cli::restart_helper(Path::new(&args[1])))
+        Outcome::Exec { plan, stderr } => {
+            let _ = std::io::stderr().write_all(&stderr);
+            exec(&plan)
         }
-        _ => None,
-    }
-}
-
-fn var<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsStr> {
-    cstan_front::agent::var(env, name)
-}
-
-/// Replaces this process with the Node CLI, same arguments and environment: `CSTAN_NODE_CLI` (a `.js` or `.mjs` file runs
-/// under `CSTAN_NODE` or `node`; anything else runs as it is), then `cstan-node` beside this executable. A candidate that
-/// is this executable is skipped, so the hand-over cannot loop.
-fn hand_to_node(args: &[OsString], env: &[(OsString, OsString)]) -> ! {
-    let me = std::env::current_exe()
-        .ok()
-        .and_then(|path| std::fs::canonicalize(path).ok());
-    let is_me = |candidate: &Path| match (&me, std::fs::canonicalize(candidate)) {
-        (Some(me), Ok(real)) => *me == real,
-        _ => false,
-    };
-    if let Some(cli) = var(env, "CSTAN_NODE_CLI").map(PathBuf::from) {
-        if cli.is_absolute() && !is_me(&cli) {
-            let script = matches!(cli.extension().and_then(OsStr::to_str), Some("js" | "mjs"));
-            let error = if script {
-                let node = var(env, "CSTAN_NODE")
-                    .map(PathBuf::from)
-                    .filter(|p| p.is_absolute())
-                    .unwrap_or_else(|| PathBuf::from("node"));
-                Command::new(node).arg(&cli).args(args).exec()
-            } else {
-                Command::new(&cli).args(args).exec()
-            };
-            fail_to_start(&cli, &error);
+        Outcome::Watch { plan, stderr } => {
+            let _ = std::io::stderr().write_all(&stderr);
+            watch(&plan);
+            std::process::exit(0);
+        }
+        Outcome::Serve(Serve::Daemon) => {
+            let vars = std::env::vars().collect();
+            std::process::exit(capstan_daemon::cli::serve_cli(&cwd, &vars));
+        }
+        Outcome::Serve(Serve::RestartHelper(plan)) => {
+            std::process::exit(capstan_daemon::cli::restart_helper(&plan));
         }
     }
-    if let Some(sibling) = me
-        .as_ref()
-        .and_then(|me| me.parent())
-        .map(|dir| dir.join("cstan-node"))
-        .filter(|path| path.exists() && !is_me(path))
-    {
-        let error = Command::new(&sibling).args(args).exec();
-        fail_to_start(&sibling, &error);
-    }
-    let _ = std::io::stderr().write_all(NOT_FOUND.as_bytes());
-    std::process::exit(5);
 }
 
-fn fail_to_start(path: &Path, error: &std::io::Error) -> ! {
+/// Replaces this process with `cstan-dash`; when that cannot start, says so with the usage exit code.
+fn exec(plan: &ExecPlan) -> ! {
+    let error = Command::new(&plan.program)
+        .args(&plan.args)
+        .env_clear()
+        .envs(plan.env.iter().map(|(k, v)| (k, v)))
+        .exec();
     let _ = writeln!(
         std::io::stderr(),
-        "cstan: cannot run {}: {error}",
-        path.display()
+        "cstan: {} ({})",
+        cstan_front::dash::MISSING,
+        error
     );
-    std::process::exit(5);
+    std::process::exit(cstan_front::EXIT_USAGE);
+}
+
+fn watch(plan: &WatchPlan) {
+    let mut stdout = std::io::stdout();
+    watch_status(
+        || fetch_status(plan),
+        |text| {
+            // A reader that has gone away ends the watch, as the write error ended it in Node.
+            if stdout.write_all(text.as_bytes()).is_err() || stdout.flush().is_err() {
+                std::process::exit(1);
+            }
+        },
+        std::thread::sleep,
+        Duration::from_secs(plan.interval_seconds),
+        None,
+    );
 }

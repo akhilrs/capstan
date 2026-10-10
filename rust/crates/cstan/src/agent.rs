@@ -1,18 +1,9 @@
 //! The agent environment and the project check on its socket: `agentEnvironment` and `socketVerdict` of the Node CLI.
 use std::ffi::{OsStr, OsString};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::jsops::has_space_or_control;
-
-/// How the socket in the environment relates to the project the working directory is in.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Verdict {
-    /// No `.capstan` above the working directory.
-    None,
-    Match,
-    Foreign,
-}
+use crate::jsops::{has_space_or_control, JsError};
+use crate::{invalid, Cli, Fail};
 
 /// The environment variable `name`, `None` when unset.
 pub fn var<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsStr> {
@@ -40,7 +31,18 @@ fn real_or_resolved(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| resolve(path))
 }
 
-/// Whether `socket` is the socket of the project `cwd` is in: the nearest ancestor with a `.capstan` directory.
+/// `socketVerdict`: how `socket` (the text of `CAPSTAN_SOCKET`) relates to the project `cwd` is in, the nearest ancestor
+/// with a `.capstan` directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    None,
+    Match,
+    Foreign {
+        project_root: PathBuf,
+        expected_socket: PathBuf,
+    },
+}
+
 pub fn socket_verdict(cwd: &Path, socket: &Path) -> Verdict {
     let mut dir = real_or_resolved(cwd);
     loop {
@@ -50,7 +52,10 @@ pub fn socket_verdict(cwd: &Path, socket: &Path) -> Verdict {
             return if real_or_resolved(socket) == real_or_resolved(&expected) {
                 Verdict::Match
             } else {
-                Verdict::Foreign
+                Verdict::Foreign {
+                    project_root: dir,
+                    expected_socket: expected,
+                }
             };
         }
         match dir.parent() {
@@ -67,42 +72,59 @@ pub struct AgentEnv {
     pub socket: PathBuf,
 }
 
-/// Why the environment is not an agent environment the front end serves.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NotAgent {
-    /// Neither variable is set (an operator shell).
-    Unset,
-    /// Half set, a relative socket, whitespace or control characters, or text that is not UTF-8.
-    Invalid,
-    /// The socket belongs to another project.
-    Foreign,
-}
-
-/// `agentEnvironment()` of the Node CLI without its messages: anything but a usable environment is a reason to hand the
-/// command to Node, which words the refusal.
-pub fn agent_environment(env: &[(OsString, OsString)], cwd: &Path) -> Result<AgentEnv, NotAgent> {
-    let token = var(env, "CAPSTAN_TOKEN").filter(|v| !v.is_empty());
-    let socket = var(env, "CAPSTAN_SOCKET").filter(|v| !v.is_empty());
-    let (token, socket) = match (token, socket) {
-        (None, None) => return Err(NotAgent::Unset),
-        (Some(token), Some(socket)) => (token, socket),
-        _ => return Err(NotAgent::Invalid),
-    };
-    let (Some(token), Some(socket_text)) = (token.to_str(), socket.to_str()) else {
-        return Err(NotAgent::Invalid);
-    };
-    if !socket_text.starts_with('/')
-        || has_space_or_control(token)
-        || has_space_or_control(socket_text)
-    {
-        return Err(NotAgent::Invalid);
+impl Cli<'_> {
+    /// `agentEnvironment()` of the Node CLI: `None` in an operator shell, the credentials of an agent, or the refusal. A
+    /// socket of another project is refused (exit 2) unless `CAPSTAN_ALLOW_FOREIGN_SOCKET=1`, which warns once.
+    pub fn agent_environment(&mut self) -> Result<Option<AgentEnv>, Fail> {
+        let env = &self.ctx.env;
+        let text = |name: &str| var(env, name).map(|v| v.to_string_lossy().into_owned());
+        let token = text("CAPSTAN_TOKEN").filter(|v| !v.is_empty());
+        let socket = text("CAPSTAN_SOCKET").filter(|v| !v.is_empty());
+        let (token, socket) = match (token, socket) {
+            (None, None) => return Ok(None),
+            (Some(token), Some(socket)) if socket.starts_with('/') => (token, socket),
+            _ => {
+                return Err(invalid(
+                    "CAPSTAN_TOKEN and CAPSTAN_SOCKET must both be set, and CAPSTAN_SOCKET must be an absolute path",
+                ))
+            }
+        };
+        if has_space_or_control(&token) {
+            return Err(invalid(
+                "CAPSTAN_TOKEN must not contain whitespace or control characters",
+            ));
+        }
+        if has_space_or_control(&socket) {
+            return Err(invalid(
+                "CAPSTAN_SOCKET must not contain whitespace or control characters",
+            ));
+        }
+        let socket_path = PathBuf::from(&socket);
+        if let Verdict::Foreign {
+            project_root,
+            expected_socket,
+        } = socket_verdict(&self.ctx.cwd, &socket_path)
+        {
+            let (root, expected) = (project_root.display(), expected_socket.display());
+            if var(env, "CAPSTAN_ALLOW_FOREIGN_SOCKET").and_then(|v| v.to_str()) != Some("1") {
+                return Err(Fail::Error(JsError {
+                    exit: crate::EXIT_USAGE,
+                    message: format!(
+                        "CAPSTAN_SOCKET ({socket}) is not the socket of the project you are in ({root}, socket {expected}); nothing was sent. Unset CAPSTAN_SOCKET and CAPSTAN_TOKEN, or set CAPSTAN_ALLOW_FOREIGN_SOCKET=1 to use it anyway"
+                    )
+                    .into(),
+                }));
+            }
+            if !self.foreign_warned {
+                self.foreign_warned = true;
+                self.io.err_line(&format!(
+                    "warning: CAPSTAN_SOCKET ({socket}) is not the socket of the project you are in ({root}); continuing because CAPSTAN_ALLOW_FOREIGN_SOCKET=1"
+                ));
+            }
+        }
+        Ok(Some(AgentEnv {
+            token,
+            socket: socket_path,
+        }))
     }
-    let socket = Path::new(OsStr::from_bytes(socket_text.as_bytes())).to_path_buf();
-    if socket_verdict(cwd, &socket) == Verdict::Foreign {
-        return Err(NotAgent::Foreign);
-    }
-    Ok(AgentEnv {
-        token: token.to_string(),
-        socket,
-    })
 }

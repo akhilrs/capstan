@@ -1,23 +1,33 @@
-//! The cstan front end: the commands an agent runs over the operator socket, done natively and byte for byte as the Node
-//! CLI (`src/cli.ts`) does them; every other command, and every case where the Node CLI would word a refusal, is handed to
-//! Node unchanged (`Outcome::Fallback`). The front end speaks the wire protocol only: it knows no daemon internals.
+//! The cstan CLI: every command of the Node CLI (`src/cli.ts`), byte for byte, as a library the `cstan` binary and the
+//! transcript replay both call. A run takes a `Context` (arguments, environment, working directory, clock) and ends in an
+//! `Outcome`: the bytes and exit code to give, or one of the few things only the process can do (replace itself with
+//! `cstan-dash`, serve the daemon, poll `status --watch`).
 pub mod agent;
-pub mod config_check;
+pub mod config_cmd;
+pub mod dash;
+pub mod git;
+pub mod init;
 pub mod jsops;
+pub mod operator;
 pub mod render;
+pub mod routed;
+pub mod status;
+pub mod usage;
+pub mod watch;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use capstan_wire::js::{self, JsStr, Value};
-use capstan_wire::{call, frame, response, AfterSend, Response, Timeout, WireError};
 
-use agent::{agent_environment, socket_verdict, var, Verdict};
-use jsops::{as_number, concat, JsError, EXIT_BLOCKED, EXIT_INVALID, EXIT_RUNTIME};
+use jsops::{JsError, EXIT_BLOCKED, EXIT_INVALID, EXIT_RUNTIME};
+
+pub use usage::USAGE;
 
 /// What `cstan __front-version` prints, for the installer.
 pub const VERSION: &str = env!("CSTAN_FRONT_VERSION");
+
+pub const EXIT_USAGE: i32 = 2;
 
 /// Everything a run depends on, so a test can replay it without touching the process.
 pub struct Context {
@@ -26,24 +36,35 @@ pub struct Context {
     pub cwd: PathBuf,
     /// `Date.now()`.
     pub now_ms: f64,
+    /// The `cstan` executable: the daemon is started as `<cli_path> daemon`.
+    pub cli_path: PathBuf,
+    /// Whether standard input and output are a terminal; `None` asks the process. A test sets it.
+    pub terminal: Option<bool>,
 }
 
-/// Why a command goes to Node.
+/// A program to replace this process with.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Fallback {
-    /// Not one of the native commands (or its arguments are not the plain form).
-    NotNative,
-    /// The agent environment is missing, half set, malformed or points at another project.
-    NoAgentEnvironment,
-    /// An argument is empty, not UTF-8 or holds U+FFFD.
-    BadArgument,
-    /// The request is over the frame limit.
-    FrameTooLarge,
-    /// Nothing reached the daemon.
-    NotSent,
-    /// `config check` could not be answered natively: invalid TOML, a text the TOML parsers may read differently, an
-    /// unreadable or missing file.
-    ConfigDeferred,
+pub struct ExecPlan {
+    pub program: PathBuf,
+    pub args: Vec<OsString>,
+    pub env: Vec<(OsString, OsString)>,
+}
+
+/// `cstan status --watch`: poll the daemon at `socket` every `interval_seconds`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WatchPlan {
+    pub socket: PathBuf,
+    pub credential: String,
+    pub interval_seconds: u64,
+}
+
+/// What only the process itself can do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Serve {
+    /// `cstan daemon`.
+    Daemon,
+    /// `cstan __restart-helper <plan>`.
+    RestartHelper(PathBuf),
 }
 
 /// The end of a run.
@@ -54,49 +75,137 @@ pub enum Outcome {
         stderr: Vec<u8>,
         exit: i32,
     },
-    Fallback(Fallback),
+    /// Replace the process (after writing `stderr`).
+    Exec {
+        plan: ExecPlan,
+        stderr: Vec<u8>,
+    },
+    /// Poll the daemon; `stderr` holds what was already said.
+    Watch {
+        plan: WatchPlan,
+        stderr: Vec<u8>,
+    },
+    Serve(Serve),
 }
 
-const WAIT_SECONDS: u64 = 3600 + 30;
-const HOOK_TIMEOUT: Duration = Duration::from_secs(2);
+/// Standard output and error of a run, in the order the Node CLI writes each.
+#[derive(Default)]
+pub struct Io {
+    pub out: Vec<u8>,
+    pub err: Vec<u8>,
+}
 
-/// The commands the front end serves natively, in an agent environment.
-const NATIVE: &[&str] = &[
-    "status",
-    "ping",
-    "inbox",
-    "ack",
-    "wait",
-    "report",
-    "ask",
-    "request-review",
-    "integrate",
-    "plan",
-    "op",
-    "link",
-    "review",
-    "finding",
-    "observe",
-    "prompt",
-    "send",
-    "pause",
-    "resume",
-    "spawn",
-    "release",
-    "replace",
-];
+impl Io {
+    pub fn out_line(&mut self, text: &str) {
+        self.out.extend_from_slice(text.as_bytes());
+        self.out.push(b'\n');
+    }
 
-fn client_timeout(command: &str) -> Timeout {
-    Timeout::Idle(match command {
-        "wait" => Duration::from_secs(WAIT_SECONDS),
-        "replace" => Duration::from_secs(1800),
-        "spawn" | "request-review" | "plan" | "integrate" | "release" => Duration::from_secs(600),
-        _ => capstan_wire::DEFAULT_TIMEOUT,
+    pub fn out_js_line(&mut self, text: &JsStr) {
+        self.out.extend_from_slice(text.to_utf8_lossy().as_bytes());
+        self.out.push(b'\n');
+    }
+
+    pub fn err_line(&mut self, text: &str) {
+        self.err.extend_from_slice(text.as_bytes());
+        self.err.push(b'\n');
+    }
+}
+
+/// Why a command ends in failure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fail {
+    /// `usage()`: the usage text, then the catch-all's `cstan: <usage>`, exit 2.
+    Usage,
+    /// An error the catch-all words as `cstan: <message>`.
+    Error(JsError),
+}
+
+impl From<JsError> for Fail {
+    fn from(error: JsError) -> Fail {
+        Fail::Error(error)
+    }
+}
+
+pub fn invalid(message: impl Into<JsStr>) -> Fail {
+    Fail::Error(JsError {
+        exit: EXIT_INVALID,
+        message: message.into(),
     })
 }
 
+pub fn blocked(message: impl Into<JsStr>) -> Fail {
+    Fail::Error(JsError {
+        exit: EXIT_BLOCKED,
+        message: message.into(),
+    })
+}
+
+pub fn runtime(message: impl Into<JsStr>) -> Fail {
+    Fail::Error(JsError {
+        exit: EXIT_RUNTIME,
+        message: message.into(),
+    })
+}
+
+/// What a command that did not fail ends with.
+pub enum Flow {
+    Code(i32),
+    Exec(ExecPlan),
+    Watch(WatchPlan),
+    Serve(Serve),
+}
+
+/// One run: the context, the output so far and the once-only foreign-socket warning.
+pub struct Cli<'a> {
+    pub ctx: &'a Context,
+    pub io: Io,
+    pub foreign_warned: bool,
+}
+
+/// Runs one invocation.
+pub fn run(context: &Context) -> Outcome {
+    let mut cli = Cli {
+        ctx: context,
+        io: Io::default(),
+        foreign_warned: false,
+    };
+    let result = cli.run_cli();
+    let Io { out, mut err } = cli.io;
+    match result {
+        Ok(Flow::Code(exit)) => Outcome::Done {
+            stdout: out,
+            stderr: err,
+            exit,
+        },
+        Ok(Flow::Exec(plan)) => Outcome::Exec { plan, stderr: err },
+        Ok(Flow::Watch(plan)) => Outcome::Watch { plan, stderr: err },
+        Ok(Flow::Serve(serve)) => Outcome::Serve(serve),
+        Err(Fail::Usage) => {
+            err.extend_from_slice(format!("{USAGE}\ncstan: {USAGE}\n").as_bytes());
+            Outcome::Done {
+                stdout: out,
+                stderr: err,
+                exit: EXIT_USAGE,
+            }
+        }
+        Err(Fail::Error(error)) => {
+            err.extend_from_slice(
+                jsops::concat(&[&"cstan: ".into(), &error.message, &"\n".into()])
+                    .to_utf8_lossy()
+                    .as_bytes(),
+            );
+            Outcome::Done {
+                stdout: out,
+                stderr: err,
+                exit: error.exit,
+            }
+        }
+    }
+}
+
 /// `parseOptions`: `--json` before a `--` is a flag, everything after it is literal.
-fn parse_options(args: &[String]) -> (Vec<String>, bool) {
+pub fn parse_options(args: &[String]) -> (Vec<String>, bool) {
     let (options, literal) = match args.iter().position(|a| a == "--") {
         Some(at) => (&args[..at], &args[at + 1..]),
         None => (args, &args[..0]),
@@ -110,249 +219,171 @@ fn parse_options(args: &[String]) -> (Vec<String>, bool) {
     (positional, options.iter().any(|a| a == "--json"))
 }
 
-fn done(stdout: Vec<u8>, stderr: Vec<u8>, exit: i32) -> Outcome {
-    Outcome::Done {
-        stdout,
-        stderr,
-        exit,
-    }
-}
-
-/// Runs one invocation. A command that is not native, or that Node would refuse in its own words, is `Fallback`.
-pub fn run(context: &Context) -> Outcome {
-    let Some(command) = context.args.first().and_then(|a| a.to_str()) else {
-        return Outcome::Fallback(Fallback::NotNative);
-    };
-    if command == "__front-version" {
-        return if context.args.len() == 1 {
-            done(format!("cstan-front {VERSION}\n").into_bytes(), vec![], 0)
-        } else {
-            Outcome::Fallback(Fallback::NotNative)
-        };
-    }
-    if command == "inbox" && context.args.len() == 2 && context.args[1] == "--hook" {
-        return run_hook(context);
-    }
-    if command == "config" {
-        return config_check::run(context);
-    }
-    if !NATIVE.contains(&command) {
-        return Outcome::Fallback(Fallback::NotNative);
-    }
-    let mut rest = Vec::new();
-    for arg in &context.args[1..] {
-        match arg.to_str() {
-            Some(text) => rest.push(text.to_string()),
-            None => return Outcome::Fallback(Fallback::BadArgument),
+/// `takeFlag`: removes `name` from `flags`; true when it was there.
+pub fn take_flag(flags: &mut Vec<String>, name: &str) -> bool {
+    match flags.iter().position(|f| f == name) {
+        Some(at) => {
+            flags.remove(at);
+            true
         }
+        None => false,
     }
-    let (positional, json) = parse_options(&rest);
-    match command {
-        "status" => {
-            let before = rest.iter().position(|a| a == "--").unwrap_or(rest.len());
-            if rest[..before].iter().any(|a| a == "--watch") || !positional.is_empty() {
-                return Outcome::Fallback(Fallback::NotNative);
-            }
+}
+
+/// `takeIntervalSeconds`: removes `--interval N` and returns N; 2 when absent.
+pub fn take_interval_seconds(flags: &mut Vec<String>) -> Result<u64, Fail> {
+    let Some(at) = flags.iter().position(|f| f == "--interval") else {
+        return Ok(2);
+    };
+    let value = flags.get(at + 1);
+    let seconds = value.and_then(|v| {
+        let bytes = v.as_bytes();
+        let shape = matches!(bytes.len(), 1 | 2)
+            && bytes.iter().all(u8::is_ascii_digit)
+            && bytes[0] != b'0';
+        shape.then(|| v.parse::<u64>().ok()).flatten()
+    });
+    match seconds {
+        Some(seconds) if seconds <= 60 => {
+            flags.drain(at..at + 2);
+            Ok(seconds)
         }
-        "ping" if !positional.is_empty() => return Outcome::Fallback(Fallback::NotNative),
-        _ => {}
-    }
-    if positional
-        .iter()
-        .any(|a| a.is_empty() || a.contains('\u{fffd}'))
-    {
-        return Outcome::Fallback(Fallback::BadArgument);
-    }
-    let Ok(agent) = agent_environment(&context.env, &context.cwd) else {
-        return Outcome::Fallback(Fallback::NoAgentEnvironment);
-    };
-    let Ok(request) = frame(&agent.token, command, &positional) else {
-        return Outcome::Fallback(Fallback::FrameTooLarge);
-    };
-    let reply = match call(&agent.socket, &request, client_timeout(command)) {
-        Err(WireError::NotSent { .. }) => return Outcome::Fallback(Fallback::NotSent),
-        other => other,
-    };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    match handle_wire(
-        reply,
-        json,
-        command,
-        context.now_ms,
-        &mut stdout,
-        &mut stderr,
-    ) {
-        Ok(()) => done(stdout, stderr, 0),
-        Err(error) => {
-            stderr.extend(
-                concat(&[&"cstan: ".into(), &error.message, &"\n".into()])
-                    .to_utf8_lossy()
-                    .into_bytes(),
-            );
-            done(stdout, stderr, error.exit)
-        }
+        _ => Err(invalid("--interval must be an integer from 1 to 60")),
     }
 }
 
-fn after_send_message(error: &AfterSend) -> String {
-    match error {
-        AfterSend::TimedOut => "timed out".into(),
-        AfterSend::Closed => "connection closed".into(),
-        AfterSend::TooLarge => "response too large".into(),
-        AfterSend::Malformed => "malformed reply".into(),
-        AfterSend::Io(code) if code == "EPIPE" => format!("write {code}"),
-        AfterSend::Io(code) => format!("read {code}"),
-    }
-}
-
-/// What `handleWire` throws for a refusal: `invalid_request` and `error` carry the daemon's message (as `new Error(message)`
-/// makes it: absent is empty), any other code is `code: message` with each part as a template literal shows it.
-fn refusal(line: &[u8]) -> JsError {
-    let members = std::str::from_utf8(line)
-        .ok()
-        .and_then(|text| js::parse(text).ok())
-        .unwrap_or(Value::Null);
-    let (code, message) = (members.get("code"), members.get("message"));
-    let message_text = |absent: &str| match message {
-        None => JsStr::from(absent),
-        Some(v) => jsops::to_js_string(v),
-    };
-    match code {
-        Some(Value::String(c)) if c.to_utf8_lossy() == "invalid_request" => JsError {
-            exit: EXIT_INVALID,
-            message: message_text(""),
-        },
-        Some(Value::String(c)) if c.to_utf8_lossy() == "error" => JsError {
-            exit: EXIT_RUNTIME,
-            message: message_text(""),
-        },
-        _ => JsError {
-            exit: EXIT_BLOCKED,
-            message: concat(&[
-                &jsops::template(code),
-                &": ".into(),
-                &jsops::template(message),
-            ]),
-        },
-    }
-}
-
-fn text(out: &mut Vec<u8>, line: &JsStr) {
-    out.extend_from_slice(line.to_utf8_lossy().as_bytes());
-    out.push(b'\n');
+/// A serde_json value as the JavaScript value `JSON.parse` of its text gives.
+pub fn to_js(value: &serde_json::Value) -> Value {
+    js::parse(&value.to_string()).expect("serde_json writes JSON")
 }
 
 /// `output(value, json)`; `None` is `undefined`.
-fn output(out: &mut Vec<u8>, value: Option<&Value>, json: bool) {
+pub fn output(out: &mut Vec<u8>, value: Option<&Value>, json: bool) {
     let rendered = match (value, json) {
         (None, _) => JsStr::from("undefined"),
         (Some(v), true) => js::stringify(v, 2),
         (Some(v), false) => js::render(v),
     };
-    text(out, &rendered);
+    out.extend_from_slice(rendered.to_utf8_lossy().as_bytes());
+    out.push(b'\n');
 }
 
-/// `handleWire` and the error mapping of `runRouted`: what is printed, or the error the CLI would print.
-fn handle_wire(
-    reply: Result<Vec<u8>, WireError>,
-    json: bool,
-    command: &str,
-    now_ms: f64,
-    stdout: &mut Vec<u8>,
-    stderr: &mut Vec<u8>,
-) -> Result<(), JsError> {
-    let line = match reply {
-        Ok(line) => line,
-        Err(WireError::AfterSend(error)) => {
-            return Err(JsError::runtime(after_send_message(&error)));
+impl Cli<'_> {
+    fn run_cli(&mut self) -> Result<Flow, Fail> {
+        let args: Vec<String> = self
+            .ctx
+            .args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let Some((command, rest)) = args.split_first() else {
+            return Err(Fail::Usage);
+        };
+        let rest = rest.to_vec();
+        match command.as_str() {
+            "--version" | "-V" | "version" => {
+                if !rest.is_empty() {
+                    return Err(Fail::Usage);
+                }
+                self.io.out_line(&format!("cstan {VERSION}"));
+                return Ok(Flow::Code(0));
+            }
+            "__front-version" if rest.is_empty() => {
+                self.io.out_line(&format!("cstan-front {VERSION}"));
+                return Ok(Flow::Code(0));
+            }
+            "--help" | "-h" | "help" => {
+                self.io.out_line(USAGE);
+                return Ok(Flow::Code(0));
+            }
+            "__restart-helper" => return self.restart_helper(&rest),
+            "init" => return self.init(&rest),
+            "config" => return self.config(&rest),
+            "herdr-config" => {
+                if !rest.is_empty() {
+                    return Err(Fail::Usage);
+                }
+                self.io
+                    .out
+                    .extend_from_slice(usage::HERDR_CONFIG_SNIPPET.as_bytes());
+                return Ok(Flow::Code(0));
+            }
+            "daemon" => {
+                if !rest.is_empty() {
+                    return Err(Fail::Usage);
+                }
+                return Ok(Flow::Serve(Serve::Daemon));
+            }
+            "start" => return self.start(&rest),
+            "stop" => return self.stop(&rest),
+            "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),
+            _ => {}
         }
-        Err(WireError::NotSent { code, .. }) => {
-            return Err(JsError::runtime(format!("connect {code}")));
+        if command == "ping" || routed::is_routed(command) || (command == "pm" && pm_restart(&rest))
+        {
+            let (mut positional, json) = parse_options(&rest);
+            if command == "pm" {
+                positional.remove(0);
+            }
+            let name = if command == "pm" {
+                "pm-restart"
+            } else {
+                command.as_str()
+            };
+            if name == "ping" && !positional.is_empty() {
+                return Err(Fail::Usage);
+            }
+            return self.run_routed(name, &positional, json);
         }
-    };
-    let result = match response(&line) {
-        Response::Malformed => return Err(JsError::runtime("malformed reply")),
-        Response::Refused { .. } => return Err(refusal(&line)),
-        Response::Ok { result } => result,
-    };
-    let result = result.as_ref();
-    if !json && (command == "inbox" || command == "wait") {
-        text(stdout, &render::render_messages(result)?);
-    } else {
-        if !json && (command == "status" || command == "ping") {
-            for line in render::controller_lines(result) {
-                text(stdout, &line);
+        if command == "cancel" {
+            let (positional, json) = parse_options(&rest);
+            if positional.len() == 1 {
+                return self.run_routed("cancel", &positional, json);
             }
         }
-        if !json && command == "status" {
-            let mut lines = render::pause_lines(result, now_ms)?;
-            lines.extend(render::pm_mail_lines(result));
-            for line in &lines {
-                text(stdout, line);
+        let before_separator = match rest.iter().position(|a| a == "--") {
+            Some(at) => &rest[..at],
+            None => &rest[..],
+        };
+        if command == "status" && before_separator.iter().any(|a| a == "--watch") {
+            return self.status_watch(&rest);
+        }
+        if command == "dash" {
+            return self.dash(&rest);
+        }
+        if command == "status" && self.agent_environment()?.is_some() {
+            let (positional, json) = parse_options(&rest);
+            if !positional.is_empty() {
+                return Err(Fail::Usage);
+            }
+            return self.run_routed("status", &[], json);
+        }
+        if command == "status" {
+            return self.status_offline(&rest);
+        }
+        if command == "inspect" {
+            return self.inspect(&rest);
+        }
+        Err(Fail::Usage)
+    }
+
+    fn restart_helper(&mut self, rest: &[String]) -> Result<Flow, Fail> {
+        match rest.first() {
+            None => {
+                self.io.err_line("usage: helper.mjs <plan.json>");
+                Ok(Flow::Code(64))
+            }
+            Some(_) => {
+                let plan = self.ctx.args.get(1).map(PathBuf::from).unwrap_or_default();
+                Ok(Flow::Serve(Serve::RestartHelper(plan)))
             }
         }
-        output(stdout, result, json);
     }
-    if !json {
-        if let Some(notice) = render::unread_notice(result, now_ms) {
-            stderr.extend_from_slice(notice.as_bytes());
-            stderr.push(b'\n');
-        }
-    }
-    if let Some(Value::String(warning)) = jsops::read_opt(result, "warning") {
-        text(stderr, &concat(&[&"warning: ".into(), warning]));
-    }
-    Ok(())
 }
 
-/// `runInboxHook`: silent and exit 0 whatever happens, but for the one line of context when messages wait.
-fn run_hook(context: &Context) -> Outcome {
-    let silent = || done(vec![], vec![], 0);
-    let token = var(&context.env, "CAPSTAN_TOKEN").filter(|v| !v.is_empty());
-    let socket = var(&context.env, "CAPSTAN_SOCKET").filter(|v| !v.is_empty());
-    let agent = var(&context.env, "CAPSTAN_AGENT_ID").filter(|v| !v.is_empty());
-    let (Some(token), Some(socket), Some(_)) = (token, socket, agent) else {
-        return silent();
-    };
-    let (Some(token), Some(socket)) = (token.to_str(), socket.to_str()) else {
-        return Outcome::Fallback(Fallback::BadArgument);
-    };
-    if !socket.starts_with('/') {
-        return silent();
-    }
-    let socket = std::path::Path::new(socket);
-    if socket_verdict(&context.cwd, socket) == Verdict::Foreign {
-        return silent();
-    }
-    let Ok(request) = frame(token, "inbox", &["--hook".to_string()]) else {
-        return silent();
-    };
-    let Ok(line) = call(socket, &request, Timeout::Idle(HOOK_TIMEOUT)) else {
-        return silent();
-    };
-    let Response::Ok { result } = response(&line) else {
-        return silent();
-    };
-    let Some(count) = as_number(jsops::read_opt(result.as_ref(), "count")).filter(|n| *n > 0.0)
-    else {
-        return silent();
-    };
-    let minutes = render::oldest_minutes(
-        jsops::read_opt(result.as_ref(), "oldestQueuedAt"),
-        context.now_ms,
-    );
-    let message = format!(
-        "{} Capstan message(s) are waiting for you (oldest {} min). Run cstan inbox now and ack each one before you continue or report.",
-        js::number_to_string(count),
-        js::number_to_string(minutes),
-    );
-    done(
-        format!(
-            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"{message}\"}}}}\n"
-        )
-        .into_bytes(),
-        vec![],
-        0,
-    )
+/// `command === "pm" && rest.filter((arg) => arg !== "--json")[0] === "restart"`.
+fn pm_restart(rest: &[String]) -> bool {
+    rest.iter()
+        .find(|a| *a != "--json")
+        .is_some_and(|a| a == "restart")
 }

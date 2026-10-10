@@ -1,6 +1,6 @@
 //! The configuration corpus (the Node tests' cases, TOML edge cases and the starter) against what the Node loader made of
 //! each, recorded by test/config-parity-export.ts: the same RoleConfig JSON (by SHA-256 and length), the same
-//! `ConfigError` text, and a `Parse` error wherever Node reports invalid TOML.
+//! `ConfigError` text, and for invalid TOML the line and column Node reports.
 mod common;
 
 use std::collections::HashMap;
@@ -21,7 +21,6 @@ fn every_corpus_case_gives_the_result_node_gave() {
     // list, so they are read from the second corpus file.
     cases.extend(items(&read_json("config-edge-cases.json")).iter().cloned());
     let mut failures = Vec::new();
-    let mut deferred = Vec::new();
     let mut checked = 0;
     for case in &cases {
         let name = text(case, "name").unwrap();
@@ -59,11 +58,15 @@ fn every_corpus_case_gives_the_result_node_gave() {
                     ));
                 }
             }
-            ("parse-error", Err(ConfigError::Parse(_))) => {}
-            ("unexpected", Err(_)) => {}
-            (_, Err(ConfigError::Parse(error))) => {
-                deferred.push(format!("{name} (node: {kind}): {}", error.detail))
+            ("parse-error", Err(ConfigError::Invalid(message))) => {
+                if *message != text(want, "message").unwrap() {
+                    failures.push(format!(
+                        "{name}: TOML error differs\n  rust: {message}\n  node: {}",
+                        text(want, "message").unwrap()
+                    ));
+                }
             }
+            ("unexpected", Err(_)) => {}
             (_, other) => failures.push(format!("{name}: node {kind}, rust {other:?}")),
         }
     }
@@ -74,31 +77,6 @@ fn every_corpus_case_gives_the_result_node_gave() {
         failures.len(),
         failures.join("\n")
     );
-    // Cases Rust leaves to Node although Node reads them: a float or a date anywhere (a valid configuration has none, and
-    // smol-toml's spellings of them are not reproduced), the key `__proto__` (an ordinary key in TOML, special in
-    // JavaScript), integers beyond 64 bits (smol-toml reads any size) and the texts of `disagreements.rs`.
-    let known = |detail: &str| {
-        detail.contains("a float, a date or a key this port does not interpret")
-            || detail.contains("as i128")
-            || detail.contains("u64 value was too large")
-            || detail.contains("known disagreement with the Node parser")
-    };
-    let unknown: Vec<&String> = deferred.iter().filter(|d| !known(d)).collect();
-    assert!(
-        unknown.is_empty(),
-        "deferred for another reason: {unknown:?}"
-    );
-    for name in [
-        "edge-big-integer",
-        "edge-proto-key",
-        "edge-float-integer",
-        "edge-datetime",
-    ] {
-        assert!(
-            deferred.iter().any(|d| d.starts_with(name)),
-            "{name} should defer"
-        );
-    }
 }
 
 #[test]
