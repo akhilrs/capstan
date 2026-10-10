@@ -1,0 +1,10 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0513",
+  "reason": "the researcher role may run in any permission mode now; Node refused everything but \"default\"",
+  "expected": {
+    "kind": "ok",
+    "sha256": "640ffd5566f2ec73b1756c1f4694382257638078c46e1bff33f793e83eb7acb7",
+    "bytes": 6946
+  }
+}

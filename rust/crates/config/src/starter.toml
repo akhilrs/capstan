@@ -62,10 +62,12 @@ check_seconds = 300
 # capture_ttl_seconds = 600     # how long a shown prompt can be answered; 60 to 3600
 
 # An optional Researcher reads the web and writes findings under output_dir. It is a Developer role
-# on a claude host that must use permission_mode "default", a strict allow list and the deny list in
-# src/researcher-policy.ts; its MCP servers come from [mcp_servers.<name>] and the role's mcp key.
-# The curl denies are guards, not a sandbox: permission_mode "default" plus the strict allow list is
-# the real control. While enabled = false, nothing about a Researcher reaches an agent. To use it,
+# on a claude host with a strict allow list and the deny list in src/researcher-policy.ts; its MCP
+# servers come from [mcp_servers.<name>] and the role's mcp key. permission_mode "default" is the
+# starter value; acceptEdits, plan and auto are allowed, but acceptEdits and auto approve calls with
+# fewer prompts, which loosens the guards for an agent that reads untrusted pages.
+# The curl denies are guards, not a sandbox: the strict allow list, and permission_mode "default"
+# where used, are the real control. While enabled = false, nothing about a Researcher reaches an agent. To use it,
 # remove the leading # from this table and from [roles.researcher] below; [mcp_servers.playwright] is
 # already defined for the designer. The role must differ from the architect and operator roles.
 # [researcher]

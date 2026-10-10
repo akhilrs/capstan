@@ -14,6 +14,12 @@ use std::thread;
 use serde_json::{json, Value};
 use support::*;
 
+/// The researcher comment of the starter `capstan.toml` as Node wrote it, and as Rust writes it now (the researcher role
+/// may run in any permission mode). The recorded `files` of the `init` transcripts carry the old text; see
+/// `tests/divergences/README.md`.
+const STARTER_RESEARCHER_COMMENT_NODE: &str = "# on a claude host that must use permission_mode \"default\", a strict allow list and the deny list in\n# src/researcher-policy.ts; its MCP servers come from [mcp_servers.<name>] and the role's mcp key.\n# The curl denies are guards, not a sandbox: permission_mode \"default\" plus the strict allow list is\n# the real control.";
+const STARTER_RESEARCHER_COMMENT_RUST: &str = "# on a claude host with a strict allow list and the deny list in src/researcher-policy.ts; its MCP\n# servers come from [mcp_servers.<name>] and the role's mcp key. permission_mode \"default\" is the\n# starter value; acceptEdits, plan and auto are allowed, but acceptEdits and auto approve calls with\n# fewer prompts, which loosens the guards for an agent that reads untrusted pages.\n# The curl denies are guards, not a sandbox: the strict allow list, and permission_mode \"default\"\n# where used, are the real control.";
+
 struct Entry {
     kind: &'static str,
     mode: String,
@@ -302,6 +308,20 @@ fn replay_in(
     if let (Some(files), Some(want_files)) =
         (&files, transcript.get("files").and_then(Value::as_array))
     {
+        let want_files: Vec<Value> = want_files
+            .iter()
+            .map(|file| {
+                let mut file = file.clone();
+                if let Some(text) = file.get("text").and_then(Value::as_str) {
+                    file["text"] = Value::String(text.replace(
+                        STARTER_RESEARCHER_COMMENT_NODE,
+                        STARTER_RESEARCHER_COMMENT_RUST,
+                    ));
+                }
+                file
+            })
+            .collect();
+        let want_files = &want_files;
         if files != want_files {
             problems.push(format!(
                 "files {}, want {}",

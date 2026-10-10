@@ -19,9 +19,9 @@ The Researcher reads attacker-controlled text (web pages, posts, comments) and h
 - **File writes.** curl output flags (`-o`, `-O`, `--output`), the flags that write side files (`-c`/`--cookie-jar`, `-D`/`--dump-header`, `--trace*`, `--stderr`, `--create-dirs`, `--libcurl`, `--hsts`, `--alt-svc`, `--etag-save`, and the `-w` variable `%output{...}`; `-w '%{http_code}'` stays allowed) and shell redirection write fetched content anywhere the user can write: shell startup files, project files, hooks.
 - **Browser uploads and sign-in.** A browser MCP server can fill and submit forms, upload files and use stored sessions. Those tools are left out of the allowlist except what reading needs.
 
-## 3. Why `permission_mode` must be `default`
+## 3. Permission mode
 
-Allow and deny rules only gate a tool call when Claude Code asks for a decision on it. `acceptEdits` and `auto` approve calls without that check, and `bypassPermissions` skips it. The configuration loader therefore refuses any other mode for the Researcher role. A call that matches no allow rule is refused or prompts; a prompt the PM cannot answer under the prompt relay rules is a refusal in practice.
+Allow and deny rules only gate a tool call when Claude Code asks for a decision on it. `acceptEdits` and `auto` approve calls without that check. The configuration loader once refused any other mode for the Researcher role; that rule was removed, so every mode the generic validator allows is accepted and `default` stays the starter value. Choosing another mode is the operator's decision: it trades the prompt gate for fewer stalls, on an agent that reads untrusted pages. A call that matches no allow rule is refused or prompts; a prompt the PM cannot answer under the prompt relay rules is a refusal in practice.
 
 ## 4. Allowlist and deny lists
 
@@ -43,6 +43,6 @@ The Researcher's browser is an MCP server defined in `[mcp_servers]` and named i
 - **Browser output files.** The Playwright MCP server writes snapshot and console files to its output directory, which would otherwise be `.playwright-mcp/` inside the worktree. The starter config passes `--output-dir /tmp/capstan-playwright` (supported by `@playwright/mcp` 0.0.83) so the worktree stays clean; the directory is shared by all researchers on the machine and holds page text the researcher read, so clear it when the research is done. The prompt also stages only the report file.
 - **Supply chain.** The browser server is started with `npx`; pin its version in `[mcp_servers]`.
 
-**Known limit: bundled short flags.** The curl denies match whole-command globs, so bundled short flags such as `curl -sc jar URL`, `curl -sD f URL` or `curl -so f URL` are not caught. A broad pattern such as `curl -*c*` would also block ordinary commands (for example `-A "... contact ..."`), so none is added. The controls that remain are `permission_mode = "default"`, the strict allowlist and the prompt rules.
+**Known limit: bundled short flags.** The curl denies match whole-command globs, so bundled short flags such as `curl -sc jar URL`, `curl -sD f URL` or `curl -so f URL` are not caught. A broad pattern such as `curl -*c*` would also block ordinary commands (for example `-A "... contact ..."`), so none is added. The controls that remain are the strict allowlist, `permission_mode = "default"` where used, and the prompt rules.
 
 The 128-entry deny cap applies to every role's deny list on purpose: more deny rules only tighten a role.

@@ -217,12 +217,6 @@ pub fn researcher_rule_problems(role: &Role, researcher: &Researcher) -> Vec<Str
             role.name, role.kind
         ));
     }
-    if role.permission_mode != "default" {
-        problems.push(format!(
-            "{at}.permission_mode must be \"default\" for the researcher role; it is \"{}\"",
-            role.permission_mode
-        ));
-    }
     let servers: Vec<&str> = role.mcp.iter().map(|server| server.name.as_str()).collect();
     for (index, rule) in role.allow.iter().enumerate() {
         if let Some(problem) = allow_problem(rule, &researcher.output_dir, &servers) {
