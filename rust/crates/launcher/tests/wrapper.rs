@@ -1,9 +1,10 @@
 //! The `cstan` wrapper the launcher puts first on every agent's PATH (replaces test/launcher-wrapper.test.ts for the
 //! Rust launcher): its exact text, the Node variables it passes on, and what it does with paths and arguments when an
 //! agent shell runs it. Nothing here needs Node: the `cstan` it runs is a shell stub that records what it was given.
+mod common;
+
 use capstan_launcher::shared::{cstan_wrapper_script, FrontEndSite};
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -20,9 +21,7 @@ fn site(cstan: &str, env: &[(&str, &str)]) -> FrontEndSite {
 }
 
 fn executable(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    common::exec::write_script(path, text, 0o755);
 }
 
 #[test]
@@ -68,6 +67,7 @@ fn the_node_variables_are_passed_on_only_when_the_daemon_has_them() {
 
 #[test]
 fn the_wrapper_quotes_paths_and_passes_the_arguments_and_variables_through() {
+    let _exec = common::exec::exclusive();
     let scratch = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(scratch.path()).unwrap();
     let out = root.join("wrapper-out");
@@ -115,6 +115,7 @@ fn the_wrapper_quotes_paths_and_passes_the_arguments_and_variables_through() {
 
 #[test]
 fn the_wrapper_does_not_take_node_variables_from_the_agent_shell() {
+    let _exec = common::exec::exclusive();
     // The variables in the script are the daemon's; whatever the agent's shell holds is overwritten by them.
     let scratch = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(scratch.path()).unwrap();

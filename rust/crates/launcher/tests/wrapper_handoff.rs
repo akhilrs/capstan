@@ -4,10 +4,11 @@
 //!
 //! It needs the built `cstan` (`cargo test` of the workspace builds it; for this package alone run
 //! `cargo build -p cstan-front` first; `CSTAN_BIN` names it if it is not beside the test build).
+mod common;
+
 use capstan_launcher::shared::{cstan_wrapper_script, FrontEndSite};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,13 +22,12 @@ fn cstan_binary() -> PathBuf {
 }
 
 fn write_executable(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    common::exec::write_script(path, text, 0o700);
 }
 
 #[test]
 fn an_agent_shell_runs_config_check_through_the_wrapper() {
+    let _exec = common::exec::exclusive();
     let cstan = cstan_binary();
     assert!(
         cstan.is_file(),

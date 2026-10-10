@@ -1,0 +1,22 @@
+[package]
+name = "capstan-blackbox"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Black-box suites: the release cstan (and cstan-dash for one frame) driven as processes in scratch projects"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_blackbox"
+path = "src/lib.rs"
+
+# Test-only: the harness seeds a scratch ledger through the kernel (what `cstan spawn` does in a real run) and then talks to
+# the real binary. Versions are the ones the other crates already pin.
+[dependencies]
+capstan-kernel = { path = "../kernel" }
+capstan-daemon = { path = "../daemon" }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+libc = "=0.2.190"
+getrandom = "=0.4.3"
+rusqlite = "=0.40.2"

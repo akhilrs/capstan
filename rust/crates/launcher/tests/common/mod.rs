@@ -3,6 +3,7 @@
 //! configuration the sequences run with and the comparison that names the first difference.
 
 pub mod engine;
+pub mod exec;
 pub mod ledger;
 pub mod stub;
 

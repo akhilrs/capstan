@@ -63,6 +63,100 @@ pub fn cstan_binary() -> PathBuf {
         .join("cstan")
 }
 
+/// The files of the operator's Claude Code sign-in: `~/.claude/.credentials.json` and `~/.claude.json`.
+pub fn claude_login_files(real_home: &Path) -> Result<(PathBuf, PathBuf), String> {
+    let credentials = real_home.join(".claude/.credentials.json");
+    let state = real_home.join(".claude.json");
+    if !credentials.is_file() {
+        return Err(
+            "no Claude Code sign-in file (~/.claude/.credentials.json) in the operator's home"
+                .into(),
+        );
+    }
+    if !state.is_file() {
+        return Err(".claude.json is missing, so Claude Code is not signed in".into());
+    }
+    Ok((credentials, state))
+}
+
+/// The keys of `~/.claude.json` that identify the signed-in account; everything else (project state, caches, history)
+/// stays out of the scratch copy.
+const SIGN_IN_KEYS: [&str; 4] = [
+    "oauthAccount",
+    "userID",
+    "hasCompletedOnboarding",
+    "lastOnboardingVersion",
+];
+
+/// Makes `config_dir` (a scratch `CLAUDE_CONFIG_DIR`) from the operator's sign-in: the credentials file as it is, the
+/// account keys of `.claude.json`, and an empty `settings.json`. The directory and the files are private (0700 and 0600);
+/// nothing is linked, and no token is printed. `Err` names why this machine cannot sign in, for a loud skip.
+pub fn scratch_claude_config(real_home: &Path, config_dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let (credentials, state) = claude_login_files(real_home)?;
+    let private = |path: &Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    std::fs::create_dir_all(config_dir).unwrap();
+    private(config_dir, 0o700);
+    let write = |name: &str, bytes: &[u8]| {
+        let file = config_dir.join(name);
+        std::fs::write(&file, bytes).unwrap();
+        private(&file, 0o600);
+    };
+    write(
+        ".credentials.json",
+        &std::fs::read(&credentials)
+            .map_err(|e| format!("the credentials file is unreadable: {e}"))?,
+    );
+    let all: Value = serde_json::from_slice(
+        &std::fs::read(&state).map_err(|e| format!(".claude.json is unreadable: {e}"))?,
+    )
+    .map_err(|e| format!(".claude.json is not JSON: {e}"))?;
+    let mut kept = serde_json::Map::new();
+    for key in SIGN_IN_KEYS {
+        if let Some(value) = all.get(key) {
+            kept.insert(key.to_string(), value.clone());
+        }
+    }
+    write(".claude.json", Value::Object(kept).to_string().as_bytes());
+    write("settings.json", b"{}\n");
+    Ok(())
+}
+
+/// Every symlink under `directory` whose target is `target` or below it.
+pub fn symlinks_into(directory: &Path, target: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                let points_into = std::fs::read_link(&path).is_ok_and(|link| {
+                    let link = if link.is_absolute() {
+                        link
+                    } else {
+                        dir.join(link)
+                    };
+                    link.starts_with(target)
+                });
+                if points_into {
+                    found.push(path);
+                }
+            } else if kind.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    found
+}
+
 pub fn until<T>(what: &str, seconds: u64, mut action: impl FnMut() -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
@@ -136,8 +230,10 @@ pub struct Options {
     pub operator: bool,
     /// `[prompt_relay]` on.
     pub prompt_relay: bool,
-    /// The agents run the real `claude` on the scratch HOME, to which the operator's Claude sign-in and the Playwright
-    /// browsers are linked (never copied).
+    /// The agents run the real `claude` on the scratch HOME with a scratch `CLAUDE_CONFIG_DIR` that holds a copy of what the
+    /// operator's sign-in needs (`scratch_claude_config`) and nothing else; the operator's `~/.claude` and `~/.claude.json`
+    /// are only read, never linked, so Claude Code writes its project state for scratch paths into the scratch directory.
+    /// The Playwright browsers are found through `PLAYWRIGHT_BROWSERS_PATH`, read-only.
     pub linked_login: bool,
     /// A `capstan.toml` of the suite's own; `{session}` is replaced by the Herdr session. The other options then only
     /// decide the environment.
@@ -243,11 +339,8 @@ impl Live {
                 return skip("claude is not available");
             }
             let home = std::env::var("HOME").unwrap_or_default();
-            if !Path::new(&home).join(".claude").exists() {
-                return skip("no Claude Code login in the operator's home");
-            }
-            if !Path::new(&home).join(".claude.json").exists() {
-                return skip(".claude.json is missing, so Claude Code is not signed in");
+            if let Err(reason) = claude_login_files(Path::new(&home)) {
+                return skip(&reason);
             }
         }
         let fixtures = repository().join("test/fixtures");
@@ -276,29 +369,22 @@ impl Live {
         let fake = std::fs::read_to_string(fixtures.join("fake-claude.py")).unwrap();
         let body = fake.split_once('\n').map_or("", |(_, rest)| rest);
         let claude = bin.join("claude");
-        std::fs::write(&claude, format!("#!{}\n{body}", python.trim())).unwrap();
-        std::fs::set_permissions(&claude, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        // Written under a temporary name and renamed into place, so no copy of an open descriptor can make it "busy".
+        let temp = bin.join(".claude.tmp");
+        std::fs::write(&temp, format!("#!{}\n{body}", python.trim())).unwrap();
+        std::fs::set_permissions(&temp, std::os::unix::fs::PermissionsExt::from_mode(0o755))
             .unwrap();
+        std::fs::rename(&temp, &claude).unwrap();
         std::fs::copy(
             fixtures.join("claude-trust-dialog.txt"),
             bin.join("claude-trust-dialog.txt"),
         )
         .unwrap();
 
-        // The watch pane runs `cstan status --watch`, the one interactive command the front end does not serve itself yet.
-        // A stand-in that stays up takes its place (as test/launcher-live's watch-cli.js did), so the suites need no Node.
-        let watch = root.join("watch-stub");
-        // Any other command that reaches it was handed to Node, which these suites never do: it fails at once.
-        std::fs::write(
-            &watch,
-            "#!/bin/sh\nif [ \"$1\" = status ] && [ \"$2\" = --watch ]; then echo WATCH-PANE-RUNNING; exec sleep 3600; fi\necho \"cstan: handed to Node: $*\" >&2\nexit 5\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&watch, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .unwrap();
         let mut environment: HashMap<String, String> = std::env::vars()
             .filter(|(name, _)| {
-                !name.starts_with("HERDR_")
+                name != "CLAUDE_CONFIG_DIR"
+                    && !name.starts_with("HERDR_")
                     && !name.starts_with("XDG_")
                     && !name.starts_with("CAPSTAN_")
                     && !name.starts_with("CSTAN_")
@@ -315,10 +401,6 @@ impl Live {
         };
         environment.insert("PATH".into(), path);
         environment.insert("TERM".into(), "xterm-256color".into());
-        environment.insert(
-            "CSTAN_NODE_CLI".into(),
-            watch.to_string_lossy().into_owned(),
-        );
         // The scratch home's rc files set the prompt the adapter waits for, so panes must run bash.
         environment.insert("SHELL".into(), "/bin/bash".into());
         environment.insert(
@@ -339,16 +421,28 @@ impl Live {
             environment.insert("PATH".into(), operators_path);
         }
         if options.linked_login {
-            use std::os::unix::fs::symlink;
-            for name in [".claude", ".claude.json"] {
-                symlink(Path::new(&operators_home).join(name), home.join(name)).unwrap();
+            let config_dir = root.join("claude-config");
+            if let Err(reason) = scratch_claude_config(Path::new(&operators_home), &config_dir) {
+                let _ = std::fs::remove_dir_all(&root);
+                return skip(&reason);
             }
+            environment.insert(
+                "CLAUDE_CONFIG_DIR".into(),
+                config_dir.to_string_lossy().into_owned(),
+            );
             let browsers = Path::new(&operators_home).join(".cache/ms-playwright");
             if browsers.exists() {
-                std::fs::create_dir_all(home.join(".cache")).unwrap();
-                symlink(browsers, home.join(".cache/ms-playwright")).unwrap();
+                environment.insert(
+                    "PLAYWRIGHT_BROWSERS_PATH".into(),
+                    browsers.to_string_lossy().into_owned(),
+                );
             }
         }
+        let linked = symlinks_into(&home, Path::new(&operators_home));
+        assert!(
+            linked.is_empty(),
+            "the scratch HOME holds a symlink into the real HOME: {linked:?}"
+        );
 
         let session = format!("capstan-test-{}", suffix());
         let server = Command::new("herdr")
@@ -433,12 +527,28 @@ impl Live {
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
         // The project directory is not part of the repository's content.
         std::fs::write(self.repo.join(".git/info/exclude"), ".capstan/\n").unwrap();
+        // The variables the agents need to find the scratch sign-in and the browsers: a project hands an agent only what
+        // `[env] pass` names (and the launcher names any that is missing).
+        let passed: Vec<String> = ["CLAUDE_CONFIG_DIR", "PLAYWRIGHT_BROWSERS_PATH"]
+            .iter()
+            .filter(|name| self.agent_environment().contains_key(**name))
+            .map(|name| format!("\"{name}\""))
+            .collect();
+        let env_block = if passed.is_empty() {
+            String::new()
+        } else {
+            format!("\n[env]\npass = [{}]\n", passed.join(", "))
+        };
         if let Some(config) = &options.config {
-            std::fs::write(
-                self.repo.join("capstan.toml"),
-                config.replace("{session}", &self.session),
-            )
-            .unwrap();
+            let mut text = config.replace("{session}", &self.session);
+            if !env_block.is_empty() {
+                assert!(
+                    !text.lines().any(|line| line.trim() == "[env]"),
+                    "a suite's own config names [env] itself"
+                );
+                text.push_str(&env_block);
+            }
+            std::fs::write(self.repo.join("capstan.toml"), text).unwrap();
             return;
         }
         let mut config = format!(
@@ -495,6 +605,7 @@ deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"
         if options.prompt_relay {
             config.push_str("\n[prompt_relay]\nenabled = true\n");
         }
+        config.push_str(&env_block);
         std::fs::write(self.repo.join("capstan.toml"), config).unwrap();
     }
 
@@ -812,6 +923,13 @@ deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"
             }
         }
         eprintln!("---- panes ----\n{:?}", self.pane_ids());
+        // What each pane shows (the end of it): the first thing to read when a wait for a state ran out.
+        for pane in self.pane_ids() {
+            let screen = self.screen(&pane);
+            let lines: Vec<&str> = screen.lines().collect();
+            let from = lines.len().saturating_sub(30);
+            eprintln!("---- screen of {pane} ----\n{}", lines[from..].join("\n"));
+        }
     }
 
     fn teardown(&mut self) {
