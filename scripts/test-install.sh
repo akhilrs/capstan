@@ -7,6 +7,9 @@
 # It needs no network and no node: node directories are dropped from PATH for the whole run.
 # Set CAPSTAN_TEST_RELEASE_DIR to a directory holding a real release (cstan-<v>-linux-<arch>,
 # cstan-dash-<v>-linux-<arch> and SHA256SUMS) to also install it for this machine. Exit code 0 means all passed.
+# SC2016 is disabled for the whole file: the sh -c scripts and printf formats below are deliberately single-quoted,
+# so that "$1", "${1:-}" and the like are expanded by the inner shell or the generated stub, not by this script.
+# shellcheck disable=SC2016
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +29,16 @@ check() {
   desc="$1"
   shift
   if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
+}
+
+# check_shellcheck: like check, but prints shellcheck's findings when it fails (CI logs otherwise hide them).
+check_shellcheck() {
+  if out="$(shellcheck -s sh "$@" 2>&1)"; then
+    pass "shellcheck -s sh"
+  else
+    fail "shellcheck -s sh"
+    printf '%s\n' "$out"
+  fi
 }
 
 # check_not <description> <command...>: passes when the command fails.
@@ -143,7 +156,7 @@ else
   echo "skip dash -n: dash not installed"
 fi
 if command -v shellcheck >/dev/null 2>&1; then
-  check "shellcheck -s sh" shellcheck -s sh "$INSTALLER" "$ROOT/scripts/test-install.sh"
+  check_shellcheck "$INSTALLER" "$ROOT/scripts/test-install.sh"
 else
   echo "skip shellcheck: not installed"
 fi
@@ -212,14 +225,22 @@ new_env plat-riscv
 make_release "$E/releases" "$VERSION"
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
 stub_uname Linux riscv64
-PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1 && fail "an unsupported CPU is refused" || pass "an unsupported CPU is refused"
+if PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1; then
+  fail "an unsupported CPU is refused"
+else
+  pass "an unsupported CPU is refused"
+fi
 check "the refusal names the CPU" contains "$E/out" "riscv64"
 check_not "nothing installed for an unsupported CPU" test -e "$CAPSTAN_HOME/current"
 new_env plat-darwin
 make_release "$E/releases" "$VERSION"
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
 stub_uname Darwin arm64
-PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1 && fail "macOS is refused" || pass "macOS is refused"
+if PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1; then
+  fail "macOS is refused"
+else
+  pass "macOS is refused"
+fi
 check_not "nothing installed on macOS" test -e "$CAPSTAN_HOME/current"
 
 # --- 5. checksum refusals --------------------------------------------------------------
@@ -264,12 +285,20 @@ make_release "$E/releases" "$OLD_VERSION"
 make_release "$E/releases" 0.3.9
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
 for old in 0.3.0 0.2.0 0.1.1 0.3.9; do
-  run_install --version "$old" >"$E/out" 2>&1 && fail "--version $old is refused" || pass "--version $old is refused"
+  if run_install --version "$old" >"$E/out" 2>&1; then
+    fail "--version $old is refused"
+  else
+    pass "--version $old is refused"
+  fi
   check "the $old refusal names that tag's install.sh URL" contains "$E/out" "$RAW/v$old/install.sh"
   check_not "nothing installed for --version $old" test -e "$CAPSTAN_HOME/current"
   check_not "no download for --version $old" contains "$E/out" "Downloading"
 done
-CAPSTAN_VERSION=0.3.0 run_install >"$E/out" 2>&1 && fail "CAPSTAN_VERSION=0.3.0 is refused" || pass "CAPSTAN_VERSION=0.3.0 is refused"
+if CAPSTAN_VERSION=0.3.0 run_install >"$E/out" 2>&1; then
+  fail "CAPSTAN_VERSION=0.3.0 is refused"
+else
+  pass "CAPSTAN_VERSION=0.3.0 is refused"
+fi
 check "the CAPSTAN_VERSION refusal names the tag URL" contains "$E/out" "$RAW/v0.3.0/install.sh"
 stub_latest 0.3.0
 if PATH="$E/stub:$PATH" run_install >"$E/out" 2>&1; then fail "latest 0.3.0 installs nothing"; else pass "latest 0.3.0 installs nothing"; fi
@@ -286,7 +315,11 @@ check "--version 0.4.0 installs" run_install --version 0.4.0
 new_env bad-latest
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
 stub_latest 1.2.3-rc1
-PATH="$E/stub:$PATH" run_install >"$E/out" 2>&1 && fail "a pre-release latest tag is refused" || pass "a pre-release latest tag is refused"
+if PATH="$E/stub:$PATH" run_install >"$E/out" 2>&1; then
+  fail "a pre-release latest tag is refused"
+else
+  pass "a pre-release latest tag is refused"
+fi
 check "the refusal says it could not read a release version" contains "$E/out" "could not read a release version"
 for bad in "0.4.0 [following]" "1.2" "1.2.3.4" "v1.2.3" "1.2.3-rc1" "1..3" ".1.2" "a.b.c" "1.2.3 "; do
   check_not "--version '$bad' is rejected" run_install --version "$bad"

@@ -125,7 +125,8 @@ test("the process probe finds the same tool processes as a scan of the whole pro
         .map(({ pid, ppid, comm, startKey }) => ({ pid, ppid, comm, startKey }))
         .sort((a, b) => a.pid - b.pid);
     const scan = mock.method(fs.promises, "readFile");
-    const wholeTable = toolProcesses(await readProcTable(), shellPid);
+    const table = await readProcTable();
+    const wholeTable = toolProcesses(table, shellPid);
     const scanReads = scan.mock.callCount();
     scan.mock.resetCalls();
     const targeted = await readToolProcesses(shellPid);
@@ -139,9 +140,15 @@ test("the process probe finds the same tool processes as a scan of the whole pro
       "the shell and its sleep are counted; the host's own sleep is not",
     );
     assert.ok(targetedReads <= 30, `targeted reads ${targetedReads}`);
+    // The scan reads one file per process, so what it reads grows with the host; the targeted probe reads only the
+    // pane's tree, whatever the host runs (a fixed ratio between the two would fail on a small CI runner).
     assert.ok(
-      scanReads >= 10 * targetedReads,
-      `the table scan read ${scanReads} files`,
+      scanReads >= table.length,
+      `the table scan read ${scanReads} files for ${table.length} processes`,
+    );
+    assert.ok(
+      targetedReads < table.length || table.length <= 30,
+      `the targeted probe read ${targetedReads} files against a table of ${table.length} processes`,
     );
     assert.deepEqual(await readToolProcesses(2_147_483_000), [], "no such pid");
   } finally {
