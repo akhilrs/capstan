@@ -34,6 +34,8 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run format:check
+      # Version files, the release workflow, install.sh against fabricated releases, and tools/release (cargo test).
+      - run: npm run check:release
 
   dash:
     name: cstan-dash (fmt, clippy, test)

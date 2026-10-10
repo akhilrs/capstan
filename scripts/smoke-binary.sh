@@ -1,22 +1,26 @@
 #!/bin/sh
-# Smoke test for the standalone cstan binaries (npm run build:binary first). With the Rust dashboard built (npm run
-# build:dash, or CSTAN_DASH_SMOKE_BIN=<path to cstan-dash>) it also runs `cstan dash` in a pty both with cstan-dash
-# beside the binary (the frame must come from cstan-dash) and without it (the Node dashboard and its hint).
-# Runs each binary in a mkdtemp HOME and a temp git repository with a PATH that holds only the
-# binary's directory plus /usr/bin:/bin and no node. Skips a target whose binary is missing or
-# cannot run on this machine (arm64 needs qemu-aarch64 binfmt). Exit code 0 means every check passed.
-# With the native front end (npm run build:cli -- --target linux-x64, release/cstan-front-<version>-<platform>, or
-# CSTAN_FRONT_SMOKE_BIN=<path>) each runnable binary is also run in the installed layout: the front end as bin/cstan and
-# the binary as bin/cstan-node. Without a front end the layout-less checks above are all there is, as before.
-# Usage: scripts/smoke-binary.sh [binary...]   (default: release/cstan-<version>-linux-{x64,arm64})
+# Smoke test for the Rust binaries: cstan (which is also the controller daemon) and cstan-dash. Runs each cstan in a
+# mkdtemp HOME and a temp git repository with a PATH that holds only that binary's directory plus /usr/bin:/bin and no
+# node, and checks:
+#   - cstan --version, --help, init
+#   - `cstan daemon` started with CAPSTAN_LAUNCH=off, then status, ping, send/inbox/ack and stop
+#   - a ledger made by Node (test/fixtures/ledger-better-sqlite3.sqlite, migration 31) migrates to the current
+#     migration with the same schema_migrations rows and checksums, and the agents in it answer send/inbox
+#   - `cstan dash` in a real terminal (a pty from script(1)) becomes a real cstan-dash beside it, draws its first frame
+#     and ends cleanly on q
+# and runs scripts/check-version.sh. A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
+# binfmt, or a native arm64 machine); the Release workflow runs the arm64 binaries on a native runner.
+# Usage: scripts/smoke-binary.sh [cstan binary...]
+#   default: release/cstan-<version>-linux-{x64,arm64}, else the host build under ${CARGO_TARGET_DIR}/release/cstan
+#   CSTAN_DASH_SMOKE_BIN=<cstan-dash> names the dashboard; default: the one next to the release binary, else the host
+#   build (${CARGO_TARGET_DIR}/release/cstan-dash or dash/target/release/cstan-dash)
+# Exit code 0 means every check passed.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json")"
+VERSION="$(tr -d ' \t\r\n' <"$ROOT/VERSION")"
 FAILURES=0
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/capstan-smoke.XXXXXX")"
-# A node for the npm-build ledger checks only; the binary never sees it.
-NODE_BIN="$(command -v node || true)"
 DAEMON_PIDS=""
 
 pass() { printf 'ok   %s\n' "$1"; }
@@ -26,7 +30,12 @@ fail() {
 }
 
 cleanup() {
-  for pid in $DAEMON_PIDS; do kill "$pid" 2>/dev/null || true; done
+  for pid in $DAEMON_PIDS; do
+    # only a process this script started, and only while it still runs the binary under test
+    if [ -d "/proc/$pid" ] && [ "$(readlink "/proc/$pid/cwd" 2>/dev/null | cut -c1-${#SANDBOX})" = "$SANDBOX" ]; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
   rm -rf "$SANDBOX"
 }
 trap cleanup EXIT
@@ -39,12 +48,6 @@ check() {
   shift
   if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
 }
-
-if [ "$#" -gt 0 ]; then
-  BINARIES="$*"
-else
-  BINARIES="$ROOT/release/cstan-$VERSION-linux-x64 $ROOT/release/cstan-$VERSION-linux-arm64"
-fi
 
 # can_run <binary>: true when this machine can execute the binary's architecture.
 can_run() {
@@ -68,177 +71,52 @@ wait_gone() {
   return 1
 }
 
-# front_binary <binary name>: the front end to test with (CSTAN_FRONT_SMOKE_BIN, the release build for this binary's
-# platform, or the host build of rust/ for x64); prints its path, or nothing when none runs here.
-front_binary() {
-  plat="${1#cstan-"$VERSION"-}"
-  case "$plat" in linux-x64 | linux-arm64) ;; *) plat="" ;; esac
-  for candidate in "${CSTAN_FRONT_SMOKE_BIN:-}" "${plat:+$ROOT/release/cstan-front-$VERSION-$plat}" \
-    "$( [ "$plat" = linux-x64 ] && printf '%s' "$ROOT/rust/${CARGO_TARGET_DIR:-target}/release/cstan" || true )"; do
+# wait_for <file>: true once the file (a socket) exists (10 s at most).
+wait_for() {
+  i=0
+  while [ "$i" -lt 100 ]; do
+    [ -S "$1" ] || [ -f "$1" ] && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# dash_binary <platform of the cstan under test>: the cstan-dash to test with; prints its path, or nothing when none runs here.
+dash_binary() {
+  for candidate in "${CSTAN_DASH_SMOKE_BIN:-}" "$ROOT/release/cstan-dash-$VERSION-$1" \
+    "${CARGO_TARGET_DIR:+$CARGO_TARGET_DIR/release/cstan-dash}" "$ROOT/dash/target/release/cstan-dash"; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     can_run "$candidate" || continue
-    [ "$("$candidate" __front-version 2>/dev/null)" = "cstan-front $VERSION" ] && printf '%s\n' "$candidate" && return 0
-  done
-  return 0
-}
-
-# hold_listener <socket>: a unix socket that accepts connections and never answers, so an agent command that waits for the
-# daemon keeps running while its /proc entry is read. Prints the listener's pid; prints nothing without python3 or node.
-hold_listener() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c '
-import socket, sys, time
-s = socket.socket(socket.AF_UNIX)
-s.bind(sys.argv[1])
-s.listen(8)
-conns = []
-while True:
-    conns.append(s.accept()[0])
-' "$1" >/dev/null 2>&1 &
-  elif [ -n "$NODE_BIN" ]; then
-    "$NODE_BIN" -e 'const n=require("net");n.createServer(()=>{}).listen(process.argv[1])' "$1" >/dev/null 2>&1 &
-  else
-    return 0
-  fi
-  printf '%s\n' "$!"
-}
-
-# dash_binary: the cstan-dash to test with (CSTAN_DASH_SMOKE_BIN, the x64 release build, or the build:dash output);
-# prints its path, or nothing when none runs here.
-dash_binary() {
-  for candidate in "${CSTAN_DASH_SMOKE_BIN:-}" "$ROOT/release/cstan-dash-$VERSION-linux-x64" \
-    "${CARGO_TARGET_DIR:-$ROOT/dash/target}/release/cstan-dash"; do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    case "$("$candidate" --version 2>/dev/null)" in "cstan-dash "*) printf '%s\n' "$candidate" && return 0 ;; esac
+    case "$(file -b "$candidate")" in
+      *x86-64*) [ "$1" = linux-x64 ] || continue ;;
+      *aarch64* | *ARM\ aarch64*) [ "$1" = linux-arm64 ] || continue ;;
+    esac
+    case "$("$candidate" --version 2>/dev/null)" in "cstan-dash $VERSION") printf '%s\n' "$candidate" && return 0 ;; esac
   done
   return 0
 }
 
 # dash_session <dir with cstan> <name>: runs `cstan dash` in a pty (160x45) from that directory, reads which program
 # the process has become after 3 s, sends q, and leaves the pty output in $DIR/dash.<name>.out, the program in
-# $DIR/dash.<name>.exe and the pid in $DIR/dash.<name>.pid.
+# $DIR/dash.<name>.exe, the pid in $DIR/dash.<name>.pid and cstan's exit code in $DIR/dash.<name>.rc.
 dash_session() {
   pidfile="$DIR/dash.$2.pid"
   exefile="$DIR/dash.$2.exe"
+  rcfile="$DIR/dash.$2.rc"
   out="$DIR/dash.$2.out"
-  rm -f "$pidfile" "$exefile"
+  rm -f "$pidfile" "$exefile" "$rcfile"
   (
     sleep 3
     readlink "/proc/$(cat "$pidfile" 2>/dev/null)/exe" >"$exefile" 2>/dev/null || true
     printf q
     sleep 3
-  ) | timeout -s KILL 25 env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm \
-    PATH="$1:/usr/bin:/bin" script -qec "stty rows 45 cols 160; echo \$\$ >'$pidfile'; exec cstan dash --no-color" /dev/null \
-    >"$out" 2>&1 || true
-}
-
-# smoke_front <binary> <real path> <front end>: the installed layout with the front end, bin/cstan (front end) and
-# bin/cstan-node (the binary), in a fresh project. Agent commands run natively in the front end; everything else is handed to
-# cstan-node. Without Herdr there is no agent token, so the agent environment uses the operator key: the daemon refuses
-# send, inbox and ack, and the point is that the front end answers exactly as cstan-node does.
-smoke_front() {
-  FNAME="$(basename "$1")"
-  FBIN="$DIR/front/bin"
-  mkdir -p "$FBIN" "$DIR/front/repo"
-  cp "$3" "$FBIN/cstan"
-  cp "$2" "$FBIN/cstan-node"
-  chmod 755 "$FBIN/cstan" "$FBIN/cstan-node"
-  FRONT_REAL="$(readlink -f "$FBIN/cstan")"
-  NODE_REAL="$(readlink -f "$FBIN/cstan-node")"
-  f() {
-    env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm PATH="$FBIN:/usr/bin:/bin" "$@"
-  }
-  echo "== $FNAME with the front end"
-  (cd "$DIR/front/repo" &&
-    git init -q . &&
-    git -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m init)
-  cd "$DIR/front/repo"
-  GOT="$(f cstan --version 2>&1)" || true
-  [ "$GOT" = "cstan $VERSION" ] && pass "$FNAME: front: --version is $GOT" || fail "$FNAME: front: --version printed '$GOT'"
-  check "$FNAME: front: init" f cstan init
-  f cstan start >"$DIR/front.start.out" 2>&1 || true
-  grep -q "running: true" "$DIR/front.start.out" && pass "$FNAME: front: start" || fail "$FNAME: front: start ($(head -c 300 "$DIR/front.start.out"))"
-  FPID="$(cat .capstan/state/daemon.pid 2>/dev/null || true)"
-  DAEMON_PIDS="$DAEMON_PIDS $FPID"
-  if [ -n "$FPID" ] && [ "$(readlink -f "/proc/$FPID/exe" 2>/dev/null)" = "$NODE_REAL" ]; then
-    pass "$FNAME: front: the daemon pid $FPID runs cstan-node"
-  else
-    fail "$FNAME: front: the daemon pid '$FPID' is not cstan-node"
-  fi
-
-  # The agent environment: the front end and cstan-node must answer alike, byte for byte, exit code included.
-  KEY="$(cat .capstan/operator.key 2>/dev/null || true)"
-  SOCK="$DIR/front/repo/.capstan/state/control.sock"
-  a() { f env CAPSTAN_TOKEN="$KEY" CAPSTAN_SOCKET="$SOCK" "$@"; }
-  for line in "ping" "status" "send pm hello" "inbox pm" "ack 00000000-0000-0000-0000-000000000000"; do
-    # shellcheck disable=SC2086
-    a cstan $line >"$DIR/front.a.out" 2>"$DIR/front.a.err" && RC1=0 || RC1=$?
-    # shellcheck disable=SC2086
-    a cstan-node $line >"$DIR/front.b.out" 2>"$DIR/front.b.err" && RC2=0 || RC2=$?
-    if [ "$RC1" = "$RC2" ] && cmp -s "$DIR/front.a.out" "$DIR/front.b.out" && cmp -s "$DIR/front.a.err" "$DIR/front.b.err"; then
-      pass "$FNAME: front: agent-env '$line' answers like cstan-node (exit $RC1)"
-    else
-      fail "$FNAME: front: agent-env '$line' differs from cstan-node (exit $RC1 vs $RC2; $(head -c 200 "$DIR/front.a.err") / $(head -c 200 "$DIR/front.b.err"))"
-    fi
-  done
-  OUT="$(f cstan inbox --hook 2>&1)" && RC=0 || RC=$?
-  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "$FNAME: front: inbox --hook silent, exit 0" || fail "$FNAME: front: inbox --hook rc=$RC output '$OUT'"
-
-  # An agent command that waits keeps running: its executable is the front end, not cstan-node.
-  HOLD="$DIR/hold.sock"
-  LPID="$(hold_listener "$HOLD")"
-  if [ -z "$LPID" ]; then
-    echo "skip $FNAME: front: held agent command (no python3 or node for a listener)"
-  else
-    i=0
-    while [ "$i" -lt 50 ] && [ ! -S "$HOLD" ]; do sleep 0.1; i=$((i + 1)); done
-    # Run outside the project: a socket that is not the project's is refused as foreign there.
-    (cd "$DIR" && exec env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$FBIN:/usr/bin:/bin" CAPSTAN_TOKEN="$KEY" CAPSTAN_SOCKET="$HOLD" \
-      cstan wait >/dev/null 2>&1) &
-    WPID=$!
-    sleep 1
-    WEXE="$(readlink -f "/proc/$WPID/exe" 2>/dev/null || true)"
-    [ "$WEXE" = "$FRONT_REAL" ] && pass "$FNAME: front: /proc/$WPID/exe of an agent-env wait is the front end" ||
-      fail "$FNAME: front: an agent-env wait runs '$WEXE'"
-    kill "$WPID" 2>/dev/null || true
-    kill "$LPID" 2>/dev/null || true
-    wait "$WPID" 2>/dev/null || true
-  fi
-
-  # The wrapper the launcher writes for agents execs the front end when one sits beside the binary.
-  if [ -n "$NODE_BIN" ] && [ -f "$ROOT/dist/src/launcher/shared.js" ]; then
-    SCRIPT="$("$NODE_BIN" --input-type=module -e '
-      const { cstanWrapperScript } = await import(process.argv[1]);
-      process.stdout.write(cstanWrapperScript("/n", "/c.js", { env: {}, sea: true, execPath: process.argv[2] }));
-    ' "$ROOT/dist/src/launcher/shared.js" "$FBIN/cstan-node" 2>/dev/null)" || SCRIPT=""
-    case "$SCRIPT" in
-      *"exec '$FBIN/cstan' \"\$@\""*) pass "$FNAME: front: the agent wrapper execs the front end" ;;
-      *) fail "$FNAME: front: the agent wrapper is '$SCRIPT'" ;;
-    esac
-  else
-    echo "skip $FNAME: front: wrapper script (no node or dist/ build)"
-  fi
-
-  # cstan dash still becomes cstan-dash when it sits beside the pair.
-  if command -v script >/dev/null 2>&1; then
-    DASHBIN="$(dash_binary)"
-    if [ -z "$DASHBIN" ] || [ "$(uname -m)" != x86_64 ]; then
-      echo "skip $FNAME: front: rust dash (no runnable x86-64 cstan-dash)"
-    else
-      cp "$DASHBIN" "$FBIN/cstan-dash"
-      dash_session "$FBIN" front
-      EXE="$(cat "$DIR/dash.front.exe" 2>/dev/null || true)"
-      [ "$(basename "$EXE")" = cstan-dash ] && pass "$FNAME: front: cstan dash becomes cstan-dash" ||
-        fail "$FNAME: front: cstan dash runs '$EXE'"
-      rm -f "$FBIN/cstan-dash"
-    fi
-  fi
-
-  ERR="$(f cstan status 2>&1 >/dev/null)" || true
-  [ -z "$ERR" ] && pass "$FNAME: front: nothing on stderr" || fail "$FNAME: front: stderr '$ERR'"
-  check "$FNAME: front: stop" f cstan stop
-  if [ -n "$FPID" ] && wait_gone "$FPID"; then pass "$FNAME: front: daemon pid gone"; else fail "$FNAME: front: daemon pid $FPID still alive"; fi
-  cd "$DIR"
+  ) | {
+    timeout -s KILL 25 env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm CAPSTAN_LAUNCH=off \
+      PATH="$1:/usr/bin:/bin" script -qefc "stty rows 45 cols 160; echo \$\$ >'$pidfile'; exec cstan dash --no-color" /dev/null \
+      >"$out" 2>&1
+    echo $? >"$rcfile"
+  } || true
 }
 
 smoke() {
@@ -249,17 +127,19 @@ smoke() {
     return 0
   }
   if ! can_run "$BINARY"; then
-    echo "skip $NAME: cannot run this architecture here (arm64 needs qemu-aarch64 binfmt)"
+    echo "skip $NAME: cannot run this architecture here (arm64 needs qemu-aarch64 binfmt or an arm64 machine)"
     return 0
   fi
+  case "$(file -b "$BINARY")" in *x86-64*) PLAT=linux-x64 ;; *) PLAT=linux-arm64 ;; esac
   echo "== $NAME"
   DIR="$(mktemp -d "$SANDBOX/run.XXXXXX")"
   mkdir -p "$DIR/home" "$DIR/bin" "$DIR/repo" "$DIR/tmp"
-  ln -s "$(cd "$(dirname "$BINARY")" && pwd)/$NAME" "$DIR/bin/cstan"
-  REAL="$(readlink -f "$BINARY")"
+  cp "$BINARY" "$DIR/bin/cstan"
+  chmod 755 "$DIR/bin/cstan"
+  REAL="$DIR/bin/cstan"
   # A scrubbed environment: no CAPSTAN_* variables from an enclosing agent, no node on PATH.
   c() {
-    env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm \
+    env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm CAPSTAN_LAUNCH=off \
       PATH="$DIR/bin:/usr/bin:/bin" "$@"
   }
   (cd "$DIR/repo" &&
@@ -272,137 +152,198 @@ smoke() {
   fi
   pass "$NAME: no node on PATH"
 
-  GOT="$(cd "$DIR/repo" && c cstan --version 2>&1)" || true
-  [ "$GOT" = "cstan $VERSION" ] && pass "$NAME: --version is $GOT" || fail "$NAME: --version printed '$GOT'"
   cd "$DIR/repo"
-  # The bundle cache: written once, reused, and rewritten when tampered with.
-  CACHED="$(ls "$DIR"/home/.cache/capstan/sea/*/cstan.mjs 2>/dev/null | head -n 1)"
-  if [ -n "$CACHED" ]; then
-    INODE="$(stat -c %i "$CACHED")"
-    c cstan --version >/dev/null 2>&1 || true
-    [ "$(stat -c %i "$CACHED")" = "$INODE" ] && pass "$NAME: second run reuses the bundle cache" || fail "$NAME: bundle cache was rewritten"
-    [ "$(stat -c %a "$(dirname "$CACHED")")" = 700 ] && [ "$(stat -c %a "$CACHED")" = 600 ] && pass "$NAME: bundle cache is private" || fail "$NAME: bundle cache modes"
-    echo "// tampered" >>"$CACHED"
-    GOT="$(c cstan --version 2>&1)" || true
-    [ "$GOT" = "cstan $VERSION" ] && ! grep -q tampered "$CACHED" && pass "$NAME: tampered cache file is rewritten" || fail "$NAME: tampered cache ('$GOT')"
-  else
-    fail "$NAME: no bundle cache under HOME/.cache/capstan/sea"
-  fi
+  GOT="$(c cstan --version 2>&1)" || true
+  [ "$GOT" = "cstan $VERSION" ] && pass "$NAME: --version is $GOT" || fail "$NAME: --version printed '$GOT'"
   check "$NAME: --help" c cstan --help
   check "$NAME: init" c cstan init
-  # start brings the daemon up; the pane launch needs herdr, so its exit status is not checked.
-  c cstan start >"$DIR/start.out" 2>&1 || true
-  grep -q "running: true" "$DIR/start.out" && pass "$NAME: start" || fail "$NAME: start ($(head -c 300 "$DIR/start.out"))"
-  PID="$(cat .capstan/state/daemon.pid 2>/dev/null || true)"
-  DAEMON_PIDS="$DAEMON_PIDS $PID"
-  if [ -n "$PID" ] && [ "$(readlink -f "/proc/$PID/exe" 2>/dev/null)" = "$REAL" ]; then
+
+  # The daemon: `cstan daemon` in the project with launching off (no Herdr panes), left running in the background.
+  start_daemon() {
+    rm -f "$1/.capstan/state/control.sock"
+    (cd "$1" && exec env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm CAPSTAN_LAUNCH=off \
+      PATH="$DIR/bin:/usr/bin:/bin" cstan daemon >"$DIR/daemon.out" 2>&1 </dev/null) &
+    DPID=$!
+    DAEMON_PIDS="$DAEMON_PIDS $DPID"
+    wait_for "$1/.capstan/state/control.sock"
+  }
+  if start_daemon "$DIR/repo"; then pass "$NAME: cstan daemon serves its socket"; else fail "$NAME: cstan daemon did not serve ($(head -c 300 "$DIR/daemon.out"))"; fi
+  PID="$DPID"
+  if [ "$(readlink -f "/proc/$PID/exe" 2>/dev/null)" = "$(readlink -f "$REAL")" ]; then
     pass "$NAME: daemon pid $PID runs the binary itself"
   else
     fail "$NAME: daemon pid '$PID' is not the binary"
   fi
+  check "$NAME: ping" c cstan ping
   check "$NAME: status" c cstan status
-  OUT="$(c cstan inbox --hook 2>&1)" && RC=0 || RC=$?
-  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "$NAME: inbox --hook silent, exit 0" || fail "$NAME: inbox --hook rc=$RC output '$OUT'"
-
-  # The wrapper the launcher writes for agents; without herdr no pane opens, so it may be absent.
-  WRAPPER="$DIR/repo/.capstan/bin/cstan"
-  if [ ! -x "$WRAPPER" ]; then
-    mkdir -p "$DIR/repo/.capstan/bin"
-    printf '#!/bin/sh\nexec %s "$@"\n' "$REAL" >"$WRAPPER"
-    chmod 700 "$WRAPPER"
-    echo "note $NAME: launcher wrote no wrapper (no herdr); using the same one-line shape"
-  fi
-  GOT="$(c "$WRAPPER" --version 2>&1)" || true
-  [ "$GOT" = "cstan $VERSION" ] && pass "$NAME: wrapper --version" || fail "$NAME: wrapper --version '$GOT'"
-  OUT="$(c "$WRAPPER" inbox --hook 2>&1)" && RC=0 || RC=$?
-  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "$NAME: wrapper inbox --hook" || fail "$NAME: wrapper inbox --hook rc=$RC '$OUT'"
-
-  # One dash frame in a pty.
-  if command -v script >/dev/null 2>&1; then
-    # SIGKILL: dash handles SIGTERM itself and would otherwise run until the pty closes.
-    timeout -s KILL 15 env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" LANG=C.UTF-8 TERM=xterm \
-      PATH="$DIR/bin:/usr/bin:/bin" script -qec "timeout -s KILL 4 cstan dash --no-color" /dev/null \
-      </dev/null >"$DIR/dash.out" 2>&1 || true
-    if [ -s "$DIR/dash.out" ] && ! grep -qiE "cannot find|ERR_MODULE|wasm|ExperimentalWarning|Error:" "$DIR/dash.out"; then
-      pass "$NAME: dash renders a frame"
-    else
-      fail "$NAME: dash ($(head -c 300 "$DIR/dash.out"))"
-    fi
-  else
-    echo "skip $NAME: dash (no script(1))"
-  fi
-
-  # The Rust dashboard: cstan dash becomes cstan-dash when it sits beside the binary, else the Node dashboard runs.
-  if command -v script >/dev/null 2>&1; then
-    DASHBIN="$(dash_binary)"
-    case "$(file -b "$REAL")" in *x86-64*) NATIVE=1 ;; *) NATIVE=0 ;; esac
-    if [ -z "$DASHBIN" ] || [ "$NATIVE" = 0 ] || [ "$(uname -m)" != x86_64 ]; then
-      echo "skip $NAME: rust dash (no runnable x86-64 cstan-dash; npm run build:dash)"
-    else
-      for variant in without with; do
-        VDIR="$DIR/$variant"
-        mkdir -p "$VDIR"
-        # A copy of the binary (a symlink would resolve back to its own directory, where cstan-dash may sit).
-        ln "$REAL" "$VDIR/cstan" 2>/dev/null || cp "$REAL" "$VDIR/cstan"
-        [ "$variant" = with ] && cp "$DASHBIN" "$VDIR/cstan-dash"
-        dash_session "$VDIR" "$variant"
-        EXE="$(cat "$DIR/dash.$variant.exe" 2>/dev/null || true)"
-        DPID="$(cat "$DIR/dash.$variant.pid" 2>/dev/null || true)"
-        if [ "$variant" = with ]; then
-          [ "$(basename "$EXE")" = cstan-dash ] && pass "$NAME: cstan dash is cstan-dash itself (/proc/$DPID/exe)" ||
-            fail "$NAME: cstan dash with cstan-dash beside it runs '$EXE'"
-          grep -aq "queue" "$DIR/dash.with.out" && grep -aq "agents" "$DIR/dash.with.out" &&
-            pass "$NAME: cstan-dash draws a frame" || fail "$NAME: no cstan-dash frame ($(head -c 300 "$DIR/dash.with.out"))"
-          if [ -n "$DPID" ] && wait_gone "$DPID"; then pass "$NAME: q quits cstan-dash"; else fail "$NAME: cstan-dash did not quit on q"; fi
-          ! grep -aq "using the Node dashboard" "$DIR/dash.with.out" && pass "$NAME: no Node-dash hint beside cstan-dash" ||
-            fail "$NAME: the Node-dash hint appeared although cstan-dash is beside the binary"
-        else
-          [ -n "$EXE" ] && [ "$(basename "$EXE")" != cstan-dash ] && pass "$NAME: without cstan-dash the Node dashboard runs ($EXE)" ||
-            fail "$NAME: cstan dash without cstan-dash runs '$EXE'"
-          grep -aq "queue" "$DIR/dash.without.out" && pass "$NAME: the Node dashboard draws a frame" ||
-            fail "$NAME: no Node dashboard frame ($(head -c 300 "$DIR/dash.without.out"))"
-          grep -aq "using the Node dashboard" "$DIR/dash.without.out" && pass "$NAME: the hint line to install cstan-dash appears" ||
-            fail "$NAME: no Node-dash hint line"
-        fi
-        rm -f "$VDIR/cstan" "$VDIR/cstan-dash"
-      done
-    fi
-  fi
-
-  # Warnings on stderr (SEA or node:sqlite) would show here.
   ERR="$(c cstan status 2>&1 >/dev/null)" || true
   [ -z "$ERR" ] && pass "$NAME: nothing on stderr" || fail "$NAME: stderr '$ERR'"
-
+  OUT="$(c cstan inbox --hook 2>&1)" && RC=0 || RC=$?
+  # No agent token here: the hook says nothing and does not fail a tool call.
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "$NAME: inbox --hook silent, exit 0" || fail "$NAME: inbox --hook rc=$RC output '$OUT'"
   check "$NAME: stop" c cstan stop
-  if [ -n "$PID" ] && wait_gone "$PID"; then pass "$NAME: daemon pid gone"; else fail "$NAME: daemon pid $PID still alive"; fi
+  if wait_gone "$PID"; then pass "$NAME: daemon pid gone"; else fail "$NAME: daemon pid $PID still alive"; fi
+  wait "$PID" 2>/dev/null || true
 
-  # Ledger compatibility with the npm build, both directions.
-  if [ -n "$NODE_BIN" ] && [ -f "$ROOT/dist/src/cli.js" ]; then
-    n() { env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" "$@"; }
-    # binary-made ledger opened by npm build
-    n node "$ROOT/dist/src/cli.js" start >"$DIR/npm1.out" 2>&1 || true
-    grep -q "running: true" "$DIR/npm1.out" && pass "$NAME: npm build opens the binary's ledger" || fail "$NAME: npm build on binary ledger ($(head -c 300 "$DIR/npm1.out"))"
-    n node "$ROOT/dist/src/cli.js" stop >/dev/null 2>&1 || true
-    # npm-made ledger opened by the binary
-    mkdir -p "$DIR/repo2"
-    (cd "$DIR/repo2" && git init -q . && git -c user.name=s -c user.email=s@example.invalid commit -q --allow-empty -m i &&
-      n node "$ROOT/dist/src/cli.js" init >/dev/null 2>&1 &&
-      { n node "$ROOT/dist/src/cli.js" start >/dev/null 2>&1 || true; } &&
-      n node "$ROOT/dist/src/cli.js" stop >/dev/null 2>&1) || true
-    (cd "$DIR/repo2" && c cstan start >"$DIR/bin1.out" 2>&1 || true)
-    grep -q "running: true" "$DIR/bin1.out" && pass "$NAME: binary opens the npm build's ledger" || fail "$NAME: binary on npm ledger ($(head -c 300 "$DIR/bin1.out"))"
-    (cd "$DIR/repo2" && c cstan stop >/dev/null 2>&1) || true
-  else
-    echo "skip $NAME: ledger compatibility (no node or dist/ build)"
-  fi
-  FRONT="$(front_binary "$NAME")"
-  if [ -n "$FRONT" ]; then
-    smoke_front "$BINARY" "$REAL" "$FRONT"
-  else
-    echo "skip $NAME: front end (build it with npm run build:cli -- --target linux-x64, or set CSTAN_FRONT_SMOKE_BIN)"
-  fi
+  smoke_ledger
+  smoke_dash
   cd "$ROOT"
 }
+
+# smoke_ledger: the Node-made fixture ledger (schema v31, with a PM and a developer agent) migrates to the current
+# version with the same schema_migrations checksums, a pre-migration backup is written, and send/inbox/ack work on it.
+smoke_ledger() {
+  FIXTURE="$ROOT/test/fixtures/ledger-better-sqlite3.sqlite"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "skip $NAME: ledger migration (python3 reads the sqlite files)"
+    return 0
+  fi
+  LDIR="$DIR/ledger-repo"
+  mkdir -p "$LDIR"
+  (cd "$LDIR" &&
+    git init -q . &&
+    git -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m init)
+  check "$NAME: ledger: init" sh -c 'cd "$1" && shift && "$@"' _ "$LDIR" env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$DIR/bin:/usr/bin:/bin" cstan init
+  STATE="$LDIR/.capstan/state"
+  rm -f "$STATE"/controller.sqlite*
+  cp "$FIXTURE" "$STATE/controller.sqlite"
+  # The fixture's own credentials are unknown (only their hashes are stored), so the copy gets known ones: this
+  # project's operator key and two fixed tokens for the PM and the developer agent. schema_migrations is not touched.
+  python3 -I - "$LDIR" <<'PY'
+import hashlib, re, sqlite3, sys
+
+root = sys.argv[1]
+db = sqlite3.connect(root + "/.capstan/state/controller.sqlite")
+project_id, name = db.execute("select project_id, name from projects").fetchone()
+key = open(root + "/.capstan/operator.key").read().strip()
+for role, token in (
+    ("operator", key),
+    ("PM", "smoke-pm-token-0123456789abcdefghijklmnop"),
+    ("Developer", "smoke-dev-token-0123456789abcdefghijklmnop"),
+):
+    db.execute("update actors set credential_hash = ? where role = ?", (hashlib.sha256(token.encode()).hexdigest(), role))
+db.commit()
+config = root + "/.capstan/project.json"
+text = open(config).read()
+text = re.sub(r'"projectId": "[^"]*"', '"projectId": "%s"' % project_id, text)
+text = re.sub(r'"name": "[^"]*"', '"name": "%s"' % name, text)
+open(config, "w").write(text)  # in place: keeps the 0600 mode
+PY
+  if start_daemon "$LDIR"; then pass "$NAME: ledger: the daemon opens the Node-made ledger"; else fail "$NAME: ledger: the daemon did not serve ($(head -c 400 "$DIR/daemon.out"))"; fi
+  LPID="$DPID"
+  cl() { (cd "$LDIR" && c "$@"); }
+  check "$NAME: ledger: ping" cl cstan ping
+  smoke_messages
+  check "$NAME: ledger: stop" cl cstan stop
+  if wait_gone "$LPID"; then pass "$NAME: ledger: daemon pid gone"; else fail "$NAME: ledger: daemon pid $LPID still alive"; fi
+  wait "$LPID" 2>/dev/null || true
+  RESULT="$(python3 -I - "$FIXTURE" "$STATE/controller.sqlite" "$ROOT/migrations" <<'PY'
+import glob, hashlib, os, sqlite3, sys
+
+fixture, migrated, migrations = sys.argv[1:4]
+old = sqlite3.connect("file:" + fixture + "?mode=ro", uri=True)
+new = sqlite3.connect("file:" + migrated + "?mode=ro", uri=True)
+before = old.execute("select version, name, checksum from schema_migrations order by version").fetchall()
+after = new.execute("select version, name, checksum from schema_migrations order by version").fetchall()
+files = sorted(os.path.basename(p) for p in glob.glob(os.path.join(migrations, "*.sql")))
+problems = []
+if len(after) != len(files):
+    problems.append("%d rows for %d migration files" % (len(after), len(files)))
+if after[: len(before)] != before:
+    problems.append("the rows of the Node-made ledger changed")
+for version, name, checksum in after:
+    digest = hashlib.sha256(open(os.path.join(migrations, name), "rb").read()).hexdigest()
+    if digest != checksum:
+        problems.append("%s: checksum is not the sha256 of the file" % name)
+print("; ".join(problems) if problems else "ok %d->%d" % (len(before), len(after)))
+PY
+  )" || RESULT="python failed"
+  case "$RESULT" in
+    ok*) pass "$NAME: ledger: schema_migrations migrated ($RESULT), same checksums" ;;
+    *) fail "$NAME: ledger: $RESULT" ;;
+  esac
+  [ -n "$(ls "$STATE"/controller.sqlite.pre-v*.sqlite 2>/dev/null)" ] && pass "$NAME: ledger: pre-migration backup written" || fail "$NAME: ledger: no pre-migration backup"
+}
+
+# smoke_messages: send, inbox and ack as the agents of the fixture (the developer sends to the PM, the PM reads and
+# acknowledges), over the project's socket with the tokens the copy was given.
+smoke_messages() {
+  SOCK="$LDIR/.capstan/state/control.sock"
+  PM_TOKEN=smoke-pm-token-0123456789abcdefghijklmnop
+  DEV_TOKEN=smoke-dev-token-0123456789abcdefghijklmnop
+  agent() {
+    token="$1"
+    shift
+    (cd "$LDIR" && c env CAPSTAN_TOKEN="$token" CAPSTAN_SOCKET="$SOCK" "$@")
+  }
+  SENT="$(agent "$DEV_TOKEN" cstan send @pm "smoke hello" 2>&1)" && SRC=0 || SRC=$?
+  MID="$(printf '%s\n' "$SENT" | sed -n 's/^messageId: //p' | head -n 1)"
+  [ "$SRC" -eq 0 ] && [ -n "$MID" ] && pass "$NAME: ledger: developer send @pm (message $MID)" || fail "$NAME: ledger: send rc=$SRC '$SENT'"
+  agent "$PM_TOKEN" cstan inbox >"$DIR/inbox.out" 2>&1 && grep -q "$MID" "$DIR/inbox.out" && grep -q "smoke hello" "$DIR/inbox.out" &&
+    pass "$NAME: ledger: PM inbox holds the message" || fail "$NAME: ledger: PM inbox ($(head -c 300 "$DIR/inbox.out"))"
+  agent "$PM_TOKEN" cstan ack "$MID" >"$DIR/ack.out" 2>&1 && grep -q "acked" "$DIR/ack.out" &&
+    pass "$NAME: ledger: PM ack" || fail "$NAME: ledger: ack ($(head -c 300 "$DIR/ack.out"))"
+  agent "$PM_TOKEN" cstan inbox >"$DIR/inbox2.out" 2>&1 && ! grep -q "$MID" "$DIR/inbox2.out" &&
+    pass "$NAME: ledger: the acknowledged message is gone from the inbox" || fail "$NAME: ledger: inbox after ack ($(head -c 300 "$DIR/inbox2.out"))"
+  check "$NAME: ledger: operator inbox developer-agent" cl cstan inbox developer-agent
+}
+
+# smoke_dash: `cstan dash` in a pty beside a real cstan-dash.
+smoke_dash() {
+  if ! command -v script >/dev/null 2>&1; then
+    echo "skip $NAME: dash (no script(1))"
+    return 0
+  fi
+  DASHBIN="$(dash_binary "$PLAT")"
+  if [ -z "$DASHBIN" ]; then
+    echo "skip $NAME: dash (no runnable cstan-dash $VERSION for $PLAT; build it or set CSTAN_DASH_SMOKE_BIN)"
+    return 0
+  fi
+  VDIR="$DIR/withdash"
+  mkdir -p "$VDIR"
+  cp "$REAL" "$VDIR/cstan"
+  cp "$DASHBIN" "$VDIR/cstan-dash"
+  chmod 755 "$VDIR/cstan" "$VDIR/cstan-dash"
+  mkdir -p "$DIR/dashrepo"
+  (cd "$DIR/dashrepo" &&
+    git init -q . &&
+    git -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m init &&
+    env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$VDIR:/usr/bin:/bin" "$VDIR/cstan" init >/dev/null 2>&1)
+  cd "$DIR/dashrepo"
+  dash_session "$VDIR" real
+  EXE="$(cat "$DIR/dash.real.exe" 2>/dev/null || true)"
+  DPID2="$(cat "$DIR/dash.real.pid" 2>/dev/null || true)"
+  [ "$(basename "$EXE")" = cstan-dash ] && pass "$NAME: dash: cstan dash is cstan-dash itself (/proc/$DPID2/exe)" ||
+    fail "$NAME: dash: cstan dash runs '$EXE'"
+  grep -aq "queue" "$DIR/dash.real.out" && grep -aq "agents" "$DIR/dash.real.out" &&
+    pass "$NAME: dash: cstan-dash drew its first frame" || fail "$NAME: dash: no cstan-dash frame ($(head -c 300 "$DIR/dash.real.out"))"
+  if [ -n "$DPID2" ] && wait_gone "$DPID2"; then pass "$NAME: dash: q quits cstan-dash"; else fail "$NAME: dash: cstan-dash did not quit on q"; fi
+  [ "$(cat "$DIR/dash.real.rc" 2>/dev/null)" = 0 ] && pass "$NAME: dash: it ended cleanly (exit 0)" ||
+    fail "$NAME: dash: exit code '$(cat "$DIR/dash.real.rc" 2>/dev/null)'"
+  # `cstan dash` started a daemon for the project; stop it.
+  DASHDAEMON="$(cat "$DIR/dashrepo/.capstan/state/daemon.pid" 2>/dev/null || true)"
+  (cd "$DIR/dashrepo" && env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$VDIR:/usr/bin:/bin" "$VDIR/cstan" stop >/dev/null 2>&1) || true
+  if [ -n "$DASHDAEMON" ]; then wait_gone "$DASHDAEMON" || fail "$NAME: dash: its daemon $DASHDAEMON is still alive"; fi
+}
+
+if sh "$ROOT/scripts/check-version.sh" "$ROOT" >"$SANDBOX/check-version.out" 2>&1; then
+  pass "check-version.sh: $(cat "$SANDBOX/check-version.out")"
+else
+  fail "check-version.sh: $(cat "$SANDBOX/check-version.out")"
+fi
+
+if [ "$#" -gt 0 ]; then
+  BINARIES="$*"
+else
+  BINARIES=""
+  for plat in linux-x64 linux-arm64; do
+    [ -f "$ROOT/release/cstan-$VERSION-$plat" ] && BINARIES="$BINARIES $ROOT/release/cstan-$VERSION-$plat"
+  done
+  if [ -z "$BINARIES" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/cstan" ]; then
+    BINARIES="$CARGO_TARGET_DIR/release/cstan"
+  fi
+  [ -n "$BINARIES" ] || echo "skip: no binaries (release/cstan-$VERSION-linux-*, or a release build under CARGO_TARGET_DIR)"
+fi
 
 for b in $BINARIES; do smoke "$b"; done
 

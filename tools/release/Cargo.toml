@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "capstan-release"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Release helper: the next SemVer level and the CHANGELOG section from Conventional Commits"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_release"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cstan-release"
+path = "src/main.rs"
+
+[dependencies]

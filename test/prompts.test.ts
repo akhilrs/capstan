@@ -1186,20 +1186,19 @@ test("every spawn flag, refusal code and release option in docs/reference/comman
   const conventions = readRepo("src", "conventions.ts");
   for (const rule of rules) assert.ok(conventions.includes(`"${rule}"`), rule);
 
-  const releaseScript = readRepo("scripts", "release.mjs");
+  const releaseScript = readRepo("scripts", "release.sh");
   const options = [
     ...docs.slice(docs.indexOf("## Releases")).matchAll(/^\| `(--[a-z-]+)/gm),
   ].map((m) => m[1]!);
-  assert.deepEqual(options.sort(), [
-    "--allow-dirty-lock",
-    "--dry-run",
-    "--version",
-  ]);
+  assert.deepEqual(options.sort(), ["--dry-run", "--version"]);
   for (const option of options)
-    assert.ok(releaseScript.includes(`"${option}"`), option);
-  assert.ok(
-    readRepo("package.json").includes('"release": "node scripts/release.mjs"'),
+    assert.ok(releaseScript.includes(`${option})`), option);
+  // The options the script parses are exactly the ones the docs list (plus --help).
+  const parsed = [...releaseScript.matchAll(/^ {4}(--[a-z-]+)\)/gm)].map(
+    (m) => m[1]!,
   );
+  assert.deepEqual(parsed.sort(), ["--dry-run", "--version"]);
+  assert.equal(JSON.parse(readRepo("package.json")).scripts.release, undefined);
 });
 
 test("the branch patterns the docs name are the ones the code builds", () => {
