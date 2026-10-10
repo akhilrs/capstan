@@ -835,7 +835,7 @@ impl LauncherKernel {
                 .mode(0o700)
                 .open(&temporary)
                 .map_err(io)?;
-            file.write_all(cstan_wrapper_script(&self.node, &self.cli_path, &self.site).as_bytes())
+            file.write_all(cstan_wrapper_script(&self.site).as_bytes())
                 .map_err(io)?;
         }
         std::fs::rename(&temporary, directory.join("cstan")).map_err(io)?;

@@ -67,6 +67,7 @@ fn options(
             env: HashMap::new(),
             exec_path: "/usr/bin/node".into(),
             sea: false,
+            cstan: "/usr/bin/cstan".into(),
         }),
     }
 }
@@ -251,7 +252,7 @@ fn teardown_runs_the_configured_command_in_the_project_root() {
 }
 
 #[test]
-fn the_cstan_wrapper_is_private_and_runs_the_cli() {
+fn the_cstan_wrapper_is_private_and_runs_the_daemons_cstan() {
     let root = tempfile::tempdir().unwrap();
     let state = root.path().join(".capstan").join("state");
     private(&root.path().join(".capstan"));
@@ -271,7 +272,7 @@ fn the_cstan_wrapper_is_private_and_runs_the_cli() {
     let wrapper = bin.join("cstan");
     assert_eq!(
         std::fs::read_to_string(&wrapper).unwrap(),
-        "#!/bin/sh\nexec '/usr/bin/node' '/opt/capstan/cli.js' \"$@\"\n"
+        "#!/bin/sh\nexec '/usr/bin/cstan' \"$@\"\n"
     );
     let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&wrapper), 0o700);

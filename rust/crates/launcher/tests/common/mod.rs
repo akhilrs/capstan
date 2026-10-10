@@ -23,6 +23,25 @@ pub fn parity_dir() -> PathBuf {
     crate_dir().join("tests").join("parity")
 }
 
+/// The overlays that replace the expected output of the cases where Rust differs from Node.
+pub fn divergences_dir() -> PathBuf {
+    crate_dir().join("tests").join("divergences")
+}
+
+/// The names of the sequences of a parity file.
+pub fn case_names(file: &Path) -> Result<Vec<String>, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
+    let value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    Ok(capstan_kernel::export_file::unpack(value)["sequences"]
+        .as_array()
+        .map(|all| {
+            all.iter()
+                .filter_map(|s| s["name"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// A parity file, with its dictionary expanded.
 pub fn read_json(path: &Path) -> Value {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));

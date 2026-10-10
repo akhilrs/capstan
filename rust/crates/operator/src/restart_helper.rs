@@ -25,7 +25,7 @@ pub const EXIT_ROLLED_BACK: i32 = 1;
 pub const EXIT_DOWN: i32 = 2;
 pub const EXIT_USAGE: i32 = 64;
 /// The file name of the saved binary inside the known-good directory (Node's standalone build saves `cstan`).
-pub const KNOWN_GOOD_BINARY: &str = "cstan-daemon";
+pub const KNOWN_GOOD_BINARY: &str = "cstan";
 const START_ATTEMPTS: usize = 2;
 const LOG_TAIL_CHARS: usize = 600;
 const PING_TIMEOUT_MS: u64 = 3_000;
@@ -822,7 +822,7 @@ pub fn run_helper(plan_path: &Path, log: &dyn Fn(&str)) -> i32 {
         result.manual_recovery = Some(
             [
                 "Run these from the project root:",
-                "1. Check the daemon binary (the restart changed nothing before this failure) and, if needed, restore it from .capstan/state/known-good/cstan-daemon.",
+                "1. Check the daemon binary (the restart changed nothing before this failure) and, if needed, restore it from .capstan/state/known-good/cstan.",
                 "2. Start the controller with: cstan start",
             ]
             .join("\n"),
@@ -997,7 +997,7 @@ fn run_steps(
 /// new build answered, 1 rolled back, 2 down.
 pub fn run(args: &[String]) -> i32 {
     let Some(plan_path) = args.first() else {
-        eprintln!("usage: cstan-daemon __restart-helper <plan.json>");
+        eprintln!("usage: cstan __restart-helper <plan.json>");
         return EXIT_USAGE;
     };
     let log = |message: &str| {

@@ -3,6 +3,7 @@
 //! thread is built on, `handlers` the routes, access rules and command handlers, `server` the control socket, `loops` the
 //! background work, `run` the process's run function, `ports` the real services behind the ports (kernel as ledger, git, the wiring of `main`), `reviews` the review start and recovery.
 
+pub mod cli;
 pub mod deps;
 pub mod handlers;
 pub mod loops;

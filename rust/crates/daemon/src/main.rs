@@ -1,20 +1,20 @@
-//! `cstan-daemon`: the controller daemon of one project (the working directory), as `cstan daemon` is in Node. It takes no
-//! arguments; the hidden `__restart-helper <plan>` runs the restart helper that the Operator's restart starts detached.
+//! `cstan-daemon`: a thin binary over the entries `cstan daemon` and `cstan __restart-helper <plan>` call. It takes no
+//! arguments besides the hidden `__restart-helper <plan>` that the Operator's restart starts detached.
 
-use capstan_daemon::ports::{cli_site, launch_disabled, wiring, WiringInput};
-use capstan_daemon::run::{
-    announce_line, daemon_options, run_daemon_with, EXIT_RUNTIME, EXIT_USAGE,
-};
-use std::io::Write;
-use std::sync::Arc;
+use capstan_daemon::cli::{restart_helper, serve_cli};
+use capstan_daemon::run::{EXIT_RUNTIME, EXIT_USAGE};
+use std::path::Path;
 
 const USAGE: &str = "usage: cstan-daemon";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("__restart-helper") {
-        // Hidden: the detached restart helper, never typed by a person.
-        std::process::exit(capstan_operator::restart_helper::run(&args[1..]));
+        let Some(plan) = args.get(1) else {
+            eprintln!("usage: cstan-daemon __restart-helper <plan.json>");
+            std::process::exit(EXIT_USAGE);
+        };
+        std::process::exit(restart_helper(Path::new(plan)));
     }
     if !args.is_empty() {
         eprintln!("{USAGE}");
@@ -22,43 +22,10 @@ fn main() {
     }
     let cwd = match std::env::current_dir() {
         Ok(cwd) => cwd,
-        Err(error) => fail(5, &error.to_string()),
+        Err(error) => {
+            eprintln!("cstan: {error}");
+            std::process::exit(EXIT_RUNTIME);
+        }
     };
-    let (mut options, warnings) = match daemon_options(&cwd) {
-        Ok(loaded) => loaded,
-        Err(error) => fail(error.exit_code, &error.message),
-    };
-    for warning in warnings {
-        let line = serde_json::json!({
-            "ts": capstan_ledger::now_iso(),
-            "command": "daemon:config_warning",
-            "detail": warning,
-        });
-        let _ = writeln!(std::io::stdout(), "{line}");
-    }
-    options.announce = Some(Arc::new(|event: &str, pid: u32| {
-        let _ = writeln!(std::io::stdout(), "{}", announce_line(event, pid));
-    }));
-    let executable = match std::env::current_exe() {
-        Ok(executable) => executable,
-        Err(error) => fail(EXIT_RUNTIME, &error.to_string()),
-    };
-    // The real Herdr adapter, launcher, Operator and loops; CAPSTAN_LAUNCH=off keeps the daemon away from Herdr as in Node.
-    let input = WiringInput {
-        cli: cli_site(&std::env::vars().collect(), &executable),
-        executable,
-        launch: !launch_disabled(),
-    };
-    let wired = match wiring(&options, input) {
-        Ok(wired) => wired,
-        Err(error) => fail(error.exit_code, &error.message),
-    };
-    if let Err(error) = run_daemon_with(options, wired) {
-        fail(error.exit_code, &error.message);
-    }
-}
-
-fn fail(code: i32, message: &str) -> ! {
-    eprintln!("cstan: {message}");
-    std::process::exit(code);
+    std::process::exit(serve_cli(&cwd, &std::env::vars().collect()));
 }

@@ -310,10 +310,27 @@ pub fn launch_disabled_in(value: Option<&str>) -> bool {
     )
 }
 
+/// The `cstan` this daemon was started as: its own executable, or for the thin `cstan-daemon` the `cstan` beside it (the
+/// daemon itself when there is none).
+fn daemon_cstan(exe: &Path) -> String {
+    let sibling = exe
+        .file_name()
+        .is_some_and(|name| name == "cstan-daemon")
+        .then(|| exe.with_file_name("cstan"))
+        .filter(|candidate| candidate.is_file());
+    sibling
+        .as_deref()
+        .unwrap_or(exe)
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Where agents' `cstan` runs: the Node CLI the starting client named (`CSTAN_NODE_CLI`: a `.js`/`.mjs` file runs under
 /// `CSTAN_NODE` or `node`, anything else is an executable), else a `cstan` beside this binary. The launcher writes it into
-/// the per-agent `cstan` wrapper; the daemon is not itself a CLI.
+/// the watch pane's command. The agent wrapper runs `cstan` itself (`cstan`), the executable this daemon was started as, and
+/// passes `CSTAN_NODE_CLI` and `CSTAN_NODE` on when the daemon has them.
 pub fn cli_site(env: &HashMap<String, String>, exe: &Path) -> (String, String, FrontEndSite) {
+    let cstan = daemon_cstan(exe);
     let from_env = env.get("CSTAN_NODE_CLI").filter(|v| !v.is_empty());
     let beside = exe
         .parent()
@@ -334,6 +351,7 @@ pub fn cli_site(env: &HashMap<String, String>, exe: &Path) -> (String, String, F
                 env: env.clone(),
                 exec_path: String::new(),
                 sea: false,
+                cstan: cstan.clone(),
             },
         ),
         Some(cli) => (
@@ -343,6 +361,7 @@ pub fn cli_site(env: &HashMap<String, String>, exe: &Path) -> (String, String, F
                 env: env.clone(),
                 exec_path: cli,
                 sea: true,
+                cstan: cstan.clone(),
             },
         ),
         None => (
@@ -352,6 +371,7 @@ pub fn cli_site(env: &HashMap<String, String>, exe: &Path) -> (String, String, F
                 env: env.clone(),
                 exec_path: exe.to_string_lossy().into_owned(),
                 sea: true,
+                cstan,
             },
         ),
     }
@@ -468,6 +488,18 @@ fn ingest_restart_results(deps: &Deps, state_dir: &Path) {
     });
 }
 
+/// The arguments that start this daemon again: `daemon` for `cstan`, none for the thin `cstan-daemon`.
+fn daemon_argv(executable: &Path) -> Vec<String> {
+    if executable
+        .file_name()
+        .is_some_and(|name| name == "cstan-daemon")
+    {
+        Vec::new()
+    } else {
+        vec!["daemon".to_string()]
+    }
+}
+
 /// The pieces `wiring` needs from the process: the project's configuration and where the daemon runs.
 pub struct WiringInput {
     pub cli: (String, String, FrontEndSite),
@@ -549,7 +581,7 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
             project_root: workspace.clone(),
             binary_path: executable.clone(),
             node: executable.to_string_lossy().into_owned(),
-            argv: Vec::new(),
+            argv: daemon_argv(&executable),
             socket_path: deps.options.socket_path(),
             pid_path: deps.options.pid_path(),
             log_path: state_dir
@@ -707,5 +739,13 @@ mod tests {
         assert_eq!(cli, "/x/cstan-node");
         assert!(site.sea);
         assert_eq!(site.exec_path, "/x/cstan-node");
+        // The agent wrapper runs the cstan the daemon was started as, whatever the Node CLI is.
+        assert_eq!(site.cstan, "/nonexistent/cstan-daemon");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("cstan"), "").unwrap();
+        let (_, _, site) = cli_site(&env, &dir.path().join("cstan-daemon"));
+        assert_eq!(site.cstan, dir.path().join("cstan").to_string_lossy());
+        let (_, _, site) = cli_site(&env, Path::new("/opt/bin/cstan"));
+        assert_eq!(site.cstan, "/opt/bin/cstan");
     }
 }

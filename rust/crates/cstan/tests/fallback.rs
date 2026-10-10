@@ -130,7 +130,12 @@ fn handed_over() -> Vec<Case> {
         ("init", vec![os("init"), os("--git")], none.clone()),
         ("start", vec![os("start")], none.clone()),
         ("stop", vec![os("stop")], none.clone()),
-        ("daemon", vec![os("daemon")], none.clone()),
+        // Plain `cstan daemon` is served here; with any argument it is Node's.
+        (
+            "daemon with an argument",
+            vec![os("daemon"), os("--help")],
+            none.clone(),
+        ),
         ("config", vec![os("config"), os("check")], none.clone()),
         ("herdr-config", vec![os("herdr-config")], none.clone()),
         ("dash", vec![os("dash"), os("--no-color")], agent(&[])),
@@ -147,8 +152,8 @@ fn handed_over() -> Vec<Case> {
         ("launch", vec![os("launch")], agent(&[])),
         ("shutdown", vec![os("shutdown")], agent(&[])),
         (
-            "restart helper",
-            vec![os("__restart-helper"), os("x")],
+            "restart helper with extra arguments",
+            vec![os("__restart-helper"), os("x"), os("y")],
             none.clone(),
         ),
         (

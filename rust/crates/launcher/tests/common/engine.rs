@@ -250,6 +250,7 @@ impl World {
                 env: HashMap::new(),
                 exec_path: "/usr/bin/node".into(),
                 sea: false,
+                cstan: "/usr/bin/cstan".into(),
             }),
         })
     }

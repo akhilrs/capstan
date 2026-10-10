@@ -1,0 +1,26 @@
+[package]
+name = "capstan-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The cstan client of the controller daemon: call, ensure the daemon is running, stop it"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_client"
+path = "src/lib.rs"
+
+# A scratch daemon for the tests: answers ping on the socket like the controller, or fails to start in a chosen way.
+[[bin]]
+name = "client-test-daemon"
+path = "src/bin/client-test-daemon.rs"
+test = false
+doc = false
+
+[dependencies]
+capstan-wire = { path = "../wire" }
+libc = "=0.2.190"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

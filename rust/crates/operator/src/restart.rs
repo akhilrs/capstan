@@ -2,9 +2,9 @@
 //! that hands the restart to a detached helper, and the ingestion of the helper's result by the next controller. The
 //! helper itself is `restart_helper`; the interface is `api::RestartCoordinator`.
 //!
-//! The restartable build is the `cstan-daemon` binary (Node's standalone-binary path): the build hash is the sha256 of
+//! The restartable build is the `cstan` binary (Node's standalone-binary path): the build hash is the sha256 of
 //! the file, the known-good manifest records the highest embedded migration, and the helper is the known-good binary run
-//! as `<known-good>/cstan-daemon __restart-helper <plan>`. Node's `no_schema_probe` refusal has no counterpart: the
+//! as `<known-good>/cstan __restart-helper <plan>`. Node's `no_schema_probe` refusal has no counterpart: the
 //! ledger crate always has sqlite.
 
 use crate::api::{OperatorError, RestartCoordinator, RestartOutcomeResult, RestartPreflight};

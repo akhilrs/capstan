@@ -14,6 +14,9 @@ const NOT_FOUND: &str =
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    if let Some(code) = serve_lifecycle(&args) {
+        std::process::exit(code);
+    }
     let outcome = match std::env::current_dir() {
         Ok(cwd) => run(&Context {
             args: args.clone(),
@@ -37,6 +40,25 @@ fn main() {
             std::process::exit(exit);
         }
         Outcome::Fallback(_) => hand_to_node(&args, &env),
+    }
+}
+
+/// `cstan daemon` (no further arguments) runs the controller daemon of the project in the working directory, and
+/// `cstan __restart-helper <plan>` the detached restart helper (any other arguments are Node's): the same entries as the thin `cstan-daemon`. Returns the
+/// exit code, or None for any other command.
+fn serve_lifecycle(args: &[OsString]) -> Option<i32> {
+    match args.first().and_then(|a| a.to_str()) {
+        Some("daemon") if args.len() == 1 => Some(match std::env::current_dir() {
+            Ok(cwd) => capstan_daemon::cli::serve_cli(&cwd, &std::env::vars().collect()),
+            Err(error) => {
+                eprintln!("cstan: {error}");
+                capstan_daemon::run::EXIT_RUNTIME
+            }
+        }),
+        Some("__restart-helper") if args.len() == 2 => {
+            Some(capstan_daemon::cli::restart_helper(Path::new(&args[1])))
+        }
+        _ => None,
     }
 }
 

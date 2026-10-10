@@ -8,7 +8,6 @@ use capstan_herdr::api::{shell_quote, AdapterError, LauncherAdapter};
 use capstan_kernel::KernelError;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
@@ -335,6 +334,8 @@ pub struct FrontEndSite {
     pub env: HashMap<String, String>,
     pub exec_path: String,
     pub sea: bool,
+    /// The `cstan` executable the daemon was started as: the agent wrapper runs it.
+    pub cstan: String,
 }
 
 impl FrontEndSite {
@@ -346,47 +347,11 @@ impl FrontEndSite {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             sea: false,
+            cstan: std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
         }
     }
-}
-
-fn executable_file(file: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c_path) = std::ffi::CString::new(file.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: `c_path` is a valid NUL-terminated string for the length of the call.
-    let accessible = unsafe { libc::access(c_path.as_ptr(), libc::X_OK) } == 0;
-    accessible
-        && std::fs::metadata(file)
-            .map(|m| m.is_file())
-            .unwrap_or(false)
-}
-
-fn real_or_self(file: &Path) -> std::path::PathBuf {
-    std::fs::canonicalize(file).unwrap_or_else(|_| {
-        if file.is_absolute() {
-            file.to_path_buf()
-        } else {
-            std::env::current_dir().unwrap_or_default().join(file)
-        }
-    })
-}
-
-/// The native front end an agent's `cstan` should start, or None for the plain Node CLI: `CSTAN_FRONT_END` when it names
-/// an absolute executable file, else under SEA a `cstan` beside the binary that is not the binary itself.
-pub fn front_end_path(site: &FrontEndSite) -> Option<String> {
-    if let Some(configured) = site.env.get("CSTAN_FRONT_END").filter(|v| !v.is_empty()) {
-        let path = Path::new(configured);
-        return (path.is_absolute() && executable_file(path)).then(|| configured.clone());
-    }
-    if !site.sea {
-        return None;
-    }
-    let exec = Path::new(&site.exec_path);
-    let sibling = exec.parent().unwrap_or(Path::new("/")).join("cstan");
-    (executable_file(&sibling) && real_or_self(&sibling) != real_or_self(exec))
-        .then(|| sibling.to_string_lossy().into_owned())
 }
 
 /// Shell words that run this CLI: the binary itself under SEA, otherwise node plus the CLI file.
@@ -397,34 +362,20 @@ pub fn self_invocation(node: &str, cli_path: &str, site: &FrontEndSite) -> Strin
     format!("{} {}", shell_quote(node), shell_quote(cli_path))
 }
 
-/// The per-agent `cstan` wrapper script put first on every agent's PATH. With a front end it starts that and tells it where
-/// the Node CLI is (`CSTAN_NODE_CLI`, and `CSTAN_NODE` for a CLI file); without one it runs the Node CLI itself.
-pub fn cstan_wrapper_script(node: &str, cli_path: &str, site: &FrontEndSite) -> String {
-    match front_end_path(site) {
-        None => format!(
-            "#!/bin/sh\nexec {} \"$@\"\n",
-            if site.sea {
-                shell_quote(&site.exec_path)
-            } else {
-                format!("{} {}", shell_quote(node), shell_quote(cli_path))
-            }
-        ),
-        Some(front) => {
-            let environment = if site.sea {
-                format!("CSTAN_NODE_CLI={}", shell_quote(&site.exec_path))
-            } else {
-                format!(
-                    "CSTAN_NODE_CLI={} CSTAN_NODE={}",
-                    shell_quote(cli_path),
-                    shell_quote(node)
-                )
-            };
-            format!(
-                "#!/bin/sh\n{environment} exec {} \"$@\"\n",
-                shell_quote(&front)
-            )
+/// The per-agent `cstan` wrapper script put first on every agent's PATH: it runs the `cstan` the daemon was started as.
+/// `CSTAN_NODE_CLI` and `CSTAN_NODE` are passed on only when the daemon has them, so the front end can hand the commands it
+/// does not serve yet to the Node CLI.
+pub fn cstan_wrapper_script(site: &FrontEndSite) -> String {
+    let mut variables = String::new();
+    for name in ["CSTAN_NODE_CLI", "CSTAN_NODE"] {
+        if let Some(value) = site.env.get(name).filter(|v| !v.is_empty()) {
+            variables.push_str(&format!("{name}={} ", shell_quote(value)));
         }
     }
+    format!(
+        "#!/bin/sh\n{variables}exec {} \"$@\"\n",
+        shell_quote(&site.cstan)
+    )
 }
 
 // ------------------------------------------------------------------------------------------------ branch names
@@ -534,20 +485,28 @@ mod tests {
     }
 
     #[test]
-    fn the_wrapper_runs_the_node_cli_without_a_front_end() {
-        let site = FrontEndSite {
+    fn the_wrapper_runs_the_cstan_and_passes_the_node_variables_only_when_set() {
+        let mut site = FrontEndSite {
             env: HashMap::new(),
-            exec_path: "/opt/cstan".into(),
+            exec_path: "/opt/other".into(),
             sea: false,
+            cstan: "/opt/cstan".into(),
         };
         assert_eq!(
-            cstan_wrapper_script("/usr/bin/node", "/opt/capstan/cli.js", &site),
-            "#!/bin/sh\nexec '/usr/bin/node' '/opt/capstan/cli.js' \"$@\"\n"
-        );
-        let sea = FrontEndSite { sea: true, ..site };
-        assert_eq!(
-            cstan_wrapper_script("/usr/bin/node", "/opt/capstan/cli.js", &sea),
+            cstan_wrapper_script(&site),
             "#!/bin/sh\nexec '/opt/cstan' \"$@\"\n"
+        );
+        site.env
+            .insert("CSTAN_NODE_CLI".into(), "/opt/capstan/cli.js".into());
+        site.env.insert("CSTAN_NODE".into(), String::new());
+        assert_eq!(
+            cstan_wrapper_script(&site),
+            "#!/bin/sh\nCSTAN_NODE_CLI='/opt/capstan/cli.js' exec '/opt/cstan' \"$@\"\n"
+        );
+        site.env.insert("CSTAN_NODE".into(), "/usr/bin/node".into());
+        assert_eq!(
+            cstan_wrapper_script(&site),
+            "#!/bin/sh\nCSTAN_NODE_CLI='/opt/capstan/cli.js' CSTAN_NODE='/usr/bin/node' exec '/opt/cstan' \"$@\"\n"
         );
     }
 }
