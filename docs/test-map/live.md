@@ -3,7 +3,7 @@
 Where each of these Node suites went when the Rust binaries became the thing under test. Coverage by replay is by behaviour area and sequence name: a sequence covers the area, not each assertion of the Node test one
 for one. Each `test/*.test.ts` file below is
 **ported** (Rust test names), **covered by an existing replay** (the corpus and the sequence names), or **retired as
-Node-internal** (the reason). A row that is none of the three says **not ported** and is repeated in the list at the end.
+Node-internal** (the reason). No row is left that is none of the three.
 
 How to read a name:
 
@@ -20,8 +20,8 @@ How to read a name:
 
 Nothing in the ported tests starts Node, and `cargo test --locked` needs no `node` on `PATH`: the daemon is `cstan daemon`,
 the commands are the ones the Rust front end serves itself, and the three operator commands that go straight over the
-socket (`launch`, `pm-restart`, `shutdown`) are sent by the harness. The one place the front end still hands a command to
-Node, the hub's `cstan status --watch`, is a stand-in script in the harness (see "Deferred").
+socket (`launch`, `pm-restart`, `shutdown`) are sent by the harness. The hub's watch pane runs the real native
+`cstan status --watch`; there is no stand-in script and no `CSTAN_NODE_CLI` in any environment the harness builds.
 
 ## Running the live suites
 
@@ -33,9 +33,9 @@ CSTAN_LIVE=1 cargo test --locked -p capstan-daemon   --test live            -- -
 CSTAN_LIVE=1 cargo test --locked -p capstan-launcher --test live            -- --ignored --test-threads=1
 CSTAN_LIVE=1 cargo test --locked -p capstan-herdr    --test live_agent      -- --ignored --test-threads=1
 CSTAN_LIVE=1 cargo test --locked -p capstan-herdr    --test live            -- --ignored --test-threads=1
-CSTAN_LIVE=1 cargo test --locked -p capstan-launcher --test prompt_relay_live -- --ignored --test-threads=1   # real claude
-CSTAN_LIVE=1 CAPSTAN_LIVE_RESEARCHER=1 cargo test --locked -p capstan-launcher --test researcher_live -- --ignored   # real claude, npx, jq, network
 ```
+
+The opt-in suites (a real Claude Code, or a binary built apart from the workspace) are listed under "Opt-in" below.
 
 The harness is `rust/crates/herdr/tests/common/live_env.rs` (the other crates include it with `#[path]`):
 
@@ -49,36 +49,48 @@ The harness is `rust/crates/herdr/tests/common/live_env.rs` (the other crates in
   A test that fails dumps the daemon log tail and any restart result first.
 - Waiting is on state: pane list, screens, files, the daemon's answers, with a deadline only a failing run reaches. Every
   child command has a hard deadline (`output_within`), so a hung command fails the test instead of holding the run.
-- The real-`claude` suites link the operator's `~/.claude` and `~/.claude.json` into the scratch `HOME` (never copied), as
-  `test/researcher-live.test.ts` did, so Claude Code's own state for the scratch paths lands in the operator's file.
+- The scratch `HOME` holds no symlink into the real one (the harness asserts it when it starts, and
+  `herdr::live_home::the_scratch_home_holds_no_symlink_into_the_real_home` tests the check). The real-`claude` suites run with a
+  scratch `CLAUDE_CONFIG_DIR` (`/tmp/capstan-suites-live-*/claude-config`, mode 0700) that holds a *copy* of what the sign-in needs
+  (`.credentials.json` as it is, the account keys of `.claude.json`, an empty `settings.json`, all mode 0600), made by
+  `scratch_claude_config`; the operator's `~/.claude` and `~/.claude.json` are only read, so Claude Code writes the project state
+  for scratch paths into the scratch directory and never into the operator's files
+  (`herdr::live_home::the_scratch_claude_config_holds_a_private_copy_of_the_sign_in_and_nothing_else`). A machine whose sign-in is
+  not in those files (another credential store) skips with the reason. The Playwright browsers are found through
+  `PLAYWRIGHT_BROWSERS_PATH`, read-only. Both variables reach the agents through the generated project's `[env] pass` list (an
+  agent gets only what that list names). No token is printed; the directory goes with the rest of `/tmp/capstan-suites-live-*`.
 
-Last run by hand (Herdr 0.9.3, debug build, one suite at a time; each left no session, pane or `/tmp` directory behind):
+Last run by hand (Herdr 0.9.3, Claude Code 2.1.296, the release `cstan`, tests in the debug profile, one suite at a time in
+`capstan-test-*` sessions; each left no session, pane or `/tmp` directory behind, and the operator's `~/.claude.json` and
+`~/.claude/projects` gained no entry for the scratch paths):
 
 | Suite | Result |
 | --- | --- |
-| `capstan-daemon --test live` (2 tests) | pass, 45 s |
-| `capstan-launcher --test live` (4 tests) | pass, 55 s |
-| `capstan-herdr --test live_agent` | pass, 16 s |
-| `capstan-herdr --test live` (existing) | pass, 2 s |
-| `capstan-launcher --test prompt_relay_live` (real Claude Code) | pass, 29 s |
-| `capstan-launcher --test researcher_live` (real Claude Code, npx, network) | pass, 48 s |
+| `capstan-daemon --test live` (2 tests) | pass, 39 s |
+| `capstan-launcher --test live` (4 tests, including the PM restart with a worker and the real `status --watch` in the hub) | pass, 56 s |
+| `capstan-herdr --test live_agent` | pass, 19 s |
+| `capstan-herdr --test live` (existing) | pass, 1 s |
+| `capstan-launcher --test prompt_relay_live` (real Claude Code, scratch `CLAUDE_CONFIG_DIR`) | pass, 22 s |
+| `capstan-launcher --test researcher_live` (real Claude Code, npx, network, scratch `CLAUDE_CONFIG_DIR`) | pass, 36 s |
+
+(Times include the cargo test start; the test bodies are 38 s, 55 s, 12 s, 1 s, 22 s and 36 s.)
 
 ## Summary
 
 | Node file | Disposition |
 | --- | --- |
-| `launcher-lifecycle.test.ts` | covered by launcher replays + ported live; 9 areas not ported (below) |
-| `launcher-spawn.test.ts` | covered by launcher replays; 4 areas not ported |
-| `launcher-release.test.ts` | covered by launcher replays; 3 areas not ported |
+| `launcher-lifecycle.test.ts` | covered by launcher replays + ported live + Rust-only (`launcher::rust_only`) |
+| `launcher-spawn.test.ts` | covered by launcher replays + Rust-only (`launcher::rust_only`) |
+| `launcher-release.test.ts` | covered by launcher replays + Rust-only (`launcher::rust_only`) |
 | `launcher-wrapper.test.ts` | ported (`launcher::wrapper`), front-end selection retired |
 | `launcher-git.test.ts` | ported (`launcher::git`) + replays |
 | `launcher-live.test.ts` | ported (`launcher::live`, `daemon::live`) |
 | `herdr-live.test.ts` | ported (`herdr::live_agent`, `herdr::live`) |
 | `herdr-runner.test.ts` | covered (`herdr::runner`, `herdr::parity`) |
-| `panes.test.ts` | covered by kernel replays; summary-budget tests not ported |
+| `panes.test.ts` | covered by kernel replays + Rust-only (`kernel::rust_only::restart_summary`) |
 | `process-activity.test.ts` | covered (`herdr::parity`) |
 | `prompt-relay-live.test.ts` | ported (`launcher::prompt_relay_live`) |
-| `prompt-relay-commands.test.ts` | covered by daemon `cmds.rs` + kernel replays, ported refusals (`launcher::live`); some cases not ported |
+| `prompt-relay-commands.test.ts` | covered by daemon `cmds.rs` + kernel replays, ported refusals (`launcher::live`) |
 | `prompt-relay-ledger.test.ts` | covered by kernel replays (`captured`) |
 | `researcher-live.test.ts` | ported (`launcher::researcher_live`), opt-in |
 | `operator-restart-helper.test.ts`, `operator-restart-sea.test.ts` | ported (`operator::restart`), live (`daemon::live`) |
@@ -122,7 +134,15 @@ Covered by the launcher sequence replay; the live tests drive the same operation
 | workspaces labelled with the project; panes report project, role and agent; adopted PM keeps the name | replay `launch-pm`, `adopt-a-restarted-pm`, `adopt-the-watch-pane` (the recorded adapter calls include the metadata reports) |
 | `operatorEnvironment` is filtered, no `CAPSTAN_` variable | replay `launch-pm` (`operator_environment` step) |
 | spawn never runs setup without a worktree configuration; a spawn failing while choosing the branch name cleans up | replay `spawn-setup-command`, `spawn-branch-names-are-free`, `spawn-fails-at-the-worktree` |
-| **not ported** | two active PMs make launch refuse with `pm_exists`; a role whose definition changed is synced again on demand and a failing sync is named; a leftover row without a worktree path is reported as a record waiting to be cleaned up; a project path with a colon is refused; a failure to report metadata is logged and never fails a start; overlapping operations: only the one that started an agent reports the missing variable; restart whose replace the core refuses leaves the old pane and the ledger untouched; a hub made again while a PM runs closes its empty root pane; a PM start that fails before it takes the new workspace's root pane closes that pane |
+| two active PMs make launch refuse with `pm_exists` (and restart `pm_ambiguous`) | `launcher::rust_only::two_active_pms_make_launch_refuse_with_pm_exists_and_restart_with_pm_ambiguous` |
+| a role whose definition changed is synced again on demand; a failing sync is named | `launcher::rust_only::a_role_whose_definition_changed_is_synced_again_on_demand_and_a_failing_sync_is_named` |
+| a leftover row without a worktree path is reported as a record waiting to be cleaned up | `launcher::rust_only::a_leftover_row_without_a_worktree_path_is_reported_as_waiting_to_be_cleaned_up` |
+| a project path with a colon is refused | `launcher::rust_only::a_project_path_with_a_colon_is_refused` |
+| a failure to report metadata is logged and never fails a start | `launcher::rust_only::a_failure_to_report_metadata_is_logged_and_never_fails_a_start` |
+| overlapping operations: only the one that started an agent reports the missing variable | `launcher::rust_only::overlapping_launches_only_the_one_that_started_the_pm_reports_the_missing_variable` |
+| restart whose replace the core refuses leaves the old pane and the ledger untouched | `launcher::rust_only::a_restart_whose_replace_the_core_refuses_leaves_the_old_pane_and_the_ledger_untouched` |
+| a hub made again while a PM runs closes its empty root pane | `launcher::rust_only::a_hub_made_again_while_a_pm_runs_closes_its_empty_root_pane_and_keeps_the_watch_tab` (the replay `hub-whose-workspace-is-gone` records the same `closePane`) |
+| a PM start that fails before it takes the new workspace's root pane closes that pane | `launcher::rust_only::a_pm_start_that_fails_before_it_takes_the_root_pane_closes_that_pane` |
 
 ### `launcher-spawn.test.ts` (52 tests)
 
@@ -146,7 +166,10 @@ Covered by the launcher sequence replay; the live tests drive the same operation
 | a title with a control character is refused | `launcher` unit `text::tests::task_text_rules` |
 | `replace` gives the successor the predecessor's task and branch | replay `replace-with-seed`, `replace-explicit-branch` |
 | retired | `runSetupCommand` / `defaultGit` as Node functions (the Rust ones are the unit tests above and `launcher::git`); "a worktree section loaded from `capstan.toml` reaches `runSetup`" (Node wiring; config parity is `config::config_parity`) |
-| **not ported** | a freed seat's "dotted display name" for an extra seat; the Architect prompt differing from a developer's / "without the Architect no prompt mentions plans" as prompt-text assertions (the prompts are byte-compared inside the replayed `calls`, but only for the roles a sequence starts); the researcher allow-rule check; the PM keeping `pm_width_percent` when the first worker is placed |
+| a freed seat's dotted display name for an extra seat | `launcher::rust_only::an_extra_seat_gets_a_dotted_display_name_so_a_role_named_like_it_still_gets_its_own_seat` |
+| the Architect prompt differs from a developer's; without the Architect no prompt mentions plans | `launcher::rust_only::the_architect_prompt_differs_from_a_developers_and_the_pm_prompt_carries_the_plan_section`, `an_architect_that_counts_takes_a_worker_place`, `without_the_architect_no_prompt_mentions_plans` |
+| the researcher allow-rule check | `launcher::rust_only::the_cstan_allow_rule_the_launcher_appends_passes_the_researcher_rule_check` |
+| the PM keeps `pm_width_percent` when the first worker is placed | `launcher::rust_only::the_pm_keeps_pm_width_percent_of_its_tab_when_the_first_worker_is_placed` |
 
 ### `launcher-release.test.ts` (38 tests)
 
@@ -165,7 +188,9 @@ Covered by the launcher sequence replay; the live tests drive the same operation
 | an ended agent's pane id reused by a newer agent's pane is never closed | replay `teardown-of-a-reused-pane-id`, `teardown-of-a-pane-whose-tokens-name-another-agent`, `teardown-of-a-pane-of-another-project`, `teardown-without-a-recorded-terminal-id` |
 | a worktree whose directory is gone counts as removed | replay `release-worktree-already-removed` |
 | retired | "the documented codebase-memory teardown removes exactly the index files of its own worktree" (a shell snippet from the docs, run by Node's test; it asserts nothing about the launcher) |
-| **not ported** | "replace and PM restart rebuild the researcher prompt and the research section"; "a timed-out setup rejects with `worktree_setup_failed` and the same cleanup" as a launcher-level case (the setup runner's timeout is the unit test `setup::tests::a_command_past_its_time_ends_with_its_group`); "teardown time is not charged to the cleanup budget" |
+| replace and PM restart rebuild the researcher prompt and the research section | `launcher::rust_only::replace_and_pm_restart_rebuild_the_researcher_prompt_and_the_research_section` |
+| a timed-out setup rejects with `worktree_setup_failed` and the same cleanup | unit `setup::tests::a_command_past_its_time_ends_with_its_group` and replay `spawn-setup-command` (the launcher-level rejection and cleanup) |
+| teardown time is not charged to the cleanup budget | `launcher::rust_only::teardown_time_is_not_charged_to_the_cleanup_budget` |
 
 ### `launcher-wrapper.test.ts` (10 tests)
 
@@ -215,9 +240,13 @@ jq and the network; the agent (not the test) runs `npx` and `jq`.
 - `panes.test.ts` (15 tests) — covered by the kernel replay (`kernel/tests/replay.rs`): `agent-panes`,
   `agent-pane-of-ended-agent`, `pane-reuse-and-terminal-id`, `fallback-pane`, `orphan-panes`, `pm-restart-records`,
   `restart-pm-generation`, `end-agent-options-and-seed` (pane rows, intent rows, the fallback pane, restart summaries and
-  their consumption, orphan panes, task columns). **Not ported:** the restart-summary budget and truncation tests (a summary
-  always fits its budget, a very large task brief is shown as a preview, a carried body already cut is not cut again, a body
-  that merely ends in the marker is still cut, cuts at a joined character): no kernel sequence records a truncated body.
+  their consumption, orphan panes, task columns). The restart-summary budget and truncation tests are ported in
+  `kernel::rust_only::restart_summary::*`: `a_summary_with_sixty_messages_keeps_fifty_and_cuts_the_first_long_body`,
+  `a_summary_always_fits_its_budget_however_much_there_is`, `a_body_is_cut_by_characters_not_utf16_units`,
+  `a_body_that_was_already_cut_is_not_cut_again_and_the_flag_is_kept`,
+  `a_fresh_body_that_merely_ends_in_the_marker_text_is_still_cut_and_flagged`,
+  `a_body_is_cut_where_a_joined_character_ends_not_inside_it`,
+  `a_very_large_task_brief_is_shown_as_a_marked_preview_so_the_summary_always_fits`.
 - `process-activity.test.ts` — covered: `herdr::parity::the_tool_process_walker_behaves_like_node`,
   `the_activity_tracker_behaves_like_node`, `the_probe_reads_the_shell_pid_and_counts_tool_processes_like_node`,
   `process_parsers_match_node` (ps and `/proc` parsers incl. the macOS capture), `reading_the_real_proc_table_finds_this_process`.
@@ -232,16 +261,20 @@ jq and the network; the agent (not the test) runs `npx` and `jq`.
   and the daemon transcripts `relay.json` (`prompt-checks`, `prompt-not-configured`); ported against the real daemon:
   `launcher::live::the_prompt_commands_refuse_who_may_not_use_them_and_what_is_not_a_prompt_and_type_nothing` (not a prompt,
   who may show, argument shapes, unknown relay, nothing typed, `promptRelay` in status) and
-  `without_prompt_relay_both_prompt_commands_say_not_configured_and_status_has_no_section`. **Not ported:** a second show
-  superseding the older capture, `relay_in_progress`, the several-text-options and no-text-option refusals, the
-  client-disconnect case, the last-five answers in status, the dialog capture's TTL, the "Agent blocked" notice wording
-  (the ledger rules behind them are replayed by the kernel `captured` sequences; the command-level cases need a scripted
-  launcher in the daemon, which `daemon/tests/cmds.rs` owns and this package does not).
+  `without_prompt_relay_both_prompt_commands_say_not_configured_and_status_has_no_section`. The rest are ported in `daemon::cmds`
+  against a scripted launcher: `a_second_show_supersedes_the_older_capture_and_the_older_id_can_no_longer_be_answered`,
+  `a_show_while_a_row_is_typing_is_refused_as_relay_in_progress`,
+  `text_is_refused_when_no_option_accepts_it_and_when_several_do` (the no-text-option and several-text-options refusals),
+  `a_client_that_goes_away_during_an_answer_still_leaves_the_row_finished`, `status_lists_at_most_the_last_five_answers`,
+  `a_dialog_capture_expires_after_the_ttl`, `the_agent_blocked_notice_names_prompt_show_only_when_the_relay_is_on` (the ledger rules
+  behind them are also replayed by the kernel `captured` sequences).
 - `prompt-relay-ledger.test.ts` (9 tests) — covered by the kernel replay of `captured` (26 sequences: capture rules, TTL,
   hash prefix rule, `beginPromptAnswer`, immutability triggers, size limits) and `ledger::compat` (every migration version
   through the newest, so the registered-through-0037 test is `every_migration_file_is_embedded_with_the_checksum_of_its_bytes`).
-  **Not ported:** an existing ledger that lacks 0030 migrates, keeps its data and backfills the PM grant (the schema of every
-  version is checked; the 0030 data backfill is not).
+  The 0030 data backfill is ported in
+  `kernel::rust_only::prompt_relay_backfill::an_existing_ledger_that_lacks_0030_migrates_keeps_its_data_and_backfills_the_pm_grant`
+  (the ledger is rolled back with the SQL the Node test used, reopened, and every migration, the PM grant, the empty
+  `prompt_relays` table and the old rows are checked).
 
 ## Operator
 
@@ -311,32 +344,21 @@ generated.
   (WAL, busy timeout, foreign keys, `synchronous=FULL`, read-only open); the Node `node:sqlite`/`better-sqlite3` adapter itself is
   retired.
 
-## Deferred
+## Opt-in
 
-- The hub's watch pane runs `cstan status --watch`, which the front end does not serve yet (it hands it to Node). The harness
-  sets `CSTAN_NODE_CLI` to a stand-in that prints `WATCH-PANE-RUNNING` and stays up for exactly that command and exits 5 for
-  any other (so a command handed to Node fails the test at once). Without it the watch pane exits, and Herdr then refuses to
-  close the PM's pane in `pm-restart` ("closing this pane would close a worktree group"). Plan B's `suites-core` replaces the
-  stand-in when `status --watch` is native.
-- `daemon::live::an_operator_restart_...` draws one frame of `cstan-dash` when the binary is beside `cstan`; `cstan-dash` is built
-  from `dash/`, apart from the workspace, so the step reports that it did not run when it is not built.
-- `launcher::researcher_live` and `launcher::prompt_relay_live` need local commands and a login (claude, and for the first also
-  npx, jq and the network); they are opt-in and not part of `cargo test`.
+These need a local login or a binary that is not part of the workspace. They are `#[ignore]`d (or skip) with `SKIPPED LOUDLY` and
+pass when what they need is missing; none is part of `cargo test`.
+
+- `launcher::prompt_relay_live` (a real Claude Code; the sign-in is copied into a scratch `CLAUDE_CONFIG_DIR`):
+  `CSTAN_LIVE=1 cargo test --locked -p capstan-launcher --test prompt_relay_live -- --ignored --test-threads=1`
+- `launcher::researcher_live` (a real Claude Code, `npx`, `jq`, the network; same scratch config directory):
+  `CSTAN_LIVE=1 CAPSTAN_LIVE_RESEARCHER=1 cargo test --locked -p capstan-launcher --test researcher_live -- --ignored`
+- the `cstan-dash` frame (`capstan-blackbox` `status::dash_needs_a_terminal_and_the_cstan_dash_binary_and_with_both_draws_a_frame`;
+  `cstan-dash` builds in `dash/`, apart from the workspace, and `daemon::live`'s operator-restart step draws one frame when the
+  binary is beside `cstan`): `cargo build --release --manifest-path dash/Cargo.toml`, then
+  `CSTAN_DASH_BIN=<dash target>/release/cstan-dash cargo test --locked -p capstan-blackbox --test status`
 
 ## Not ported
 
-Behaviour with no replay and no Rust test (searched by error code and phrase in the launcher, daemon and kernel corpora),
-so it is unchecked on the Rust side until a fixture or a Rust-only test is added (a new Node export is not allowed by this
-package; the files are outside its ownership):
-
-1. `launcher-lifecycle`: `pm_exists` with two active PMs; on-demand role re-sync and its failure text; the leftover row without
-   a worktree path; the project path with a colon; the logged metadata failure; the missingEnv attribution across overlapping
-   operations; a restart whose replace the core refuses; the empty root pane of a hub made again; a PM start failing before it
-   takes the root pane.
-2. `launcher-spawn`: the dotted display name of an extra seat; prompt-text assertions for Architect/plans; the researcher allow
-   rule check; `pm_width_percent` kept when the first worker is placed.
-3. `launcher-release`: researcher prompt rebuilt by replace and PM restart; teardown time not charged to the cleanup budget.
-4. `panes`: the restart-summary budget and truncation cases.
-5. `prompt-relay-commands`: supersede, `relay_in_progress`, text-option ambiguity, disconnect during answer, status last five,
-   dialog TTL, blocked-notice wording.
-6. `prompt-relay-ledger`: the 0030 migration with data (PM grant backfill).
+Nothing. Every behaviour the earlier version of this map listed here is either a Rust test named above or was found to be covered
+already (the hub's empty root pane, by the replay `hub-whose-workspace-is-gone`, which is now also asserted directly).

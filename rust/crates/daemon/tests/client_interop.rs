@@ -1,9 +1,7 @@
-//! The clients against a scratch `cstan-daemon`: the Rust `cstan` front end and the Node CLI
-//! (`node dist/src/cli.js ping/status/inbox/send/ack/wait`) run unchanged against the same daemon, and answer alike.
-//!
-//! The Node half needs the built CLI (`npm run build`) and a `node` on the PATH; without them it is skipped with a note on
-//! the standard error, unless `CAPSTAN_INTEROP_STRICT=1` makes a missing client a failure. The front end is built
-//! with cargo when it is not beside the daemon binary.
+//! The Rust `cstan` front end against a scratch `cstan-daemon`: `ping`, `status`, `send`, `inbox`, `ack` and `wait` run as
+//! the agents and the operator do, over the daemon's socket. (The Node CLI half of this test is gone with the Node CLI: the
+//! Node client's answers are the frozen transcripts of `tests/transcripts`, replayed by `cstan` itself.)
+//! The front end is built with cargo when it is not beside the daemon binary.
 
 mod common;
 
@@ -17,10 +15,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
-
-fn strict() -> bool {
-    std::env::var("CAPSTAN_INTEROP_STRICT").is_ok_and(|v| v == "1")
-}
 
 /// The Rust front end beside the daemon binary; built with cargo when it is not there yet.
 fn front_end() -> PathBuf {
@@ -37,28 +31,6 @@ fn front_end() -> PathBuf {
     assert!(status.success(), "the front end did not build");
     assert!(beside.exists(), "no cstan at {}", beside.display());
     beside
-}
-
-/// The Node CLI of this repository, when it is built and node is installed.
-fn node_cli() -> Option<PathBuf> {
-    let entry = repo_root().join("dist").join("src").join("cli.js");
-    let node_found = Command::new("node")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if entry.exists() && node_found {
-        return Some(entry);
-    }
-    assert!(
-        !strict(),
-        "the Node CLI is missing ({}); run npm run build",
-        entry.display()
-    );
-    eprintln!(
-        "client_interop: the Node half is skipped: no node or no {} (npm run build)",
-        entry.display()
-    );
-    None
 }
 
 struct Project {
@@ -149,55 +121,21 @@ fn project() -> Project {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Client {
-    Front,
-    Node,
-}
-
-struct Clients {
-    front: PathBuf,
-    node: Option<PathBuf>,
-}
-
-impl Clients {
-    fn all(&self) -> Vec<Client> {
-        let mut clients = vec![Client::Front];
-        if self.node.is_some() {
-            clients.push(Client::Node);
-        }
-        clients
-    }
-
-    /// Runs `cstan <args>` as an agent (the agent environment) or, without `agent`, as the operator in the project directory.
-    fn run(&self, client: Client, project: &Project, agent: Option<&str>, args: &[&str]) -> Output {
-        let mut command = match client {
-            Client::Front => Command::new(&self.front),
-            Client::Node => {
-                let mut command = Command::new("node");
-                command.arg(self.node.as_ref().expect("the node client"));
-                command
-            }
-        };
+/// Runs `cstan <args>` as an agent (the agent environment) or, without `agent`, as the operator in the project directory.
+fn run(front: &Path, project: &Project, agent: Option<&str>, args: &[&str]) -> Output {
+    let mut command = Command::new(front);
+    command
+        .args(args)
+        .current_dir(project.dir.path())
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("HOME", project.dir.path());
+    if let Some(agent) = agent {
         command
-            .args(args)
-            .current_dir(project.dir.path())
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("HOME", project.dir.path());
-        if let Some(agent) = agent {
-            command
-                .env("CAPSTAN_TOKEN", &project.agents[agent])
-                .env("CAPSTAN_SOCKET", &project.socket);
-        }
-        if client == Client::Front {
-            // The front end hands what it does not serve to the Node CLI; the interop test must see only its own answers.
-            if let Some(node) = &self.node {
-                command.env("CSTAN_NODE_CLI", node);
-            }
-        }
-        command.output().expect("the client runs")
+            .env("CAPSTAN_TOKEN", &project.agents[agent])
+            .env("CAPSTAN_SOCKET", &project.socket);
     }
+    command.output().expect("the client runs")
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -218,129 +156,44 @@ fn started(project: &Project) -> Daemon {
 }
 
 #[test]
-fn both_clients_run_unchanged_against_the_rust_daemon() {
-    let clients = Clients {
-        front: front_end(),
-        node: node_cli(),
-    };
+fn the_front_end_runs_against_the_rust_daemon() {
+    let front = front_end();
     let project = project();
     let mut daemon = started(&project);
 
-    // ping: the daemon says who it is, to every client alike.
-    let pings: Vec<(Client, Output)> = clients
-        .all()
-        .into_iter()
-        .map(|client| {
-            (
-                client,
-                clients.run(client, &project, Some("dev-1"), &["ping"]),
-            )
-        })
-        .collect();
-    for (client, output) in &pings {
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{client:?} ping: {}",
-            text(&output.stderr)
-        );
-        assert!(
-            text(&output.stdout).contains("pong"),
-            "{client:?}: {}",
-            text(&output.stdout)
-        );
-    }
+    // ping: the daemon says who it is.
+    let ping = run(&front, &project, Some("dev-1"), &["ping"]);
+    assert_eq!(ping.status.code(), Some(0), "{}", text(&ping.stderr));
     assert!(
-        pings
-            .windows(2)
-            .all(|pair| pair[0].1.stdout == pair[1].1.stdout),
-        "the clients print different pings: {:?}",
-        pings
-            .iter()
-            .map(|(_, o)| text(&o.stdout))
-            .collect::<Vec<_>>()
+        text(&ping.stdout).contains("pong"),
+        "{}",
+        text(&ping.stdout)
     );
 
-    // status: the same JSON for the same ledger.
-    let statuses: Vec<Value> = clients
-        .all()
-        .into_iter()
-        .map(|client| {
-            let output = clients.run(client, &project, Some("dev-1"), &["status", "--json"]);
-            assert_eq!(
-                output.status.code(),
-                Some(0),
-                "{client:?} status: {}",
-                text(&output.stderr)
-            );
-            serde_json::from_str(&text(&output.stdout)).unwrap_or_else(|e| {
-                panic!(
-                    "{client:?} status is not JSON ({e}): {}",
-                    text(&output.stdout)
-                )
-            })
-        })
-        .collect();
-    assert!(
-        statuses.windows(2).all(|pair| pair[0] == pair[1]),
-        "{statuses:?}"
-    );
-    assert_eq!(statuses[0]["agents"].as_array().map(Vec::len), Some(3));
+    // status: JSON with the three agents.
+    let output = run(&front, &project, Some("dev-1"), &["status", "--json"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let status: Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|e| panic!("status is not JSON ({e}): {}", text(&output.stdout)));
+    assert_eq!(status["agents"].as_array().map(Vec::len), Some(3));
 
-    // send, inbox, ack: dev-2 writes to the PM with each client, the PM reads and acknowledges.
-    let mut ids = Vec::new();
-    for client in clients.all() {
-        let body = format!("hello from dev-2 by {client:?}");
-        let sent = clients.run(client, &project, Some("dev-2"), &["send", "@pm", &body]);
-        assert_eq!(
-            sent.status.code(),
-            Some(0),
-            "{client:?} send: {}",
-            text(&sent.stderr)
-        );
-        let printed = text(&sent.stdout);
-        assert!(
-            !printed.trim().is_empty(),
-            "{client:?} send printed nothing"
-        );
-        ids.push((client, body, printed));
-    }
-    let inboxes: Vec<(Client, Output)> = clients
-        .all()
-        .into_iter()
-        .map(|client| {
-            (
-                client,
-                clients.run(client, &project, Some("pm-1"), &["inbox"]),
-            )
-        })
-        .collect();
-    for (client, output) in &inboxes {
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{client:?} inbox: {}",
-            text(&output.stderr)
-        );
-        for (_, body, _) in &ids {
-            assert!(
-                text(&output.stdout).contains(body.as_str()),
-                "{client:?}: {}",
-                text(&output.stdout)
-            );
-        }
-    }
+    // send, inbox, ack: dev-2 writes to the PM, the PM reads and acknowledges.
+    let body = "hello from dev-2";
+    let sent = run(&front, &project, Some("dev-2"), &["send", "@pm", body]);
+    assert_eq!(sent.status.code(), Some(0), "{}", text(&sent.stderr));
     assert!(
-        inboxes
-            .windows(2)
-            .all(|pair| pair[0].1.stdout == pair[1].1.stdout),
-        "the clients print different inboxes"
+        !text(&sent.stdout).trim().is_empty(),
+        "send printed nothing"
     );
-    // Message ids from the PM's own inbox; each client acknowledges one.
-    let pm_inbox: Value = {
-        let output = clients.run(Client::Front, &project, Some("pm-1"), &["inbox", "--json"]);
-        serde_json::from_str(&text(&output.stdout)).unwrap_or(Value::Null)
-    };
+    let inbox = run(&front, &project, Some("pm-1"), &["inbox"]);
+    assert_eq!(inbox.status.code(), Some(0), "{}", text(&inbox.stderr));
+    assert!(
+        text(&inbox.stdout).contains(body),
+        "{}",
+        text(&inbox.stdout)
+    );
+    let listed = run(&front, &project, Some("pm-1"), &["inbox", "--json"]);
+    let pm_inbox: Value = serde_json::from_str(&text(&listed.stdout)).unwrap_or(Value::Null);
     let message_ids: Vec<String> = pm_inbox["messages"]
         .as_array()
         .map(|rows| {
@@ -349,51 +202,30 @@ fn both_clients_run_unchanged_against_the_rust_daemon() {
                 .collect()
         })
         .unwrap_or_default();
-    assert_eq!(message_ids.len(), clients.all().len(), "{pm_inbox}");
-    for (client, id) in clients.all().into_iter().zip(&message_ids) {
-        let acked = clients.run(client, &project, Some("pm-1"), &["ack", id]);
-        assert_eq!(
-            acked.status.code(),
-            Some(0),
-            "{client:?} ack: {}",
-            text(&acked.stderr)
-        );
-    }
-    let after = clients.run(Client::Front, &project, Some("pm-1"), &["inbox"]);
+    assert_eq!(message_ids.len(), 1, "{pm_inbox}");
+    let acked = run(&front, &project, Some("pm-1"), &["ack", &message_ids[0]]);
+    assert_eq!(acked.status.code(), Some(0), "{}", text(&acked.stderr));
+    let after = run(&front, &project, Some("pm-1"), &["inbox"]);
     assert_eq!(after.status.code(), Some(0));
     assert!(
-        !text(&after.stdout).contains("hello from dev-2"),
+        !text(&after.stdout).contains(body),
         "{}",
         text(&after.stdout)
     );
 
-    // wait: mail that is already queued ends the wait at once, with either client.
-    for client in clients.all() {
-        let body = format!("wake dev-1 for {client:?}");
-        let sent = clients.run(
-            Client::Front,
-            &project,
-            Some("pm-1"),
-            &["send", "dev-1", &body],
-        );
-        assert_eq!(sent.status.code(), Some(0), "{}", text(&sent.stderr));
-        let started = std::time::Instant::now();
-        let waited = clients.run(client, &project, Some("dev-1"), &["wait"]);
-        assert_eq!(
-            waited.status.code(),
-            Some(0),
-            "{client:?} wait: {}",
-            text(&waited.stderr)
-        );
-        assert!(
-            text(&waited.stdout).contains(&body),
-            "{client:?}: {}",
-            text(&waited.stdout)
-        );
-        assert!(started.elapsed() < Duration::from_secs(10));
-        let inbox = clients.run(client, &project, Some("dev-1"), &["inbox"]);
-        assert!(text(&inbox.stdout).contains(&body));
-    }
+    // wait: mail that is already queued ends the wait.
+    let wake = "wake dev-1";
+    let sent = run(&front, &project, Some("pm-1"), &["send", "dev-1", wake]);
+    assert_eq!(sent.status.code(), Some(0), "{}", text(&sent.stderr));
+    let waited = run(&front, &project, Some("dev-1"), &["wait"]);
+    assert_eq!(waited.status.code(), Some(0), "{}", text(&waited.stderr));
+    assert!(
+        text(&waited.stdout).contains(wake),
+        "{}",
+        text(&waited.stdout)
+    );
+    let inbox = run(&front, &project, Some("dev-1"), &["inbox"]);
+    assert!(text(&inbox.stdout).contains(wake));
 
     assert_eq!(daemon.terminate(), Some(0), "stderr: {}", daemon.stderr());
     assert!(!project.socket.exists(), "the socket file is gone");

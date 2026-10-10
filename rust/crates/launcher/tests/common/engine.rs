@@ -20,9 +20,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-const OWNER_CREDENTIAL: &str = "owner-credential-0123456789-abcdefghijklmnopqrstuvwxyz";
+pub const OWNER_CREDENTIAL: &str = "owner-credential-0123456789-abcdefghijklmnopqrstuvwxyz";
 
-fn project() -> Value {
+pub fn project() -> Value {
     json!({
         "projectId": "proj1",
         "name": "Parity Project",
@@ -58,7 +58,7 @@ pub fn git_environment() -> Vec<(String, String)> {
     .collect()
 }
 
-fn git(real_git: &str, cwd: &Path, args: &[String]) -> Result<String, String> {
+pub fn git(real_git: &str, cwd: &Path, args: &[String]) -> Result<String, String> {
     let output = std::process::Command::new(real_git)
         .args(args)
         .current_dir(cwd)
@@ -72,7 +72,7 @@ fn git(real_git: &str, cwd: &Path, args: &[String]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn git_args(args: &[&str]) -> Vec<String> {
+pub fn git_args(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| a.to_string()).collect()
 }
 
@@ -157,23 +157,42 @@ fn plain<T>(result: LauncherResult<T>, to_value: impl FnOnce(T) -> Value) -> Res
     }
 }
 
-struct World {
-    scratch: String,
-    project_root: PathBuf,
-    real_git: String,
-    git_log: PathBuf,
-    git_offset: usize,
-    stub: Arc<StubHerdr>,
-    kernel: Arc<KernelThread>,
-    events: Arc<Mutex<Vec<Value>>>,
-    sleeps: Arc<Mutex<Vec<u64>>>,
-    commands: Arc<Mutex<Vec<Value>>>,
-    setup_outcomes: Arc<Mutex<VecDeque<SetupOutcome>>>,
-    teardown_outcomes: Arc<Mutex<VecDeque<SetupOutcome>>>,
+/// What the launcher calls to sync the roles on demand.
+pub type SyncFn = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+
+pub struct World {
+    pub scratch: String,
+    pub project_root: PathBuf,
+    pub real_git: String,
+    pub git_log: PathBuf,
+    pub git_offset: usize,
+    pub stub: Arc<StubHerdr>,
+    pub kernel: Arc<KernelThread>,
+    pub events: Arc<Mutex<Vec<Value>>>,
+    pub sleeps: Arc<Mutex<Vec<u64>>>,
+    pub commands: Arc<Mutex<Vec<Value>>>,
+    pub setup_outcomes: Arc<Mutex<VecDeque<SetupOutcome>>>,
+    pub teardown_outcomes: Arc<Mutex<VecDeque<SetupOutcome>>>,
+    /// What the launcher calls to sync the roles on demand (`LauncherOptions::sync_roles`); none unless a test sets it.
+    pub sync_roles: Mutex<Option<SyncFn>>,
+    /// A fake clock (milliseconds) the launcher reads instead of the system's, when a test sets one; a teardown moves it on
+    /// by `teardown_advance_ms`.
+    pub clock: Mutex<Option<Arc<std::sync::atomic::AtomicI64>>>,
+    pub teardown_advance_ms: std::sync::atomic::AtomicI64,
 }
 
 impl World {
-    fn make_launcher(&self, spec: &Value, state_dir: &Path) -> Launcher {
+    pub fn make_launcher(&self, spec: &Value, state_dir: &Path) -> Launcher {
+        self.make_launcher_at(spec, state_dir, &self.project_root)
+    }
+
+    /// The same launcher for another project root (a path the launcher refuses, say).
+    pub fn make_launcher_at(
+        &self,
+        spec: &Value,
+        state_dir: &Path,
+        project_root: &Path,
+    ) -> Launcher {
         let scratch = self.scratch.clone();
         let events = Arc::clone(&self.events);
         let sleeps = Arc::clone(&self.sleeps);
@@ -198,6 +217,11 @@ impl World {
         let setup_scratch = scratch.clone();
         let setup_commands = Arc::clone(&commands);
         let teardown_scratch = scratch.clone();
+        let clock = self.clock.lock().unwrap().clone();
+        let advance = self
+            .teardown_advance_ms
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let teardown_clock = clock.clone();
         Launcher::new(LauncherOptions {
             ledger: Ledger::new(
                 Arc::clone(&self.kernel) as Arc<dyn LedgerPort>,
@@ -205,7 +229,7 @@ impl World {
             ),
             adapter: self.stub.clone(),
             config: test_config(spec),
-            project_root: self.project_root.to_string_lossy().into_owned(),
+            project_root: project_root.to_string_lossy().into_owned(),
             cli_path: "/opt/capstan/cli.js".into(),
             socket_path: state_dir
                 .join("control.sock")
@@ -215,14 +239,17 @@ impl World {
             node_path: Some("/usr/bin/node".into()),
             base_environment,
             git: None,
-            now: None,
+            now: clock.map(|clock| {
+                Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst))
+                    as capstan_launcher::shared::Clock
+            }),
             log: Some(Arc::new(move |event, details| {
                 events.lock().unwrap().push(normal(
                     &json!({"event": event, "details": details}),
                     &log_scratch,
                 ));
             })),
-            sync_roles: None,
+            sync_roles: self.sync_roles.lock().unwrap().clone(),
             run_setup: Some(Arc::new(move |command, cwd, timeout_ms| {
                 setup_commands.lock().unwrap().push(normal(
                     &json!({"kind": "setup", "command": command, "cwd": cwd, "timeoutMs": timeout_ms}),
@@ -236,6 +263,9 @@ impl World {
             })),
             sleep: Some(Arc::new(move |ms| sleeps.lock().unwrap().push(ms))),
             run_teardown: Some(Arc::new(move |command, cwd, timeout_ms, environment| {
+                if let Some(clock) = &teardown_clock {
+                    clock.fetch_add(advance, std::sync::atomic::Ordering::SeqCst);
+                }
                 commands.lock().unwrap().push(normal(
                     &json!({"kind": "teardown", "command": command, "cwd": cwd, "timeoutMs": timeout_ms, "environment": environment}),
                     &teardown_scratch,
@@ -502,16 +532,14 @@ pub fn run_sequence(sequence: &Value) -> Result<(), String> {
     let git_log = scratch_path.join("git-argv.log");
     std::fs::write(&git_log, "").map_err(|e| e.to_string())?;
     let shim = bin_dir.join("git");
-    std::fs::write(
+    super::exec::write_script(
         &shim,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{real_git}' \"$@\"\n",
             git_log.display()
         ),
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))
-        .map_err(|e| e.to_string())?;
+        0o755,
+    );
 
     git(
         &real_git,
@@ -624,6 +652,9 @@ fn replay(
         commands: Arc::default(),
         setup_outcomes: Arc::default(),
         teardown_outcomes: Arc::default(),
+        sync_roles: Mutex::new(None),
+        clock: Mutex::new(None),
+        teardown_advance_ms: Default::default(),
     };
     let mut launcher = world.make_launcher(spec, state_dir);
     let mut bindings: HashMap<String, Value> = HashMap::new();
@@ -716,3 +747,237 @@ fn replay(
         None => Ok(()),
     }
 }
+
+// ------------------------------------------------------------------------------------------------ Rust-only scenarios
+
+/// A launcher over the stub Herdr, real git in a scratch repository and a real `Core`, built the way a replayed sequence is,
+/// for the tests that state behaviour directly (`tests/rust_only.rs`): the pieces are public so a test can seed the ledger,
+/// script the stub and read the log. The scratch `git` shim is first on the process's PATH while it lives.
+pub struct Scenario {
+    _serial: std::sync::MutexGuard<'static, ()>,
+    pub world: World,
+    pub launcher: Launcher,
+    pub spec: Value,
+    pub state_dir: PathBuf,
+    pub project_root: PathBuf,
+    _scratch: tempfile::TempDir,
+    saved_path: Option<String>,
+}
+
+impl Scenario {
+    /// `spec` is the `config` object of a sequence (`maxWorkers`, `layout`, `operator`, `pass`, ...); roles are synced
+    /// unless `spec.synced` is false.
+    pub fn new(name: &str, spec: Value) -> Scenario {
+        // The scenarios change the process's PATH (the git shim), so one runs at a time.
+        static SERIAL: Mutex<()> = Mutex::new(());
+        let serial = SERIAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let scratch_dir = tempfile::Builder::new()
+            .prefix("capstan-launcher-rust-only-")
+            .tempdir()
+            .expect("a scratch directory");
+        let scratch = std::fs::canonicalize(scratch_dir.path())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let scratch_path = PathBuf::from(&scratch);
+        let project_root = scratch_path.join("project");
+        let state_dir = project_root.join(".capstan").join("state");
+        let (bin_dir, prompts_dir, worktrees_dir) = (
+            scratch_path.join("bin"),
+            scratch_path.join("prompts"),
+            scratch_path.join("worktrees"),
+        );
+        for dir in [
+            &project_root,
+            &bin_dir,
+            &prompts_dir,
+            &worktrees_dir,
+            &state_dir,
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        for dir in [project_root.join(".capstan"), state_dir.clone()] {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let real_git = String::from_utf8_lossy(
+            &std::process::Command::new("sh")
+                .args(["-c", "command -v git"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string();
+        let git_log = scratch_path.join("git-argv.log");
+        std::fs::write(&git_log, "").unwrap();
+        super::exec::write_script(
+            &bin_dir.join("git"),
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{real_git}' \"$@\"\n",
+                git_log.display()
+            ),
+            0o755,
+        );
+        git(
+            &real_git,
+            &project_root,
+            &git_args(&["init", "--quiet", "-b", "main"]),
+        )
+        .unwrap();
+        std::fs::write(project_root.join("README.md"), "rust only\n").unwrap();
+        git(&real_git, &project_root, &git_args(&["add", "-A"])).unwrap();
+        git(
+            &real_git,
+            &project_root,
+            &git_args(&["commit", "--quiet", "-m", "chore: initial commit"]),
+        )
+        .unwrap();
+        let saved_path = std::env::var("PATH").ok();
+        std::env::set_var(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin_dir.display(),
+                saved_path.as_deref().unwrap_or("/usr/bin:/bin")
+            ),
+        );
+        std::env::remove_var("CSTAN_FRONT_END");
+
+        let kernel =
+            Arc::new(KernelThread::spawn(&state_dir, &project(), name).expect("the ledger opens"));
+        let host_of = |role: &str| {
+            spec["hostOf"]
+                .get(role)
+                .and_then(Value::as_str)
+                .unwrap_or("claude")
+                .to_string()
+        };
+        if spec["synced"] != false {
+            let desired: Vec<Value> = ROLES
+                .iter()
+                .map(|(role, kind)| json!({"name": role, "kind": kind, "host": host_of(role), "configHash": hash_of(role)}))
+                .collect();
+            kernel
+                .call(move |core| {
+                    let ctx = context(core, OWNER_CREDENTIAL)?;
+                    core.sync_role_definitions(&ctx, &Value::Array(desired))
+                })
+                .expect("the kernel runs")
+                .expect("the roles sync");
+        }
+        let stub = Arc::new(StubHerdr::new(
+            &scratch,
+            prompts_dir,
+            &worktrees_dir.to_string_lossy(),
+            &real_git,
+            &project_root.to_string_lossy(),
+        ));
+        let world = World {
+            scratch,
+            project_root: project_root.clone(),
+            real_git,
+            git_log,
+            git_offset: 0,
+            stub,
+            kernel,
+            events: Arc::default(),
+            sleeps: Arc::default(),
+            commands: Arc::default(),
+            setup_outcomes: Arc::default(),
+            teardown_outcomes: Arc::default(),
+            sync_roles: Mutex::new(None),
+            clock: Mutex::new(None),
+            teardown_advance_ms: Default::default(),
+        };
+        let launcher = world.make_launcher(&spec, &state_dir);
+        Scenario {
+            _serial: serial,
+            world,
+            launcher,
+            spec,
+            state_dir,
+            project_root,
+            _scratch: scratch_dir,
+            saved_path,
+        }
+    }
+
+    /// A new launcher over the same ledger and stub (a daemon restart).
+    pub fn reopen(&mut self) {
+        self.launcher = self.world.make_launcher(&self.spec, &self.state_dir);
+    }
+
+    /// Runs `f` on the ledger's controller thread.
+    pub fn ledger<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&capstan_kernel::Core) -> capstan_kernel::KernelResult<R> + Send + 'static,
+    ) -> R {
+        self.world
+            .kernel
+            .call(f)
+            .expect("the kernel runs")
+            .unwrap_or_else(|e| panic!("the ledger refused: {e}"))
+    }
+
+    /// The owner's context on `core`.
+    pub fn owner(core: &capstan_kernel::Core) -> capstan_kernel::types::MutationContext {
+        context(core, OWNER_CREDENTIAL).expect("a context")
+    }
+
+    /// The log events recorded since the last call, as `[{event, details}]`.
+    pub fn take_events(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.world.events.lock().unwrap())
+    }
+
+    /// The prompt files the stub wrote, in the order the agents were started.
+    pub fn prompts(&self) -> Vec<String> {
+        let directory = Path::new(&self.world.scratch).join("prompts");
+        let mut files: Vec<(usize, PathBuf)> = std::fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                let number = path
+                    .file_stem()?
+                    .to_str()?
+                    .strip_prefix("prompt-")?
+                    .parse()
+                    .ok()?;
+                Some((number, path))
+            })
+            .collect();
+        files.sort();
+        files
+            .into_iter()
+            .map(|(_, path)| std::fs::read_to_string(path).unwrap())
+            .collect()
+    }
+
+    /// The calls to the stub Herdr since the last call.
+    pub fn take_calls(&self) -> Vec<Value> {
+        self.world.stub.take_calls()
+    }
+}
+
+impl Drop for Scenario {
+    fn drop(&mut self) {
+        self.world.kernel.close();
+        match self.saved_path.take() {
+            Some(path) => std::env::set_var("PATH", path),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+}
+
+/// The roles every scenario's ledger knows: name and kind.
+pub const ROLES: [(&str, &str); 8] = [
+    ("pm", "PM"),
+    ("pm2", "PM"),
+    ("developer", "Developer"),
+    ("developer2", "Developer"),
+    ("architect", "Developer"),
+    ("operator", "Developer"),
+    ("researcher", "Developer"),
+    ("supervisor", "Supervisor"),
+];

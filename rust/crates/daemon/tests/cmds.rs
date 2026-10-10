@@ -108,6 +108,14 @@ impl World {
         launcher: Option<Arc<dyn LauncherService>>,
         operator: Option<Arc<dyn OperatorService>>,
     ) -> World {
+        World::with_config(CONFIG, launcher, operator)
+    }
+
+    fn with_config(
+        config: &str,
+        launcher: Option<Arc<dyn LauncherService>>,
+        operator: Option<Arc<dyn OperatorService>>,
+    ) -> World {
         let dir = private_tempdir();
         let identity = Identity {
             project_id: "pcmdstests".into(),
@@ -116,7 +124,7 @@ impl World {
         };
         let state = write_project(dir.path(), &identity);
         let file = dir.path().join("capstan.toml");
-        std::fs::write(&file, CONFIG).unwrap();
+        std::fs::write(&file, config).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         let heads = build_repo(
             dir.path(),
@@ -777,6 +785,10 @@ struct RelayLauncher {
     /// The hook is not run for these (a launcher that fails before it types).
     skip_hook: Mutex<bool>,
     hook_errors: Mutex<Vec<HookError>>,
+    /// Run once, right after the hook has moved the row to typing (a client that goes away, a second `show`).
+    during_answer: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// How many times the launcher was asked to type.
+    answer_calls: Mutex<usize>,
 }
 
 impl RelayLauncher {
@@ -787,6 +799,8 @@ impl RelayLauncher {
             answers: Mutex::new(Vec::new()),
             skip_hook: Mutex::new(false),
             hook_errors: Mutex::new(Vec::new()),
+            during_answer: Mutex::new(None),
+            answer_calls: Mutex::new(0),
         }
     }
 }
@@ -827,6 +841,7 @@ impl LauncherService for RelayLauncher {
         agent_id: &str,
         request: AnswerPromptRequest<'_>,
     ) -> LauncherResult<RelayOutcome> {
+        *lock(&self.answer_calls) += 1;
         let next = lock(&self.answers).remove(0);
         if !*lock(&self.skip_hook) {
             if let Err(error) = (request.before_type)() {
@@ -838,6 +853,9 @@ impl LauncherService for RelayLauncher {
             }
         }
         let _ = (agent_id, request.prompt_sha, request.answer);
+        if let Some(during) = lock(&self.during_answer).take() {
+            during();
+        }
         next.map_err(|()| {
             capstan_launcher::api::LauncherError::new("pane_gone", "the pane is gone")
         })
@@ -1248,4 +1266,293 @@ fn integrate_merges_into_a_branch_and_confirm_waits_for_the_project_head() {
         "rejected",
     );
     assert!(again.starts_with("not_merged_state:"), "{again}");
+}
+
+// ------------------------------------------------------------------------------------ the prompt relay, the rest of the cases
+
+fn plain_options() -> Vec<RelayOption> {
+    vec![option(1, "Yes", false, false), option(2, "No", true, true)]
+}
+
+fn show_prompt(
+    world: &World,
+    launcher: &RelayLauncher,
+    options: Vec<RelayOption>,
+    text: &str,
+) -> Value {
+    lock(&launcher.capture).push(captured(options, text, false));
+    world.ok("pm-1", "prompt", &["show", "dev-1"])
+}
+
+fn relay_row(world: &World, id: &str) -> Value {
+    let id = id.to_string();
+    world
+        .deps
+        .kernel
+        .run(move |core| core.prompt_relay(&id))
+        .unwrap()
+}
+
+/// test "a second show expires the older capture as superseded and the older id can no longer be answered"
+#[test]
+fn a_second_show_supersedes_the_older_capture_and_the_older_id_can_no_longer_be_answered() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    let first = show_prompt(&world, &launcher, plain_options(), "Proceed?");
+    let second = show_prompt(&world, &launcher, plain_options(), "Proceed?");
+    assert_eq!(second["relayId"], "relay-2");
+    let older = relay_row(&world, "relay-1");
+    assert_eq!(older["state"], "expired");
+    assert_eq!(older["outcomeReason"], "superseded");
+    let hash = first["hash"].as_str().unwrap().to_string();
+    let refusal = world.refused(
+        "pm-1",
+        "prompt",
+        &["answer", "relay-1", "--hash", &hash, "option", "1"],
+        "rejected",
+    );
+    assert!(refusal.contains("relay_not_open"), "{refusal}");
+    assert_eq!(*lock(&launcher.answer_calls), 0, "nothing was typed");
+    assert_eq!(relay_row(&world, "relay-2")["state"], "captured");
+}
+
+/// test "a show while a row is typing returns relay_in_progress"
+#[test]
+fn a_show_while_a_row_is_typing_is_refused_as_relay_in_progress() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    let shown = show_prompt(&world, &launcher, plain_options(), "Proceed?");
+    let hash = shown["hash"].as_str().unwrap().to_string();
+    // While the launcher types, a second `show` arrives over the same deps (the screen is captured, the ledger then refuses).
+    lock(&launcher.capture).push(captured(plain_options(), "Proceed?", false));
+    let seen = Arc::new(Mutex::new(String::new()));
+    {
+        let (deps, credential, seen) = (
+            world.deps.clone(),
+            world.credentials["pm-1"].clone(),
+            Arc::clone(&seen),
+        );
+        *lock(&launcher.during_answer) = Some(Box::new(move || {
+            let frame = json!({"v": 1, "credential": credential, "command": "prompt", "args": ["show", "dev-1"]});
+            let outcome = handle_frame(
+                &deps,
+                frame.to_string().as_bytes(),
+                &AbortSignal::new(),
+                MAX_RESPONSE_BYTES,
+            );
+            *lock(&seen) = outcome.response.expect("an answer");
+        }));
+    }
+    lock(&launcher.answers).push(Ok(RelayOutcome::Typed {
+        keys: vec!["enter".into()],
+        input_readable: None,
+    }));
+    world.ok(
+        "pm-1",
+        "prompt",
+        &["answer", "relay-1", "--hash", &hash, "option", "1"],
+    );
+    let answer: Value = serde_json::from_str(&lock(&seen)).unwrap();
+    assert_eq!(answer["ok"], false, "{answer}");
+    assert!(
+        answer["message"]
+            .as_str()
+            .unwrap()
+            .contains("relay_in_progress"),
+        "{answer}"
+    );
+}
+
+/// test "text is refused when no stored option accepts text, and with several that do"
+#[test]
+fn text_is_refused_when_no_option_accepts_it_and_when_several_do() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    let none = show_prompt(
+        &world,
+        &launcher,
+        vec![
+            option(1, "Yes", false, false),
+            option(2, "No", false, false),
+        ],
+        "plain",
+    );
+    let hash = none["hash"].as_str().unwrap().to_string();
+    let refusal = world.refused(
+        "pm-1",
+        "prompt",
+        &["answer", "relay-1", "--hash", &hash, "text", "hello"],
+        "rejected",
+    );
+    assert!(refusal.contains("no_text_option"), "{refusal}");
+    let many = show_prompt(
+        &world,
+        &launcher,
+        vec![option(1, "Yes", true, false), option(2, "No", true, false)],
+        "many",
+    );
+    let hash = many["hash"].as_str().unwrap().to_string();
+    let refusal = world.refused(
+        "pm-1",
+        "prompt",
+        &["answer", "relay-2", "--hash", &hash, "text", "hello"],
+        "rejected",
+    );
+    assert!(refusal.contains("ambiguous_text_option"), "{refusal}");
+    assert_eq!(*lock(&launcher.answer_calls), 0, "nothing was typed");
+}
+
+/// test "a client disconnect during answer still leaves the row finished"
+#[test]
+fn a_client_that_goes_away_during_an_answer_still_leaves_the_row_finished() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    let shown = show_prompt(&world, &launcher, plain_options(), "Proceed?");
+    let hash = shown["hash"].as_str().unwrap().to_string();
+    let signal = AbortSignal::new();
+    {
+        let (signal, deps) = (signal.clone(), world.deps.clone());
+        *lock(&launcher.during_answer) = Some(Box::new(move || {
+            // The row is typing when the client closes its connection.
+            let row = deps
+                .kernel
+                .run(|core| core.prompt_relay("relay-1"))
+                .unwrap();
+            assert_eq!(row["state"], "typing");
+            signal.abort("closed");
+        }));
+    }
+    lock(&launcher.answers).push(Ok(RelayOutcome::Typed {
+        keys: vec!["enter".into()],
+        input_readable: None,
+    }));
+    let frame = json!({"v": 1, "credential": world.credentials["pm-1"], "command": "prompt", "args": ["answer", "relay-1", "--hash", hash, "option", "1"]});
+    let _ = handle_frame(
+        &world.deps,
+        frame.to_string().as_bytes(),
+        &signal,
+        MAX_RESPONSE_BYTES,
+    );
+    assert_eq!(
+        relay_row(&world, "relay-1")["state"],
+        "answered",
+        "the typing was finished and recorded"
+    );
+}
+
+/// test "status lists at most the last five answers"
+#[test]
+fn status_lists_at_most_the_last_five_answers() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    for round in 1..=6 {
+        let shown = show_prompt(
+            &world,
+            &launcher,
+            plain_options(),
+            &format!("Proceed {round}?"),
+        );
+        let hash = shown["hash"].as_str().unwrap().to_string();
+        lock(&launcher.answers).push(Ok(RelayOutcome::Typed {
+            keys: vec!["1".into()],
+            input_readable: None,
+        }));
+        world.ok(
+            "pm-1",
+            "prompt",
+            &[
+                "answer",
+                &format!("relay-{round}"),
+                "--hash",
+                &hash,
+                "option",
+                "1",
+            ],
+        );
+    }
+    let status = world.ok("pm-1", "status", &[]);
+    assert_eq!(
+        status["promptRelay"]["lastAnswers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5,
+        "{}",
+        status["promptRelay"]
+    );
+}
+
+/// test "a dialog capture expires after the ttl"
+#[test]
+fn a_dialog_capture_expires_after_the_ttl() {
+    let launcher = Arc::new(RelayLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    lock(&launcher.capture).push(captured(
+        Vec::new(),
+        " Teach auto mode about your environment?\n\n Esc to cancel",
+        true,
+    ));
+    let shown = world.ok("pm-1", "prompt", &["show", "dev-1"]);
+    let hash = shown["hash"].as_str().unwrap().to_string();
+    // The ledger's clock is the system clock here: move the capture's expiry into the past.
+    world.deps.kernel.run(|core| {
+        core.kernel().database.exec("DROP TRIGGER IF EXISTS prompt_relays_identity_is_immutable").unwrap();
+        core.kernel()
+            .database
+            .exec("UPDATE prompt_relays SET expires_at = '2000-01-01T00:00:00.000Z' WHERE relay_id = 'relay-1'")
+            .unwrap();
+        Ok(())
+    }).unwrap();
+    let refusal = world.refused(
+        "pm-1",
+        "prompt",
+        &["answer", "relay-1", "--hash", &hash, "esc"],
+        "rejected",
+    );
+    assert!(
+        refusal.contains("relay_not_open: relay relay-1 is expired")
+            || refusal.contains("capture_expired"),
+        "{refusal}"
+    );
+    assert_eq!(*lock(&launcher.answer_calls), 0);
+}
+
+/// test "the Agent blocked notice names cstan prompt show only when the relay is on"
+#[test]
+fn the_agent_blocked_notice_names_prompt_show_only_when_the_relay_is_on() {
+    for enabled in [true, false] {
+        let config = if enabled {
+            CONFIG.to_string()
+        } else {
+            CONFIG.replace("[prompt_relay]\nenabled = true\n", "")
+        };
+        let world = World::with_config(&config, Some(Arc::new(RelayLauncher::new())), None);
+        let owner = world.credentials["operator"].clone();
+        world.ledger(
+            &owner,
+            "queueAttentionNotices",
+            vec![json!([{"agentId": "dev-1", "kind": "blocked", "episodeMs": 1}])],
+        );
+        let inbox = world.ok("pm-1", "inbox", &[]);
+        let bodies: Vec<String> = inbox["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["body"].as_str().unwrap().to_string())
+            .collect();
+        let notice = bodies
+            .iter()
+            .find(|b| b.starts_with("Agent blocked"))
+            .unwrap_or_else(|| panic!("no notice in {bodies:?}"));
+        assert_eq!(
+            notice.contains("cstan prompt show dev-1"),
+            enabled,
+            "{notice}"
+        );
+        assert_eq!(
+            notice.contains("Look with cstan observe dev-1."),
+            !enabled,
+            "{notice}"
+        );
+    }
 }

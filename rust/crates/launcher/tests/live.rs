@@ -44,11 +44,14 @@ fn the_launcher_starts_a_pm_and_a_worker_delivers_readopts_after_a_restart_and_k
         [("pm-1".to_string(), pm_pane.clone())],
         "the PM's pane carries its agent token"
     );
-    // The hub's watch pane runs.
+    // The hub's watch pane runs the real `cstan status --watch`: its first frame lists the PM and ends in the separator.
     until("the watch pane", 30, || {
         live.pane_ids()
             .iter()
-            .find(|pane| live.screen(pane).contains("WATCH-PANE-RUNNING"))
+            .find(|pane| {
+                let screen = live.screen(pane);
+                screen.contains("messages:") && screen.contains("pm-1") && screen.contains("---")
+            })
             .map(|_| ())
     });
     // A second launch reports the running PM and opens nothing new.

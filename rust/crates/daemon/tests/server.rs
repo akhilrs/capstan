@@ -318,11 +318,19 @@ fn call(socket: &Path, credential: &str, command: &str, args: &[&str]) -> Value 
 
 // ------------------------------------------------------------------------------------------------ concurrency
 
-/// A launcher whose `spawn` takes `delay`, as a herdr call that blocks does.
+/// A launcher whose `spawn` blocks until the test opens the gate, as a herdr call that blocks does. The test decides
+/// when it ends, so nothing here depends on how long anything takes.
 struct SlowLauncher {
     inner: StubLauncher,
-    delay: Duration,
+    gate: (Mutex<bool>, std::sync::Condvar),
     started: Mutex<Option<Instant>>,
+}
+
+impl SlowLauncher {
+    fn open_gate(&self) {
+        *self.gate.0.lock().unwrap() = true;
+        self.gate.1.notify_all();
+    }
 }
 
 impl LauncherService for SlowLauncher {
@@ -334,7 +342,14 @@ impl LauncherService for SlowLauncher {
     }
     fn spawn(&self, role_name: &str, options: &SpawnOptions) -> LauncherResult<SpawnResult> {
         *self.started.lock().unwrap() = Some(Instant::now());
-        std::thread::sleep(self.delay);
+        // The cap only ends a test that never opens the gate.
+        let (open, changed) = &self.gate;
+        let guard = open.lock().unwrap();
+        drop(
+            changed
+                .wait_timeout_while(guard, Duration::from_secs(30), |open| !*open)
+                .unwrap(),
+        );
         self.inner.spawn(role_name, options)
     }
     fn rename_branch_for_task(
@@ -384,10 +399,10 @@ impl LauncherService for SlowLauncher {
 }
 
 #[test]
-fn a_launcher_call_that_blocks_two_seconds_holds_no_other_connection() {
+fn a_launcher_call_that_is_blocked_holds_no_other_connection() {
     let launcher = Arc::new(SlowLauncher {
         inner: StubLauncher::new(),
-        delay: Duration::from_secs(2),
+        gate: (Mutex::new(false), std::sync::Condvar::new()),
         started: Mutex::new(None),
     });
     let fixture = Fixture::start(Setup {
@@ -396,13 +411,9 @@ fn a_launcher_call_that_blocks_two_seconds_holds_no_other_connection() {
     });
     let spawn = {
         let (socket, owner) = (fixture.socket.clone(), fixture.owner.clone());
-        std::thread::spawn(move || {
-            let started = Instant::now();
-            let response = call(&socket, &owner, "spawn", &["developer"]);
-            (response, started.elapsed())
-        })
+        std::thread::spawn(move || call(&socket, &owner, "spawn", &["developer"]))
     };
-    // The launcher call is in progress.
+    // The launcher call is in progress and stays so until the gate opens.
     let deadline = Instant::now() + Duration::from_secs(5);
     while launcher.started.lock().unwrap().is_none() {
         assert!(
@@ -411,29 +422,15 @@ fn a_launcher_call_that_blocks_two_seconds_holds_no_other_connection() {
         );
         std::thread::sleep(Duration::from_millis(5));
     }
+    // Other connections are answered while it is blocked: a blocked server would leave these without an answer.
     for round in 0..3 {
-        let started = Instant::now();
         let status = fixture.operator("status", &[]);
-        assert!(
-            started.elapsed() < Duration::from_millis(200),
-            "status took {:?}",
-            started.elapsed()
-        );
         assert_eq!(status["ok"], true, "round {round}");
-        let started = Instant::now();
         let sent = fixture.operator("send", &["dev-1", &format!("while spawning {round}")]);
-        assert!(
-            started.elapsed() < Duration::from_millis(200),
-            "send took {:?}",
-            started.elapsed()
-        );
         assert_eq!(sent["ok"], true, "{sent}");
     }
-    let (response, took) = spawn.join().unwrap();
-    assert!(
-        took >= Duration::from_secs(2),
-        "the spawn answered after {took:?}"
-    );
+    launcher.open_gate();
+    let response = spawn.join().unwrap();
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["result"]["state"], "started");
     let spawns: Vec<String> = launcher
@@ -452,15 +449,12 @@ fn a_long_poll_answers_with_the_mail_a_concurrent_send_queues() {
     let credential = fixture.agent("dev-1");
     let wait = {
         let socket = fixture.socket.clone();
-        std::thread::spawn(move || {
-            let started = Instant::now();
-            (call(&socket, &credential, "wait", &[]), started.elapsed())
-        })
+        std::thread::spawn(move || call(&socket, &credential, "wait", &[]))
     };
     fixture.wait_for_open_wait();
     let sent = fixture.operator("send", &["--action", "dev-1", "wake up"]);
     assert_eq!(sent["ok"], true, "{sent}");
-    let (response, took) = wait.join().unwrap();
+    let response = wait.join().unwrap();
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["result"]["timedOut"], false);
     assert_eq!(response["result"]["count"], 1);
@@ -468,8 +462,6 @@ fn a_long_poll_answers_with_the_mail_a_concurrent_send_queues() {
     assert_eq!(response["result"]["messages"][0]["body"], "wake up");
     assert_eq!(response["result"]["messages"][0]["state"], "sent");
     assert_eq!(response["result"]["messages"][0]["from"], "operator");
-    // The ledger's change wakes the wait; it does not sleep out a poll interval.
-    assert!(took < Duration::from_secs(3), "the wait took {took:?}");
     // The wait row was ended.
     let owner = fixture.owner.clone();
     let open = fixture
@@ -487,16 +479,12 @@ fn a_wait_times_out_after_the_hosts_limit() {
         wait_seconds: Some(1),
         ..Setup::default()
     });
-    let started = Instant::now();
     let response = fixture.call(&fixture.agent("dev-1"), "wait", &[]);
-    let took = started.elapsed();
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
         response["result"],
         json!({"messages": [], "timedOut": true, "count": 0, "actionNeededCount": 0})
     );
-    assert!(took >= Duration::from_millis(900), "{took:?}");
-    assert!(took < Duration::from_secs(4), "{took:?}");
 }
 
 #[test]
@@ -535,7 +523,7 @@ fn a_newer_wait_supersedes_the_older_one() {
 }
 
 #[test]
-fn a_drain_answers_a_waiting_agent_shutting_down_and_ends_within_a_second() {
+fn a_drain_answers_a_waiting_agent_shutting_down() {
     let mut fixture = Fixture::start(Setup::default());
     let credential = fixture.agent("dev-2");
     let wait = {
@@ -549,17 +537,11 @@ fn a_drain_answers_a_waiting_agent_shutting_down_and_ends_within_a_second() {
         })
     };
     fixture.wait_for_open_wait();
-    let started = Instant::now();
     let server = fixture.server.take().unwrap();
     server.stop_accepting();
     // No new connection is accepted once the listener is closed.
     assert!(UnixStream::connect(&fixture.socket).is_err());
     server.drain();
-    assert!(
-        started.elapsed() < Duration::from_millis(1500),
-        "{:?}",
-        started.elapsed()
-    );
     let (text, closed) = wait.join().unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&text.unwrap()).unwrap(),

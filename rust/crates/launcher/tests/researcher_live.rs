@@ -4,9 +4,10 @@
 //! server connected, and a curl pipeline that runs with no permission prompt. Reddit may answer with a login redirect, 403
 //! or 429; that still proves the curl path.
 //!
-//! The agents run the real `claude` on the harness's scratch HOME, to which the operator's Claude sign-in and the
-//! Playwright browsers are linked, never copied. Needs herdr, claude, git, jq and npx; without them (or the flags) it says
-//! `SKIPPED LOUDLY` and passes.
+//! The agents run the real `claude` on the harness's scratch HOME with a scratch `CLAUDE_CONFIG_DIR` that holds a private copy of
+//! the operator's sign-in (nothing is linked, so Claude Code never writes project state for scratch paths into the operator's
+//! `~/.claude` or `~/.claude.json`); the Playwright browsers are found through `PLAYWRIGHT_BROWSERS_PATH`. Needs herdr, claude,
+//! git, jq and npx; without them (or the flags, or a sign-in the harness can copy) it says `SKIPPED LOUDLY` and passes.
 //!
 //! Run by hand after `cargo build -p cstan-front`:
 //! `CSTAN_LIVE=1 CAPSTAN_LIVE_RESEARCHER=1 cargo test -p capstan-launcher --test researcher_live -- --ignored`

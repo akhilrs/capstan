@@ -3,9 +3,10 @@
 //! the command-level cases of test/prompt-relay-commands.test.ts and prompt-relay-ledger.test.ts are the daemon's and the
 //! kernel's replays, named in docs/test-map/live.md).
 //!
-//! It needs the real `claude` with a login in the operator's home, which the agents use by link on the scratch HOME (the
-//! stand-in cannot draw a permission prompt). Without it a test says `SKIPPED LOUDLY` and passes. The Herdr server, the
-//! project and the session are the throwaway ones of the harness; the operator's own Herdr sessions are never touched.
+//! It needs the real `claude` with a login in the operator's home; the agents get a private copy of the sign-in in a scratch
+//! `CLAUDE_CONFIG_DIR` (nothing is linked; the stand-in cannot draw a permission prompt). Without it a test says
+//! `SKIPPED LOUDLY` and passes. The Herdr server, the project and the session are the throwaway ones of the harness; the
+//! operator's own Herdr sessions are never touched.
 //!
 //! Run by hand after `cargo build -p cstan-front`:
 //! `CSTAN_LIVE=1 cargo test -p capstan-launcher --test prompt_relay_live -- --ignored --test-threads=1`
