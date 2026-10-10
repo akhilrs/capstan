@@ -1,11 +1,9 @@
 //! An agent shell runs `cstan config check` through the wrapper the launcher writes, and gets the output of the frozen
-//! transcript (crates/cstan/tests/transcripts/config-check-starter.json). The wrapper runs the Rust `cstan`, which hands
-//! the command to the Node CLI named by `CSTAN_NODE_CLI` until the commands are native.
+//! transcript (crates/cstan/tests/transcripts/config-check-starter.json). The wrapper runs the Rust `cstan`, which serves
+//! `config check` itself; Node is neither needed nor on the path the shell gets.
 //!
-//! Ignored: it needs a built `cstan` and the Node CLI. Run by hand, after `cargo build -p cstan-front`:
-//! `CSTAN_NODE_CLI=<repo>/dist/src/cli.js cargo test -p capstan-launcher --test wrapper_handoff -- --ignored`
-//! (`CSTAN_NODE` names the node binary if it is not `node` on PATH; `CSTAN_BIN` the `cstan` if it is not beside the
-//! test build). Plan B's cutover makes it a normal test.
+//! It needs the built `cstan` (`cargo test` of the workspace builds it; for this package alone run
+//! `cargo build -p cstan-front` first; `CSTAN_BIN` names it if it is not beside the test build).
 use capstan_launcher::shared::{cstan_wrapper_script, FrontEndSite};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -29,13 +27,11 @@ fn write_executable(path: &Path, text: &str) {
 }
 
 #[test]
-#[ignore = "needs a built cstan and CSTAN_NODE_CLI (the dist build of the Node CLI); run by hand"]
 fn an_agent_shell_runs_config_check_through_the_wrapper() {
-    let cli = std::env::var("CSTAN_NODE_CLI").expect("set CSTAN_NODE_CLI to the dist build");
     let cstan = cstan_binary();
     assert!(
         cstan.is_file(),
-        "no cstan at {}: run cargo build -p cstan-front",
+        "no cstan at {}: run cargo build -p cstan-front (cargo test of the workspace builds it)",
         cstan.display()
     );
     let transcript: Value = serde_json::from_str(
@@ -58,14 +54,9 @@ fn an_agent_shell_runs_config_check_through_the_wrapper() {
         std::fs::write(&path, text.as_str().unwrap()).unwrap();
     }
 
-    // The wrapper exactly as the daemon's launcher writes it, for a daemon that has the Node variables.
-    let mut env: HashMap<String, String> = HashMap::new();
-    env.insert("CSTAN_NODE_CLI".into(), cli);
-    if let Ok(node) = std::env::var("CSTAN_NODE") {
-        env.insert("CSTAN_NODE".into(), node);
-    }
+    // The wrapper exactly as the daemon's launcher writes it, for a daemon that has no Node variables.
     let site = FrontEndSite {
-        env,
+        env: HashMap::new(),
         exec_path: cstan.to_string_lossy().into_owned(),
         sea: true,
         cstan: cstan.to_string_lossy().into_owned(),
