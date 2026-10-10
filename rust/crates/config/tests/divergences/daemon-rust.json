@@ -1,0 +1,10 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-daemon-rust",
+  "reason": "[daemon] selects nothing now: implementation = \"rust\" loads with a warning and the RoleConfig JSON has no daemon member",
+  "expected": {
+    "kind": "ok",
+    "sha256": "1c80a01def154d44f27074269cc70a6ba7998ec3597c2c6c4df7095b04888bc0",
+    "bytes": 3490
+  }
+}

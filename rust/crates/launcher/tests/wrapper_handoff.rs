@@ -54,7 +54,7 @@ fn an_agent_shell_runs_config_check_through_the_wrapper() {
         std::fs::write(&path, text.as_str().unwrap()).unwrap();
     }
 
-    // The wrapper exactly as the daemon's launcher writes it, for a daemon that has no Node variables.
+    // The wrapper exactly as the daemon's launcher writes it,
     let site = FrontEndSite {
         env: HashMap::new(),
         exec_path: cstan.to_string_lossy().into_owned(),

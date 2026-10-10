@@ -3,7 +3,7 @@
 A release holds two static Rust programs per architecture (Linux x64 and arm64, musl):
 
 - `cstan`: the command and the controller daemon (`cstan daemon`). Source in `rust/crates/cstan`, built from the
-  `cstan-front` package. It needs no Node.js, npm or compiler on the machine.
+  `cstan-front` package. It needs no runtime or compiler on the machine.
 - `cstan-dash`: the dashboard. Source in `dash/`. `cstan dash` replaces itself with it.
 
 The assets are `cstan-<version>-linux-{x64,arm64}`, `cstan-dash-<version>-linux-{x64,arm64}` and `SHA256SUMS`.
@@ -26,7 +26,7 @@ To build the host binaries from a checkout (needs Rust, see `rust/rust-toolchain
 
 ```sh
 (cd rust && cargo build --release --locked -p cstan-front)   # rust/target/release/cstan
-npm run build:dash                                            # dash/target/release/cstan-dash
+(cd dash && cargo build --release --locked)                  # dash/target/release/cstan-dash
 ```
 
 For the musl targets locally: `cargo install cargo-zigbuild --locked`, `zig` from https://ziglang.org/download,
@@ -73,11 +73,11 @@ until they are restarted.
 
 ## Smoke test
 
-`npm run smoke:binary` (or `sh scripts/smoke-binary.sh [cstan binary...]`) runs each binary in a temporary HOME and git
-repository with `PATH` limited to the binary's directory plus `/usr/bin:/bin` and no node. It runs
+`sh scripts/smoke-binary.sh [cstan binary...]` (part of `scripts/check.sh`) runs each binary in a temporary HOME and git
+repository with `PATH` limited to the binary's directory plus `/usr/bin:/bin`. It runs
 `scripts/check-version.sh`, then checks `--version`, `--help`, `init`, `cstan daemon` started with `CAPSTAN_LAUNCH=off`
 (its `/proc/<pid>/exe` is the binary), `ping`, `status`, `inbox --hook`, empty stderr and `stop`. It then opens a ledger made
-by Node (`test/fixtures/ledger-better-sqlite3.sqlite`, migration 31), checks that it migrates to the current migration with
+by an earlier release (`test/fixtures/ledger-better-sqlite3.sqlite`, migration 31), checks that it migrates to the current migration with
 the same `schema_migrations` rows and checksums and a backup, and runs send, inbox and ack as the agents in it. Last, with a
 `cstan-dash` for the same architecture (`CSTAN_DASH_SMOKE_BIN`, `release/cstan-dash-<v>-<platform>` or a host build), it
 runs `cstan dash` in a real terminal (a pty from `script`), checks the process became `cstan-dash`, sees its first frame and

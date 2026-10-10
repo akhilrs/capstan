@@ -13,29 +13,51 @@ fn msgs(list: &[&str]) -> Vec<Commit> {
 }
 
 fn next(current: &str, list: &[&str]) -> Option<(String, &'static str)> {
-    next_version(current, &msgs(list)).unwrap().map(|n| (n.version, n.level))
+    next_version(current, &msgs(list))
+        .unwrap()
+        .map(|n| (n.version, n.level))
 }
 
 #[test]
 fn level_fix_and_perf_are_patch_feat_is_minor_breaking_is_major() {
     assert_eq!(next("1.2.3", &["fix: a"]), Some(("1.2.4".into(), "patch")));
     assert_eq!(next("1.2.3", &["perf(x): a"]).unwrap().1, "patch");
-    assert_eq!(next("1.2.3", &["fix: a", "feat: b"]), Some(("1.3.0".into(), "minor")));
-    assert_eq!(next("1.2.3", &["feat!: b", "feat: c"]), Some(("2.0.0".into(), "major")));
-    assert_eq!(next("1.2.3", &["fix: a\n\nBREAKING CHANGE: gone"]).unwrap().1, "major");
+    assert_eq!(
+        next("1.2.3", &["fix: a", "feat: b"]),
+        Some(("1.3.0".into(), "minor"))
+    );
+    assert_eq!(
+        next("1.2.3", &["feat!: b", "feat: c"]),
+        Some(("2.0.0".into(), "major"))
+    );
+    assert_eq!(
+        next("1.2.3", &["fix: a\n\nBREAKING CHANGE: gone"])
+            .unwrap()
+            .1,
+        "major"
+    );
 }
 
 #[test]
 fn level_breaking_on_0_y_z_is_minor() {
-    assert_eq!(next("0.1.1", &["feat!: a"]), Some(("0.2.0".into(), "minor")));
+    assert_eq!(
+        next("0.1.1", &["feat!: a"]),
+        Some(("0.2.0".into(), "minor"))
+    );
     assert_eq!(next("0.1.1", &["feat: a"]), Some(("0.2.0".into(), "minor")));
 }
 
 #[test]
 fn level_only_docs_chore_commits_merges_and_junk_give_none() {
-    assert_eq!(next("1.0.0", &["docs: a", "chore: b", "test: c", "ci: d"]), None);
+    assert_eq!(
+        next("1.0.0", &["docs: a", "chore: b", "test: c", "ci: d"]),
+        None
+    );
     assert_eq!(next("1.0.0", &["Merge branch 'x'", "fixed stuff"]), None);
-    assert_eq!(next("1.0.0", &["Merge branch 'x'", "fix: real"]).unwrap().1, "patch");
+    assert_eq!(
+        next("1.0.0", &["Merge branch 'x'", "fix: real"]).unwrap().1,
+        "patch"
+    );
 }
 
 #[test]
@@ -50,7 +72,11 @@ fn parse_commit_reads_scope_breaking_footer_and_rejects_junk() {
             note: None
         })
     );
-    assert!(parse_commit("fix: a\n\nBREAKING-CHANGE: x").unwrap().breaking);
+    assert!(
+        parse_commit("fix: a\n\nBREAKING-CHANGE: x")
+            .unwrap()
+            .breaking
+    );
     assert_eq!(parse_commit("Merge pull request #1"), None);
 }
 
@@ -131,12 +157,25 @@ fn changelog_section_groups_by_type_with_scope_and_short_sha() {
 
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
-        .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+        .args([
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .output()
         .expect("git runs");
-    assert!(status.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&status.stderr));
+    assert!(
+        status.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
 }
 
 #[test]
@@ -170,7 +209,10 @@ fn changelog_drops_an_exact_duplicate_and_keeps_the_first() {
     let section = render_changelog_section(
         "1.0.0",
         "2026-10-04",
-        &[Commit::new("aaaaaaa1", "fix(ui): same thing"), Commit::new("bbbbbbb2", "fix(ui): same thing")],
+        &[
+            Commit::new("aaaaaaa1", "fix(ui): same thing"),
+            Commit::new("bbbbbbb2", "fix(ui): same thing"),
+        ],
     );
     assert_eq!(count(&section, "same thing"), 1);
     assert!(section.contains("aaaaaaa"));
@@ -181,7 +223,10 @@ fn changelog_treats_case_spacing_and_trailing_punctuation_as_the_same_subject() 
     let section = render_changelog_section(
         "1.0.0",
         "2026-10-04",
-        &[Commit::new("aaaaaaa1", "feat: Add The Thing."), Commit::new("bbbbbbb2", "feat: add the  thing ")],
+        &[
+            Commit::new("aaaaaaa1", "feat: Add The Thing."),
+            Commit::new("bbbbbbb2", "feat: add the  thing "),
+        ],
     );
     assert_eq!(count(&section, "- "), 1);
 }
@@ -194,14 +239,23 @@ fn changelog_keeps_different_subjects_that_share_a_short_prefix() {
         Commit::new("ccccccc3", "fix: handle timeouts"),
     ];
     assert_eq!(dedupe_commits(&commits).len(), 3);
-    assert_eq!(count(&render_changelog_section("1.0.0", "2026-10-04", &commits), "- "), 3);
+    assert_eq!(
+        count(
+            &render_changelog_section("1.0.0", "2026-10-04", &commits),
+            "- "
+        ),
+        3
+    );
 }
 
 #[test]
 fn changelog_merges_a_scoped_cut_off_and_retyped_repeat_into_one_entry() {
     let title = "Split oversized modules and remove the dormant legacy engine";
     let commits = [
-        Commit::new("aaaaaaa1", "refactor(controller): Split oversized modules and remove the dormant"),
+        Commit::new(
+            "aaaaaaa1",
+            "refactor(controller): Split oversized modules and remove the dormant",
+        ),
         Commit::new("bbbbbbb2", &format!("refactor: {title}")),
         Commit::new("ccccccc3", &format!("chore: {title}")),
         Commit::new("ddddddd4", &format!("feat(ui): {title}.")),
@@ -219,7 +273,10 @@ fn changelog_merges_a_scoped_cut_off_and_retyped_repeat_into_one_entry() {
 #[test]
 fn changelog_keeps_a_scope_and_breaking_flag_from_either_repeat() {
     let merged = dedupe_commits(&[
-        Commit::new("aaaaaaa1", "fix(cli): a long enough shared subject line here"),
+        Commit::new(
+            "aaaaaaa1",
+            "fix(cli): a long enough shared subject line here",
+        ),
         Commit::new("bbbbbbb2", "fix!: a long enough shared subject line here"),
     ]);
     assert_eq!(merged.len(), 1);

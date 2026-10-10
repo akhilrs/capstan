@@ -28,7 +28,7 @@ pub struct EnsureOptions {
     pub log_path: PathBuf,
     /// The `cstan` executable: it is started as `<cli_path> daemon`.
     pub cli_path: PathBuf,
-    /// The environment the daemon gets (less `CAPSTAN_TOKEN` and `CAPSTAN_SOCKET`): `CAPSTAN_LAUNCH`, `CSTAN_NODE_CLI`
+    /// The environment the daemon gets (less `CAPSTAN_TOKEN` and `CAPSTAN_SOCKET`): `CAPSTAN_LAUNCH`
     /// and the rest of the caller's.
     pub env: Vec<(OsString, OsString)>,
     pub timeout_ms: Option<u64>,

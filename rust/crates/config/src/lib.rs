@@ -24,7 +24,10 @@ mod value;
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
 pub use operator_policy::auto_approve_rule_problem;
-pub use resolve::parse_config;
+pub use resolve::{
+    parse_config, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV, DAEMON_RUST_ENV_WARNING,
+    DAEMON_RUST_WARNING,
+};
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};
 pub use types::*;
 

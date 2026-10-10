@@ -3,13 +3,14 @@
 
 use crate::ports::{cli_site, launch_disabled_in, wiring, WiringInput};
 use crate::run::{announce_line, daemon_options, run_daemon_with, EXIT_RUNTIME};
+use capstan_launcher::shared::FrontEndSite;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
 /// Runs the controller daemon of the project in `cwd` until it stops and returns the process's exit code. `env` is the
-/// environment the daemon was started with (`CAPSTAN_LAUNCH`, `CSTAN_NODE_CLI`, `CSTAN_NODE`).
+/// environment the daemon was started with (`CAPSTAN_LAUNCH`).
 pub fn serve_cli(cwd: &Path, env: &HashMap<String, String>) -> i32 {
     let (mut options, warnings) = match daemon_options(cwd) {
         Ok(loaded) => loaded,
@@ -31,10 +32,26 @@ pub fn serve_cli(cwd: &Path, env: &HashMap<String, String>) -> i32 {
         Err(error) => return fail(EXIT_RUNTIME, &error.to_string()),
     };
     // The real Herdr adapter, launcher, Operator and loops; CAPSTAN_LAUNCH=off keeps the daemon away from Herdr as in Node.
+    let launch = !launch_disabled_in(env.get("CAPSTAN_LAUNCH").map(String::as_str));
+    // Agents run cstan: a launching daemon with none to point at cannot start. Without launching nothing is written.
+    let cli = match cli_site(env, &executable) {
+        Ok(cli) => cli,
+        Err(message) if launch => return fail(EXIT_RUNTIME, &message),
+        Err(_) => {
+            let exe = executable.to_string_lossy().into_owned();
+            let site = FrontEndSite {
+                env: env.clone(),
+                exec_path: exe.clone(),
+                sea: true,
+                cstan: exe.clone(),
+            };
+            (exe.clone(), exe, site)
+        }
+    };
     let input = WiringInput {
-        cli: cli_site(env, &executable),
+        cli,
         executable,
-        launch: !launch_disabled_in(env.get("CAPSTAN_LAUNCH").map(String::as_str)),
+        launch,
     };
     let wired = match wiring(&options, input) {
         Ok(wired) => wired,

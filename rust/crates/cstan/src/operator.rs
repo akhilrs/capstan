@@ -107,8 +107,32 @@ impl Cli<'_> {
         }
     }
 
+    /// `CSTAN_DAEMON`, which used to pick the daemon: `node` is refused, `rust` is ignored with a warning, anything else is
+    /// not one of the two names it had.
+    fn check_daemon_variable(&mut self) -> Result<(), Fail> {
+        let value = self
+            .ctx
+            .env
+            .iter()
+            .find(|(name, _)| name == "CSTAN_DAEMON")
+            .map(|(_, value)| value.to_string_lossy().into_owned())
+            .filter(|value| !value.is_empty());
+        match value.as_deref() {
+            None => Ok(()),
+            Some("node") => Err(invalid(capstan_config::DAEMON_NODE_REMOVED_ENV)),
+            Some("rust") => {
+                self.io.err.extend_from_slice(
+                    format!("{}\n", capstan_config::DAEMON_RUST_ENV_WARNING).as_bytes(),
+                );
+                Ok(())
+            }
+            Some(_) => Err(invalid("CSTAN_DAEMON must be one of node, rust")),
+        }
+    }
+
     /// `ensureRunning`: the operator, with the daemon answering.
     pub fn ensure_running(&mut self) -> Result<Operator, Fail> {
+        self.check_daemon_variable()?;
         let operator = self.load_operator()?;
         capstan_client::ensure_daemon(&self.ensure_options(&operator))
             .map_err(controller_unavailable)?;
@@ -121,6 +145,7 @@ impl Cli<'_> {
         if !positional.is_empty() {
             return Err(Fail::Usage);
         }
+        self.check_daemon_variable()?;
         let operator = self.load_operator()?;
         self.require_git()?;
         let started = capstan_client::ensure_daemon(&self.ensure_options(&operator))

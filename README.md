@@ -8,8 +8,7 @@
 
 **A controller for a small team of AI coding agents. You talk to one PM; it runs the crew.**
 
-![Node.js 24](https://img.shields.io/badge/node-24.x-3c873a?logo=node.js&logoColor=white)
-![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)
+![Rust](https://img.shields.io/badge/rust-stable-b7410e?logo=rust&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Version 0.1.1](https://img.shields.io/badge/version-0.1.1-5f8fa8)
 ![Status: pre-release](https://img.shields.io/badge/status-pre--release-a3672a)
@@ -72,7 +71,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`, and needs no Node.js, npm or compiler. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
+**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`,. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -89,9 +88,9 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 ### Dashboard (cstan-dash)
 
-`cstan dash` has a Rust build, `cstan-dash`, that replaces the Node dashboard with about 26 times less CPU and far less memory: about 1% of a core and 7 MB idle against about 22% and 380 MB (the measurements, with the method and the other cases, are in [docs/research/rust-dash-performance.md](docs/research/rust-dash-performance.md)). The Node dashboard still works and is the fallback, so nothing here is required.
+`cstan dash` runs `cstan-dash`, the terminal dashboard: about 1% of a core and 7 MB idle (the measurements, with the method and the other cases, are in [docs/research/rust-dash-performance.md](docs/research/rust-dash-performance.md)).
 
-**With the installer.** The one-liner above also installs `cstan-dash` when the release has one for your machine (Linux x64 and arm64). It downloads `cstan-dash-<version>-<target>`, checks it against `SHA256SUMS` (a mismatch aborts the install) and puts it at `~/.local/share/capstan/current/bin/cstan-dash`, next to `cstan`. A release without it installs `cstan` alone with a note.
+**With the installer.** The one-liner above installs `cstan-dash` next to `cstan` (Linux x64 and arm64). It downloads `cstan-dash-<version>-<target>`, checks it against `SHA256SUMS` (a mismatch aborts the install) and puts it at `~/.local/share/capstan/current/bin/cstan-dash`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --no-dash                        # skip it
@@ -104,38 +103,31 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
-chmod +x cstan-dash-0.1.1-linux-x64
+chmod +x cstan-dash-<version>-linux-x64
 mkdir -p ~/.local/share/capstan/current/bin
-mv cstan-dash-0.1.1-linux-x64 ~/.local/share/capstan/current/bin/cstan-dash
+mv cstan-dash-<version>-linux-x64 ~/.local/share/capstan/current/bin/cstan-dash
 ```
 
 Any directory on your `PATH`, or a path named by `CSTAN_DASH_BIN`, works too.
 
-**From source.** In a source checkout, install Rust with [rustup](https://rustup.rs) (`dash/rust-toolchain.toml` selects the stable toolchain with clippy and rustfmt), then build:
+**From source.** Install Rust with [rustup](https://rustup.rs) (`dash/rust-toolchain.toml` selects the stable toolchain with clippy and rustfmt), then build:
 
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"
-npm run build:dash    # writes dash/target/release/cstan-dash
+cargo build --release --locked --manifest-path dash/Cargo.toml    # writes dash/target/release/cstan-dash
 ```
-
-A `cstan` run from that checkout (`dist/src/cli.js`) finds `dash/target/release/cstan-dash` without any other setup.
 
 **Which dashboard `cstan dash` runs.** It takes the first executable file that answers `--version` from this list:
 
 1. `CSTAN_DASH_BIN`, an absolute path.
 2. Beside the real path of the running `cstan` (the installer's `current/bin/`).
-3. `dash/target/release/cstan-dash` of the checkout, when running from `dist/src/cli.js`.
-4. `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`.
-5. The first `cstan-dash` on `PATH`.
+3. `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`.
+4. The first `cstan-dash` on `PATH`.
 
-`CSTAN_DASH=node` skips the search and always runs the Node dashboard; `CSTAN_DASH=rust` fails with a message when no working binary is found. With neither set and no binary found, `cstan dash` runs the Node dashboard and prints one line when it exits: `cstan: using the Node dashboard; install cstan-dash for lower CPU and memory: ...`.
-
-**Checking it.** `cstan-dash --version` prints `cstan-dash <version>`. To see which one is running, start `cstan dash` and run `pgrep -a cstan-dash` from another terminal: the Rust dashboard shows up as a `cstan-dash` process. The Node dashboard does not, and it prints the hint line above after you quit when no binary was found.
+With none found, `cstan dash` prints `cstan: cstan-dash was not found; install it beside cstan, put it on PATH or set CSTAN_DASH_BIN to its absolute path (docs/reference/install.md)` and exits 2. `cstan-dash --version` prints `cstan-dash <version>`.
 
 > [!NOTE]
 > `cstan-dash` binaries come from tagged releases, on the [Releases page](https://github.com/akhilrs/capstan/releases). CI runs on branches and pull requests do not publish them.
-
-Bun is not used: the install is two static binaries, so there is nothing for it to install.
 
 Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
 
@@ -175,7 +167,7 @@ enabled = true
 check_seconds = 300
 
 [worktree]
-setup = "npm ci"                # runs once in each new worktree
+setup = "./scripts/setup.sh"    # runs once in each new worktree
 # teardown = "..."              # runs before a worktree is removed
 
 [defaults.Developer]            # per role kind; a role's own value wins
@@ -203,8 +195,6 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 # Optional tables, off until enabled: [architect], [operator], [prompt_relay],
 # [researcher] with [mcp_servers.<name>], and [nexora].
 ```
-
-`npm ci` installs from `package-lock.json` without rewriting it, so new worktrees stay clean and the release dirty-lock guard passes.
 
 <details>
 <summary><b>All tables at a glance</b></summary>
@@ -353,63 +343,68 @@ With `[nexora] track = "ask"` or `"always"`, the PM mirrors each requirement int
 ## Project layout
 
 ```text
-src/
-  cli.ts                 cstan entry point and usage
-  daemon.ts              controller daemon, socket routes
-  commands.ts            command handlers
-  controller/            ledger, messaging, auth, core workflow
-  config/                capstan.toml schema and starter file
-  herdr/                 Herdr adapter, host parsers, prompt relay
-  dash/                  terminal dashboard (Ink)
-  launcher.ts            spawn, release, replace, worktrees
-  reviews.ts             review requests
-  integration.ts         squash integration branches
-  plans.ts               plan bodies and validation
-  operator*.ts           Operator policy and runs
-  researcher-policy.ts   Researcher tool rules
-  prompts.ts             built-in prompts per role kind
+rust/                    the cargo workspace (cstan and the daemon)
+  crates/cstan/            the cstan front end: every command
+  crates/daemon/           the controller daemon, its loops and wiring
+  crates/kernel/           ledger rules: messaging, auth, plans, reports, integrations
+  crates/ledger/           SQLite storage, migrations and the project lock
+  crates/config/           capstan.toml schema, loader and starter file
+  crates/launcher/         spawn, release, replace, worktrees, prompts
+  crates/herdr/            Herdr adapter, host parsers, prompt relay
+  crates/operator/         Operator policy, runs and the controller restart
+  crates/client/ wire/     the socket client and the wire protocol
+  crates/blackbox/         black-box suites that run the built cstan
+dash/                    cstan-dash, the terminal dashboard (its own cargo tree)
+tools/release/           cstan-release, used by scripts/release.sh
 migrations/              SQLite schema migrations
-test/                    node:test suites
-docs/                    reference, design notes and assets
+scripts/                 check.sh (the gate), release.sh, install and smoke tests
+docs/                    reference, design notes, test map and assets
 decisions/               design decisions (DEC-001 to DEC-006)
 ```
 
 ## Development
 
-Run from source instead of installing a release:
+Run from source instead of installing a release. You need git and [rustup](https://rustup.rs) (`rust/rust-toolchain.toml` selects the toolchain):
 
 ```sh
 git clone <this repository> capstan && cd capstan
-npm install
-npm run build          # empties dist/, compiles to dist/ and copies migrations
-npm link               # puts the cstan binary (dist/src/cli.js) on your PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo build --release --locked --manifest-path rust/Cargo.toml -p cstan-front   # rust/target/release/cstan
 ```
 
 Day to day:
 
 ```sh
-npm run build          # empties dist/, then tsc and copy migrations
-npm test               # build, then node --test dist/test/*.test.js
-npm run lint           # eslint src test
-npm run format:check   # prettier
-npm run check          # lint + format:check + test
+scripts/check.sh                       # the single gate: fmt, clippy -D warnings, tests, smoke, installer and release checks
+scripts/check.sh --test-map            # only the test-map check
+cargo test --locked --manifest-path rust/Cargo.toml -p capstan-blackbox   # the black-box suites, about a minute
+CSTAN_LIVE=1 scripts/check.sh          # adds the live suites (a real Herdr and Claude Code)
 ```
 
-`npm run build` first removes `dist/` so output of deleted sources cannot linger. The daemon runs from `dist/`, so rebuilding in a live project briefly makes `cstan` unavailable; use the Operator restart (`cstan op propose --restart`), which swaps the build safely, instead of building under a running controller.
-
-The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild. `npm run smoke:binary` runs built binaries with no node on `PATH`; `npm run check:release` checks the version files, the workflow, the installer and `tools/release`. See [docs/binary.md](docs/binary.md).
+`CARGO_TARGET_DIR` puts the build outside the checkout and `CSTAN_CHECK_JOBS` limits cargo's jobs. The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild; see [docs/binary.md](docs/binary.md). The daemon is described in [docs/daemon.md](docs/daemon.md), and the test map in [docs/test-map/](docs/test-map/core.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
+
+## Upgrading from 0.3
+
+Capstan 0.4 is Rust only: `cstan` is one static binary that is also the controller daemon, and `cstan-dash` is the dashboard. Releases up to 0.3.0 were a Node.js program (an npm package, then a Node standalone binary). What changes when you upgrade:
+
+- Install with `install.sh`; Node.js and npm are no longer needed. The installer replaces an earlier install and warns about a leftover `npm link` that shadows `cstan` (see the [Install reference](docs/reference/install.md)).
+- Stop the controller of each project with the old `cstan stop` before upgrading, then run `cstan start` with the new one. The ledger is the same and migrates in place.
+- Delete the `[daemon]` table from `capstan.toml` and unset `CSTAN_DAEMON`. `implementation = "rust"` still loads, with a warning; `implementation = "node"` and `CSTAN_DAEMON=node` are errors. See [docs/daemon.md](docs/daemon.md).
+- `CSTAN_DAEMON_BIN`, `CSTAN_NODE_CLI` and `CSTAN_NODE` are no longer read. `CSTAN_DASH=node` is gone: there is no Node dashboard.
+- A `[worktree] setup` that ran `npm ci` is yours to keep; Capstan itself no longer needs npm.
+- The repository still holds the old TypeScript sources and their tests (`src/`, `test/`, `package.json`) until they are deleted; they are frozen and are not part of a release. A source checkout is built and checked with cargo as described above.
 
 ## Contributing
 
 Issues and pull requests are welcome; contributions are accepted under the [MIT License](LICENSE). Before you open one:
 
-- run `npm run check` and keep it green;
+- run `scripts/check.sh` and keep it green;
 - write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) (`<type>[(scope)][!]: <description>`; types `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, `revert`);
 - name branches `<type>/<task-id>-<slug>` (or `chore/<agent-id>-<slug>` for ad-hoc work); Capstan creates worker and integration (`integration/<plan-id>-<slug>`) branches for you, and older `capstan/<agent>-g<n>` branches still work;
 - leave AI attribution out of commits and pull requests: no `Co-Authored-By` line naming Claude, no `Claude-Session` line, no "Generated with Claude Code" footer (`cstan report` refuses commits that have one);
-- releases follow [SemVer](https://semver.org): `scripts/release.sh` picks the version from the commits, writes `VERSION`, `package.json`, the lockfile and `CHANGELOG.md`, and tags locally (`--dry-run` previews it, `--version X.Y.Z` overrides it); pushing the tag starts the Release workflow. See [Branches, commits and releases](docs/reference/workflow.md#branches-commits-and-releases) and [Releases](docs/reference/commands.md#releases);
+- releases follow [SemVer](https://semver.org): `scripts/release.sh` picks the version from the commits, writes `VERSION`, the version files and `CHANGELOG.md`, and tags locally (`--dry-run` previews it, `--version X.Y.Z` overrides it); pushing the tag starts the Release workflow. See [Branches, commits and releases](docs/reference/workflow.md#branches-commits-and-releases) and [Releases](docs/reference/commands.md#releases);
 - describe behaviour as the code has it, and update the [reference docs](docs/reference/) with any change to commands, config keys or messages;
 - for design changes, read the relevant note in [`docs/design/`](docs/design/) and [`decisions/`](decisions/) first.
 

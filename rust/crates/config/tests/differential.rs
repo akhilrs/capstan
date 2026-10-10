@@ -24,6 +24,10 @@ fn rust_and_node_classify_the_mutated_configs_alike() {
         let case = js::parse(line).unwrap();
         let index = number(&case, "index").unwrap() as usize;
         let bytes = base64(&text(&case, "base64").unwrap());
+        // The [daemon] table is retired in Rust (Node still reads it): those cases are covered by tests/divergences.
+        if bytes.windows(6).any(|window| window == b"daemon") {
+            continue;
+        }
         let node_parses = text(&case, "toml").unwrap() == "ok";
         let rust = parse_config(&bytes, &project);
         total += 1;

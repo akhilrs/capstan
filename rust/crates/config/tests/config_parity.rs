@@ -6,16 +6,53 @@ mod common;
 use std::collections::HashMap;
 
 use capstan_config::{load_role_config, ConfigError};
+use capstan_wire::js;
 use common::*;
 
 #[test]
 fn every_corpus_case_gives_the_result_node_gave() {
     let corpus = read_json("config-corpus.json");
     let expected = read_json("config-expected.json");
-    let by_name: HashMap<String, &capstan_wire::js::Value> = items(&expected)
+    let mut by_name: HashMap<String, &capstan_wire::js::Value> = items(&expected)
         .iter()
         .map(|entry| (text(entry, "name").unwrap(), entry.get("outcome").unwrap()))
         .collect();
+    // Where Rust deliberately differs (the retired [daemon] table), an overlay replaces the expected outcome of the case.
+    let overlays = capstan_parity_overlay::load(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/divergences"),
+        &parity_file(""),
+        &|fixture| {
+            let value = js::parse(&std::fs::read_to_string(fixture).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("{e:?}"))?;
+            Ok(items(&value)
+                .iter()
+                .filter_map(|case| text(case, "name"))
+                .collect())
+        },
+    )
+    .unwrap();
+    let overlaid: Vec<(String, capstan_wire::js::Value)> =
+        ["config-corpus.json", "config-edge-cases.json"]
+            .iter()
+            .flat_map(|fixture| {
+                let names: Vec<String> = items(&read_json(fixture))
+                    .iter()
+                    .filter_map(|case| text(case, "name"))
+                    .collect();
+                names.into_iter().filter_map(|name| {
+                    overlays.expected(fixture, &name).map(|outcome| {
+                        (
+                            name,
+                            js::parse(&outcome.to_string()).expect("an overlay outcome"),
+                        )
+                    })
+                })
+            })
+            .collect();
+    for (name, outcome) in &overlaid {
+        by_name.insert(name.clone(), outcome);
+    }
+    assert!(!overlaid.is_empty(), "the [daemon] overlays were not read");
     let mut cases = items(&corpus).to_vec();
     // The cases built by the exporter itself are in the expectations only; their files are rebuilt here from the same
     // list, so they are read from the second corpus file.

@@ -49,7 +49,10 @@ pub struct Commit {
 
 impl Commit {
     pub fn new(sha: &str, message: &str) -> Self {
-        Commit { sha: sha.to_string(), message: message.to_string() }
+        Commit {
+            sha: sha.to_string(),
+            message: message.to_string(),
+        }
     }
 }
 
@@ -108,7 +111,10 @@ pub fn parse_commit(message: &str) -> Option<Parsed> {
 }
 
 fn normalize(commit: &Commit) -> Option<Entry> {
-    parse_commit(&commit.message).map(|parsed| Entry { parsed, sha: commit.sha.clone() })
+    parse_commit(&commit.message).map(|parsed| Entry {
+        parsed,
+        sha: commit.sha.clone(),
+    })
 }
 
 pub fn parse_version(version: &str) -> Result<[u64; 3], String> {
@@ -152,7 +158,9 @@ pub fn next_version(current: &str, commits: &[Commit]) -> Result<Option<Next>, S
             level = Some("patch");
         }
     }
-    let Some(mut level) = level else { return Ok(None) };
+    let Some(mut level) = level else {
+        return Ok(None);
+    };
     if level == "major" && major == 0 {
         level = "minor";
     }
@@ -174,16 +182,27 @@ fn normalize_subject(description: &str) -> String {
 
 /// Equal subjects, or one a prefix of the other where the shorter is long enough to be a cut-off title.
 fn same_subject(a: &str, b: &str) -> bool {
-    let (short, long) = if a.chars().count() <= b.chars().count() { (a, b) } else { (b, a) };
+    let (short, long) = if a.chars().count() <= b.chars().count() {
+        (a, b)
+    } else {
+        (b, a)
+    };
     short == long || (short.chars().count() >= MIN_CUT_OFF && long.starts_with(short))
 }
 
 fn rank(kind: &str) -> usize {
-    TYPE_RANK.iter().position(|t| *t == kind).unwrap_or(usize::MAX)
+    TYPE_RANK
+        .iter()
+        .position(|t| *t == kind)
+        .unwrap_or(usize::MAX)
 }
 
 fn merge(prior: &Entry, c: &Entry) -> Entry {
-    let better = if rank(&c.parsed.kind) < rank(&prior.parsed.kind) { c } else { prior };
+    let better = if rank(&c.parsed.kind) < rank(&prior.parsed.kind) {
+        c
+    } else {
+        prior
+    };
     let mut scopes: Vec<&String> = [&prior.parsed.scope, &c.parsed.scope]
         .into_iter()
         .flatten()
@@ -201,7 +220,10 @@ fn merge(prior: &Entry, c: &Entry) -> Entry {
     parsed.description = description;
     parsed.breaking = prior.parsed.breaking || c.parsed.breaking;
     parsed.note = prior.parsed.note.clone().or_else(|| c.parsed.note.clone());
-    Entry { parsed, sha: better.sha.clone() }
+    Entry {
+        parsed,
+        sha: better.sha.clone(),
+    }
 }
 
 /// Parsed commits with repeats removed. Scope is ignored when comparing; subjects match when their normalized forms are
@@ -228,7 +250,12 @@ pub fn dedupe_commits(commits: &[Commit]) -> Vec<Entry> {
 pub fn render_changelog_section(version: &str, date: &str, commits: &[Commit]) -> String {
     let parsed = dedupe_commits(commits);
     let item = |c: &Entry, text: &str| {
-        let scope = c.parsed.scope.as_ref().map(|s| format!("**{s}:** ")).unwrap_or_default();
+        let scope = c
+            .parsed
+            .scope
+            .as_ref()
+            .map(|s| format!("**{s}:** "))
+            .unwrap_or_default();
         let sha = if c.sha.is_empty() {
             String::new()
         } else {
@@ -287,14 +314,19 @@ pub fn last_release_tag(root: &Path) -> Option<String> {
 /// The commits since `tag` (all of them without one) that count toward the release, and the lines naming those that were
 /// ignored (merges and non-conforming subjects). `chore(release):` commits are neither.
 pub fn commits_since(root: &Path, tag: Option<&str>) -> Result<(Vec<Commit>, Vec<String>), String> {
-    let range = tag.map(|t| format!("{t}..HEAD")).unwrap_or_else(|| "HEAD".to_string());
+    let range = tag
+        .map(|t| format!("{t}..HEAD"))
+        .unwrap_or_else(|| "HEAD".to_string());
     let out = Command::new("git")
         .args(["log", "--format=%H%x1f%P%x1f%B%x1e", &range])
         .current_dir(root)
         .output()
         .map_err(|e| format!("cannot run git: {e}"))?;
     if !out.status.success() {
-        return Err(format!("git log {range} failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git log {range} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let log = String::from_utf8_lossy(&out.stdout).into_owned();
     let mut commits = Vec::new();
@@ -302,7 +334,9 @@ pub fn commits_since(root: &Path, tag: Option<&str>) -> Result<(Vec<Commit>, Vec
     for entry in log.split('\x1e') {
         let entry = entry.strip_prefix('\n').unwrap_or(entry);
         let mut fields = entry.splitn(3, '\x1f');
-        let (Some(sha), Some(parents), Some(message)) = (fields.next(), fields.next(), fields.next()) else {
+        let (Some(sha), Some(parents), Some(message)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
             continue;
         };
         if sha.is_empty() {
@@ -315,7 +349,10 @@ pub fn commits_since(root: &Path, tag: Option<&str>) -> Result<(Vec<Commit>, Vec
         } else if parse_commit(message).is_none() {
             ignored.push(format!("{short} {subject}"));
         } else if !subject.starts_with("chore(release):") {
-            commits.push(Commit { sha: sha.to_string(), message: message.to_string() });
+            commits.push(Commit {
+                sha: sha.to_string(),
+                message: message.to_string(),
+            });
         }
     }
     Ok((commits, ignored))

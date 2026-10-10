@@ -1,6 +1,6 @@
 # Install reference
 
-Capstan installs as two static Rust binaries: `cstan` (the command, which is also the controller daemon) and `cstan-dash` (the dashboard). [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the two binaries of a release, checks them against `SHA256SUMS`, and links the command. There is no Node.js, npm or SEA step. It never reads stdin and never uses `sudo`.
+Capstan installs as two static Rust binaries: `cstan` (the command, which is also the controller daemon) and `cstan-dash` (the dashboard). [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the two binaries of a release, checks them against `SHA256SUMS`, and links the command. It never reads stdin and never uses `sudo`.
 
 > Releases (the four binaries and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
 
@@ -14,8 +14,6 @@ Capstan installs as two static Rust binaries: `cstan` (the command, which is als
 | `curl` or `wget`                | Downloads (not needed for a local-path `--binary`)                                                                                         | Install either                                                                           |
 | `sha256sum` or `shasum`         | Checksum verification                                                                                                                      | Part of coreutils                                                                        |
 | `git`, with at least one commit | **Hard requirement at run time.** Workers get their own git worktree and branch from HEAD; reports, reviews, plans and integration use git | `git init && git add -A && git commit -m "chore: initial commit"`, or `cstan init --git` |
-
-Node.js is not needed to install or to run Capstan.
 
 ### The project's git repository
 
@@ -58,7 +56,7 @@ Options win over environment variables. `--tarball`, `--no-binary` and `--front-
 
 ### Older releases
 
-`0.4.0` is the first release this installer installs. A release before it (`0.1.1`, `0.2.0`, `0.3.0`) shipped a Node standalone binary or an npm tarball, and its own `install.sh` installs it. Asking for one prints that and the URL to run:
+`0.4.0` is the first release this installer installs. A release before it (`0.1.1`, `0.2.0`, `0.3.0`) shipped in another form, and its own `install.sh` installs it (see [Upgrading from 0.3](#upgrading-from-03)). Asking for one prints that and the URL to run:
 
 ```text
 error: Capstan 0.3.0 predates the Rust release 0.4.0, which is the first this installer installs.
@@ -70,7 +68,7 @@ When the **latest** published release is below `0.4.0` the installer says the Ru
 
 ### The dashboard binary (`cstan-dash`)
 
-`cstan dash` runs `cstan-dash`. There is no Node dashboard any more. Search order, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running `cstan` (`current/bin/`); `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`. A candidate must answer `--version` with `cstan-dash <version>` before it is used. When none is found `cstan dash` prints one line and exits 2. The operator credential reaches it as `CSTAN_DASH_CREDENTIAL` in its environment, readable only by the same user.
+`cstan dash` runs `cstan-dash`. Search order, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running `cstan` (`current/bin/`); `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash` on `PATH`. A candidate must answer `--version` with `cstan-dash <version>` before it is used. When none is found `cstan dash` prints one line and exits 2. The operator credential reaches it as `CSTAN_DASH_CREDENTIAL` in its environment, readable only by the same user.
 
 ## Layout and upgrades
 
@@ -88,7 +86,9 @@ The installer copies the verified files to `$CAPSTAN_HOME/staging.<pid>/bin/` (m
 
 Re-running the installer is the upgrade path. If the version is already installed it says so and reinstalls anyway, which also repairs a broken install.
 
-### Upgrading from an earlier layout
+## Upgrading from 0.3
+
+Capstan 0.4 is Rust only (the changes to settings and variables are in the [README](../../README.md#upgrading-from-03) and [docs/daemon.md](../daemon.md)).
 
 The swap replaces the whole `current` directory, so whatever an earlier installer wrote is removed. Each of these upgrades in place:
 
@@ -118,7 +118,7 @@ Removes `$CAPSTAN_HOME/current`, any staging directories and the bin symlink, th
 
 ## Testing with local files
 
-`sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with no `node` on `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-linux-<arch>`, `cstan-dash-<v>-linux-<arch>` and `SHA256SUMS`) to install that too.
+`sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with a minimal `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-linux-<arch>`, `cstan-dash-<v>-linux-<arch>` and `SHA256SUMS`) to install that too.
 
 To try a release by hand without GitHub, serve a `download/v<version>/` directory with the four binaries and `SHA256SUMS` and point `CAPSTAN_RELEASE_BASE` at it (`file://` or `python3 -m http.server`), or install one binary directly:
 
@@ -127,13 +127,13 @@ sh install.sh --binary release/cstan-0.4.0-linux-x64 --dash-binary release/cstan
   --home /tmp/cap-home --bin-dir /tmp/cap-bin   # the SHA256SUMS beside them verifies them
 ```
 
-`sh scripts/smoke-binary.sh [cstan binary]` runs the built binaries (no `node` on `PATH`): init, a daemon, status, ping, the agent commands, stop, a Node-made ledger migrating, and `cstan dash` in a pty. See [the release test map](../test-map/release.md).
+`sh scripts/smoke-binary.sh [cstan binary]` runs the built binaries (with a minimal `PATH`): init, a daemon, status, ping, the agent commands, stop, a ledger made by an earlier release migrating, and `cstan dash` in a pty. See [the release test map](../test-map/release.md).
 
 ## Troubleshooting
 
 - **"predates the Rust release" or "is not out yet"**: see [Older releases](#older-releases). Run the install.sh of the tag it names.
 - **`cstan: command not found`**: add the bin directory to `PATH`, for example `export PATH="$HOME/.local/bin:$PATH"` in your shell profile.
-- **Another `cstan` runs instead**: the installer warns when an earlier `PATH` entry shadows it (a leftover `npm link`, for instance). Remove it or reorder `PATH`.
+- **Another `cstan` runs instead**: the installer warns when an earlier `PATH` entry shadows it (a leftover link from an earlier install, for instance). Remove it or reorder `PATH`.
 - **Cannot read the latest release**: the `releases/latest` redirect format could change; pin with `--version <x.y.z>`.
 - **Controller still runs old code after upgrading**: `cstan stop && cstan start`.
 - **"unsupported OS" or "no Capstan binary for the CPU"**: only Linux x64 and arm64 are published.
@@ -144,8 +144,8 @@ The user runs these; the installer and agents do not publish.
 
 ```sh
 scripts/release.sh --dry-run          # the next version, the changelog section and the assets the tag will build
-scripts/release.sh                    # bump VERSION, package.json, the lockfile and CHANGELOG.md; commit; tag locally
+scripts/release.sh                    # bump VERSION, the version files and CHANGELOG.md; commit; tag locally
 git push origin HEAD v0.4.0           # starts .github/workflows/release.yml
 ```
 
-`scripts/release.sh` needs `cargo` (it builds `tools/release`); its options are `--dry-run` and `--version X.Y.Z`, and it refuses to run with a dirty tree. It builds no asset. The Release workflow, started by the tag, checks the tag against `VERSION`, builds `cstan` and `cstan-dash` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `cargo-zigbuild`, runs `--version` of each pair on an x64 runner and on the native `ubuntu-24.04-arm` runner, and only then writes `SHA256SUMS` and the GitHub release. `VERSION` is the single version source: `rust/crates/cstan/build.rs` and `dash/build.rs` read it (`CSTAN_VERSION` overrides it; a build outside the repository falls back to the crate version), and `scripts/check-version.sh` fails when `package.json` or the lockfile differ until the npm files go away. `scripts/check-release-workflow.sh` checks the workflow (`--build` also builds both triples locally). Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.
+`scripts/release.sh` needs `cargo` (it builds `tools/release`); its options are `--dry-run` and `--version X.Y.Z`, and it refuses to run with a dirty tree. It builds no asset. The Release workflow, started by the tag, checks the tag against `VERSION`, builds `cstan` and `cstan-dash` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `cargo-zigbuild`, runs `--version` of each pair on an x64 runner and on the native `ubuntu-24.04-arm` runner, and only then writes `SHA256SUMS` and the GitHub release. `VERSION` is the single version source: `rust/crates/cstan/build.rs` and `dash/build.rs` read it (`CSTAN_VERSION` overrides it; a build outside the repository falls back to the crate version), and `scripts/check-version.sh` fails when the version files differ. `scripts/check-release-workflow.sh` checks the workflow (`--build` also builds both triples locally). Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.

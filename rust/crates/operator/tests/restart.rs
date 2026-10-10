@@ -8,8 +8,12 @@ use capstan_operator::restart::{
     recover_restart_results, restart_directory, restart_helper_alive, skip_restarts_with_live_plan,
     KnownGoodBuild, ProcessRestartCoordinator, RestartCoordinatorOptions, RestartRecoveryDeps,
 };
-use capstan_operator::restart_helper::{run_helper, PartialTiming, RestartPlan, KNOWN_GOOD_BINARY};
+use capstan_operator::restart_helper::{
+    known_good_binary, run_helper, PartialTiming, RestartPlan, KNOWN_GOOD_BINARY,
+    KNOWN_GOOD_LEGACY_BINARY,
+};
 use serde_json::{json, Value};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
@@ -19,7 +23,12 @@ use std::time::{Duration, Instant};
 
 const CREDENTIAL: &str = "restart-test-credential-0123456789abcdef";
 
+/// A script that was written and is executed (the dist, the saved build) must not be open for writing in any fork: one
+/// test at a time per binary holds this, and scripts are written under a temporary name and renamed into place closed.
+static EXEC: Mutex<()> = Mutex::new(());
+
 struct Project {
+    _exec: std::sync::MutexGuard<'static, ()>,
     dir: tempfile::TempDir,
     root: PathBuf,
     state: PathBuf,
@@ -27,6 +36,7 @@ struct Project {
 
 impl Project {
     fn new() -> Project {
+        let exec = EXEC.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let state = root.join(".capstan").join("state");
@@ -36,7 +46,12 @@ impl Project {
             format!("{CREDENTIAL}\n"),
         )
         .unwrap();
-        Project { dir, root, state }
+        Project {
+            _exec: exec,
+            dir,
+            root,
+            state,
+        }
     }
 
     fn key(&self) -> PathBuf {
@@ -45,8 +60,15 @@ impl Project {
 
     fn script(&self, name: &str, body: &str) -> PathBuf {
         let path = self.root.join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let temp = self.root.join(format!(".{name}.tmp"));
+        {
+            let mut file = std::fs::File::create(&temp).unwrap();
+            file.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+                .unwrap();
+            file.sync_all().unwrap();
+        }
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::rename(&temp, &path).unwrap();
         path
     }
 }
@@ -118,7 +140,7 @@ fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
 #[test]
 fn the_coordinator_writes_the_plan_with_the_exact_daemon_argv_and_starts_the_known_good_helper() {
     let project = Project::new();
-    let binary = project.script("cstan-daemon", "exit 0");
+    let binary = project.script("cstan", "exit 0");
     let argv = vec!["--serve".to_string(), "x y".to_string()];
     let c = coordinator(&project, &binary, argv.clone());
     let proposal = json!({"proposalId": "p-1", "forceRestart": false});
@@ -206,9 +228,34 @@ fn the_coordinator_writes_the_plan_with_the_exact_daemon_argv_and_starts_the_kno
 }
 
 #[test]
+fn a_snapshot_from_before_the_upgrade_holds_cstan_daemon_and_the_next_snapshot_holds_cstan() {
+    let project = Project::new();
+    let good = project.script("known-good-source", "exit 0");
+    let known = KnownGoodBuild::new(&project.state);
+    known.snapshot(&good, 7).unwrap();
+    // Make it the snapshot an older build took: the binary under the old name.
+    let directory = known.path();
+    std::fs::rename(
+        directory.join(KNOWN_GOOD_BINARY),
+        directory.join(KNOWN_GOOD_LEGACY_BINARY),
+    )
+    .unwrap();
+    assert!(known.exists(), "the old-name snapshot is accepted");
+    assert_eq!(
+        known_good_binary(&directory),
+        directory.join(KNOWN_GOOD_LEGACY_BINARY)
+    );
+    // The next successful start snapshots again, as cstan.
+    known.snapshot(&good, 8).unwrap();
+    assert!(directory.join(KNOWN_GOOD_BINARY).is_file());
+    assert!(!directory.join(KNOWN_GOOD_LEGACY_BINARY).exists());
+    assert_eq!(known.manifest().unwrap().max_migration, 8);
+}
+
+#[test]
 fn a_missing_operator_key_refuses_before_anything_is_written() {
     let project = Project::new();
-    let binary = project.script("cstan-daemon", "exit 0");
+    let binary = project.script("cstan", "exit 0");
     let c = coordinator(&project, &binary, vec![]);
     KnownGoodBuild::new(&project.state)
         .snapshot(&binary, 1)
@@ -358,7 +405,7 @@ fn helper_run(dist_body: &str, known_good_body: &str, known_good_max: i64) -> He
     let marker = project.root.join("started.pid");
     let good = format!("echo $$ > {}\nexec sleep 300", marker.display());
     let fill = |body: &str| body.replace("GOOD", &good);
-    let dist = project.script("cstan-daemon", &fill(dist_body));
+    let dist = project.script("cstan", &fill(dist_body));
     let saved = project.script("saved", &fill(known_good_body));
     KnownGoodBuild::new(&project.state)
         .snapshot(&saved, known_good_max)

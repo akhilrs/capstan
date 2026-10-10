@@ -8,7 +8,7 @@ SEA test that stays green until plan D deletes it, and is not extended).
 
 | Node file | Disposition |
 | --- | --- |
-| `test/release-notes.test.ts` | **ported** to `tools/release/tests/notes.rs` (below) |
+| release-notes.test.ts (deleted) | **ported** to `tools/release/tests/notes.rs` (below) |
 | `test/packaging.test.ts` | release cases **retired**; the rest **frozen**; one case added (`VERSION` matches `package.json`) |
 | `test/sea.test.ts` | **frozen**: tests the Node SEA helpers in `src/sea.ts`; stays green until plan D deletes it |
 | `test/operator-restart-sea.test.ts` | **frozen**: restart of the Node standalone binary; skipped without a binary, stays green until plan D deletes it |

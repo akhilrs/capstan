@@ -15,6 +15,17 @@ use crate::types::*;
 use crate::value::{Item, Table};
 
 /// `MAX_ROLE_NAME_CHARS` of `src/herdr/naming.ts`: 32 less the project slug, two dashes and four digits.
+/// `[daemon] implementation = "node"` and `CSTAN_DAEMON=node`: the Node daemon is gone.
+pub const DAEMON_NODE_REMOVED: &str = "daemon.implementation = \"node\" is no longer available: the Node daemon was removed and Rust is the only daemon; delete the [daemon] table from capstan.toml";
+/// `[daemon] implementation = "rust"`: accepted, selects nothing.
+pub const DAEMON_RUST_WARNING: &str = "[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; delete the [daemon] table from capstan.toml";
+
+/// `CSTAN_DAEMON=node`.
+pub const DAEMON_NODE_REMOVED_ENV: &str = "CSTAN_DAEMON=node is no longer available: the Node daemon was removed and Rust is the only daemon; unset CSTAN_DAEMON";
+/// `CSTAN_DAEMON=rust`.
+pub const DAEMON_RUST_ENV_WARNING: &str =
+    "cstan: CSTAN_DAEMON=rust is ignored: Rust is the only daemon; unset CSTAN_DAEMON";
+
 const MAX_ROLE_NAME_CHARS: usize = 32 - 10 - 1 - 1 - 4;
 const MAX_MCP_SERVERS: usize = 16;
 
@@ -247,17 +258,19 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
 
     let daemon_table = optional_table(root.get("daemon"), "daemon")?;
     reject_unknown_keys(daemon_table, &["implementation"], "daemon")?;
-    let daemon_implementation = if root.get("daemon").is_some() {
-        Some(
-            match daemon_table.get("implementation") {
-                None => "node",
-                value => enum_value(value, "daemon.implementation", &["node", "rust"])?,
-            }
-            .to_string(),
-        )
-    } else {
-        None
-    };
+    // Rust is the only daemon: `[daemon]` selects nothing. "rust" is a no-op that warns, "node" is an error.
+    if root.get("daemon").is_some() {
+        match enum_value(
+            daemon_table.get("implementation"),
+            "daemon.implementation",
+            &["node", "rust"],
+        ) {
+            Ok("node") => return invalid(DAEMON_NODE_REMOVED),
+            Ok(_) => warnings.push(DAEMON_RUST_WARNING.to_string()),
+            Err(error) if daemon_table.get("implementation").is_some() => return Err(error),
+            Err(_) => {}
+        }
+    }
 
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, &["pass"], "env")?;
@@ -322,7 +335,6 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         ledger,
         layout,
         worktree,
-        daemon_implementation,
         env_pass,
         hosts,
         roles,

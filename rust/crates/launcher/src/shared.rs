@@ -354,7 +354,7 @@ impl FrontEndSite {
     }
 }
 
-/// Shell words that run this CLI: the binary itself under SEA, otherwise node plus the CLI file.
+/// Shell words that run this CLI: the `cstan` executable (`sea`), otherwise `node_path` plus the CLI file (tests).
 pub fn self_invocation(node: &str, cli_path: &str, site: &FrontEndSite) -> String {
     if site.sea {
         return shell_quote(&site.exec_path);
@@ -362,20 +362,9 @@ pub fn self_invocation(node: &str, cli_path: &str, site: &FrontEndSite) -> Strin
     format!("{} {}", shell_quote(node), shell_quote(cli_path))
 }
 
-/// The per-agent `cstan` wrapper script put first on every agent's PATH: it runs the `cstan` the daemon was started as.
-/// `CSTAN_NODE_CLI` and `CSTAN_NODE` are passed on only when the daemon has them, so the front end can hand the commands it
-/// does not serve yet to the Node CLI.
+/// The per-agent `cstan` wrapper script put first on every agent's PATH: it runs the `cstan` executable the daemon points at.
 pub fn cstan_wrapper_script(site: &FrontEndSite) -> String {
-    let mut variables = String::new();
-    for name in ["CSTAN_NODE_CLI", "CSTAN_NODE"] {
-        if let Some(value) = site.env.get(name).filter(|v| !v.is_empty()) {
-            variables.push_str(&format!("{name}={} ", shell_quote(value)));
-        }
-    }
-    format!(
-        "#!/bin/sh\n{variables}exec {} \"$@\"\n",
-        shell_quote(&site.cstan)
-    )
+    format!("#!/bin/sh\nexec {} \"$@\"\n", shell_quote(&site.cstan))
 }
 
 // ------------------------------------------------------------------------------------------------ branch names
@@ -485,28 +474,16 @@ mod tests {
     }
 
     #[test]
-    fn the_wrapper_runs_the_cstan_and_passes_the_node_variables_only_when_set() {
+    fn the_wrapper_only_runs_the_cstan_it_was_given() {
         let mut site = FrontEndSite {
             env: HashMap::new(),
             exec_path: "/opt/other".into(),
             sea: false,
             cstan: "/opt/cstan".into(),
         };
-        assert_eq!(
-            cstan_wrapper_script(&site),
-            "#!/bin/sh\nexec '/opt/cstan' \"$@\"\n"
-        );
-        site.env
-            .insert("CSTAN_NODE_CLI".into(), "/opt/capstan/cli.js".into());
-        site.env.insert("CSTAN_NODE".into(), String::new());
-        assert_eq!(
-            cstan_wrapper_script(&site),
-            "#!/bin/sh\nCSTAN_NODE_CLI='/opt/capstan/cli.js' exec '/opt/cstan' \"$@\"\n"
-        );
-        site.env.insert("CSTAN_NODE".into(), "/usr/bin/node".into());
-        assert_eq!(
-            cstan_wrapper_script(&site),
-            "#!/bin/sh\nCSTAN_NODE_CLI='/opt/capstan/cli.js' CSTAN_NODE='/usr/bin/node' exec '/opt/cstan' \"$@\"\n"
-        );
+        let expected = "#!/bin/sh\nexec '/opt/cstan' \"$@\"\n";
+        assert_eq!(cstan_wrapper_script(&site), expected);
+        site.env.insert("CAPSTAN_TOKEN".into(), "secret".into());
+        assert_eq!(cstan_wrapper_script(&site), expected);
     }
 }

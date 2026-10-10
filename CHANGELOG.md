@@ -1,6 +1,26 @@
 # Changelog
 
-All notable changes are listed here, newest release first. `npm run release` writes each section from the Conventional Commits since the last tag.
+All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
+
+## Unreleased
+
+Rust is the only implementation (the first release with it is 0.4.0). `scripts/release.sh` writes the 0.4.0 section from the commits; fold these notes into it.
+
+### Breaking changes
+
+- **daemon:** the Node daemon is gone and `[daemon]` selects nothing. `implementation = "rust"` loads with a warning (also logged by the daemon as `daemon:config_warning`); `implementation = "node"` is a configuration error (exit 3) that says to delete `[daemon]`; an empty `[daemon]` is accepted. The resolved configuration of `cstan config check` has no `daemon` member any more. See `docs/daemon.md` for the exact texts.
+- **cli:** `CSTAN_DAEMON=node` is refused (exit 3) and `CSTAN_DAEMON=rust` warns on standard error. `CSTAN_DAEMON_BIN`, `CSTAN_NODE_CLI` and `CSTAN_NODE` are no longer read.
+- **launcher:** the per-agent `cstan` wrapper always runs the `cstan` executable (beside `cstan-daemon` when the daemon runs under that name) and passes no variable on. A `cstan-daemon` with no `cstan` beside it fails the launch instead of writing a wrapper that execs the daemon.
+- **dev:** `scripts/check.sh` is the single gate and replaces `npm run check`; `npm run check` is lint, format and the frozen Node tests only. `check:rust-daemon` and its suite list are removed. CI requires `scripts/check.sh`.
+
+### Bug fixes
+
+- **operator:** a restart accepts a known-good snapshot taken before the upgrade, which holds `cstan-daemon`; the next successful start saves a new snapshot as `cstan`.
+- **ledger:** two `cstan start` commands at once end with one daemon and both succeed (the project lock retries on BUSY).
+
+### Documentation
+
+- `docs/rust-daemon.md` is now `docs/daemon.md`; the README, install and Operator references describe the Rust binaries only, with an "Upgrading from 0.3" section; `docs/soak.md` defines the soak gate before the Node tree is removed; `docs/research/rust-cutover-baseline.md` has the Node and Rust measurements side by side.
 
 ## 0.3.0 (2026-10-08)
 

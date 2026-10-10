@@ -9,7 +9,8 @@
 
 use crate::api::{OperatorError, RestartCoordinator, RestartOutcomeResult, RestartPreflight};
 use crate::restart_helper::{
-    tail_units, PartialTiming, RestartOutcome, RestartPlan, RestartResult, KNOWN_GOOD_BINARY,
+    known_good_binary, tail_units, PartialTiming, RestartOutcome, RestartPlan, RestartResult,
+    KNOWN_GOOD_BINARY,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -101,7 +102,7 @@ impl KnownGoodBuild {
     pub fn manifest(&self) -> Option<KnownGoodManifest> {
         self.recover();
         let target = self.path();
-        if !fs::metadata(target.join(KNOWN_GOOD_BINARY)).ok()?.is_file() {
+        if !fs::metadata(known_good_binary(&target)).ok()?.is_file() {
             return None;
         }
         let parsed: Value =
@@ -394,7 +395,7 @@ impl RestartCoordinator for ProcessRestartCoordinator {
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(io)?;
         // The helper must outlive the build it replaces: it is the known-good binary, a build that already ran and is
         // never replaced mid-restart.
-        let helper_command = self.known.path().join(KNOWN_GOOD_BINARY);
+        let helper_command = known_good_binary(&self.known.path());
         let plan = self.plan(&proposal_id);
         let plan_path = directory.join("plan.json");
         let temporary = directory.join(format!("plan.json.tmp-{}", std::process::id()));

@@ -1,9 +1,9 @@
 //! The shadow run (scripts/shadow-daemon.mjs) as tests: the Node daemon and `cstan-daemon` answer the same wire requests
-//! over two copies of one ledger and nothing may differ. The small run is part of `cargo test` (and of check:rust-daemon);
-//! the large one (50 agents, 5000 messages, 20 plans with reports and integrations) is run by hand:
+//! over two copies of one ledger and nothing may differ. Every run is by hand, because it needs the frozen Node build and
+//! scripts/check.sh has no node (the large one has 50 agents, 5000 messages, 20 plans with reports and integrations):
 //! `npm run build && cargo test -p capstan-daemon --test shadow -- --ignored`.
 //!
-//! Needs node and dist/ (npm run build); without them a test says so and passes.
+//! Needs node and dist/ (npm run build); an ignored test that finds them missing fails.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -25,11 +25,9 @@ fn ready() -> bool {
     let node = Command::new("node").arg("--version").output().is_ok();
     let built = repository().join("dist/src/cli.js").exists();
     if !node || !built {
-        eprintln!(
-            "SKIPPED LOUDLY: shadow test did not run: node and dist/ (npm run build) are needed"
-        );
+        panic!("the shadow run needs node and dist/ (npm run build)");
     }
-    node && built
+    true
 }
 
 fn script(args: &[&str]) -> Output {
@@ -77,6 +75,7 @@ impl Drop for Scratch {
 }
 
 #[test]
+#[ignore = "needs node and the frozen Node build (npm run build); run by hand until the Node tree is removed"]
 fn a_small_generated_ledger_shows_no_difference() {
     if !ready() {
         return;
@@ -91,6 +90,7 @@ fn a_small_generated_ledger_shows_no_difference() {
 }
 
 #[test]
+#[ignore = "needs node and the frozen Node build (npm run build); run by hand until the Node tree is removed"]
 fn a_source_whose_daemon_runs_is_refused_and_a_source_is_never_changed() {
     if !ready() {
         return;

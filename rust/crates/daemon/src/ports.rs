@@ -310,71 +310,39 @@ pub fn launch_disabled_in(value: Option<&str>) -> bool {
     )
 }
 
-/// The `cstan` this daemon was started as: its own executable, or for the thin `cstan-daemon` the `cstan` beside it (the
-/// daemon itself when there is none).
-fn daemon_cstan(exe: &Path) -> String {
-    let sibling = exe
-        .file_name()
-        .is_some_and(|name| name == "cstan-daemon")
-        .then(|| exe.with_file_name("cstan"))
-        .filter(|candidate| candidate.is_file());
-    sibling
-        .as_deref()
-        .unwrap_or(exe)
-        .to_string_lossy()
-        .into_owned()
+/// The `cstan` executable agents run: this binary when it is `cstan`, beside it a `cstan` when it runs as `cstan-daemon`.
+/// A `cstan-daemon` with no `cstan` beside it has nothing to point agents at, which is an error.
+fn daemon_cstan(exe: &Path) -> Result<String, String> {
+    if !exe.file_name().is_some_and(|name| name == "cstan-daemon") {
+        return Ok(exe.to_string_lossy().into_owned());
+    }
+    let sibling = exe.with_file_name("cstan");
+    if sibling.is_file() {
+        Ok(sibling.to_string_lossy().into_owned())
+    } else {
+        Err(format!(
+            "cstan-daemon has no cstan beside it ({}): agents run cstan, so install cstan next to cstan-daemon or start the daemon with `cstan daemon`",
+            sibling.display()
+        ))
+    }
 }
 
-/// Where agents' `cstan` runs: the Node CLI the starting client named (`CSTAN_NODE_CLI`: a `.js`/`.mjs` file runs under
-/// `CSTAN_NODE` or `node`, anything else is an executable), else a `cstan` beside this binary. The launcher writes it into
-/// the watch pane's command. The agent wrapper runs `cstan` itself (`cstan`), the executable this daemon was started as, and
-/// passes `CSTAN_NODE_CLI` and `CSTAN_NODE` on when the daemon has them.
-pub fn cli_site(env: &HashMap<String, String>, exe: &Path) -> (String, String, FrontEndSite) {
-    let cstan = daemon_cstan(exe);
-    let from_env = env.get("CSTAN_NODE_CLI").filter(|v| !v.is_empty());
-    let beside = exe
-        .parent()
-        .map(|dir| dir.join("cstan"))
-        .filter(|candidate| candidate.is_file())
-        .map(|candidate| candidate.to_string_lossy().into_owned());
-    let cli = from_env.cloned().or(beside);
-    let node = env
-        .get("CSTAN_NODE")
-        .filter(|v| !v.is_empty())
-        .cloned()
-        .unwrap_or_else(|| "node".to_string());
-    match cli {
-        Some(cli) if cli.ends_with(".js") || cli.ends_with(".mjs") => (
-            node,
-            cli,
-            FrontEndSite {
-                env: env.clone(),
-                exec_path: String::new(),
-                sea: false,
-                cstan: cstan.clone(),
-            },
-        ),
-        Some(cli) => (
-            node,
-            cli.clone(),
-            FrontEndSite {
-                env: env.clone(),
-                exec_path: cli,
-                sea: true,
-                cstan: cstan.clone(),
-            },
-        ),
-        None => (
-            node,
-            exe.to_string_lossy().into_owned(),
-            FrontEndSite {
-                env: env.clone(),
-                exec_path: exe.to_string_lossy().into_owned(),
-                sea: true,
-                cstan,
-            },
-        ),
-    }
+/// Where agents' `cstan` runs: the `cstan` executable of `daemon_cstan`, for the agent wrapper and the watch pane's command.
+pub fn cli_site(
+    env: &HashMap<String, String>,
+    exe: &Path,
+) -> Result<(String, String, FrontEndSite), String> {
+    let cstan = daemon_cstan(exe)?;
+    Ok((
+        cstan.clone(),
+        cstan.clone(),
+        FrontEndSite {
+            env: env.clone(),
+            exec_path: cstan.clone(),
+            sea: true,
+            cstan,
+        },
+    ))
 }
 
 // ------------------------------------------------------------------------------------------------ the wiring
@@ -723,29 +691,19 @@ mod tests {
     }
 
     #[test]
-    fn the_agents_cstan_runs_the_node_cli_the_client_named() {
-        let exe = Path::new("/nonexistent/cstan-daemon");
-        let mut env = HashMap::new();
-        env.insert("CSTAN_NODE_CLI".to_string(), "/x/dist/src/cli.js".into());
-        env.insert("CSTAN_NODE".to_string(), "/usr/bin/node".into());
-        let (node, cli, site) = cli_site(&env, exe);
-        assert_eq!(
-            (node.as_str(), cli.as_str()),
-            ("/usr/bin/node", "/x/dist/src/cli.js")
-        );
-        assert!(!site.sea);
-        env.insert("CSTAN_NODE_CLI".to_string(), "/x/cstan-node".into());
-        let (_, cli, site) = cli_site(&env, exe);
-        assert_eq!(cli, "/x/cstan-node");
-        assert!(site.sea);
-        assert_eq!(site.exec_path, "/x/cstan-node");
-        // The agent wrapper runs the cstan the daemon was started as, whatever the Node CLI is.
-        assert_eq!(site.cstan, "/nonexistent/cstan-daemon");
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("cstan"), "").unwrap();
-        let (_, _, site) = cli_site(&env, &dir.path().join("cstan-daemon"));
-        assert_eq!(site.cstan, dir.path().join("cstan").to_string_lossy());
-        let (_, _, site) = cli_site(&env, Path::new("/opt/bin/cstan"));
+    fn the_agents_cstan_is_this_binary_or_the_one_beside_cstan_daemon() {
+        let env = HashMap::new();
+        let (_, cli, site) = cli_site(&env, Path::new("/opt/bin/cstan")).unwrap();
+        assert_eq!(cli, "/opt/bin/cstan");
         assert_eq!(site.cstan, "/opt/bin/cstan");
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = dir.path().join("cstan-daemon");
+        // No cstan beside cstan-daemon: nothing to point the wrapper at.
+        let error = cli_site(&env, &daemon).unwrap_err();
+        assert!(error.contains("no cstan beside it"), "{error}");
+        std::fs::write(dir.path().join("cstan"), "").unwrap();
+        let (_, cli, site) = cli_site(&env, &daemon).unwrap();
+        assert_eq!(site.cstan, dir.path().join("cstan").to_string_lossy());
+        assert_eq!(cli, site.cstan);
     }
 }

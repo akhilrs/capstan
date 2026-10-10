@@ -13,7 +13,6 @@ path = "src/lib.rs"
 
 [dependencies]
 capstan-wire = { path = "../wire" }
-toml = { version = "=1.1.6+spec-1.1.0", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }
 libc = "=0.2.190"
 sha2 = "=0.10.9"
 serde = "=1.0.229"
@@ -22,3 +21,4 @@ indexmap = "=2.14.2"
 
 [dev-dependencies]
 tempfile = "=3.27.0"
+capstan-parity-overlay = { path = "../parity-overlay" }

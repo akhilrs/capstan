@@ -204,6 +204,102 @@ fn config_check_warns_about_roles_that_run_unattended_on_another_host() {
     );
 }
 
+const DAEMON_CONFIG: &str = "schema_version = 1\n[hosts.claude]\nkind = \"claude\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[daemon]\n";
+
+#[test]
+fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
+    let w = World::builder("daemon-table").bare().build();
+    w.op(&["init"]).ok();
+    std::fs::write(
+        w.project.join("capstan.toml"),
+        format!("{DAEMON_CONFIG}implementation = \"rust\"\n"),
+    )
+    .unwrap();
+    let check = w.op(&["config", "check"]).ok();
+    assert!(check.json().get("daemon").is_none());
+    assert!(
+        check.has("[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; delete the [daemon] table from capstan.toml"),
+        "{}",
+        check.text()
+    );
+    let mut w = w;
+    w.start();
+    assert!(
+        w.daemon_log().contains("config_warning")
+            && w.daemon_log().contains("[daemon] implementation"),
+        "the daemon logs the warning: {}",
+        w.daemon_log()
+    );
+    w.stop();
+
+    std::fs::write(
+        w.project.join("capstan.toml"),
+        format!("{DAEMON_CONFIG}implementation = \"node\"\n"),
+    )
+    .unwrap();
+    let node = w.op(&["config", "check"]);
+    assert_eq!(node.code, 3, "{}", node.text());
+    assert!(
+        node.has("the Node daemon was removed") && node.has("delete the [daemon] table"),
+        "{}",
+        node.text()
+    );
+    let start = w.op(&["start"]);
+    assert_ne!(start.code, 0, "{}", start.text());
+    assert!(!w.socket().exists(), "no daemon is left behind");
+
+    std::fs::write(
+        w.project.join("capstan.toml"),
+        format!("{DAEMON_CONFIG}binary = \"x\"\n"),
+    )
+    .unwrap();
+    let unknown = w.op(&["config", "check"]);
+    assert_eq!(unknown.code, 3, "{}", unknown.text());
+    assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation"));
+}
+
+#[test]
+fn cstan_daemon_node_is_refused_and_rust_warns() {
+    let w = World::builder("daemon-env").bare().build();
+    w.op(&["init"]).ok();
+    let node = w.cstan_with(
+        &w.project,
+        None,
+        &["start"],
+        &[("CSTAN_DAEMON", "node")],
+        None,
+    );
+    assert_eq!(node.code, 3, "{}", node.text());
+    assert!(
+        node.has("CSTAN_DAEMON=node is no longer available") && node.has("unset CSTAN_DAEMON"),
+        "{}",
+        node.text()
+    );
+    assert!(!w.socket().exists());
+    let other = w.cstan_with(
+        &w.project,
+        None,
+        &["start"],
+        &[("CSTAN_DAEMON", "go")],
+        None,
+    );
+    assert_eq!(other.code, 3, "{}", other.text());
+    let rust = w.cstan_with(
+        &w.project,
+        None,
+        &["start", "--json"],
+        &[("CSTAN_DAEMON", "rust")],
+        None,
+    );
+    assert_eq!(rust.code, 0, "{}", rust.text());
+    assert!(
+        rust.stderr.contains("CSTAN_DAEMON=rust is ignored"),
+        "{}",
+        rust.text()
+    );
+    w.op(&["stop"]).ok();
+}
+
 #[test]
 fn config_sync_writes_the_roles_once_and_a_second_run_writes_nothing() {
     let w = World::builder("sync").bare().build();
@@ -266,13 +362,8 @@ fn start_ping_and_stop_manage_one_daemon_per_project() {
     );
 }
 
-/// Fails about three runs in ten: both daemons lose the project lock at once (SQLite's `BEGIN EXCLUSIVE` with a zero busy
-/// timeout in `ledger/src/lock.rs` returns BUSY to both when two processes arrive together), no daemon is left and both
-/// clients end with exit 5. Node has the same protocol. Reproduction: `/tmp/capstan-suites-core-race.sh` of the report, or
-/// run this test with `--ignored` several times. A bounded retry on BUSY in the lock would fix it; un-ignore this test as the
-/// proof when it lands (plan-30/suites-core stop-and-ask: no change to any src/).
+/// Both clients race to start the project's daemon: the lock retries on BUSY, so one daemon ends up serving both.
 #[test]
-#[ignore = "known defect: concurrent start, follow-up fix pending"]
 fn two_starts_at_once_end_with_one_daemon_and_both_succeed() {
     let w = World::builder("racing").bare().build();
     w.op(&["init"]).ok();

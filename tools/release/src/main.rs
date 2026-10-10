@@ -22,10 +22,18 @@ struct Args {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut out = Args { root: PathBuf::from("."), version: None, date: None };
+    let mut out = Args {
+        root: PathBuf::from("."),
+        version: None,
+        date: None,
+    };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
-        let mut value = |name: &str| it.next().cloned().ok_or_else(|| format!("{name} needs a value"));
+        let mut value = |name: &str| {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
         match arg.as_str() {
             "--root" => out.root = PathBuf::from(value("--root")?),
             "--version" => out.version = Some(value("--version")?),
@@ -56,14 +64,21 @@ fn plan(args: &Args) -> Result<(), String> {
     let mut next = next_version(&current, &commits)?;
     if let Some(wanted) = &args.version {
         let well_formed = wanted.split('.').count() == 3
-            && wanted.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+            && wanted
+                .split('.')
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
         if !well_formed {
             return Err(format!("--version needs X.Y.Z, got '{wanted}'"));
         }
         if compare_versions(wanted, &current)?.is_le() {
-            return Err(format!("--version {wanted} must be higher than the current {current}"));
+            return Err(format!(
+                "--version {wanted} must be higher than the current {current}"
+            ));
         }
-        next = Some(capstan_release::Next { version: wanted.clone(), level: "override" });
+        next = Some(capstan_release::Next {
+            version: wanted.clone(),
+            level: "override",
+        });
     }
     let Some(next) = next else {
         return Err(format!(

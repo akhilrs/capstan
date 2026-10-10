@@ -1,0 +1,9 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-daemon-node",
+  "reason": "the Node daemon was removed: implementation = \"node\" is a configuration error that says to delete [daemon]",
+  "expected": {
+    "kind": "error",
+    "message": "daemon.implementation = \"node\" is no longer available: the Node daemon was removed and Rust is the only daemon; delete the [daemon] table from capstan.toml"
+  }
+}

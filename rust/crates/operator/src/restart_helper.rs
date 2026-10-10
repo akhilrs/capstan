@@ -26,6 +26,20 @@ pub const EXIT_DOWN: i32 = 2;
 pub const EXIT_USAGE: i32 = 64;
 /// The file name of the saved binary inside the known-good directory (Node's standalone build saves `cstan`).
 pub const KNOWN_GOOD_BINARY: &str = "cstan";
+/// What a snapshot taken before the upgrade to a single `cstan` holds: the daemon binary. The next snapshot replaces the
+/// directory and holds `cstan`.
+pub const KNOWN_GOOD_LEGACY_BINARY: &str = "cstan-daemon";
+
+/// The saved binary inside the known-good directory `dir`: `cstan`, else a `cstan-daemon` from before the upgrade.
+pub fn known_good_binary(dir: &Path) -> PathBuf {
+    let current = dir.join(KNOWN_GOOD_BINARY);
+    let legacy = dir.join(KNOWN_GOOD_LEGACY_BINARY);
+    if !current.is_file() && legacy.is_file() {
+        legacy
+    } else {
+        current
+    }
+}
 const START_ATTEMPTS: usize = 2;
 const LOG_TAIL_CHARS: usize = 600;
 const PING_TIMEOUT_MS: u64 = 3_000;
@@ -737,7 +751,7 @@ impl<'a> Helper<'a> {
                     .into(),
             );
         }
-        let source = Path::new(&plan.known_good_path).join(KNOWN_GOOD_BINARY);
+        let source = known_good_binary(Path::new(&plan.known_good_path));
         if !source.exists() {
             return Some(format!(
                 "the known-good build {} is missing",
@@ -777,7 +791,7 @@ impl<'a> Helper<'a> {
 
     fn manual_recovery(&self) -> String {
         let plan = self.plan;
-        let saved = Path::new(&plan.known_good_path).join(KNOWN_GOOD_BINARY);
+        let saved = known_good_binary(Path::new(&plan.known_good_path));
         [
             format!("Run these from the project root ({}):", plan.cwd),
             format!(

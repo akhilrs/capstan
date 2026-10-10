@@ -12,7 +12,6 @@ import {
 } from "../src/client.js";
 import { loadCapstanConfig } from "../src/config/capstan-config.js";
 import { ConfigError } from "../src/config/types.js";
-import { RUST_DAEMON_SKIPS, RUST_DAEMON_SUITES } from "./rust-daemon-suites.js";
 import { spawnSync } from "node:child_process";
 
 const BASE = `schema_version = 1
@@ -196,66 +195,6 @@ test("ensureDaemon spawns the selected binary in the project directory with no a
 });
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..", "..");
-
-test("the Rust daemon gate: every listed suite exists, and check runs it after check:dash and before the tests", () => {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
-  ) as { scripts: Record<string, string> };
-  for (const suite of RUST_DAEMON_SUITES)
-    assert.ok(
-      fs.existsSync(
-        path.join(
-          repositoryRoot,
-          "test",
-          `${suite.replace(/\.test$/, "")}.test.ts`,
-        ),
-      ),
-      `${suite} has no test file`,
-    );
-  for (const [suite, reason] of Object.entries(RUST_DAEMON_SKIPS)) {
-    assert.ok(
-      RUST_DAEMON_SUITES.includes(suite),
-      `${suite} is skipped but not listed`,
-    );
-    assert.ok(reason.length > 0);
-  }
-  assert.equal(
-    manifest.scripts["check:rust-daemon"],
-    "node scripts/check-rust-daemon.mjs",
-  );
-  const steps = manifest.scripts.check?.split(" && ") ?? [];
-  assert.ok(
-    steps.indexOf("npm run check:rust-daemon") ===
-      steps.indexOf("npm run check:dash") + 1 &&
-      steps.indexOf("npm test") ===
-        steps.indexOf("npm run check:rust-daemon") + 1,
-    manifest.scripts.check,
-  );
-});
-
-test("check:rust-daemon without a binary fails, and skips loudly when asked", () => {
-  const script = path.join(repositoryRoot, "scripts", "check-rust-daemon.mjs");
-  const missing = path.join(os.tmpdir(), "capstan-no-such-daemon");
-  const failing = spawnSync(process.execPath, [script], {
-    env: { ...process.env, CSTAN_DAEMON_BIN: missing },
-    encoding: "utf8",
-  });
-  assert.equal(failing.status, 1);
-  assert.match(
-    failing.stderr,
-    /is not an executable; run npm run check:dash first/,
-  );
-  const skipped = spawnSync(process.execPath, [script], {
-    env: {
-      ...process.env,
-      CSTAN_DAEMON_BIN: missing,
-      CSTAN_SKIP_RUST_DAEMON_CHECK: "1",
-    },
-    encoding: "utf8",
-  });
-  assert.equal(skipped.status, 0);
-  assert.match(skipped.stderr, /check:rust-daemon SKIPPED/);
-});
 
 test("a bad selection exits like any other configuration error, and says why", () => {
   const cli = path.join(repositoryRoot, "dist", "src", "cli.js");
