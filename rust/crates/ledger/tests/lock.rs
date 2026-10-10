@@ -120,3 +120,17 @@ fn assert_held_notices_a_removed_or_replaced_lock_file() {
         "controller lock path no longer identifies the owned inode"
     );
 }
+
+#[test]
+fn a_briefly_held_lock_is_retried_until_it_is_free() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("controller.lock");
+    let mut first = ProjectLock::acquire(&path).unwrap();
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        first.close();
+    });
+    let second = ProjectLock::acquire(&path).expect("retry outlasts a short hold");
+    releaser.join().unwrap();
+    second.assert_held().unwrap();
+}

@@ -61,6 +61,25 @@ fn random_token() -> io::Result<String> {
     Ok(hex(&bytes))
 }
 
+const LOCK_ATTEMPTS: u32 = 10;
+
+fn is_contended(error: &LedgerError) -> bool {
+    matches!(
+        error,
+        LedgerError::Sqlite(rusqlite::Error::SqliteFailure(failure, _))
+            if matches!(failure.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
+}
+
+/// 5..=34 ms from the clock and pid, so two racing processes do not retry in step; ten tries stay near 250 ms.
+fn jitter_ms(attempt: u32) -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    5 + (nanos ^ (std::process::id() as u64).wrapping_mul(2654435761) ^ attempt as u64) % 30
+}
+
 fn lock_error(error: LedgerError) -> LedgerError {
     if let LedgerError::Sqlite(rusqlite::Error::SqliteFailure(failure, _)) = &error {
         match failure.code {
@@ -122,14 +141,27 @@ impl ProjectLock {
             conn.execute_batch("COMMIT")?;
             Ok(conn)
         };
-        match attempt() {
-            Ok(conn) => Ok(ProjectLock {
-                db: Some(conn),
-                path: lock_path.to_path_buf(),
-                device: before.dev(),
-                inode: before.ino(),
-            }),
-            Err(error) => Err(lock_error(error)),
+        // Two processes that both hold SHARED while escalating to EXCLUSIVE make each other's BEGIN fail with BUSY
+        // at once, so a BUSY result is retried with jitter before it is taken to mean a live owner.
+        let mut tries = 0;
+        loop {
+            match attempt() {
+                Ok(conn) => {
+                    return Ok(ProjectLock {
+                        db: Some(conn),
+                        path: lock_path.to_path_buf(),
+                        device: before.dev(),
+                        inode: before.ino(),
+                    })
+                }
+                Err(error) => {
+                    tries += 1;
+                    if tries >= LOCK_ATTEMPTS || !is_contended(&error) {
+                        return Err(lock_error(error));
+                    }
+                    std::thread::sleep(Duration::from_millis(jitter_ms(tries)));
+                }
+            }
         }
     }
 
