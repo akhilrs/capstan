@@ -109,7 +109,7 @@ node dist/test/cli-local-transcript-export.js
 7. After Node removal a fixture changes only by hand, in the same commit as the Rust change, with the reason in the commit
    body.
 8. Fixtures stay where the Rust tests read them (`rust/crates/*/tests/**`, `test/fixtures/`).
-9. The frozen Node tree stays unchanged and keeps passing in the Node CI job.
+9. The frozen Node tree stays unchanged and is no longer run by CI (its job was removed; plan D deletes the tree).
 
 ## Divergences from Node
 

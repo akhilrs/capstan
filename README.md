@@ -375,8 +375,9 @@ cargo build --release --locked --manifest-path rust/Cargo.toml -p cstan-front   
 Day to day:
 
 ```sh
-scripts/check.sh                       # the single gate: fmt, clippy -D warnings, tests, smoke, installer and release checks
-scripts/check.sh --test-map            # only the test-map check
+scripts/check.sh                       # the single gate: every stage except the release build
+scripts/check.sh rust                  # one stage: rust | dash | tools | scripts | release | test-map (CI runs one job per stage)
+CSTAN_RELEASE_BUILD=1 scripts/check.sh # also builds the release binaries, so smoke-binary.sh runs on them
 cargo test --locked --manifest-path rust/Cargo.toml -p capstan-blackbox   # the black-box suites, about a minute
 CSTAN_LIVE=1 scripts/check.sh          # adds the live suites (a real Herdr and Claude Code)
 ```

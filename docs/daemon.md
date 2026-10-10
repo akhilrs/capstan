@@ -66,7 +66,7 @@ Operator, no driver.
 
 `scripts/check.sh` is the single gate and needs no node: `cargo fmt --check`, `clippy -D warnings` and `cargo test --locked` for
 `rust/`, `dash/` and `tools/release`, then the smoke test of the release binaries, the installer test, the release workflow
-check, the version check, and the test-map check. With `CSTAN_LIVE=1` it also runs the live suites. `CARGO_TARGET_DIR` and
+check, the version check, and the test-map check. The smoke test runs on the release binaries only when they are built (`CSTAN_RELEASE_BUILD=1` or `scripts/check.sh release`); the Release workflow builds and verifies them on tags. `scripts/check.sh <stage>` runs one stage (`rust`, `dash`, `tools`, `scripts`, `release`, `test-map`), and CI runs one parallel job per stage. With `CSTAN_LIVE=1` it also runs the live suites. `CARGO_TARGET_DIR` and
 `CSTAN_CHECK_JOBS` (cargo's `-j`) are honoured.
 
 The daemon's own tests are the strict transcript replay (`rust/crates/daemon/tests/replay.rs`) of the frozen Node corpus, the

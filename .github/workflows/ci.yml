@@ -12,12 +12,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# scripts/check.sh is the single gate and needs no node. Each job runs one of its stages, so CI and a local run are the
+# same code; the jobs run in parallel. The release builds are not part of CI: the Release workflow builds and verifies
+# the real binaries on tags (a local run: scripts/check.sh release).
 jobs:
-  # The gate: scripts/check.sh is the required check. It needs no node.
-  check:
-    name: check (scripts/check.sh)
+  rust:
+    name: rust (fmt, clippy, test)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       # Some suites commit in temporary repositories and need an identity.
@@ -31,43 +33,49 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust
-            dash
-            tools/release
-      # cargo fmt, clippy -D warnings and cargo test for rust/, dash/ and tools/release; the smoke test of the release
-      # binaries, the installer test, the release workflow and version checks, and the test-map check.
-      - run: scripts/check.sh
+          workspaces: rust
+          shared-key: rust
+      - run: scripts/check.sh rust
 
-  # Guards the frozen Node tree until plan D deletes it.
-  node:
-    name: frozen Node tree (build, test, lint, format)
+  dash:
+    name: dash (fmt, clippy, test)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.6.x
-          cache: npm
-      # Some suites commit in temporary repositories and need an identity.
       - name: Git identity
         run: |
           git config --global user.name ci
           git config --global user.email ci@example.invalid
-      - run: npm ci
-      # The Node-versus-Rust suites run the Rust binaries of rust/target/release (cstan, cstan-daemon, ledger-probe).
+      # dash/ has its own rust-toolchain.toml, identical to rust/'s (check.sh enforces it).
       - name: Rust toolchain
-        working-directory: rust
+        working-directory: dash
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
-      - name: Build the Rust binaries
-        working-directory: rust
-        run: cargo build --release --locked
-      - run: npm run build
-      # The live suites (real Herdr and Claude) skip themselves when herdr is not installed, which it is not here.
-      - run: npm test
-      - run: npm run lint
-      - run: npm run format:check
+          workspaces: dash
+          shared-key: dash
+      - run: scripts/check.sh dash
+
+  tools:
+    name: tools/release and scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Git identity
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - name: Rust toolchain
+        working-directory: tools/release
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/release
+          shared-key: tools
+      # cargo fmt, clippy -D warnings and cargo test for tools/release.
+      - run: scripts/check.sh tools
+      # smoke-binary.sh (skips without release binaries), the installer test, the release workflow and version
+      # checks, and the test-map check.
+      - run: scripts/check.sh scripts

@@ -154,7 +154,9 @@ parse_args() {
   case "$BIN_DIR" in /*) ;; *) die "--bin-dir must be an absolute path: $BIN_DIR" ;; esac
   HOME_DIR="${HOME_DIR%/}"
   BIN_DIR="${BIN_DIR%/}"
-  [ -n "$HOME_DIR" ] && [ -n "$BIN_DIR" ] || die "refusing to use / as an install directory"
+  if [ -z "$HOME_DIR" ] || [ -z "$BIN_DIR" ]; then
+    die "refusing to use / as an install directory"
+  fi
   [ -z "$VERSION" ] || valid_version "$VERSION" || die "--version must be exactly x.y.z (digits only), got: $VERSION"
   case "$SHA256" in *[!0-9A-Fa-f]*) die "--sha256 must be hex" ;; esac
   BIN_LINK="$BIN_DIR/cstan"
