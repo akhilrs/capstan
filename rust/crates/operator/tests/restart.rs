@@ -547,3 +547,323 @@ fn an_unreadable_plan_is_a_down_result_not_a_hang() {
         .unwrap()
         .starts_with("the restart helper could not read its plan or the operator key ("));
 }
+
+// ------------------------------------------------------------------------------------------------ the handoff
+// (replaces the handoff, ledger and failure cases of test/operator-restart-helper.test.ts)
+
+/// Rewrites the plan file of `run` the way a test needs it.
+fn edit_plan(run: &HelperRun, edit: impl FnOnce(&mut Value)) {
+    let mut plan: Value =
+        serde_json::from_str(&std::fs::read_to_string(&run.plan_path).unwrap()).unwrap();
+    edit(&mut plan);
+    std::fs::write(&run.plan_path, plan.to_string()).unwrap();
+}
+
+fn with_timing(plan: &mut Value, handoff_ms: u64, term_ms: u64, kill_ms: u64) {
+    plan["timing"] = json!({
+        "handoffWaitMs": handoff_ms,
+        "termWaitMs": term_ms,
+        "killWaitMs": kill_ms,
+        "pollMs": 20,
+    });
+}
+
+/// A process this test starts and a thread that reaps it, so that the helper's `kill(pid, 0)` sees it go.
+struct OldController {
+    pid: i64,
+    reaper: Option<std::thread::JoinHandle<()>>,
+}
+
+impl OldController {
+    fn start(script: &str) -> OldController {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i64::from(child.id());
+        OldController {
+            pid,
+            reaper: Some(std::thread::spawn(move || {
+                let _ = child.wait();
+            })),
+        }
+    }
+
+    fn alive(&self) -> bool {
+        std::fs::read_to_string(format!("/proc/{}/stat", self.pid))
+            .map(|stat| !stat.contains(") Z "))
+            .unwrap_or(false)
+    }
+
+    fn stop(&mut self) {
+        // SAFETY: the pid is a process this test started; the reaper thread owns its Child.
+        unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) };
+        if let Some(reaper) = self.reaper.take() {
+            let _ = reaper.join();
+        }
+    }
+}
+
+impl Drop for OldController {
+    fn drop(&mut self) {
+        if self.reaper.is_some() {
+            self.stop();
+        }
+    }
+}
+
+#[test]
+fn the_helper_waits_for_the_old_controller_to_go_before_it_starts_the_new_build() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    // The old controller leaves on its own a moment after the helper begins; its pid file goes with it.
+    let pid_path = run.project.state.join("daemon.pid");
+    let old = OldController::start(&format!(
+        "echo $$ > '{pid}'; sleep 0.6; rm -f '{pid}'",
+        pid = pid_path.display()
+    ));
+    wait_for("the old controller's pid file", || pid_path.exists());
+    edit_plan(&run, |plan| {
+        plan["pid"] = json!(old.pid);
+        with_timing(plan, 5_000, 400, 2_000);
+    });
+    let socket = FakeSocket::serve(run.project.state.join("control.sock"), run.marker.clone());
+    let code = run_helper(&run.plan_path, &|_| {});
+    drop(socket);
+    kill_marker(&run.marker);
+    assert_eq!(code, 0, "{}", result_of(&run));
+    assert!(!old.alive());
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "ok");
+    assert_ne!(
+        result["pid"], old.pid,
+        "the new controller is not the old one"
+    );
+}
+
+#[test]
+fn a_stuck_old_controller_gets_sigterm_then_sigkill_and_only_its_own_stale_pid_file_is_removed() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    let pid_path = run.project.state.join("daemon.pid");
+    // Ignores SIGTERM (the disposition survives the exec), so only SIGKILL ends it.
+    let mut old = OldController::start(&format!(
+        "echo $$ > '{}'; trap '' TERM; exec sleep 300",
+        pid_path.display()
+    ));
+    wait_for("the old controller's pid file", || {
+        std::fs::read_to_string(&pid_path).is_ok_and(|t| t.trim() == old.pid.to_string())
+    });
+    // The pid file is written before the exec; wait for the exec so the ignore is in force.
+    wait_for("the old controller to exec", || {
+        std::fs::read_to_string(format!("/proc/{}/comm", old.pid))
+            .is_ok_and(|c| c.trim() == "sleep")
+    });
+    edit_plan(&run, |plan| {
+        plan["pid"] = json!(old.pid);
+        with_timing(plan, 300, 400, 2_000);
+    });
+    let socket = FakeSocket::serve(run.project.state.join("control.sock"), run.marker.clone());
+    let code = run_helper(&run.plan_path, &|_| {});
+    drop(socket);
+    kill_marker(&run.marker);
+    assert_eq!(code, 0, "{}", result_of(&run));
+    assert!(!old.alive(), "the stubborn old controller was killed");
+    assert!(!pid_path.exists(), "its own stale pid file is removed");
+    assert_eq!(result_of(&run)["outcome"], "ok");
+    old.stop();
+}
+
+#[test]
+fn the_pid_file_of_another_live_process_is_never_removed_and_no_new_controller_is_started() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    let mut other = OldController::start("exec sleep 300");
+    let pid_path = run.project.state.join("daemon.pid");
+    std::fs::write(&pid_path, format!("{}\n", other.pid)).unwrap();
+    edit_plan(&run, |plan| with_timing(plan, 300, 200, 500));
+    let code = run_helper(&run.plan_path, &|_| {});
+    assert_eq!(code, 2);
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "down");
+    assert!(
+        result["reason"].as_str().unwrap().contains("NOT running"),
+        "{result}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&pid_path).unwrap().trim(),
+        other.pid.to_string()
+    );
+    assert!(!run.marker.exists(), "no controller was started");
+    assert!(other.alive(), "the other process was left alone");
+    other.stop();
+}
+
+/// A stand-in for a socket another process holds: every connection is answered with `answer`.
+fn hold_socket(
+    path: &Path,
+    answer: &'static str,
+) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let listener = UnixListener::bind(path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    let thread = std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        while !flag.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    let mut line = String::new();
+                    let _ = BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+                    let _ = writeln!(stream, "{answer}");
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    (stop, thread)
+}
+
+fn release_socket(held: (Arc<AtomicBool>, std::thread::JoinHandle<()>)) {
+    held.0.store(true, Ordering::SeqCst);
+    held.1.join().unwrap();
+}
+
+#[test]
+fn a_handoff_failure_with_the_socket_held_by_something_that_is_no_controller_writes_down() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    let held = hold_socket(&run.project.state.join("control.sock"), "x");
+    edit_plan(&run, |plan| with_timing(plan, 300, 200, 500));
+    let code = run_helper(&run.plan_path, &|_| {});
+    release_socket(held);
+    assert_eq!(code, 2);
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "down");
+    assert!(
+        result["reason"].as_str().unwrap().contains("NOT running"),
+        "{result}"
+    );
+    assert!(result["manualRecovery"]
+        .as_str()
+        .unwrap()
+        .contains("cstan start"));
+}
+
+#[test]
+fn a_handoff_failure_while_the_recorded_old_pid_still_answers_ping_is_rolled_back() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    let held = hold_socket(
+        &run.project.state.join("control.sock"),
+        "{\"ok\":true,\"result\":{\"pid\":2000000000}}",
+    );
+    edit_plan(&run, |plan| {
+        plan["pid"] = json!(2_000_000_000i64);
+        with_timing(plan, 300, 200, 500);
+    });
+    let code = run_helper(&run.plan_path, &|_| {});
+    release_socket(held);
+    assert_eq!(code, 1);
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "rolled_back");
+    let reason = result["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("old controller (pid 2000000000) still answers"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn a_handoff_failure_while_a_different_process_answers_ping_is_down_and_says_so() {
+    for without_deps_changed in [false, true] {
+        let run = helper_run("GOOD", "exit 9", 1);
+        let held = hold_socket(
+            &run.project.state.join("control.sock"),
+            "{\"ok\":true,\"result\":{\"pid\":12345}}",
+        );
+        edit_plan(&run, |plan| {
+            plan["pid"] = json!(2_000_000_000i64);
+            with_timing(plan, 300, 200, 500);
+            if without_deps_changed {
+                // Node fails on the missing key; the Rust plan reads it as no change, and the outcome is the same.
+                plan.as_object_mut().unwrap().remove("depsChanged");
+            }
+        });
+        let code = run_helper(&run.plan_path, &|_| {});
+        release_socket(held);
+        assert_eq!(code, 2);
+        let result = result_of(&run);
+        assert_eq!(result["outcome"], "down");
+        assert!(
+            result["reason"]
+                .as_str()
+                .unwrap()
+                .contains("other than the old one"),
+            "{result}"
+        );
+        assert!(result["manualRecovery"]
+            .as_str()
+            .unwrap()
+            .contains("cstan start"));
+    }
+}
+
+#[test]
+fn an_unreadable_key_file_still_writes_a_down_result_with_the_manual_recovery() {
+    let run = helper_run("GOOD", "exit 9", 1);
+    std::fs::remove_file(run.project.key()).unwrap();
+    let code = run_helper(&run.plan_path, &|_| {});
+    assert_eq!(code, 2);
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "down");
+    assert!(result["reason"]
+        .as_str()
+        .unwrap()
+        .contains("plan or the operator key"));
+    assert!(result["manualRecovery"]
+        .as_str()
+        .unwrap()
+        .contains("cstan start"));
+}
+
+#[test]
+fn a_total_failure_names_the_dependency_change_and_tries_the_restored_build_at_most_twice() {
+    let starts = |run: &HelperRun| run.project.root.join("starts.log");
+    let run = helper_run("exit 3", "exit 4", 1);
+    let log = starts(&run);
+    // Both builds record each start before they fail.
+    std::fs::write(
+        &run.dist,
+        format!("#!/bin/sh\necho new >> '{}'\nexit 3\n", log.display()),
+    )
+    .unwrap();
+    let saved = run.project.state.join("known-good").join(KNOWN_GOOD_BINARY);
+    std::fs::write(
+        &saved,
+        format!("#!/bin/sh\necho good >> '{}'\nexit 4\n", log.display()),
+    )
+    .unwrap();
+    edit_plan(&run, |plan| {
+        plan["depsChanged"] = json!(["package-lock.json"]);
+    });
+    let code = run_helper(&run.plan_path, &|_| {});
+    assert_eq!(code, 2);
+    let result = result_of(&run);
+    assert_eq!(result["outcome"], "down");
+    assert!(result["reason"]
+        .as_str()
+        .unwrap()
+        .contains("package-lock.json"));
+    assert_eq!(result["depsChanged"], json!(["package-lock.json"]));
+    assert!(result["manualRecovery"]
+        .as_str()
+        .unwrap()
+        .contains("cstan start"));
+    let lines = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        lines.lines().collect::<Vec<_>>(),
+        ["new", "good", "good"],
+        "one start of the new build and two of the restored one"
+    );
+}
