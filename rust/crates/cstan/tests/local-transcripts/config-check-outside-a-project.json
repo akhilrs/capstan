@@ -1,0 +1,41 @@
+{
+  "name": "config-check-outside-a-project",
+  "argv": [
+    "config",
+    "check"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off"
+  },
+  "layout": {
+    "dirs": [
+      "proj",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: capstan.toml does not exist\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

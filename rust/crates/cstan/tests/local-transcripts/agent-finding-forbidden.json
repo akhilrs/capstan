@@ -1,0 +1,55 @@
+{
+  "name": "agent-finding-forbidden",
+  "argv": [
+    "finding",
+    "developer-1",
+    "high",
+    "e",
+    "c",
+    "d"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off",
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": {
+    "kind": "fake",
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":false,\"code\":\"forbidden\",\"message\":\"the caller is not a supervisor\"}"
+    }
+  },
+  "stopAfter": null,
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"finding\",\"args\":[\"developer-1\",\"high\",\"e\",\"c\",\"d\"]}",
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: forbidden: the caller is not a supervisor\n",
+    "exit": 4,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

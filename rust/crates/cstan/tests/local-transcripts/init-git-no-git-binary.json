@@ -1,0 +1,40 @@
+{
+  "name": "init-git-no-git-binary",
+  "argv": [
+    "init",
+    "--git"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "",
+    "HOME": "$ROOT/home"
+  },
+  "layout": {
+    "dirs": [
+      "proj",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: Capstan needs a git repository with at least one commit (workers get their own git worktree and branch from HEAD), but git could not be run.\nFix: install git, then run cstan again\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": [],
+  "commits": {}
+}

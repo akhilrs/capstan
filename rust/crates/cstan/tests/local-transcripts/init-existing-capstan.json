@@ -1,0 +1,44 @@
+{
+  "name": "init-existing-capstan",
+  "argv": [
+    "init"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_AUTHOR_NAME": "Fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.com",
+    "GIT_COMMITTER_NAME": "Fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.com"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: Capstan project directory already exists; refusing to modify existing contents\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": [],
+  "commits": {}
+}

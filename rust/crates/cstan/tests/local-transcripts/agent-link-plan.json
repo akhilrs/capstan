@@ -1,0 +1,53 @@
+{
+  "name": "agent-link-plan",
+  "argv": [
+    "link",
+    "plan",
+    "ref-1",
+    "nx-1"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off",
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": {
+    "kind": "fake",
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"linked\":true}}"
+    }
+  },
+  "stopAfter": null,
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"link\",\"args\":[\"plan\",\"ref-1\",\"nx-1\"]}",
+  "node": {
+    "stdout": "linked: true\n",
+    "stderr": "",
+    "exit": 0,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

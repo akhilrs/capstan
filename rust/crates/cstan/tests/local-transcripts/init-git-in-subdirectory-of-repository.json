@@ -1,0 +1,57 @@
+{
+  "name": "init-git-in-subdirectory-of-repository",
+  "argv": [
+    "init",
+    "--git"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_AUTHOR_NAME": "Fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.com",
+    "GIT_COMMITTER_NAME": "Fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.com"
+  },
+  "layout": {
+    "dirs": [
+      "outer/proj",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": [
+      {
+        "dir": "outer",
+        "commit": true
+      }
+    ]
+  },
+  "cwd": "outer/proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: Capstan needs a git repository with at least one commit (workers get their own git worktree and branch from HEAD), but <ROOT>/outer/proj is a subdirectory of the repository at <ROOT>/outer.\nFix: run cstan from the repository's top-level folder (git rev-parse --show-toplevel prints it); a project root inside a larger repository is not supported\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": [],
+  "commits": {
+    "outer": [
+      {
+        "subject": "chore: initial commit",
+        "files": []
+      }
+    ]
+  }
+}

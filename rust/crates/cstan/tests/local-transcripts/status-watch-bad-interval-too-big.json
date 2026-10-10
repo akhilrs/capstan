@@ -1,0 +1,41 @@
+{
+  "name": "status-watch-bad-interval-too-big",
+  "argv": [
+    "status",
+    "--watch",
+    "--interval",
+    "61"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home"
+  },
+  "layout": {
+    "dirs": [
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": ".",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: --interval must be an integer from 1 to 60\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

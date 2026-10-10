@@ -90,6 +90,12 @@ export interface Transcript {
   readonly request: string | null;
   /** True when the front end must not answer this itself. */
   readonly fallback: boolean;
+  /** What the front end itself must print when Node cannot be asked (`__front-version`); absent otherwise. */
+  readonly expected?: {
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly exit: number;
+  };
   /** What the Node CLI did; null for a command the front end never serves (it is not run). */
   readonly node: {
     readonly stdout: string;
@@ -113,6 +119,8 @@ interface Case {
   readonly fallback?: boolean;
   /** Skip the run of Node: the command is not one the front end serves. */
   readonly skipNode?: boolean;
+  /** What the front end prints when Node cannot be run for the case; `<VERSION>` stands for the package version. */
+  readonly expected?: Transcript["expected"];
 }
 
 const TOKEN = "tok-0123456789abcdef0123456789abcdef";
@@ -188,6 +196,12 @@ const CONTROLLER = {
   projectRoot: "/work/proj",
   ledgerPath: "/work/proj/.capstan/state/controller.sqlite",
 };
+
+const FRONT_VERSION_OUTPUT = {
+  stdout: "cstan-front <VERSION>\n",
+  stderr: "",
+  exit: 0,
+} as const;
 
 const DATES = [
   ["30s", "2026-10-07T11:59:30.000Z"],
@@ -1324,6 +1338,7 @@ function buildCases(): Case[] {
       env: BASE_ENV,
       cwd: ".",
       skipNode: true,
+      expected: FRONT_VERSION_OUTPUT,
     },
     {
       name: "front-version-in-agent-env",
@@ -1332,6 +1347,7 @@ function buildCases(): Case[] {
       dirs: PROJECT_DIRS,
       cwd: "proj",
       skipNode: true,
+      expected: FRONT_VERSION_OUTPUT,
     },
   );
   add(...configCheckCases());
@@ -1342,19 +1358,37 @@ function substitute(text: string, scratch: string): string {
   return text.split("$ROOT").join(scratch);
 }
 
-/** The version `cstan --version` prints. Transcripts hold `$VERSION` for it, so a release bump cannot make them stale. */
-const PACKAGE_VERSION = (
+/** What stands in a transcript for the package version, so a release bump cannot make a transcript stale. */
+export const VERSION_PLACEHOLDER = "<VERSION>";
+
+/** The version of this checkout's package.json, which `dist/src/cli.js` prints for `--version`. */
+export const PACKAGE_VERSION = (
   JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
     version: string;
   }
 ).version;
 
-function restore(text: string, scratch: string): string {
-  return text
-    .split(scratch)
-    .join("$ROOT")
-    .split(`cstan ${PACKAGE_VERSION}\n`)
-    .join("cstan $VERSION\n");
+/** Which build to run, as which version it prints, and which transcripts to make (all when `only` is absent). */
+export interface ExportOptions {
+  readonly cli?: string;
+  readonly version?: string;
+  readonly only?: (name: string) => boolean;
+}
+
+/** `text` with the package version, as a whole token, replaced by the placeholder. */
+export function normaliseVersion(
+  text: string,
+  version: string = PACKAGE_VERSION,
+): string {
+  const escaped = version.replaceAll(".", "\\.");
+  return text.replace(
+    new RegExp(`(?<![\\d.])${escaped}(?![\\d.])`, "g"),
+    VERSION_PLACEHOLDER,
+  );
+}
+
+function restore(text: string, scratch: string, version: string): string {
+  return normaliseVersion(text.split(scratch).join("$ROOT"), version);
 }
 
 function replyBytes(reply: Reply): Buffer | null {
@@ -1427,9 +1461,10 @@ async function runNode(
   argv: readonly string[],
   env: Readonly<Record<string, string>>,
   cwd: string,
+  cli: string,
 ): Promise<NodeRun> {
   const shim = `data:text/javascript,${encodeURIComponent(`Date.now=()=>${NOW};`)}`;
-  const child = spawn(process.execPath, [`--import=${shim}`, CLI, ...argv], {
+  const child = spawn(process.execPath, [`--import=${shim}`, cli, ...argv], {
     cwd,
     env: { ...env },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1448,7 +1483,10 @@ async function runNode(
   };
 }
 
-async function record(source: Case): Promise<Transcript> {
+async function record(
+  source: Case,
+  options: Required<Pick<ExportOptions, "cli" | "version">>,
+): Promise<Transcript> {
   const scratch = realpathSync(
     mkdtempSync(path.join(os.tmpdir(), "cstan-tr-")),
   );
@@ -1482,7 +1520,8 @@ async function record(source: Case): Promise<Transcript> {
         : undefined;
     let node: NodeRun | null = null;
     try {
-      if (source.skipNode !== true) node = await runNode(argv, env, cwd);
+      if (source.skipNode !== true)
+        node = await runNode(argv, env, cwd, options.cli);
     } finally {
       await daemon?.close();
     }
@@ -1506,14 +1545,15 @@ async function record(source: Case): Promise<Transcript> {
       request:
         daemon === undefined
           ? null
-          : restore(daemon.request() ?? "", scratch) || null,
+          : restore(daemon.request() ?? "", scratch, options.version) || null,
       fallback: source.fallback === true,
+      ...(source.expected === undefined ? {} : { expected: source.expected }),
       node:
         node === null
           ? null
           : {
-              stdout: restore(node.stdout, scratch),
-              stderr: restore(node.stderr, scratch),
+              stdout: restore(node.stdout, scratch, options.version),
+              stderr: restore(node.stderr, scratch, options.version),
               exit: node.exit,
             },
     };
@@ -1523,8 +1563,16 @@ async function record(source: Case): Promise<Transcript> {
 }
 
 /** Every transcript by file name, as the text the exporter writes. */
-export async function exportTranscripts(): Promise<Map<string, string>> {
-  const cases = buildCases();
+export async function exportTranscripts(
+  options: ExportOptions = {},
+): Promise<Map<string, string>> {
+  const settings = {
+    cli: options.cli ?? CLI,
+    version: options.version ?? PACKAGE_VERSION,
+  };
+  const cases = buildCases().filter(
+    (source) => options.only === undefined || options.only(source.name),
+  );
   const names = new Set<string>();
   for (const source of cases) {
     if (names.has(source.name))
@@ -1538,7 +1586,7 @@ export async function exportTranscripts(): Promise<Map<string, string>> {
       const at = next++;
       const source = cases[at];
       if (source === undefined) return;
-      transcripts[at] = await record(source);
+      transcripts[at] = await record(source, settings);
     }
   };
   await Promise.all(Array.from({ length: 8 }, worker));

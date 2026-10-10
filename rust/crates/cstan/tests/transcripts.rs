@@ -146,10 +146,13 @@ impl Daemon {
     }
 }
 
-fn expected_string(value: &Value, key: &str, scratch: &str) -> String {
+/// What a transcript holds for the package version; the replay puts the version the binary was built with in its place.
+const VERSION_PLACEHOLDER: &str = "<VERSION>";
+
+fn expected_string(value: &Value, key: &str, scratch: &str, version: &str) -> String {
     string(value, key)
         .replace("$ROOT", scratch)
-        .replace("$VERSION", VERSION)
+        .replace(VERSION_PLACEHOLDER, version)
 }
 
 fn replay(file: &Path, index: usize) -> Result<(), String> {
@@ -161,12 +164,18 @@ fn replay(file: &Path, index: usize) -> Result<(), String> {
     std::fs::create_dir_all(&scratch).unwrap();
     let scratch = std::fs::canonicalize(scratch).unwrap();
     let root = scratch.to_str().unwrap().to_string();
-    let result = replay_in(&transcript, name, &scratch, &root);
+    let result = replay_in(&transcript, name, &scratch, &root, VERSION);
     let _ = std::fs::remove_dir_all(&scratch);
     result.map_err(|e| format!("{name}: {e}"))
 }
 
-fn replay_in(transcript: &Value, name: &str, scratch: &Path, root: &str) -> Result<(), String> {
+fn replay_in(
+    transcript: &Value,
+    name: &str,
+    scratch: &Path,
+    root: &str,
+    version: &str,
+) -> Result<(), String> {
     let layout = transcript.get("layout").unwrap();
     for dir in strings(layout, "dirs") {
         std::fs::create_dir_all(scratch.join(dir)).unwrap();
@@ -265,15 +274,13 @@ fn replay_in(transcript: &Value, name: &str, scratch: &Path, root: &str) -> Resu
     else {
         return Err(format!("fell back ({outcome:?}) but must answer natively"));
     };
-    let (want_out, want_err, want_exit) = match transcript.get("node") {
-        Some(node @ Value::Object(_)) => (
-            expected_string(node, "stdout", root),
-            expected_string(node, "stderr", root),
+    let (want_out, want_err, want_exit) = match (transcript.get("node"), transcript.get("expected"))
+    {
+        (Some(node @ Value::Object(_)), _) | (_, Some(node @ Value::Object(_))) => (
+            expected_string(node, "stdout", root, version),
+            expected_string(node, "stderr", root, version),
             number(node, "exit") as i32,
         ),
-        _ if name.starts_with("front-version") => {
-            (format!("cstan-front {VERSION}\n"), String::new(), 0)
-        }
         other => panic!("{name}: no expected output: {other:?}"),
     };
     let want_request = match transcript.get("request") {
@@ -345,4 +352,71 @@ fn every_transcript_replays_byte_for_byte() {
         files.len(),
         failures.join("\n")
     );
+}
+
+/// The transcripts that hold the package version: every one with the placeholder in what it expects.
+fn version_transcripts(directory: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(directory)
+        .expect("transcript directory")
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "json"))
+        .filter(|path| {
+            std::fs::read_to_string(path)
+                .unwrap()
+                .contains(VERSION_PLACEHOLDER)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn the_version_transcripts_replay_with_any_version() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/transcripts");
+    let files = version_transcripts(&directory);
+    let names: Vec<String> = files
+        .iter()
+        .map(|f| f.file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+    for wanted in ["fallback-version", "fallback-version-word", "front-version"] {
+        assert!(names.iter().any(|n| n == wanted), "no {wanted} transcript");
+    }
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap();
+        // No version number is written into a transcript: only the placeholder stands for it.
+        assert!(
+            !text.contains(VERSION),
+            "{} holds the version {VERSION}",
+            file.display()
+        );
+        let transcript = js::parse(&text).unwrap();
+        let name = string(&transcript, "name");
+        let node = match (transcript.get("node"), transcript.get("expected")) {
+            (Some(node @ Value::Object(_)), _) | (_, Some(node @ Value::Object(_))) => node,
+            _ => panic!("{name}: no expected output"),
+        };
+        for version in [VERSION, "0.0.1", "98.76.54-rc.1"] {
+            let stdout = expected_string(node, "stdout", "/scratch", version);
+            assert!(
+                stdout.trim_end().ends_with(version) && !stdout.contains(VERSION_PLACEHOLDER),
+                "{name}: {stdout:?} is not the output for version {version}"
+            );
+        }
+    }
+    // The front end prints the version it was built with: its output, with that version put back as the placeholder,
+    // is what the transcript holds, whatever the version is.
+    let outcome = run(&Context {
+        args: vec![OsString::from("__front-version")],
+        env: vec![],
+        cwd: std::env::temp_dir(),
+        now_ms: 0.0,
+    });
+    let Outcome::Done { stdout, .. } = outcome else {
+        panic!("__front-version fell back");
+    };
+    let printed = String::from_utf8(stdout).unwrap();
+    let transcript =
+        js::parse(&std::fs::read_to_string(directory.join("front-version.json")).unwrap()).unwrap();
+    let want = string(transcript.get("expected").unwrap(), "stdout");
+    assert_eq!(printed.replace(VERSION, VERSION_PLACEHOLDER), want);
 }

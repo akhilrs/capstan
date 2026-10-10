@@ -1,0 +1,52 @@
+{
+  "name": "agent-prompt-show",
+  "argv": [
+    "prompt",
+    "show",
+    "developer-1"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off",
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": {
+    "kind": "fake",
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":false,\"code\":\"not_found\",\"message\":\"no relay\"}"
+    }
+  },
+  "stopAfter": null,
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"prompt\",\"args\":[\"show\",\"developer-1\"]}",
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: not_found: no relay\n",
+    "exit": 4,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

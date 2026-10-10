@@ -16,5 +16,10 @@
   "daemon": null,
   "request": null,
   "fallback": false,
+  "expected": {
+    "stdout": "cstan-front <VERSION>\n",
+    "stderr": "",
+    "exit": 0
+  },
   "node": null
 }

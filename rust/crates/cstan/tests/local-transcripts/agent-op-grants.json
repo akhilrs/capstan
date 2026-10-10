@@ -1,0 +1,51 @@
+{
+  "name": "agent-op-grants",
+  "argv": [
+    "op",
+    "grants"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off",
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": {
+    "kind": "fake",
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"grants\":[]}}"
+    }
+  },
+  "stopAfter": null,
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"op\",\"args\":[\"grants\"]}",
+  "node": {
+    "stdout": "grants: \n",
+    "stderr": "",
+    "exit": 0,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

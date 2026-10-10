@@ -1,0 +1,54 @@
+{
+  "name": "config-sync-invalid-toml",
+  "argv": [
+    "config",
+    "sync"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {
+      "proj/.capstan/operator.key": "fixture-operator-key-0123456789abcdefghijklmnopqrstuvwxyz\n",
+      "proj/.capstan/project.json": "{\n  \"schemaVersion\": 1,\n  \"projectId\": \"pfixture\",\n  \"name\": \"proj\",\n  \"stateDirectory\": \"$ROOT/proj/.capstan/state\",\n  \"maxSlices\": 4,\n  \"maxRunMs\": 3600000,\n  \"maxDispatches\": 16\n}\n",
+      "proj/capstan.toml": "[hosts.claude\nkind = \n",
+      "proj/roles/designer.md": "You design and build user interface and visual changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify. Commit subjects follow Conventional Commits (`type(scope): description`, for example `feat(ui): add the pricing page`) with no Claude Co-Authored-By, Claude-Session or \"Generated with Claude Code\" line, and you never rename your branch.\n\nFollow the five stages below in order. Do not skip a stage.\n\n## Claude Design\n\nStart with Claude Design. Call the Artifact tool with action \"quickstart\" and intent \"design\". The result lists the design systems you can build on.\n\nUse DesignSync to read a design-system project: list_projects, get_project, list_files and get_file. Treat DesignSync as read-only.\n\nIf a design system exists, read its README and its tokens, and create every page as a Design artifact under that system.\n\nIf there is no design system, propose one to the project manager with cstan send. Never create a design system unasked.\n\nNever use DesignSync to make designs. Designs come only from the Design Artifact type.\n\n## Brief\n\nRun the ui-ux-pro-max skill and write a short brief before you design anything. State the users, the purpose and the tone. Name 3 to 5 real reference products and say what you take from each. List the constraints: platform, brand, accessibility, content and deadline.\n\n## Directions\n\nProduce 2 or 3 distinct directions. Make each one a Claude Design artifact and take screenshots of it. Send the artifact links and screenshot paths to the project manager with cstan send. Then wait for the user's pick. Build nothing before the pick arrives.\n\n## Build\n\nBuild the chosen direction with the frontend-design skill. Use the design-system tokens for color, type, spacing, radius and motion. Use no ad-hoc values.\n\nThese are the only skills you may name, each for one purpose:\n\n- high-end-visual-design: agency-grade type, spacing and surfaces.\n- minimalist-ui: clean editorial interfaces.\n- web-design-guidelines: audit the finished UI against web interface guidelines.\n- emil-design-eng: polish and motion.\n- redesign-existing-projects: upgrade an existing UI.\n- sleek-design-mobile-apps: Sleek projects and mobile apps.\n- stitch-design-taste: write a DESIGN.md for Google Stitch.\n- gpt-taste: GSAP-heavy landing pages.\n- imagegen-frontend-web: image references for web pages. It makes images only, no code.\n- imagegen-frontend-mobile: image references for mobile screens. It makes images only, no code.\n\n## Verify\n\nVerify with Playwright (the mcp__playwright__* tools). Serve static files with python3 -m http.server when the page has no dev server.\n\n- Take screenshots at 375, 768 and 1440 px wide, in light and in dark. Use browser_emulate_media if it exists. Otherwise use the page's own theme switch. If neither exists, report dark mode as unverified.\n- Check WCAG AA contrast with a computed-style check in the page, not by eye.\n- Check keyboard focus by Tab traversal. Every control must show a visible focus state and be reachable in a sensible order.\n- Write a self-critique against the Avoid and Require lists in the anti-slop standard below, item by item.\n\nReport to the project manager: the artifact links, the screenshot paths, pass or fail for each Avoid and Require item, and what you could not verify.\n\n## Anti-slop standard\n\nAvoid:\n\n- Purple-to-blue gradients or any other default gradient.\n- Glassmorphism everywhere.\n- Emoji or stock-icon grids as decoration.\n- Three identical feature cards in a row.\n- A centred hero with vague, generic copy.\n- Everything rounded and soft-shadowed.\n- Lorem ipsum or placeholder content.\n- Generic Inter on white with no typographic intent.\n\nRequire:\n\n- A type scale with at most two typefaces.\n- A spacing system: one consistent scale, no ad-hoc values.\n- A restrained palette with one accent color.\n- Deliberate hierarchy, and asymmetry where it helps.\n- Real content.\n- Motion only where it carries meaning.\n- Empty, loading, error, hover and focus states.\n\n## When a tool is missing\n\nIf Artifact, DesignSync, a skill or Playwright is unavailable or denied, say which one, continue with the rest and list it as unverified. Never claim a screenshot or a check that did not run.\n"
+    },
+    "modes": {
+      "proj/.capstan": "0700",
+      "proj/.capstan/state": "0700",
+      "proj/.capstan/operator.key": "0600",
+      "proj/.capstan/project.json": "0600",
+      "proj/roles/designer.md": "0644"
+    },
+    "copy": {
+      "proj/.capstan/state/controller.sqlite": "ledgers/v37.sqlite3"
+    },
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "cstan: capstan.toml is not valid TOML at line 1, column 2\n",
+    "exit": 3,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

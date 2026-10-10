@@ -1,0 +1,56 @@
+{
+  "name": "start-launch-off-without-capstan-toml",
+  "argv": [
+    "start"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "CAPSTAN_LAUNCH": "off"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "home"
+    ],
+    "files": [],
+    "contents": {
+      "proj/.capstan/operator.key": "fixture-operator-key-0123456789abcdefghijklmnopqrstuvwxyz\n",
+      "proj/.capstan/project.json": "{\n  \"schemaVersion\": 1,\n  \"projectId\": \"pfixture\",\n  \"name\": \"proj\",\n  \"stateDirectory\": \"$ROOT/proj/.capstan/state\",\n  \"maxSlices\": 4,\n  \"maxRunMs\": 3600000,\n  \"maxDispatches\": 16\n}\n"
+    },
+    "modes": {
+      "proj/.capstan": "0700",
+      "proj/.capstan/state": "0700",
+      "proj/.capstan/operator.key": "0600",
+      "proj/.capstan/project.json": "0600",
+      "proj/roles/designer.md": "0644"
+    },
+    "copy": {},
+    "links": [],
+    "git": [
+      {
+        "dir": "proj",
+        "commit": true
+      }
+    ]
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": {
+    "kind": "scratch"
+  },
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "running: true\npid: <PID>\nstarted: true\n",
+    "stderr": "",
+    "exit": 0,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

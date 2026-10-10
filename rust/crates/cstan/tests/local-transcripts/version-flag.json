@@ -1,0 +1,38 @@
+{
+  "name": "version-flag",
+  "argv": [
+    "--version"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home"
+  },
+  "layout": {
+    "dirs": [
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": ".",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "cstan <VERSION>\n",
+    "stderr": "",
+    "exit": 0,
+    "signal": null
+  },
+  "files": null,
+  "commits": null
+}

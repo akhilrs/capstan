@@ -1,0 +1,45 @@
+{
+  "name": "init-git-flag-first",
+  "argv": [
+    "--git",
+    "init"
+  ],
+  "env": {
+    "TZ": "UTC",
+    "PATH": "$PATH",
+    "HOME": "$ROOT/home",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_AUTHOR_NAME": "Fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.com",
+    "GIT_COMMITTER_NAME": "Fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.com"
+  },
+  "layout": {
+    "dirs": [
+      "proj",
+      "home"
+    ],
+    "files": [],
+    "contents": {},
+    "modes": {},
+    "copy": {},
+    "links": [],
+    "git": []
+  },
+  "cwd": "proj",
+  "stdin": "",
+  "tty": false,
+  "now": 1791374400000,
+  "before": [],
+  "daemon": null,
+  "stopAfter": null,
+  "request": null,
+  "node": {
+    "stdout": "",
+    "stderr": "usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan pause [<agent-id>] --reason <text> [--interrupt] | cstan resume [<agent-id>] --reason <text> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> [--task <plan-id>/<package-id> | --task <requirement-ref-id>] [--type <type>] [--title <text>] | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart\ncstan: usage: cstan init | cstan start | cstan stop | cstan ping | cstan config check | cstan config sync | cstan herdr-config | cstan pause [<agent-id>] --reason <text> [--interrupt] | cstan resume [<agent-id>] --reason <text> | cstan status [--json] | cstan status --watch [--interval <seconds>] | cstan dash [--interval <seconds>] [--no-color] [--reduced-motion] | cstan inspect <id> [--json] | cstan cancel <id> [--json] | cstan inbox | cstan ack | cstan wait | cstan report | cstan ask | cstan finding <agent-id> <severity> <evidence> <correction> <done-when> | cstan finding check <finding-id> resolved|unresolved <evidence> | cstan observe <agent-id> [lines] | cstan prompt show <agent-id> | cstan prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text> | cstan assign | cstan send | cstan resolve | cstan spawn <role> [--task <plan-id>/<package-id> | --task <requirement-ref-id>] [--type <type>] [--title <text>] | cstan release <agent-id> | cstan replace <agent-id> | cstan request-review <report-or-integration-id> [role] | cstan integrate <report-id>... | cstan integrate confirm|discard <integration-id> | cstan plan open normal|high-risk <title> [<superseded-plan-id>] | cstan plan submit <plan-id> <json> | cstan plan show [<plan-id>] | cstan plan assign <plan-id> <package-id> <agent-id> | cstan plan signoff <plan-id> <integration-id> <summary> | cstan plan cancel <plan-id> [<package-id>] | cstan link requirement|plan|package <ref-id> <nexora-id> [<state>] | cstan link bind <requirement-ref-id> <agent-id> | cstan op propose <command> <reason> | cstan op propose --restart [--force] <reason> | cstan op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] | cstan op decide <proposal-id> deny [<note>] | cstan op show [<proposal-id>] | cstan op cancel <proposal-id> | cstan op grants | cstan op revoke <grant-id> | cstan op full-auto on [<minutes>] --asked-user <text> | cstan op full-auto off | cstan op full-auto status | cstan review pass|findings <text> | cstan pm restart\n",
+    "exit": 2,
+    "signal": null
+  },
+  "files": [],
+  "commits": {}
+}
