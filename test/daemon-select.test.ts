@@ -307,3 +307,17 @@ test("a bad selection exits like any other configuration error, and says why", (
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("only a bad daemon.implementation is a selection error; other config problems are left to the daemon", () => {
+  const unrelated = project(
+    '\n[roles.daemon]\nkind = "Nobody"\nhost = "claude"\n',
+  );
+  const unknownKey = project('\n[daemon]\nbinary = "x"\n');
+  try {
+    assert.equal(selectDaemon({}, unrelated), "node");
+    assert.equal(selectDaemon({}, unknownKey), "node");
+  } finally {
+    fs.rmSync(unrelated, { recursive: true, force: true });
+    fs.rmSync(unknownKey, { recursive: true, force: true });
+  }
+});

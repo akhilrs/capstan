@@ -184,7 +184,10 @@ export function selectDaemon(
     return loadCapstanConfig(projectRoot).daemon?.implementation ?? "node";
   } catch (error) {
     // A bad value is a config error; any other problem with the file is for the daemon and `cstan config check` to report.
-    if (error instanceof ConfigError && error.message.includes("daemon"))
+    if (
+      error instanceof ConfigError &&
+      error.message.startsWith("daemon.implementation ")
+    )
       throw new DaemonSelectionError(error.message);
     return "node";
   }
