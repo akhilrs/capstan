@@ -5,8 +5,9 @@ use std::fmt;
 pub enum ConfigError {
     /// One of the Node loader's own `ConfigError` texts, worded exactly as it words it.
     Invalid(String),
-    /// The text is not TOML the Rust parser reads (or holds something this port defers). The Node loader words this
-    /// with a line and column the Rust parser cannot reproduce, so a caller hands the command to Node.
+    /// A text the loader could not read. The loader reads TOML itself, the way `smol-toml` does, and words a refusal as an
+    /// `Invalid` text with the line and column Node gives, so nothing produces this any more; it stays for callers that
+    /// still match on it.
     Parse(ParseError),
     /// The file could not be read for a reason the Node loader would word as the operating system does.
     Unreadable(String),

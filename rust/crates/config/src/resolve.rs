@@ -5,7 +5,7 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::error::{invalid, ConfigError, ParseError, Result};
+use crate::error::{invalid, ConfigError, Result};
 use crate::json::{role_hash, sha256};
 use crate::operator_policy::auto_approve_rule_problem;
 use crate::primitives::*;
@@ -41,28 +41,17 @@ pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
     };
     let source = decoded.strip_prefix('\u{feff}').unwrap_or(decoded);
     let source = source.replace("\r\n", "\n");
-    let root = parse_document(&source)?;
-    if let Some(rule) = crate::disagreements::node_refuses(&source) {
-        return Err(ConfigError::Parse(ParseError {
-            detail: format!("known disagreement with the Node parser: {rule}"),
-        }));
-    }
+    // The document is what `smol-toml` makes of the text, or the place it refuses it.
+    let root = match crate::smol::parse(&source) {
+        Ok(root) => root,
+        Err(position) => {
+            return invalid(format!(
+                "{CONFIG_FILE_NAME} is not valid TOML at line {}, column {}",
+                position.line, position.column
+            ))
+        }
+    };
     resolve_document(&root, project_root)
-}
-
-/// The document as a `Table`; a text the Rust parser refuses is a `ParseError` for the caller to hand to Node.
-fn parse_document(source: &str) -> Result<Table> {
-    let parsed = source.parse::<toml::Table>().map_err(|error| {
-        ConfigError::Parse(ParseError {
-            detail: error.message().to_string(),
-        })
-    })?;
-    match crate::value::convert(toml::Value::Table(parsed)) {
-        Ok(Item::Table(table)) => Ok(table),
-        _ => Err(ConfigError::Parse(ParseError {
-            detail: "a float, a date or a key this port does not interpret".into(),
-        })),
-    }
 }
 
 fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {

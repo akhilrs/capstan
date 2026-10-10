@@ -271,9 +271,17 @@ dependencies = [
 name = "cstan-front"
 version = "0.1.0"
 dependencies = [
+ "capstan-client",
  "capstan-config",
  "capstan-daemon",
+ "capstan-kernel",
+ "capstan-ledger",
+ "capstan-parity-overlay",
  "capstan-wire",
+ "libc",
+ "regex",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

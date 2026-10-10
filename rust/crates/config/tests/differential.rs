@@ -1,8 +1,9 @@
 //! The differential TOML run. `node dist/test/config-parity-export.js --differential <count> <seed> <file>` writes mutated
 //! configurations with what Node (smol-toml and the whole loader) makes of each; with CAPSTAN_CONFIG_DIFFERENTIAL=<file>
-//! this test classifies the same bytes with the Rust loader and counts the agreements. A case Rust reads and Node refuses
-//! is a failure (the native `config check` would succeed where Node errors); so is any difference in what the loader makes
-//! of text both read. Rust refusing text Node reads is counted: such a command is left to Node.
+//! this test classifies the same bytes with the Rust loader. Rust reads exactly what Node reads, so every case must agree:
+//! a text Node refuses as TOML is refused by Rust with the same words (the line and column are checked against
+//! `smol-toml` itself by `toml_positions.rs`), and a text both read gives the same RoleConfig JSON or the same
+//! `ConfigError` text.
 mod common;
 
 use capstan_config::{parse_config, ConfigError};
@@ -17,12 +18,8 @@ fn rust_and_node_classify_the_mutated_configs_alike() {
     };
     let project = tempfile::tempdir().unwrap();
     let project = std::fs::canonicalize(project.path()).unwrap();
-    let (mut total, mut both_parse, mut both_reject, mut rust_only_rejects, mut compared) =
-        (0, 0, 0, 0, 0);
-    let mut rust_accepts_node_rejects = Vec::new();
-    let mut rust_defers_by_rule = 0;
-    let mut loader_differs = Vec::new();
-    let mut rejected_examples: Vec<String> = Vec::new();
+    let (mut total, mut toml_errors, mut loaded, mut loader_errors) = (0, 0, 0, 0);
+    let mut differs = Vec::new();
     for line in std::fs::read_to_string(file).unwrap().lines() {
         let case = js::parse(line).unwrap();
         let index = number(&case, "index").unwrap() as usize;
@@ -30,68 +27,41 @@ fn rust_and_node_classify_the_mutated_configs_alike() {
         let node_parses = text(&case, "toml").unwrap() == "ok";
         let rust = parse_config(&bytes, &project);
         total += 1;
-        let rust_parse_error = matches!(rust, Err(ConfigError::Parse(_)));
-        if let Err(ConfigError::Parse(error)) = &rust {
-            if error.detail.starts_with("known disagreement") {
-                rust_defers_by_rule += 1;
+        if !node_parses {
+            toml_errors += 1;
+            match &rust {
+                Err(ConfigError::Invalid(message))
+                    if message.starts_with("capstan.toml is not valid TOML at line ") => {}
+                other => differs.push(format!("#{index}: node refuses the TOML, rust {other:?}")),
             }
+            continue;
         }
-        match (node_parses, rust_parse_error) {
-            (false, false) => rust_accepts_node_rejects.push(index),
-            (false, true) => both_reject += 1,
-            (true, true) => {
-                rust_only_rejects += 1;
-                if rejected_examples.len() < 30 {
-                    if let Err(ConfigError::Parse(error)) = &rust {
-                        rejected_examples.push(format!("#{index}: {}", error.detail));
-                    }
+        let loader = case.get("loader").unwrap();
+        match (&rust, text(loader, "kind").unwrap().as_str()) {
+            (Ok(config), "ok") => {
+                loaded += 1;
+                if config.to_json() != text(loader, "json").unwrap() {
+                    differs.push(format!("#{index}: JSON differs"));
                 }
             }
-            (true, false) => {
-                both_parse += 1;
-                let loader = case.get("loader").unwrap();
-                let want_ok = text(loader, "kind").unwrap() == "ok";
-                compared += 1;
-                match (&rust, want_ok) {
-                    (Ok(config), true) => {
-                        let json = config.to_json();
-                        if json != text(loader, "json").unwrap() {
-                            loader_differs.push(format!("#{index}: JSON differs"));
-                        }
-                    }
-                    (Err(ConfigError::Invalid(message)), false) => {
-                        if *message != text(loader, "message").unwrap() {
-                            loader_differs.push(format!(
-                                "#{index}: rust `{message}` node `{}`",
-                                text(loader, "message").unwrap()
-                            ));
-                        }
-                    }
-                    (other, _) => loader_differs
-                        .push(format!("#{index}: rust {other:?} vs node ok={want_ok}")),
+            (Err(ConfigError::Invalid(message)), "error") => {
+                loader_errors += 1;
+                if *message != text(loader, "message").unwrap() {
+                    differs.push(format!(
+                        "#{index}: rust `{message}` node `{}`",
+                        text(loader, "message").unwrap()
+                    ));
                 }
             }
+            (other, kind) => differs.push(format!("#{index}: rust {other:?}, node {kind}")),
         }
     }
     eprintln!(
-        "differential: {total} cases; both reject {both_reject}; both parse {both_parse} (loader results compared: {compared}); Rust refuses what Node reads {rust_only_rejects}; Rust refuses by a disagreement rule {rust_defers_by_rule}; Rust reads what Node refuses {}",
-        rust_accepts_node_rejects.len()
+        "differential: {total} cases; node refuses the TOML {toml_errors}; both load {loaded}; both refuse in the loader {loader_errors}; differ {}",
+        differs.len()
     );
-    for example in &rejected_examples {
-        eprintln!("  Rust-only rejection: {example}");
+    for example in differs.iter().take(20) {
+        eprintln!("  {example}");
     }
-    if !rust_accepts_node_rejects.is_empty() {
-        eprintln!("DANGEROUS {rust_accepts_node_rejects:?}");
-    }
-    assert!(
-        rust_accepts_node_rejects.is_empty(),
-        "Rust reads {} cases Node refuses",
-        rust_accepts_node_rejects.len()
-    );
-    assert!(
-        loader_differs.is_empty(),
-        "{} loader results differ:\n{}",
-        loader_differs.len(),
-        loader_differs[..loader_differs.len().min(20)].join("\n")
-    );
+    assert!(differs.is_empty(), "{} cases differ", differs.len());
 }

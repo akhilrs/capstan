@@ -199,6 +199,8 @@ pub fn optional_integer(
                 Ok(*n)
             }
         }
+        // Beyond 64 bits is beyond every range asked for.
+        Some(Item::BigInt(_)) => invalid(format!("{at} must be between {min} and {max}")),
         Some(_) => invalid(format!("{at} must be an integer")),
     }
 }

@@ -18,7 +18,7 @@ are the reference.
 | ------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------- |
 | `config-parity-export`                | `rust/crates/config/tests/parity`                                   | `config/tests/config_parity.rs`, `prompts_parity.rs`, `differential.rs` | `config-parity.test.ts`           |
 | `cli-transcript-export`               | `rust/crates/cstan/tests/transcripts`                               | `cstan/tests/transcripts.rs`                                            | `cli-transcript.test.ts`          |
-| `cli-local-transcript-export`         | `rust/crates/cstan/tests/local-transcripts` (inputs: `ledgers/`)    | none yet: the CLI-native packages add the replay                        | `cli-local-transcript.test.ts`    |
+| `cli-local-transcript-export`         | `rust/crates/cstan/tests/local-transcripts` (inputs: `ledgers/`)    | `cstan/tests/local.rs`                                                  | `cli-local-transcript.test.ts`    |
 | `kernel-parity-export`                | `rust/crates/kernel/tests/parity` (and `test/fixtures/plan-bodies`) | `kernel/tests/replay.rs`, `strict.rs`                                   | `kernel-parity.test.ts`           |
 | `kernel-integrate-export`             | `rust/crates/kernel/tests/parity-integrate`                         | `kernel/tests/integrate.rs`                                             | `kernel-integrate-parity.test.ts` |
 | `daemon-transcript-export`            | `rust/crates/daemon/tests/transcripts`                              | `daemon/tests/replay.rs`, `cmds.rs`, `budget.rs`, `shadow.rs`           | `daemon-transcript.test.ts`       |
@@ -98,9 +98,11 @@ node dist/test/cli-local-transcript-export.js
    passing.
 4. A deliberate Rust divergence is an overlay: one JSON file per changed case under
    `rust/crates/<crate>/tests/divergences/`, naming the fixture, the expected Rust output and the reason. The schema and
-   the reader are in the `capstan-parity-overlay` crate: see `rust/crates/parity-overlay/README.md` (client-lifecycle;
-   cli-native finalises the link). The Rust replay reads the overlay in place of the Node expectation, and an overlay
-   replaces the whole expected output of a case.
+   the reader are in the `capstan-parity-overlay` crate: see [`rust/crates/parity-overlay/README.md`](../rust/crates/parity-overlay/README.md).
+   The Rust replay reads the overlay in place of the Node expectation, and an overlay replaces the whole expected output of
+   a case. The `cstan` replays (`cstan/tests/transcripts.rs`, `local.rs`) read `rust/crates/cstan/tests/divergences`
+   through `capstan-parity-overlay`; an overlay there names its fixture as `transcripts/<file>` or
+   `local-transcripts/<file>`, relative to `rust/crates/cstan/tests`, and the case is the transcript's `name`.
 5. The 80 `cstan` transcripts marked `fallback` already hold Node's output under `node`, and cli-native compares against
    that.
 6. A Node fix after the freeze re-exports only with PM approval, and no new Node-generated fixtures are made.
@@ -108,3 +110,12 @@ node dist/test/cli-local-transcript-export.js
    body.
 8. Fixtures stay where the Rust tests read them (`rust/crates/*/tests/**`, `test/fixtures/`).
 9. The frozen Node tree stays unchanged and keeps passing in the Node CI job.
+
+## Divergences from Node
+
+Where Rust deliberately differs from Node, either an overlay (above) replaces the expectation of a Node fixture, or, when
+Node has no fixture for the behaviour, a Rust test holds it and is listed here.
+
+| Where                                 | What differs                                                                                                                                                                                                                     | Held by                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `cstan dash` finds no `cstan-dash`    | Rust-only, no Node fixture reaches it (Node ran its Node dashboard): one line, `cstan: cstan-dash was not found; install it beside cstan, put it on PATH or set CSTAN_DASH_BIN to its absolute path (docs/reference/install.md)`, and the usage exit code 2 | `rust/crates/cstan/tests/dash_handoff.rs`       |

@@ -1,13 +1,12 @@
 //! The capstan configuration reader (`src/config/capstan-config.ts`) and the role prompt texts, in Rust. A configuration
-//! loads to the same `RoleConfig` JSON, warnings or `ConfigError` text as the Node loader; a text the TOML parser
-//! refuses is a distinct `ConfigError::Parse`, so a caller can hand the command to Node, which words that error with a
-//! line and column. Nothing here runs until a caller asks for it.
+//! loads to the same `RoleConfig` JSON, warnings or `ConfigError` text as the Node loader, and a text that is not TOML is
+//! refused with the same line and column: the TOML is read by a port of `smol-toml` (`smol.rs`), not by another parser.
+//! Nothing here runs until a caller asks for it.
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
-mod disagreements;
 mod error;
 mod json;
 mod operator_policy;
@@ -15,16 +14,18 @@ pub mod primitives;
 pub mod prompts;
 mod researcher_policy;
 mod resolve;
+mod smol;
+mod smol_date;
 pub mod starter;
 mod text;
 mod types;
 mod value;
 
-pub use disagreements::node_refuses;
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
 pub use operator_policy::auto_approve_rule_problem;
 pub use resolve::parse_config;
+pub use smol::{refusal as toml_refusal, Position as TomlPosition};
 pub use types::*;
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd` and resolves it.

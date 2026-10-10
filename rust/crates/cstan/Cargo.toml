@@ -3,7 +3,7 @@ name = "cstan-front"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "The native cstan front end: agent commands over the operator socket, everything else handed to the Node CLI"
+description = "The native cstan CLI: every command, over the operator socket or the project ledger"
 license = "MIT"
 publish = false
 build = "build.rs"
@@ -20,3 +20,13 @@ path = "src/main.rs"
 capstan-wire = { path = "../wire" }
 capstan-config = { path = "../config" }
 capstan-daemon = { path = "../daemon" }
+capstan-client = { path = "../client" }
+capstan-kernel = { path = "../kernel" }
+capstan-ledger = { path = "../ledger" }
+libc = "=0.2.190"
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode"] }
+unicode-normalization = { version = "=0.1.25", default-features = false }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+
+[dev-dependencies]
+capstan-parity-overlay = { path = "../parity-overlay" }
