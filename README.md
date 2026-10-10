@@ -71,7 +71,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`,. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
+**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -388,7 +388,15 @@ Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a 
 
 ## Upgrading from 0.3
 
-Capstan 0.4 is Rust only: `cstan` is one static binary that is also the controller daemon, and `cstan-dash` is the dashboard. Releases up to 0.3.0 were a Node.js program (an npm package, then a Node standalone binary). What changes when you upgrade:
+Capstan 0.4 is Rust only: `cstan` is one static binary that is also the controller daemon, and `cstan-dash` is the dashboard. Releases up to 0.3.0 were a Node.js program (an npm package, then a Node standalone binary). To move an existing Node-based install (0.1.1 to 0.3.0) to 0.4.0, once release 0.4.0 is published (the installer installs nothing before that):
+
+1. In each project, run `cstan stop` and wait until `cstan ping` fails. Running controllers keep the old build until they are restarted.
+2. Remove a leftover global npm install, if any: check with `npm ls -g capstan-controller` and `npm unlink -g capstan-controller` (or `npm uninstall -g`). The installer warns when an earlier `cstan` on your `PATH` shadows the new one.
+3. Run the one-liner installer from [Quick start](#quick-start). It replaces the old `current` (Node standalone binary, `cstan-node` or the npm prefix layout) in place. For a fresh start, run it with `--uninstall` first, then install.
+4. Check `cstan --version` and `cstan dash`.
+5. Delete the `[daemon]` table from `capstan.toml` (and unset `CSTAN_DAEMON`), then run `cstan start` in each project. The ledger migrates on start; a project's `.capstan/` is never touched.
+
+Details are in the [Install reference](docs/reference/install.md#upgrading-from-03). What changes when you upgrade:
 
 - Install with `install.sh`; Node.js and npm are no longer needed. The installer replaces an earlier install and warns about a leftover `npm link` that shadows `cstan` (see the [Install reference](docs/reference/install.md)).
 - Stop the controller of each project with the old `cstan stop` before upgrading, then run `cstan start` with the new one. The ledger is the same and migrates in place.
