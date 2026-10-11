@@ -88,7 +88,7 @@ for asset in 'cstan-\$VERSION-linux-x64' 'cstan-\$VERSION-linux-arm64' 'cstan-da
   has "$asset" && pass "publishes $asset" || fail "publishes $asset"
 done
 has 'sha256sum' && has 'SHA256SUMS' && pass "writes SHA256SUMS" || fail "writes SHA256SUMS"
-has 'check-version.sh' && pass "checks VERSION against package.json" || fail "checks VERSION against package.json"
+has 'check-version.sh' && pass "checks VERSION against CHANGELOG.md" || fail "checks VERSION against CHANGELOG.md"
 
 # --- local builds ----------------------------------------------------------------
 if [ "${1:-}" = "--build" ]; then

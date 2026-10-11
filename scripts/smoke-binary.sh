@@ -4,11 +4,12 @@
 # node, and checks:
 #   - cstan --version, --help, init
 #   - `cstan daemon` started with CAPSTAN_LAUNCH=off, then status, ping, send/inbox/ack and stop
-#   - a ledger made by Node (test/fixtures/ledger-better-sqlite3.sqlite, migration 31) migrates to the current
+#   - a ledger made by Node (rust/testdata/ledger/ledger-better-sqlite3.sqlite, migration 31) migrates to the current
 #     migration with the same schema_migrations rows and checksums, and the agents in it answer send/inbox
 #   - `cstan dash` in a real terminal (a pty from script(1)) becomes a real cstan-dash beside it, draws its first frame
 #     and ends cleanly on q
-# and runs scripts/check-version.sh. A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
+#   - a ledger made by cstan v0.4.1 (rust/testdata/ledger/ledger-v0.4.1.sqlite) is served by the daemon and `cstan status` reads it
+# and runs scripts/check-version.sh (skipped where package.json is gone). A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
 # binfmt, or a native arm64 machine); the Release workflow runs the arm64 binaries on a native runner.
 # Usage: scripts/smoke-binary.sh [cstan binary...]
 #   default: release/cstan-<version>-linux-{x64,arm64}, else the host build under ${CARGO_TARGET_DIR}/release/cstan
@@ -186,19 +187,15 @@ smoke() {
   wait "$PID" 2>/dev/null || true
 
   smoke_ledger
+  smoke_v041_ledger
   smoke_dash
   cd "$ROOT"
 }
 
-# smoke_ledger: the Node-made fixture ledger (schema v31, with a PM and a developer agent) migrates to the current
-# version with the same schema_migrations checksums, a pre-migration backup is written, and send/inbox/ack work on it.
-smoke_ledger() {
-  FIXTURE="$ROOT/test/fixtures/ledger-better-sqlite3.sqlite"
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "skip $NAME: ledger migration (python3 reads the sqlite files)"
-    return 0
-  fi
-  LDIR="$DIR/ledger-repo"
+# prepare_ledger <directory name> <fixture>: a project in a new git repository whose ledger is a copy of the fixture, with
+# credentials this script knows (see below). Sets LDIR and STATE.
+prepare_ledger() {
+  LDIR="$DIR/$1"
   mkdir -p "$LDIR"
   (cd "$LDIR" &&
     git init -q . &&
@@ -206,7 +203,7 @@ smoke_ledger() {
   check "$NAME: ledger: init" sh -c 'cd "$1" && shift && "$@"' _ "$LDIR" env -i HOME="$DIR/home" TMPDIR="$DIR/tmp" PATH="$DIR/bin:/usr/bin:/bin" cstan init
   STATE="$LDIR/.capstan/state"
   rm -f "$STATE"/controller.sqlite*
-  cp "$FIXTURE" "$STATE/controller.sqlite"
+  cp "$2" "$STATE/controller.sqlite"
   # The fixture's own credentials are unknown (only their hashes are stored), so the copy gets known ones: this
   # project's operator key and two fixed tokens for the PM and the developer agent. schema_migrations is not touched.
   python3 -I - "$LDIR" <<'PY'
@@ -216,12 +213,17 @@ root = sys.argv[1]
 db = sqlite3.connect(root + "/.capstan/state/controller.sqlite")
 project_id, name = db.execute("select project_id, name from projects").fetchone()
 key = open(root + "/.capstan/operator.key").read().strip()
-for role, token in (
-    ("operator", key),
-    ("PM", "smoke-pm-token-0123456789abcdefghijklmnop"),
-    ("Developer", "smoke-dev-token-0123456789abcdefghijklmnop"),
-):
-    db.execute("update actors set credential_hash = ? where role = ?", (hashlib.sha256(token.encode()).hexdigest(), role))
+tokens = {
+    "operator": key,
+    "PM": "smoke-pm-token-0123456789abcdefghijklmnop",
+    "Developer": "smoke-dev-token-0123456789abcdefghijklmnop",
+}
+seen = set()
+for actor_id, role in db.execute("select actor_id, role from actors order by rowid").fetchall():
+    # the first actor of a role gets the known token; any other (a second Developer) a token of its own
+    token = tokens[role] if role in tokens and role not in seen else "smoke-other-" + actor_id
+    seen.add(role)
+    db.execute("update actors set credential_hash = ? where actor_id = ?", (hashlib.sha256(token.encode()).hexdigest(), actor_id))
 db.commit()
 config = root + "/.capstan/project.json"
 text = open(config).read()
@@ -229,6 +231,17 @@ text = re.sub(r'"projectId": "[^"]*"', '"projectId": "%s"' % project_id, text)
 text = re.sub(r'"name": "[^"]*"', '"name": "%s"' % name, text)
 open(config, "w").write(text)  # in place: keeps the 0600 mode
 PY
+}
+
+# smoke_ledger: the Node-made fixture ledger (schema v31, with a PM and a developer agent) migrates to the current
+# version with the same schema_migrations checksums, a pre-migration backup is written, and send/inbox/ack work on it.
+smoke_ledger() {
+  FIXTURE="$ROOT/rust/testdata/ledger/ledger-better-sqlite3.sqlite"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "skip $NAME: ledger migration (python3 reads the sqlite files)"
+    return 0
+  fi
+  prepare_ledger ledger-repo "$FIXTURE"
   if start_daemon "$LDIR"; then pass "$NAME: ledger: the daemon opens the Node-made ledger"; else fail "$NAME: ledger: the daemon did not serve ($(head -c 400 "$DIR/daemon.out"))"; fi
   LPID="$DPID"
   cl() { (cd "$LDIR" && c "$@"); }
@@ -263,6 +276,23 @@ PY
     *) fail "$NAME: ledger: $RESULT" ;;
   esac
   [ -n "$(ls "$STATE"/controller.sqlite.pre-v*.sqlite 2>/dev/null)" ] && pass "$NAME: ledger: pre-migration backup written" || fail "$NAME: ledger: no pre-migration backup"
+}
+
+# smoke_v041_ledger: the ledger made by cstan v0.4.1 (rust/testdata/ledger/ledger-v0.4.1.sqlite, see rust/testdata/README.md)
+# is served by a daemon on a copy of it and `cstan status` reads it.
+smoke_v041_ledger() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "skip $NAME: v0.4.1 ledger (python3 reads the sqlite files)"
+    return 0
+  fi
+  prepare_ledger v041-repo "$ROOT/rust/testdata/ledger/ledger-v0.4.1.sqlite"
+  if start_daemon "$LDIR"; then pass "$NAME: v0.4.1 ledger: the daemon opens it"; else fail "$NAME: v0.4.1 ledger: the daemon did not serve ($(head -c 400 "$DIR/daemon.out"))"; fi
+  VPID="$DPID"
+  (cd "$LDIR" && c cstan status >"$DIR/v041-status.out" 2>&1) && grep -q "^plans: planId: plan-1" "$DIR/v041-status.out" &&
+    pass "$NAME: v0.4.1 ledger: status shows its plan" || fail "$NAME: v0.4.1 ledger: status ($(head -c 300 "$DIR/v041-status.out"))"
+  (cd "$LDIR" && c cstan stop >/dev/null 2>&1) || true
+  if wait_gone "$VPID"; then pass "$NAME: v0.4.1 ledger: daemon pid gone"; else fail "$NAME: v0.4.1 ledger: daemon pid $VPID still alive"; fi
+  wait "$VPID" 2>/dev/null || true
 }
 
 # smoke_messages: send, inbox and ack as the agents of the fixture (the developer sends to the PM, the PM reads and
@@ -326,7 +356,9 @@ smoke_dash() {
   if [ -n "$DASHDAEMON" ]; then wait_gone "$DASHDAEMON" || fail "$NAME: dash: its daemon $DASHDAEMON is still alive"; fi
 }
 
-if sh "$ROOT/scripts/check-version.sh" "$ROOT" >"$SANDBOX/check-version.out" 2>&1; then
+if [ ! -f "$ROOT/package.json" ]; then
+  echo "skip check-version.sh: no package.json (the Node tree is gone; remove-node updates that script)"
+elif sh "$ROOT/scripts/check-version.sh" "$ROOT" >"$SANDBOX/check-version.out" 2>&1; then
   pass "check-version.sh: $(cat "$SANDBOX/check-version.out")"
 else
   fail "check-version.sh: $(cat "$SANDBOX/check-version.out")"

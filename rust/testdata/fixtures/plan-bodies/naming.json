@@ -1,0 +1,282 @@
+[
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-a",
+    "packageId": "a",
+    "result": {
+      "breaking": true,
+      "scope": "x",
+      "type": "feat"
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": "fix"
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "not json",
+    "name": "body3-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "not json",
+    "name": "body3-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "not json",
+    "name": "body3-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "not json",
+    "name": "body3-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "null",
+    "name": "body4-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "null",
+    "name": "body4-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "null",
+    "name": "body4-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "null",
+    "name": "body4-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "[]",
+    "name": "body5-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "[]",
+    "name": "body5-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "[]",
+    "name": "body5-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "[]",
+    "name": "body5-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{}",
+    "name": "body6-a",
+    "packageId": "a",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{}",
+    "name": "body6-b",
+    "packageId": "b",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{}",
+    "name": "body6-c",
+    "packageId": "c",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  },
+  {
+    "body": "{}",
+    "name": "body6-zz",
+    "packageId": "zz",
+    "result": {
+      "breaking": false,
+      "scope": null,
+      "type": null
+    }
+  }
+]

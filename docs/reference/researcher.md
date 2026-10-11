@@ -29,8 +29,8 @@ prompt = "..."
 
 The `allow` and `deny` lists above are abbreviated; the full required lists are in `src/researcher-policy.ts`, which is the source of truth. The example is abbreviated and cannot be pasted as is: copy the full deny list from the starter file. `output_dir` is repo-relative without `..` (default `docs/research`), `user_agent` is one line without quotes, and a server name matches `^[a-z][a-z0-9_-]{0,31}$` and becomes the `mcp__<name>__` tool prefix.
 
-2. Install a browser once: `npx playwright install chromium`. The `--output-dir` argument (supported by `@playwright/mcp` 0.0.83) keeps the browser's snapshot and console files out of the researcher's worktree; without it a `.playwright-mcp/` directory appears there.
-3. Make Node and `npx` available on the daemon's `PATH` (the browser server is started with `npx`).
+2. Install a browser once for the Playwright MCP server (a third-party tool, not part of Capstan): `npx playwright install chromium`. The `--output-dir` argument (supported by `@playwright/mcp` 0.0.83) keeps the browser's snapshot and console files out of the researcher's worktree; without it a `.playwright-mcp/` directory appears there.
+3. Only this optional browser server needs Node.js: the starter config starts it with `npx`, so `npx` must be on the daemon's `PATH`. Capstan itself (`cstan`, `cstan-dash`) needs no Node.js; leave the browser server out and the Researcher still works with WebSearch, WebFetch and `curl`.
 
 `[mcp_servers]` and `roles.<name>.mcp` are general: any role on a `claude` host may list servers in `mcp`. The Researcher is the first user.
 

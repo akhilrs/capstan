@@ -13,3 +13,5 @@ Preview locally from the repository root:
 python3 -m http.server 8000
 # open http://localhost:8000/site/
 ```
+
+The folder is deployed as is by `.github/workflows/pages.yml`. It needs no build and no package manager, and no linter checks it.

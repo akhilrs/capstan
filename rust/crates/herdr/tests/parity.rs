@@ -33,7 +33,7 @@ fn s(value: &Value) -> &str {
 }
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../test/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/fixtures")
 }
 
 fn options_json(options: &[RelayOption]) -> Value {

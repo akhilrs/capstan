@@ -1,0 +1,2738 @@
+{
+  "cutAtCharacters": [
+    {
+      "input": "",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "",
+      "limit": 1,
+      "result": ""
+    },
+    {
+      "input": "",
+      "limit": 3,
+      "result": ""
+    },
+    {
+      "input": "",
+      "limit": 7,
+      "result": ""
+    },
+    {
+      "input": "",
+      "limit": 40,
+      "result": ""
+    },
+    {
+      "input": "",
+      "limit": 500,
+      "result": ""
+    },
+    {
+      "input": " ",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": " ",
+      "limit": 1,
+      "result": " "
+    },
+    {
+      "input": " ",
+      "limit": 3,
+      "result": " "
+    },
+    {
+      "input": " ",
+      "limit": 7,
+      "result": " "
+    },
+    {
+      "input": " ",
+      "limit": 40,
+      "result": " "
+    },
+    {
+      "input": " ",
+      "limit": 500,
+      "result": " "
+    },
+    {
+      "input": "plain text",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "plain text",
+      "limit": 1,
+      "result": "p"
+    },
+    {
+      "input": "plain text",
+      "limit": 3,
+      "result": "pla"
+    },
+    {
+      "input": "plain text",
+      "limit": 7,
+      "result": "plain t"
+    },
+    {
+      "input": "plain text",
+      "limit": 40,
+      "result": "plain text"
+    },
+    {
+      "input": "plain text",
+      "limit": 500,
+      "result": "plain text"
+    },
+    {
+      "input": "  padded  ",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "  padded  ",
+      "limit": 1,
+      "result": " "
+    },
+    {
+      "input": "  padded  ",
+      "limit": 3,
+      "result": "  p"
+    },
+    {
+      "input": "  padded  ",
+      "limit": 7,
+      "result": "  padde"
+    },
+    {
+      "input": "  padded  ",
+      "limit": 40,
+      "result": "  padded  "
+    },
+    {
+      "input": "  padded  ",
+      "limit": 500,
+      "result": "  padded  "
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 1,
+      "result": "l"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 3,
+      "result": "lin"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 7,
+      "result": "line on"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 40,
+      "result": "line one\r\nline two\rline three\nline four"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "limit": 500,
+      "result": "line one\r\nline two\rline three\nline four"
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 1,
+      "result": "n"
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 3,
+      "result": "nel"
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 7,
+      "result": "nelnex"
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 40,
+      "result": "nelnext ls ps"
+    },
+    {
+      "input": "nelnext ls ps",
+      "limit": 500,
+      "result": "nelnext ls ps"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 1,
+      "result": "t"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 3,
+      "result": "tab"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 7,
+      "result": "tab\ther"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 40,
+      "result": "tab\there\u000bvt\fff"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "limit": 500,
+      "result": "tab\there\u000bvt\fff"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 1,
+      "result": "c"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 3,
+      "result": "con"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 7,
+      "result": "control"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 40,
+      "result": "control\u0000nul\u0007bell\u001bescapedelc1"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "limit": 500,
+      "result": "control\u0000nul\u0007bell\u001bescapedelc1"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 1,
+      "result": "f"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 3,
+      "result": "for"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 7,
+      "result": "format​"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 40,
+      "result": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "limit": 500,
+      "result": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 1,
+      "result": "n"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 3,
+      "result": "non"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 7,
+      "result": "nonchar"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 40,
+      "result": "nonchar﷐￿￾ end"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "limit": 500,
+      "result": "nonchar﷐￿￾ end"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 1,
+      "result": "n"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 3,
+      "result": "non"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 7,
+      "result": "non-BMP"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 40,
+      "result": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "limit": 500,
+      "result": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 1,
+      "result": ""
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 3,
+      "result": "é "
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 7,
+      "result": "é comb"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 40,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "limit": 500,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 1,
+      "result": " "
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 3,
+      "result": " nb"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 7,
+      "result": " nbsp e"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 40,
+      "result": " nbsp em　ideographic "
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "limit": 500,
+      "result": " nbsp em　ideographic "
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 1,
+      "result": "⠀"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 3,
+      "result": "⠀br"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 7,
+      "result": "⠀braill"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 40,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "limit": 500,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 1,
+      "result": "a"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 3,
+      "result": "ans"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 7,
+      "result": "ansi \u001b["
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 40,
+      "result": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b["
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "limit": 500,
+      "result": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 1,
+      "result": "o"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 3,
+      "result": "osc"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 7,
+      "result": "osc \u001b]0"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 40,
+      "result": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "limit": 500,
+      "result": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 1,
+      "result": "d"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 3,
+      "result": "dcs"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 7,
+      "result": "dcs \u001bPq"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 40,
+      "result": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "limit": 500,
+      "result": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 1,
+      "result": "c"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 3,
+      "result": "c1 "
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 7,
+      "result": "c1 csi "
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 40,
+      "result": "c1 csi 31m red 0;t\u0007 done dcs end"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "limit": 500,
+      "result": "c1 csi 31m red 0;t\u0007 done dcs end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 1,
+      "result": "u"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 3,
+      "result": "unt"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 7,
+      "result": "untermi"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 40,
+      "result": "unterminated \u001b]0;title no end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "limit": 500,
+      "result": "unterminated \u001b]0;title no end"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 1,
+      "result": "u"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 3,
+      "result": "unt"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 7,
+      "result": "untermi"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 40,
+      "result": "unterminated csi \u001b[31"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "limit": 500,
+      "result": "unterminated csi \u001b[31"
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 1,
+      "result": "e"
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 3,
+      "result": "esc"
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 7,
+      "result": "escape "
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 40,
+      "result": "escape alone \u001b"
+    },
+    {
+      "input": "escape alone \u001b",
+      "limit": 500,
+      "result": "escape alone \u001b"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 1,
+      "result": "t"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 3,
+      "result": "two"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 7,
+      "result": "two cha"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 40,
+      "result": "two char \u001bM \u001b7 \u001b(B \u001b="
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "limit": 500,
+      "result": "two char \u001bM \u001b7 \u001b(B \u001b="
+    },
+    {
+      "input": "intro      lone",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "intro      lone",
+      "limit": 1,
+      "result": "i"
+    },
+    {
+      "input": "intro      lone",
+      "limit": 3,
+      "result": "int"
+    },
+    {
+      "input": "intro      lone",
+      "limit": 7,
+      "result": "intro "
+    },
+    {
+      "input": "intro      lone",
+      "limit": 40,
+      "result": "intro      lone"
+    },
+    {
+      "input": "intro      lone",
+      "limit": 500,
+      "result": "intro      lone"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 1,
+      "result": "l"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 3,
+      "result": "lon"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 7,
+      "result": "long lo"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 40,
+      "result": "long long long long long long long long "
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "limit": 500,
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long "
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 1,
+      "result": "w"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 3,
+      "result": "wid"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 7,
+      "result": "wide 😀w"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 40,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "limit": 500,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wi"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 1,
+      "result": "m"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 3,
+      "result": "mix"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 7,
+      "result": "mix\r\nmi"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 40,
+      "result": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "limit": 500,
+      "result": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m"
+    },
+    {
+      "input": "​​​",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "​​​",
+      "limit": 1,
+      "result": "​"
+    },
+    {
+      "input": "​​​",
+      "limit": 3,
+      "result": "​​​"
+    },
+    {
+      "input": "​​​",
+      "limit": 7,
+      "result": "​​​"
+    },
+    {
+      "input": "​​​",
+      "limit": 40,
+      "result": "​​​"
+    },
+    {
+      "input": "​​​",
+      "limit": 500,
+      "result": "​​​"
+    },
+    {
+      "input": "� replacement �",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "� replacement �",
+      "limit": 1,
+      "result": "�"
+    },
+    {
+      "input": "� replacement �",
+      "limit": 3,
+      "result": "� r"
+    },
+    {
+      "input": "� replacement �",
+      "limit": 7,
+      "result": "� repla"
+    },
+    {
+      "input": "� replacement �",
+      "limit": 40,
+      "result": "� replacement �"
+    },
+    {
+      "input": "� replacement �",
+      "limit": 500,
+      "result": "� replacement �"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 0,
+      "result": ""
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 1,
+      "result": "R"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 3,
+      "result": "RTL"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 7,
+      "result": "RTL אבג"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 40,
+      "result": "RTL אבג العربية"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "limit": 500,
+      "result": "RTL אבג العربية"
+    }
+  ],
+  "normalizeText": [
+    {
+      "input": "",
+      "result": ""
+    },
+    {
+      "input": " ",
+      "result": ""
+    },
+    {
+      "input": "plain text",
+      "result": "plain text"
+    },
+    {
+      "input": "  padded  ",
+      "result": "padded"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "result": "line one\nline two\nline three\nline four"
+    },
+    {
+      "input": "nelnext ls ps",
+      "result": "nel\nnext\nls\nps"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "result": "tab here vt ff"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "result": "control nul bell escape del c1"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "result": "format zero zwj  rtl wj bom soft"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "result": "nonchar    end"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "result": "nbsp em　ideographic"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "result": "ansi  [31mred [0m  [1;4munder [0m  [2J [H"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "result": "osc  ]0;title after  ]8;;http://x \\link ]8;; \\"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "result": "dcs  Pq#0;2;0;0;0 \\ apc  _data \\ pm  ^x \\ sos  Xy \\"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "result": "c1 csi  31m red  0;t  done  dcs  end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "result": "unterminated  ]0;title no end"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "result": "unterminated csi  [31"
+    },
+    {
+      "input": "escape alone \u001b",
+      "result": "escape alone"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "result": "two char  M  7  (B  ="
+    },
+    {
+      "input": "intro      lone",
+      "result": "intro           lone"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "result": "mix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\nmix\n [0m"
+    },
+    {
+      "input": "​​​",
+      "result": ""
+    },
+    {
+      "input": "� replacement �",
+      "result": "� replacement �"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "result": "RTL אבג العربية"
+    }
+  ],
+  "oneLine": [
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 2,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 10,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 50,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "",
+      "max": 1000,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 2,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 10,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 50,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": " ",
+      "max": 1000,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 2,
+      "result": "p…"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 10,
+      "result": "plain text"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 50,
+      "result": "plain text"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 200,
+      "result": "plain text"
+    },
+    {
+      "empty": "(none)",
+      "input": "plain text",
+      "max": 1000,
+      "result": "plain text"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 2,
+      "result": "p…"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 10,
+      "result": "padded"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 50,
+      "result": "padded"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 200,
+      "result": "padded"
+    },
+    {
+      "empty": "(none)",
+      "input": "  padded  ",
+      "max": 1000,
+      "result": "padded"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 2,
+      "result": "l…"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 10,
+      "result": "line one …"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 50,
+      "result": "line one line two line three line four"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 200,
+      "result": "line one line two line three line four"
+    },
+    {
+      "empty": "(none)",
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 1000,
+      "result": "line one line two line three line four"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 2,
+      "result": "n…"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 10,
+      "result": "nel next …"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 50,
+      "result": "nel next ls ps"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 200,
+      "result": "nel next ls ps"
+    },
+    {
+      "empty": "(none)",
+      "input": "nelnext ls ps",
+      "max": 1000,
+      "result": "nel next ls ps"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 2,
+      "result": "t…"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 10,
+      "result": "tab here …"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 50,
+      "result": "tab here vt ff"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 200,
+      "result": "tab here vt ff"
+    },
+    {
+      "empty": "(none)",
+      "input": "tab\there\u000bvt\fff",
+      "max": 1000,
+      "result": "tab here vt ff"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 2,
+      "result": "c…"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 10,
+      "result": "control n…"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 50,
+      "result": "control nul bell escape del c1"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 200,
+      "result": "control nul bell escape del c1"
+    },
+    {
+      "empty": "(none)",
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 1000,
+      "result": "control nul bell escape del c1"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 2,
+      "result": "f…"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 10,
+      "result": "format ze…"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 50,
+      "result": "format zero zwj rtl wj bom soft"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 200,
+      "result": "format zero zwj rtl wj bom soft"
+    },
+    {
+      "empty": "(none)",
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 1000,
+      "result": "format zero zwj rtl wj bom soft"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 2,
+      "result": "n…"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 10,
+      "result": "nonchar e…"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 50,
+      "result": "nonchar end"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 200,
+      "result": "nonchar end"
+    },
+    {
+      "empty": "(none)",
+      "input": "nonchar﷐￿￾ end",
+      "max": 1000,
+      "result": "nonchar end"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 2,
+      "result": "n…"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 10,
+      "result": "non-BMP 😀…"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 50,
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 200,
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "empty": "(none)",
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 1000,
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 2,
+      "result": "e…"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 10,
+      "result": "é combin…"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 50,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 200,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "empty": "(none)",
+      "input": "é combining क्ष 각",
+      "max": 1000,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 2,
+      "result": "n…"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 10,
+      "result": "nbsp em i…"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 50,
+      "result": "nbsp em ideographic"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 200,
+      "result": "nbsp em ideographic"
+    },
+    {
+      "empty": "(none)",
+      "input": " nbsp em　ideographic ",
+      "max": 1000,
+      "result": "nbsp em ideographic"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 2,
+      "result": "⠀…"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 10,
+      "result": "⠀braille …"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 50,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 200,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "empty": "(none)",
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 1000,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 2,
+      "result": "a…"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 10,
+      "result": "ansi [31m…"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 50,
+      "result": "ansi [31mred [0m [1;4munder [0m [2J [H"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 200,
+      "result": "ansi [31mred [0m [1;4munder [0m [2J [H"
+    },
+    {
+      "empty": "(none)",
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 1000,
+      "result": "ansi [31mred [0m [1;4munder [0m [2J [H"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 2,
+      "result": "o…"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 10,
+      "result": "osc ]0;ti…"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 50,
+      "result": "osc ]0;title after ]8;;http://x \\link ]8;; \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 200,
+      "result": "osc ]0;title after ]8;;http://x \\link ]8;; \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 1000,
+      "result": "osc ]0;title after ]8;;http://x \\link ]8;; \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 2,
+      "result": "d…"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 10,
+      "result": "dcs Pq#0;…"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 50,
+      "result": "dcs Pq#0;2;0;0;0 \\ apc _data \\ pm ^x \\ sos Xy \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 200,
+      "result": "dcs Pq#0;2;0;0;0 \\ apc _data \\ pm ^x \\ sos Xy \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 1000,
+      "result": "dcs Pq#0;2;0;0;0 \\ apc _data \\ pm ^x \\ sos Xy \\"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 2,
+      "result": "c…"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 10,
+      "result": "c1 csi 31…"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 50,
+      "result": "c1 csi 31m red 0;t done dcs end"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 200,
+      "result": "c1 csi 31m red 0;t done dcs end"
+    },
+    {
+      "empty": "(none)",
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 1000,
+      "result": "c1 csi 31m red 0;t done dcs end"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 2,
+      "result": "u…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 10,
+      "result": "untermina…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 50,
+      "result": "unterminated ]0;title no end"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 200,
+      "result": "unterminated ]0;title no end"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated \u001b]0;title no end",
+      "max": 1000,
+      "result": "unterminated ]0;title no end"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 2,
+      "result": "u…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 10,
+      "result": "untermina…"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 50,
+      "result": "unterminated csi [31"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 200,
+      "result": "unterminated csi [31"
+    },
+    {
+      "empty": "(none)",
+      "input": "unterminated csi \u001b[31",
+      "max": 1000,
+      "result": "unterminated csi [31"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 2,
+      "result": "e…"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 10,
+      "result": "escape al…"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 50,
+      "result": "escape alone"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 200,
+      "result": "escape alone"
+    },
+    {
+      "empty": "(none)",
+      "input": "escape alone \u001b",
+      "max": 1000,
+      "result": "escape alone"
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 2,
+      "result": "t…"
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 10,
+      "result": "two char …"
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 50,
+      "result": "two char M 7 (B ="
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 200,
+      "result": "two char M 7 (B ="
+    },
+    {
+      "empty": "(none)",
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 1000,
+      "result": "two char M 7 (B ="
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 2,
+      "result": "i…"
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 10,
+      "result": "intro lone"
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 50,
+      "result": "intro lone"
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 200,
+      "result": "intro lone"
+    },
+    {
+      "empty": "(none)",
+      "input": "intro      lone",
+      "max": 1000,
+      "result": "intro lone"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 2,
+      "result": "l…"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 10,
+      "result": "long long…"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 50,
+      "result": "long long long long long long long long long long…"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 200,
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long…"
+    },
+    {
+      "empty": "(none)",
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 1000,
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 2,
+      "result": "w…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 10,
+      "result": "wide 😀wid…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 50,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀w…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 200,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀w…"
+    },
+    {
+      "empty": "(none)",
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 1000,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 2,
+      "result": "m…"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 10,
+      "result": "mix mix m…"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 50,
+      "result": "mix mix mix mix mix mix mix mix mix mix mix mix m…"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 200,
+      "result": "mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix…"
+    },
+    {
+      "empty": "(none)",
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 1000,
+      "result": "mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix [0m"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 2,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 10,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 50,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "​​​",
+      "max": 1000,
+      "result": "(none)"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 2,
+      "result": "�…"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 10,
+      "result": "� replace…"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 50,
+      "result": "� replacement �"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 200,
+      "result": "� replacement �"
+    },
+    {
+      "empty": "(none)",
+      "input": "� replacement �",
+      "max": 1000,
+      "result": "� replacement �"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 2,
+      "result": "R…"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 10,
+      "result": "RTL אבג ا…"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 50,
+      "result": "RTL אבג العربية"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 200,
+      "result": "RTL אבג العربية"
+    },
+    {
+      "empty": "(none)",
+      "input": "RTL אבג العربية",
+      "max": 1000,
+      "result": "RTL אבג العربية"
+    }
+  ],
+  "oneLineText": [
+    {
+      "input": "",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "input": "",
+      "max": 5,
+      "result": "(none)"
+    },
+    {
+      "input": "",
+      "max": 120,
+      "result": "(none)"
+    },
+    {
+      "input": "",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "input": " ",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "input": " ",
+      "max": 5,
+      "result": "(none)"
+    },
+    {
+      "input": " ",
+      "max": 120,
+      "result": "(none)"
+    },
+    {
+      "input": " ",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "input": "plain text",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "plain text",
+      "max": 5,
+      "result": "plai…"
+    },
+    {
+      "input": "plain text",
+      "max": 120,
+      "result": "plain text"
+    },
+    {
+      "input": "plain text",
+      "max": 200,
+      "result": "plain text"
+    },
+    {
+      "input": "  padded  ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "  padded  ",
+      "max": 5,
+      "result": "padd…"
+    },
+    {
+      "input": "  padded  ",
+      "max": 120,
+      "result": "padded"
+    },
+    {
+      "input": "  padded  ",
+      "max": 200,
+      "result": "padded"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 5,
+      "result": "line…"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 120,
+      "result": "line one line two line three line four"
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "max": 200,
+      "result": "line one line two line three line four"
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 5,
+      "result": "nel …"
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 120,
+      "result": "nel next ls ps"
+    },
+    {
+      "input": "nelnext ls ps",
+      "max": 200,
+      "result": "nel next ls ps"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 5,
+      "result": "tab …"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 120,
+      "result": "tab here vt ff"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "max": 200,
+      "result": "tab here vt ff"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 5,
+      "result": "cont…"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 120,
+      "result": "control nul bellscape del c1"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "max": 200,
+      "result": "control nul bellscape del c1"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 5,
+      "result": "form…"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 120,
+      "result": "format zero zwj rtl wj bom soft"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "max": 200,
+      "result": "format zero zwj rtl wj bom soft"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 5,
+      "result": "nonc…"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 120,
+      "result": "nonchar end"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "max": 200,
+      "result": "nonchar end"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 5,
+      "result": "non-…"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 120,
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "max": 200,
+      "result": "non-BMP 😀 👨 👩 👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 5,
+      "result": "é c…"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 120,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "max": 200,
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 5,
+      "result": "nbsp…"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 120,
+      "result": "nbsp em ideographic"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "max": 200,
+      "result": "nbsp em ideographic"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 5,
+      "result": "⠀bra…"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 120,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "max": 200,
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 5,
+      "result": "ansi…"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 120,
+      "result": "ansi red under"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "max": 200,
+      "result": "ansi red under"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 5,
+      "result": "osc …"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 120,
+      "result": "osc after link"
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "max": 200,
+      "result": "osc after link"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 5,
+      "result": "dcs …"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 120,
+      "result": "dcs apc pm sos"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "max": 200,
+      "result": "dcs apc pm sos"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 5,
+      "result": "c1 c…"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 120,
+      "result": "c1 csi red done end"
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "max": 200,
+      "result": "c1 csi red done end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 5,
+      "result": "unte…"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 120,
+      "result": "unterminated 0;title no end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "max": 200,
+      "result": "unterminated 0;title no end"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 5,
+      "result": "unte…"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 120,
+      "result": "unterminated csi"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "max": 200,
+      "result": "unterminated csi"
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 5,
+      "result": "esca…"
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 120,
+      "result": "escape alone"
+    },
+    {
+      "input": "escape alone \u001b",
+      "max": 200,
+      "result": "escape alone"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 5,
+      "result": "two …"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 120,
+      "result": "two char"
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "max": 200,
+      "result": "two char"
+    },
+    {
+      "input": "intro      lone",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "intro      lone",
+      "max": 5,
+      "result": "intr…"
+    },
+    {
+      "input": "intro      lone",
+      "max": 120,
+      "result": "intro lone"
+    },
+    {
+      "input": "intro      lone",
+      "max": 200,
+      "result": "intro lone"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 5,
+      "result": "long…"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 120,
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long…"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "max": 200,
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long…"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 5,
+      "result": "wide…"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 120,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide …"
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "max": 200,
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀w…"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 5,
+      "result": "mix …"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 120,
+      "result": "mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix…"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "max": 200,
+      "result": "mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix mix…"
+    },
+    {
+      "input": "​​​",
+      "max": 1,
+      "result": "(none)"
+    },
+    {
+      "input": "​​​",
+      "max": 5,
+      "result": "(none)"
+    },
+    {
+      "input": "​​​",
+      "max": 120,
+      "result": "(none)"
+    },
+    {
+      "input": "​​​",
+      "max": 200,
+      "result": "(none)"
+    },
+    {
+      "input": "� replacement �",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "� replacement �",
+      "max": 5,
+      "result": "� re…"
+    },
+    {
+      "input": "� replacement �",
+      "max": 120,
+      "result": "� replacement �"
+    },
+    {
+      "input": "� replacement �",
+      "max": 200,
+      "result": "� replacement �"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 1,
+      "result": "…"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 5,
+      "result": "RTL …"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 120,
+      "result": "RTL אבג العربية"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "max": 200,
+      "result": "RTL אבג العربية"
+    }
+  ],
+  "stripTerminalSequences": [
+    {
+      "input": "",
+      "result": ""
+    },
+    {
+      "input": " ",
+      "result": " "
+    },
+    {
+      "input": "plain text",
+      "result": "plain text"
+    },
+    {
+      "input": "  padded  ",
+      "result": "  padded  "
+    },
+    {
+      "input": "line one\r\nline two\rline three\nline four",
+      "result": "line one\r\nline two\rline three\nline four"
+    },
+    {
+      "input": "nelnext ls ps",
+      "result": "nelnext ls ps"
+    },
+    {
+      "input": "tab\there\u000bvt\fff",
+      "result": "tab\there\u000bvt\fff"
+    },
+    {
+      "input": "control\u0000nul\u0007bell\u001bescapedelc1",
+      "result": "control\u0000nul\u0007bellscapedelc1"
+    },
+    {
+      "input": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft",
+      "result": "format​zero‍zwj‎‮rtl⁠wj﻿bom­soft"
+    },
+    {
+      "input": "nonchar﷐￿￾ end",
+      "result": "nonchar﷐￿￾ end"
+    },
+    {
+      "input": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷",
+      "result": "non-BMP 😀 👨‍👩‍👧 🇯🇵 𠮷"
+    },
+    {
+      "input": "é combining क्ष 각",
+      "result": "é combining क्ष 각"
+    },
+    {
+      "input": " nbsp em　ideographic ",
+      "result": " nbsp em　ideographic "
+    },
+    {
+      "input": "⠀braille ᅟᅠㅤﾠ fillers",
+      "result": "⠀braille ᅟᅠㅤﾠ fillers"
+    },
+    {
+      "input": "ansi \u001b[31mred\u001b[0m \u001b[1;4munder\u001b[0m \u001b[2J\u001b[H",
+      "result": "ansi red under "
+    },
+    {
+      "input": "osc \u001b]0;title\u0007after \u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
+      "result": "osc after link"
+    },
+    {
+      "input": "dcs \u001bPq#0;2;0;0;0\u001b\\ apc \u001b_data\u001b\\ pm \u001b^x\u001b\\ sos \u001bXy\u001b\\",
+      "result": "dcs  apc  pm  sos "
+    },
+    {
+      "input": "c1 csi 31m red 0;t\u0007 done dcs end",
+      "result": "c1 csi  red  done  end"
+    },
+    {
+      "input": "unterminated \u001b]0;title no end",
+      "result": "unterminated 0;title no end"
+    },
+    {
+      "input": "unterminated csi \u001b[31",
+      "result": "unterminated csi "
+    },
+    {
+      "input": "escape alone \u001b",
+      "result": "escape alone "
+    },
+    {
+      "input": "two char \u001bM \u001b7 \u001b(B \u001b=",
+      "result": "two char    "
+    },
+    {
+      "input": "intro      lone",
+      "result": "intro      lone"
+    },
+    {
+      "input": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+      "result": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long "
+    },
+    {
+      "input": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀",
+      "result": "wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀wide 😀"
+    },
+    {
+      "input": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n\u001b[0m",
+      "result": "mix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\nmix\r\n"
+    },
+    {
+      "input": "​​​",
+      "result": "​​​"
+    },
+    {
+      "input": "� replacement �",
+      "result": "� replacement �"
+    },
+    {
+      "input": "RTL אבג العربية",
+      "result": "RTL אבג العربية"
+    }
+  ]
+}

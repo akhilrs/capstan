@@ -1,0 +1,1466 @@
+[
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "minimal",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"  Ship\\r\\nthe thing\\u0007 \",\"risks\":[\"slow\",\" fast\\t\"],\"integration_order\":[\"b\",\"a\"],\"packages\":[{\"id\":\"a\",\"title\":\"Alpha\",\"owns\":[\"./src//a/\",\"docs/a.md\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"role\":\"architect\",\"interfaces\":[\"fn a()\"],\"depends_on\":[],\"type\":\"feat\",\"scope\":\"kernel.core\",\"breaking\":true,\"risks\":[\"r1\"]},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":80,\"depends_on\":[\"a\"],\"type\":\"fix\"}]}",
+    "maxPackages": 20,
+    "name": "full",
+    "result": {
+      "code": "bad_order",
+      "ok": false,
+      "reason": "integration_order puts b before its dependency a"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/a/inner\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/a\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"depends_on\":[\"b\"]}]}",
+    "maxPackages": 20,
+    "name": "dependency-chain",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b", "c"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": ["a"],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/a/inner"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          },
+          {
+            "acceptance": ["c works"],
+            "breaking": false,
+            "dependsOn": ["b"],
+            "estimateHours": 4,
+            "id": "c",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package c",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]},{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "integration-order-default",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b"],
+        "packages": [
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": ["a"],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/b"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          },
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":0.5}]}",
+    "maxPackages": 20,
+    "name": "fractional-hours",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 0.5,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"café 😀 ‮ x y\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "unicode-text",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "café 😀   x\ny",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"x\\ud83dy\",\"packages\":[{\"id\":\"a\",\"title\":\"t\",\"owns\":[\"p\"],\"acceptance\":[\"c\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "lone-surrogate-escape",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a"],
+        "packages": [
+          {
+            "acceptance": ["c"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 1,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["p"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "t",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "x y"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"first\",\"summary\":\"second\",\"packages\":[{\"id\":\"a\",\"title\":\"t\",\"owns\":[\"p\"],\"acceptance\":[\"c\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "duplicate-keys",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a"],
+        "packages": [
+          {
+            "acceptance": ["c"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 1,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["p"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "t",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "second"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 2,
+    "name": "limit-exact",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/b"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 2,
+    "name": "too-many-packages",
+    "result": {
+      "code": "too_many_packages",
+      "ok": false,
+      "reason": "plan has 3 packages, at most 2 are allowed"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "too-large",
+    "result": {
+      "code": "too_large",
+      "ok": false,
+      "reason": "plan body is larger than 32768 bytes"
+    }
+  },
+  {
+    "input": "",
+    "maxPackages": 20,
+    "name": "invalid-json-00",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "   ",
+    "maxPackages": 20,
+    "name": "invalid-json-01",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "{",
+    "maxPackages": 20,
+    "name": "invalid-json-02",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+    }
+  },
+  {
+    "input": "{\"a\"",
+    "maxPackages": 20,
+    "name": "invalid-json-03",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected ':' after property name in JSON at position 4 (line 1 column 5)"
+    }
+  },
+  {
+    "input": "{\"a\":",
+    "maxPackages": 20,
+    "name": "invalid-json-04",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "{\"a\":1",
+    "maxPackages": 20,
+    "name": "invalid-json-05",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected ',' or '}' after property value in JSON at position 6 (line 1 column 7)"
+    }
+  },
+  {
+    "input": "{\"a\":1,",
+    "maxPackages": 20,
+    "name": "invalid-json-06",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected double-quoted property name in JSON at position 7 (line 1 column 8)"
+    }
+  },
+  {
+    "input": "{\"a\":1,}",
+    "maxPackages": 20,
+    "name": "invalid-json-07",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected double-quoted property name in JSON at position 7 (line 1 column 8)"
+    }
+  },
+  {
+    "input": "[1,]",
+    "maxPackages": 20,
+    "name": "invalid-json-08",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token ']', \"[1,]\" is not valid JSON"
+    }
+  },
+  {
+    "input": "[1 2]",
+    "maxPackages": 20,
+    "name": "invalid-json-09",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected ',' or ']' after array element in JSON at position 3 (line 1 column 4)"
+    }
+  },
+  {
+    "input": "{\"a\" 1}",
+    "maxPackages": 20,
+    "name": "invalid-json-10",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected ':' after property name in JSON at position 5 (line 1 column 6)"
+    }
+  },
+  {
+    "input": "{a:1}",
+    "maxPackages": 20,
+    "name": "invalid-json-11",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+    }
+  },
+  {
+    "input": "nul",
+    "maxPackages": 20,
+    "name": "invalid-json-12",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "not json",
+    "maxPackages": 20,
+    "name": "invalid-json-13",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token 'o', \"not json\" is not valid JSON"
+    }
+  },
+  {
+    "input": "tru",
+    "maxPackages": 20,
+    "name": "invalid-json-14",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "{\"a\":01}",
+    "maxPackages": 20,
+    "name": "invalid-json-15",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected number in JSON at position 6 (line 1 column 7)"
+    }
+  },
+  {
+    "input": "1 2",
+    "maxPackages": 20,
+    "name": "invalid-json-16",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected non-whitespace character after JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "{\"a\":\"x",
+    "maxPackages": 20,
+    "name": "invalid-json-17",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unterminated string in JSON at position 7 (line 1 column 8)"
+    }
+  },
+  {
+    "input": "\"a\nb\"",
+    "maxPackages": 20,
+    "name": "invalid-json-18",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Bad control character in string literal in JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "\"\\x\"",
+    "maxPackages": 20,
+    "name": "invalid-json-19",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Bad escaped character in JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "-",
+    "maxPackages": 20,
+    "name": "invalid-json-20",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: No number after minus sign in JSON at position 1 (line 1 column 2)"
+    }
+  },
+  {
+    "input": "1.",
+    "maxPackages": 20,
+    "name": "invalid-json-21",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unterminated fractional number in JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "1e",
+    "maxPackages": 20,
+    "name": "invalid-json-22",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Exponent part is missing a number in JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "[",
+    "maxPackages": 20,
+    "name": "invalid-json-23",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected end of JSON input"
+    }
+  },
+  {
+    "input": "[1",
+    "maxPackages": 20,
+    "name": "invalid-json-24",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected ',' or ']' after array element in JSON at position 2 (line 1 column 3)"
+    }
+  },
+  {
+    "input": "{\"a\":1}x",
+    "maxPackages": 20,
+    "name": "invalid-json-25",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected non-whitespace character after JSON at position 7 (line 1 column 8)"
+    }
+  },
+  {
+    "input": "{\"summary\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaa\",bad}",
+    "maxPackages": 20,
+    "name": "invalid-json-26",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Expected double-quoted property name in JSON at position 41 (line 1 column 42)"
+    }
+  },
+  {
+    "input": "xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "maxPackages": 20,
+    "name": "invalid-json-27",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token 'x', \"xaaaaaaaaa\"... is not valid JSON"
+    }
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax",
+    "maxPackages": 20,
+    "name": "invalid-json-28",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token 'a', \"aaaaaaaaaa\"... is not valid JSON"
+    }
+  },
+  {
+    "input": "{\n  \"a\": ,\n}",
+    "maxPackages": 20,
+    "name": "invalid-json-29",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token ',', \"{\n  \"a\": ,\n}\" is not valid JSON"
+    }
+  },
+  {
+    "input": "\"\\u12\"",
+    "maxPackages": 20,
+    "name": "invalid-json-30",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Bad Unicode escape in JSON at position 5 (line 1 column 6)"
+    }
+  },
+  {
+    "input": "{\"a\":tru}",
+    "maxPackages": 20,
+    "name": "invalid-json-31",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token '}', \"{\"a\":tru}\" is not valid JSON"
+    }
+  },
+  {
+    "input": "[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,x]",
+    "maxPackages": 20,
+    "name": "invalid-json-32",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token 'x', ...\",13,14,15,x]\" is not valid JSON"
+    }
+  },
+  {
+    "input": "{\"😀\":}",
+    "maxPackages": 20,
+    "name": "invalid-json-33",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: Unexpected token '}', \"{\"😀\":}\" is not valid JSON"
+    }
+  },
+  {
+    "input": "undefined",
+    "maxPackages": 20,
+    "name": "invalid-json-34",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: \"undefined\" is not valid JSON"
+    }
+  },
+  {
+    "input": "NaN",
+    "maxPackages": 20,
+    "name": "invalid-json-35",
+    "result": {
+      "code": "invalid_json",
+      "ok": false,
+      "reason": "plan body is not valid JSON: \"NaN\" is not valid JSON"
+    }
+  },
+  {
+    "input": "[]",
+    "maxPackages": 20,
+    "name": "shape-plan-array",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "plan must be an object"
+    }
+  },
+  {
+    "input": "null",
+    "maxPackages": 20,
+    "name": "shape-plan-null",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "plan must be an object"
+    }
+  },
+  {
+    "input": "\"x\"",
+    "maxPackages": 20,
+    "name": "shape-plan-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "plan must be an object"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}],\"extra\":1}",
+    "maxPackages": 20,
+    "name": "shape-plan-unknown-key",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "plan has unknown key \"extra\""
+    }
+  },
+  {
+    "input": "{\"zeta\":1,\"alpha\":2,\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-plan-two-unknown-keys",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "plan has unknown key \"zeta\""
+    }
+  },
+  {
+    "input": "{\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-summary-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "summary must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":1,\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-summary-number",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "summary must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\" \\n \",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-summary-blank",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "summary must not be empty"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\"}",
+    "maxPackages": 20,
+    "name": "shape-packages-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages must be a non-empty array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[]}",
+    "maxPackages": 20,
+    "name": "shape-packages-empty",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages must be a non-empty array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":{}}",
+    "maxPackages": 20,
+    "name": "shape-packages-object",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages must be a non-empty array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[\"x\"]}",
+    "maxPackages": 20,
+    "name": "shape-package-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0] must be an object"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[[]]}",
+    "maxPackages": 20,
+    "name": "shape-package-array",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0] must be an object"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"owner\":\"x\"}]}",
+    "maxPackages": 20,
+    "name": "shape-package-unknown-key",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0] has unknown key \"owner\""
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"title\":\"t\",\"owns\":[\"p\"],\"acceptance\":[\"a\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "shape-id-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].id must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"Alpha\",\"title\":\"Package Alpha\",\"owns\":[\"src/Alpha\"],\"acceptance\":[\"Alpha works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-id-pattern-upper",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].id \"Alpha\" must match ^[a-z][a-z0-9-]{0,31}$"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"1a\",\"title\":\"Package 1a\",\"owns\":[\"src/1a\"],\"acceptance\":[\"1a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-id-pattern-digit",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].id \"1a\" must match ^[a-z][a-z0-9-]{0,31}$"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Package aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owns\":[\"src/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"acceptance\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-id-pattern-long",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].id \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" must match ^[a-z][a-z0-9-]{0,31}$"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":3,\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-id-number",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].id must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":0}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-0",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":-1}]}",
+    "maxPackages": 20,
+    "name": "shape-hours--1",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":81}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-81",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":\"4\"}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-\"4\"",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":null}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-null",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":true}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-true",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"t\",\"owns\":[\"p\"],\"acceptance\":[\"a\"]}]}",
+    "maxPackages": 20,
+    "name": "shape-hours-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].estimate_hours must be a number greater than 0 and at most 80"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"style\"}]}",
+    "maxPackages": 20,
+    "name": "shape-type-unknown",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].type must be one of feat, fix, docs, refactor, perf, test, build, ci, chore"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":1}]}",
+    "maxPackages": 20,
+    "name": "shape-type-number",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].type must be one of feat, fix, docs, refactor, perf, test, build, ci, chore"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"scope\":\"Bad Scope\"}]}",
+    "maxPackages": 20,
+    "name": "shape-scope-bad",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].scope must be a short identifier matching ^[a-z0-9][a-z0-9._/-]{0,29}$"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"scope\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+    "maxPackages": 20,
+    "name": "shape-scope-long",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].scope must be a short identifier matching ^[a-z0-9][a-z0-9._/-]{0,29}$"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"breaking\":\"yes\"}]}",
+    "maxPackages": 20,
+    "name": "shape-breaking-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].breaking must be a boolean"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\" \",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-title-blank",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].title must not be empty"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"owns\":[\"p\"],\"acceptance\":[\"a\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "shape-title-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].title must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"role\":2}]}",
+    "maxPackages": 20,
+    "name": "shape-role-number",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].role must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"t\",\"acceptance\":[\"a\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-empty",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns must have at least one entry"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":{},\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-object",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"p\",1],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-entry-number",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns[1] must be a string"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"/etc/passwd\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-absolute",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns[0] must be a path inside the repository"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/../x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-parent",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns[0] must be a path inside the repository"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"./.\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-owns-dot",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].owns[0] must be a path inside the repository"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"interfaces\":\"x\"}]}",
+    "maxPackages": 20,
+    "name": "shape-interfaces-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].interfaces must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"depends_on\":\"x\"}]}",
+    "maxPackages": 20,
+    "name": "shape-depends-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].depends_on must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"t\",\"owns\":[\"p\"],\"estimate_hours\":1}]}",
+    "maxPackages": 20,
+    "name": "shape-acceptance-missing",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].acceptance must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "shape-acceptance-empty",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].acceptance must have at least one entry"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"risks\":\"x\"}]}",
+    "maxPackages": 20,
+    "name": "shape-risks-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "packages[0].risks must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}],\"risks\":{}}",
+    "maxPackages": 20,
+    "name": "shape-plan-risks-object",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "risks must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}],\"integration_order\":\"a\"}",
+    "maxPackages": 20,
+    "name": "shape-order-string",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "integration_order must be an array"
+    }
+  },
+  {
+    "input": "{\"summary\":\"s\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}],\"integration_order\":[]}",
+    "maxPackages": 20,
+    "name": "shape-order-empty",
+    "result": {
+      "code": "invalid_shape",
+      "ok": false,
+      "reason": "integration_order must have at least one entry"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"other\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "duplicate-id",
+    "result": {
+      "code": "duplicate_id",
+      "ok": false,
+      "reason": "package id \"a\" is repeated"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"depends_on\":[\"zz\"]}]}",
+    "maxPackages": 20,
+    "name": "unknown-dependency",
+    "result": {
+      "code": "unknown_dependency",
+      "ok": false,
+      "reason": "package a depends on unknown package \"zz\""
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"depends_on\":[\"b\"]},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"other\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]}]}",
+    "maxPackages": 20,
+    "name": "cycle-two",
+    "result": {
+      "code": "cycle",
+      "ok": false,
+      "reason": "dependency cycle among a, b"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]}]}",
+    "maxPackages": 20,
+    "name": "cycle-self",
+    "result": {
+      "code": "cycle",
+      "ok": false,
+      "reason": "dependency cycle among a"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"o2\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"c\"]},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"o3\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"depends_on\":[\"b\"]}]}",
+    "maxPackages": 20,
+    "name": "cycle-partial",
+    "result": {
+      "code": "cycle",
+      "ok": false,
+      "reason": "dependency cycle among b, c"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/x\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "overlap-equal",
+    "result": {
+      "code": "overlap",
+      "ok": false,
+      "reason": "packages a and b both own \"src/x\" and \"src/x\" without a depends_on order"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/x/y.rs\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "overlap-nested",
+    "result": {
+      "code": "overlap",
+      "ok": false,
+      "reason": "packages a and b both own \"src/x\" and \"src/x/y.rs\" without a depends_on order"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/x/y.rs\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]}]}",
+    "maxPackages": 20,
+    "name": "overlap-ordered-ok",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/x"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": ["a"],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/x/y.rs"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"m\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/x/z\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"depends_on\":[\"b\"]}]}",
+    "maxPackages": 20,
+    "name": "overlap-transitive-ok",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b", "c"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/x"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": ["a"],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["m"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          },
+          {
+            "acceptance": ["c works"],
+            "breaking": false,
+            "dependsOn": ["b"],
+            "estimateHours": 4,
+            "id": "c",
+            "interfaces": [],
+            "owns": ["src/x/z"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package c",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/x\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/xy\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}]}",
+    "maxPackages": 20,
+    "name": "overlap-prefix-not-path",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/x"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/xy"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4}],\"integration_order\":[\"zz\"]}",
+    "maxPackages": 20,
+    "name": "order-unknown",
+    "result": {
+      "code": "bad_order",
+      "ok": false,
+      "reason": "integration_order names unknown \"zz\""
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}],\"integration_order\":[\"a\",\"a\"]}",
+    "maxPackages": 20,
+    "name": "order-repeat",
+    "result": {
+      "code": "bad_order",
+      "ok": false,
+      "reason": "integration_order repeats \"a\""
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4}],\"integration_order\":[\"a\"]}",
+    "maxPackages": 20,
+    "name": "order-missing",
+    "result": {
+      "code": "bad_order",
+      "ok": false,
+      "reason": "integration_order must name every package exactly once"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]}],\"integration_order\":[\"b\",\"a\"]}",
+    "maxPackages": 20,
+    "name": "order-before-dependency",
+    "result": {
+      "code": "bad_order",
+      "ok": false,
+      "reason": "integration_order puts b before its dependency a"
+    }
+  },
+  {
+    "input": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4,\"depends_on\":[\"a\"]}],\"integration_order\":[\"a\",\"b\"]}",
+    "maxPackages": 20,
+    "name": "order-valid",
+    "result": {
+      "ok": true,
+      "plan": {
+        "integrationOrder": ["a", "b"],
+        "packages": [
+          {
+            "acceptance": ["a works"],
+            "breaking": false,
+            "dependsOn": [],
+            "estimateHours": 4,
+            "id": "a",
+            "interfaces": [],
+            "owns": ["src/a"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package a",
+            "type": null
+          },
+          {
+            "acceptance": ["b works"],
+            "breaking": false,
+            "dependsOn": ["a"],
+            "estimateHours": 4,
+            "id": "b",
+            "interfaces": [],
+            "owns": ["src/b"],
+            "risks": [],
+            "role": "developer",
+            "scope": null,
+            "title": "Package b",
+            "type": null
+          }
+        ],
+        "risks": [],
+        "summary": "A plan"
+      }
+    }
+  }
+]

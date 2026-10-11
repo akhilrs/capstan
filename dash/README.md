@@ -11,10 +11,9 @@ dash/tests       parity tests against fixtures exported from the Node implementa
 
 ## Checks
 
-`npm run check:dash` (also part of `npm run check`) runs `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`
+`scripts/check.sh dash` (also part of `scripts/check.sh`) runs `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`
 and `cargo test --locked` in this directory. It finds cargo on `PATH`, else in `$HOME/.cargo/bin`; export
-`PATH="$HOME/.cargo/bin:$PATH"` first. Without cargo it fails; `CSTAN_SKIP_DASH_CHECK=1` turns that into a loud skip, for a
-machine that cannot have rustup (the Rust dashboard is then not checked).
+`PATH="$HOME/.cargo/bin:$PATH"` first. Without cargo it fails.
 
 Build: `cargo build --release --locked` gives `target/release/cstan-dash`; `cstan-dash --version` prints `cstan-dash <version>`.
 

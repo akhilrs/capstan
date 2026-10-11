@@ -2,7 +2,7 @@
 //! checksums and the same `pre-vN` backups (replaces test/ledger-compat.test.ts, test/migration-backups.test.ts,
 //! test/ledger-rust-interop.test.ts and test/sqlite-adapter.test.ts for the Rust ledger).
 //!
-//! The Node-made input is the committed better-sqlite3 fixture (`test/fixtures/ledger-better-sqlite3.sqlite`, a v31
+//! The Node-made input is the committed better-sqlite3 fixture (`rust/testdata/ledger/ledger-better-sqlite3.sqlite`, a v31
 //! ledger with rows). The ledger of every other version is built the way Node's `openDatabase` builds one: each
 //! migration file run as it is, then its `schema_migrations` row. That is plain SQLite work in this file; it does not go
 //! through the migration runner under test. No Node runs and no new fixture is generated.
@@ -12,7 +12,7 @@ use capstan_ledger::{
     checksum, max_embedded_migration, migrations, open_database, open_database_read_only,
     OpenOptions,
 };
-use common::scratch;
+use common::{exec, scratch};
 use rusqlite::{Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 
@@ -21,7 +21,7 @@ fn root() -> PathBuf {
 }
 
 fn fixture() -> PathBuf {
-    root().join("test/fixtures/ledger-better-sqlite3.sqlite")
+    root().join("rust/testdata/ledger/ledger-better-sqlite3.sqlite")
 }
 
 fn migration_files() -> Vec<(String, Vec<u8>)> {
@@ -684,4 +684,131 @@ fn a_ledger_whose_writer_keeps_uncheckpointed_wal_frames_copies_and_opens_with_a
         .unwrap();
     assert_eq!(scratch_rows, 50);
     drop(writer);
+}
+
+// ---------------------------------------------------------------------------------- the ledger made by cstan v0.4.1
+
+/// Table name to its rows (or its column names).
+type Rows = std::collections::BTreeMap<String, Vec<String>>;
+
+fn v041_fixture() -> PathBuf {
+    root().join("rust/testdata/ledger/ledger-v0.4.1.sqlite")
+}
+
+/// Every row of every table, as text and sorted, per table: `quote()` of each of `columns` (so NULL, numbers, text and
+/// blobs stay apart). `columns` names, per table, what to read; `None` reads the table's own columns.
+fn row_dump(file: &Path, only: Option<&Rows>) -> Rows {
+    let conn = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut dump = std::collections::BTreeMap::new();
+    for table in tables {
+        let names = match only {
+            Some(wanted) => match wanted.get(&table) {
+                Some(names) => names.clone(),
+                None => continue,
+            },
+            None => columns(&conn, &table),
+        };
+        let select = names
+            .iter()
+            .map(|c| format!("quote(\"{c}\")"))
+            .collect::<Vec<_>>()
+            .join(" || '|' || ");
+        let mut rows: Vec<String> = conn
+            .prepare(&format!("SELECT {select} FROM \"{table}\""))
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows.sort();
+        dump.insert(table, rows);
+    }
+    dump
+}
+
+fn columns_of_every_table(file: &Path) -> Rows {
+    let conn = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    tables
+        .into_iter()
+        .map(|t| {
+            let names = columns(&conn, &t);
+            (t, names)
+        })
+        .collect()
+}
+
+/// The rows of the v0.4.1 ledger, before and after this build migrates it, over the tables and columns it had.
+fn v041_before_and_after() -> (Rows, Rows, PathBuf, tempfile::TempDir) {
+    let (dir, file) = scratch();
+    std::fs::copy(v041_fixture(), &file).unwrap();
+    let shape = columns_of_every_table(&file);
+    let before = row_dump(&file, None);
+    open_database(&file, &keep_all()).unwrap().close().unwrap();
+    let after = row_dump(&file, Some(&shape));
+    (before, after, file, dir)
+}
+
+#[test]
+fn the_v041_ledger_keeps_every_row_through_the_migrations_of_this_build() {
+    let (before, after, file, _dir) = v041_before_and_after();
+    for table in [
+        "projects",
+        "actors",
+        "agents",
+        "messages",
+        "plans",
+        "agent_reports",
+    ] {
+        assert!(
+            before.get(table).is_some_and(|rows| !rows.is_empty()),
+            "the v0.4.1 ledger has rows in {table}"
+        );
+    }
+    // schema_migrations gains the rows of newer migrations; the others must be equal row for row.
+    let mut before = before;
+    let mut after = after;
+    let old_migrations = before.remove("schema_migrations").unwrap();
+    let new_migrations = after.remove("schema_migrations").unwrap();
+    assert_eq!(before, after, "rows of a table changed");
+    assert!(new_migrations.len() >= old_migrations.len());
+    for row in &old_migrations {
+        assert!(new_migrations.contains(row), "{row} changed");
+    }
+    // The schema version is the embedded maximum.
+    let conn = Connection::open(&file).unwrap();
+    let version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(version, max_embedded_migration());
+    assert_eq!(new_migrations.len() as i64, max_embedded_migration());
+}
+
+#[test]
+fn a_changed_row_makes_the_v041_comparison_fail() {
+    let (before, _after, file, _dir) = v041_before_and_after();
+    let shape = columns_of_every_table(&file);
+    exec(&file, "UPDATE messages SET body = body || ' (changed)'");
+    let tampered = row_dump(&file, Some(&shape));
+    let mut before = before;
+    let mut tampered = tampered;
+    before.remove("schema_migrations");
+    tampered.remove("schema_migrations");
+    assert_ne!(before, tampered);
+    assert_ne!(before["messages"], tampered["messages"]);
 }

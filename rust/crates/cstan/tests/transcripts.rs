@@ -149,7 +149,7 @@ fn every_transcript_replays_byte_for_byte() {
     let files = transcript_files();
     assert!(
         files.len() > 100,
-        "the transcripts are missing: run `npm run build && node dist/test/cli-transcript-export.js`"
+        "the transcripts are missing: tests/transcripts is the frozen corpus recorded from the Node CLI; restore it from git"
     );
     let overlays = load_overlays();
     let next = AtomicUsize::new(0);

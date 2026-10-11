@@ -90,7 +90,7 @@ fn every_controller_core_method_is_in_a_sequence() {
     );
     assert!(
         missing.is_empty(),
-        "ControllerCore methods in no sequence (add one to test/kernel-sequences): {}",
+        "ControllerCore methods in no sequence (add one to a tests/parity group file): {}",
         missing.join(", ")
     );
 }

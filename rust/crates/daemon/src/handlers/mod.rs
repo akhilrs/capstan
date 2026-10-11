@@ -624,9 +624,9 @@ fn handle_legacy(
 mod tests {
     use super::*;
 
-    /// The routes of src/daemon.ts: `name: { access: "x" }` and `name: { access: "x", stub: STUB_STAGE }`.
+    /// The routes of the frozen src/daemon.ts (rust/testdata/node/daemon.ts): `name: { access: "x" }` and `name: { access: "x", stub: STUB_STAGE }`.
     fn node_routes() -> Vec<(String, String, bool)> {
-        let source = include_str!("../../../../../src/daemon.ts");
+        let source = include_str!("../../../../testdata/node/daemon.ts");
         let start = source
             .find("export const ROUTES")
             .expect("ROUTES in daemon.ts");
@@ -660,7 +660,7 @@ mod tests {
             })
             .collect();
         assert_eq!(rust, node, "ROUTES differs from src/daemon.ts");
-        assert!(include_str!("../../../../../src/daemon.ts")
+        assert!(include_str!("../../../../testdata/node/daemon.ts")
             .contains("const STUB_STAGE = \"Stage 2e\""));
         assert_eq!(STUB_STAGE, "Stage 2e");
     }

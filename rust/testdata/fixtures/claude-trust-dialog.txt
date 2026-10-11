@@ -1,0 +1,20 @@
+
+user in 🌐 host in probe-two on  probe/two on ☁️  (ap-south-1) on ☁️  user@example.com
+❯ claude
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /home/user/.herdr/worktrees/probe-repo-FQ8H/probe-two
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+ project, or work from your team). If not, take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel

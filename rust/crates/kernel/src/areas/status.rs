@@ -1502,7 +1502,7 @@ mod tests {
         let golden: Value = serde_json::from_str(
             &std::fs::read_to_string(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../../test/golden/legacy-status-inspect.json"),
+                    .join("../../testdata/golden/legacy-status-inspect.json"),
             )
             .unwrap(),
         )

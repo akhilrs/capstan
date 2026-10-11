@@ -1,6 +1,6 @@
 //! Every prompt variant of test/config-parity-export.ts (the prompts the Node tests build, the six golden prompts and a
 //! matrix of roles and flags) is built here and must equal Node's text byte for byte: same length and SHA-256, and for the
-//! golden ones the very bytes of test/fixtures/prompts-off.
+//! golden ones the very bytes of rust/testdata/fixtures/prompts-off.
 mod common;
 
 use std::collections::HashMap;
@@ -174,7 +174,7 @@ fn every_prompt_variant_equals_nodes_text() {
             (Ok(prompt), None) => {
                 if let Some(fixture) = text(want, "fixture") {
                     let golden = std::fs::read_to_string(format!(
-                        "{}/../../../test/fixtures/prompts-off/{fixture}.txt",
+                        "{}/../../testdata/fixtures/prompts-off/{fixture}.txt",
                         env!("CARGO_MANIFEST_DIR")
                     ))
                     .unwrap();

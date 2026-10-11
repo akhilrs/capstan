@@ -1,5 +1,5 @@
 //! Replays the loops sequences Node exported (tests/loops-parity/*.json, found at run time, written by
-//! test/loops-parity-export.ts from test/loops-sequences/*.json) through the Rust loops: the delivery driver, the
+//! the Node exporter test/loops-parity-export.ts, whose sources are frozen) through the Rust loops: the delivery driver, the
 //! supervision tick and the report relay, one scripted tick at a time against a seeded kernel, `StubDriverAdapter` and a
 //! scripted probe, notifier adapter and launcher. Everything the export records is compared: the adapter calls in order, the
 //! log events, the notification lines, the calls made on the core by method (so the Rust loops make exactly the calls Node
@@ -1022,30 +1022,6 @@ fn every_loops_sequence_replays() {
     }
     assert!(replayed >= 20, "only {replayed} sequences");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-#[test]
-fn every_sequence_file_has_a_parity_file() {
-    let root = common::repo_root();
-    let sources: Vec<String> = std::fs::read_dir(root.join("test").join("loops-sequences"))
-        .expect("test/loops-sequences exists")
-        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
-        .filter(|name| name.ends_with(".json"))
-        .map(|name| name.trim_end_matches(".json").to_string())
-        .collect();
-    let exported: Vec<String> = groups().into_iter().map(|(group, _)| group).collect();
-    for source in &sources {
-        assert!(
-            exported.contains(source),
-            "test/loops-sequences/{source}.json has no tests/loops-parity/{source}.json"
-        );
-    }
-    for group in &exported {
-        assert!(
-            sources.contains(group),
-            "tests/loops-parity/{group}.json has no source"
-        );
-    }
 }
 
 // ------------------------------------------------------------------------------------------------ shutdown

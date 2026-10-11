@@ -1,6 +1,6 @@
 //! `cstan daemon` against a real Herdr server in a throwaway session (`capstan-test-*`), driven the way a person drives it:
 //! a PM is launched, workers are spawned, replaced and released, mail is delivered, the PM is woken, the daemon is
-//! restarted through the Operator, and stopped. A stand-in for Claude Code (test/fixtures/fake-claude.py) draws the real
+//! restarted through the Operator, and stopped. A stand-in for Claude Code (rust/testdata/fixtures/fake-claude.py) draws the real
 //! screens, so no model runs. Nothing starts Node: the daemon is `cstan daemon` and the commands are the ones the Rust
 //! front end serves (see the harness, rust/crates/herdr/tests/common/live_env.rs).
 //!

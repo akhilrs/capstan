@@ -12,7 +12,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# scripts/check.sh is the single gate and needs no node. Each job runs one of its stages, so CI and a local run are the
+# scripts/check.sh is the single gate and needs no node. Every job runs it with CSTAN_NO_NODE=1, which takes node off
+# PATH (the runners ship node) and fails if it still resolves, so the jobs run without node. Each job runs one of its stages, so CI and a local run are the
 # same code; the jobs run in parallel. The release builds are not part of CI: the Release workflow builds and verifies
 # the real binaries on tags (a local run: scripts/check.sh release).
 jobs:
@@ -36,6 +37,8 @@ jobs:
           workspaces: rust
           shared-key: rust
       - run: scripts/check.sh rust
+        env:
+          CSTAN_NO_NODE: "1"
 
   dash:
     name: dash (fmt, clippy, test)
@@ -56,6 +59,8 @@ jobs:
           workspaces: dash
           shared-key: dash
       - run: scripts/check.sh dash
+        env:
+          CSTAN_NO_NODE: "1"
 
   tools:
     name: tools/release and scripts
@@ -76,6 +81,10 @@ jobs:
           shared-key: tools
       # cargo fmt, clippy -D warnings and cargo test for tools/release.
       - run: scripts/check.sh tools
+        env:
+          CSTAN_NO_NODE: "1"
       # smoke-binary.sh (skips without release binaries), the installer test, the release workflow and version
       # checks, and the test-map check.
       - run: scripts/check.sh scripts
+        env:
+          CSTAN_NO_NODE: "1"

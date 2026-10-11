@@ -11,12 +11,14 @@
 #   rust       fmt, clippy and test of the rust/ workspace
 #   dash       fmt, clippy and test of dash/
 #   tools      fmt, clippy and test of tools/release
-#   scripts    smoke-binary.sh, test-install.sh, check-release-workflow.sh, check-version.sh and the test-map check
+#   scripts    smoke-binary.sh, test-install.sh, check-release-workflow.sh, check-version.sh, test-check-version.sh,
+#              test-no-node-path.sh and the test-map check
 #   release    the release builds of cstan and cstan-dash (also run by "all" when CSTAN_RELEASE_BUILD=1; the Release
 #              workflow builds and verifies the real binaries on tags, so CI skips them)
 #   test-map   only the test-map check
 #   (--test-map is kept as an alias of test-map)
 # Environment: CSTAN_RELEASE_BUILD=1 (build the release binaries before the scripts stage so smoke-binary.sh runs on them),
+#   CSTAN_NO_NODE=1 (before any stage, drop node, npm, npx, corepack and tsc from PATH and fail if one still resolves),
 #   CARGO_TARGET_DIR (honoured by cargo; point it outside the checkout on a shared machine), CSTAN_CHECK_JOBS
 #   (cargo -j; cargo's own default when unset), CSTAN_LIVE=1.
 set -eu
@@ -112,6 +114,68 @@ case "$STAGE" in
 esac
 want() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
 
+# ------------------------------------------------------------------------------------------- CSTAN_NO_NODE=1: no node on PATH
+
+# A directory of PATH that holds node, nodejs, npm, npx, corepack or tsc is replaced by a scratch directory of symlinks to
+# every other executable in it (so git, sh, cc and the coreutils of /usr/bin stay reachable); the other directories stay as
+# they are. Then node, npm, npx and tsc must not resolve. The scratch mirror is removed on exit.
+NODE_TOOLS="node nodejs npm npx corepack tsc"
+NO_NODE_DIR=""
+no_node_cleanup() { [ -z "$NO_NODE_DIR" ] || rm -rf "$NO_NODE_DIR"; }
+
+no_node_path() {
+  NO_NODE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/capstan-check-nonode.XXXXXX")"
+  trap no_node_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  clean=""
+  n=0
+  old_ifs="$IFS"
+  IFS=:
+  for dir in $PATH; do
+    IFS="$old_ifs"
+    hit=0
+    # An empty entry is the working directory: kept (as ".") and not mirrored, so a node there fails the check below.
+    [ -n "$dir" ] || dir=.
+    if [ "$dir" != . ]; then
+      for tool in $NODE_TOOLS; do
+        if [ -x "$dir/$tool" ] && [ ! -d "$dir/$tool" ]; then hit=1; break; fi
+      done
+    fi
+    if [ "$hit" = 0 ]; then
+      clean="${clean:+$clean:}$dir"
+      continue
+    fi
+    n=$((n + 1))
+    mirror="$NO_NODE_DIR/$n"
+    mkdir "$mirror"
+    count=0
+    for f in "$dir"/*; do
+      [ -f "$f" ] && [ -x "$f" ] || continue
+      base="${f##*/}"
+      case " $NODE_TOOLS " in *" $base "*) continue ;; esac
+      ln -s "$f" "$mirror/$base"
+      count=$((count + 1))
+    done
+    echo "no-node: $dir -> $mirror ($count executables linked)"
+    clean="${clean:+$clean:}$mirror"
+  done
+  PATH="$clean"
+  export PATH
+  for tool in node npm npx tsc; do
+    found="$(command -v "$tool" 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+      echo "check: CSTAN_NO_NODE=1 but $tool still resolves ($found); it is not in a PATH directory the scrub could mirror" >&2
+      exit 1
+    fi
+  done
+  echo "no-node: PATH=$PATH"
+}
+
+if [ "${CSTAN_NO_NODE:-}" = "1" ]; then
+  no_node_path
+fi
+
 if [ "$STAGE" = test-map ]; then
   test_map_check
   exit $?
@@ -156,6 +220,15 @@ if want scripts; then
   sh "$ROOT/scripts/check-release-workflow.sh"
   step "check-version.sh"
   sh "$ROOT/scripts/check-version.sh"
+  step "test-check-version.sh"
+  # TODO(version): test-check-version.sh arrives with the version package; drop the guard once it is merged.
+  if [ -f "$ROOT/scripts/test-check-version.sh" ]; then
+    sh "$ROOT/scripts/test-check-version.sh"
+  else
+    echo "test-check-version.sh: not present yet (comes with the version package)"
+  fi
+  step "test-no-node-path.sh"
+  sh "$ROOT/scripts/test-no-node-path.sh"
 fi
 
 if [ "$STAGE" = all ]; then

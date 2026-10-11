@@ -58,9 +58,16 @@ pub fn read_json(path: &Path) -> Value {
 
 pub use capstan_kernel::export_file::unpack;
 
-/// A fixture of the repository's `test/fixtures` tree.
+/// A fixture of `rust/testdata/fixtures` (frozen copies of the Node test fixtures).
 pub fn fixture(relative: &str) -> Value {
-    read_json(&repo_root().join("test").join("fixtures").join(relative))
+    read_json(
+        &crate_dir()
+            .join("..")
+            .join("..")
+            .join("testdata")
+            .join("fixtures")
+            .join(relative),
+    )
 }
 
 /// A scratch directory private to the user (mode 0700), as the controller's state directory must be.

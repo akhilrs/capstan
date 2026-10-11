@@ -1,4 +1,4 @@
-//! Replays every sequence of test/launcher-sequences (exported from Node by test/launcher-parity-export.ts into
+//! Replays every sequence of the Node launcher sequences (frozen; exported by test/launcher-parity-export.ts into
 //! tests/parity) on the Rust launcher and compares each step: what it returned or refused with, the calls it made to
 //! Herdr, the git commands it ran, the log events it wrote, the state of git and the change in the ledger.
 //!

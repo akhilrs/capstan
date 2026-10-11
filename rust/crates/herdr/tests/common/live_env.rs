@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 //! The live-suite harness, shared by the live suites of the herdr, launcher, operator and daemon crates (each includes
 //! this file with `#[path]`): a throwaway Herdr server in a `capstan-test-*` session on a scratch HOME, a scratch project,
-//! the stand-in for Claude Code (test/fixtures/fake-claude.py) and `cstan daemon` running the project.
+//! the stand-in for Claude Code (rust/testdata/fixtures/fake-claude.py) and `cstan daemon` running the project.
 //!
 //! The rules the suites rely on:
 //! - Everything runs only with `CSTAN_LIVE=1`; without it (or without herdr, python3, git or a built `cstan`) a test says
@@ -343,7 +343,7 @@ impl Live {
                 return skip(&reason);
             }
         }
-        let fixtures = repository().join("test/fixtures");
+        let fixtures = repository().join("rust/testdata/fixtures");
         let root = std::fs::canonicalize(std::env::temp_dir())
             .unwrap()
             .join(format!("capstan-suites-live-{}", suffix()));

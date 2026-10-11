@@ -1,0 +1,5634 @@
+[
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "   spaced \t out \n text  ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): spaced out text"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): update"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "   ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): update"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "trailing punctuation, and, the.",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): trailing punctuation, and, the."
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Implement support for the and of in on",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): Implement support for the and of in on"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): café 😀café 😀café 😀café 😀café 😀café 😀café 😀café"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel): a-b-c; d: e! f? g& h+ i/ j( k[ l{"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "   spaced \t out \n text  ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: spaced out text"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: update"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "   ",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: update"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "trailing punctuation, and, the.",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: trailing punctuation, and, the."
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Implement support for the and of in on",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: Implement support for the and of in on"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: café 😀café 😀café 😀café 😀café 😀café 😀café 😀café"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(kernel)!: a-b-c; d: e! f? g& h+ i/ j( k[ l{"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "feat"
+    },
+    "max": 72,
+    "result": "feat!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel): word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "fix"
+    },
+    "max": 72,
+    "result": "fix!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "docs"
+    },
+    "max": 72,
+    "result": "docs!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(kernel)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope): word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e): word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "refactor"
+    },
+    "max": 72,
+    "result": "refactor!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "perf"
+    },
+    "max": 72,
+    "result": "perf!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "test"
+    },
+    "max": 72,
+    "result": "test!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "build"
+    },
+    "max": 72,
+    "result": "build!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel): word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel)!: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(bad-scope)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "ci"
+    },
+    "max": 72,
+    "result": "ci!: Rewrite the controller kernel in Rust with parity checks and of the"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "chore"
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "style"
+    },
+    "max": 72,
+    "result": "style!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(kernel)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope): word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e): word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "revert"
+    },
+    "max": 72,
+    "result": "revert!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": "other"
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel): Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel)!: word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "kernel",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(kernel)!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "Bad Scope!",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(bad-scope)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e): Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "a/b.c_d-e",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore(a/b.c_d-e)!: Rewrite the controller kernel in Rust with parity"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: add the thing"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": false,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "add the thing",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: add the thing"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: word word word word word word word word word word word word word"
+  },
+  {
+    "input": {
+      "breaking": true,
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the",
+      "scope": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "type": ""
+    },
+    "max": 72,
+    "result": "chore!: Rewrite the controller kernel in Rust with parity checks"
+  },
+  {
+    "input": {
+      "description": "add the thing0",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: add"
+  },
+  {
+    "input": {
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: xxxx"
+  },
+  {
+    "input": {
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 2",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: word"
+  },
+  {
+    "input": {
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the3",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: Rewr"
+  },
+  {
+    "input": {
+      "description": "   spaced \t out \n text  4",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: spac"
+  },
+  {
+    "input": {
+      "description": "5",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: 5"
+  },
+  {
+    "input": {
+      "description": "   6",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: 6"
+  },
+  {
+    "input": {
+      "description": "trailing punctuation, and, the.7",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: trai"
+  },
+  {
+    "input": {
+      "description": "Implement support for the and of in on8",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: Impl"
+  },
+  {
+    "input": {
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀9",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: café"
+  },
+  {
+    "input": {
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{10",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 10,
+    "result": "feat: a-b"
+  },
+  {
+    "input": {
+      "description": "add the thing0",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: add the thing0"
+  },
+  {
+    "input": {
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: xxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 2",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: word word word"
+  },
+  {
+    "input": {
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the3",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: Rewrite"
+  },
+  {
+    "input": {
+      "description": "   spaced \t out \n text  4",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: spaced out"
+  },
+  {
+    "input": {
+      "description": "5",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: 5"
+  },
+  {
+    "input": {
+      "description": "   6",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: 6"
+  },
+  {
+    "input": {
+      "description": "trailing punctuation, and, the.7",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: trailing"
+  },
+  {
+    "input": {
+      "description": "Implement support for the and of in on8",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: Implement"
+  },
+  {
+    "input": {
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀9",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: café 😀café"
+  },
+  {
+    "input": {
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{10",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 20,
+    "result": "feat: a-b-c; d: e"
+  },
+  {
+    "input": {
+      "description": "add the thing0",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): add the thing0"
+  },
+  {
+    "input": {
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): xxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 2",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): word word word"
+  },
+  {
+    "input": {
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the3",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): Rewrite"
+  },
+  {
+    "input": {
+      "description": "   spaced \t out \n text  4",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): spaced out text"
+  },
+  {
+    "input": {
+      "description": "5",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): 5"
+  },
+  {
+    "input": {
+      "description": "   6",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): 6"
+  },
+  {
+    "input": {
+      "description": "trailing punctuation, and, the.7",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): trailing"
+  },
+  {
+    "input": {
+      "description": "Implement support for the and of in on8",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): Implement"
+  },
+  {
+    "input": {
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀9",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): café 😀café"
+  },
+  {
+    "input": {
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{10",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 30,
+    "result": "feat(kernel): a-b-c; d: e! f"
+  },
+  {
+    "input": {
+      "description": "add the thing0",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): add the thing0"
+  },
+  {
+    "input": {
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "input": {
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 2",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): word word word word word word word"
+  },
+  {
+    "input": {
+      "description": "Rewrite the controller kernel in Rust with parity checks and of the3",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): Rewrite the controller kernel"
+  },
+  {
+    "input": {
+      "description": "   spaced \t out \n text  4",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): spaced out text 4"
+  },
+  {
+    "input": {
+      "description": "5",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): 5"
+  },
+  {
+    "input": {
+      "description": "   6",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): 6"
+  },
+  {
+    "input": {
+      "description": "trailing punctuation, and, the.7",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): trailing punctuation, and, the.7"
+  },
+  {
+    "input": {
+      "description": "Implement support for the and of in on8",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): Implement support"
+  },
+  {
+    "input": {
+      "description": "café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀café 😀9",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): café 😀café 😀café 😀café 😀café"
+  },
+  {
+    "input": {
+      "description": "a-b-c; d: e! f? g& h+ i/ j( k[ l{10",
+      "scope": "kernel",
+      "type": "feat"
+    },
+    "max": 50,
+    "result": "feat(kernel): a-b-c; d: e! f? g& h+ i/ j( k[ l{10"
+  }
+]

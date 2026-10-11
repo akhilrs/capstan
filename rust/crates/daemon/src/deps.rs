@@ -853,13 +853,8 @@ mod tests {
     }
 
     #[test]
-    fn the_api_files_cover_the_readme_list_of_node_methods() {
-        let readme = include_str!("../../../../test/daemon-scenarios/README.md");
-        let list = readme
-            .split("```api-coverage\n")
-            .nth(1)
-            .and_then(|rest| rest.split("```").next())
-            .expect("the api-coverage block");
+    fn the_api_files_cover_the_list_of_node_methods() {
+        let list = include_str!("../../../testdata/daemon-api-coverage.txt");
         let sources = [
             ("herdr", include_str!("../../herdr/src/api.rs")),
             ("launcher", include_str!("../../launcher/src/api.rs")),

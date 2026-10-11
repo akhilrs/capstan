@@ -1,6 +1,6 @@
 #!/bin/sh
 # Cuts a release locally: works out the next version from the Conventional Commits since the last v* tag, writes it into
-# VERSION, package.json and package-lock.json, prepends the CHANGELOG.md section, commits `chore(release): v<version>`
+# VERSION, prepends the CHANGELOG.md section, commits `chore(release): v<version>`
 # and creates the annotated tag v<version>. Nothing is built, pushed or published: pushing the tag starts
 # .github/workflows/release.yml, which builds the musl binaries and writes the GitHub release.
 #
@@ -98,29 +98,17 @@ if [ "$DRY_RUN" = 1 ]; then
   exit 0
 fi
 
-# bump_json <file>: sets the top-level "version" and packages[""].version, keeping the file byte for byte otherwise.
-bump_json() {
-  awk -v v="$VERSION" '
-    /^  "version": "/ { sub(/"version": "[^"]*"/, "\"version\": \"" v "\"") }
-    /^    "": \{/ { inroot = 1 }
-    inroot && /^      "version": "/ { sub(/"version": "[^"]*"/, "\"version\": \"" v "\""); inroot = 0 }
-    { print }
-  ' "$1" >"$1.release.tmp" && mv "$1.release.tmp" "$1"
-}
-
-FILES="VERSION package.json package-lock.json CHANGELOG.md"
+FILES="VERSION CHANGELOG.md"
 restore() {
   # shellcheck disable=SC2086
   git checkout -q HEAD -- $FILES 2>/dev/null || true
-  rm -f package.json.release.tmp package-lock.json.release.tmp CHANGELOG.md.release.tmp
+  rm -f CHANGELOG.md.release.tmp
 }
 trap 'restore' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 printf '%s\n' "$VERSION" >VERSION
-bump_json package.json
-bump_json package-lock.json
 {
   if [ -f CHANGELOG.md ]; then
     # Everything before the first "## " heading, then the new section, then the older sections.
@@ -133,7 +121,7 @@ bump_json package-lock.json
 } >CHANGELOG.md.release.tmp
 mv CHANGELOG.md.release.tmp CHANGELOG.md
 
-sh "$ROOT/scripts/check-version.sh" "$ROOT" >/dev/null || die "the bump left VERSION, package.json and package-lock.json out of step"
+sh "$ROOT/scripts/check-version.sh" "$ROOT" >/dev/null || die "the bump left VERSION and CHANGELOG.md out of step"
 
 if git add $FILES && git commit -q -m "chore(release): $TAG" && git tag -a "$TAG" -m "$TAG"; then
   trap - EXIT

@@ -1,0 +1,218 @@
+[
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-a",
+    "packageId": "a",
+    "result": {
+      "acceptance": ["a works"],
+      "dependsOn": [],
+      "estimateHours": null,
+      "interfaces": [],
+      "owns": ["src/a"],
+      "risks": [],
+      "title": "Package a"
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-b",
+    "packageId": "b",
+    "result": {
+      "acceptance": ["b works"],
+      "dependsOn": [],
+      "estimateHours": null,
+      "interfaces": [],
+      "owns": ["src/b"],
+      "risks": [],
+      "title": "Package b"
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-c",
+    "packageId": "c",
+    "result": {
+      "acceptance": ["c works"],
+      "dependsOn": [],
+      "estimateHours": null,
+      "interfaces": [],
+      "owns": ["src/c"],
+      "risks": [],
+      "title": "Package c"
+    }
+  },
+  {
+    "body": "{\"summary\":\"A plan\",\"packages\":[{\"id\":\"a\",\"title\":\"Package a\",\"owns\":[\"src/a\"],\"acceptance\":[\"a works\"],\"estimate_hours\":4,\"type\":\"feat\",\"scope\":\"x\",\"breaking\":true},{\"id\":\"b\",\"title\":\"Package b\",\"owns\":[\"src/b\"],\"acceptance\":[\"b works\"],\"estimate_hours\":4},{\"id\":\"c\",\"title\":\"Package c\",\"owns\":[\"src/c\"],\"acceptance\":[\"c works\"],\"estimate_hours\":4,\"type\":\"nope\"}]}",
+    "name": "body0-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-a",
+    "packageId": "a",
+    "result": {
+      "acceptance": [],
+      "dependsOn": [],
+      "estimateHours": null,
+      "interfaces": [],
+      "owns": [],
+      "risks": [],
+      "title": "a"
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-b",
+    "packageId": "b",
+    "result": {
+      "acceptance": [],
+      "dependsOn": ["a"],
+      "estimateHours": null,
+      "interfaces": [],
+      "owns": ["x"],
+      "risks": [],
+      "title": "b"
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-c",
+    "packageId": "c",
+    "result": {
+      "acceptance": ["ok"],
+      "dependsOn": [],
+      "estimateHours": 2.5,
+      "interfaces": ["i"],
+      "owns": [],
+      "risks": ["r"],
+      "title": "T"
+    }
+  },
+  {
+    "body": "{\"packages\":[{\"id\":\"a\"},null,3,{\"id\":\"b\",\"title\":5,\"owns\":[\"x\",2],\"dependsOn\":[\"a\"],\"estimateHours\":\"1\",\"type\":\"fix\",\"scope\":7,\"breaking\":\"true\"},{\"id\":\"c\",\"estimateHours\":2.5,\"title\":\"T\",\"interfaces\":[\"i\"],\"acceptance\":[\"ok\"],\"risks\":[\"r\"]}]}",
+    "name": "body1-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-a",
+    "packageId": "a",
+    "result": null
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-b",
+    "packageId": "b",
+    "result": null
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-c",
+    "packageId": "c",
+    "result": null
+  },
+  {
+    "body": "{\"packages\":\"no\"}",
+    "name": "body2-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "not json",
+    "name": "body3-a",
+    "packageId": "a",
+    "result": null
+  },
+  {
+    "body": "not json",
+    "name": "body3-b",
+    "packageId": "b",
+    "result": null
+  },
+  {
+    "body": "not json",
+    "name": "body3-c",
+    "packageId": "c",
+    "result": null
+  },
+  {
+    "body": "not json",
+    "name": "body3-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "null",
+    "name": "body4-a",
+    "packageId": "a",
+    "result": null
+  },
+  {
+    "body": "null",
+    "name": "body4-b",
+    "packageId": "b",
+    "result": null
+  },
+  {
+    "body": "null",
+    "name": "body4-c",
+    "packageId": "c",
+    "result": null
+  },
+  {
+    "body": "null",
+    "name": "body4-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "[]",
+    "name": "body5-a",
+    "packageId": "a",
+    "result": null
+  },
+  {
+    "body": "[]",
+    "name": "body5-b",
+    "packageId": "b",
+    "result": null
+  },
+  {
+    "body": "[]",
+    "name": "body5-c",
+    "packageId": "c",
+    "result": null
+  },
+  {
+    "body": "[]",
+    "name": "body5-zz",
+    "packageId": "zz",
+    "result": null
+  },
+  {
+    "body": "{}",
+    "name": "body6-a",
+    "packageId": "a",
+    "result": null
+  },
+  {
+    "body": "{}",
+    "name": "body6-b",
+    "packageId": "b",
+    "result": null
+  },
+  {
+    "body": "{}",
+    "name": "body6-c",
+    "packageId": "c",
+    "result": null
+  },
+  {
+    "body": "{}",
+    "name": "body6-zz",
+    "packageId": "zz",
+    "result": null
+  }
+]

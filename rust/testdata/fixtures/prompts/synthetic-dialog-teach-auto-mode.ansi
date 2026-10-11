@@ -1,0 +1,11 @@
+[0m[38;2;177;185;249m────────────────────────────────────────────────────────────[0m
+ [0m[1mTeach auto mode about your environment?[0m
+
+ [0mAuto mode can scan your setup to learn what is safe to run.
+
+ [0m[38;2;177;185;249m❯[0m How you use Claude here      [1mpersonal[0m
+   Also scan shell history       on
+   Also scan your other repos    off
+   Continue
+
+ [0m[38;2;153;153;153m←/→ to change · Enter to continue · Esc to cancel[0m
