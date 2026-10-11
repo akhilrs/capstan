@@ -5,6 +5,8 @@
 use crate::fixture::Fixture;
 
 const ROLL_BACK: &str = "
+  DROP TABLE cleanup_branches;
+  DROP TABLE cleanups;
   ALTER TABLE agent_panes DROP COLUMN terminal_id;
   ALTER TABLE orphan_panes DROP COLUMN terminal_id;
   ALTER TABLE agent_panes DROP COLUMN task_ref;
@@ -60,7 +62,7 @@ fn an_existing_ledger_that_lacks_0030_migrates_keeps_its_data_and_backfills_the_
         .collect();
     assert_eq!(
         versions,
-        (1..=37).collect::<Vec<i64>>(),
+        (1..=38).collect::<Vec<i64>>(),
         "every migration is recorded again"
     );
     let grants: Vec<String> = database

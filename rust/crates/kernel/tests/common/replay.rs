@@ -115,6 +115,14 @@ pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<
     }
 }
 
+/// The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
+/// their `schema_migrations` rows are left out of a dump.
+pub const NODE_LAST_MIGRATION: i64 = 37;
+
+/// Tables only the Rust build has. A dump leaves one out while it is empty; a non-empty one stays in, so a replay that
+/// writes rows there fails the comparison.
+pub const RUST_ONLY_TABLES: [&str; 2] = ["cleanups", "cleanup_branches"];
+
 /// Every table of the ledger that has rows, as the Node exporter dumps it (empty tables are left out).
 pub fn dump_tables(file: &Path) -> Value {
     let conn =
@@ -138,8 +146,13 @@ pub fn dump_tables(file: &Path) -> Value {
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
+        let only_node = if name == "schema_migrations" {
+            format!(" WHERE version <= {NODE_LAST_MIGRATION}")
+        } else {
+            String::new()
+        };
         let sql = format!(
-            "SELECT {} FROM {name} ORDER BY {}",
+            "SELECT {} FROM {name}{only_node} ORDER BY {}",
             columns.join(", "),
             order.join(", ")
         );
@@ -161,6 +174,7 @@ pub fn dump_tables(file: &Path) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .collect();
+        // Empty tables are left out, which is all it takes for a Rust-only table to vanish from a dump until it has rows.
         if !rows.is_empty() {
             out.insert(name, json!({"columns": columns, "rows": rows}));
         }

@@ -46,6 +46,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("release", Access::Any),
     ("replace", Access::Any),
     ("resolve", Access::Operator),
+    ("cleanup", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -67,6 +68,7 @@ fn access_of(command: &str) -> Access {
 fn client_timeout_ms(command: &str) -> u64 {
     match command {
         "wait" => WAIT_SECONDS * 1000,
+        "cleanup" => 120_000,
         "replace" => 1_800_000,
         "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" => 600_000,
         _ => capstan_wire::DEFAULT_TIMEOUT.as_millis() as u64,
@@ -254,6 +256,10 @@ fn handle_wire(
     let (stdout, stderr) = (&mut io.out, &mut io.err);
     if !json && (command == "inbox" || command == "wait") {
         text(stdout, &render::render_messages(result)?);
+    } else if !json && command == "cleanup" {
+        for line in render::cleanup_lines(result) {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
     } else {
         if !json && (command == "status" || command == "ping") {
             for line in render::controller_lines(result) {

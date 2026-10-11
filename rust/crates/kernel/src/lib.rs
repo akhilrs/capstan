@@ -5,6 +5,7 @@ pub mod areas;
 pub mod auth;
 pub mod bootstrap;
 pub mod canonical;
+pub mod cleanup;
 pub mod core;
 pub mod dispatch;
 pub mod env;

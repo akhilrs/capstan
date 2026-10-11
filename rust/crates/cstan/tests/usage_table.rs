@@ -251,3 +251,22 @@ fn the_man_page_renders_when_a_man_formatter_is_installed() {
         "groff warned about the page"
     );
 }
+
+#[test]
+fn cleanup_is_in_the_help_the_command_help_and_the_man_page() {
+    let (help, _, _) = run(&["help"]);
+    for syntax in [
+        "cleanup --dry-run",
+        "cleanup apply <cleanup-id> [<branch>...]",
+        "cleanup decline <cleanup-id>",
+    ] {
+        assert!(collapse(&help).contains(syntax), "{syntax}");
+    }
+    let (one, err, exit) = run(&["help", "cleanup"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert_eq!(one.matches("usage: cstan cleanup").count(), 4, "{one}");
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page)
+        .iter()
+        .any(|l| l == "cleanup apply <cleanup-id> [<branch>...]"));
+}

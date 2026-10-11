@@ -7,6 +7,14 @@ use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
+/// their `schema_migrations` rows are left out of a dump.
+pub const NODE_LAST_MIGRATION: i64 = 37;
+
+/// Tables only the Rust build has. A dump leaves one out while it is empty; a non-empty one stays in, so a replay that
+/// writes rows there fails the comparison.
+pub const RUST_ONLY_TABLES: [&str; 2] = ["cleanups", "cleanup_branches"];
+
 /// Every table of the ledger that has rows, `{table: {columns, rows}}`; empty tables are left out.
 pub fn dump_tables(file: &Path) -> Value {
     let conn =
@@ -30,8 +38,13 @@ pub fn dump_tables(file: &Path) -> Value {
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
+        let only_node = if name == "schema_migrations" {
+            format!(" WHERE version <= {NODE_LAST_MIGRATION}")
+        } else {
+            String::new()
+        };
         let sql = format!(
-            "SELECT {} FROM {name} ORDER BY {}",
+            "SELECT {} FROM {name}{only_node} ORDER BY {}",
             columns.join(", "),
             order.join(", ")
         );
@@ -53,6 +66,7 @@ pub fn dump_tables(file: &Path) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .collect();
+        // Empty tables are left out, which is all it takes for a Rust-only table to vanish from a dump until it has rows.
         if !rows.is_empty() {
             out.insert(name, json!({"columns": columns, "rows": rows}));
         }
@@ -185,5 +199,35 @@ mod tests {
         assert!(describe_tables_difference(&diff, &diff).is_none());
         let message = describe_tables_difference(&diff, &json!({})).unwrap();
         assert!(message.contains("table a"), "{message}");
+    }
+}
+
+#[cfg(test)]
+mod rust_only_tests {
+    use super::*;
+
+    /// The Rust build's migration 38 row and its empty Rust-only tables do not show in a dump; a cleanup row does.
+    #[test]
+    fn rust_only_ledger_parts_stay_out_of_the_dump_until_they_hold_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("ledger.sqlite");
+        let conn = rusqlite::Connection::open(&file).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations(version INTEGER, name TEXT, checksum TEXT, applied_at TEXT);
+             INSERT INTO schema_migrations VALUES (37, 'a', 'b', 'c'), (38, 'd', 'e', 'f');
+             CREATE TABLE cleanups(cleanup_id TEXT);
+             CREATE TABLE cleanup_branches(branch TEXT);",
+        )
+        .unwrap();
+        let dump = dump_tables(&file);
+        assert_eq!(dump["schema_migrations"]["rows"], json!([[37, "a", "b"]]));
+        for table in RUST_ONLY_TABLES {
+            assert!(dump.get(table).is_none(), "{table} is empty");
+        }
+        conn.execute("INSERT INTO cleanups VALUES ('c-1')", [])
+            .unwrap();
+        let dump = dump_tables(&file);
+        assert_eq!(dump["cleanups"]["rows"], json!([["c-1"]]));
+        assert!(dump.get("cleanup_branches").is_none());
     }
 }

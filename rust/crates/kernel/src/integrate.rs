@@ -622,6 +622,15 @@ impl MergeResult {
     }
 }
 
+/// One entry of `git worktree list`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Worktree {
+    pub path: PathBuf,
+    pub head: String,
+    pub branch: Option<String>,
+    pub is_main: bool,
+}
+
 /// A report the integration head already holds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CoveredReport {
@@ -1068,6 +1077,124 @@ impl GitRepo {
         Ok(Some(tip))
     }
 
+    /// The local branches (refs/heads only) and the commits they point at, sorted by name. Remote refs are never read.
+    pub fn local_branches(&self) -> IntegrateResult<Vec<(String, String)>> {
+        let (code, out) = self.text(
+            &[
+                "for-each-ref",
+                "--format=%(objectname) %(refname)",
+                "refs/heads",
+            ],
+            PLAIN,
+        )?;
+        if code != 0 {
+            return Err(git_error("git could not list the branches"));
+        }
+        let mut branches: Vec<(String, String)> = out
+            .lines()
+            .filter_map(|line| {
+                let (sha, name) = line.split_once(' ')?;
+                let branch = name.strip_prefix("refs/heads/")?;
+                is_full_sha(sha).then(|| (branch.to_string(), sha.to_string()))
+            })
+            .collect();
+        branches.sort();
+        Ok(branches)
+    }
+
+    /// The branch checked out in the project root, or `None` for a detached HEAD.
+    pub fn root_branch(&self) -> IntegrateResult<Option<String>> {
+        let (code, out) = self.text(&["symbolic-ref", "-q", "HEAD"], PLAIN)?;
+        if code == 1 {
+            return Ok(None);
+        }
+        if code != 0 {
+            return Err(git_error("git could not read HEAD"));
+        }
+        Ok(js_trim(&out)
+            .strip_prefix("refs/heads/")
+            .map(str::to_string))
+    }
+
+    /// The branch refs/remotes/origin/HEAD points at (the remote's default branch), if the repository has one.
+    pub fn origin_head_branch(&self) -> IntegrateResult<Option<String>> {
+        let (code, out) = self.text(&["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], PLAIN)?;
+        if code != 0 {
+            return Ok(None);
+        }
+        Ok(js_trim(&out)
+            .strip_prefix("refs/remotes/origin/")
+            .map(str::to_string))
+    }
+
+    /// The worktrees of the repository; the first one is the main checkout.
+    pub fn worktrees(&self) -> IntegrateResult<Vec<Worktree>> {
+        let (code, out) = self.text(&["worktree", "list", "--porcelain", "-z"], PLAIN)?;
+        if code != 0 {
+            return Err(git_error("git could not list the worktrees"));
+        }
+        let mut list: Vec<Worktree> = Vec::new();
+        for field in out.split('\0') {
+            if let Some(path) = field.strip_prefix("worktree ") {
+                list.push(Worktree {
+                    path: PathBuf::from(path),
+                    head: String::new(),
+                    branch: None,
+                    is_main: list.is_empty(),
+                });
+            } else if let Some(current) = list.last_mut() {
+                if let Some(head) = field.strip_prefix("HEAD ") {
+                    current.head = head.to_string();
+                } else if let Some(branch) = field.strip_prefix("branch refs/heads/") {
+                    current.branch = Some(branch.to_string());
+                }
+            }
+        }
+        Ok(list)
+    }
+
+    /// Whether the worktree has changes to tracked files or untracked files.
+    pub fn worktree_dirty(&self, path: &Path) -> IntegrateResult<bool> {
+        let mut repo = GitRepo::new(path);
+        repo.extra_env = self.extra_env.clone();
+        let (code, out) = repo.text(&["status", "--porcelain"], PLAIN)?;
+        if code != 0 {
+            return Err(git_error("git could not read the worktree status"));
+        }
+        Ok(!out.trim().is_empty())
+    }
+
+    /// Removes a worktree without `--force`; false when git refuses.
+    pub fn remove_worktree(&self, path: &Path) -> IntegrateResult<bool> {
+        let path = path.to_string_lossy();
+        Ok(self.run(&["worktree", "remove", "--", &path], WRITE)?.code == 0)
+    }
+
+    /// The best common ancestor of two commits, or `None` when they share none.
+    pub fn merge_base(&self, a: &str, b: &str) -> IntegrateResult<Option<String>> {
+        if !is_full_sha(a) || !is_full_sha(b) {
+            return Ok(None);
+        }
+        let (code, out) = self.text(&["merge-base", a, b], PLAIN)?;
+        let base = js_trim(&out).to_string();
+        Ok((code == 0 && is_full_sha(&base)).then_some(base))
+    }
+
+    /// Whether every path the commit changed since its merge base with HEAD has the same content in HEAD (a commit HEAD
+    /// already contains counts). `Err` when git cannot tell (output too large, no base); `Ok(false)` without a base.
+    pub fn content_in_head(&self, sha: &str) -> IntegrateResult<bool> {
+        let head = self.head_commit()?;
+        let Some(base) = self.merge_base(sha, &head)? else {
+            return Ok(false);
+        };
+        let own = self.changed_paths(&base, sha)?;
+        if own.is_empty() {
+            return Ok(true);
+        }
+        let drift = self.changed_paths(sha, &head)?;
+        Ok(own.iter().all(|path| !drift.contains(path)))
+    }
+
     /// Whether the commit is already part of the project's HEAD.
     pub fn is_in_head(&self, sha: &str) -> IntegrateResult<bool> {
         if !is_full_sha(sha) {
@@ -1350,6 +1477,11 @@ pub struct IntegrationState {
 impl IntegrationState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether an integration of this process is merging right now.
+    pub fn busy(&self) -> bool {
+        !self.in_flight.borrow().is_empty()
     }
 
     fn forget(&self, integration_id: &str) {

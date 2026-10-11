@@ -1,4 +1,4 @@
-//! The command layer: `ROUTES` (src/daemon.ts), the access classification, the unread-notice wrapper of src/commands.ts
+//! The command layer: `ROUTES` (rust/testdata/node/daemon.ts, the frozen copy of Node's daemon.ts, plus `RUST_ONLY_ROUTES`), the access classification, the unread-notice wrapper of src/commands.ts
 //! and `dispatch`, which takes an identified caller's request to the handler of its route. One `register` function per
 //! handler module fills the handler table; a module that is not ported yet registers stubs that answer `not_implemented`
 //! (`shared::unported`).
@@ -9,6 +9,7 @@
 //! (frame size, timeouts, half-close, drain) belongs to the server.
 
 pub mod agents;
+pub mod cleanup;
 pub mod env;
 pub mod findings;
 pub mod links;
@@ -92,7 +93,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 29] = [
+pub const ROUTES: [Route; 30] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -122,7 +123,11 @@ pub const ROUTES: [Route; 29] = [
     route("replace", Access::Any, "agents"),
     route("resolve", Access::Operator, "messages"),
     route("shutdown", Access::Operator, "agents"),
+    route("cleanup", Access::Any, "cleanup"),
 ];
+
+/// The routes that exist only in Rust: the frozen daemon.ts does not have them.
+pub const RUST_ONLY_ROUTES: [&str; 1] = ["cleanup"];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
 pub fn route_of(command: &str) -> Option<&'static Route> {
@@ -135,9 +140,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 10] = [
+pub const MODULES: [&str; 11] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator",
+    "operator", "cleanup",
 ];
 
 /// The table of handlers by command name.
@@ -169,6 +174,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     relay::register(&mut map);
     findings::register(&mut map);
     operator::register(&mut map);
+    cleanup::register(&mut map);
     map
 });
 
@@ -651,6 +657,7 @@ mod tests {
         let node = node_routes();
         let rust: Vec<(String, String, bool)> = ROUTES
             .iter()
+            .filter(|r| !RUST_ONLY_ROUTES.contains(&r.name))
             .map(|r| {
                 (
                     r.name.to_string(),
@@ -663,6 +670,14 @@ mod tests {
         assert!(include_str!("../../../../testdata/node/daemon.ts")
             .contains("const STUB_STAGE = \"Stage 2e\""));
         assert_eq!(STUB_STAGE, "Stage 2e");
+        let node_source = include_str!("../../../../testdata/node/daemon.ts");
+        for name in RUST_ONLY_ROUTES {
+            assert!(
+                !node_source.contains(&format!("{name}: {{ access")),
+                "{name} is in daemon.ts, so it is not Rust-only"
+            );
+            assert!(route_of(name).is_some(), "{name} is not in ROUTES");
+        }
     }
 
     #[test]
@@ -682,7 +697,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 10);
+        assert_eq!(MODULES.len(), 11);
     }
 
     #[test]

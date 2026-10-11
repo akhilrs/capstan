@@ -8,8 +8,9 @@ pub mod ledger;
 pub mod stub;
 
 use capstan_config::{
-    Architect, Host, Layout, Ledger, Limits, McpServer, Nexora, Notifications, Operator,
-    PromptRelay, PromptSource, Researcher, Role, RoleConfig, Supervision, Timers, Worktree,
+    Architect, Cleanup, CleanupWorktrees, Host, Layout, Ledger, Limits, McpServer, Nexora,
+    Notifications, Operator, PromptRelay, PromptSource, Researcher, Role, RoleConfig, Supervision,
+    Timers, Worktree,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -53,12 +54,36 @@ pub fn read_json(path: &Path) -> Value {
 /// Strings longer than this are recorded as their SHA-256 (prompts, seeds): their bytes are compared, not shown.
 const LONG_STRING: usize = 1500;
 
+/// The line of the PM prompt that describes `cstan cleanup`. Node's PM prompt does not have it, so the frozen sequences
+/// record the prompt without it; see `crates/config/tests/divergences/README.md`.
+const CLEANUP_PROMPT_LINE: &str = "- `cstan cleanup --dry-run`";
+
+const ESCAPED_NEWLINE: &str = "\\u000a";
+
+/// `text` without the `cstan cleanup` line of the PM prompt, also where the prompt sits inside a TOML string (Codex) and
+/// its newlines are the six characters `\u000a`.
+fn without_cleanup_line(text: &str) -> String {
+    let plain: String = text
+        .split_inclusive('\n')
+        .filter(|line| !line.starts_with(CLEANUP_PROMPT_LINE))
+        .collect();
+    match plain.find(CLEANUP_PROMPT_LINE) {
+        Some(at) if plain[..at].ends_with(ESCAPED_NEWLINE) => {
+            let end = plain[at..]
+                .find(ESCAPED_NEWLINE)
+                .map_or(plain.len(), |n| at + n + ESCAPED_NEWLINE.len());
+            format!("{}{}", &plain[..at], &plain[end..])
+        }
+        _ => plain,
+    }
+}
+
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
 /// a long string is its SHA-256 and byte length (`normal` of test/launcher-parity-export.ts).
 pub fn normal(value: &Value, scratch: &str) -> Value {
     match value {
         Value::String(text) => {
-            let text = text.replace(scratch, "<tmp>");
+            let text = without_cleanup_line(&text.replace(scratch, "<tmp>"));
             if text.encode_utf16().count() > LONG_STRING {
                 json!({"bytes": text.len(), "sha256": hex(&Sha256::digest(text.as_bytes()))})
             } else {
@@ -336,6 +361,14 @@ pub fn test_config(spec: &Value) -> RoleConfig {
                 teardown: text(w, "teardown"),
                 teardown_timeout_seconds: w.get("teardownTimeoutSeconds").and_then(Value::as_i64),
             }),
+        cleanup: Cleanup {
+            worktrees: if spec["cleanup"]["worktrees"] == "keep" {
+                CleanupWorktrees::Keep
+            } else {
+                CleanupWorktrees::Release
+            },
+            ..Cleanup::default()
+        },
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

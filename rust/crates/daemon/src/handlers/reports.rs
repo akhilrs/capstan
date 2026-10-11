@@ -449,6 +449,11 @@ thread_local! {
     static INTEGRATIONS: IntegrationState = IntegrationState::new();
 }
 
+/// Runs `f` with the integration state of the kernel thread (the cleanup needs to know whether one is running).
+pub(super) fn with_integration_state<R>(f: impl FnOnce(&IntegrationState) -> R) -> R {
+    INTEGRATIONS.with(f)
+}
+
 /// What the pipeline answered, and the log entries it wrote on the kernel thread (written once it is back).
 struct Integrated {
     result: Result<Value, IntegrateError>,
@@ -508,6 +513,7 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
     let root = env.deps.options.workspace_root.clone();
     let controller = env.deps.credential().to_string();
     let args = call.args.to_vec();
+    let integrator = requested_by.clone();
     let ran = env.deps.kernel.call(move |core| {
         let repo = GitRepo::new(root);
         let logs: RefCell<Vec<(String, Value)>> = RefCell::new(Vec::new());
@@ -542,7 +548,7 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
                     },
                 )
             } else {
-                integrate(&deps, &args, &requested_by)
+                integrate(&deps, &args, &integrator)
             }
         });
         Integrated {
@@ -564,12 +570,21 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
     Some(match integrated.result {
         Ok(result) if settling => {
             let record = &result["record"];
-            ok(json!({
+            let mut answer = json!({
                 "integrationId": field(record, "integrationId"),
                 "state": field(record, "state"),
                 "branch": field(record, "branch"),
                 "branchRemoved": field(&result, "branchRemoved"),
-            }))
+            });
+            // The settle above is committed; the cleanup is a second, separate step that can only add to the answer.
+            if first == "confirm" && record["state"] == "confirmed" {
+                if let Some(cleanup) =
+                    super::cleanup::after_confirm(env, &call.args[1], &requested_by)
+                {
+                    answer["cleanup"] = cleanup;
+                }
+            }
+            ok(answer)
         }
         Ok(record) => {
             let merged = record["state"] == "merged";

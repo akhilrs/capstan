@@ -56,6 +56,10 @@ fn version_help_and_usage_errors_exit_with_their_codes() {
         2,
         "daemon takes no arguments"
     );
+    assert!(w
+        .op(&["help"])
+        .stdout
+        .contains("cleanup decline <cleanup-id>"));
     // The help names the plan subcommands.
     assert!(w
         .op(&["help"])

@@ -260,6 +260,48 @@ pub struct Worktree {
     pub teardown_timeout_seconds: Option<i64>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CleanupBranches {
+    Auto,
+    #[default]
+    Ask,
+    Off,
+}
+
+impl CleanupBranches {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Ask => "ask",
+            Self::Off => "off",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CleanupWorktrees {
+    #[default]
+    Release,
+    Keep,
+}
+
+impl CleanupWorktrees {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Keep => "keep",
+        }
+    }
+}
+
+/// The `[cleanup]` section; an absent section is the default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cleanup {
+    pub branches: CleanupBranches,
+    pub worktrees: CleanupWorktrees,
+    pub include_unlanded: bool,
+}
+
 /// A resolved capstan.toml (`CapstanConfig`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoleConfig {
@@ -278,6 +320,7 @@ pub struct RoleConfig {
     pub ledger: Ledger,
     pub layout: Layout,
     pub worktree: Option<Worktree>,
+    pub cleanup: Cleanup,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

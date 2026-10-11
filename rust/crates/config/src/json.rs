@@ -3,7 +3,7 @@
 use capstan_wire::js::{self, JsStr, Value};
 use sha2::{Digest, Sha256};
 
-use crate::types::{Host, McpServer, PromptSource, Role, RoleConfig};
+use crate::types::{Cleanup, Host, McpServer, PromptSource, Role, RoleConfig};
 
 fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
@@ -302,6 +302,19 @@ impl RoleConfig {
                 ));
             }
             members.push(("worktree", object(tree)));
+        }
+        if self.cleanup != Cleanup::default() {
+            members.push((
+                "cleanup",
+                object(vec![
+                    ("branches", text(self.cleanup.branches.as_str())),
+                    ("worktrees", text(self.cleanup.worktrees.as_str())),
+                    (
+                        "includeUnlanded",
+                        Value::Bool(self.cleanup.include_unlanded),
+                    ),
+                ]),
+            ));
         }
         members.push(("env", object(vec![("pass", strings(&self.env_pass))])));
         members.push(("hosts", Value::Array(self.hosts.iter().map(host).collect())));

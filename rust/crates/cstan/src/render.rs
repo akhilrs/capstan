@@ -225,3 +225,125 @@ pub fn unread_notice(result: Option<&Value>, now_ms: f64) -> Option<String> {
         )),
     ))
 }
+
+fn text_of(value: Option<&Value>) -> Option<String> {
+    match value {
+        Some(Value::String(s)) => Some(s.to_utf8_lossy()),
+        _ => None,
+    }
+}
+
+fn items(value: Option<&Value>) -> &[Value] {
+    match value {
+        Some(Value::Array(items)) => items,
+        _ => &[],
+    }
+}
+
+/// One group of `cstan cleanup --dry-run`: a heading with the count, then each branch with its commit, worktree and reason.
+fn cleanup_group(lines: &mut Vec<String>, title: &str, entries: &[Value]) {
+    lines.push(format!("{title} ({})", entries.len()));
+    if entries.is_empty() {
+        lines.push("  none".to_string());
+    }
+    for entry in entries {
+        let get = |key: &str| text_of(entry.get(key));
+        lines.push(format!(
+            "  {} {}",
+            get("branch").unwrap_or_default(),
+            get("sha").unwrap_or_default()
+        ));
+        lines.push(format!(
+            "    worktree: {}",
+            get("worktree").unwrap_or_else(|| "-".to_string())
+        ));
+        lines.push(format!("    reason: {}", get("reason").unwrap_or_default()));
+    }
+}
+
+/// What `cstan cleanup` prints (without `--json`) for the daemon's answer: the dry-run groups, an offer, what an apply
+/// deleted and skipped with the commands that bring the branches back, or the decline.
+pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {
+    let Some(result) = result else {
+        return Vec::new();
+    };
+    let id = text_of(result.get("cleanupId"));
+    let mut lines = Vec::new();
+    if matches!(result.get("dryRun"), Some(Value::Bool(true))) {
+        cleanup_group(
+            &mut lines,
+            "Landed: merged and safe to delete",
+            items(result.get("landed")),
+        );
+        lines.push(String::new());
+        cleanup_group(
+            &mut lines,
+            "Unlanded: no confirmed integration holds them",
+            items(result.get("unlanded")),
+        );
+        lines.push(String::new());
+        cleanup_group(
+            &mut lines,
+            "Active or protected: never deleted",
+            items(result.get("protected")),
+        );
+        return lines;
+    }
+    match text_of(result.get("state")).as_deref() {
+        Some("declined") => {
+            lines.push(format!(
+                "cleanup {} declined; nothing was deleted",
+                id.unwrap_or_default()
+            ));
+        }
+        Some("applied") => {
+            lines.push(format!("cleanup {} applied", id.unwrap_or_default()));
+            for deleted in items(result.get("deleted")) {
+                lines.push(format!(
+                    "deleted {} {}",
+                    text_of(deleted.get("branch")).unwrap_or_default(),
+                    text_of(deleted.get("sha")).unwrap_or_default()
+                ));
+            }
+            for skipped in items(result.get("skipped")) {
+                lines.push(format!(
+                    "skipped {}: {}",
+                    text_of(skipped.get("branch")).unwrap_or_default(),
+                    text_of(skipped.get("reason")).unwrap_or_default()
+                ));
+            }
+            let restore = items(result.get("restore"));
+            if !restore.is_empty() {
+                lines.push("to bring a branch back:".to_string());
+                lines.extend(
+                    restore
+                        .iter()
+                        .map(|c| format!("  {}", text_of(Some(c)).unwrap_or_default())),
+                );
+            }
+        }
+        _ => match id {
+            None => lines.push("nothing to clean up".to_string()),
+            Some(id) => {
+                let entries = items(result.get("entries"));
+                lines.push(format!(
+                    "cleanup {id}: {} branch(es) offered; nothing is deleted yet",
+                    entries.len()
+                ));
+                for entry in entries {
+                    lines.push(format!(
+                        "  {} {} ({})",
+                        text_of(entry.get("branch")).unwrap_or_default(),
+                        text_of(entry.get("sha")).unwrap_or_default(),
+                        text_of(entry.get("class")).unwrap_or_default()
+                    ));
+                }
+                lines.push(format!(
+                    "apply the landed ones: cstan cleanup apply {id} [<branch>...]"
+                ));
+                lines.push(format!("decline: cstan cleanup decline {id}"));
+            }
+        },
+    }
+    lines
+}

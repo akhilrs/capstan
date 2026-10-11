@@ -22,3 +22,10 @@ Node's doubled line on standard error into `usage::hint(args)` before comparing.
 itself (every command of Node's line, kept in `tests/support/node-usage.txt`, is in the table; 80 columns; the man page).
 `help-extra-argument.json` is overlaid because `cstan help x` is now an unknown-command error (exit 2), where Node ignored
 the word and printed the usage with exit 0.
+
+## `cstan cleanup`
+
+`cleanup` is a Rust-only command (the daemon route is in `RUST_ONLY_ROUTES`), so no Node transcript holds it. It is in the
+command table, so `cstan help`, `cstan help cleanup` and `cstan help --man` list it. `tests/support/node-usage.txt` stays
+Node's recorded line (the replay turns that line into the current help), so it does not list `cleanup`;
+`tests/usage_table.rs` checks the new entries and the man page.

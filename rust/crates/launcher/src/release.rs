@@ -11,6 +11,7 @@ use crate::api::{
 };
 use crate::kernel::{Closed, LauncherKernel};
 use crate::shared::*;
+use capstan_config::CleanupWorktrees;
 use capstan_kernel::helpers::{one_line, strip_terminal_sequences};
 use serde_json::{json, Value};
 
@@ -484,6 +485,14 @@ impl LauncherKernel {
                     json!({"agentId": agent_id, "worktreePath": path}),
                 );
                 worktree_removed = Some(true);
+            } else if self.config.cleanup.worktrees == CleanupWorktrees::Keep {
+                // Kept on purpose: its own event, so it never reads as a failed removal. The row goes below as for any
+                // finished cleanup, or a restart would retry the teardown forever.
+                self.log(
+                    "worktree_kept_by_config",
+                    json!({"agentId": agent_id, "worktreePath": path, "reason": "config_keep"}),
+                );
+                return self.finish_kept(agent_id, pane_closed, info);
             } else {
                 self.teardown_worktree(agent_id, path, &budget);
                 self.log(
@@ -547,6 +556,26 @@ impl LauncherKernel {
             pane_closed,
             worktree_removed,
             branch_kept,
+        })
+    }
+
+    /// `worktrees = "keep"`: the pane is closed, the worktree and its branch stay, and the pane row is cleared.
+    fn finish_kept(
+        &self,
+        agent_id: &str,
+        pane_closed: Option<bool>,
+        info: &CleanupInfo,
+    ) -> OpResult<ReleaseOutcome> {
+        if let Err(error) = self.ledger.clear_agent_pane(agent_id) {
+            self.log(
+                "pane_row_not_cleared",
+                json!({"agentId": agent_id, "error": OpError::from(error).js_string()}),
+            );
+        }
+        Ok(ReleaseOutcome {
+            pane_closed,
+            worktree_removed: Some(false),
+            branch_kept: info.branch.as_ref().map(|_| true),
         })
     }
 

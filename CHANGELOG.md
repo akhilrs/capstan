@@ -2,6 +2,13 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## Unreleased
+
+### Features
+
+- **cleanup:** add `cstan cleanup` (`--dry-run`, `apply <cleanup-id> [<branch>...]`, `decline <cleanup-id>`) and a cleanup step after `cstan integrate confirm`: by `[cleanup] branches` the controller offers the landed branches to the PM in one ACTION NEEDED message (`ask`), deletes them and tells the PM (`auto`), or does nothing (`off`). Only the PM and the operator may call it; it is refused while the run is paused or an integration is running. The PM prompt asks you with a picker before anything is deleted.
+- **ledger:** the ledger schema moves to **38** (cleanup offers and their branches). Older binaries refuse a ledger at schema 38; to downgrade, restore the pre-migration backup of the ledger.
+
 ## 0.4.1 (2026-10-11)
 
 ### Features

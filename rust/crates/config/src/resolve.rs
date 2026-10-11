@@ -66,8 +66,15 @@ pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
 }
 
 fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
+    // `cleanup` is accepted but kept out of the list the refusal prints, which the frozen corpus pins.
+    let known = Table::from_members(
+        root.entries()
+            .filter(|(key, _)| *key != "cleanup")
+            .map(|(key, item)| (key.to_string(), item.clone()))
+            .collect(),
+    );
     reject_unknown_keys(
-        root,
+        &known,
         &[
             "schema_version",
             "project",
@@ -272,6 +279,8 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         }
     }
 
+    let cleanup = resolve_cleanup(optional_table(root.get("cleanup"), "cleanup")?)?;
+
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, &["pass"], "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
@@ -335,10 +344,50 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         ledger,
         layout,
         worktree,
+        cleanup,
         env_pass,
         hosts,
         roles,
         warnings,
+    })
+}
+
+fn cleanup_choice<'a>(table: &'a Table, key: &str, allowed: &[&str]) -> Result<Option<&'a str>> {
+    let at = format!("cleanup.{key}");
+    let Some(text) = optional_string(table.get(key), &at, 16)? else {
+        return Ok(None);
+    };
+    if allowed.contains(&text) {
+        Ok(Some(text))
+    } else {
+        invalid(format!("{at} must be one of {}", allowed.join(", ")))
+    }
+}
+
+fn resolve_cleanup(table: &Table) -> Result<Cleanup> {
+    reject_unknown_keys(
+        table,
+        &["branches", "worktrees", "include_unlanded"],
+        "cleanup",
+    )?;
+    let branches = match cleanup_choice(table, "branches", &["auto", "ask", "off"])? {
+        Some("auto") => CleanupBranches::Auto,
+        Some("off") => CleanupBranches::Off,
+        _ => CleanupBranches::Ask,
+    };
+    let worktrees = match cleanup_choice(table, "worktrees", &["release", "keep"])? {
+        Some("keep") => CleanupWorktrees::Keep,
+        _ => CleanupWorktrees::Release,
+    };
+    let include_unlanded = optional_boolean(
+        table.get("include_unlanded"),
+        "cleanup.include_unlanded",
+        false,
+    )?;
+    Ok(Cleanup {
+        branches,
+        worktrees,
+        include_unlanded,
     })
 }
 

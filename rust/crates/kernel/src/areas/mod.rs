@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod agents;
+pub mod cleanups;
 pub mod findings;
 pub mod integrations;
 pub mod links;
