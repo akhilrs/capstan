@@ -47,13 +47,13 @@
             <tr><td>pm-1</td><td class="is-muted">PM</td><td><span class="cap-state is-active">talking to you</span></td><td class="is-muted">main conversation</td></tr>
             <tr><td>architect-1</td><td class="is-muted">Architect</td><td><span class="cap-state">idle</span></td><td class="is-muted">plan accepted, 3 packages</td></tr>
             <tr data-agent="developer-2"><td>developer-2</td><td class="is-muted">Developer</td><td><span class="cap-state">reported</span></td><td>3f9c2e1 verified</td></tr>
-            <tr><td>designer-4</td><td class="is-muted">Designer</td><td><span class="cap-state">waiting for mail</span></td><td>capstan/designer-4-g1</td></tr>
+            <tr><td>designer-4</td><td class="is-muted">Designer</td><td><span class="cap-state">waiting for mail</span></td><td>chore/designer-4-pricing</td></tr>
             <tr data-agent="reviewer-3"><td>reviewer-3</td><td class="is-muted">Reviewer</td><td><span class="cap-state is-active">reviewing</span></td><td class="is-muted">at 3f9c2e1, answers once</td></tr>
             <tr><td>supervisor-1</td><td class="is-muted">Supervisor</td><td><span class="cap-state">watching</span></td><td class="is-muted">no open findings</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="cap-term__foot"><span>queue 2</span><span id="dash-verified">reports verified 4</span><span>integration branch capstan/integration/7 waits for review</span></div>
+      <div class="cap-term__foot"><span>queue 2</span><span id="dash-verified">reports verified 4</span><span>integration/7 waits for review</span></div>
     </div>
     <figcaption class="hero__caption">An example run in <code class="cap-inline">cstan dash</code>, the read-only terminal dashboard.</figcaption>
   </figure>
@@ -65,7 +65,7 @@
     </div>
     <div class="install-meta">
       <p class="cap-install__status" id="install-status" role="status" aria-live="polite" data-state="idle"></p>
-      <p class="install-meta__note">No sudo. Linux x64 and arm64 get a standalone binary; elsewhere it needs Node 24.6 or newer. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read install.sh</a></p>
+      <p class="install-meta__note">Linux x64 and arm64. No sudo, no Node.js: static <code class="cap-inline">cstan</code> and <code class="cap-inline">cstan-dash</code> binaries in <code class="cap-inline">~/.local/share/capstan</code>, linked from <code class="cap-inline">~/.local/bin</code>. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read install.sh</a></p>
     </div>
   </div>
 </div>
@@ -79,7 +79,7 @@
     <li><span class="cap-steps__title">You ask the PM</span><span class="cap-steps__text">It picks a tier. Small work goes straight to a developer; larger work goes to an Architect, who splits it into packages.</span></li>
     <li><span class="cap-steps__title">Workers build</span><span class="cap-steps__text">Each commits on its own branch, never pushes or merges, and runs <code class="cap-inline">cstan report</code> with a full commit id. The controller checks the commit is on that branch before the PM hears about it.</span></li>
     <li><span class="cap-steps__title">Reviews are independent</span><span class="cap-steps__text">A fresh reviewer starts at the reported commit and answers once. Findings go back to the developer, who amends and reports again.</span></li>
-    <li><span class="cap-steps__title">Integration is mechanical</span><span class="cap-steps__text">Reviewed reports are squashed onto <code class="cap-inline">capstan/integration/&lt;id&gt;</code> without touching your checkout. A conflict becomes a new task.</span></li>
+    <li><span class="cap-steps__title">Integration is mechanical</span><span class="cap-steps__text">Reviewed reports are squashed onto an <code class="cap-inline">integration/&lt;id&gt;</code> branch without touching your checkout. A conflict becomes a new task.</span></li>
     <li><span class="cap-steps__title">You merge</span><span class="cap-steps__text">Then <code class="cap-inline">cstan integrate confirm</code> tells the controller to clean up.</span></li>
   </ol>
 </section>
@@ -92,15 +92,57 @@
 <span class="cap-code__prompt">$ </span>cstan start
 <span class="cap-code__prompt">$ </span>cstan dash   <span class="cap-code__comment"># optional</span></pre>
   <div class="band__aside">
-    <p>You need git, Herdr for the panes and Claude Code for the PM.</p>
+    <p>You need Linux (x64 or arm64), git with a repository that has at least one commit, Herdr for the panes and Claude Code for the PM.</p>
     <p>Then switch to the PM's Herdr pane and say what you want built. <code class="cap-inline">cstan stop</code> shuts the controller down.</p>
-    <p><a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/docs/reference/install.md">Install reference</a></p>
+  </div>
+</section>
+
+<section class="band" id="install" aria-labelledby="install-title">
+  <div class="band__head">
+    <h2 id="install-title">Install options</h2>
+    <p class="band__intro">Re-running the installer upgrades in place. It checks both binaries against the release's <code class="cap-inline">SHA256SUMS</code>. Only Linux x64 and arm64 are published; macOS is not supported.</p>
+    <p class="band__intro">Coming from 0.3 or earlier, the Node.js releases? Remove any global npm install, then run the installer. <a class="cap-link" href="https://github.com/akhilrs/capstan#upgrading-from-03">Upgrading from 0.3</a></p>
+    <p class="band__intro"><a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/docs/reference/install.md">Install reference</a></p>
+  </div>
+<pre class="cap-code band__body"><span class="cap-code__comment"># pin a release (0.4.0 or newer)</span>
+<span class="cap-code__prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh \
+    | sh -s -- --version 0.4.1
+<span class="cap-code__comment"># skip the dashboard</span>
+<span class="cap-code__prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh \
+    | sh -s -- --no-dash
+<span class="cap-code__comment"># remove the install and the cstan link</span>
+<span class="cap-code__prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh \
+    | sh -s -- --uninstall</pre>
+</section>
+
+<section class="band" id="rust" aria-labelledby="rust-title">
+  <div class="band__head">
+    <h2 id="rust-title">Rust 0.4 against Node 0.3</h2>
+    <p class="band__intro">Since 0.4.0 Capstan is a Rust program. We measured the published 0.3.0 and 0.4.0 binaries side by side on one shared, busy VM, so treat the figures as rough.</p>
+  </div>
+  <div class="band__body">
+    <div class="cap-term">
+      <div class="cap-scroll" tabindex="0" role="region" aria-label="Benchmark figures, scrolls sideways on small screens">
+        <table class="cap-table">
+          <thead><tr><th scope="col">Measure</th><th scope="col">Node 0.3.0</th><th scope="col">Rust 0.4.0</th><th scope="col">Change</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Download</th><td class="is-muted">131.7 MB</td><td>10.0 MB</td><td>13 times smaller</td></tr>
+            <tr><th scope="row">One CLI call</th><td class="is-muted">182 to 185 ms</td><td>6 to 7 ms</td><td>27 to 30 times faster</td></tr>
+            <tr><th scope="row">Memory per CLI call</th><td class="is-muted">68 to 70 MB</td><td>1.3 to 2.5 MB</td><td>about 97% less</td></tr>
+            <tr><th scope="row">Idle daemon memory</th><td class="is-muted">73.2 MB</td><td>7.5 MB</td><td>90% less</td></tr>
+            <tr><th scope="row">Daemon start</th><td class="is-muted">404 ms</td><td>114 ms</td><td>3.5 times faster</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cap-term__foot"><span>medians of 3 interleaved rounds, Linux x64</span></div>
+    </div>
+    <p class="band__note">Idle daemon CPU was the same for both. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/docs/research/node-vs-rust-benchmark.md">Method and full results</a></p>
   </div>
 </section>
 </main>
 
 <footer class="site-foot">
-  <p>Capstan 0.1.1, pre-release, MIT licence</p>
+  <p>Capstan 0.4.1, MIT licence</p>
   <nav aria-label="Footer">
     <a class="cap-link" href="https://github.com/akhilrs/capstan/releases">Releases</a>
     <a class="cap-link" href="https://github.com/akhilrs/capstan">GitHub</a>

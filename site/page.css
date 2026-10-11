@@ -125,3 +125,17 @@ img { display: block; max-width: 100%; height: auto; }
   .site-nav .nav-optional { display: none; }
   .band { padding: var(--space-7) 0; }
 }
+
+/* Benchmark figures: row headers read like the cells beside them */
+.cap-table tbody th {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+  text-align: left;
+  font-size: inherit;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.band__note { margin: var(--space-3) 0 0; font-size: var(--text-code); color: var(--fg-muted); }

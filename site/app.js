@@ -95,7 +95,7 @@
   }
 
   dev[2].innerHTML = '<span class="cap-state is-active">working</span>';
-  dev[3].innerHTML = "capstan/developer-2-g1";
+  dev[3].innerHTML = "feat/PM-41-export-csv";
   rev[2].innerHTML = '<span class="cap-state">queued</span>';
   rev[3].innerHTML = "waits for a verified report";
   verified.textContent = "reports verified 3";
