@@ -2,6 +2,20 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.4.1 (2026-10-11)
+
+### Features
+
+- **config:** let the researcher role run in any permission mode (5f72ce5)
+
+### Documentation
+
+- **research:** benchmark Node v0.3.0 against Rust v0.4.0 (72b18a4)
+- **readme:** add 0.3 to 0.4 upgrade steps, fix installer sentence (d078fff)
+
+### Tests
+
+- **install:** make the foreign bin-dir case hermetic and assert (7dd6252)
 ## 0.4.0 (2026-10-10)
 
 ### Breaking changes
