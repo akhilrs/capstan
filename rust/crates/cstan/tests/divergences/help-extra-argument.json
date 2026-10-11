@@ -1,0 +1,11 @@
+{
+  "fixture": "local-transcripts/help-extra-argument.json",
+  "case": "help-extra-argument",
+  "reason": "cstan help <word> now shows the help of that command; a word that is not a command is a usage error with a short hint instead of the whole usage line",
+  "expected": {
+    "stdout": "",
+    "stderr": "cstan: unknown command: x\nrun `cstan help` for the list of commands\n",
+    "exit": 2,
+    "signal": null
+  }
+}

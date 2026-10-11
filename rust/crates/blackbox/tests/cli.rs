@@ -37,25 +37,30 @@ fn version_help_and_usage_errors_exit_with_their_codes() {
     for flag in ["help", "--help", "-h"] {
         let help = w.op(&[flag]).ok();
         assert!(
-            help.stdout.starts_with("usage: cstan init | cstan start"),
+            help.stdout.starts_with("cstan - ") && help.stdout.contains("\nSetup & daemon\n"),
             "{}",
             help.stdout
         );
     }
     let unknown = w.op(&["frobnicate"]);
     assert_eq!(unknown.code, 2, "{}", unknown.text());
-    assert!(unknown.stderr.contains("usage: cstan init"));
+    assert!(unknown.stderr.contains("unknown command: frobnicate"));
+    assert!(unknown.stderr.contains("run `cstan help`"));
+    assert!(
+        unknown.stderr.len() < 200,
+        "a short hint, not the command list"
+    );
     assert_eq!(w.op(&[]).code, 2, "no command is a usage error");
     assert_eq!(
         w.op(&["daemon", "now"]).code,
         2,
         "daemon takes no arguments"
     );
-    // The usage line names the plan subcommands.
+    // The help names the plan subcommands.
     assert!(w
         .op(&["help"])
         .stdout
-        .contains("cstan plan open normal|high-risk <title>"));
+        .contains("plan open normal|high-risk <title>"));
 }
 
 #[test]

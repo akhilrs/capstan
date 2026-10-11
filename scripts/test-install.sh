@@ -206,6 +206,43 @@ else
   check "the success text says to run cstan stop && cstan start" contains "$E/out" "cstan stop && cstan start"
 fi
 
+# --- 3b. the man page ------------------------------------------------------------
+# A cstan that prints a page for `help --man` gets it installed as <home>/current/share/man/man1/cstan.1 and linked into
+# the man directory; one that does not (the stand-ins above) installs without it and says so.
+if [ -n "$HOST_ARCH" ]; then
+  new_env man
+  make_release "$E/releases" "$VERSION"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  man_rel="$E/releases/download/v$VERSION"
+  printf '#!/bin/sh\n# cstan-%s-linux-%s\ncase "${1:-} ${2:-}" in "--version ") echo "cstan %s" ;; "help --man") printf "%%s\\n" ".TH CSTAN 1" ".SH NAME" "cstan \\- test" ;; *) echo ran ;; esac\n' "$VERSION" "$HOST_ARCH" "$VERSION" >"$man_rel/cstan-$VERSION-linux-$HOST_ARCH"
+  chmod 755 "$man_rel/cstan-$VERSION-linux-$HOST_ARCH"
+  (cd "$man_rel" && sha256sum cstan-* >SHA256SUMS)
+  if run_install --version "$VERSION" >"$E/out" 2>&1; then pass "install with a man page exits 0"; else fail "install with a man page exits 0"; cat "$E/out"; fi
+  MAN_LINK_PATH="$HOME/.local/share/man/man1/cstan.1"
+  check "the page is installed under current/share/man/man1" test -f "$CAPSTAN_HOME/current/share/man/man1/cstan.1"
+  check "the man dir links to it" sh -c 'test "$(readlink "$1")" = "$2/current/share/man/man1/cstan.1"' _ "$MAN_LINK_PATH" "$CAPSTAN_HOME"
+  check "the page is cstan help --man" grep -q '^\.TH CSTAN 1' "$MAN_LINK_PATH"
+  check "the success text names the man page" contains "$E/out" "man page:"
+  if command -v man >/dev/null 2>&1; then
+    check "man finds cstan on the man dir" sh -c 'MANPATH="$HOME/.local/share/man" man -w cstan | grep -q "cstan.1"'
+  else
+    echo "skip man lookup: man not installed"
+  fi
+  check "a re-run keeps the link" sh -c 'sh "$1" --version "$2" </dev/null >/dev/null 2>&1 && test -L "$3"' _ "$INSTALLER" "$VERSION" "$MAN_LINK_PATH"
+  check "--man-dir moves the link" sh -c 'sh "$1" --version "$2" --man-dir "$3" </dev/null >/dev/null 2>&1 && test -L "$3/cstan.1"' _ "$INSTALLER" "$VERSION" "$E/mandir"
+  rm -f "$MAN_LINK_PATH"
+  printf 'mine\n' >"$E/foreign.1"
+  mkdir -p "$E/foreign-man" && cp "$E/foreign.1" "$E/foreign-man/cstan.1"
+  check "a foreign cstan.1 is left alone" sh -c 'sh "$1" --version "$2" --man-dir "$3" </dev/null >/dev/null 2>&1 && test ! -L "$3/cstan.1" && grep -q mine "$3/cstan.1"' _ "$INSTALLER" "$VERSION" "$E/foreign-man"
+  check "uninstall removes the man link it made" sh -c 'sh "$1" --version "$2" </dev/null >/dev/null 2>&1 && test -L "$3" && sh "$1" --uninstall </dev/null >/dev/null 2>&1 && test ! -e "$3" && test ! -L "$3"' _ "$INSTALLER" "$VERSION" "$MAN_LINK_PATH"
+  new_env noman
+  make_release "$E/releases" "$VERSION"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  run_install --version "$VERSION" >"$E/out" 2>&1 || true
+  check "a cstan without a man page installs and warns" contains "$E/out" "does not print a man page"
+  check "no man link for it" test ! -e "$HOME/.local/share/man/man1/cstan.1"
+fi
+
 # --- 4. platform detection ---------------------------------------------------------
 for case_ in "x86_64:x64" "amd64:x64" "aarch64:arm64" "arm64:arm64"; do
   machine="${case_%%:*}"

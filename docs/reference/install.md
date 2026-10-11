@@ -46,7 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 | `--sha256 <hex>`       | `CAPSTAN_SHA256`       | Expected checksum of `cstan`. With `--binary` it can be the only verification; with a release it must also match `SHA256SUMS`.                                                                              |
 | `--home <dir>`         | `CAPSTAN_HOME`         | Install root. Default `${XDG_DATA_HOME:-$HOME/.local/share}/capstan`. Must be absolute.                                                                                                                     |
 | `--bin-dir <dir>`      | `CAPSTAN_BIN_DIR`      | Where the `cstan` symlink goes. Default `$HOME/.local/bin`. Must be absolute.                                                                                                                               |
-| `--uninstall`          | —                      | Remove the install and the bin symlink.                                                                                                                                                                     |
+| `--man-dir <dir>`      | `CAPSTAN_MAN_DIR`      | Where the `cstan.1` man page symlink goes. Default `${XDG_DATA_HOME:-$HOME/.local/share}/man/man1`. Must be absolute.                                                                                       |
+| `--uninstall`          | —                      | Remove the install, the bin symlink and the man page symlink.                                                                                                                                                                     |
 | `--help`               | —                      | Print the options.                                                                                                                                                                                          |
 | —                      | `CAPSTAN_RELEASE_BASE` | Replaces `https://github.com/akhilrs/capstan/releases`. For tests.                                                                                                                                          |
 
@@ -76,8 +77,12 @@ When the **latest** published release is below `0.4.0` the installer says the Ru
 $CAPSTAN_HOME/current/               the installed build
 $CAPSTAN_HOME/current/bin/cstan      the command and the controller daemon
 $CAPSTAN_HOME/current/bin/cstan-dash the dashboard
+$CAPSTAN_HOME/current/share/man/man1/cstan.1   the man page, written by the installed cstan
 $CAPSTAN_BIN_DIR/cstan               symlink to the entry point above
+$CAPSTAN_MAN_DIR/cstan.1             symlink to the man page (default ~/.local/share/man/man1)
 ```
+
+**The man page.** After the swap `man cstan` works: the installer runs the staged `cstan help --man`, which prints `cstan.1` from the same command table as `cstan help`, so the page and the help cannot disagree and always match the installed version. It links the page into the man directory, which `man` finds by itself when the bin directory is `~/.local/bin` (`~/.local/share/man` is then on its search path); otherwise add the parent of `--man-dir` to `MANPATH`. A `cstan.1` there that is not a symlink into the install is left alone, and a `cstan` that cannot print a page installs with a warning.
 
 The installer copies the verified files to `$CAPSTAN_HOME/staging.<pid>/bin/` (mode 755), runs the staged `cstan --version` and `cstan-dash --version`, and checks they print `cstan <version>` and `cstan-dash <version>` (and the pinned `--version`, when given). Only then does it swap the staging directory into `current` (`current` → `current.old` → removed). Two consequences:
 
@@ -114,7 +119,7 @@ The checksum comes from the same origin as the binaries, so it protects **integr
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --uninstall
 ```
 
-Removes `$CAPSTAN_HOME/current`, any staging directories and the bin symlink, the symlink only when it points into `$CAPSTAN_HOME`. A `cstan` link that points elsewhere is left alone. Running it twice is fine. It never touches your projects' `.capstan/` directories (ledger, operator key, config); delete those yourself. Stop controllers first with `cstan stop`.
+Removes `$CAPSTAN_HOME/current`, any staging directories, the bin symlink and the man page symlink, each symlink only when it points into `$CAPSTAN_HOME`. A `cstan` link that points elsewhere is left alone. Running it twice is fine. It never touches your projects' `.capstan/` directories (ledger, operator key, config); delete those yourself. Stop controllers first with `cstan stop`.
 
 ## Testing with local files
 

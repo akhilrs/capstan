@@ -242,7 +242,7 @@ Codex and OMP hosts can run Developer and Verifier roles; PM, Supervisor, Archit
 
 ## Command reference
 
-Run `cstan` with no arguments for the usage line. Every routed command accepts `--json`. Long text belongs in a quoted heredoc: `cstan send developer-1 "$(cat <<'EOF' ... EOF)"`.
+Run `cstan help` for every command, grouped, with its syntax; `cstan help <command>` (or `cstan <command> --help`) shows one command, and `man cstan` has the full manual (the installer links it; `cstan help --man` prints its source). A wrong command line prints only the syntax of that command. Every routed command accepts `--json`. Long text belongs in a quoted heredoc: `cstan send developer-1 "$(cat <<'EOF' ... EOF)"`.
 
 <details>
 <summary><b>Project and daemon</b> (you, from the project directory)</summary>

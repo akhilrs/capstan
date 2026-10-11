@@ -36,12 +36,12 @@ fn version_help_and_usage_errors_exit_as_the_node_cli_did() {
     );
     assert_eq!(version.status.code(), Some(0));
     let help = cstan(&["help"], &here, &[]);
-    assert_eq!(text(&help.stdout), format!("{}\n", cstan_front::USAGE));
+    assert_eq!(text(&help.stdout), cstan_front::usage::help_text());
     let usage = cstan(&["frobnicate"], &here, &[]);
     assert_eq!(usage.status.code(), Some(2));
     assert_eq!(
         text(&usage.stderr),
-        format!("{0}\ncstan: {0}\n", cstan_front::USAGE)
+        "cstan: unknown command: frobnicate\nrun `cstan help` for the list of commands\n"
     );
     let extra = cstan(&["daemon", "now"], &here, &[]);
     assert_eq!(extra.status.code(), Some(2));

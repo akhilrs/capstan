@@ -264,18 +264,14 @@ fn replay_in(
     let want = overlays
         .expected(&fixture, name)
         .unwrap_or_else(|| transcript.get("node").unwrap());
+    let want_out = rewrite_node_usage(&argv, string(want, "stdout"));
+    let want_err = rewrite_node_usage(&argv, string(want, "stderr"));
     let mut problems = Vec::new();
-    if string(want, "stdout") != got_out {
-        problems.push(format!(
-            "stdout {got_out:?}, want {:?}",
-            string(want, "stdout")
-        ));
+    if want_out != got_out {
+        problems.push(format!("stdout {got_out:?}, want {want_out:?}"));
     }
-    if string(want, "stderr") != got_err {
-        problems.push(format!(
-            "stderr {got_err:?}, want {:?}",
-            string(want, "stderr")
-        ));
+    if want_err != got_err {
+        problems.push(format!("stderr {got_err:?}, want {want_err:?}"));
     }
     let want_signal = want.get("signal").and_then(Value::as_str);
     if want_signal != observed.signal {

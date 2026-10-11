@@ -53,11 +53,14 @@ Options:
                         Default: ${XDG_DATA_HOME:-$HOME/.local/share}/capstan
   --bin-dir <dir>       Where the cstan symlink goes (env CAPSTAN_BIN_DIR).
                         Default: $HOME/.local/bin
-  --uninstall           Remove the install and the bin symlink.
+  --man-dir <dir>       Where the cstan.1 man page symlink goes (env CAPSTAN_MAN_DIR).
+                        Default: ${XDG_DATA_HOME:-$HOME/.local/share}/man/man1
+  --uninstall           Remove the install, the bin symlink and the man page symlink.
   --help                Show this help.
 
 A release lists cstan-<version>-linux-<x64|arm64> and cstan-dash-<version>-linux-<x64|arm64> in SHA256SUMS; both are
-downloaded and checked against it. The install is <home>/current/bin/{cstan,cstan-dash}.
+downloaded and checked against it. The install is <home>/current/bin/{cstan,cstan-dash} and, written by the installed
+cstan itself (`cstan help --man`), <home>/current/share/man/man1/cstan.1, so `man cstan` works.
 Re-running the installer upgrades, and replaces an install from an earlier layout (the Node binary, the front end with
 cstan-node, or the npm global prefix). Project .capstan/ directories are never touched.
 Environment: CAPSTAN_RELEASE_BASE overrides https://github.com/akhilrs/capstan/releases (tests).
@@ -95,11 +98,12 @@ parse_args() {
   SHA256="${CAPSTAN_SHA256:-}"
   HOME_DIR="${CAPSTAN_HOME:-}"
   BIN_DIR="${CAPSTAN_BIN_DIR:-}"
+  MAN_DIR="${CAPSTAN_MAN_DIR:-}"
   RELEASE_BASE="${CAPSTAN_RELEASE_BASE:-$REPO_URL/releases}"
   UNINSTALL=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --version | --binary | --dash-binary | --sha256 | --home | --bin-dir)
+      --version | --binary | --dash-binary | --sha256 | --home | --bin-dir | --man-dir)
         [ $# -ge 2 ] || die "$1 needs a value"
         case "$1" in
           --version) VERSION="$2" ;;
@@ -108,10 +112,11 @@ parse_args() {
           --sha256) SHA256="$2" ;;
           --home) HOME_DIR="$2" ;;
           --bin-dir) BIN_DIR="$2" ;;
+          --man-dir) MAN_DIR="$2" ;;
         esac
         shift 2
         ;;
-      --version=* | --binary=* | --dash-binary=* | --sha256=* | --home=* | --bin-dir=*)
+      --version=* | --binary=* | --dash-binary=* | --sha256=* | --home=* | --bin-dir=* | --man-dir=*)
         value="${1#*=}"
         case "$1" in
           --version=*) VERSION="$value" ;;
@@ -120,6 +125,7 @@ parse_args() {
           --sha256=*) SHA256="$value" ;;
           --home=*) HOME_DIR="$value" ;;
           --bin-dir=*) BIN_DIR="$value" ;;
+          --man-dir=*) MAN_DIR="$value" ;;
         esac
         shift
         ;;
@@ -149,17 +155,24 @@ parse_args() {
     [ -n "${HOME:-}" ] || die "HOME is not set; pass --bin-dir"
     BIN_DIR="$HOME/.local/bin"
   fi
+  if [ -z "$MAN_DIR" ]; then
+    [ -n "${XDG_DATA_HOME:-}" ] || [ -n "${HOME:-}" ] || die "HOME is not set; pass --man-dir"
+    MAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+  fi
   [ -z "$DASH_BINARY" ] || [ "$NO_DASH" = 0 ] || die "--dash-binary and --no-dash are exclusive"
   case "$HOME_DIR" in /*) ;; *) die "--home must be an absolute path: $HOME_DIR" ;; esac
   case "$BIN_DIR" in /*) ;; *) die "--bin-dir must be an absolute path: $BIN_DIR" ;; esac
+  case "$MAN_DIR" in /*) ;; *) die "--man-dir must be an absolute path: $MAN_DIR" ;; esac
   HOME_DIR="${HOME_DIR%/}"
   BIN_DIR="${BIN_DIR%/}"
-  if [ -z "$HOME_DIR" ] || [ -z "$BIN_DIR" ]; then
+  MAN_DIR="${MAN_DIR%/}"
+  if [ -z "$HOME_DIR" ] || [ -z "$BIN_DIR" ] || [ -z "$MAN_DIR" ]; then
     die "refusing to use / as an install directory"
   fi
   [ -z "$VERSION" ] || valid_version "$VERSION" || die "--version must be exactly x.y.z (digits only), got: $VERSION"
   case "$SHA256" in *[!0-9A-Fa-f]*) die "--sha256 must be hex" ;; esac
   BIN_LINK="$BIN_DIR/cstan"
+  MAN_LINK="$MAN_DIR/cstan.1"
   CURRENT="$HOME_DIR/current"
 }
 
@@ -432,6 +445,20 @@ stage_binaries() {
   fi
 }
 
+# Writes the man page of the staged cstan (it holds the page, generated from the same command table as `cstan help`)
+# into <staging>/share/man/man1/cstan.1. Sets MAN_FILE to it, or to nothing when this cstan cannot produce one.
+stage_man_page() {
+  MAN_FILE=""
+  mkdir -p "$STAGING/share/man/man1"
+  if "$STAGING/bin/cstan" help --man </dev/null >"$STAGING/share/man/man1/cstan.1" 2>/dev/null &&
+    grep -q '^\.TH CSTAN 1' "$STAGING/share/man/man1/cstan.1"; then
+    MAN_FILE="$STAGING/share/man/man1/cstan.1"
+  else
+    rm -rf "$STAGING/share"
+    warn "this cstan does not print a man page (cstan help --man); man cstan will not work."
+  fi
+}
+
 # Warns about processes still running from the install that is about to be replaced (a project's controller daemon
 # started by an earlier cstan keeps running its old files after the swap).
 warn_running_daemons() {
@@ -452,6 +479,30 @@ warn_running_daemons() {
   [ "$running" -gt 0 ] || return 0
   warn "$running process(es) of the previous install in $CURRENT are still running, most likely a project's controller daemon."
   say "  They keep running the old build. In each project, run: cstan stop && cstan start"
+}
+
+# Links <current>/share/man/man1/cstan.1 into MAN_DIR, which man finds on the default MANPATH for a bin dir of
+# ~/.local/bin. A cstan.1 there that is not a symlink into this install is left alone.
+link_man_page() {
+  [ -f "$CURRENT/share/man/man1/cstan.1" ] || return 0
+  if [ -L "$MAN_LINK" ]; then
+    man_target="$(readlink "$MAN_LINK")"
+    case "$man_target" in
+      "$HOME_DIR"/*) ;;
+      *)
+        warn "$MAN_LINK already exists and points to $man_target, outside $HOME_DIR; left alone."
+        return 0
+        ;;
+    esac
+  elif [ -e "$MAN_LINK" ]; then
+    warn "$MAN_LINK already exists and is not a symlink from a Capstan install; left alone."
+    return 0
+  fi
+  if mkdir -p "$MAN_DIR" 2>/dev/null && ln -sfn "$CURRENT/share/man/man1/cstan.1" "$MAN_LINK" 2>/dev/null; then
+    MAN_LINKED=1
+  else
+    warn "could not link the man page into $MAN_DIR."
+  fi
 }
 
 # Runs the staged cstan, checks its version and swaps it in as current.
@@ -492,6 +543,8 @@ activate_staged() {
 
   ln -sfn "$CURRENT/bin/cstan" "$BIN_LINK"
 
+  link_man_page
+
   final_out="$("$BIN_LINK" --version </dev/null 2>&1)" || die "installed cstan does not run: $final_out"
   [ "$final_out" = "cstan $VERSION" ] || die "installed cstan printed '$final_out', expected 'cstan $VERSION'."
 }
@@ -500,6 +553,13 @@ report_success() {
   say ""
   say "Installed cstan $VERSION"
   say "  command: $BIN_LINK -> $CURRENT/bin/cstan"
+  if [ "${MAN_LINKED:-0}" = 1 ]; then
+    say "  man page: $MAN_LINK -> $CURRENT/share/man/man1/cstan.1 (man cstan)"
+    case ":${MANPATH:-}:" in
+      "::") ;;
+      *) say "    If man cannot find it, add $(dirname "$MAN_DIR") to MANPATH." ;;
+    esac
+  fi
   if [ -n "$DASH_FILE" ]; then
     say "  dashboard: $CURRENT/bin/cstan-dash (cstan dash uses it)"
   fi
@@ -539,6 +599,16 @@ do_uninstall() {
   elif [ -e "$BIN_LINK" ]; then
     warn "$BIN_LINK is not a symlink from a Capstan install; left alone."
   fi
+  if [ -L "$MAN_LINK" ]; then
+    man_target="$(readlink "$MAN_LINK")"
+    case "$man_target" in
+      "$HOME_DIR"/*)
+        rm -f "$MAN_LINK"
+        say "Removed $MAN_LINK"
+        ;;
+      *) warn "$MAN_LINK points to $man_target, outside $HOME_DIR; left alone." ;;
+    esac
+  fi
   rm -rf "$CURRENT" "$HOME_DIR/current.old"
   for dir in "$HOME_DIR"/staging.*; do
     [ -e "$dir" ] && rm -rf "$dir"
@@ -565,6 +635,7 @@ main() {
   obtain_dash
   prepare_install
   stage_binaries
+  stage_man_page
   activate_staged
   report_success
 }

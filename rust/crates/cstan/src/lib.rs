@@ -22,8 +22,6 @@ use capstan_wire::js::{self, JsStr, Value};
 
 use jsops::{JsError, EXIT_BLOCKED, EXIT_INVALID, EXIT_RUNTIME};
 
-pub use usage::USAGE;
-
 /// What `cstan __front-version` prints, for the installer.
 pub const VERSION: &str = env!("CSTAN_FRONT_VERSION");
 
@@ -115,7 +113,7 @@ impl Io {
 /// Why a command ends in failure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fail {
-    /// `usage()`: the usage text, then the catch-all's `cstan: <usage>`, exit 2.
+    /// `usage()`: a short hint for the command the arguments start with (see `usage::hint`), exit 2.
     Usage,
     /// An error the catch-all words as `cstan: <message>`.
     Error(JsError),
@@ -182,7 +180,12 @@ pub fn run(context: &Context) -> Outcome {
         Ok(Flow::Watch(plan)) => Outcome::Watch { plan, stderr: err },
         Ok(Flow::Serve(serve)) => Outcome::Serve(serve),
         Err(Fail::Usage) => {
-            err.extend_from_slice(format!("{USAGE}\ncstan: {USAGE}\n").as_bytes());
+            let words: Vec<String> = context
+                .args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            err.extend_from_slice(usage::hint(&words).as_bytes());
             Outcome::Done {
                 stdout: out,
                 stderr: err,
@@ -293,7 +296,23 @@ impl Cli<'_> {
                 return Ok(Flow::Code(0));
             }
             "--help" | "-h" | "help" => {
-                self.io.out_line(USAGE);
+                return Ok(match usage::help_for(&rest, VERSION) {
+                    Ok(text) => {
+                        self.io.out.extend_from_slice(text.as_bytes());
+                        Flow::Code(0)
+                    }
+                    Err(hint) => {
+                        self.io.err.extend_from_slice(hint.as_bytes());
+                        Flow::Code(EXIT_USAGE)
+                    }
+                });
+            }
+            _ if matches!(rest.as_slice(), [flag] if flag == "--help" || flag == "-h")
+                && usage::command_help(command).is_some() =>
+            {
+                self.io
+                    .out
+                    .extend_from_slice(usage::command_help(command).unwrap_or_default().as_bytes());
                 return Ok(Flow::Code(0));
             }
             "__restart-helper" => return self.restart_helper(&rest),

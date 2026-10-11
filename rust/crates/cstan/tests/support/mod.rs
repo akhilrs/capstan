@@ -602,3 +602,35 @@ pub fn load_overlays() -> capstan_parity_overlay::Overlays {
     capstan_parity_overlay::load(&tests_dir().join("divergences"), &tests_dir(), &cases_of)
         .unwrap_or_else(|e| panic!("{e}"))
 }
+
+// -------------------------------------------------------------------------------------------------- usage text
+
+/// The usage line Node printed for `--help` and after every usage error, kept as the oracle of what the command table must
+/// still hold (see `usage_table.rs`).
+pub const NODE_USAGE: &str = include_str!("node-usage.txt");
+
+/// `NODE_USAGE` without its trailing newline.
+pub fn node_usage() -> &'static str {
+    NODE_USAGE.trim_end_matches('\n')
+}
+
+/// What a recorded Node expectation becomes now that `cstan help` is grouped and a usage error prints a short hint
+/// (`tests/divergences/README.md`): Node's usage line on standard output is the new help text, and Node's doubled usage
+/// line on standard error is the hint for the arguments of the run. The newline is `\n`, or `\r\n` for a run on a terminal.
+pub fn rewrite_node_usage(args: &[String], text: &str) -> String {
+    let usage = node_usage();
+    let mut text = text.to_string();
+    for newline in ["\n", "\r\n"] {
+        let doubled = format!("{usage}{newline}cstan: {usage}{newline}");
+        text = text.replace(
+            &doubled,
+            &cstan_front::usage::hint(args).replace('\n', newline),
+        );
+        let single = format!("{usage}{newline}");
+        text = text.replace(
+            &single,
+            &cstan_front::usage::help_text().replace('\n', newline),
+        );
+    }
+    text
+}

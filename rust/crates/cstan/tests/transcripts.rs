@@ -105,8 +105,8 @@ fn replay_in(
         return Ok(());
     };
     let (want_out, want_err, want_exit) = (
-        expected_string(want, "stdout", &root, VERSION),
-        expected_string(want, "stderr", &root, VERSION),
+        rewrite_node_usage(&args, &expected_string(want, "stdout", &root, VERSION)),
+        rewrite_node_usage(&args, &expected_string(want, "stderr", &root, VERSION)),
         want.get("exit").and_then(Value::as_i64).unwrap() as i32,
     );
     let want_request = transcript
