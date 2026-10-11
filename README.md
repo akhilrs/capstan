@@ -129,7 +129,7 @@ With none found, `cstan dash` prints `cstan: cstan-dash was not found; install i
 > [!NOTE]
 > `cstan-dash` binaries come from tagged releases, on the [Releases page](https://github.com/akhilrs/capstan/releases). CI runs on branches and pull requests do not publish them.
 
-Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
+To install a build of your own checkout instead (cstan, cstan-dash and the man page), run `sh scripts/install-local.sh` ([details](docs/reference/install.md#install-from-a-local-build)). Re-running the installer upgrades. Options, layout, checksum verification and troubleshooting: [Install reference](docs/reference/install.md).
 
 > [!NOTE]
 > The installer downloads a GitHub release. The binaries and `SHA256SUMS` are on the [Releases page](https://github.com/akhilrs/capstan/releases). To build from source, see [Development](#development).

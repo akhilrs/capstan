@@ -121,6 +121,18 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 Removes `$CAPSTAN_HOME/current`, any staging directories, the bin symlink and the man page symlink, each symlink only when it points into `$CAPSTAN_HOME`. A `cstan` link that points elsewhere is left alone. Running it twice is fine. It never touches your projects' `.capstan/` directories (ledger, operator key, config); delete those yourself. Stop controllers first with `cstan stop`.
 
+## Install from a local build
+
+From a checkout, one command builds `cstan` (the `rust/` workspace) and `cstan-dash` (`dash/`) with `cargo build --release --locked` and installs both, plus the man page, through `install.sh --binary/--sha256/--dash-binary`:
+
+```sh
+sh scripts/install-local.sh                                  # build, then install under ~/.local
+sh scripts/install-local.sh --home /tmp/cap --bin-dir /tmp/cap/bin --man-dir /tmp/cap/man/man1
+sh scripts/install-local.sh --uninstall                      # install.sh --uninstall, no build
+```
+
+Options: `--home`, `--bin-dir`, `--man-dir` and `--no-dash` go to `install.sh`; `--debug` builds the debug profile; `--help` lists them. It needs `cargo` (rustup) and prints the installed version, the paths and the `PATH` hint from `install.sh`. If a controller daemon looks like it is running it warns that the controller keeps the old binary until `cstan stop && cstan start`; nothing is stopped. The `cstan-dash` line warns that it is unverified: there is no `SHA256SUMS` beside a local build. `scripts/test-install.sh` covers it with `CAPSTAN_LOCAL_SKIP_BUILD=1` and `CAPSTAN_LOCAL_CSTAN`/`CAPSTAN_LOCAL_DASH` (prebuilt paths) so it needs no cargo build.
+
 ## Testing with local files
 
 `sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with a minimal `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-linux-<arch>`, `cstan-dash-<v>-linux-<arch>` and `SHA256SUMS`) to install that too.

@@ -151,6 +151,7 @@ installed_files() {
 
 # --- 1. syntax -----------------------------------------------------------------
 check "sh -n install.sh" sh -n "$INSTALLER"
+check "sh -n install-local.sh" sh -n "$ROOT/scripts/install-local.sh"
 check "sh -n test-install.sh" sh -n "$ROOT/scripts/test-install.sh"
 if command -v dash >/dev/null 2>&1; then
   check "dash -n install.sh" dash -n "$INSTALLER"
@@ -158,7 +159,7 @@ else
   echo "skip dash -n: dash not installed"
 fi
 if command -v shellcheck >/dev/null 2>&1; then
-  check_shellcheck "$INSTALLER" "$ROOT/scripts/test-install.sh"
+  check_shellcheck "$INSTALLER" "$ROOT/scripts/install-local.sh" "$ROOT/scripts/test-install.sh"
 else
   echo "skip shellcheck: not installed"
 fi
@@ -523,6 +524,37 @@ mkdir -p "$CAPSTAN_BIN_DIR" "$E/elsewhere"
 ln -s "$E/elsewhere" "$CAPSTAN_BIN_DIR/cstan"
 check "--uninstall with a foreign symlink exits 0" run_install --uninstall
 check "foreign cstan symlink is left alone" test -L "$CAPSTAN_BIN_DIR/cstan"
+
+# --- 10b. install-local.sh ---------------------------------------------------------------------------
+# A full cargo build is too slow here, so CAPSTAN_LOCAL_SKIP_BUILD=1 hands it the fabricated binaries (the cstan
+# stand-in must print a man page for `help --man`, like the real one).
+LOCAL="$ROOT/scripts/install-local.sh"
+new_env local
+mkdir -p "$E/built"
+printf '#!/bin/sh\ncase "${1:-}" in --version) echo "cstan 0.4.9" ;; help) printf ".TH CSTAN 1\\n" ;; *) echo ran ;; esac\n' >"$E/built/cstan"
+printf '#!/bin/sh\necho "cstan-dash 0.4.9"\n' >"$E/built/cstan-dash"
+chmod 755 "$E/built/cstan" "$E/built/cstan-dash"
+export CAPSTAN_LOCAL_SKIP_BUILD=1 CAPSTAN_LOCAL_CSTAN="$E/built/cstan" CAPSTAN_LOCAL_DASH="$E/built/cstan-dash"
+check "install-local.sh --help exits 0" sh "$LOCAL" --help
+check_not "install-local.sh refuses an unknown option" sh "$LOCAL" --bogus
+if sh "$LOCAL" --home "$E/lhome" --bin-dir "$E/lbin" --man-dir "$E/lman/man1" </dev/null >"$E/out" 2>&1; then
+  pass "install-local.sh exits 0"
+else
+  fail "install-local.sh exits 0"
+  cat "$E/out"
+fi
+check "install-local installs cstan under --home and --bin-dir" test "$("$E/lbin/cstan" --version 2>/dev/null)" = "cstan 0.4.9"
+check "install-local installs cstan-dash" test -x "$E/lhome/current/bin/cstan-dash"
+check "install-local links the man page under --man-dir" test -L "$E/lman/man1/cstan.1" -a -f "$E/lman/man1/cstan.1"
+check "install-local reports the installed version" contains "$E/out" "Local build installed: cstan 0.4.9"
+check "install-local.sh --uninstall exits 0" sh "$LOCAL" --uninstall --home "$E/lhome" --bin-dir "$E/lbin" --man-dir "$E/lman/man1"
+check_not "install-local uninstall removes the bin symlink" test -e "$E/lbin/cstan"
+check_not "install-local uninstall removes the man page link" test -e "$E/lman/man1/cstan.1" -o -L "$E/lman/man1/cstan.1"
+check_not "install-local uninstall removes current" test -e "$E/lhome/current"
+rm -rf "$E/lhome" "$E/lbin" "$E/lman"
+check "install-local.sh --no-dash installs cstan alone" sh "$LOCAL" --no-dash --home="$E/lhome" --bin-dir="$E/lbin" --man-dir="$E/lman/man1"
+check_not "--no-dash leaves out cstan-dash" test -e "$E/lhome/current/bin/cstan-dash"
+unset CAPSTAN_LOCAL_SKIP_BUILD CAPSTAN_LOCAL_CSTAN CAPSTAN_LOCAL_DASH
 
 # --- 11. a real release, when one is given ----------------------------------------------------------
 if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ] && [ -n "$HOST_ARCH" ]; then
