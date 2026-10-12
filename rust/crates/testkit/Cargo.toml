@@ -1,0 +1,15 @@
+[package]
+name = "capstan-testkit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Test-only helpers shared by the suites: stop what a test started in its scratch directory"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_testkit"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "=0.2.190"

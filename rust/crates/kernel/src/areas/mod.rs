@@ -4,6 +4,7 @@ pub mod actors;
 pub mod agents;
 pub mod cleanups;
 pub mod findings;
+pub mod id_prefix;
 pub mod integrations;
 pub mod links;
 pub mod message_notices;

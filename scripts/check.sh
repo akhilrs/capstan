@@ -1,6 +1,7 @@
 #!/bin/sh
 # The single gate. Needs no node, npm or python on PATH: cargo, git and a POSIX shell.
-#   - cargo fmt --check, clippy -D warnings and cargo test --locked for rust/ (the workspace), dash/ and tools/release
+#   - cargo fmt --check, clippy -D warnings and cargo test --locked for rust/ (the workspace), dash/ and tools/release; a test
+#     run that leaves a daemon of its own build alive fails (scripts/daemon-survivors.sh)
 #   - the release builds of cstan and cstan-dash, then scripts/smoke-binary.sh on them
 #   - scripts/test-install.sh, scripts/check-release-workflow.sh, scripts/check-version.sh
 #   - the live suites (a real Herdr, and a real Claude Code where a test needs one), only with CSTAN_LIVE=1
@@ -51,7 +52,9 @@ cargo_gate() (
   (cd "$ROOT/$dir" && cargo clippy $JOBS --all-targets --locked -- -D warnings)
   step "cargo test ($dir)"
   # shellcheck disable=SC2086
-  (cd "$ROOT/$dir" && cargo test $JOBS --locked)
+  # The tests start daemons; the run fails if one of them is still alive when it ends (scripts/daemon-survivors.sh).
+  "$ROOT/scripts/daemon-survivors.sh" check "${CARGO_TARGET_DIR:-$ROOT/$dir/target}" \
+    sh -c 'cd "$1" && shift && exec cargo test "$@"' sh "$ROOT/$dir" $JOBS --locked
 )
 
 # ---------------------------------------------------------------------------------------------------- the test-map check

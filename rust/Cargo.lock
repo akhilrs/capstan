@@ -79,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "capstan-daemon",
  "capstan-kernel",
+ "capstan-testkit",
  "getrandom 0.4.3",
  "libc",
  "rusqlite",
@@ -99,6 +100,7 @@ dependencies = [
 name = "capstan-client"
 version = "0.1.0"
 dependencies = [
+ "capstan-testkit",
  "capstan-wire",
  "libc",
  "tempfile",
@@ -131,6 +133,7 @@ dependencies = [
  "capstan-launcher",
  "capstan-ledger",
  "capstan-operator",
+ "capstan-testkit",
  "capstan-wire",
  "getrandom 0.4.3",
  "libc",
@@ -242,6 +245,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstan-testkit"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "capstan-wire"
 version = "0.1.0"
 
@@ -303,6 +313,7 @@ dependencies = [
  "capstan-launcher",
  "capstan-ledger",
  "capstan-parity-overlay",
+ "capstan-testkit",
  "capstan-wire",
  "libc",
  "regex",

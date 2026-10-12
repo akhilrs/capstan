@@ -1079,6 +1079,8 @@ impl Drop for World {
         if self.project.join(".capstan/state").is_dir() {
             let _ = self.cstan_at(&self.project, None, &["stop"]);
         }
+        // The backstop: whatever still runs in the scratch directory (a daemon that `cstan stop` could not reach) is killed.
+        capstan_testkit::kill_processes_in(&self.root);
         // A directory made private by a test must be writable again before it can go.
         let _ = Command::new("chmod")
             .args(["-R", "u+rwx"])

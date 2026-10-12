@@ -67,7 +67,7 @@ const AGENTS: [(&str, &str, &str); 5] = [
 ];
 
 struct World {
-    dir: tempfile::TempDir,
+    dir: common::PrivateDir,
     deps: Deps,
     credentials: HashMap<String, String>,
     heads: BTreeMap<String, String>,

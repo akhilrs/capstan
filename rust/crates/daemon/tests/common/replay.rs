@@ -272,7 +272,7 @@ fn apply_setup(
 // ------------------------------------------------------------------------------------------------ the scenario
 
 struct Scratch {
-    dir: tempfile::TempDir,
+    dir: super::PrivateDir,
     state: PathBuf,
     identity: Identity,
 }

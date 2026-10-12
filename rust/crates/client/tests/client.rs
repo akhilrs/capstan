@@ -13,6 +13,7 @@ const DAEMON: &str = env!("CARGO_BIN_EXE_client-test-daemon");
 const CREDENTIAL: &str = "operator-key";
 
 struct Project {
+    _reaper: capstan_testkit::Reaper, // dropped first: kills the daemon a failed test left detached
     dir: tempfile::TempDir,
 }
 
@@ -20,7 +21,10 @@ impl Project {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".capstan/state")).unwrap();
-        Self { dir }
+        Self {
+            _reaper: capstan_testkit::Reaper::new(dir.path()),
+            dir,
+        }
     }
     fn socket(&self) -> PathBuf {
         self.dir.path().join(".capstan/state/control.sock")

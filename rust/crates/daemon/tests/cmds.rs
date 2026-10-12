@@ -86,7 +86,7 @@ host = "claude"
 // ------------------------------------------------------------------------------------------------ the world
 
 struct World {
-    dir: tempfile::TempDir,
+    dir: common::PrivateDir,
     deps: Deps,
     credentials: HashMap<String, String>,
     heads: BTreeMap<String, String>,
@@ -1192,6 +1192,49 @@ fn request_review_spawns_a_reviewer_at_the_reported_commit() {
     );
     assert!(unknown.starts_with("unknown_reviewer_role:"), "{unknown}");
     world.refused("dev-1", "request-review", &[&report_id], "forbidden");
+}
+
+// ------------------------------------------------------------------------------------------------ id prefixes
+
+#[test]
+fn a_command_takes_a_unique_prefix_of_a_record_id() {
+    let launcher = Arc::new(StubLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    let mut ids = Vec::new();
+    for (agent, branch) in [("dev-1", "feat/dev-1"), ("dev-2", "feat/dev-2")] {
+        let sha = world.heads[branch].clone();
+        let report = world.ok(agent, "report", &[&sha, "One"]);
+        ids.push(report["reportId"].as_str().unwrap().to_string());
+    }
+    let (first, second) = (&ids[0], &ids[1]);
+    // (Ambiguity needs two ids with a shared prefix, which random ids do not give: the kernel test covers it.)
+    // Fewer than four characters is refused, whatever it would match; an unknown one fails as before.
+    let message = world.refused("pm-1", "request-review", &[&first[..3]], "invalid_request");
+    assert!(message.contains("too short"), "{message}");
+    let unknown = world.call("pm-1", "request-review", &["zzzzzz"]);
+    assert_ne!(unknown["code"], "invalid_request", "{unknown}");
+    // A unique prefix reaches the handler as the full id, and so does the full id.
+    launcher.script_spawn(SpawnResult {
+        state: "started".into(),
+        agent_id: "rev-1".into(),
+        pane_id: "w1:p1".into(),
+        worktree_path: "/tmp/work/rev-1".into(),
+        branch: "capstan/rev-1".into(),
+        placement: capstan_launcher::api::Placement::Tab,
+        placement_note: None,
+        hint: None,
+        missing_env: None,
+        warning: None,
+    });
+    let unique = &first[..8];
+    let requested = world.ok("pm-1", "request-review", &[unique]);
+    assert_eq!(requested["commit"], world.heads["feat/dev-1"]);
+    assert!(launcher
+        .calls()
+        .iter()
+        .any(|call| call.ends_with(first.as_str())));
+    let full = world.call("pm-1", "request-review", &[second]);
+    assert_ne!(full["code"], "invalid_request", "{full}");
 }
 
 // ------------------------------------------------------------------------------------------------ integration

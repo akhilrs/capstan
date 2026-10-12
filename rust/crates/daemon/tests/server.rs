@@ -114,7 +114,7 @@ fn register_agents(state: &Path, directory: &Path, identity: &Identity) -> HashM
 }
 
 struct Fixture {
-    _dir: tempfile::TempDir,
+    _dir: common::PrivateDir,
     deps: Deps,
     server: Option<DaemonServer>,
     socket: PathBuf,

@@ -439,7 +439,7 @@ fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<Stri
 // ------------------------------------------------------------------------------------------------ one sequence
 
 struct Scratch {
-    _dir: tempfile::TempDir,
+    _dir: common::PrivateDir,
     state: PathBuf,
     database: PathBuf,
 }

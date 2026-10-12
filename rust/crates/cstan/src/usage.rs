@@ -114,6 +114,8 @@ const INDENT: usize = 2;
 /// A syntax up to this long shares its line with the description; a longer one gets a line of its own.
 const SYNTAX_COLUMN: usize = 28;
 
+const ID_PREFIX_NOTE_MAN: &str = ".PP\nWhere a command takes the id of a report, review, integration, message, finding, relay, proposal, grant or cleanup, a unique prefix of at least four characters is enough, as in git. An ambiguous prefix is refused with the candidates listed. Agent, plan and package ids must be given in full.\n";
+
 const NAME_LINE: &str = "cstan - run a team of coding agents in a git repository";
 const SYNOPSIS_LINE: &str = "usage: cstan <command> [args]";
 
@@ -185,7 +187,7 @@ pub fn help_text() -> String {
             out.push_str(&listing_entry(entry));
         }
     }
-    out.push_str("\nRun `cstan help <command>` for one command, `cstan --version` for the version,\nand `man cstan` for the full manual.\n");
+    out.push_str("\nRecord ids may be given as a unique prefix of 4 or more characters.\nRun `cstan help <command>` for one command, `cstan --version` for the version,\nand `man cstan` for the full manual.\n");
     out
 }
 
@@ -307,6 +309,7 @@ pub fn man_page(version: &str) -> String {
     out.push_str(
         ".PP\n.B cstan help\nlists the commands;\n.B cstan help\n.I command\nshows one of them.\n",
     );
+    out.push_str(ID_PREFIX_NOTE_MAN);
     out.push_str(".SH COMMANDS\n");
     for group in groups() {
         out.push_str(&format!(".SS {}\n", roff(group).replace('&', "\\&&")));

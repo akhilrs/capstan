@@ -23,4 +23,5 @@ capstan-wire = { path = "../wire" }
 libc = "=0.2.190"
 
 [dev-dependencies]
+capstan-testkit = { path = "../testkit" }
 tempfile = "=3.27.0"

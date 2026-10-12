@@ -83,7 +83,7 @@ fn strict_mode_turns_pending_steps_into_failures() {
 }
 
 /// A project directory with a daemon holding its lock: the project files, and `cstan-daemon` waiting for the stop.
-fn holding_daemon() -> (tempfile::TempDir, Daemon) {
+fn holding_daemon() -> (common::PrivateDir, Daemon) {
     let dir = private_tempdir();
     let identity = Identity {
         project_id: "pholdlock".into(),

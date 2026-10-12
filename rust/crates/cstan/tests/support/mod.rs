@@ -70,6 +70,7 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
+        capstan_testkit::kill_processes_in(&self.0);
         // A directory made private by the layout must be made writable again before it can be removed.
         let _ = Command::new("chmod")
             .args(["-R", "u+rwx"])

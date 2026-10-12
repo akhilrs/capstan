@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 capstan-kernel = { path = "../kernel" }
 capstan-daemon = { path = "../daemon" }
+capstan-testkit = { path = "../testkit" }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 libc = "=0.2.190"
 getrandom = "=0.4.3"

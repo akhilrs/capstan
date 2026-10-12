@@ -43,8 +43,8 @@ host = "claude"
 const MB: u64 = 1 << 20;
 
 struct World {
-    dir: tempfile::TempDir,
-    cache_dir: tempfile::TempDir,
+    dir: common::PrivateDir,
+    cache_dir: common::PrivateDir,
     deps: Deps,
     credentials: HashMap<String, String>,
     logs: Arc<Mutex<Vec<LogEntry>>>,

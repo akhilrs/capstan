@@ -40,9 +40,25 @@ pub fn seeded_env(seed: &str) -> Box<SeededEnv> {
 }
 
 /// A scratch directory private to the user (mode 0700), as the controller's state directory must be.
-pub fn private_tempdir() -> tempfile::TempDir {
+pub fn private_tempdir() -> PrivateDir {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().expect("a scratch directory");
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    dir
+    PrivateDir {
+        _reaper: capstan_testkit::Reaper::new(dir.path()),
+        dir,
+    }
+}
+
+/// The scratch directory of [`private_tempdir`]; whatever still runs inside it (a daemon `ensure_daemon` detached) is killed
+/// before the directory goes, however the test ends.
+pub struct PrivateDir {
+    _reaper: capstan_testkit::Reaper, // dropped first
+    dir: tempfile::TempDir,
+}
+
+impl PrivateDir {
+    pub fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }

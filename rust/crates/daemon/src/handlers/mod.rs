@@ -13,6 +13,7 @@ pub mod cache;
 pub mod cleanup;
 pub mod env;
 pub mod findings;
+pub mod id_prefix;
 pub mod links;
 pub mod messages;
 pub mod operator;
@@ -335,7 +336,7 @@ pub fn dispatch_with(
             },
         ));
     }
-    let args: Vec<String> = match request.args {
+    let mut args: Vec<String> = match request.args {
         None => Vec::new(),
         Some(js::Value::Array(items)) if items.len() <= MAX_ARGS => {
             let mut args = Vec::with_capacity(items.len());
@@ -375,6 +376,9 @@ pub fn dispatch_with(
         on_limit(limit, command == "wait");
     }
     let env = CommandEnv::new(deps);
+    if let Err(refusal) = id_prefix::resolve_arguments(&env, command, &mut args) {
+        return counted(Some(refusal));
+    }
     let call = CommandCall {
         command,
         credential: request.credential,

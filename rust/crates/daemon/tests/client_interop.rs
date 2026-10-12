@@ -34,7 +34,7 @@ fn front_end() -> PathBuf {
 }
 
 struct Project {
-    dir: tempfile::TempDir,
+    dir: common::PrivateDir,
     socket: PathBuf,
     agents: HashMap<String, String>,
 }

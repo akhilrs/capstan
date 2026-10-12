@@ -4,6 +4,7 @@
 //! the kernel, with the database edited only where a Node test edited it (raw SQL on the closed ledger).
 
 mod fixture;
+mod id_prefix;
 mod prompt_relay_backfill;
 mod restart_summary;
 mod role_limit;

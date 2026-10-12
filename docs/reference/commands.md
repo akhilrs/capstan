@@ -4,6 +4,8 @@ Back to the [README](../../README.md).
 
 Checked against the `usage` string in `src/cli.ts` (run `cstan` with no arguments to print it), the `ROUTES` table in `src/daemon.ts` and the handlers in `src/commands.ts`. "Who" shows which credential the daemon accepts: operator (the key in `.capstan/`), agent (an agent's environment token), or either. Every routed command accepts `--json`.
 
+Record ids (reports, reviews, integrations, messages, findings, prompt relays, operator proposals and grants, cleanups, and what `inspect` reads) may be given as a unique prefix of at least four characters, as in git. The daemon resolves the prefix before the command runs: a unique one becomes the full id, an ambiguous one is refused with the candidates listed, one shorter than four characters is refused when it would have matched, and an unknown one fails as it always did. An exact id always wins. Agent ids, plan ids and package ids are matched exactly.
+
 ### Project and daemon (operator)
 
 | Command                                                     | Purpose                                                                                                                                                                                                                                                                                                 |

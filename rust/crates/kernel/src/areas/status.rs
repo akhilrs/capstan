@@ -10,7 +10,7 @@ use rusqlite::types::ValueRef;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{pauses, plan_packages};
+use super::{id_prefix, pauses, plan_packages};
 
 struct ReadyItem {
     state: String,
@@ -595,21 +595,34 @@ pub fn status_snapshot(kernel: &Kernel) -> KernelResult<Value> {
     }))
 }
 
-/// `inspect`: the first row any of the ledger's record tables holds under this id.
+/// The record tables `inspect` searches, in order: kind, table and id column.
+const INSPECT_TABLES: [(&str, &str, &str); 10] = [
+    ("work_item", "work_items", "work_item_id"),
+    ("assignment", "assignments", "assignment_id"),
+    ("candidate", "candidates", "candidate_id"),
+    ("finding", "findings", "finding_id"),
+    ("recovery", "recovery_attempts", "recovery_id"),
+    ("report", "agent_reports", "report_id"),
+    ("review", "reviews", "review_id"),
+    ("integration", "integrations", "integration_id"),
+    ("agent_finding", "agent_findings", "finding_id"),
+    ("prompt_relay", "prompt_relays", "relay_id"),
+];
+
+/// `inspect`: the first row any of the ledger's record tables holds under this id, or under the one id this is a
+/// prefix of.
 pub fn inspect(kernel: &Kernel, id: &str) -> KernelResult<Value> {
     kernel.assert_open()?;
-    for (kind, table, column) in [
-        ("work_item", "work_items", "work_item_id"),
-        ("assignment", "assignments", "assignment_id"),
-        ("candidate", "candidates", "candidate_id"),
-        ("finding", "findings", "finding_id"),
-        ("recovery", "recovery_attempts", "recovery_id"),
-        ("report", "agent_reports", "report_id"),
-        ("review", "reviews", "review_id"),
-        ("integration", "integrations", "integration_id"),
-        ("agent_finding", "agent_findings", "finding_id"),
-        ("prompt_relay", "prompt_relays", "relay_id"),
-    ] {
+    let targets: Vec<id_prefix::IdColumn> = INSPECT_TABLES
+        .iter()
+        .map(|(_, table, column)| (*table, *column))
+        .collect();
+    let id = &match id_prefix::resolve_id(kernel, &targets, id)? {
+        id_prefix::Resolved::Full(full) => full,
+        id_prefix::Resolved::Unchanged => id.to_string(),
+        other => return Err(KernelError::controller(id_prefix::refusal(id, &other))),
+    };
+    for (kind, table, column) in INSPECT_TABLES {
         let record = query_opt(
             &kernel.database,
             &format!("SELECT * FROM {table} WHERE project_id = ? AND {column} = ?"),
