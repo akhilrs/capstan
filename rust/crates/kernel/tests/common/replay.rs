@@ -61,8 +61,35 @@ fn clip(value: &Value) -> String {
     }
 }
 
-/// The first place two JSON values differ, with both sides.
+/// Fields and columns only the Rust build has (the frozen Node corpus predates them): message records carry `class`
+/// and the unread summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side, so the corpus
+/// replays unchanged; the Rust-only tests check them directly.
+fn without_rust_only(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let message_record = map.contains_key("messageId") && map.contains_key("actionNeeded");
+            let summary = map.contains_key("oldestQueuedAt") && map.contains_key("messageIds");
+            Value::Object(
+                map.iter()
+                    .filter(|(key, _)| {
+                        !(message_record && key.as_str() == "class"
+                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount"))
+                    })
+                    .map(|(key, v)| (key.clone(), without_rust_only(v)))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(without_rust_only).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The first place two JSON values differ, with both sides (Rust-only fields of the actual side are ignored).
 pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<String> {
+    difference(expected, &without_rust_only(actual), path)
+}
+
+fn difference(expected: &Value, actual: &Value, path: &str) -> Option<String> {
     if expected == actual {
         return None;
     }
@@ -72,7 +99,7 @@ pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<
                 let here = format!("{path}.{key}");
                 match (e.get(key), a.get(key)) {
                     (Some(x), Some(y)) => {
-                        if let Some(diff) = first_difference(x, y, &here) {
+                        if let Some(diff) = difference(x, y, &here) {
                             return Some(diff);
                         }
                     }
@@ -92,7 +119,7 @@ pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<
                 let here = format!("{path}[{i}]");
                 match (e.get(i), a.get(i)) {
                     (Some(x), Some(y)) => {
-                        if let Some(diff) = first_difference(x, y, &here) {
+                        if let Some(diff) = difference(x, y, &here) {
                             return Some(diff);
                         }
                     }
@@ -144,6 +171,7 @@ pub fn dump_tables(file: &Path) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
+            .filter(|c| !(name == "messages" && c == "class"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
         let only_node = if name == "schema_migrations" {
@@ -160,12 +188,21 @@ pub fn dump_tables(file: &Path) -> Value {
         let rows: Vec<Value> = statement
             .query_map([], |row| {
                 let mut values = Vec::new();
-                for i in 0..columns.len() {
+                for (i, column) in columns.iter().enumerate() {
                     values.push(match row.get_ref(i)? {
                         ValueRef::Null => Value::Null,
                         ValueRef::Integer(n) => Value::from(n),
                         ValueRef::Real(f) => capstan_kernel::plan_body::number_value(f),
-                        ValueRef::Text(t) => Value::String(String::from_utf8_lossy(t).into_owned()),
+                        ValueRef::Text(t) => {
+                            let text = String::from_utf8_lossy(t).into_owned();
+                            // A stored result holds message records, which carry the Rust-only `class`.
+                            Value::String(if column == "result_json" {
+                                text.replace("\"class\":\"action\",", "")
+                                    .replace("\"class\":\"info\",", "")
+                            } else {
+                                text
+                            })
+                        }
                         ValueRef::Blob(b) => json!({"$blob": capstan_kernel::canonical::hex(b)}),
                     });
                 }

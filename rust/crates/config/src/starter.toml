@@ -26,6 +26,15 @@ check_seconds = 300
 # confirm_checks = 3
 # start_grace_seconds = 120
 
+# Messages between agents are action (the default: the PM is woken) or info (progress notes, FYI; the PM
+# sees them in a digest). The defaults are shown; remove the leading # to change them.
+# [messages]
+# wake = "action"                  # "action": only action messages wake the PM; "all": every message does
+# send_default = "action"          # class of a cstan send without --info
+# info_wake_after_seconds = 600    # wake the PM for unread info after this long (0 = at once)
+# auto_ack_info = true             # the PM digest acknowledges the info it shows
+# [messages.notice_class]          # e.g. finding_resolved = "action"; kinds are listed in docs/reference/configuration.md
+
 # An optional Architect plans normal and high-risk work, runs integration and signs it off. The
 # user still merges to the main branch. While enabled = false, nothing about plans reaches an agent.
 # To use it, remove the leading # from this table and from [roles.architect] below. The role must

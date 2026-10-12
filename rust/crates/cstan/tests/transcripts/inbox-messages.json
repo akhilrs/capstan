@@ -26,7 +26,7 @@
       "text": "{\"ok\":true,\"result\":{\"count\":2,\"messages\":[{\"messageId\":\"m-1\",\"state\":\"sent\",\"from\":\"pm-1\",\"fromAgentId\":\"pm-1\",\"body\":\"do the thing\"},{\"messageId\":\"m-2\",\"state\":\"delivered\",\"from\":\"controller\",\"fromAgentId\":\"controller-7\",\"body\":\"Finding: line one\\nline two\",\"actionNeeded\":true}]}}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "2 message(s) to act on; ack each one with cstan ack <message-id>\n\nmessage m-1 [sent] from pm-1\ndo the thing\n\n[ACTION NEEDED]\nmessage m-2 [delivered] from controller (controller-7)\nFinding: line one\nline two\n",

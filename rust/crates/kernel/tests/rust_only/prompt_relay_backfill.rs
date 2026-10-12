@@ -4,7 +4,7 @@
 
 use crate::fixture::Fixture;
 
-// DELIBERATE PIN: this SQL undoes exactly migrations 30..=38 on a ledger built by the current runner. A later migration
+// DELIBERATE PIN: this SQL undoes exactly migrations 30..=40 on a ledger built by the current runner. A later migration
 // that adds schema must add its undo here; migrations that only create new tables use `IF NOT EXISTS` and need nothing.
 const ROLL_BACK: &str = "
   DROP TABLE cleanup_branches;
@@ -13,6 +13,9 @@ const ROLL_BACK: &str = "
   ALTER TABLE orphan_panes DROP COLUMN terminal_id;
   ALTER TABLE agent_panes DROP COLUMN task_ref;
   ALTER TABLE agent_panes DROP COLUMN task_title;
+  DROP TRIGGER messages_info_needs_no_action_insert;
+  DROP TRIGGER messages_info_needs_no_action_update;
+  ALTER TABLE messages DROP COLUMN class;
   ALTER TABLE messages DROP COLUMN action_needed;
   DROP TABLE pauses;
   DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';

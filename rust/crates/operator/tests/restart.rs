@@ -107,7 +107,7 @@ fn coordinator(project: &Project, binary: &Path, argv: Vec<String>) -> Coordinat
         health_timeout_seconds: 7,
         idle_wait_seconds: 0,
         busy: Box::new(move || b.lock().unwrap().clone()),
-        notify_pm: Box::new(move |body, _| n.lock().unwrap().push(body.to_string())),
+        notify_pm: Box::new(move |body, _, _| n.lock().unwrap().push(body.to_string())),
         request_stop: Box::new(move || {
             s.fetch_add(1, Ordering::SeqCst);
         }),
@@ -298,7 +298,7 @@ fn a_finished_restart_is_ingested_once() {
                 .push((id.into(), report.status.as_str().into(), ms));
             Ok(())
         }),
-        notify_pm: Box::new(move |body, action| n.lock().unwrap().push((body.into(), action))),
+        notify_pm: Box::new(move |body, action, _| n.lock().unwrap().push((body.into(), action))),
         now_ms: Some(Box::new(|| 1_767_225_600_000 + 5_000)),
         log: None,
     };

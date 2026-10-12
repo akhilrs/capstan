@@ -1,0 +1,36 @@
+{
+ "name": "wait-digest-timed-out-with-info",
+ "argv": [
+  "wait"
+ ],
+ "env": {
+  "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+  "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+  "CAPSTAN_AGENT_ID": "developer-1",
+  "TZ": "UTC"
+ },
+ "layout": {
+  "dirs": [
+   "proj/.capstan/state",
+   "proj/sub/deeper"
+  ],
+  "files": [],
+  "links": []
+ },
+ "cwd": "proj",
+ "now": 1791374400000,
+ "daemon": {
+  "socket": "$ROOT/proj/.capstan/state/control.sock",
+  "reply": {
+   "kind": "line",
+   "text": "{\"ok\":true,\"result\":{\"timedOut\":false,\"count\":0,\"actionNeededCount\":0,\"messages\":[],\"infoCount\":1,\"info\":[{\"messageId\":\"m-8\",\"state\":\"acked\",\"from\":\"pm\",\"fromAgentId\":\"pm\",\"body\":\"second\"}]}}"
+  }
+ },
+ "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"wait\",\"args\":[\"--digest\"]}",
+ "fallback": false,
+ "expected": {
+  "stdout": "no action messages\n\ninfo (1, acknowledged automatically)\nmessage m-8 from pm\nsecond\n",
+  "stderr": "",
+  "exit": 0
+ }
+}

@@ -26,7 +26,7 @@
       "text": "{\"ok\":true,\"result\":{\"count\":4,\"messages\":[{\"messageId\":5,\"state\":null,\"from\":[\"a\",null,\"b\"],\"body\":{\"x\":1}},{\"fromAgentId\":\"z\"},\"text\",7]}}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "4 message(s) to act on; ack each one with cstan ack <message-id>\n\nmessage 5 [] from a,,b ()\n[object Object]\n\nmessage  [] from  (z)\n\n\nmessage  [] from \n\n\nmessage  [] from \n\n",

@@ -5,6 +5,7 @@
 
 mod fixture;
 mod id_prefix;
+mod message_classes;
 mod prompt_relay_backfill;
 mod restart_summary;
 mod role_limit;

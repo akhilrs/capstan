@@ -373,8 +373,12 @@ impl RestartWatch {
 }
 
 /// `notifyPm`: a controller message to the active PM, or a log line when there is none.
-fn notify_pm(deps: &Deps, body: &str, action_needed: bool) {
-    let (credential, body) = (deps.credential().to_string(), body.to_string());
+fn notify_pm(deps: &Deps, body: &str, action_needed: bool, kind: &str) {
+    let (credential, body, kind) = (
+        deps.credential().to_string(),
+        body.to_string(),
+        kind.to_string(),
+    );
     let outcome = deps.kernel.run(move |core| {
         let agents = core.active_agents()?;
         let pm = agents
@@ -391,7 +395,7 @@ fn notify_pm(deps: &Deps, body: &str, action_needed: bool) {
         let context = new_context(core, &credential)?;
         core.enqueue_message(
             &context,
-            &json!({"recipientAgentId": pm, "body": body, "actionNeeded": action_needed}),
+            &json!({"recipientAgentId": pm, "body": body, "actionNeeded": action_needed, "kind": kind}),
         )?;
         Ok(true)
     });
@@ -448,7 +452,7 @@ fn ingest_restart_results(deps: &Deps, state_dir: &Path) {
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         }),
-        notify_pm: Box::new(move |body, action| notify_pm(&notify_deps, body, action)),
+        notify_pm: Box::new(move |body, action, kind| notify_pm(&notify_deps, body, action, kind)),
         now_ms: None,
         log: Some(Box::new(move |event, details| {
             log_deps.detail_log(event, details)
@@ -575,7 +579,7 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
             },
             notify_pm: {
                 let deps = deps.clone();
-                Box::new(move |body, action| notify_pm(&deps, body, action))
+                Box::new(move |body, action, kind| notify_pm(&deps, body, action, kind))
             },
             request_stop: {
                 let shutdown = deps.shutdown.clone();
@@ -604,7 +608,9 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
             restart: Some(Arc::clone(&coordinator) as Arc<dyn RestartCoordinator>),
             notify_pm: Some({
                 let deps = deps.clone();
-                Arc::new(move |body: &str, action: bool| notify_pm(&deps, body, action))
+                Arc::new(move |body: &str, action: bool, kind: &str| {
+                    notify_pm(&deps, body, action, kind)
+                })
             }),
             processes: None,
             monotonic_now: None,

@@ -152,6 +152,97 @@ pub struct Liveness {
     pub stall_child_max_seconds: i64,
 }
 
+/// Which messages wake the PM (`messages.wake`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WakePolicy {
+    Action,
+    All,
+}
+
+impl WakePolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WakePolicy::Action => "action",
+            WakePolicy::All => "all",
+        }
+    }
+}
+
+/// The class of a message (`messages.send_default`, `messages.notice_class`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageClassName {
+    Action,
+    Info,
+}
+
+impl MessageClassName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MessageClassName::Action => "action",
+            MessageClassName::Info => "info",
+        }
+    }
+}
+
+pub const DEFAULT_INFO_WAKE_AFTER_SECONDS: i64 = 600;
+pub const MAX_INFO_WAKE_AFTER_SECONDS: i64 = 604_800;
+
+/// Every notice kind of the system with whether `messages.notice_class` may change its class. The names and flags
+/// are those of the kernel's `NOTICE_KINDS`.
+pub const MESSAGE_NOTICE_KINDS: &[(&str, bool)] = &[
+    ("finding_raised", false),
+    ("finding_escalated", false),
+    ("finding_intervention", false),
+    ("finding_resolved", true),
+    ("finding_cancelled", true),
+    ("cleanup_offer", false),
+    ("cleanup_done", true),
+    ("report_verified", false),
+    ("review_request", false),
+    ("review_verdict", false),
+    ("plan_notice", false),
+    ("plan_review_failed", false),
+    ("work_package", false),
+    ("work_package_cancelled", false),
+    ("delivery_problem", false),
+    ("agent_stalled", false),
+    ("agent_blocked", false),
+    ("agent_lost", false),
+    ("input_blocked", false),
+    ("integration_conflict", false),
+    ("supervision_check", false),
+    ("pause_notice", true),
+    ("operator_proposal", false),
+    ("operator_proposal_update", true),
+    ("operator_grant_update", true),
+    ("operator_run_update", true),
+    ("restart_result", true),
+    ("operator_notice", true),
+    ("operator_message", false),
+];
+
+/// The `[messages]` table: how messages are classed and when info wakes the PM.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Messages {
+    pub wake: WakePolicy,
+    pub send_default: MessageClassName,
+    pub info_wake_after_seconds: i64,
+    pub auto_ack_info: bool,
+    pub notice_class: std::collections::BTreeMap<String, MessageClassName>,
+}
+
+impl Default for Messages {
+    fn default() -> Self {
+        Messages {
+            wake: WakePolicy::Action,
+            send_default: MessageClassName::Action,
+            info_wake_after_seconds: DEFAULT_INFO_WAKE_AFTER_SECONDS,
+            auto_ack_info: true,
+            notice_class: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Architect {
     pub enabled: bool,
@@ -325,6 +416,7 @@ pub struct RoleConfig {
     pub timers: Timers,
     pub supervision: Supervision,
     pub liveness: Liveness,
+    pub messages: Messages,
     pub architect: Architect,
     pub operator: Operator,
     pub researcher: Researcher,

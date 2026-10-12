@@ -79,8 +79,7 @@ pub fn claim_operator_run(
                     row.proposal_id, paused.reason
                 );
                 set_operator_state(kernel, &row, "cancelled", &now)?;
-                message_notices::notice_to_pm(
-                    kernel,
+                message_notices::notice_to_pm(kernel, "operator_run_update",
                     &format!("Operator proposal {} was approved automatically but not run: the run is paused ({}). It is cancelled; the Operator may propose it again after resume.", row.proposal_id, paused.reason),
                     &now,
                     false,
@@ -280,9 +279,16 @@ fn announce_run(kernel: &Kernel, record: &Value, now: &str) -> KernelResult<()> 
     }
     let body = run_result_notice(record, &record["run"])?;
     let proposer = record["proposerAgentId"].as_str().unwrap_or("");
-    let message_id = message_notices::notice_to_agent(kernel, proposer, &body, now, false)?;
+    let message_id = message_notices::notice_to_agent(
+        kernel,
+        "operator_run_update",
+        proposer,
+        &body,
+        now,
+        false,
+    )?;
     if !record["autoRule"].is_null() {
-        message_notices::notice_to_pm(kernel, &body, now, false)?;
+        message_notices::notice_to_pm(kernel, "operator_run_update", &body, now, false)?;
     }
     if let Some(message_id) = message_id {
         execute(

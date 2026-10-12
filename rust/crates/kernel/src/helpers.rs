@@ -294,12 +294,15 @@ pub fn safe_text(
     Ok(text.to_string())
 }
 
+const POLICY_NAMES: [&str; 3] = ["pmWakeClass", "infoWakeAfterSeconds", "noticeClass"];
+
 pub fn assert_timers(timers: &Value) -> KernelResult<()> {
     let Some(map) = timers.as_object() else {
         return Err(KernelError::type_error("timers must be an object"));
     };
     for name in map.keys() {
-        if !TIMER_NAMES.contains(&name.as_str()) {
+        // The message policy travels in the timers value but is not a timer (`MessagePolicy::from_value`).
+        if !TIMER_NAMES.contains(&name.as_str()) && !POLICY_NAMES.contains(&name.as_str()) {
             return Err(KernelError::type_error(format!("unknown timer {name}")));
         }
     }
@@ -506,6 +509,7 @@ pub fn message_record(row: &MessageRow) -> MessageRecord {
         notified_at: row.notified_at.clone(),
         last_notified_at: row.last_notified_at.clone(),
         action_needed: row.action_needed == 1,
+        class: row.class.clone(),
     }
 }
 

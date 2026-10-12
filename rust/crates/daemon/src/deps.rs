@@ -691,6 +691,14 @@ pub fn startup_sequence(deps: &Deps) {
         Err(error) => deps.detail_log("stale_wait_not_closed", json!({"error": error.to_string()})),
     }
     if let Some(config) = &deps.options.capstan {
+        // The message policy: which messages wake the PM and the class of each notice kind.
+        let policy = crate::loops::timers_value(config);
+        if let Err(error) = deps.kernel.run(move |core| {
+            core.set_message_policy(&policy);
+            Ok(())
+        }) {
+            deps.detail_log("message_policy_failed", json!({"error": error.to_string()}));
+        }
         let relay = json!({
             "enabled": config.prompt_relay.enabled,
             "captureTtlSeconds": config.prompt_relay.capture_ttl_seconds,

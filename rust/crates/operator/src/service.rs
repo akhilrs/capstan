@@ -404,7 +404,7 @@ impl ProcessOperations for RealProcesses {
 }
 
 pub type Environment = Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
-pub type PmNotice = Arc<dyn Fn(&str, bool) + Send + Sync>;
+pub type PmNotice = Arc<dyn Fn(&str, bool, &str) + Send + Sync>;
 pub type EventSink = Arc<dyn Fn(&str, Value) + Send + Sync>;
 pub type Runner = Arc<dyn Fn(RunOptions) -> RunResult + Send + Sync>;
 
@@ -932,6 +932,7 @@ impl OperatorService for ProcessOperatorService {
                         record["proposalId"].as_str().unwrap_or_default()
                     ),
                     true,
+                    "operator_notice",
                 );
             }
         }

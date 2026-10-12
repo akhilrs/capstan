@@ -26,7 +26,7 @@
       "text": "{\"ok\":true}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "",

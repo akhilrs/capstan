@@ -35,6 +35,7 @@ cstan dash            # watch the team (optional)
 | `[cleanup]` | `branches`, `worktrees`, `include_unlanded` | Optional. `branches` is `"auto"`, `"ask"` or `"off"` (default `"ask"`). `worktrees` is `"release"` or `"keep"` (default `"release"`). `include_unlanded` is true or false (default false). See [Cleanup](#cleanup). |
 | `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `[liveness]` | `enabled`, `check_seconds`, `confirm_checks`, `start_grace_seconds` | Optional. See [Liveness](#liveness). |
+| `[messages]` | `wake`, `send_default`, `info_wake_after_seconds`, `auto_ack_info`, `notice_class` | Optional. How messages are classed and when info wakes the PM. See [Messages](#messages). |
 | `[defaults]`, `[defaults.PM]`, `.Supervisor`, `.Developer`, `.Verifier` | `model`, `permission_mode`                                                                                                                                                                                                                                             | Used when a role sets none. `permission_mode` is one of `default`, `acceptEdits`, `plan`, `auto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `[cache]` | `presets`, `detect`, `root`, `scope`, `max_size_gb`, `max_age_days`, `rust`, `python`, `node`, `go`, `entries`, `setup_reuse` | Optional. Shared tool caches for agents. See [Cache](#cache). |
 | `[env]`                                                                 | `pass`                                                                                                                                                                                                                                                                 | Extra environment variable names copied from where the daemon started into every agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -69,6 +70,60 @@ The starter file defines these roles: `pm` (PM), `developer` and `designer` (Dev
 | `stall_child_max_seconds` | `3600` | 60 to 86400 | The longest a running tool process (a build or test run) keeps a silent agent from being reported as stalled. After that the stall notice is raised, and the daemon log records how many minutes the process has run. |
 
 The last two keys guard against false positives: a session that is slow to answer, or still starting, is not declared dead. A value out of range is a configuration error that names the key.
+
+### Messages
+
+`[messages]` controls how messages between agents are classed and when an info message wakes the PM. Every key is optional; without the table the defaults below apply.
+
+A message is either *action* (it needs the recipient to act or answer) or *info* (a progress note, an acknowledgement or an FYI). Agents send info with `cstan send --info`. An action message wakes the PM as before. Info does not: the PM sees unread info as a digest the next time it reads its inbox, and the digest acknowledges what it shows.
+
+| Key | Default | Values | Meaning |
+| --- | --- | --- | --- |
+| `wake` | `"action"` | `"action"`, `"all"` | Which messages wake an idle PM. `"all"` wakes it for info too, as before this table existed. |
+| `send_default` | `"action"` | `"action"`, `"info"` | The class of a `cstan send` that names neither `--action` nor `--info`. |
+| `info_wake_after_seconds` | `600` | integer 0 to 604800 | The PM is woken for info that has stayed unread this long. `0` wakes it at once. |
+| `auto_ack_info` | `true` | boolean | The digest acknowledges the info it shows. When `false`, the PM acknowledges info itself. |
+| `notice_class` | empty | table of notice kind to `"action"` or `"info"` | Changes the class of a system notice kind. Only the kinds marked overridable below may be changed. |
+
+`cstan config check` refuses a value outside these, an unknown key, an unknown notice kind and a kind that is not overridable, with an error that names the key (for example `messages.notice_class.delivery_problem`).
+
+The notice kinds, their built-in class and whether `notice_class` may change them:
+
+| Kind | Built-in class | Overridable |
+| --- | --- | --- |
+| `finding_raised` | action | no |
+| `finding_escalated` | action | no |
+| `finding_intervention` | action | no |
+| `finding_resolved` | info | yes |
+| `finding_cancelled` | info | yes |
+| `cleanup_offer` | action | no |
+| `cleanup_done` | info | yes |
+| `report_verified` | action | no |
+| `review_request` | action | no |
+| `review_verdict` | action | no |
+| `plan_notice` | action | no |
+| `plan_review_failed` | action | no |
+| `work_package` | action | no |
+| `work_package_cancelled` | action | no |
+| `delivery_problem` | action | no |
+| `agent_stalled` | action | no |
+| `agent_blocked` | action | no |
+| `agent_lost` | action | no |
+| `input_blocked` | action | no |
+| `integration_conflict` | action | no |
+| `supervision_check` | action | no |
+| `pause_notice` | action | yes |
+| `operator_proposal` | action | no |
+| `operator_proposal_update` | action | yes |
+| `operator_grant_update` | action | yes |
+| `operator_run_update` | action | yes |
+| `restart_result` | info | yes |
+| `operator_notice` | info | yes |
+| `operator_message` | action | no |
+
+A notice kind that is not overridable is always an action message, so a problem that needs the PM cannot be hidden in the digest.
+
+Upgrade note: this table is part of the configuration hash, and the ledger schema that carries message classes is 40. An older binary refuses a ledger at schema 40. To go back, stop the daemon, restore the backup the migration made (`.capstan/state/controller.sqlite.pre-v<N>-<timestamp>.sqlite`, see `[ledger]`) over `controller.sqlite`, and start the older binary.
 
 ### `prompt_file`
 

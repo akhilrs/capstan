@@ -35,8 +35,8 @@ use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::types::InitialProject;
 use capstan_kernel::Core;
 use capstan_launcher::api::{LauncherError, StubLauncher};
+use common::private_tempdir;
 use common::tables::{describe_tables_difference, diff_tables, dump_tables};
-use common::{private_tempdir, seeded_env};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -454,6 +454,28 @@ fn project() -> InitialProject {
 }
 
 fn open_kernel(seed: &str) -> (Scratch, KernelHandle) {
+    open_kernel_at(seed, Arc::new(AtomicI64::new(0)))
+}
+
+/// The seeded kernel clock shifted by `offset` milliseconds, which a test moves to let ledger time pass.
+struct OffsetEnv {
+    inner: capstan_kernel::SeededEnv,
+    offset: Arc<AtomicI64>,
+}
+
+impl capstan_kernel::Env for OffsetEnv {
+    fn now(&self) -> i64 {
+        self.inner.now() + self.offset.load(Ordering::SeqCst)
+    }
+    fn uuid(&self) -> String {
+        self.inner.uuid()
+    }
+    fn random_bytes(&self, n: usize) -> Vec<u8> {
+        self.inner.random_bytes(n)
+    }
+}
+
+fn open_kernel_at(seed: &str, offset: Arc<AtomicI64>) -> (Scratch, KernelHandle) {
     let dir = private_tempdir();
     let state = dir.path().to_path_buf();
     // The ledger's migration timestamps come from the system clock in both implementations; migrating first keeps them out
@@ -470,7 +492,10 @@ fn open_kernel(seed: &str) -> (Scratch, KernelHandle) {
                 workspace_root: Some(opened.clone()),
                 ..KernelOptions::default()
             },
-            seeded_env(&seed),
+            Box::new(OffsetEnv {
+                inner: capstan_kernel::SeededEnv::new(&seed),
+                offset,
+            }),
         )
     })
     .expect("the kernel opens");
@@ -500,7 +525,11 @@ fn replay_step(kernel: &KernelHandle, record: &Value, label: &str) -> Result<(),
         (Ok(value), None) => {
             let expected = record.get("result").cloned().unwrap_or(Value::Null);
             let actual: Value = serde_json::from_str(&value.to_string()).unwrap();
-            match first_difference(&expected, &actual, "result") {
+            match first_difference(
+                &expected,
+                &common::tables::without_rust_only(&actual),
+                "result",
+            ) {
                 None => Ok(()),
                 Some(diff) => Err(format!("{label} step {op}: {diff}")),
             }
@@ -575,7 +604,11 @@ impl Tables {
 
 fn compare(label: &str, field: &str, tick: &Value, actual: Value) -> Result<(), String> {
     let expected = tick.get(field).cloned().unwrap_or(Value::Null);
-    match first_difference(&expected, &actual, field) {
+    match first_difference(
+        &expected,
+        &common::tables::without_rust_only(&actual),
+        field,
+    ) {
         None => Ok(()),
         Some(diff) => Err(format!("{label}: {diff}")),
     }
@@ -1240,6 +1273,8 @@ struct World {
     clock: Arc<AtomicI64>,
     probe: Arc<HostProbe>,
     log: Arc<Mutex<Vec<Value>>>,
+    calls: Calls,
+    offset: Arc<AtomicI64>,
     driver: Driver,
 }
 
@@ -1250,12 +1285,30 @@ const LIVENESS: LivenessOptions = LivenessOptions {
 };
 
 fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
+    world_with(group, liveness, json!({}))
+}
+
+/// `world` with `overrides` merged over the timers (the message policy travels in them too).
+fn world_with(group: &str, liveness: Option<LivenessOptions>, overrides: Value) -> World {
     let groups = groups();
     let sequence = &groups.iter().find(|(g, _)| g == group).unwrap().1["sequences"][0];
-    let (scratch, kernel) = open_kernel(sequence["seed"].as_str().unwrap());
+    let offset = Arc::new(AtomicI64::new(0));
+    let (scratch, kernel) = open_kernel_at(sequence["seed"].as_str().unwrap(), Arc::clone(&offset));
     for record in sequence["setup"].as_array().unwrap() {
         replay_step(&kernel, record, "liveness setup").unwrap();
     }
+    world_over(scratch, kernel, offset, OWNER, liveness, overrides)
+}
+
+/// A world over a kernel whose ledger already holds the agents `pm-1`, `dev-1`, `ver-1` and `sup-1` (as far as they exist).
+fn world_over(
+    scratch: Scratch,
+    kernel: KernelHandle,
+    offset: Arc<AtomicI64>,
+    owner: &str,
+    liveness: Option<LivenessOptions>,
+    overrides: Value,
+) -> World {
     let script = Arc::new(Mutex::new(Script::new()));
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
     lock(&script).merge(&json!({
@@ -1265,11 +1318,23 @@ fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
     let clock = Arc::new(AtomicI64::new(SEEDED_EPOCH_MS));
     let probe = Arc::new(HostProbe::default());
     let log = Arc::new(Mutex::new(Vec::new()));
-    let timers = json!({
+    let mut timers = json!({
         "maxDeferralSeconds": 3600, "maxBusyDeferralSeconds": 3600, "pmAckTimeoutSeconds": 3600,
         "pmNotifyAfterSeconds": 3600, "notifyIntervalSeconds": 3600, "stallAfterSeconds": 3600,
         "workerAckTimeoutSeconds": 3600, "pmWakeAfterSeconds": 3600, "pmWakeIntervalSeconds": 3600,
     });
+    for (key, value) in overrides.as_object().into_iter().flatten() {
+        timers[key] = value.clone();
+    }
+    kernel
+        .run({
+            let policy = timers.clone();
+            move |core| {
+                core.set_message_policy(&policy);
+                Ok(())
+            }
+        })
+        .unwrap();
     let now = Arc::clone(&clock);
     let driver = Driver::new(DriverOptions {
         kernel: kernel.clone(),
@@ -1289,7 +1354,7 @@ fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
             Arc::new(|| SEEDED_EPOCH_MS),
             Arc::new(|_, _| {}),
         )),
-        credential: OWNER.into(),
+        credential: owner.into(),
         now: Arc::new(move || now.load(Ordering::SeqCst)),
         log: log_sink(&log),
         tick_ms: None,
@@ -1306,6 +1371,8 @@ fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
         clock,
         probe,
         log,
+        calls,
+        offset,
         driver,
     }
 }
@@ -1610,5 +1677,236 @@ fn a_spawn_refused_by_the_role_limit_is_logged_once_and_retried_later() {
     assert!(lock(&w.log)
         .iter()
         .any(|e| e["event"] == "supervisor_started"));
+    w.kernel.close();
+}
+
+// ------------------------------------------------------------------------------------------------ message classes
+
+impl World {
+    /// A controller message to the PM: `kind` names a notice kind, or `class` the class, or neither (an action).
+    fn tell_pm(&self, body: &'static str, extra: Value) -> String {
+        self.kernel
+            .run(move |core| {
+                let context = capstan_daemon::deps::new_context(core, OWNER)?;
+                let mut input = json!({"recipientAgentId": "pm-1", "body": body});
+                for (key, value) in extra.as_object().into_iter().flatten() {
+                    input[key] = value.clone();
+                }
+                Ok(core.enqueue_message(&context, &input)?["messageId"]
+                    .as_str()
+                    .unwrap()
+                    .to_string())
+            })
+            .expect("enqueueMessage")
+    }
+
+    fn state_of(&self, message_id: &str) -> String {
+        let id = message_id.to_string();
+        let record = self.kernel.run(move |core| core.message(&id)).unwrap();
+        record["state"].as_str().unwrap().to_string()
+    }
+
+    fn wake_lines(&self) -> usize {
+        lock(&self.calls)
+            .iter()
+            .filter(|call| call.starts_with("wakePm"))
+            .count()
+    }
+
+    /// Lets `seconds` pass on the driver's clock and on the ledger's.
+    fn pass(&self, seconds: i64) {
+        self.advance(seconds);
+        self.offset.fetch_add(seconds * 1000, Ordering::SeqCst);
+    }
+
+    /// Ticks past the wake delay, twice.
+    fn settle(&mut self) {
+        for _ in 0..2 {
+            self.pass(31);
+            self.driver.tick();
+        }
+    }
+}
+
+const POLICY_ACTION: fn() -> Value = || json!({"pmWakeAfterSeconds": 30, "pmWakeIntervalSeconds": 60, "pmWakeClass": "action", "infoWakeAfterSeconds": 600});
+
+#[test]
+fn an_idle_pm_with_only_info_mail_is_not_woken() {
+    let mut w = world_with("driver", None, POLICY_ACTION());
+    let plain = w.tell_pm("fyi", json!({"class": "info"}));
+    let resolved = w.tell_pm("finding resolved", json!({"kind": "finding_resolved"}));
+    w.settle();
+    assert_eq!(w.wake_lines(), 0, "{:?}", lock(&w.calls));
+    assert_eq!(w.state_of(&plain), "queued");
+    assert_eq!(w.state_of(&resolved), "queued");
+    w.kernel.close();
+}
+
+#[test]
+fn an_action_message_still_wakes_the_pm_beside_info() {
+    for extra in [
+        json!({}),
+        json!({"actionNeeded": true}),
+        json!({"kind": "report_verified"}),
+        json!({"kind": "delivery_problem"}),
+    ] {
+        let mut w = world_with("driver", None, POLICY_ACTION());
+        w.tell_pm("fyi", json!({"class": "info"}));
+        let action = w.tell_pm("act", extra.clone());
+        w.settle();
+        assert!(
+            w.wake_lines() >= 1,
+            "{extra}: {:?} {:?}",
+            lock(&w.calls),
+            lock(&w.log)
+        );
+        assert!(lock(&w.calls)
+            .iter()
+            .any(|call| call.starts_with("wakePm") && call.contains("cstan inbox")));
+        let record = w.kernel.run({
+            let action = action.clone();
+            move |core| core.message(&action)
+        });
+        assert_eq!(record.unwrap()["class"], "action", "{extra}");
+        w.kernel.close();
+    }
+}
+
+#[test]
+fn wake_all_restores_waking_for_info() {
+    let mut w = world_with(
+        "driver",
+        None,
+        json!({"pmWakeAfterSeconds": 30, "pmWakeIntervalSeconds": 60, "pmWakeClass": "all"}),
+    );
+    w.tell_pm("fyi", json!({"class": "info"}));
+    w.settle();
+    assert!(w.wake_lines() >= 1, "{:?}", lock(&w.calls));
+    w.kernel.close();
+}
+
+#[test]
+fn info_waits_for_info_wake_after_seconds_on_the_fake_clock() {
+    let mut w = world_with(
+        "driver",
+        None,
+        json!({"pmWakeAfterSeconds": 30, "pmWakeIntervalSeconds": 60, "pmWakeClass": "action", "infoWakeAfterSeconds": 60}),
+    );
+    w.tell_pm("fyi", json!({"class": "info"}));
+    w.pass(31);
+    w.driver.tick();
+    assert_eq!(w.wake_lines(), 0);
+    w.pass(31);
+    w.driver.tick();
+    assert!(w.wake_lines() >= 1, "{:?}", lock(&w.calls));
+    w.kernel.close();
+}
+
+#[test]
+fn a_worker_message_that_is_never_acknowledged_still_raises_an_action_delivery_notice() {
+    let mut w = world_with(
+        "driver",
+        None,
+        json!({"workerAckTimeoutSeconds": 60, "pmWakeClass": "action", "infoWakeAfterSeconds": 600}),
+    );
+    w.driver.tick();
+    w.pass(61);
+    w.driver.tick();
+    w.pass(61);
+    w.driver.tick();
+    let mail = w
+        .kernel
+        .run(|core| core.messages_for("pm-1"))
+        .expect("messagesFor");
+    let notices: Vec<&Value> = mail
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| {
+            m["senderActorId"] != json!(null)
+                && m["body"].as_str().is_some_and(|b| b.contains("dev-1"))
+        })
+        .collect();
+    assert!(!notices.is_empty(), "{mail}");
+    assert!(notices.iter().all(|m| m["class"] == "action"), "{mail}");
+    w.kernel.close();
+}
+
+/// The owner of the project in `schema-39-messages.sqlite`.
+const FIXTURE_OWNER: &str = "operator-0123456789abcdef0123456789abcdef01234567";
+
+#[test]
+fn a_schema_39_ledger_migrates_and_still_wakes_the_pm_for_its_queued_messages() {
+    let dir = private_tempdir();
+    let state = dir.path().to_path_buf();
+    let database = capstan_ledger::resolve_database_path(&state).expect("the ledger path");
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/ledger/schema-39-messages.sqlite");
+    std::fs::copy(fixture, &database).expect("the schema 39 fixture");
+    // The fixture's messages carry the time it was made; the ledger's clock starts after it.
+    let since_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let offset = Arc::new(AtomicI64::new(since_epoch - SEEDED_EPOCH_MS));
+    let project = InitialProject {
+        project_id: "prustonly".into(),
+        name: "rust-only".into(),
+        owner_credential: FIXTURE_OWNER.into(),
+        initial_inputs: capstan_daemon::run::placeholder_inputs(),
+    };
+    let kernel = {
+        let (opened, offset) = (state.clone(), Arc::clone(&offset));
+        KernelHandle::spawn(move || {
+            Core::open(
+                &opened,
+                &project,
+                &KernelOptions {
+                    workspace_root: Some(opened.clone()),
+                    ..KernelOptions::default()
+                },
+                Box::new(OffsetEnv {
+                    inner: capstan_kernel::SeededEnv::new("schema-39"),
+                    offset,
+                }),
+            )
+        })
+        .expect("the schema 39 ledger migrates and opens")
+    };
+    let scratch = Scratch {
+        _dir: dir,
+        state,
+        database,
+    };
+    let mut w = world_over(
+        scratch,
+        kernel,
+        offset,
+        FIXTURE_OWNER,
+        None,
+        POLICY_ACTION(),
+    );
+    w.clock
+        .fetch_add(since_epoch - SEEDED_EPOCH_MS, Ordering::SeqCst);
+    w.settle();
+    let classes = w
+        .kernel
+        .run(|core| core.messages_for("pm-1"))
+        .expect("messagesFor");
+    let queued: Vec<&Value> = classes
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["state"] == "queued")
+        .collect();
+    assert!(!queued.is_empty(), "{classes}");
+    assert!(queued.iter().all(|m| m["class"] == "action"), "{classes}");
+    assert!(
+        w.wake_lines() >= 1,
+        "{:?} {:?} {}",
+        lock(&w.calls),
+        lock(&w.log),
+        classes
+    );
     w.kernel.close();
 }

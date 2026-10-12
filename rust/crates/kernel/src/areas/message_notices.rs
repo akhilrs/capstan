@@ -20,12 +20,12 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use super::messages::{
-    append_message_event, insert_queued_message, message_mutation, message_row, message_rows_for,
-    reject, update_message, Rejection, OPEN_MESSAGE_STATES_SQL,
+    append_message_event, class_for_kind, insert_queued_message, message_mutation, message_row,
+    message_rows_for, reject, update_message, Rejection, OPEN_MESSAGE_STATES_SQL,
 };
 use super::messaging::{
-    evaluate_messaging, parse_iso_ms, queue_head, AgentFacts, MessageFacts, MessagingEvaluation,
-    MessagingTimers, StateObservation, WaitInterval,
+    evaluate_messaging, parse_iso_ms, queue_head, AgentFacts, MessageClass, MessageFacts,
+    MessagingEvaluation, MessagingTimers, StateObservation, WaitInterval,
 };
 use super::{pauses, prompt_relay};
 
@@ -72,6 +72,7 @@ pub fn notice_parties(kernel: &Kernel) -> KernelResult<Option<NoticeParties>> {
 /// `noticeToPm`: queues a controller notice to the one active PM; false when there is none. The caller owns the transaction.
 pub fn notice_to_pm(
     kernel: &Kernel,
+    kind: &str,
     body: &str,
     now: &str,
     action_needed: bool,
@@ -87,6 +88,7 @@ pub fn notice_to_pm(
         &sha256(body),
         now,
         action_needed,
+        class_for_kind(kernel, kind),
     )?;
     Ok(true)
 }
@@ -94,6 +96,7 @@ pub fn notice_to_pm(
 /// `noticeToAgent`: a controller message to one active agent; none when the agent has ended. The caller owns the transaction.
 pub fn notice_to_agent(
     kernel: &Kernel,
+    kind: &str,
     agent_id: &str,
     body: &str,
     now: &str,
@@ -108,6 +111,7 @@ pub fn notice_to_agent(
             &sha256(body),
             now,
             action_needed,
+            class_for_kind(kernel, kind),
         )?)),
         _ => Ok(None),
     }
@@ -416,8 +420,10 @@ pub fn advance_messaging(
 }
 
 /// `#queuePmNotice`: one controller message to the PM, once per (kind, subject, episode). The caller owns the transaction.
+#[allow(clippy::too_many_arguments)]
 fn queue_pm_notice(
     kernel: &Kernel,
+    notice_kind: &str,
     kind: &str,
     subject: &str,
     episode: &str,
@@ -443,6 +449,7 @@ fn queue_pm_notice(
         &sha256(body),
         now,
         action_needed,
+        class_for_kind(kernel, notice_kind),
     )?;
     execute(
         &kernel.database,
@@ -485,6 +492,7 @@ pub fn queue_delivery_notice(
     // One notice per delivery attempt: a message retried that goes wrong again is told again.
     queue_pm_notice(
         kernel,
+        "delivery_problem",
         "delivery",
         &row.message_id,
         &format!("{state}#{}", row.send_attempts),
@@ -612,6 +620,7 @@ pub fn queue_input_blocked_notice(
         |_| {
             let queued = queue_pm_notice(
                 kernel,
+                "input_blocked",
                 "blocked",
                 &agent_id,
                 &episode,
@@ -676,6 +685,7 @@ pub fn queue_attention_notices(
                 let body = agent_stuck_notice(kind, agent, prompt_relay::enabled(kernel)?);
                 if queue_pm_notice(
                     kernel,
+                    &format!("agent_{kind}"),
                     kind,
                     agent,
                     &episode_text(episode),
@@ -861,6 +871,7 @@ pub fn queue_supervision_check(
                 &sha256(body),
                 &now,
                 false,
+                MessageClass::Action,
             )?;
             execute(
                 &kernel.database,
@@ -913,6 +924,7 @@ fn evaluate(kernel: &Kernel, timers: &MessagingTimers) -> KernelResult<Messaging
             message_id: row.message_id.clone(),
             recipient_agent_id: row.recipient_agent_id.clone(),
             state: row.state.clone(),
+            class: MessageClass::parse(&row.class).unwrap_or(MessageClass::Action),
             sequence: row.sequence,
             queued_ms: parse_iso_ms(&row.queued_at).max(resumed),
             sent_ms: row.sent_at.as_deref().map(parse_iso_ms),

@@ -125,6 +125,14 @@ pub fn timers_value(config: &RoleConfig) -> Value {
         "workerAckTimeoutSeconds": t.worker_ack_timeout_seconds,
         "pmWakeAfterSeconds": t.pm_wake_after_seconds,
         "pmWakeIntervalSeconds": t.pm_wake_interval_seconds,
+        "pmWakeClass": config.messages.wake.as_str(),
+        "infoWakeAfterSeconds": config.messages.info_wake_after_seconds,
+        "noticeClass": config
+            .messages
+            .notice_class
+            .iter()
+            .map(|(kind, class)| (kind.clone(), json!(class.as_str())))
+            .collect::<serde_json::Map<String, Value>>(),
     })
 }
 

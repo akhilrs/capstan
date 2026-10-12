@@ -19,7 +19,8 @@ use serde_json::{json, Value};
 
 use super::message_notices;
 use super::messaging::{
-    is_legal_transition, queue_head, resolution_target, DEFERRAL_REASONS, RESOLUTION_DECISIONS,
+    is_legal_transition, notice_kind, parse_iso_ms, queue_head, resolution_target, MessageClass,
+    DEFERRAL_REASONS, RESOLUTION_DECISIONS,
 };
 use super::pauses;
 
@@ -97,6 +98,7 @@ pub fn enqueue_message(
     }
     let body_hash = sha256(&body);
     let action_needed = field(input, "actionNeeded") == &Value::Bool(true);
+    let class = requested_class(kernel, input, action_needed)?;
     message_mutation(
         kernel,
         context,
@@ -127,6 +129,7 @@ pub fn enqueue_message(
                 &body_hash,
                 &now,
                 action_needed,
+                class,
             )?;
             if let Some(sender) = kernel.agent_by_actor(&actor.actor_id)? {
                 kernel.touch_agent(&sender.agent_id, &now)?;
@@ -140,6 +143,53 @@ pub fn enqueue_message(
             }))
         },
     )
+}
+
+/// The class an `enqueue_message` input asks for: an action-needed message is an action; else the explicit `class`; else
+/// the class of its `kind` under the policy; else action. An unknown kind or class is refused.
+fn requested_class(
+    kernel: &Kernel,
+    input: &Value,
+    action_needed: bool,
+) -> KernelResult<MessageClass> {
+    let explicit = match input.get("class") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(text)) => Some(
+            MessageClass::parse(text)
+                .ok_or_else(|| KernelError::type_error("message class must be action or info"))?,
+        ),
+        Some(_) => {
+            return Err(KernelError::type_error(
+                "message class must be action or info",
+            ))
+        }
+    };
+    let by_kind = match input.get("kind") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(kind)) => {
+            if notice_kind(kind).is_none() {
+                return Err(KernelError::type_error(format!(
+                    "unknown notice kind {kind}"
+                )));
+            }
+            kernel.message_policy.borrow().class_of(kind)
+        }
+        Some(_) => return Err(KernelError::type_error("notice kind must be a string")),
+    };
+    Ok(if action_needed {
+        MessageClass::Action
+    } else {
+        explicit.or(by_kind).unwrap_or(MessageClass::Action)
+    })
+}
+
+/// The class of a notice kind under the current policy; action for a kind the table does not know.
+pub fn class_for_kind(kernel: &Kernel, kind: &str) -> MessageClass {
+    kernel
+        .message_policy
+        .borrow()
+        .class_of(kind)
+        .unwrap_or(MessageClass::Action)
 }
 
 /// `message`.
@@ -487,12 +537,157 @@ pub fn unread_summary(kernel: &Kernel, credential: &str) -> KernelResult<Value> 
             oldest = Some(&row.queued_at);
         }
     }
+    let wake_count = waking_rows(kernel, agent.as_ref(), &waiting).len();
     Ok(json!({
         "count": waiting.len(),
         "oldestQueuedAt": oldest,
         "messageIds": waiting.iter().map(|r| r.message_id.clone()).collect::<Vec<_>>(),
         "actionNeeded": waiting.iter().filter(|r| r.action_needed == 1).count(),
+        "wakeCount": wake_count,
+        "infoCount": waiting.iter().filter(|r| r.class == "info").count(),
     }))
+}
+
+/// The queued or deferred rows among `rows` that wake `agent` (the message policy applies to the PM only).
+fn waking_rows<'a>(
+    kernel: &Kernel,
+    agent: Option<&AgentRow>,
+    rows: &'a [MessageRow],
+) -> Vec<&'a MessageRow> {
+    let policy = kernel.message_policy.borrow();
+    // The policy is the PM's: any other agent is woken by any pending mail, info included.
+    let policy_applies = agent.is_some_and(|agent| agent.kind == "PM");
+    // The clock is read only when an age decides, so the legacy policy never ticks it.
+    let mut now: Option<i64> = None;
+    rows.iter()
+        .filter(|r| matches!(r.state.as_str(), "queued" | "deferred"))
+        .filter(|r| {
+            let class = MessageClass::parse(&r.class).unwrap_or(MessageClass::Action);
+            if !policy_applies || !policy.wake_action_only || class == MessageClass::Action {
+                return true;
+            }
+            let now = *now.get_or_insert_with(|| kernel.env.now());
+            policy.wakes(class, (now - parse_iso_ms(&r.queued_at)) as f64)
+        })
+        .collect()
+}
+
+/// `wakePending`: whether a queued or deferred message of the caller wakes it under the policy. Read-only.
+pub fn wake_pending(kernel: &Kernel, credential: &str) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let actor = authenticate_actor(&kernel.database, &kernel.project_id, credential)?;
+    let agent = if actor.role == "operator" {
+        None
+    } else {
+        kernel.agent_by_actor(&actor.actor_id)?
+    };
+    let rows = match &agent {
+        None => Vec::new(),
+        Some(agent) => message_rows_for(kernel, &agent.agent_id)?,
+    };
+    let count = waking_rows(kernel, agent.as_ref(), &rows).len();
+    let info_count = rows
+        .iter()
+        .filter(|r| matches!(r.state.as_str(), "queued" | "deferred") && r.class == "info")
+        .count();
+    Ok(json!({"wake": count > 0, "count": count, "infoCount": info_count}))
+}
+
+/// A mutation context for one more step of a multi-step operation of the caller.
+fn step_context(kernel: &Kernel, credential: &str) -> KernelResult<MutationContext> {
+    let id = kernel.env.uuid();
+    Ok(MutationContext {
+        credential: credential.to_string(),
+        request_id: format!("req-{id}"),
+        idempotency_key: format!("idem-{id}"),
+        expected_version: kernel.state_version()?,
+        input_revision: kernel.input_revision()?,
+    })
+}
+
+/// `deliverInbox`: pulls everything pending like `pullPending`; with `digest`, acks every delivered info message at once.
+pub fn deliver_inbox(kernel: &Kernel, credential: &str, digest: bool) -> KernelResult<Value> {
+    let pulled = pull_pending(kernel, credential)?;
+    let pulled = pulled.as_array().is_some_and(|rows| !rows.is_empty());
+    let actor = authenticate_actor(&kernel.database, &kernel.project_id, credential)?;
+    let Some(agent) = kernel.agent_by_actor(&actor.actor_id)? else {
+        return Ok(json!({"messages": [], "info": [], "pulled": pulled}));
+    };
+    let delivered: Vec<MessageRow> = message_rows_for(kernel, &agent.agent_id)?
+        .into_iter()
+        .filter(|r| matches!(r.state.as_str(), "sent" | "unacked"))
+        .collect();
+    let mut messages = Vec::new();
+    let mut info = Vec::new();
+    for row in &delivered {
+        if digest && row.class == "info" {
+            let context = step_context(kernel, credential)?;
+            info.push(ack_with_details(
+                kernel,
+                &context,
+                &row.message_id,
+                Some(json!({"auto": "digest"})),
+            )?);
+        } else {
+            messages.push(record_value(row));
+        }
+    }
+    Ok(json!({"messages": messages, "info": info, "pulled": pulled}))
+}
+
+/// `ackMessages`: acks every named message of the caller, one event each; one bad id refuses them all.
+pub fn ack_messages(
+    kernel: &Kernel,
+    context: &MutationContext,
+    message_ids: &[String],
+) -> KernelResult<Value> {
+    // A duplicate id is acked once, so the operation stays all-or-nothing.
+    let mut unique: Vec<String> = Vec::new();
+    for id in message_ids {
+        safe_id_str(id, "message id")?;
+        if !unique.contains(id) {
+            unique.push(id.clone());
+        }
+    }
+    let message_ids = &unique[..];
+    let actor = kernel.authorize(&context.credential, "message:receive")?;
+    let agent = kernel.agent_by_actor(&actor.actor_id)?;
+    for id in message_ids {
+        let ackable = match (&agent, message_row(kernel, id)?) {
+            (Some(agent), Some(row)) => {
+                row.recipient_agent_id == agent.agent_id
+                    && matches!(row.state.as_str(), "sent" | "unacked")
+            }
+            _ => false,
+        };
+        if !ackable {
+            // The single ack refuses it with the right recorded rejection.
+            return ack_message(kernel, context, id);
+        }
+    }
+    let mut results = Vec::new();
+    for id in message_ids {
+        let step = step_context(kernel, &context.credential)?;
+        results.push(ack_with_details(kernel, &step, id, None)?);
+    }
+    Ok(Value::Array(results))
+}
+
+/// `ackAllRead`: acks every sent or unacked message of the caller and returns their ids.
+pub fn ack_all_read(kernel: &Kernel, context: &MutationContext) -> KernelResult<Value> {
+    let actor = kernel.authorize(&context.credential, "message:receive")?;
+    let Some(agent) = kernel.agent_by_actor(&actor.actor_id)? else {
+        return Ok(json!([]));
+    };
+    let mut acked = Vec::new();
+    for row in message_rows_for(kernel, &agent.agent_id)? {
+        if matches!(row.state.as_str(), "sent" | "unacked") {
+            let step = step_context(kernel, &context.credential)?;
+            ack_with_details(kernel, &step, &row.message_id, None)?;
+            acked.push(row.message_id);
+        }
+    }
+    Ok(json!(acked))
 }
 
 /// `recordDeferral`.
@@ -750,6 +945,16 @@ pub fn ack_message(
     context: &MutationContext,
     message_id: &str,
 ) -> KernelResult<Value> {
+    ack_with_details(kernel, context, message_id, None)
+}
+
+/// `ackMessage`, optionally recording `details` (for example `{auto: 'digest'}`) on the event.
+fn ack_with_details(
+    kernel: &Kernel,
+    context: &MutationContext,
+    message_id: &str,
+    details: Option<Value>,
+) -> KernelResult<Value> {
     safe_id_str(message_id, "message id")?;
     message_mutation(
         kernel,
@@ -824,10 +1029,12 @@ pub fn ack_message(
             )?;
             kernel.touch_agent(&agent.agent_id, &now)?;
             let updated = message_row(kernel, message_id)?.expect("the message exists");
-            Ok(MutationOutput::new(
-                record_value(&updated),
-                MutationEvent::new("message", message_id, version).transition(&row.state, to),
-            ))
+            let mut event =
+                MutationEvent::new("message", message_id, version).transition(&row.state, to);
+            if let Some(details) = &details {
+                event = event.with_details(details.clone());
+            }
+            Ok(MutationOutput::new(record_value(&updated), event))
         },
     )
 }
@@ -1002,6 +1209,7 @@ pub fn open_message_rows_for(kernel: &Kernel, agent_id: &str) -> KernelResult<Ve
 }
 
 /// Queues a message from `sender_actor_id` to `recipient` and returns its id (`insertQueuedMessage`). The caller owns the transaction.
+#[allow(clippy::too_many_arguments)]
 pub fn insert_queued_message(
     kernel: &Kernel,
     sender_actor_id: &str,
@@ -1010,7 +1218,13 @@ pub fn insert_queued_message(
     body_hash: &str,
     now: &str,
     action_needed: bool,
+    class: MessageClass,
 ) -> KernelResult<String> {
+    let class = if action_needed {
+        MessageClass::Action
+    } else {
+        class
+    };
     let message_id = kernel.env.uuid();
     let sequence = query_opt(
         &kernel.database,
@@ -1022,8 +1236,8 @@ pub fn insert_queued_message(
     execute(
         &kernel.database,
         "INSERT INTO messages(project_id, message_id, sequence, recipient_agent_id, recipient_generation, sender_actor_id,
-          body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at, action_needed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?, ?)",
+          body, body_hash, state, state_version, queued_at, deferral_count, send_attempts, created_at, updated_at, action_needed, class)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, 0, 0, ?, ?, ?, ?)",
         rusqlite::params![
             kernel.project_id,
             message_id,
@@ -1036,7 +1250,8 @@ pub fn insert_queued_message(
             now,
             now,
             now,
-            i64::from(action_needed)
+            i64::from(action_needed),
+            class.as_str()
         ],
     )?;
     Ok(message_id)
@@ -1314,6 +1529,32 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         "pullPending" => {
             let credential = arg!(a.str(0, "credential"));
             Some(call(pull_pending(kernel, credential)))
+        }
+        "deliverInbox" => {
+            let credential = arg!(a.str(0, "credential"));
+            let digest = a.value(1).as_bool().unwrap_or(false);
+            Some(call(deliver_inbox(kernel, credential, digest)))
+        }
+        "wakePending" => {
+            let credential = arg!(a.str(0, "credential"));
+            Some(call(wake_pending(kernel, credential)))
+        }
+        "ackMessages" => {
+            let context = arg!(a.ctx(0));
+            let ids: Vec<String> = a
+                .value(1)
+                .as_array()
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(|i| i.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(call(ack_messages(kernel, &context, &ids)))
+        }
+        "ackAllRead" => {
+            let context = arg!(a.ctx(0));
+            Some(call(ack_all_read(kernel, &context)))
         }
         "unreadSummary" => {
             let credential = arg!(a.str(0, "credential"));

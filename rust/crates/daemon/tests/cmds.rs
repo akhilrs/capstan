@@ -1599,3 +1599,118 @@ fn the_agent_blocked_notice_names_prompt_show_only_when_the_relay_is_on() {
         );
     }
 }
+
+// ------------------------------------------------------------------------------------------------ message classes
+
+#[test]
+fn send_takes_info_or_action_and_refuses_both() {
+    let world = World::new(None, None);
+    let both = world.refused(
+        "pm-1",
+        "send",
+        &["--info", "--action", "dev-1", "x"],
+        "invalid_request",
+    );
+    assert!(both.contains("not both"), "{both}");
+    let record = |answer: &Value| {
+        let id = answer["messageId"].as_str().unwrap().to_string();
+        world
+            .deps
+            .kernel
+            .run(move |core| core.message(&id))
+            .unwrap()
+    };
+    let info = record(&world.ok("pm-1", "send", &["--info", "dev-1", "fyi"]));
+    assert_eq!(
+        (info["class"].clone(), info["actionNeeded"].clone()),
+        (json!("info"), json!(false))
+    );
+    let action = record(&world.ok("pm-1", "send", &["--action", "dev-1", "do"]));
+    assert_eq!(
+        (action["class"].clone(), action["actionNeeded"].clone()),
+        (json!("action"), json!(true))
+    );
+    // No flag: the config's send_default, an action message when there is none.
+    let plain = record(&world.ok("pm-1", "send", &["dev-1", "hello"]));
+    assert_eq!(plain["class"], "action");
+    world.deps.kernel.close();
+}
+
+#[test]
+fn send_default_info_classes_a_plain_send_as_info() {
+    let config = format!("{CONFIG}\n[messages]\nsend_default = \"info\"\n");
+    let world = World::with_config(&config, None, None);
+    let sent = world.ok("pm-1", "send", &["dev-1", "hello"]);
+    let id = sent["messageId"].as_str().unwrap().to_string();
+    let record = world
+        .deps
+        .kernel
+        .run(move |core| core.message(&id))
+        .unwrap();
+    assert_eq!(record["class"], "info");
+    let flagged = world.ok("pm-1", "send", &["--action", "dev-1", "act"]);
+    let id = flagged["messageId"].as_str().unwrap().to_string();
+    let record = world
+        .deps
+        .kernel
+        .run(move |core| core.message(&id))
+        .unwrap();
+    assert_eq!(record["class"], "action");
+    world.deps.kernel.close();
+}
+
+/// A commit on `feat/dev-2` dated after every message of the test, as the report gate compares commit and queue times.
+fn late_commit(repo: &Path, name: &str) -> String {
+    git_in(repo, &["checkout", "-q", "feat/dev-2"]);
+    std::fs::write(repo.join(name), "late\n").unwrap();
+    git_in(repo, &["add", name]);
+    let committed = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["commit", "-q", "-m", "feat: late"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .env("GIT_AUTHOR_DATE", "2026-06-01T00:00:00+00:00")
+        .env("GIT_COMMITTER_DATE", "2026-06-01T00:00:00+00:00")
+        .status()
+        .unwrap();
+    assert!(committed.success());
+    git_in(repo, &["rev-parse", "HEAD"]).trim().to_string()
+}
+
+#[test]
+fn an_unacked_action_message_refuses_the_report_but_info_in_a_digest_does_not() {
+    let world = World::new(None, None);
+    let repo = world.dir.path().to_path_buf();
+    // Info that a digest showed was acknowledged by it, so the report goes through.
+    let first = late_commit(&repo, "one.late");
+    world.ok("pm-1", "send", &["--info", "dev-2", "fyi"]);
+    let digest = world.ok("dev-2", "inbox", &["--digest"]);
+    assert_eq!(
+        (digest["infoCount"].clone(), digest["count"].clone()),
+        (json!(1), json!(0))
+    );
+    let accepted = world.call("dev-2", "report", &[&first, "One"]);
+    assert_eq!(accepted["ok"], true, "{accepted}");
+    // An action message that was delivered and not acknowledged refuses the report.
+    let second = late_commit(&repo, "two.late");
+    let action = world.ok("pm-1", "send", &["dev-2", "do this"]);
+    let inbox = world.ok("dev-2", "inbox", &["--digest"]);
+    assert_eq!(inbox["count"], 1, "{inbox}");
+    let refused = world.call("dev-2", "report", &[&second, "Two"]);
+    assert_eq!(refused["code"], "rejected", "{refused}");
+    assert!(refused["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("unread_messages"));
+    world.ok("dev-2", "ack", &[action["messageId"].as_str().unwrap()]);
+    let after_ack = world.call("dev-2", "report", &[&second, "Two"]);
+    assert_eq!(after_ack["ok"], true, "{after_ack}");
+    world.deps.kernel.close();
+}

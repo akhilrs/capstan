@@ -274,7 +274,7 @@ fn the_coordinator_refuses_with_nodes_texts() {
             health_timeout_seconds: 1,
             idle_wait_seconds: 0,
             busy: Box::new(move || busy.clone()),
-            notify_pm: Box::new(move |body, action| {
+            notify_pm: Box::new(move |body, action, _| {
                 sink.lock().unwrap().push(format!(
                     "{}: {body}",
                     if action { "action" } else { "info" }

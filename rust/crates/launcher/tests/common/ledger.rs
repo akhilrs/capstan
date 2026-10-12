@@ -157,6 +157,8 @@ pub fn dump_tables(core: &Core) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
+            // Rust-only column (the frozen Node corpus predates message classes).
+            .filter(|c| !(name == "messages" && c == "class"))
             .collect();
         let sql = format!(
             "SELECT json_array({0}) FROM {name} ORDER BY {0}",

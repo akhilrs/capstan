@@ -399,6 +399,7 @@ fn notice_conflict(
         &sha256(&body),
         now,
         true,
+        messages::class_for_kind(kernel, "integration_conflict"),
     )?;
     Ok(())
 }

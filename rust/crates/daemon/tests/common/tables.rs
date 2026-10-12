@@ -36,6 +36,8 @@ pub fn dump_tables(file: &Path) -> Value {
             .unwrap()
             .map(Result::unwrap)
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
+            // Rust-only column (the frozen Node corpus predates message classes).
+            .filter(|c| !(name == "messages" && c == "class"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
         let only_node = if name == "schema_migrations" {
@@ -52,12 +54,21 @@ pub fn dump_tables(file: &Path) -> Value {
         let rows: Vec<Value> = statement
             .query_map([], |row| {
                 let mut values = Vec::new();
-                for i in 0..columns.len() {
+                for (i, column) in columns.iter().enumerate() {
                     values.push(match row.get_ref(i)? {
                         ValueRef::Null => Value::Null,
                         ValueRef::Integer(n) => Value::from(n),
                         ValueRef::Real(f) => capstan_kernel::plan_body::number_value(f),
-                        ValueRef::Text(t) => Value::String(String::from_utf8_lossy(t).into_owned()),
+                        ValueRef::Text(t) => {
+                            let text = String::from_utf8_lossy(t).into_owned();
+                            // A stored result holds message records, which carry the Rust-only `class`.
+                            Value::String(if column == "result_json" {
+                                text.replace("\"class\":\"action\",", "")
+                                    .replace("\"class\":\"info\",", "")
+                            } else {
+                                text
+                            })
+                        }
                         ValueRef::Blob(b) => json!({"$blob": capstan_kernel::canonical::hex(b)}),
                     });
                 }
@@ -233,5 +244,27 @@ mod rust_only_tests {
         let dump = dump_tables(&file);
         assert_eq!(dump["cleanups"]["rows"], json!([["c-1"]]));
         assert!(dump.get("cleanup_branches").is_none());
+    }
+}
+
+/// Fields only the Rust build has (the frozen Node corpus predates them): message records carry `class` and the unread
+/// summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side.
+pub fn without_rust_only(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let message_record = map.contains_key("messageId") && map.contains_key("actionNeeded");
+            let summary = map.contains_key("oldestQueuedAt") && map.contains_key("messageIds");
+            Value::Object(
+                map.iter()
+                    .filter(|(key, _)| {
+                        !(message_record && key.as_str() == "class"
+                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount"))
+                    })
+                    .map(|(key, v)| (key.clone(), without_rust_only(v)))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(without_rust_only).collect()),
+        other => other.clone(),
     }
 }

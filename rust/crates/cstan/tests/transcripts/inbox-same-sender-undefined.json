@@ -26,7 +26,7 @@
       "text": "{\"ok\":true,\"result\":{\"count\":1,\"messages\":[{\"messageId\":\"m\",\"body\":\"b\"}]}}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "1 message(s) to act on; ack each one with cstan ack <message-id>\n\nmessage m [] from \nb\n",

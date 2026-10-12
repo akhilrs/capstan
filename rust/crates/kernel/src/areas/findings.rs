@@ -94,6 +94,7 @@ fn deliver_finding(
         &sha256(&body),
         now,
         true,
+        messages::class_for_kind(kernel, "finding_intervention"),
     )?;
     execute(
         &kernel.database,
@@ -517,6 +518,7 @@ fn announce_notice(kernel: &Kernel, notice_id: &str, now: &str) -> KernelResult<
         &sha256(&body),
         now,
         true,
+        messages::class_for_kind(kernel, &format!("finding_{event}")),
     )?;
     execute(
         &kernel.database,

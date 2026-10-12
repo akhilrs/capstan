@@ -201,6 +201,7 @@ fn queue_notice(
     body: &str,
     now: &str,
     action_needed: bool,
+    kind: &str,
 ) -> KernelResult<Option<String>> {
     let Some(parties) = message_notices::notice_parties(kernel)? else {
         return Ok(None);
@@ -213,6 +214,7 @@ fn queue_notice(
         &sha256(body),
         now,
         action_needed,
+        messages::class_for_kind(kernel, kind),
     )?))
 }
 
@@ -291,7 +293,7 @@ pub fn record_offer(
             )?
             .unwrap_or(1);
             let message_id = match notice {
-                Some(body) if mode == "ask" => queue_notice(kernel, body, &now, true)?,
+                Some(body) if mode == "ask" => queue_notice(kernel, body, &now, true, "cleanup_offer")?,
                 _ => None,
             };
             execute(
@@ -423,7 +425,7 @@ pub fn complete_cleanup(
             [state, &now, &kernel.project_id, cleanup_id],
         )?;
         if let Some(body) = notice {
-            queue_notice(kernel, body, &now, false)?;
+            queue_notice(kernel, body, &now, false, "cleanup_done")?;
         }
         let event = MutationEvent::new("cleanup", cleanup_id, 0).transition("offered", state);
         Ok(MutationOutput::new(cleanup_record(kernel, cleanup_id)?, event))

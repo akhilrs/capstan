@@ -11,10 +11,14 @@ fn js(text: &str) -> JsStr {
     JsStr::from(text)
 }
 
-/// `renderMessages(result)`.
+/// `renderMessages(result)`: the messages to act on, then the info digest when the daemon sent one.
 pub fn render_messages(result: Option<&Value>) -> Result<JsStr, JsError> {
     let messages_value = read(result, "messages")?;
     let value = result.expect("read succeeded");
+    let info = match read_opt(Some(value), "info") {
+        Some(Value::Array(items)) if !items.is_empty() => Some(items),
+        _ => None,
+    };
     let length_zero = match messages_value {
         None | Some(Value::Null) => true,
         Some(Value::Array(items)) => items.is_empty(),
@@ -25,11 +29,20 @@ pub fn render_messages(result: Option<&Value>) -> Result<JsStr, JsError> {
         Some(_) => false,
     };
     if length_zero {
-        return Ok(js(if is_true(read_opt(Some(value), "timedOut")) {
-            "no messages (the wait timed out)"
+        let timed_out = is_true(read_opt(Some(value), "timedOut"));
+        let Some(info) = info else {
+            return Ok(js(if timed_out {
+                "no messages (the wait timed out)"
+            } else {
+                "no messages"
+            }));
+        };
+        let lead = if timed_out {
+            "no action messages (the wait timed out)"
         } else {
-            "no messages"
-        }));
+            "no action messages"
+        };
+        return Ok(concat(&[&js(lead), &js("\n\n"), &info_block(info)]));
     }
     let Some(Value::Array(items)) = messages_value else {
         return Err(JsError::type_error("messages.map is not a function"));
@@ -48,24 +61,12 @@ pub fn render_messages(result: Option<&Value>) -> Result<JsStr, JsError> {
         if is_true(action) {
             line.push_str("[ACTION NEEDED]\n");
         }
-        let id = template_or_empty(item.get("messageId"));
-        let state = template_or_empty(item.get("state"));
-        let from = template_or_empty(item.get("from"));
-        line = concat(&[
+        rendered.push(concat(&[
             &line,
-            &js("message "),
-            &id,
-            &js(" ["),
-            &state,
-            &js("] from "),
-            &from,
-        ]);
-        if !strict_eq(item.get("fromAgentId"), item.get("from")) {
-            let agent = template_or_empty(item.get("fromAgentId"));
-            line = concat(&[&line, &js(" ("), &agent, &js(")")]);
-        }
-        let body = template_or_empty(item.get("body"));
-        rendered.push(concat(&[&line, &js("\n"), &body]));
+            &message_head(item),
+            &js("\n"),
+            &body_of(item),
+        ]));
     }
     for (i, line) in rendered.iter().enumerate() {
         if i > 0 {
@@ -73,7 +74,53 @@ pub fn render_messages(result: Option<&Value>) -> Result<JsStr, JsError> {
         }
         out = concat(&[&out, line]);
     }
+    if let Some(info) = info {
+        out = concat(&[&out, &js("\n\n"), &info_block(info)]);
+    }
     Ok(out)
+}
+
+fn body_of(item: &Value) -> JsStr {
+    template_or_empty(item.get("body"))
+}
+
+/// `message <id> [<state>] from <sender>` with the sending agent's id when it differs from the role.
+fn message_head(item: &Value) -> JsStr {
+    let id = template_or_empty(item.get("messageId"));
+    let state = template_or_empty(item.get("state"));
+    let from = template_or_empty(item.get("from"));
+    let mut line = concat(&[
+        &js("message "),
+        &id,
+        &js(" ["),
+        &state,
+        &js("] from "),
+        &from,
+    ]);
+    if !strict_eq(item.get("fromAgentId"), item.get("from")) {
+        let agent = template_or_empty(item.get("fromAgentId"));
+        line = concat(&[&line, &js(" ("), &agent, &js(")")]);
+    }
+    line
+}
+
+/// The compact digest of info messages: they were acknowledged when delivered, so no line asks for an ack.
+fn info_block(items: &[Value]) -> JsStr {
+    let mut out = js(&format!(
+        "info ({}, acknowledged automatically)",
+        items.len()
+    ));
+    for item in items {
+        let id = template_or_empty(item.get("messageId"));
+        let from = template_or_empty(item.get("from"));
+        let mut head = concat(&[&js("message "), &id, &js(" from "), &from]);
+        if !strict_eq(item.get("fromAgentId"), item.get("from")) {
+            let agent = template_or_empty(item.get("fromAgentId"));
+            head = concat(&[&head, &js(" ("), &agent, &js(")")]);
+        }
+        out = concat(&[&out, &js("\n"), &head, &js("\n"), &body_of(item)]);
+    }
+    out
 }
 
 /// `project <root>` and `ledger <path>`, or the older-daemon line.
@@ -209,21 +256,81 @@ pub fn oldest_minutes(queued_at: Option<&Value>, now_ms: f64) -> f64 {
     ((now_ms - queued) / 60_000.0).floor().max(0.0)
 }
 
+/// The lines `ack` prints when the daemon lists what it acknowledged: `<id>: <state>` each, or a line saying none.
+pub fn ack_lines(result: Option<&Value>) -> Option<Vec<String>> {
+    let Some(Value::Array(acked)) = read_opt(result, "acked") else {
+        return None;
+    };
+    if acked.is_empty() {
+        return Some(vec!["no messages to acknowledge".to_string()]);
+    }
+    Some(
+        acked
+            .iter()
+            .map(|item| {
+                format!(
+                    "{}: {}",
+                    template_or_empty(item.get("messageId")).to_utf8_lossy(),
+                    template_or_empty(item.get("state")).to_utf8_lossy()
+                )
+            })
+            .collect(),
+    )
+}
+
+/// What the notice and the hook say of the mail that waits: how many messages, how many of them need action and how
+/// many are info. `None` when nothing is worth interrupting for: info-only mail stays silent unless the daemon's wake
+/// policy counts it (`wakeCount`). An older daemon sends no `wakeCount` and every message counts.
+pub struct Waiting {
+    pub count: f64,
+    pub action: f64,
+    pub info: f64,
+}
+
+pub fn waiting(unread: Option<&Value>) -> Option<Waiting> {
+    let total = as_number(read_opt(unread, "count"))?;
+    let info = as_number(read_opt(unread, "infoCount"))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let wake = as_number(read_opt(unread, "wakeCount"));
+    let others = total - info;
+    if others <= 0.0 && wake.is_some_and(|wake| wake <= 0.0) {
+        return None;
+    }
+    // Info that wakes the agent (policy `all`, or old enough) is counted as a message of its own.
+    let (count, info) = if others > 0.0 {
+        (others, info)
+    } else {
+        (total, 0.0)
+    };
+    let action = as_number(read_opt(unread, "actionNeeded")).unwrap_or(0.0);
+    Some(Waiting {
+        count,
+        action: action.max(0.0),
+        info,
+    })
+}
+
 /// The `notice:` line for a result with `unread.count`, without its newline.
 pub fn unread_notice(result: Option<&Value>, now_ms: f64) -> Option<String> {
     let unread = read_opt(result, "unread");
-    let count = as_number(read_opt(unread, "count"))?;
+    let waiting = waiting(unread)?;
     let minutes = oldest_minutes(read_opt(unread, "oldestQueuedAt"), now_ms);
-    let action = as_number(read_opt(unread, "actionNeeded")).filter(|n| *n > 0.0);
-    Some(format!(
-        "notice: {} message(s) wait for you (oldest {} min): run cstan inbox{}",
-        number_to_string(count),
+    let mut line = format!(
+        "notice: {} message(s) wait for you (oldest {} min): run cstan inbox",
+        number_to_string(waiting.count),
         number_to_string(minutes),
-        action.map_or(String::new(), |n| format!(
+    );
+    if waiting.action > 0.0 {
+        line.push_str(&format!(
             ", {} need action",
-            number_to_string(n)
-        )),
-    ))
+            number_to_string(waiting.action)
+        ));
+    }
+    if waiting.info > 0.0 {
+        line.push_str(&format!(" (+{} info)", number_to_string(waiting.info)));
+    }
+    Some(line)
 }
 
 fn text_of(value: Option<&Value>) -> Option<String> {

@@ -119,7 +119,7 @@ fn a_ledger_at_schema_38_migrates_to_39_with_its_plans_intact() {
     let versions: i64 = conn
         .query_row("SELECT count(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(versions, 39);
+    assert_eq!(versions, capstan_ledger::max_embedded_migration());
     let plans_after: Vec<(String, Option<String>)> = conn
         .prepare("SELECT plan_id, architect_agent_id FROM plans ORDER BY plan_id")
         .unwrap()

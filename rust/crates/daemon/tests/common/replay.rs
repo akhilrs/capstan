@@ -54,6 +54,8 @@ pub struct StepReport {
     pub label: String,
     pub layer: String,
     pub status: Status,
+    /// The response the handler gave (redacted), kept for the step that failed so a transcript can be regenerated.
+    pub actual: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -234,7 +236,9 @@ fn apply_setup(
                 (Ok(value), None) => {
                     let expected = step.get("result").cloned().unwrap_or(Value::Null);
                     // The export keeps a result as JSON text; compare as JSON values.
-                    let actual = serde_json::from_str::<Value>(&value.to_string()).unwrap();
+                    let actual = super::tables::without_rust_only(
+                        &serde_json::from_str::<Value>(&value.to_string()).unwrap(),
+                    );
                     if actual != expected {
                         return Err(format!(
                             "setup step {index} ({op}): expected {} but got {}",
@@ -735,6 +739,7 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
             label: label_of(step, index),
             layer: layer.clone(),
             status: Status::Passed,
+            actual: None,
         };
         if layer == "socket" {
             step_report.status =
@@ -760,6 +765,7 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
                 if same_response(want, &got) {
                     Status::Passed
                 } else {
+                    step_report.actual = Some(got.clone());
                     Status::Failed(format!("expected {} but got {}", clip(want), clip(&got)))
                 }
             }
@@ -911,6 +917,7 @@ fn over_socket(report: &mut Report, scenario: &Value, indices: &[usize], whole: 
             .unwrap_or("dispatch")
             .to_string(),
         status,
+        actual: None,
     };
     let mut results: Vec<StepReport> = Vec::new();
     let mut extra = None;

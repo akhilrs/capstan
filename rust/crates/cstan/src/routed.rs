@@ -163,6 +163,14 @@ impl Cli<'_> {
             let until = parse_until(args)?;
             return self.wait_until(&socket, &credential, until, json);
         }
+        // An agent's inbox and wait ask for the digest: info mail apart and acknowledged. Without it the daemon answers
+        // as it always did.
+        let digest_args = ["--digest".to_string()];
+        let args = if use_agent && matches!(command, "inbox" | "wait") && args.is_empty() {
+            &digest_args[..]
+        } else {
+            args
+        };
         let request = frame(&credential, command, args)
             .map_err(|_| invalid("command request is too large"))?;
         let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms(command)));
@@ -221,10 +229,10 @@ impl Cli<'_> {
         let Response::Ok { result } = response(&line) else {
             return Ok(Flow::Code(0));
         };
-        let Some(count) = as_number(jsops::read_opt(result.as_ref(), "count")).filter(|n| *n > 0.0)
-        else {
+        let Some(waiting) = render::waiting(result.as_ref()).filter(|w| w.count > 0.0) else {
             return Ok(Flow::Code(0));
         };
+        let count = waiting.count;
         let minutes = render::oldest_minutes(
             jsops::read_opt(result.as_ref(), "oldestQueuedAt"),
             self.ctx.now_ms,
@@ -311,7 +319,11 @@ impl Cli<'_> {
             let request = frame(
                 credential,
                 "wait",
-                &["--limit".to_string(), limit.max(1).to_string()],
+                &[
+                    "--digest".to_string(),
+                    "--limit".to_string(),
+                    limit.max(1).to_string(),
+                ],
             )
             .map_err(|_| invalid("command request is too large"))?;
             let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms("wait")));
@@ -420,6 +432,10 @@ fn handle_wire(
     let (stdout, stderr) = (&mut io.out, &mut io.err);
     if !json && (command == "inbox" || command == "wait") {
         text(stdout, &render::render_messages(result)?);
+    } else if let (false, "ack", Some(lines)) = (json, command, render::ack_lines(result)) {
+        for line in lines {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
     } else if !json && command == "cleanup" {
         for line in render::cleanup_lines(result) {
             text(stdout, &JsStr::from(line.as_str()));

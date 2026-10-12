@@ -26,7 +26,7 @@
       "text": "{\"ok\":true,\"result\":{\"messages\":[],\"timedOut\":true}}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"wait\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"wait\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "no messages (the wait timed out)\n",

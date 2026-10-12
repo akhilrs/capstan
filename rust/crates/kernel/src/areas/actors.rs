@@ -462,6 +462,7 @@ pub fn record_lost(
                 &sha256(&body),
                 now,
                 true,
+                messages::class_for_kind(kernel, "agent_lost"),
             )?;
         }
     }

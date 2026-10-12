@@ -41,6 +41,8 @@ pub struct Kernel {
     pub env: Box<dyn Env>,
     /// `PromptRelayArea.#config`: set by `configurePromptRelay`, read by the prompt relay area.
     pub(crate) prompt_relay: RefCell<crate::areas::prompt_relay::PromptRelayConfig>,
+    /// The message policy (`pmWakeClass`, `noticeClass`...); the legacy behaviour until `set_message_policy`.
+    pub(crate) message_policy: RefCell<crate::areas::messaging::MessagePolicy>,
     closed: Cell<bool>,
 }
 
@@ -250,6 +252,7 @@ impl Kernel {
                 read_only: false,
                 env,
                 prompt_relay: RefCell::default(),
+                message_policy: RefCell::default(),
                 closed: Cell::new(false),
             })
         })();
@@ -303,6 +306,7 @@ impl Kernel {
             read_only: true,
             env,
             prompt_relay: RefCell::default(),
+            message_policy: RefCell::default(),
             closed: Cell::new(false),
         })
     }

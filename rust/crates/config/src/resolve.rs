@@ -83,6 +83,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             "timers",
             "supervision",
             "liveness",
+            "messages",
             "architect",
             "operator",
             "researcher",
@@ -234,6 +235,8 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         )?,
     };
 
+    let messages = resolve_messages(optional_table(root.get("messages"), "messages")?)?;
+
     let limit_table = optional_table(root.get("limits"), "limits")?;
     reject_unknown_keys(limit_table, &["max_workers"], "limits")?;
     let limits = Limits {
@@ -381,6 +384,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         timers,
         supervision,
         liveness,
+        messages,
         architect,
         operator,
         researcher,
@@ -1408,4 +1412,75 @@ fn resolve_operator(
         }
     }
     Ok(operator)
+}
+
+/// The `[messages]` table.
+fn resolve_messages(table: &Table) -> Result<Messages> {
+    reject_unknown_keys(
+        table,
+        &[
+            "wake",
+            "send_default",
+            "info_wake_after_seconds",
+            "auto_ack_info",
+            "notice_class",
+        ],
+        "messages",
+    )?;
+    let wake = match table.get("wake") {
+        None => WakePolicy::Action,
+        some => match enum_value(some, "messages.wake", &["action", "all"])? {
+            "all" => WakePolicy::All,
+            _ => WakePolicy::Action,
+        },
+    };
+    let send_default = match table.get("send_default") {
+        None => MessageClassName::Action,
+        some => class_name(enum_value(some, "messages.send_default", &CLASS_NAMES)?),
+    };
+    let info_wake_after_seconds = optional_integer(
+        table.get("info_wake_after_seconds"),
+        "messages.info_wake_after_seconds",
+        0,
+        MAX_INFO_WAKE_AFTER_SECONDS,
+        DEFAULT_INFO_WAKE_AFTER_SECONDS,
+    )?;
+    let auto_ack_info =
+        optional_boolean(table.get("auto_ack_info"), "messages.auto_ack_info", true)?;
+    let mut notice_class = std::collections::BTreeMap::new();
+    for (kind, value) in
+        optional_table(table.get("notice_class"), "messages.notice_class")?.entries()
+    {
+        let at = format!("messages.notice_class.{kind}");
+        let Some((_, overridable)) = MESSAGE_NOTICE_KINDS.iter().find(|(name, _)| *name == kind)
+        else {
+            return invalid(format!("{at} is not a known notice kind"));
+        };
+        if !overridable {
+            return invalid(format!(
+                "{at} cannot be changed: this notice kind is always an action message"
+            ));
+        }
+        notice_class.insert(
+            kind.to_string(),
+            class_name(enum_value(Some(value), &at, &CLASS_NAMES)?),
+        );
+    }
+    Ok(Messages {
+        wake,
+        send_default,
+        info_wake_after_seconds,
+        auto_ack_info,
+        notice_class,
+    })
+}
+
+const CLASS_NAMES: [&str; 2] = ["action", "info"];
+
+fn class_name(text: &str) -> MessageClassName {
+    if text == "info" {
+        MessageClassName::Info
+    } else {
+        MessageClassName::Action
+    }
 }

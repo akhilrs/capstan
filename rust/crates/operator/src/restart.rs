@@ -31,11 +31,11 @@ const MAX_REPORT_CHARS: usize = 6000;
 const DEPENDENCY_WARNING: &str =
     "dependencies changed since the known-good build: rollback may not start";
 
-/// Tells the PM something (`actionNeeded` second).
-pub type PmNotifier = Box<dyn Fn(&str, bool) + Send + Sync>;
+/// Tells the PM something (`actionNeeded` second, the notice kind third).
+pub type PmNotifier = Box<dyn Fn(&str, bool, &str) + Send + Sync>;
 /// A log event with details.
 pub type EventLog = Box<dyn Fn(&str, Value) + Send + Sync>;
-type LocalNotifier = Box<dyn Fn(&str, bool)>;
+type LocalNotifier = Box<dyn Fn(&str, bool, &str)>;
 type LocalLog = Box<dyn Fn(&str, Value)>;
 type SendLog = Box<dyn Fn(&str, Value) + Send>;
 type FinishRun = dyn Fn(&str, &RestartRunReport, i64) -> Result<(), String>;
@@ -300,7 +300,7 @@ impl ProcessRestartCoordinator {
         );
         // A panicking notifier must not hide the refusal.
         let notified = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (self.options.notify_pm)(&body, true)
+            (self.options.notify_pm)(&body, true, "restart_result")
         }));
         if notified.is_err() {
             self.log(
@@ -722,6 +722,7 @@ pub fn recover_restart_results(deps: &RestartRecoveryDeps) -> Vec<String> {
         (deps.notify_pm)(
             &restart_notice_to_pm(proposal_id, &result),
             result.outcome != RestartOutcome::Ok,
+            "restart_result",
         );
         if let Err(error) = (deps.finish_run)(
             proposal_id,

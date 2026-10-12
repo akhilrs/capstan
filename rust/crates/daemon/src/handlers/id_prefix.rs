@@ -24,7 +24,8 @@ const CLEANUPS: &[IdColumn] = &[("cleanups", "cleanup_id")];
 fn id_arguments(command: &str, args: &[String]) -> Vec<(usize, &'static [IdColumn])> {
     let sub = args.first().map(String::as_str);
     match (command, sub) {
-        ("ack" | "resolve" | "cancel", _) => vec![(0, MESSAGES)],
+        ("ack", _) => (0..args.len()).map(|i| (i, MESSAGES)).collect(),
+        ("resolve" | "cancel", _) => vec![(0, MESSAGES)],
         ("request-review", _) => vec![(0, REPORT_OR_INTEGRATION)],
         ("integrate", Some("confirm" | "discard")) => vec![(1, INTEGRATIONS)],
         ("integrate", _) => (0..args.len()).map(|i| (i, REPORTS)).collect(),
@@ -82,6 +83,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(at("ack", "m1"), [0]);
+        assert_eq!(at("ack", "m1 m2"), [0, 1]);
         assert_eq!(at("integrate", "r1 r2"), [0, 1]);
         assert_eq!(at("integrate", "confirm i1"), [1]);
         assert_eq!(at("op", "decide p1 approve"), [1]);

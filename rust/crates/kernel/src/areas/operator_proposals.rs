@@ -894,7 +894,7 @@ pub fn propose_operator_action(
                 ],
             )?;
             let record = record_of(kernel, &proposal_id)?;
-            message_notices::notice_to_pm(kernel, &proposal_notice_to_pm(&record)?, &now, true)?;
+            message_notices::notice_to_pm(kernel, "operator_proposal", &proposal_notice_to_pm(&record)?, &now, true)?;
             let mut details = Map::new();
             details.insert("kind".into(), json!(kind));
             details.insert("autoRule".into(), json!(effective_rule));
@@ -1131,8 +1131,7 @@ pub fn decide_operator_proposal(
                 ],
             )?;
             let record = record_of(kernel, &row.proposal_id)?;
-            message_notices::notice_to_agent(
-                kernel,
+            message_notices::notice_to_agent(kernel, "operator_proposal_update",
                 &row.proposer_agent_id,
                 &decision_notice(&record, state)?,
                 &now,
@@ -1207,8 +1206,7 @@ pub fn cancel_operator_proposal(
             set_operator_state(kernel, &row, "cancelled", &now)?;
             let record = record_of(kernel, proposal_id)?;
             if !is_proposer {
-                message_notices::notice_to_agent(
-                    kernel,
+                message_notices::notice_to_agent(kernel, "operator_proposal_update",
                     &row.proposer_agent_id,
                     &ended_without_run_notice(&record, "was cancelled; it was not run.")?,
                     &now,
@@ -1301,9 +1299,16 @@ pub(crate) fn expire_operator_row(
     set_operator_state(kernel, row, "expired", now)?;
     let record = record_of(kernel, &row.proposal_id)?;
     let body = expired_notice(&record, behind.as_deref())?;
-    message_notices::notice_to_agent(kernel, &row.proposer_agent_id, &body, now, false)?;
+    message_notices::notice_to_agent(
+        kernel,
+        "operator_proposal_update",
+        &row.proposer_agent_id,
+        &body,
+        now,
+        false,
+    )?;
     if row.state == "approved" {
-        message_notices::notice_to_pm(kernel, &body, now, false)?;
+        message_notices::notice_to_pm(kernel, "operator_proposal_update", &body, now, false)?;
     }
     Ok(())
 }

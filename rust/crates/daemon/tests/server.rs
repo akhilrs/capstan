@@ -1033,3 +1033,192 @@ fn a_daemon_with_a_configuration_syncs_its_roles_before_the_server_starts() {
     assert_eq!(names, vec!["developer", "pm"], "{roles}");
     core.close();
 }
+
+// ------------------------------------------------------------------------------------------------ message classes
+
+impl Fixture {
+    /// The message policy of a configured daemon: only action mail wakes.
+    fn wake_on_action_only(&self) {
+        self.deps
+            .kernel
+            .run(|core| {
+                core.set_message_policy(&json!({"pmWakeClass": "action"}));
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    fn message_state(&self, message_id: &str) -> String {
+        let id = message_id.to_string();
+        let record = self.deps.kernel.run(move |core| core.message(&id)).unwrap();
+        record["state"].as_str().unwrap().to_string()
+    }
+
+    fn send_info(&self, recipient: &str, text: &str) -> String {
+        let answer = self.operator("send", &["--info", recipient, text]);
+        assert_eq!(answer["ok"], true, "{answer}");
+        answer["result"]["messageId"].as_str().unwrap().to_string()
+    }
+}
+
+#[test]
+fn a_digest_wait_with_only_info_queued_waits_for_the_timeout_and_acks_the_info() {
+    let fixture = Fixture::start(Setup {
+        wait_seconds: Some(1),
+        ..Setup::default()
+    });
+    fixture.wake_on_action_only();
+    let info = fixture.send_info("dev-1", "fyi");
+    let response = fixture.call(&fixture.agent("dev-1"), "wait", &["--digest"]);
+    assert_eq!(response["ok"], true, "{response}");
+    let result = &response["result"];
+    // The info block came with the reply, so the wait did not come back empty.
+    assert_eq!(result["timedOut"], false, "{result}");
+    assert_eq!(result["count"], 0);
+    assert_eq!(result["infoCount"], 1);
+    assert_eq!(result["info"][0]["body"], "fyi");
+    assert_eq!(fixture.message_state(&info), "acked");
+}
+
+#[test]
+fn a_digest_wait_returns_on_an_action_message_with_the_info_block() {
+    let fixture = Fixture::start(Setup::default());
+    fixture.wake_on_action_only();
+    let credential = fixture.agent("pm-1");
+    let info = fixture.send_info("pm-1", "fyi");
+    let wait = {
+        let socket = fixture.socket.clone();
+        std::thread::spawn(move || call(&socket, &credential, "wait", &["--digest"]))
+    };
+    fixture.wait_for_open_wait();
+    // The info alone did not end the wait.
+    assert_eq!(fixture.message_state(&info), "queued");
+    let sent = fixture.operator("send", &["pm-1", "do this"]);
+    assert_eq!(sent["ok"], true, "{sent}");
+    let response = wait.join().unwrap();
+    let result = &response["result"];
+    assert_eq!(result["timedOut"], false, "{response}");
+    assert_eq!(result["messages"][0]["body"], "do this");
+    assert_eq!(result["actionNeededCount"], 0);
+    assert_eq!(result["info"][0]["body"], "fyi");
+    assert_eq!(fixture.message_state(&info), "acked");
+}
+
+#[test]
+fn a_superseded_wait_leaves_the_info_queued() {
+    let fixture = Fixture::start(Setup::default());
+    fixture.wake_on_action_only();
+    let credential = fixture.agent("pm-1");
+    let info = fixture.send_info("pm-1", "fyi");
+    let first = {
+        let (socket, credential) = (fixture.socket.clone(), credential.clone());
+        std::thread::spawn(move || call(&socket, &credential, "wait", &["--digest"]))
+    };
+    fixture.wait_for_open_wait();
+    let second = {
+        let (socket, credential) = (fixture.socket.clone(), credential.clone());
+        std::thread::spawn(move || call(&socket, &credential, "wait", &["--digest"]))
+    };
+    assert_eq!(first.join().unwrap()["code"], "superseded");
+    // The aborted wait pulled nothing.
+    assert_eq!(fixture.message_state(&info), "queued");
+    fixture.wait_for_open_wait();
+    assert_eq!(fixture.operator("send", &["pm-1", "go"])["ok"], true);
+    assert_eq!(
+        second.join().unwrap()["result"]["messages"][0]["body"],
+        "go"
+    );
+}
+
+#[test]
+fn an_inbox_or_wait_without_digest_keeps_todays_shape_and_acks_nothing() {
+    let fixture = Fixture::start(Setup {
+        wait_seconds: Some(1),
+        ..Setup::default()
+    });
+    fixture.wake_on_action_only();
+    let info = fixture.send_info("dev-1", "fyi");
+    assert_eq!(fixture.operator("send", &["dev-1", "do this"])["ok"], true);
+    let inbox = fixture.call(&fixture.agent("dev-1"), "inbox", &[]);
+    let result = &inbox["result"];
+    assert_eq!(result["count"], 2, "{inbox}");
+    assert!(result.get("info").is_none() && result.get("infoCount").is_none());
+    let states: Vec<&str> = result["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["state"].as_str().unwrap())
+        .collect();
+    assert_eq!(states, ["sent", "sent"]);
+    assert_eq!(fixture.message_state(&info), "sent");
+    let wait = fixture.call(&fixture.agent("dev-1"), "wait", &[]);
+    assert!(wait["result"].get("info").is_none(), "{wait}");
+    assert_eq!(wait["result"]["count"], 2);
+}
+
+#[test]
+fn ack_takes_many_ids_or_all_read_and_a_bad_id_refuses_them_all() {
+    let fixture = Fixture::start(Setup::default());
+    let dev = fixture.agent("dev-1");
+    let a = fixture.send_info("dev-1", "one");
+    let b = fixture.send_info("dev-1", "two");
+    let inbox = fixture.call(&dev, "inbox", &[]);
+    assert_eq!(inbox["result"]["count"], 2, "{inbox}");
+    // A message queued after the inbox is not "read".
+    let c = fixture.send_info("dev-1", "three");
+    let refused = fixture.call(&dev, "ack", &[&a, "no-such-message-id"]);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(fixture.message_state(&a), "sent");
+    let both = fixture.call(&dev, "ack", &[&a, &b]);
+    assert_eq!(both["result"]["count"], 2, "{both}");
+    assert_eq!(both["result"]["acked"][1]["state"], "acked");
+    assert_eq!(fixture.message_state(&b), "acked");
+    let d = fixture.send_info("dev-1", "four");
+    let _ = fixture.call(&dev, "inbox", &[]);
+    let all = fixture.call(&dev, "ack", &["--all-read"]);
+    let acked: Vec<&str> = all["result"]["acked"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["messageId"].as_str().unwrap())
+        .collect();
+    assert_eq!(acked.len(), 2, "{all}");
+    assert!(acked.contains(&c.as_str()) && acked.contains(&d.as_str()));
+}
+
+#[test]
+fn a_worker_waiting_is_woken_by_info_at_once_while_the_pm_is_not() {
+    let fixture = Fixture::start(Setup {
+        wait_seconds: Some(1),
+        ..Setup::default()
+    });
+    fixture.wake_on_action_only();
+    // A worker's wait returns on the info message without waiting for the timeout.
+    let credential = fixture.agent("dev-1");
+    let wait = {
+        let socket = fixture.socket.clone();
+        std::thread::spawn(move || call(&socket, &credential, "wait", &["--digest"]))
+    };
+    fixture.wait_for_open_wait();
+    let started = Instant::now();
+    fixture.send_info("dev-1", "fyi");
+    let response = wait.join().unwrap();
+    assert!(started.elapsed() < Duration::from_millis(900), "{response}");
+    assert_eq!(response["result"]["infoCount"], 1, "{response}");
+    assert_eq!(response["result"]["timedOut"], false);
+    // The PM's wait ignores info until it times out; the info comes back in the block.
+    let pm = fixture.agent("pm-1");
+    let wait = {
+        let socket = fixture.socket.clone();
+        std::thread::spawn(move || call(&socket, &pm, "wait", &["--digest"]))
+    };
+    fixture.wait_for_open_wait();
+    let started = Instant::now();
+    fixture.send_info("pm-1", "fyi to pm");
+    let response = wait.join().unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(900),
+        "{response}"
+    );
+    assert_eq!(response["result"]["infoCount"], 1, "{response}");
+}

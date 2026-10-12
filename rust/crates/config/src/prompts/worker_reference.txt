@@ -7,6 +7,7 @@ Acknowledge with: cstan ack <message-id>
 Commands:
 - `cstan ack <message-id>` tells the controller you have read and understood a message. Run it once for every message, right after you read it; the controller counts the time from when a message is delivered to you. Messages may be acknowledged in any order.
 - `cstan send @pm "<text>"` sends a message to the project manager. Plain text only; a message may not start with / ! # ? or @.
+- `cstan send --info @pm "<text>"` sends a message that does not need an answer: a progress note, an acknowledgement or an FYI. The PM reads it in a digest and is not woken by it. Send a question, a blocker or anything that needs a decision without `--info`.
 - `cstan inbox` delivers and prints every message waiting for you (all of them, oldest first) and the ones you have not yet acknowledged. Run it at the start of your work and whenever a command prints `notice: ... message(s) wait for you` or a hook says Capstan messages are waiting.
 - `cstan wait` blocks until a message arrives (or the host wait timeout) and then prints it like `cstan inbox`. Use it when you have nothing else to do and expect mail. Never poll for messages with a shell loop (sleep, watch, repeated `cstan inbox`); use `cstan wait`.
 - `cstan status` shows the project state.

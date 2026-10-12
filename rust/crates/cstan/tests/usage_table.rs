@@ -42,7 +42,7 @@ fn the_table_keeps_every_command_of_the_old_usage_line() {
     }
     // The bare commands got their arguments.
     for (bare, filled) in [
-        ("ack", "ack <message-id>"),
+        ("ack", "ack <message-id>...|--all-read"),
         ("report", "report <commit> <summary>"),
         ("resolve", "resolve <message-id> retry|skip|cancel [<note>]"),
     ] {
@@ -138,7 +138,7 @@ fn help_for_a_command_shows_its_syntax_and_description() {
     assert_eq!((flag_out, flag_exit), (out, 0));
     let (single, _, _) = run(&["help", "ack"]);
     assert!(
-        single.starts_with("usage: cstan ack <message-id>\n"),
+        single.starts_with("usage: cstan ack <message-id>...|--all-read\n"),
         "{single}"
     );
 }

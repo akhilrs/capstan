@@ -4,7 +4,7 @@
 //! the ledger's change counter (`KernelHandle::wait_change`), capped at the poll interval of Node so a missed wake-up costs
 //! at most that long. The clock is read where Node reads `now()`, so a seeded run consumes the same stream.
 
-use super::env::{delivered_messages, pull_for};
+use super::env::inbox_reply;
 use super::shared::{
     fail, map_kernel_error, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode, WaitEntry,
     WAIT_POLL_MS,
@@ -56,12 +56,22 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let Some(agent) = call.identity.agent.as_ref() else {
         return Some(fail(ErrorCode::Forbidden, "only an agent waits"));
     };
+    // `--digest` (the current client) asks for info mail apart and acknowledged; no argument is the earlier shape.
     // `--limit <seconds>` (sent by `cstan wait --until`) only shortens the host's limit, so the last round of a long
     // wait ends at the caller's deadline.
-    let shorter_ms = match call.args {
-        [] => None,
+    let mut digest = false;
+    let mut shorter_ms = None;
+    let mut rest = call.args;
+    if let [first, tail @ ..] = rest {
+        if first == "--digest" {
+            digest = true;
+            rest = tail;
+        }
+    }
+    match rest {
+        [] => {}
         [flag, seconds] if flag == "--limit" => match seconds.parse::<u64>() {
-            Ok(seconds) if seconds >= 1 => Some(seconds as i64 * 1000),
+            Ok(seconds) if seconds >= 1 => shorter_ms = Some(seconds as i64 * 1000),
             _ => {
                 return Some(fail(
                     ErrorCode::InvalidRequest,
@@ -70,7 +80,10 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             }
         },
         _ => return Some(fail(ErrorCode::InvalidRequest, "wait takes no arguments")),
-    };
+    }
+    let auto_ack_info = env
+        .config()
+        .is_none_or(|config| config.messages.auto_ack_info);
     let kernel = &env.deps.kernel;
     let signal = call.signal;
     let host_ms = call
@@ -108,14 +121,18 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     if signal.reason().is_some() {
         return env.abort_reply(signal);
     }
+    // Whether mail that wakes the agent under the message policy is pending. Read-only: a wait that is superseded or
+    // aborted has pulled nothing.
+    let waking = |credential: &str| -> Result<bool, KernelError> {
+        let credential = credential.to_string();
+        let pending = kernel.run(move |core| core.wake_pending(&credential))?;
+        Ok(pending["wake"].as_bool().unwrap_or(false))
+    };
     let attempt = || -> Result<Option<CommandResponse>, KernelError> {
         let credential = call.credential.to_string();
         let mut seen = kernel.change_counter();
-        let mut pulled = kernel.run({
-            let credential = credential.clone();
-            move |core| pull_for(core, &credential)
-        })?;
-        if !pulled && kernel.now_ms() < deadline {
+        let mut woke = waking(&credential)?;
+        if !woke && kernel.now_ms() < deadline {
             let begun = kernel.run({
                 let credential = credential.clone();
                 move |core| {
@@ -125,7 +142,7 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             })?;
             let wait_id = begun["waitId"].as_str().unwrap_or("").to_string();
             let polled = (|| -> Result<bool, KernelError> {
-                while !pulled && signal.reason().is_none() && kernel.now_ms() < deadline {
+                while !woke && signal.reason().is_none() && kernel.now_ms() < deadline {
                     let left = (deadline - kernel.now_ms()).max(1);
                     let slice = left.min(WAIT_POLL_MS as i64).max(1) as u64;
                     kernel.wait_change(seen, Duration::from_millis(slice), Some(signal));
@@ -133,41 +150,27 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
                         break;
                     }
                     seen = kernel.change_counter();
-                    pulled = kernel.run({
-                        let credential = credential.clone();
-                        move |core| pull_for(core, &credential)
-                    })?;
+                    woke = waking(&credential)?;
                 }
-                Ok(pulled)
+                Ok(woke)
             })();
             env.end_wait(&credential, &wait_id);
-            pulled = polled?;
+            woke = polled?;
         }
         if signal.reason().is_some() {
             return Ok(None);
         }
-        let read = kernel.run({
+        // Delivery happens once, here, also when the wait timed out.
+        let (_, mut reply) = kernel.run({
             let credential = credential.clone();
-            move |core| {
-                let pulled = if pulled {
-                    true
-                } else {
-                    pull_for(core, &credential)?
-                };
-                Ok((pulled, delivered_messages(core, &credential)?))
-            }
+            move |core| inbox_reply(core, &credential, digest, auto_ack_info)
         })?;
-        let (pulled, messages) = read;
-        let action_needed = messages
+        // Timed out means nothing came: no action mail and no info block in the reply.
+        let delivered = ["count", "infoCount"]
             .iter()
-            .filter(|message| message["actionNeeded"].as_bool().unwrap_or(false))
-            .count();
-        Ok(Some(ok(json!({
-            "messages": messages,
-            "timedOut": !pulled,
-            "count": messages.len(),
-            "actionNeededCount": action_needed,
-        }))))
+            .any(|key| reply.get(*key).and_then(|n| n.as_i64()).unwrap_or(0) > 0);
+        reply.insert("timedOut".into(), json!(!woke && !delivered));
+        Ok(Some(ok(serde_json::Value::Object(reply))))
     };
     match attempt() {
         // An abort during the wait: the reply the reason asks for, or nothing when the client is gone.

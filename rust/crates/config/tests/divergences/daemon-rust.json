@@ -4,7 +4,7 @@
   "reason": "[daemon] selects nothing now: implementation = \"rust\" loads with a warning and the RoleConfig JSON has no daemon member",
   "expected": {
     "kind": "ok",
-    "sha256": "88faf85f35abdc205d9055116ee4e1eb97b491b2b8d345b3a3ece226bd6e7f0e",
-    "bytes": 3659
+    "sha256": "1eac32a67dc1a90fff6c966d25674eb2458b2a8d4cab5afdd56983f2e6c54a98",
+    "bytes": 3811
   }
 }

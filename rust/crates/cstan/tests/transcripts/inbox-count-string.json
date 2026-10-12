@@ -26,7 +26,7 @@
       "text": "{\"ok\":true,\"result\":{\"count\":\"2\",\"messages\":[{\"messageId\":\"m-3\",\"state\":\"sent\",\"from\":\"a\",\"fromAgentId\":\"a\",\"body\":\"b\"}]}}"
     }
   },
-  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[]}",
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"inbox\",\"args\":[\"--digest\"]}",
   "fallback": false,
   "node": {
     "stdout": "message m-3 [sent] from a\nb\n",

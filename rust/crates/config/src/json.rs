@@ -200,6 +200,28 @@ impl RoleConfig {
                 ]),
             ),
             (
+                "messages",
+                object(vec![
+                    ("wake", text(self.messages.wake.as_str())),
+                    ("sendDefault", text(self.messages.send_default.as_str())),
+                    (
+                        "infoWakeAfterSeconds",
+                        number(self.messages.info_wake_after_seconds),
+                    ),
+                    ("autoAckInfo", Value::Bool(self.messages.auto_ack_info)),
+                    (
+                        "noticeClass",
+                        object(
+                            self.messages
+                                .notice_class
+                                .iter()
+                                .map(|(kind, class)| (kind.as_str(), text(class.as_str())))
+                                .collect(),
+                        ),
+                    ),
+                ]),
+            ),
+            (
                 "architect",
                 object(vec![
                     ("enabled", Value::Bool(self.architect.enabled)),

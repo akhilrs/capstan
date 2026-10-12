@@ -292,6 +292,8 @@ fn with_notice(
                     "count": summary["count"],
                     "oldestQueuedAt": summary["oldestQueuedAt"],
                     "actionNeeded": summary["actionNeeded"],
+                    "wakeCount": summary["wakeCount"],
+                    "infoCount": summary["infoCount"],
                 }),
             );
             ok(Value::Object(merged))

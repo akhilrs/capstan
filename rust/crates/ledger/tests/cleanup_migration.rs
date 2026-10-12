@@ -36,6 +36,7 @@ fn row_dump(file: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
             .query_map([], |r| r.get(0))
             .unwrap()
             .map(Result::unwrap)
+            .filter(|c: &String| !(table == "messages" && c == "class")) // added by 0040, after this migration
             .collect();
         let select = columns
             .iter()

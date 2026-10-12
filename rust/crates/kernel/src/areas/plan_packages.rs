@@ -314,6 +314,7 @@ pub fn assign_package(
             &sha256(&task),
             &now,
             false,
+            messages::class_for_kind(kernel, "work_package"),
         )?;
         execute(
             &kernel.database,
@@ -513,8 +514,7 @@ pub fn record_signoff(
                 ],
             )?;
             let extra = signoff_extra_reports(kernel, plan_id, integration_id)?;
-            message_notices::notice_to_pm(
-                kernel,
+            message_notices::notice_to_pm(kernel, "plan_notice",
                 &plan_signed_off_notice(
                     plan_id,
                     integration_id,
@@ -712,8 +712,7 @@ pub fn cancel_plan(
                 [now.as_str(), now.as_str(), kernel.project_id.as_str(), plan_id],
             )?;
         }
-        let mut notified = plans::queue_plan_notice(
-            kernel,
+        let mut notified = plans::queue_plan_notice(kernel, "plan_notice",
             &plan,
             &plan_cancelled_notice(plan_id, package_id),
             &now,
@@ -743,6 +742,7 @@ pub fn cancel_plan(
                 &sha256(&body),
                 &now,
                 false,
+                messages::class_for_kind(kernel, "work_package_cancelled"),
             )?;
             if !notified.contains(&developer.agent_id) {
                 notified.push(developer.agent_id.clone());

@@ -264,6 +264,7 @@ pub(crate) fn settle_plan_approval(
     let note = approval_note(kernel, plan)?;
     message_notices::notice_to_pm(
         kernel,
+        "plan_notice",
         &plan_approved_notice(&plan.plan_id, body_json, note.as_deref())?,
         now,
         true,
@@ -407,7 +408,7 @@ pub fn announce_plan_notice(
             } else {
                 plan_needs_attention_notice(&plan.plan_id)
             };
-            let announced = message_notices::notice_to_pm(kernel, &body, &kernel.now(), true)?;
+            let announced = message_notices::notice_to_pm(kernel, "plan_notice", &body, &kernel.now(), true)?;
             Ok(MutationOutput::new(
                 json!({"announced": announced}),
                 MutationEvent::new("plan", plan_id, 0)
@@ -490,6 +491,7 @@ pub fn abandon_plan_review(
                         &sha256(&body),
                         &now,
                         false,
+                        messages::class_for_kind(kernel, "plan_review_failed"),
                     )?;
                 }
             }
@@ -599,6 +601,7 @@ fn approval_note(kernel: &Kernel, plan: &PlanRow) -> KernelResult<Option<String>
 /// caller owns the transaction.
 pub(crate) fn queue_plan_notice(
     kernel: &Kernel,
+    kind: &str,
     plan: &PlanRow,
     body: &str,
     now: &str,
@@ -624,6 +627,7 @@ pub(crate) fn queue_plan_notice(
             &sha256(body),
             now,
             action_needed,
+            messages::class_for_kind(kernel, kind),
         )?;
     }
     Ok(recipients.into_iter().map(|r| r.agent_id).collect())

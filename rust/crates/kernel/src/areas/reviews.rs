@@ -372,6 +372,7 @@ pub fn begin_review(
             &sha256(&task),
             &now,
             false,
+            messages::class_for_kind(kernel, "review_request"),
         )?;
         let mut event = MutationEvent::new("review", &review_id, 0).with_details(json!({
             "subjectId": subject_id,
@@ -490,6 +491,7 @@ fn settle_plan_review(
         if plans::finished_plan_reviews(kernel, &plan.plan_id)? >= MAX_REVIEW_ROUNDS {
             message_notices::notice_to_pm(
                 kernel,
+                "plan_notice",
                 &plan_needs_attention_notice(&plan.plan_id),
                 now,
                 true,
@@ -562,7 +564,7 @@ fn notice_package_reviewed(kernel: &Kernel, row: &ReviewRow, now: &str) -> Kerne
         |_| Ok(()),
     )?;
     if sent.is_none() {
-        message_notices::notice_to_pm(kernel, &body, now, true)?;
+        message_notices::notice_to_pm(kernel, "review_verdict", &body, now, true)?;
     }
     Ok(())
 }
@@ -617,6 +619,7 @@ fn announce(kernel: &Kernel, review_id: &str, now: &str) -> KernelResult<bool> {
         &sha256(&body),
         now,
         false,
+        messages::class_for_kind(kernel, "review_verdict"),
     )?;
     execute(
         &kernel.database,

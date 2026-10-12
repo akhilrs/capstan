@@ -324,6 +324,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             start_grace_seconds: 120,
             stall_child_max_seconds: 3600,
         },
+        messages: Default::default(),
         architect: Architect {
             enabled: architect_spec.is_some(),
             role: "architect".into(),

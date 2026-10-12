@@ -328,6 +328,7 @@ fn announce(kernel: &Kernel, report_id: &str, role_name: &str, now: &str) -> Ker
         &sha256(&body),
         now,
         false,
+        messages::class_for_kind(kernel, "report_verified"),
     )?;
     execute(
         &kernel.database,

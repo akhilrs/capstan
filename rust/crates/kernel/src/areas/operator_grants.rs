@@ -208,6 +208,7 @@ fn notice_grant_ended(
     };
     message_notices::notice_to_agent(
         kernel,
+        "operator_grant_update",
         &source.proposer_agent_id,
         &grant_ended_notice(&row.record(), reason)?,
         now,
@@ -380,7 +381,7 @@ pub fn record_operator_full_auto(
             let now = kernel.now();
             if change != "startup" {
                 let body = full_auto_notice(&change, &minutes)?;
-                message_notices::notice_to_pm(kernel, &body, &now, false)?;
+                message_notices::notice_to_pm(kernel, "operator_grant_update", &body, &now, false)?;
                 let operators = query_all(
                     &kernel.database,
                     "SELECT * FROM agents WHERE project_id = ? AND role_name = ? AND state = 'active'",
@@ -388,7 +389,7 @@ pub fn record_operator_full_auto(
                     AgentRow::from_row,
                 )?;
                 for operator in operators {
-                    message_notices::notice_to_agent(kernel, &operator.agent_id, &body, &now, false)?;
+                    message_notices::notice_to_agent(kernel, "operator_grant_update", &operator.agent_id, &body, &now, false)?;
                 }
             }
             let mut details = serde_json::Map::new();
@@ -448,8 +449,8 @@ pub fn end_full_auto_proposal(
                 &record,
                 "was not run: full auto ended before it started. Propose it again if it is still needed.",
             )?;
-            message_notices::notice_to_agent(kernel, &row.proposer_agent_id, &body, &now, false)?;
-            message_notices::notice_to_pm(kernel, &body, &now, false)?;
+            message_notices::notice_to_agent(kernel, "operator_grant_update", &row.proposer_agent_id, &body, &now, false)?;
+            message_notices::notice_to_pm(kernel, "operator_grant_update", &body, &now, false)?;
             Ok(MutationOutput::new(
                 record,
                 operator_proposals::operator_event(

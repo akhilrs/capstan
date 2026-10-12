@@ -41,6 +41,31 @@ fn every_transcript_replays() {
     assert!(passed > 0, "no step passed");
 }
 
+/// Lists the steps whose response differs, with what the handler answered now, as JSON on the file named by
+/// `CAPSTAN_REGEN_OUT` (`[{"group", "scenario", "step", "response"}]`). A transcript is regenerated from this list: its
+/// `response` for each step is replaced by `response`, nothing else in the file changes.
+#[test]
+#[ignore = "writes the responses a transcript regeneration needs"]
+fn list_the_responses_that_changed() {
+    let out = std::env::var("CAPSTAN_REGEN_OUT").expect("CAPSTAN_REGEN_OUT names the output file");
+    let changed: Vec<serde_json::Value> = replay_directory(&transcripts_dir())
+        .iter()
+        .flat_map(|report| {
+            report.steps.iter().filter_map(|step| {
+                step.actual.as_ref().map(|actual| {
+                    serde_json::json!({
+                        "group": report.group,
+                        "scenario": report.name,
+                        "step": step.index,
+                        "response": actual,
+                    })
+                })
+            })
+        })
+        .collect();
+    std::fs::write(out, serde_json::to_string_pretty(&changed).unwrap()).unwrap();
+}
+
 #[test]
 fn core_reports_its_dispatch_steps_and_marks_the_socket_steps_pending() {
     let core = replay_group(&read_transcript(&transcripts_dir().join("core.json")));

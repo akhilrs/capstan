@@ -154,15 +154,13 @@ pub fn transition_run(
             close_pause(kernel, "run", None, &pause_reason, &caller.actor_id, &now)?;
         }
         if caller.role == "operator" && state_text == "paused" {
-            message_notices::notice_to_pm(
-                kernel,
+            message_notices::notice_to_pm(kernel, "pause_notice",
                 &format!("The operator paused the run: {pause_reason}. Workers are held and spawn, plan assign, request-review and integrate are refused until `cstan resume --reason \"<text>\"`. You keep receiving messages."),
                 &now,
                 false,
             )?;
         } else if caller.role == "operator" && run_state == "paused" && state_text == "active" {
-            message_notices::notice_to_pm(
-                kernel,
+            message_notices::notice_to_pm(kernel, "pause_notice",
                 &format!("The operator resumed the run: {pause_reason}. Held messages are delivered in order."),
                 &now,
                 false,
@@ -401,8 +399,7 @@ fn agent_pause_change(
                 }
                 open_pause(kernel, "agent", Some(&target.agent_id), &reason, &actor.actor_id, &now)?;
                 if actor.role == "operator" {
-                    message_notices::notice_to_pm(
-                        kernel,
+                    message_notices::notice_to_pm(kernel, "pause_notice",
                         &format!("The operator paused {}: {reason}. Its messages are held until `cstan resume {} --reason \"<text>\"`.", target.agent_id, target.agent_id),
                         &now,
                         false,
@@ -417,8 +414,7 @@ fn agent_pause_change(
                 }
                 close_pause(kernel, "agent", Some(&target.agent_id), &reason, &actor.actor_id, &now)?;
                 if actor.role == "operator" {
-                    message_notices::notice_to_pm(
-                        kernel,
+                    message_notices::notice_to_pm(kernel, "pause_notice",
                         &format!("The operator resumed {}: {reason}. Its held messages are delivered in order.", target.agent_id),
                         &now,
                         false,

@@ -748,6 +748,37 @@ impl Core {
         messages::pull_pending(&self.kernel, credential)
     }
 
+    /// Sets the message policy (`pmWakeClass`, `infoWakeAfterSeconds`, `noticeClass`) read from the timers value; absent
+    /// fields keep the legacy behaviour.
+    pub fn set_message_policy(&self, timers: &Value) {
+        *self.kernel.message_policy.borrow_mut() =
+            crate::areas::messaging::MessagePolicy::from_value(timers);
+    }
+
+    /// `deliverInbox`: pulls everything pending; with `digest`, acks the delivered info messages at once.
+    pub fn deliver_inbox(&self, credential: &str, digest: bool) -> KernelResult<Value> {
+        messages::deliver_inbox(&self.kernel, credential, digest)
+    }
+
+    /// `wakePending`: read-only; whether a pending message of the caller wakes it under the policy.
+    pub fn wake_pending(&self, credential: &str) -> KernelResult<Value> {
+        messages::wake_pending(&self.kernel, credential)
+    }
+
+    /// `ackMessages`: validates every id first; one bad id refuses all.
+    pub fn ack_messages(
+        &self,
+        context: &MutationContext,
+        message_ids: &[String],
+    ) -> KernelResult<Value> {
+        messages::ack_messages(&self.kernel, context, message_ids)
+    }
+
+    /// `ackAllRead`: acks every sent or unacked message of the caller.
+    pub fn ack_all_read(&self, context: &MutationContext) -> KernelResult<Value> {
+        messages::ack_all_read(&self.kernel, context)
+    }
+
     /// `ControllerCore.unreadSummary`.
     pub fn unread_summary(&self, credential: &str) -> KernelResult<Value> {
         messages::unread_summary(&self.kernel, credential)

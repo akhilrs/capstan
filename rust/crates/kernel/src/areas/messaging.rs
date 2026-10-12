@@ -17,6 +17,137 @@ pub(crate) fn dispatch(
 pub const DEFERRAL_REASONS: [&str; 3] = ["agent_busy", "agent_blocked", "input_not_empty"];
 pub const RESOLUTION_DECISIONS: [&str; 3] = ["retry", "skip", "cancel"];
 
+/// Whether a message asks its recipient for a step (`Action`) or only informs it (`Info`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageClass {
+    Action,
+    Info,
+}
+
+impl MessageClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MessageClass::Action => "action",
+            MessageClass::Info => "info",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "action" => Some(MessageClass::Action),
+            "info" => Some(MessageClass::Info),
+            _ => None,
+        }
+    }
+}
+
+/// Every notice kind of the system, kernel-side and daemon/operator-side: (kind, default class, overridable by the
+/// policy's `noticeClass`). A kind that is not overridable is always its default.
+pub const NOTICE_KINDS: &[(&str, MessageClass, bool)] = &[
+    // Kernel-side.
+    ("finding_raised", MessageClass::Action, false),
+    ("finding_escalated", MessageClass::Action, false),
+    ("finding_intervention", MessageClass::Action, false),
+    ("finding_resolved", MessageClass::Info, true),
+    ("finding_cancelled", MessageClass::Info, true),
+    ("cleanup_offer", MessageClass::Action, false),
+    ("cleanup_done", MessageClass::Info, true),
+    ("report_verified", MessageClass::Action, false),
+    ("review_request", MessageClass::Action, false),
+    ("review_verdict", MessageClass::Action, false),
+    ("plan_notice", MessageClass::Action, false),
+    ("plan_review_failed", MessageClass::Action, false),
+    ("work_package", MessageClass::Action, false),
+    ("work_package_cancelled", MessageClass::Action, false),
+    ("delivery_problem", MessageClass::Action, false),
+    ("agent_stalled", MessageClass::Action, false),
+    ("agent_blocked", MessageClass::Action, false),
+    ("agent_lost", MessageClass::Action, false),
+    ("input_blocked", MessageClass::Action, false),
+    ("integration_conflict", MessageClass::Action, false),
+    ("supervision_check", MessageClass::Action, false),
+    ("pause_notice", MessageClass::Action, true),
+    ("operator_proposal", MessageClass::Action, false),
+    ("operator_proposal_update", MessageClass::Action, true),
+    ("operator_grant_update", MessageClass::Action, true),
+    ("operator_run_update", MessageClass::Action, true),
+    // Daemon and operator side: the daemon passes these kinds when it enqueues.
+    ("restart_result", MessageClass::Info, true),
+    ("operator_notice", MessageClass::Info, true),
+    ("operator_message", MessageClass::Action, false),
+];
+
+/// The table's row for a kind.
+pub fn notice_kind(kind: &str) -> Option<&'static (&'static str, MessageClass, bool)> {
+    NOTICE_KINDS.iter().find(|(name, _, _)| *name == kind)
+}
+
+/// How messages are classed and when info wakes the PM. `Default` is the legacy behaviour: every message wakes, no
+/// kind is overridden.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MessagePolicy {
+    /// `pmWakeClass`: false = 'all' (legacy), true = 'action' (only action messages wake).
+    pub wake_action_only: bool,
+    /// `infoWakeAfterSeconds`: queued info older than this wakes the PM under 'action'; 0 = never.
+    pub info_wake_after_seconds: f64,
+    pub notice_class: Vec<(String, MessageClass)>,
+}
+
+impl Default for MessagePolicy {
+    fn default() -> Self {
+        Self {
+            wake_action_only: false,
+            info_wake_after_seconds: 0.0,
+            notice_class: Vec::new(),
+        }
+    }
+}
+
+impl MessagePolicy {
+    /// Reads the policy fields of a timers value; absent fields keep the legacy behaviour.
+    pub fn from_value(timers: &Value) -> Self {
+        let notice_class = timers
+            .get("noticeClass")
+            .and_then(Value::as_object)
+            .map(|object| {
+                object
+                    .iter()
+                    .filter_map(|(kind, class)| {
+                        MessageClass::parse(class.as_str()?).map(|c| (kind.clone(), c))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            wake_action_only: timers.get("pmWakeClass").and_then(Value::as_str) == Some("action"),
+            info_wake_after_seconds: timers
+                .get("infoWakeAfterSeconds")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            notice_class,
+        }
+    }
+
+    /// The class of a known kind: the policy's override when the kind is overridable, else its default.
+    pub fn class_of(&self, kind: &str) -> Option<MessageClass> {
+        let (_, default, overridable) = notice_kind(kind)?;
+        if *overridable {
+            if let Some((_, class)) = self.notice_class.iter().find(|(name, _)| name == kind) {
+                return Some(*class);
+            }
+        }
+        Some(*default)
+    }
+
+    /// Whether a queued message of this class, queued `age_ms` ago, wakes the PM.
+    pub fn wakes(&self, class: MessageClass, age_ms: f64) -> bool {
+        !self.wake_action_only
+            || class == MessageClass::Action
+            || (self.info_wake_after_seconds > 0.0
+                && age_ms >= self.info_wake_after_seconds * 1000.0)
+    }
+}
+
 /// The longest wait between two wake lines for one unread message.
 pub const PM_WAKE_MAX_INTERVAL_SECONDS: f64 = 1800.0;
 
@@ -164,6 +295,7 @@ pub struct MessagingTimers {
     pub worker_ack_timeout_seconds: f64,
     pub pm_wake_after_seconds: f64,
     pub pm_wake_interval_seconds: f64,
+    pub policy: MessagePolicy,
 }
 
 impl MessagingTimers {
@@ -180,6 +312,7 @@ impl MessagingTimers {
             worker_ack_timeout_seconds: get("workerAckTimeoutSeconds"),
             pm_wake_after_seconds: get("pmWakeAfterSeconds"),
             pm_wake_interval_seconds: get("pmWakeIntervalSeconds"),
+            policy: MessagePolicy::from_value(timers),
         }
     }
 }
@@ -205,6 +338,7 @@ pub struct MessageFacts {
     pub message_id: String,
     pub recipient_agent_id: String,
     pub state: String,
+    pub class: MessageClass,
     pub sequence: i64,
     pub queued_ms: i64,
     pub sent_ms: Option<i64>,
@@ -330,6 +464,7 @@ pub fn evaluate_messaging(
         let mut pending: Option<&MessageFacts> = None;
         for message in &own {
             if matches!(message.state.as_str(), "queued" | "sent" | "unacked")
+                && message.class == MessageClass::Action
                 && pending.is_none_or(|p| message.sequence < p.sequence)
             {
                 pending = Some(message);
@@ -369,6 +504,9 @@ pub fn evaluate_messaging(
         let mut wake_target: Option<&MessageFacts> = None;
         for message in &own {
             if message.state == "queued"
+                && timers
+                    .policy
+                    .wakes(message.class, (now_ms - message.queued_ms) as f64)
                 && wake_target.is_none_or(|w| message.sequence < w.sequence)
             {
                 wake_target = Some(message);

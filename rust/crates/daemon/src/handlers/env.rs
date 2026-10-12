@@ -81,6 +81,42 @@ pub fn delivered_messages(core: &Core, credential: &str) -> KernelResult<Vec<Val
     Ok(out)
 }
 
+/// What `inbox` and `wait` answer with: pulls everything pending (`Core::deliver_inbox`) and describes what was delivered.
+/// Without `digest` the reply is today's `messages`, `count` and `actionNeededCount`; with it the delivered info messages
+/// are acknowledged at once when `auto_ack_info` and listed apart as `info`, with `infoCount`. Returns whether a message
+/// was pulled with the reply's members.
+pub fn inbox_reply(
+    core: &Core,
+    credential: &str,
+    digest: bool,
+    auto_ack_info: bool,
+) -> KernelResult<(bool, Map<String, Value>)> {
+    let delivered = core.deliver_inbox(credential, digest && auto_ack_info)?;
+    let pulled = delivered["pulled"].as_bool().unwrap_or(false);
+    let describe_all = |rows: &Value| -> KernelResult<Vec<Value>> {
+        let mut out = Vec::new();
+        for row in rows.as_array().into_iter().flatten() {
+            out.push(describe_message(core, row)?);
+        }
+        Ok(out)
+    };
+    let messages = describe_all(&delivered["messages"])?;
+    let action_needed = messages
+        .iter()
+        .filter(|message| message["actionNeeded"].as_bool().unwrap_or(false))
+        .count();
+    let mut reply = Map::new();
+    reply.insert("count".into(), json!(messages.len()));
+    reply.insert("actionNeededCount".into(), json!(action_needed));
+    reply.insert("messages".into(), Value::Array(messages));
+    if digest {
+        let info = describe_all(&delivered["info"])?;
+        reply.insert("infoCount".into(), json!(info.len()));
+        reply.insert("info".into(), Value::Array(info));
+    }
+    Ok((pulled, reply))
+}
+
 /// `pullFor`: every agent, the PM too, pulls all its pending mail. True when a message was pulled.
 pub fn pull_for(core: &Core, credential: &str) -> KernelResult<bool> {
     Ok(core

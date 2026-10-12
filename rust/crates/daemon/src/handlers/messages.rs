@@ -3,9 +3,7 @@
 //! Node runs the steps of one command with no await between them, so nothing else touches the ledger meanwhile. Each
 //! handler here does the same: all its ledger steps are one closure on the kernel thread, which returns the answer.
 
-use super::env::{
-    agent_from_value, delivered_messages, describe_message, is_architect_of, pull_for,
-};
+use super::env::{agent_from_value, describe_message, inbox_reply, is_architect_of};
 use super::shared::{
     fail, imitates_frame, is_safe_agent_id, map_kernel_error, ok, CommandCall, CommandEnv,
     CommandResponse, ErrorCode, MAX_SEND_BODY_BYTES,
@@ -83,55 +81,94 @@ fn inbox(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
                 "oldestQueuedAt": summary["oldestQueuedAt"],
                 "messageIds": summary["messageIds"],
                 "actionNeeded": summary["actionNeeded"],
+                "wakeCount": summary["wakeCount"],
+                "infoCount": summary["infoCount"],
             })))
         });
     }
-    if !args.is_empty() {
+    // `--digest` (the current client) asks for info mail apart and acknowledged; no argument is the earlier shape.
+    let digest = args.len() == 1 && args[0] == "--digest";
+    if !args.is_empty() && !digest {
         return Some(fail(ErrorCode::InvalidRequest, "inbox takes no arguments"));
     }
     if !is_agent {
         return Some(fail(ErrorCode::Forbidden, "the caller is not an agent"));
     }
+    let auto_ack_info = env
+        .config()
+        .is_none_or(|config| config.messages.auto_ack_info);
     on_kernel(env, move |core| {
-        pull_for(core, &credential)?;
-        let messages = delivered_messages(core, &credential)?;
-        let action_needed = messages
-            .iter()
-            .filter(|message| message["actionNeeded"].as_bool().unwrap_or(false))
-            .count();
-        Ok(ok(json!({
-            "messages": messages,
-            "count": messages.len(),
-            "actionNeededCount": action_needed,
-        })))
+        let (_, reply) = inbox_reply(core, &credential, digest, auto_ack_info)?;
+        Ok(ok(Value::Object(reply)))
     })
 }
 
 fn ack(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
-    if call.args.len() != 1 {
-        return Some(fail(ErrorCode::InvalidRequest, "ack needs one message id"));
+    let credential = call.credential.to_string();
+    let args = call.args.to_vec();
+    if args.len() == 1 && args[0] == "--all-read" {
+        return on_kernel(env, move |core| {
+            let context = new_context(core, &credential)?;
+            let ids = core.ack_all_read(&context)?;
+            let acked: Vec<Value> = ids
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|id| json!({"messageId": id, "state": "acked"}))
+                .collect();
+            Ok(ok(json!({"acked": acked, "count": acked.len()})))
+        });
     }
-    let (credential, message_id) = (call.credential.to_string(), call.args[0].clone());
+    if args.is_empty() || args.iter().any(|arg| arg.starts_with("--")) {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "ack needs one or more message ids, or --all-read alone",
+        ));
+    }
     on_kernel(env, move |core| {
         let context = new_context(core, &credential)?;
-        let record = core.ack_message(&context, &message_id)?;
-        Ok(ok(
-            json!({"messageId": record["messageId"], "state": record["state"]}),
-        ))
+        // One id takes the single ack, which draws no more ids than it always did; several are validated together.
+        let records = match args.as_slice() {
+            [only] => json!([core.ack_message(&context, only)?]),
+            _ => core.ack_messages(&context, &args)?,
+        };
+        let acked: Vec<Value> = records
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|record| json!({"messageId": record["messageId"], "state": record["state"]}))
+            .collect();
+        let mut reply = Map::new();
+        // One id keeps the earlier answer's members.
+        if let [only] = acked.as_slice() {
+            reply.insert("messageId".into(), only["messageId"].clone());
+            reply.insert("state".into(), only["state"].clone());
+        }
+        reply.insert("count".into(), json!(acked.len()));
+        reply.insert("acked".into(), Value::Array(acked));
+        Ok(ok(Value::Object(reply)))
     })
 }
 
 fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
-    let action_needed = call.args.first().is_some_and(|arg| arg == "--action");
-    let args: Vec<String> = if action_needed {
-        call.args[1..].to_vec()
-    } else {
-        call.args.to_vec()
-    };
-    if args.len() != 2 {
+    let flags = call
+        .args
+        .iter()
+        .take_while(|arg| matches!(arg.as_str(), "--action" | "--info"))
+        .count();
+    let args: Vec<String> = call.args[flags..].to_vec();
+    let has = |flag: &str| call.args[..flags].iter().any(|arg| arg == flag);
+    let (action_flag, info_flag) = (has("--action"), has("--info"));
+    if action_flag && info_flag {
         return Some(fail(
             ErrorCode::InvalidRequest,
-            "send needs a recipient and a text, after an optional --action",
+            "send takes --action or --info, not both",
+        ));
+    }
+    if flags > 1 || args.len() != 2 {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "send needs a recipient and a text, after an optional --action or --info",
         ));
     }
     let (target, body) = (args[0].clone(), args[1].clone());
@@ -155,6 +192,13 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     }
     let caller: Option<AgentRecord> = call.identity.agent.clone();
     let config = env.deps.options.capstan.clone();
+    // Without a flag the class is the config's `send_default` (action when there is no config).
+    let info = info_flag
+        || (!action_flag
+            && config
+                .as_deref()
+                .is_some_and(|config| config.messages.send_default.as_str() == "info"));
+    let action_needed = action_flag;
     let credential = call.credential.to_string();
     on_kernel(env, move |core| {
         let recipient: Option<AgentRecord> = if target == "@pm" {
@@ -223,6 +267,7 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
                 "recipientAgentId": recipient.agent_id,
                 "body": body,
                 "actionNeeded": action_needed,
+                "class": if info { "info" } else { "action" },
             }),
         )?;
         Ok(ok(json!({"messageId": queued["messageId"]})))

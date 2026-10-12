@@ -386,6 +386,7 @@ pub struct MessageRecord {
     pub notified_at: Option<String>,
     pub last_notified_at: Option<String>,
     pub action_needed: bool,
+    pub class: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -409,6 +410,7 @@ pub struct MessageRow {
     pub notified_at: Option<String>,
     pub last_notified_at: Option<String>,
     pub action_needed: i64,
+    pub class: String,
 }
 
 impl MessageRow {
@@ -433,6 +435,7 @@ impl MessageRow {
             notified_at: row.get("notified_at")?,
             last_notified_at: row.get("last_notified_at")?,
             action_needed: row.get("action_needed")?,
+            class: row.get("class")?,
         })
     }
 }
