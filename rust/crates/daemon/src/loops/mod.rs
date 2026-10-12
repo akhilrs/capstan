@@ -254,6 +254,7 @@ impl Loops for RustLoops {
                     confirm_checks: config.liveness.confirm_checks,
                     start_grace_seconds: config.liveness.start_grace_seconds,
                 }),
+                stall_child_max_seconds: config.liveness.stall_child_max_seconds,
                 snapshot: Some(Arc::clone(&self.snapshot)),
             });
             let (flag, tick_ms, tick_log) = (stop.clone(), driver.tick_ms(), Arc::clone(&log));

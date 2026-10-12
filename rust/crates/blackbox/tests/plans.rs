@@ -474,3 +474,26 @@ fn a_high_risk_plan_that_needs_a_reviewer_who_cannot_start_stays_a_draft_and_tel
         "the plan stays a draft: {shown}"
     );
 }
+
+#[test]
+fn plan_show_brief_is_one_line_per_plan_and_per_package_and_plain_show_is_unchanged() {
+    let w = team();
+    let plan = open_and_submit(&w, "normal", &["wp1", "wp2"]);
+    w.as_agent("pm-1", &["plan", "assign", &plan, "wp1", "dev-1"])
+        .ok();
+    let list = w.op(&["plan", "show", "--brief"]).ok().stdout;
+    assert_eq!(list.lines().count(), 1, "{list}");
+    assert!(
+        list.contains(&plan) && list.contains("1 assigned") && list.contains("1 unassigned"),
+        "{list}"
+    );
+    let one = w.op(&["plan", "show", &plan, "--brief"]).ok().stdout;
+    let rows: Vec<&str> = one.lines().collect();
+    assert_eq!(rows.len(), 3, "{one}");
+    assert!(rows[1].contains("wp1") && rows[1].contains("dev-1") && rows[1].contains("assigned"));
+    assert!(rows[2].contains("wp2") && rows[2].contains("unassigned"));
+    let full = w.op(&["plan", "show", &plan, "--json"]).ok().json();
+    assert!(
+        full["revision"]["body"].is_object() && full["packages"][0]["assigneeAgentId"] == "dev-1"
+    );
+}

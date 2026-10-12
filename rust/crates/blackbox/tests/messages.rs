@@ -503,3 +503,98 @@ fn an_ended_agents_token_is_refused_and_a_message_queued_before_the_end_is_cance
         );
     }
 }
+
+fn spawn_wait_until(w: &World, until: &str) -> std::process::Child {
+    Command::new(cstan_binary())
+        .args(["wait", "--until", until])
+        .current_dir(&w.project)
+        .env_clear()
+        .envs(w.environment())
+        .env("CAPSTAN_TOKEN", w.token("dev-1"))
+        .env("CAPSTAN_SOCKET", w.socket())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+fn read_out(child: &mut std::process::Child) -> (String, String) {
+    let (mut out, mut err) = (String::new(), String::new());
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    (out, err)
+}
+
+const SHORT_HOST: &str = "schema_version = 1\n[hosts.claude]\nkind = \"claude\"\nwait_timeout_seconds = 1\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
+
+#[test]
+fn wait_until_returns_at_once_with_pending_mail_and_on_a_new_message() {
+    let w = World::standard("untilmail");
+    w.as_agent("pm-1", &["send", "dev-1", "already here"]).ok();
+    let queued = w.as_agent("dev-1", &["wait", "--until", "5m"]).ok();
+    assert!(queued.stdout.contains("already here"), "{}", queued.stdout);
+    w.as_agent(
+        "dev-1",
+        &[
+            "ack",
+            &message_ids(&w.as_agent("dev-1", &["inbox", "--json"]).ok())[0],
+        ],
+    )
+    .ok();
+    let mut waiting = spawn_wait_until(&w, "5m");
+    until("the wait to register", 15, || {
+        (w.open_waits("dev-1") == 1).then_some(())
+    });
+    w.as_agent("pm-1", &["send", "dev-1", "wake up"]).ok();
+    assert_eq!(wait_child(&mut waiting, 20), Some(0));
+    assert!(read_out(&mut waiting).0.contains("wake up"));
+}
+
+#[test]
+fn wait_until_outlasts_the_hosts_limit_and_ends_at_its_own_timeout() {
+    let w = World::builder("untiltimeout")
+        .config(SHORT_HOST)
+        .agents(&[
+            agent("pm-1", "pm", "PM"),
+            agent("dev-1", "developer", "Developer"),
+        ])
+        .build();
+    let started = std::time::Instant::now();
+    let mut waiting = spawn_wait_until(&w, "3s");
+    assert_eq!(wait_child(&mut waiting, 30), Some(0));
+    let (out, _) = read_out(&mut waiting);
+    assert!(out.contains("no new messages"), "{out}");
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_secs(3) && took < Duration::from_secs(8),
+        "{took:?}"
+    );
+    for bad in ["0", "11m", "abc", "-1"] {
+        let refused = w.as_agent("dev-1", &["wait", "--until", bad]);
+        assert_ne!(refused.code, 0, "{bad}");
+    }
+}
+
+#[test]
+fn wait_until_ends_cleanly_when_the_daemon_stops() {
+    let mut w = World::standard("untilstop");
+    let mut waiting = spawn_wait_until(&w, "5m");
+    until("the wait to register", 15, || {
+        (w.open_waits("dev-1") == 1).then_some(())
+    });
+    w.stop();
+    let code = wait_child(&mut waiting, 30);
+    assert!(code.is_some() && code != Some(0), "{code:?}");
+    let (_, err) = read_out(&mut waiting);
+    assert!(!err.trim().is_empty(), "a clear message is printed");
+}

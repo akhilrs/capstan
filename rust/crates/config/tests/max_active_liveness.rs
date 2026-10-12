@@ -133,6 +133,9 @@ fn liveness_defaults_and_explicit_values() {
         (true, 30, 3, 120)
     );
     assert!(config.to_json().contains("\"startGraceSeconds\": 120"));
+    assert_eq!(l.stall_child_max_seconds, 3600);
+    let custom = load("[liveness]\nstall_child_max_seconds = 7200\n").unwrap();
+    assert_eq!(custom.liveness.stall_child_max_seconds, 7200);
     let config = load(
         "[liveness]\nenabled = false\ncheck_seconds = 10\nconfirm_checks = 2\nstart_grace_seconds = 30\n",
     )
@@ -156,6 +159,8 @@ fn liveness_bounds_and_unknown_keys_are_refused() {
         ("check_seconds", "3601"),
         ("confirm_checks", "1"),
         ("start_grace_seconds", "29"),
+        ("stall_child_max_seconds", "59"),
+        ("stall_child_max_seconds", "86401"),
         ("enabled", "1"),
         ("check_seconds", "\"x\""),
     ] {

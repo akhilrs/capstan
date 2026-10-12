@@ -500,7 +500,97 @@ fn link_fields(links: &[Value], kind: &str, id: &str) -> Map<String, Value> {
     fields
 }
 
+/// One line of `plan show --brief` per plan: the plan fields and a count of its packages by progress.
+fn brief_plans(
+    core: &capstan_kernel::Core,
+    credential: &str,
+    links: &[Value],
+) -> capstan_kernel::KernelResult<Vec<Value>> {
+    let mut out = Vec::new();
+    for p in core
+        .list_plans(credential)?
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let plan_id = p["planId"].as_str().unwrap_or("");
+        let mut map = Map::new();
+        for key in ["planId", "tier", "state", "title"] {
+            map.insert(key.into(), field(p, key));
+        }
+        let detail = core.plan_record(credential, plan_id)?;
+        let mut counts = Map::new();
+        for package in detail["packages"].as_array().into_iter().flatten() {
+            let progress = package_progress_label(package);
+            let seen = counts.get(&progress).and_then(Value::as_i64).unwrap_or(0);
+            counts.insert(progress, json!(seen + 1));
+        }
+        map.insert("packages".into(), Value::Object(counts));
+        map.extend(link_fields(links, "plan", plan_id));
+        out.push(Value::Object(map));
+    }
+    Ok(out)
+}
+
+fn package_progress_label(package: &Value) -> String {
+    if package["cancelledAt"].is_null() {
+        package["progress"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string()
+    } else {
+        "cancelled".to_string()
+    }
+}
+
+/// `plan show <id> --brief`: the plan, then one row per package with what the stored body says of it.
+fn brief_plan(detail: &Value, plan_id: &str, links: &[Value]) -> Value {
+    let body: Value = detail["revision"]["bodyJson"]
+        .as_str()
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or(Value::Null);
+    let rows: Vec<Value> = detail["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|package| {
+            let id = package["packageId"].as_str().unwrap_or("");
+            let written = body["packages"]
+                .as_array()
+                .and_then(|all| all.iter().find(|b| b["id"] == id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let mut map = Map::new();
+            map.insert("packageId".into(), json!(id));
+            map.insert("type".into(), field(&written, "type"));
+            map.insert("estimateHours".into(), field(&written, "estimate_hours"));
+            map.insert(
+                "dependsOn".into(),
+                written
+                    .get("depends_on")
+                    .filter(|v| v.is_array())
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+            map.insert("assignee".into(), field(package, "assigneeAgentId"));
+            map.insert("progress".into(), json!(package_progress_label(package)));
+            map.extend(link_fields(links, "package", &format!("{plan_id}/{id}")));
+            Value::Object(map)
+        })
+        .collect();
+    let plan = &detail["plan"];
+    let mut head = Map::new();
+    for key in ["planId", "tier", "state", "title"] {
+        head.insert(key.into(), field(plan, key));
+    }
+    head.extend(link_fields(links, "plan", plan_id));
+    json!({"plan": head, "packages": rows})
+}
+
 fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    let brief = rest.iter().any(|a| a == "--brief");
+    let plain: Vec<String> = rest.iter().filter(|a| *a != "--brief").cloned().collect();
+    let rest = plain.as_slice();
     if rest.len() > 1 || rest.first().is_some_and(|id| !is_safe_agent_id(id)) {
         return Ok(fail(
             ErrorCode::InvalidRequest,
@@ -518,6 +608,14 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             .unwrap_or_default()
     };
     let Some(plan_id) = rest.first() else {
+        if brief {
+            let brief_links = links.clone();
+            let listed = env
+                .deps
+                .kernel
+                .run(move |core| brief_plans(core, &credential, &brief_links))?;
+            return Ok(ok(json!({ "plans": listed })));
+        }
         let plans = env
             .deps
             .kernel
@@ -552,6 +650,9 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             ErrorCode::Rejected,
             format!("unknown_plan: no plan {plan_id}"),
         ));
+    }
+    if brief {
+        return Ok(ok(brief_plan(&detail, plan_id, &links)));
     }
     let revision = if detail["revision"].is_null() {
         Value::Null

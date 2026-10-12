@@ -1,4 +1,4 @@
-//! The stall suppression the CPU activity of tool processes feeds (`suppressActiveStalls` of
+//! The stall suppression the CPU activity and the liveness of tool processes feed (`suppressActiveStalls` of
 //! src/controller/messaging.ts). The activity tracker itself is `capstan_herdr::process_activity::ProcessActivityTracker`.
 
 use capstan_herdr::api::ProcessSample;
@@ -22,7 +22,7 @@ pub fn proc_entries(sample: &ProcessSample) -> Vec<ProcEntry> {
         .collect()
 }
 
-/// `suppressActiveStalls`: an agent whose tool processes used CPU within the stall time is not stalled. Returns the
+/// `suppressActiveStalls`: an agent whose tool processes used CPU or were alive within the stall time is not stalled. Returns the
 /// evaluation with the stalled list and the stalled attention filtered; blocked attention, transitions and actions are
 /// unchanged.
 pub fn suppress_active_stalls(

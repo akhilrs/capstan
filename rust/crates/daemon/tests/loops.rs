@@ -683,6 +683,7 @@ fn replay_driver(label: &str, sequence: &Value, run: &Run) -> Result<(), String>
         })),
         pm_stale_seconds: config["pmStaleSeconds"].as_i64().unwrap_or(1200),
         liveness: None,
+        stall_child_max_seconds: 3600,
         snapshot: None,
     });
     let mut tables = Tables {
@@ -1149,6 +1150,7 @@ fn a_driver_tick_makes_the_calls_of_the_node_budget_whatever_the_ledger_holds() 
             process_probe: None,
             pm_stale_seconds: 1200,
             liveness: None,
+            stall_child_max_seconds: 3600,
             snapshot: None,
         })
     };
@@ -1294,6 +1296,7 @@ fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
         process_probe: Some(probe.clone()),
         pm_stale_seconds: 1200,
         liveness,
+        stall_child_max_seconds: 3600,
         snapshot: None,
     });
     World {

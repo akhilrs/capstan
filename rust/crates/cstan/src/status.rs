@@ -225,7 +225,12 @@ impl Cli<'_> {
                 self.io.out_js_line(line);
             }
         }
-        output(&mut self.io.out, Some(&status), json);
+        if json {
+            output(&mut self.io.out, Some(&status), true);
+        } else {
+            let compact = crate::compact::status(&status, self.status_all);
+            output(&mut self.io.out, Some(&compact), false);
+        }
         Ok(Flow::Code(0))
     }
 

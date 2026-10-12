@@ -81,6 +81,8 @@ pub struct DriverOptions {
     pub pm_stale_seconds: i64,
     /// Finds agents whose CLI has exited while their pane stays; None turns that check off.
     pub liveness: Option<LivenessOptions>,
+    /// How long a live tool process of a silent agent keeps the stall notice away (`liveness.stall_child_max_seconds`).
+    pub stall_child_max_seconds: i64,
     /// Where the status view of the driver is kept, when the caller made the view before the driver.
     pub snapshot: Option<Arc<Mutex<DriverSnapshot>>>,
 }
@@ -212,6 +214,7 @@ pub struct Driver {
     process_probe: Option<Arc<dyn ProcessActivityProbe>>,
     pm_stale_seconds: i64,
     liveness: Option<LivenessOptions>,
+    stall_child_max_ms: u64,
     exit_watch: HashMap<String, ExitWatch>,
     /// Agents recorded lost because their process exited: a live pane does not clear them.
     exited: HashSet<String>,
@@ -259,6 +262,7 @@ impl Driver {
             process_probe: options.process_probe,
             pm_stale_seconds: options.pm_stale_seconds,
             liveness: options.liveness,
+            stall_child_max_ms: options.stall_child_max_seconds.max(0) as u64 * 1000,
             exit_watch: HashMap::new(),
             exited: HashSet::new(),
             working_now: HashSet::new(),
@@ -793,7 +797,14 @@ impl Driver {
             .unwrap_or_default();
         let now = (self.now)();
         let stall_after = self.timers["stallAfterSeconds"].as_f64().unwrap_or(0.0);
-        let advance = suppress_active_stalls(&advance, self.activity.activity(), now, stall_after);
+        let advance = suppress_active_stalls(
+            &advance,
+            &self
+                .activity
+                .work_signs(now as u64, self.stall_child_max_ms),
+            now,
+            stall_after,
+        );
         let stalled: Vec<String> = advance["stalledAgentIds"]
             .as_array()
             .map(|a| {
@@ -813,6 +824,16 @@ impl Driver {
         }
         self.stalled = stalled.clone();
         for agent_id in &stalled {
+            // A tool process that has run past the cap no longer hides the stall: say how long it has been running.
+            if let Some(ms) = self.activity.live_for_ms(agent_id, now as u64) {
+                if ms >= self.stall_child_max_ms {
+                    self.log_once(
+                        format!("{agent_id}|stall_child_cap"),
+                        "stall_child_cap",
+                        json!({"agentId": agent_id, "childRunningMinutes": ms / 60_000}),
+                    );
+                }
+            }
             self.log_once(
                 format!("{agent_id}|agent_stalled"),
                 "agent_stalled",

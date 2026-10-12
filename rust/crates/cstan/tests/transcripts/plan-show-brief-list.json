@@ -1,0 +1,38 @@
+{
+  "name": "plan-show-brief-list",
+  "argv": [
+    "plan",
+    "show",
+    "--brief"
+  ],
+  "env": {
+    "CAPSTAN_TOKEN": "tok-0123456789abcdef0123456789abcdef",
+    "CAPSTAN_SOCKET": "$ROOT/proj/.capstan/state/control.sock",
+    "CAPSTAN_AGENT_ID": "developer-1",
+    "TZ": "UTC"
+  },
+  "layout": {
+    "dirs": [
+      "proj/.capstan/state",
+      "proj/sub/deeper"
+    ],
+    "files": [],
+    "links": []
+  },
+  "cwd": "proj",
+  "now": 1791374400000,
+  "daemon": {
+    "socket": "$ROOT/proj/.capstan/state/control.sock",
+    "reply": {
+      "kind": "line",
+      "text": "{\"ok\":true,\"result\":{\"plans\":[{\"planId\":\"plan-1\",\"tier\":\"normal\",\"state\":\"approved\",\"title\":\"First\",\"packages\":{\"integrated\":2,\"assigned\":1},\"externalId\":\"PM-9\",\"syncedState\":\"in_progress\"},{\"planId\":\"plan-2\",\"tier\":\"high_risk\",\"state\":\"draft\",\"title\":\"Second\",\"packages\":{}}]}}"
+    }
+  },
+  "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"plan\",\"args\":[\"show\",\"--brief\"]}",
+  "fallback": false,
+  "node": {
+    "stdout": "plan-1 normal approved First [2 integrated, 1 assigned] nexora PM-9/in_progress\nplan-2 high_risk draft Second [no packages]\n",
+    "stderr": "",
+    "exit": 0
+  }
+}

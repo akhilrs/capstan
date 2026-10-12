@@ -4,6 +4,7 @@
 //! `cstan-dash`, serve the daemon, poll `status --watch`).
 pub mod agent;
 pub mod cache_cmd;
+pub mod compact;
 pub mod config_cmd;
 pub mod dash;
 pub mod git;
@@ -160,6 +161,8 @@ pub struct Cli<'a> {
     pub ctx: &'a Context,
     pub io: Io,
     pub foreign_warned: bool,
+    /// `cstan status --all`: list every agent, not only the active ones.
+    pub status_all: bool,
 }
 
 /// Runs one invocation.
@@ -168,6 +171,7 @@ pub fn run(context: &Context) -> Outcome {
         ctx: context,
         io: Io::default(),
         foreign_warned: false,
+        status_all: false,
     };
     let result = cli.run_cli();
     let Io { out, mut err } = cli.io;
@@ -221,6 +225,18 @@ pub fn parse_options(args: &[String]) -> (Vec<String>, bool) {
         .cloned()
         .collect();
     (positional, options.iter().any(|a| a == "--json"))
+}
+
+/// `--all` before any `--`; what follows `--` is literal.
+fn take_all_flag(mut args: Vec<String>) -> (Vec<String>, bool) {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    match args[..end].iter().position(|a| a == "--all") {
+        Some(at) => {
+            args.remove(at);
+            (args, true)
+        }
+        None => (args, false),
+    }
 }
 
 /// `takeFlag`: removes `name` from `flags`; true when it was there.
@@ -372,6 +388,13 @@ impl Cli<'_> {
         if command == "dash" {
             return self.dash(&rest);
         }
+        let rest = if command == "status" {
+            let (kept, all) = take_all_flag(rest);
+            self.status_all = all;
+            kept
+        } else {
+            rest
+        };
         if command == "status" && self.agent_environment()?.is_some() {
             let (positional, json) = parse_options(&rest);
             if !positional.is_empty() {

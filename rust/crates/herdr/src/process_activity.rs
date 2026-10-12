@@ -666,6 +666,9 @@ impl api::ProcessActivityProbe for HerdrProcessProbe {
 pub struct ProcessActivityTracker {
     previous: HashMap<String, HashMap<String, f64>>,
     last_activity: HashMap<String, u64>,
+    last_live: HashMap<String, u64>,
+    /// When the current unbroken run of samples with a live tool process began.
+    live_since: HashMap<String, u64>,
 }
 
 impl ProcessActivityTracker {
@@ -687,6 +690,16 @@ impl ProcessActivityTracker {
             increase += (entry.cpu_ms - was).max(0.0);
         }
         self.previous.insert(agent_id.to_string(), next);
+        // A tool process that is alive is work in progress even when it burns no CPU (a build waiting on the network,
+        // a test sleeping on a lock): the agent is not stalled while one exists.
+        if !processes.is_empty() {
+            self.last_live.insert(agent_id.to_string(), now_ms);
+            self.live_since
+                .entry(agent_id.to_string())
+                .or_insert(now_ms);
+        } else {
+            self.live_since.remove(agent_id);
+        }
         if increase >= MIN_CHILD_CPU_MS {
             self.last_activity.insert(agent_id.to_string(), now_ms);
         }
@@ -696,9 +709,41 @@ impl ProcessActivityTracker {
         self.last_activity.get(agent_id).copied()
     }
 
+    /// The last time a tool process of the agent was alive, CPU or not.
+    pub fn last_live_child(&self, agent_id: &str) -> Option<u64> {
+        self.last_live.get(agent_id).copied()
+    }
+
     pub fn forget(&mut self, agent_id: &str) {
         self.previous.remove(agent_id);
         self.last_activity.remove(agent_id);
+        self.last_live.remove(agent_id);
+        self.live_since.remove(agent_id);
+    }
+
+    /// How long the agent's tool processes have been alive without a break, as of the last sample.
+    pub fn live_for_ms(&self, agent_id: &str, now_ms: u64) -> Option<u64> {
+        let since = self.live_since.get(agent_id)?;
+        Some(now_ms.saturating_sub(*since))
+    }
+
+    /// Every agent with a recent sign of work: the later of its last CPU activity and its last live tool process. A
+    /// live process only counts while it has run for less than `child_max_ms`; a longer one may be hung, so the stall
+    /// notice is allowed through unless the process keeps using CPU. This is what stall suppression reads.
+    pub fn work_signs(&self, now_ms: u64, child_max_ms: u64) -> HashMap<String, u64> {
+        let mut signs = self.last_activity.clone();
+        for (id, at) in &self.last_live {
+            let capped = self
+                .live_since
+                .get(id)
+                .is_some_and(|since| now_ms.saturating_sub(*since) >= child_max_ms);
+            if capped {
+                continue;
+            }
+            let entry = signs.entry(id.clone()).or_insert(*at);
+            *entry = (*entry).max(*at);
+        }
+        signs
     }
 
     /// Every agent with a last activity, for the messaging evaluation.
@@ -783,5 +828,62 @@ mod host_alive_tests {
         assert_eq!(unreadable.host_alive("w1:p1").unwrap(), None);
         let (no_pid, _) = probe(Ok(vec![]), r#"{"result":{"process_info":{}}}"#);
         assert!(no_pid.host_alive("w1:p1").is_err());
+    }
+}
+
+#[cfg(test)]
+mod live_child_tests {
+    use super::*;
+
+    fn tool(pid: i64, cpu_ms: f64) -> ProcEntry {
+        ProcEntry {
+            pid,
+            ppid: 1,
+            comm: "cargo".into(),
+            cpu_ms,
+            start_key: pid.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_live_child_without_cpu_counts_as_work() {
+        let mut tracker = ProcessActivityTracker::new();
+        tracker.record("a", &[tool(5, 100.0)], 1_000);
+        tracker.record("a", &[tool(5, 100.0)], 61_000);
+        assert_eq!(tracker.last_child_activity("a"), None);
+        assert_eq!(
+            tracker.work_signs(61_000, 3_600_000).get("a"),
+            Some(&61_000)
+        );
+    }
+
+    #[test]
+    fn a_child_alive_below_the_cap_is_work_and_beyond_it_is_not() {
+        let mut tracker = ProcessActivityTracker::new();
+        tracker.record("a", &[tool(5, 100.0)], 0);
+        tracker.record("a", &[tool(5, 100.0)], 599_000);
+        assert_eq!(
+            tracker.work_signs(599_000, 600_000).get("a"),
+            Some(&599_000)
+        );
+        tracker.record("a", &[tool(5, 100.0)], 600_000);
+        assert_eq!(tracker.live_for_ms("a", 600_000), Some(600_000));
+        assert_eq!(tracker.work_signs(600_000, 600_000).get("a"), None);
+        // A child that uses CPU is still work after the cap.
+        tracker.record("a", &[tool(5, 900.0)], 602_000);
+        assert_eq!(
+            tracker.work_signs(602_000, 600_000).get("a"),
+            Some(&602_000)
+        );
+    }
+
+    #[test]
+    fn no_child_is_no_sign_of_work() {
+        let mut tracker = ProcessActivityTracker::new();
+        tracker.record("a", &[tool(5, 100.0)], 1_000);
+        tracker.record("a", &[], 61_000);
+        assert_eq!(tracker.work_signs(61_000, 3_600_000).get("a"), Some(&1_000));
+        tracker.forget("a");
+        assert!(tracker.work_signs(61_000, 3_600_000).is_empty());
     }
 }

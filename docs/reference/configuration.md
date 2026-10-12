@@ -66,6 +66,7 @@ The starter file defines these roles: `pm` (PM), `developer` and `designer` (Dev
 | `check_seconds` | `30` | 10 to 3600 | Seconds between checks. |
 | `confirm_checks` | `3` | 2 to 100 | Consecutive failed checks needed before an agent is declared dead. One failed check never counts. |
 | `start_grace_seconds` | `120` | 30 to 3600 | Seconds after an agent starts during which it is not checked. |
+| `stall_child_max_seconds` | `3600` | 60 to 86400 | The longest a running tool process (a build or test run) keeps a silent agent from being reported as stalled. After that the stall notice is raised, and the daemon log records how many minutes the process has run. |
 
 The last two keys guard against false positives: a session that is slow to answer, or still starting, is not declared dead. A value out of range is a configuration error that names the key.
 

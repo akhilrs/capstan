@@ -7,7 +7,7 @@ use capstan_wire::{call, frame, response, AfterSend, Response, Timeout, WireErro
 
 use crate::agent::{socket_verdict, var, Verdict};
 use crate::jsops::{self, as_number, concat, JsError, EXIT_BLOCKED, EXIT_INVALID, EXIT_RUNTIME};
-use crate::{blocked, invalid, output, render, Cli, Fail, Flow};
+use crate::{blocked, compact, invalid, output, render, Cli, Fail, Flow};
 
 const WAIT_SECONDS: u64 = 3600 + 30;
 const HOOK_TIMEOUT: Duration = Duration::from_secs(2);
@@ -155,6 +155,14 @@ impl Cli<'_> {
             let operator = self.ensure_running()?;
             (operator.socket_path, operator.credential)
         };
+        if command == "wait"
+            && args
+                .first()
+                .is_some_and(|a| a == "--until" || a.starts_with("--until="))
+        {
+            let until = parse_until(args)?;
+            return self.wait_until(&socket, &credential, until, json);
+        }
         let request = frame(&credential, command, args)
             .map_err(|_| invalid("command request is too large"))?;
         let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms(command)));
@@ -169,7 +177,13 @@ impl Cli<'_> {
             }
         }
         let now_ms = self.ctx.now_ms;
-        handle_wire(reply, &socket, json, command, now_ms, &mut self.io)?;
+        let view = View {
+            all: self.status_all,
+            brief: command == "plan"
+                && args.first().is_some_and(|a| a == "show")
+                && args.iter().any(|a| a == "--brief"),
+        };
+        handle_wire(reply, &socket, json, command, now_ms, view, &mut self.io)?;
         Ok(Flow::Code(0))
     }
 
@@ -227,6 +241,153 @@ impl Cli<'_> {
     }
 }
 
+/// The longest `cstan wait --until` may block.
+const UNTIL_MAX_SECONDS: u64 = 600;
+
+/// `--until <duration>` of `cstan wait`: whole seconds, or a number with a unit s, m or h (90, 90s, 5m).
+fn parse_until(args: &[String]) -> Result<Duration, Fail> {
+    let usage = "usage: cstan wait [--until <duration>]  (for example 90s or 5m, at most 10m)";
+    let value = match args {
+        [flag, value] if flag == "--until" => value.as_str(),
+        [one] if one.starts_with("--until=") => &one["--until=".len()..],
+        _ => return Err(invalid(usage)),
+    };
+    let (digits, unit) = match value.char_indices().last() {
+        Some((at, 's' | 'm' | 'h')) => (&value[..at], &value[at..]),
+        _ => (value, "s"),
+    };
+    let count: u64 = digits.parse().map_err(|_| invalid(usage))?;
+    let seconds = count.saturating_mul(match unit {
+        "m" => 60,
+        "h" => 3600,
+        _ => 1,
+    });
+    if seconds == 0 || seconds > UNTIL_MAX_SECONDS {
+        return Err(invalid(format!(
+            "wait --until must be between 1s and {}m",
+            UNTIL_MAX_SECONDS / 60
+        )));
+    }
+    Ok(Duration::from_secs(seconds))
+}
+
+/// How long `wait --until` pauses before asking again after a round that ended early with no mail.
+fn early_backoff(left: Duration) -> Duration {
+    left.min(Duration::from_secs(1))
+}
+
+#[cfg(test)]
+mod early_backoff_tests {
+    use super::*;
+
+    #[test]
+    fn pauses_up_to_a_second_and_never_past_the_deadline() {
+        assert_eq!(
+            early_backoff(Duration::from_secs(60)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            early_backoff(Duration::from_millis(300)),
+            Duration::from_millis(300)
+        );
+        assert_eq!(early_backoff(Duration::ZERO), Duration::ZERO);
+    }
+}
+
+impl Cli<'_> {
+    /// `wait --until`: repeats the daemon's wait (each round ends at the host's limit) until mail arrives or `until` has
+    /// passed. A round that is already due returns at once with the unacked messages, as plain `wait` does.
+    fn wait_until(
+        &mut self,
+        socket: &std::path::Path,
+        credential: &str,
+        until: Duration,
+        json: bool,
+    ) -> Result<Flow, Fail> {
+        let deadline = std::time::Instant::now() + until;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let limit = left.as_secs() + u64::from(left.subsec_nanos() > 0);
+            let request = frame(
+                credential,
+                "wait",
+                &["--limit".to_string(), limit.max(1).to_string()],
+            )
+            .map_err(|_| invalid("command request is too large"))?;
+            let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms("wait")));
+            let reply = call(socket, &request, timeout);
+            match &reply {
+                Err(WireError::NotSent { code, .. })
+                    if code == "ENOENT" || code == "ECONNREFUSED" =>
+                {
+                    return Err(blocked(
+                        "the controller is not running; ask the operator to run cstan start",
+                    ));
+                }
+                Err(WireError::AfterSend(AfterSend::Closed)) => {
+                    return Err(JsError::runtime(
+                        "the controller stopped or restarted during the wait; run cstan wait --until again",
+                    )
+                    .into());
+                }
+                Ok(line) => {
+                    if let Response::Ok { result } = response(line) {
+                        let result = result.as_ref();
+                        let empty = jsops::read_opt(result, "timedOut")
+                            .is_some_and(|v| matches!(v, Value::Bool(true)))
+                            && as_number(jsops::read_opt(result, "count")) == Some(0.0);
+                        if empty && std::time::Instant::now() < deadline {
+                            // A daemon that answers early with no mail must not make this loop spin.
+                            std::thread::sleep(early_backoff(
+                                deadline.saturating_duration_since(std::time::Instant::now()),
+                            ));
+                            continue;
+                        }
+                        if empty {
+                            if json {
+                                output(&mut self.io.out, result, true);
+                            } else {
+                                text(
+                                    &mut self.io.out,
+                                    &JsStr::from(
+                                        format!("no new messages (waited {}s)", until.as_secs())
+                                            .as_str(),
+                                    ),
+                                );
+                            }
+                            return Ok(Flow::Code(0));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            let now_ms = self.ctx.now_ms;
+            handle_wire(
+                reply,
+                socket,
+                json,
+                "wait",
+                now_ms,
+                View {
+                    all: false,
+                    brief: false,
+                },
+                &mut self.io,
+            )?;
+            return Ok(Flow::Code(0));
+        }
+    }
+}
+
+/// What the text output of a reply is trimmed to.
+#[derive(Clone, Copy)]
+struct View {
+    /// `status --all`.
+    all: bool,
+    /// `plan show --brief`.
+    brief: bool,
+}
+
 /// `handleWire` and the error mapping of `runRouted`: what is printed, or the error the CLI would print.
 fn handle_wire(
     reply: Result<Vec<u8>, WireError>,
@@ -234,6 +395,7 @@ fn handle_wire(
     json: bool,
     command: &str,
     now_ms: f64,
+    view: View,
     io: &mut crate::Io,
 ) -> Result<(), JsError> {
     let line = match reply {
@@ -284,7 +446,19 @@ fn handle_wire(
                 text(stdout, line);
             }
         }
-        output(stdout, result, json);
+        if !json && command == "status" {
+            let compact = result.map(|r| compact::status(r, view.all));
+            output(stdout, compact.as_ref(), false);
+        } else if let Some(lines) = result
+            .filter(|_| !json && view.brief)
+            .and_then(compact::plan_brief)
+        {
+            for line in lines {
+                text(stdout, &JsStr::from(line.as_str()));
+            }
+        } else {
+            output(stdout, result, json);
+        }
     }
     if !json {
         if let Some(notice) = render::unread_notice(result, now_ms) {

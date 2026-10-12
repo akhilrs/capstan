@@ -148,6 +148,8 @@ pub struct Liveness {
     pub check_seconds: i64,
     pub confirm_checks: i64,
     pub start_grace_seconds: i64,
+    /// The longest a live tool process of a silent agent keeps the stall notice away.
+    pub stall_child_max_seconds: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

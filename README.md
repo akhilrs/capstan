@@ -265,7 +265,7 @@ Run `cstan help` for every command, grouped, with its syntax; `cstan help <comma
 
 | Command                             | Purpose                                                                               |
 | ----------------------------------- | ------------------------------------------------------------------------------------- |
-| `cstan status [--json]` / `--watch` | Project state.                                                                        |
+| `cstan status [--json] [--all]` / `--watch` | Project state; the text shows active and attention-needing agents only (`--all`: every agent) and drops empty sections.                                                                        |
 | `cstan inspect <id>`                | One ledger record.                                                                    |
 | `cstan dash`                        | Read-only terminal dashboard.                                                         |
 | `cstan inbox [<agent-id>]`          | Own pending messages (a worker pulls all its mail), or an agent's mailbox (operator). |

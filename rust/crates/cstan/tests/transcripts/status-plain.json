@@ -29,7 +29,7 @@
   "request": "{\"v\":1,\"credential\":\"tok-0123456789abcdef0123456789abcdef\",\"command\":\"status\",\"args\":[]}",
   "fallback": false,
   "node": {
-    "stdout": "project /work/proj\nledger /work/proj/.capstan/state/controller.sqlite\npid: 4242\nprojectRoot: /work/proj\nledgerPath: /work/proj/.capstan/state/controller.sqlite\nrun: state: running\nstateVersion: 12\nroles: PM\nDeveloper\nwork: \n",
+    "stdout": "project /work/proj\nledger /work/proj/.capstan/state/controller.sqlite\npid: 4242\nprojectRoot: /work/proj\nledgerPath: /work/proj/.capstan/state/controller.sqlite\nrun: state: running\nstateVersion: 12\nroles: PM\nDeveloper\n",
     "stderr": "",
     "exit": 0
   }

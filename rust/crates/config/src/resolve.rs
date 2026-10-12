@@ -198,6 +198,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             "check_seconds",
             "confirm_checks",
             "start_grace_seconds",
+            "stall_child_max_seconds",
         ],
         "liveness",
     )?;
@@ -223,6 +224,13 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             30,
             3600,
             120,
+        )?,
+        stall_child_max_seconds: optional_integer(
+            liveness_table.get("stall_child_max_seconds"),
+            "liveness.stall_child_max_seconds",
+            60,
+            86_400,
+            3600,
         )?,
     };
 

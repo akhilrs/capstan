@@ -56,15 +56,27 @@ fn wait(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let Some(agent) = call.identity.agent.as_ref() else {
         return Some(fail(ErrorCode::Forbidden, "only an agent waits"));
     };
-    if !call.args.is_empty() {
-        return Some(fail(ErrorCode::InvalidRequest, "wait takes no arguments"));
-    }
+    // `--limit <seconds>` (sent by `cstan wait --until`) only shortens the host's limit, so the last round of a long
+    // wait ends at the caller's deadline.
+    let shorter_ms = match call.args {
+        [] => None,
+        [flag, seconds] if flag == "--limit" => match seconds.parse::<u64>() {
+            Ok(seconds) if seconds >= 1 => Some(seconds as i64 * 1000),
+            _ => {
+                return Some(fail(
+                    ErrorCode::InvalidRequest,
+                    "wait --limit takes whole seconds",
+                ))
+            }
+        },
+        _ => return Some(fail(ErrorCode::InvalidRequest, "wait takes no arguments")),
+    };
     let kernel = &env.deps.kernel;
     let signal = call.signal;
-    let deadline = kernel.now_ms()
-        + call
-            .limit_ms
-            .map_or(DEFAULT_WAIT_TIMEOUT_SECONDS * 1000, |ms| ms as i64);
+    let host_ms = call
+        .limit_ms
+        .map_or(DEFAULT_WAIT_TIMEOUT_SECONDS * 1000, |ms| ms as i64);
+    let deadline = kernel.now_ms() + shorter_ms.map_or(host_ms, |ms| ms.min(host_ms));
     let done = Arc::new((Mutex::new(false), Condvar::new()));
     let previous = {
         let mut waits = env.state.waits.lock().unwrap_or_else(|p| p.into_inner());

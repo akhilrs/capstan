@@ -322,6 +322,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             check_seconds: 30,
             confirm_checks: 3,
             start_grace_seconds: 120,
+            stall_child_max_seconds: 3600,
         },
         architect: Architect {
             enabled: architect_spec.is_some(),
