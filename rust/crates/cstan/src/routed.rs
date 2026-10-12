@@ -47,6 +47,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("replace", Access::Any),
     ("resolve", Access::Operator),
     ("cleanup", Access::Any),
+    ("cache", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -69,6 +70,7 @@ fn client_timeout_ms(command: &str) -> u64 {
     match command {
         "wait" => WAIT_SECONDS * 1000,
         "cleanup" => 120_000,
+        "cache" => 600_000,
         "replace" => 1_800_000,
         "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" => 600_000,
         _ => capstan_wire::DEFAULT_TIMEOUT.as_millis() as u64,
@@ -260,6 +262,10 @@ fn handle_wire(
         for line in render::cleanup_lines(result) {
             text(stdout, &JsStr::from(line.as_str()));
         }
+    } else if !json && command == "cache" {
+        for line in render::cache_lines(result, now_ms) {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
     } else {
         if !json && (command == "status" || command == "ping") {
             for line in render::controller_lines(result) {
@@ -269,6 +275,11 @@ fn handle_wire(
         if !json && command == "status" {
             let mut lines = render::pause_lines(result, now_ms)?;
             lines.extend(render::pm_mail_lines(result));
+            lines.extend(
+                render::cache_status_line(result, now_ms)
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             for line in &lines {
                 text(stdout, line);
             }

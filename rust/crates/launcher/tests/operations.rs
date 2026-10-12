@@ -51,6 +51,7 @@ fn options(
         adapter: Arc::new(StubAdapter::new()),
         config: test_config(spec),
         project_root: root.to_string_lossy().into_owned(),
+        project_id: "proj1".into(),
         cli_path: "/opt/capstan/cli.js".into(),
         socket_path: root.join("control.sock").to_string_lossy().into_owned(),
         credential: OWNER.into(),

@@ -19,7 +19,9 @@ path = "src/main.rs"
 [dependencies]
 capstan-wire = { path = "../wire" }
 capstan-config = { path = "../config" }
+capstan-cache = { path = "../cache" }
 capstan-daemon = { path = "../daemon" }
+capstan-launcher = { path = "../launcher" }
 capstan-client = { path = "../client" }
 capstan-kernel = { path = "../kernel" }
 capstan-ledger = { path = "../ledger" }

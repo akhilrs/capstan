@@ -209,10 +209,18 @@ impl Cli<'_> {
                 "ledgerPath": ledger_path.to_string_lossy(),
             }),
         );
+        if let Some(cache) = self.cache_status_member() {
+            status.insert("cache".into(), cache);
+        }
         let status = to_js(&Json::Object(status));
         if !json {
             let mut lines = render::controller_lines(Some(&status));
             lines.extend(render::pause_lines(Some(&status), self.ctx.now_ms)?);
+            lines.extend(
+                render::cache_status_line(Some(&status), self.ctx.now_ms)
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             for line in &lines {
                 self.io.out_js_line(line);
             }

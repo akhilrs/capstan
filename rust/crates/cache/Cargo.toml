@@ -1,0 +1,20 @@
+[package]
+name = "capstan-cache"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The capstan tool-cache store: roots, environment, measure, prune and clear"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_cache"
+path = "src/lib.rs"
+
+[dependencies]
+capstan-config = { path = "../config" }
+libc = "=0.2.190"
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"

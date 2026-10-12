@@ -115,6 +115,27 @@ model = "claude-sonnet-5-5"
 # [env]
 # pass = ["NEXORA_API_KEY"]
 
+# Shared tool caches: agents in different worktrees reuse compiler and package-manager caches instead
+# of starting cold. Presets: rust (sccache), python, node, go. Listed presets are always on; `detect`
+# only adds the ones the project's marker files (Cargo.toml, pyproject.toml, package.json, go.mod...) show.
+# [cache]
+# presets = ["rust", "python", "node", "go"]
+# detect = false
+# root = "~/.cache/capstan"       # absolute or ~/, outside the project
+# scope = "project"               # "project" or "user"
+# max_size_gb = 20                # 0.1 to 10000
+# max_age_days = 30               # 1 to 3650
+# [cache.rust]
+# mode = "sccache"                # "sccache", "shared-build-dir" or "off"
+# [cache.entries.bundler]         # your own entry, for a tool without a preset
+# dirs = { BUNDLE_PATH = "bundle" }
+# set = { BUNDLE_JOBS = "4" }     # fixed, non-secret values only
+# requires = "bundle"
+# prune = ["bundle clean"]
+# [cache.setup_reuse]
+# key_files = ["Cargo.lock"]
+# paths = ["target"]
+
 [hosts.claude]
 kind = "claude"
 

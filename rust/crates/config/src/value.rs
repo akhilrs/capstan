@@ -9,8 +9,8 @@ pub enum Item {
     Int(i64),
     /// An integer beyond 64 bits (`true` when negative): a `bigint` the loader finds out of every range it checks.
     BigInt(bool),
-    /// A float, which the loader never accepts where it expects an integer, string, boolean or table.
-    Float,
+    /// A float; the loader refuses it where it expects an integer, string, boolean or table, and only `[cache] max_size_gb` reads its value.
+    Float(f64),
     /// A date or time, an object that is not a plain table.
     Date,
     Bool(bool),

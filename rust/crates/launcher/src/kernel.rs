@@ -27,7 +27,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -458,6 +458,8 @@ pub struct LauncherKernel {
     run_setup_override: Option<SetupRunner>,
     run_teardown_override: Option<TeardownRunner>,
     sleep_fn: Arc<dyn Fn(u64) + Send + Sync>,
+    cache: Option<capstan_cache::Runtime>,
+    cache_unavailable_logged: AtomicBool,
     pub site: FrontEndSite,
     /// Predecessors whose replacement is running now.
     pub replacing: Mutex<HashSet<String>>,
@@ -503,6 +505,14 @@ impl LauncherKernel {
         let git: Arc<dyn GitRunner> = options
             .git
             .unwrap_or_else(|| Arc::new(DefaultGit::new(&options.project_root)));
+        let log_fn: LogFn = options.log.unwrap_or_else(|| Arc::new(|_, _| {}));
+        let cache = crate::cache_env::build_runtime(
+            &options.config,
+            &options.project_root,
+            &options.project_id,
+            &options.base_environment,
+            &*log_fn,
+        );
         Self {
             ledger: options.ledger,
             adapter: options.adapter,
@@ -516,13 +526,15 @@ impl LauncherKernel {
             base_environment: options.base_environment,
             git,
             now: options.now.unwrap_or_else(|| Arc::new(system_millis)),
-            log_fn: options.log.unwrap_or_else(|| Arc::new(|_, _| {})),
+            log_fn,
             sync_roles: options.sync_roles,
             run_setup_override: options.run_setup,
             run_teardown_override: options.run_teardown,
             sleep_fn: options.sleep.unwrap_or_else(|| {
                 Arc::new(|ms| std::thread::sleep(std::time::Duration::from_millis(ms)))
             }),
+            cache,
+            cache_unavailable_logged: AtomicBool::new(false),
             site,
             replacing: Mutex::new(HashSet::new()),
             agents_started: AtomicUsize::new(0),
@@ -530,6 +542,11 @@ impl LauncherKernel {
             active: Mutex::new(0),
             serial: Mutex::new(()),
         }
+    }
+
+    /// The resolved `[cache]` entries; None without the section.
+    pub fn cache_runtime(&self) -> Option<&capstan_cache::Runtime> {
+        self.cache.as_ref()
     }
 
     pub fn log(&self, event: &str, details: Value) {
@@ -938,6 +955,16 @@ impl LauncherKernel {
         if let Some(token) = token {
             extras.push(("CAPSTAN_TOKEN".into(), token.to_string()));
             extras.push(("CAPSTAN_SOCKET".into(), self.socket_path.clone()));
+        }
+        if let Some(runtime) = &self.cache {
+            match crate::cache_env::cache_extras(runtime) {
+                Ok(cache) => extras.extend(cache),
+                Err(message) => {
+                    if !self.cache_unavailable_logged.swap(true, Ordering::SeqCst) {
+                        self.log("cache_unavailable", json!({"message": message}));
+                    }
+                }
+            }
         }
         let include_pass = include_pass.unwrap_or(token.is_some());
         let pass: &[String] = if include_pass {

@@ -86,6 +86,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstan-cache"
+version = "0.1.0"
+dependencies = [
+ "capstan-config",
+ "libc",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "capstan-client"
 version = "0.1.0"
 dependencies = [
@@ -113,6 +123,7 @@ name = "capstan-daemon"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "capstan-cache",
  "capstan-client",
  "capstan-config",
  "capstan-herdr",
@@ -174,6 +185,7 @@ name = "capstan-launcher"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "capstan-cache",
  "capstan-config",
  "capstan-herdr",
  "capstan-kernel",
@@ -283,10 +295,12 @@ dependencies = [
 name = "cstan-front"
 version = "0.1.0"
 dependencies = [
+ "capstan-cache",
  "capstan-client",
  "capstan-config",
  "capstan-daemon",
  "capstan-kernel",
+ "capstan-launcher",
  "capstan-ledger",
  "capstan-parity-overlay",
  "capstan-wire",

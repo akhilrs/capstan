@@ -186,6 +186,8 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     let config = deps.options.capstan.clone();
     let credential = call.credential.to_string();
     let location = pid_and_location(deps);
+    let cache =
+        super::cache::runtime_of_deps(deps).map(|runtime| super::cache::status_member(&runtime));
     let built = deps.kernel.run(move |core| {
         let agents = core.list_agents()?;
         let mut snapshot = match core.status_snapshot()? {
@@ -364,6 +366,9 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                     &["refKind", "refId", "externalId", "syncedState", "wanted"],
                 ),
             );
+        }
+        if let Some(cache) = cache {
+            result.insert("cache".into(), cache);
         }
         Ok(Value::Object(result))
     });

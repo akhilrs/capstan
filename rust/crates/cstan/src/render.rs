@@ -347,3 +347,255 @@ pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {
     }
     lines
 }
+
+// ------------------------------------------------------------------------------------------------ cache
+
+/// A byte count as `1.2 GB`: binary units, one decimal that is dropped when it is zero.
+pub fn human_bytes(bytes: u64) -> String {
+    let (number, unit) = human_parts(bytes);
+    format!("{number} {unit}")
+}
+
+fn human_parts(bytes: u64) -> (String, &'static str) {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    let number = if unit == 0 {
+        format!("{bytes}")
+    } else {
+        let text = format!("{value:.1}");
+        text.strip_suffix(".0").map_or(text.clone(), str::to_string)
+    };
+    (number, UNITS[unit])
+}
+
+/// `4m ago` for an ISO time in the past.
+fn ago(iso: Option<&Value>, now_ms: f64) -> Option<String> {
+    let Some(Value::String(text)) = iso else {
+        return None;
+    };
+    let then = date_parse_ms(&text.to_utf8_lossy())? as f64;
+    let seconds = ((now_ms - then) / 1000.0).max(0.0) as u64;
+    Some(match seconds {
+        0..=59 => format!("{seconds}s ago"),
+        60..=3599 => format!("{}m ago", seconds / 60),
+        3600..=86_399 => format!("{}h ago", seconds / 3600),
+        _ => format!("{}d ago", seconds / 86_400),
+    })
+}
+
+fn bytes_of(value: Option<&Value>) -> Option<u64> {
+    as_number(value).map(|n| n.max(0.0) as u64)
+}
+
+/// The one cache line of `cstan status`: `cache: rust off (sccache not found), python 1.2 GB; total 1.2 of 20 GB,
+/// measured 4m ago`. `None` when the status has no `cache` member.
+pub fn cache_status_line(status: Option<&Value>, now_ms: f64) -> Option<String> {
+    let cache = status?.get("cache")?;
+    if !matches!(cache, Value::Object(_)) {
+        return None;
+    }
+    let entries: Vec<String> = items(cache.get("entries"))
+        .iter()
+        .map(|entry| {
+            let name = text_of(entry.get("name")).unwrap_or_default();
+            if matches!(entry.get("enabled"), Some(Value::Bool(false))) {
+                return match text_of(entry.get("reason")) {
+                    Some(reason) => format!("{name} off ({reason})"),
+                    None => format!("{name} off"),
+                };
+            }
+            match bytes_of(entry.get("bytes")) {
+                Some(bytes) => format!("{name} {}", human_bytes(bytes)),
+                None => format!("{name} not measured"),
+            }
+        })
+        .collect();
+    let max = bytes_of(cache.get("maxBytes")).unwrap_or(0);
+    let total = match bytes_of(cache.get("totalBytes")) {
+        Some(total) => {
+            let (number, unit) = human_parts(total);
+            let (max_number, max_unit) = human_parts(max);
+            let first = if unit == max_unit {
+                number
+            } else {
+                format!("{number} {unit}")
+            };
+            format!("total {first} of {max_number} {max_unit}")
+        }
+        None => "not measured yet".to_string(),
+    };
+    let measured = ago(cache.get("measuredAt"), now_ms)
+        .map(|age| format!(", measured {age}"))
+        .unwrap_or_default();
+    Some(format!("cache: {}; {total}{measured}", entries.join(", ")))
+}
+
+fn command_lines(lines: &mut Vec<String>, label: &str, runs: &[Value]) {
+    for run in runs {
+        let entry = text_of(run.get("entry")).unwrap_or_default();
+        let command = text_of(run.get("command")).unwrap_or_default();
+        if matches!(run.get("ok"), Some(Value::Bool(true))) {
+            lines.push(format!("{label} {entry}: {command}: ok"));
+        } else {
+            let message = text_of(run.get("message")).unwrap_or_default();
+            lines.push(format!("{label} {entry}: {command}: failed: {message}"));
+        }
+    }
+}
+
+fn texts(value: Option<&Value>) -> Vec<String> {
+    items(value)
+        .iter()
+        .filter_map(|v| text_of(Some(v)))
+        .collect()
+}
+
+fn cache_status_lines(result: &Value, now_ms: f64) -> Vec<String> {
+    let mut lines = vec![format!(
+        "cache root: {} (scope {})",
+        text_of(result.get("root")).unwrap_or_default(),
+        text_of(result.get("scope")).unwrap_or_default()
+    )];
+    let rows: Vec<[String; 5]> = items(result.get("entries"))
+        .iter()
+        .map(|entry| {
+            let enabled = !matches!(entry.get("enabled"), Some(Value::Bool(false)));
+            let name = text_of(entry.get("name")).unwrap_or_default();
+            let note = if enabled {
+                text_of(entry.get("mode")).map_or(String::new(), |m| format!("mode {m}"))
+            } else {
+                text_of(entry.get("reason")).unwrap_or_default()
+            };
+            let state = if enabled { "on" } else { "off" };
+            let size = bytes_of(entry.get("bytes")).map_or("-".to_string(), human_bytes);
+            let files = as_number(entry.get("files")).map_or("-".to_string(), |n| format!("{n}"));
+            let used = ago(entry.get("lastUsedAt"), now_ms).unwrap_or_else(|| "-".to_string());
+            [
+                name,
+                format!("{state} {note}").trim_end().to_string(),
+                size,
+                files,
+                used,
+            ]
+        })
+        .collect();
+    let header = ["NAME", "STATE", "SIZE", "FILES", "LAST USED"].map(String::from);
+    let mut widths = [0usize; 5];
+    for row in std::iter::once(&header).chain(rows.iter()) {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    for row in std::iter::once(&header).chain(rows.iter()) {
+        let cells: Vec<String> = row
+            .iter()
+            .zip(widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect();
+        lines.push(cells.join("  ").trim_end().to_string());
+    }
+    for snapshot in items(result.get("setupSnapshots")) {
+        lines.push(format!(
+            "  setup/{}  {}  {} files",
+            text_of(snapshot.get("key")).unwrap_or_default(),
+            bytes_of(snapshot.get("bytes")).map_or("-".to_string(), human_bytes),
+            as_number(snapshot.get("files")).unwrap_or(0.0)
+        ));
+    }
+    lines.push(format!(
+        "total {} of {} (entries older than {} days are pruned){}",
+        human_bytes(bytes_of(result.get("totalBytes")).unwrap_or(0)),
+        human_bytes(bytes_of(result.get("maxBytes")).unwrap_or(0)),
+        as_number(result.get("maxAgeDays")).unwrap_or(0.0),
+        if matches!(result.get("partial"), Some(Value::Bool(true))) {
+            "; the measurement was cut short"
+        } else {
+            ""
+        }
+    ));
+    lines
+}
+
+fn cache_prune_lines(result: &Value) -> Vec<String> {
+    let dry = matches!(result.get("dryRun"), Some(Value::Bool(true)));
+    let idle = !matches!(result.get("idle"), Some(Value::Bool(false)));
+    let mut lines = Vec::new();
+    if dry {
+        lines.push("dry run: nothing was run or removed".to_string());
+        for run in items(result.get("wouldRun")) {
+            lines.push(format!(
+                "would run {}: {}",
+                text_of(run.get("entry")).unwrap_or_default(),
+                text_of(run.get("command")).unwrap_or_default()
+            ));
+        }
+    }
+    command_lines(&mut lines, "ran", items(result.get("commands")));
+    for name in texts(result.get("cleared")) {
+        lines.push(format!("cleared {name}"));
+    }
+    let would = texts(result.get("wouldClear"));
+    for name in &would {
+        lines.push(format!("would clear {name}"));
+    }
+    if !dry && !idle && !would.is_empty() {
+        lines.push(
+            "agents have worktrees open, so nothing was cleared; use cache clear --force to override"
+                .to_string(),
+        );
+    }
+    if !dry && texts(result.get("cleared")).is_empty() && would.is_empty() {
+        lines.push("nothing to clear".to_string());
+    }
+    if dry && would.is_empty() && items(result.get("wouldRun")).is_empty() {
+        lines.push("nothing to prune".to_string());
+    }
+    for error in texts(result.get("errors")) {
+        lines.push(format!("error: {error}"));
+    }
+    lines.push(format!(
+        "size {} -> {}",
+        human_bytes(bytes_of(result.get("totalBefore")).unwrap_or(0)),
+        human_bytes(bytes_of(result.get("totalAfter")).unwrap_or(0))
+    ));
+    lines
+}
+
+fn cache_clear_lines(result: &Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    command_lines(&mut lines, "stopped", items(result.get("stopCommands")));
+    let cleared = texts(result.get("cleared"));
+    if cleared.is_empty() {
+        lines.push("nothing was cleared".to_string());
+    }
+    for name in cleared {
+        lines.push(format!("cleared {name}"));
+    }
+    for error in texts(result.get("errors")) {
+        lines.push(format!("error: {error}"));
+    }
+    lines.push(format!(
+        "cache size now {}",
+        human_bytes(bytes_of(result.get("totalBytes")).unwrap_or(0))
+    ));
+    lines
+}
+
+/// What `cstan cache status|prune|clear` prints (without `--json`) for its result.
+pub fn cache_lines(result: Option<&Value>, now_ms: f64) -> Vec<String> {
+    let Some(result) = result else {
+        return Vec::new();
+    };
+    if result.get("schemaVersion").is_some() {
+        cache_status_lines(result, now_ms)
+    } else if result.get("dryRun").is_some() {
+        cache_prune_lines(result)
+    } else {
+        cache_clear_lines(result)
+    }
+}

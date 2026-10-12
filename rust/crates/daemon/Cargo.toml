@@ -20,6 +20,7 @@ path = "src/main.rs"
 [dependencies]
 capstan-herdr = { path = "../herdr" }
 capstan-launcher = { path = "../launcher" }
+capstan-cache = { path = "../cache" }
 capstan-operator = { path = "../operator" }
 capstan-kernel = { path = "../kernel" }
 capstan-ledger = { path = "../ledger" }

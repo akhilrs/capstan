@@ -519,6 +519,7 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
             adapter: Arc::clone(&adapter) as Arc<dyn LauncherAdapter>,
             config: (*config).clone(),
             project_root: workspace.to_string_lossy().into_owned(),
+            project_id: deps.options.project.project_id.clone(),
             cli_path,
             socket_path: deps.options.socket_path().to_string_lossy().into_owned(),
             credential: deps.credential().to_string(),
