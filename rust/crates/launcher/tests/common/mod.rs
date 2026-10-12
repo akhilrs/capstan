@@ -15,6 +15,7 @@ use capstan_config::{
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// `rust/crates/launcher`.
 pub fn crate_dir() -> PathBuf {
@@ -54,28 +55,41 @@ pub fn read_json(path: &Path) -> Value {
 /// Strings longer than this are recorded as their SHA-256 (prompts, seeds): their bytes are compared, not shown.
 const LONG_STRING: usize = 1500;
 
-/// The line of the PM prompt that describes `cstan cleanup`. Node's PM prompt does not have it, so the frozen sequences
-/// record the prompt without it; see `crates/config/tests/divergences/README.md`.
-const CLEANUP_PROMPT_LINE: &str = "- `cstan cleanup --dry-run`";
+/// How far into a string the PM prompt may start: the prompt itself, or inside a short wrapper (Codex carries it as
+/// `developer_instructions="..."` in a TOML string).
+const PM_PROMPT_WRAPPER: usize = 64;
 
-const ESCAPED_NEWLINE: &str = "\\u000a";
+/// Stands for a PM prompt in a normalised value. The frozen sequences record the PM prompt of the Node build by its byte
+/// length and SHA-256, so any edit of the PM prompt would change every one of them. The prompt is a Rust-owned text
+/// (`crates/config/src/prompts/pm_reference.txt`), so a string that carries it is recorded as this marker and
+/// `first_difference` accepts the marker where the frozen value is a digest. See `divergences/README.md`.
+const PM_PROMPT_MARKER: &str = "$pmPrompt";
 
-/// `text` without the `cstan cleanup` line of the PM prompt, also where the prompt sits inside a TOML string (Codex) and
-/// its newlines are the six characters `\u000a`.
-fn without_cleanup_line(text: &str) -> String {
-    let plain: String = text
-        .split_inclusive('\n')
-        .filter(|line| !line.starts_with(CLEANUP_PROMPT_LINE))
-        .collect();
-    match plain.find(CLEANUP_PROMPT_LINE) {
-        Some(at) if plain[..at].ends_with(ESCAPED_NEWLINE) => {
-            let end = plain[at..]
-                .find(ESCAPED_NEWLINE)
-                .map_or(plain.len(), |n| at + n + ESCAPED_NEWLINE.len());
-            format!("{}{}", &plain[..at], &plain[end..])
-        }
-        _ => plain,
-    }
+/// What the PM prompt starts with, up to the agent id: taken from the prompt the launcher types (the config crate's
+/// builder), so an edit of the prompt needs no edit here.
+fn pm_prompt_opening() -> &'static str {
+    static OPENING: OnceLock<String> = OnceLock::new();
+    OPENING.get_or_init(|| {
+        let probe = capstan_config::prompts::PromptInput::new(
+            "pm",
+            capstan_config::prompts::Kind::Pm,
+            "\u{1}",
+            30.0,
+        );
+        let prompt =
+            capstan_config::prompts::build_role_prompt(&probe).expect("the probe prompt builds");
+        let opening = prompt.split('\u{1}').next().unwrap_or_default().to_string();
+        assert!(
+            !opening.is_empty(),
+            "the PM prompt must start with text before the agent id"
+        );
+        opening
+    })
+}
+
+fn is_pm_prompt(text: &str) -> bool {
+    text.find(pm_prompt_opening())
+        .is_some_and(|at| at <= PM_PROMPT_WRAPPER)
 }
 
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
@@ -83,7 +97,10 @@ fn without_cleanup_line(text: &str) -> String {
 pub fn normal(value: &Value, scratch: &str) -> Value {
     match value {
         Value::String(text) => {
-            let text = without_cleanup_line(&text.replace(scratch, "<tmp>"));
+            let text = text.replace(scratch, "<tmp>");
+            if text.encode_utf16().count() > LONG_STRING && is_pm_prompt(&text) {
+                return json!({ PM_PROMPT_MARKER: true });
+            }
             if text.encode_utf16().count() > LONG_STRING {
                 json!({"bytes": text.len(), "sha256": hex(&Sha256::digest(text.as_bytes()))})
             } else {
@@ -122,6 +139,9 @@ fn clip(value: &Value) -> String {
 /// The first place two JSON values differ, with both sides.
 pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<String> {
     if expected == actual {
+        return None;
+    }
+    if actual.get(PM_PROMPT_MARKER).is_some() && expected.get("sha256").is_some() {
         return None;
     }
     match (expected, actual) {

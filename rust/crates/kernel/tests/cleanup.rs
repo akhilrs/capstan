@@ -942,13 +942,17 @@ fn a_budget_that_expires_mid_apply_skips_the_rest_and_keeps_what_was_done() {
 // ------------------------------------------------------------------------------------------------------ harness
 
 #[test]
-fn the_table_dump_ignores_migration_38_and_empty_cleanup_tables_but_not_cleanup_rows() {
+fn the_table_dump_ignores_later_migrations_and_empty_cleanup_tables_but_not_cleanup_rows() {
     let mut w = World::new();
     w.fx.close();
     let file = w.fx.database();
     let dump = common::replay::dump_tables(&file);
     let versions = dump["schema_migrations"]["rows"].as_array().unwrap();
-    assert_eq!(versions.last().unwrap()[0], 37, "the 38 row is left out");
+    assert_eq!(
+        versions.last().unwrap()[0],
+        common::replay::NODE_LAST_MIGRATION,
+        "the rows of migrations after the last Node one are left out"
+    );
     assert!(dump.get("cleanups").is_none() && dump.get("cleanup_branches").is_none());
     w.fx.reopen();
     w.landed_branch("done");

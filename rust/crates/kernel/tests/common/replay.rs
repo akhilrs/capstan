@@ -115,7 +115,7 @@ pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> Option<
     }
 }
 
-/// The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
+/// DELIBERATE PIN (frozen Node ledger format; never follows the newest migration). The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
 /// their `schema_migrations` rows are left out of a dump.
 pub const NODE_LAST_MIGRATION: i64 = 37;
 

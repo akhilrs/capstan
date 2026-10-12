@@ -4,6 +4,8 @@
 
 use crate::fixture::Fixture;
 
+// DELIBERATE PIN: this SQL undoes exactly migrations 30..=38 on a ledger built by the current runner. A later migration
+// that adds schema must add its undo here; migrations that only create new tables use `IF NOT EXISTS` and need nothing.
 const ROLL_BACK: &str = "
   DROP TABLE cleanup_branches;
   DROP TABLE cleanups;
@@ -62,7 +64,7 @@ fn an_existing_ledger_that_lacks_0030_migrates_keeps_its_data_and_backfills_the_
         .collect();
     assert_eq!(
         versions,
-        (1..=38).collect::<Vec<i64>>(),
+        (1..=capstan_ledger::max_embedded_migration()).collect::<Vec<i64>>(),
         "every migration is recorded again"
     );
     let grants: Vec<String> = database

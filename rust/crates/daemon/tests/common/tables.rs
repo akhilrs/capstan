@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
+/// DELIBERATE PIN (frozen Node ledger format; never follows the newest migration). The last migration Node knows. Ledgers the Rust build opens carry later migrations that no frozen Node export has, so
 /// their `schema_migrations` rows are left out of a dump.
 pub const NODE_LAST_MIGRATION: i64 = 37;
 
@@ -206,21 +206,25 @@ mod tests {
 mod rust_only_tests {
     use super::*;
 
-    /// The Rust build's migration 38 row and its empty Rust-only tables do not show in a dump; a cleanup row does.
+    /// The Rust build's rows after NODE_LAST_MIGRATION and its empty Rust-only tables do not show in a dump; a cleanup row does.
     #[test]
     fn rust_only_ledger_parts_stay_out_of_the_dump_until_they_hold_rows() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("ledger.sqlite");
         let conn = rusqlite::Connection::open(&file).unwrap();
-        conn.execute_batch(
+        conn.execute_batch(&format!(
             "CREATE TABLE schema_migrations(version INTEGER, name TEXT, checksum TEXT, applied_at TEXT);
-             INSERT INTO schema_migrations VALUES (37, 'a', 'b', 'c'), (38, 'd', 'e', 'f');
+             INSERT INTO schema_migrations VALUES ({NODE_LAST_MIGRATION}, 'a', 'b', 'c'), ({}, 'd', 'e', 'f');
              CREATE TABLE cleanups(cleanup_id TEXT);
              CREATE TABLE cleanup_branches(branch TEXT);",
-        )
+            NODE_LAST_MIGRATION + 1
+        ))
         .unwrap();
         let dump = dump_tables(&file);
-        assert_eq!(dump["schema_migrations"]["rows"], json!([[37, "a", "b"]]));
+        assert_eq!(
+            dump["schema_migrations"]["rows"],
+            json!([[NODE_LAST_MIGRATION, "a", "b"]])
+        );
         for table in RUST_ONLY_TABLES {
             assert!(dump.get(table).is_none(), "{table} is empty");
         }

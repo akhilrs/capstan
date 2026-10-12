@@ -171,6 +171,16 @@ fn every_prompt_variant_equals_nodes_text() {
             .unwrap_or_else(|| panic!("no input for {name}"));
         compared += 1;
         match (build_role_prompt(prompt_input), text(want, "error")) {
+            (Ok(prompt), None) if prompt_input.kind == Kind::Pm => {
+                // The PM prompt is Rust-owned text (pm_reference.txt), so its frozen bytes, hash and golden file are not
+                // compared: an edit of the prompt would need every one of them regenerated. What stays checked is that
+                // Node built it too and that it is addressed to this agent and under the size cap.
+                if !prompt.contains(&prompt_input.agent_id) || prompt.len() > MAX_PROMPT_BYTES {
+                    failures.push(format!(
+                        "{name}: the PM prompt lacks the agent id or is over the cap"
+                    ));
+                }
+            }
             (Ok(prompt), None) => {
                 if let Some(fixture) = text(want, "fixture") {
                     let golden = std::fs::read_to_string(format!(

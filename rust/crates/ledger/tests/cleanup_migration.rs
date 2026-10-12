@@ -55,6 +55,7 @@ fn row_dump(file: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
     dump
 }
 
+/// DELIBERATE PIN: schema 37 is the state migration 0038 starts from, whatever the newest migration is now.
 /// The fixture brought to schema 37, with a confirmed integration that holds a report.
 fn ledger_0037(file: &Path) {
     std::fs::copy(fixture(), file).unwrap();
@@ -101,7 +102,10 @@ fn a_ledger_at_schema_37_migrates_to_38_with_every_row_intact() {
     open_database(&file, &keep_all()).unwrap().close().unwrap();
     let mut after = row_dump(&file);
     let migrations_after = after.remove("schema_migrations").unwrap();
-    assert_eq!(migrations_after.len(), 38);
+    assert_eq!(
+        migrations_after.len() as i64,
+        capstan_ledger::max_embedded_migration()
+    );
     assert!(migrations_after
         .iter()
         .any(|r| r.contains("0038_cleanups.sql")));
@@ -109,6 +113,8 @@ fn a_ledger_at_schema_37_migrates_to_38_with_every_row_intact() {
     assert_eq!(after.remove("cleanup_branches"), Some(vec![]));
     let mut before = before;
     before.remove("schema_migrations");
+    // Empty tables that later migrations create are not rows of this ledger; a later migration that fills one is a change.
+    after.retain(|table, rows| before.contains_key(table) || !rows.is_empty());
     assert_eq!(before, after, "no existing row changed");
     let backup = std::fs::read_dir(dir.path())
         .unwrap()
