@@ -26,6 +26,8 @@ pub const MAX_REJECTED_REPORTS: usize = 100;
 pub const MAX_REVIEW_TEXT_BYTES: usize = 4000;
 /// Rounds that ended in a verdict; failed and cancelled rounds do not use the budget.
 pub const MAX_REVIEW_ROUNDS: i64 = 5;
+/// The design review rounds a plan gets when it records no limit of its own (a plan opened before the limit was stored).
+pub const DEFAULT_PLAN_REVIEW_ROUNDS: i64 = 5;
 pub const PLAN_NOTICE_BUDGET_BYTES: usize = 12 * 1024;
 pub const MAX_PLAN_BODY_BYTES: usize = 32 * 1024;
 pub const MAX_PLAN_PACKAGES: usize = 20;
@@ -174,6 +176,8 @@ pub struct ReviewRecord {
     pub verdict_text: Option<String>,
     pub failure_reason: Option<String>,
     pub notified_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub findings_class: Option<String>,
     pub created_at: String,
     pub completed_at: Option<String>,
 }
@@ -199,6 +203,7 @@ pub struct ReviewRow {
     pub verdict_text: Option<String>,
     pub failure_reason: Option<String>,
     pub notified_message_id: Option<String>,
+    pub findings_class: Option<String>,
     pub created_at: String,
     pub completed_at: Option<String>,
 }
@@ -225,6 +230,7 @@ impl ReviewRow {
             verdict_text: row.get("verdict_text")?,
             failure_reason: row.get("failure_reason")?,
             notified_message_id: row.get("notified_message_id")?,
+            findings_class: row.get("findings_class")?,
             created_at: row.get("created_at")?,
             completed_at: row.get("completed_at")?,
         })
@@ -244,6 +250,7 @@ pub struct PlanRecord {
     pub current_revision: i64,
     pub approved_revision: Option<i64>,
     pub supersedes_plan_id: Option<String>,
+    pub max_review_rounds: Option<i64>,
     pub cancelled_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -261,6 +268,7 @@ pub struct PlanRow {
     pub current_revision: i64,
     pub approved_revision: Option<i64>,
     pub supersedes_plan_id: Option<String>,
+    pub max_review_rounds: Option<i64>,
     pub cancelled_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -279,6 +287,7 @@ impl PlanRow {
             current_revision: row.get("current_revision")?,
             approved_revision: row.get("approved_revision")?,
             supersedes_plan_id: row.get("supersedes_plan_id")?,
+            max_review_rounds: row.get("max_review_rounds")?,
             cancelled_at: row.get("cancelled_at")?,
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,

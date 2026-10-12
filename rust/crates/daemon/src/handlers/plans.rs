@@ -11,8 +11,8 @@ use super::HandlerMap;
 use crate::deps::new_context;
 use crate::reviews::{release_reviewer_later, request_review, RequestError};
 use capstan_herdr::api::is_agent_name;
+use capstan_kernel::helpers::amended_plan_body_json;
 use capstan_kernel::plan_body::parse_plan_body;
-use capstan_kernel::records::MAX_REVIEW_ROUNDS;
 use capstan_kernel::KernelError;
 use serde_json::{json, Map, Value};
 
@@ -62,7 +62,7 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let rest: &[String] = call.args.get(1..).unwrap_or(&[]);
     if !matches!(
         sub,
-        Some("open" | "submit" | "show" | "assign" | "signoff" | "cancel")
+        Some("open" | "submit" | "amend" | "show" | "assign" | "signoff" | "cancel")
     ) {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -81,6 +81,7 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         Some("assign") => assign(env, call, rest),
         Some("signoff") => signoff(env, call, rest, &config.architect.role),
         Some("submit") => submit(env, call, rest),
+        Some("amend") => amend(env, call, rest),
         _ => show(env, call, rest),
     };
     Some(outcome.unwrap_or_else(caught))
@@ -122,6 +123,12 @@ fn open(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
     input.insert("title".into(), json!(title));
     if let Some(supersedes) = supersedes {
         input.insert("supersedesPlanId".into(), json!(supersedes));
+    }
+    if let Some(limit) = env
+        .config()
+        .map(|config| config.architect.max_review_rounds)
+    {
+        input.insert("maxReviewRounds".into(), json!(limit));
     }
     let credential = call.credential.to_string();
     let plan = env.deps.kernel.run(move |core| {
@@ -375,19 +382,8 @@ fn submit(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
     let needs_review =
         (record["tier"] == "high_risk" && plan_review != "never") || plan_review == "always";
     if needs_review {
-        let rounds = {
-            let (credential, plan_id) = (credential.clone(), plan_id.clone());
-            env.deps
-                .kernel
-                .run(move |core| core.plan_review_rounds(&credential, &plan_id))?
-        };
-        if rounds.as_i64().unwrap_or(0) >= MAX_REVIEW_ROUNDS {
-            return Ok(fail(
-                ErrorCode::Rejected,
-                format!(
-                    "review_limit: plan {plan_id} used {MAX_REVIEW_ROUNDS} review rounds; the PM has been told"
-                ),
-            ));
+        if let Some(refusal) = review_limit_refusal(env, &credential, &plan_id)? {
+            return Ok(refusal);
         }
         if env.deps.launcher.is_none() {
             return Ok(fail(
@@ -433,11 +429,48 @@ fn submit(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
             "state": field(&stored, "state"),
         })));
     }
-    let requested_role = config.architect.reviewer_role.as_deref();
+    start_review(env, &config.architect, &plan_id, &credential, &stored)
+}
+
+/// The refusal of a plan that has used its review rounds, or `None` while it has some left.
+fn review_limit_refusal(
+    env: &CommandEnv<'_>,
+    credential: &str,
+    plan_id: &str,
+) -> Result<Option<CommandResponse>, Thrown> {
+    let status = {
+        let (credential, plan_id) = (credential.to_string(), plan_id.to_string());
+        env.deps
+            .kernel
+            .run(move |core| core.plan_review_status(&credential, &plan_id))?
+    };
+    if status["exhausted"].as_bool() != Some(true) {
+        return Ok(None);
+    }
+    Ok(Some(fail(
+        ErrorCode::Rejected,
+        format!(
+            "review_limit: plan {plan_id} used {} of {} design review rounds ({} reviews in all); the PM has been told",
+            status["designRounds"], status["limit"], status["totalRounds"]
+        ),
+    )))
+}
+
+/// Starts the review of a plan that went to `in_review` (submit, or amend of a plan that needs review) and answers the
+/// command; a reviewer that cannot start sends the plan back to draft.
+fn start_review(
+    env: &CommandEnv<'_>,
+    architect: &capstan_config::Architect,
+    plan_id: &str,
+    credential: &str,
+    stored: &Value,
+) -> Outcome {
+    let (plan_id, credential) = (plan_id.to_string(), credential.to_string());
+    let requested_role = architect.reviewer_role.as_deref();
     match request_review(env.deps, &plan_id, requested_role, &credential) {
         Ok((review, spawn_state)) => Ok(ok(json!({
-            "planId": field(&stored, "planId"),
-            "revision": field(&stored, "currentRevision"),
+            "planId": field(stored, "planId"),
+            "revision": field(stored, "currentRevision"),
             "state": "in_review",
             "reviewId": field(&review, "reviewId"),
             "reviewerAgentId": field(&review, "reviewerAgentId"),
@@ -479,6 +512,132 @@ fn submit(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
             }
         }
     }
+}
+
+/// `plan amend <plan-id> <json>`: the architect adds owned paths and dependency edges the latest review asked for, when its
+/// findings were all mechanical, without another review round.
+fn amend(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    let Some(config) = env.config() else {
+        return Ok(fail(
+            ErrorCode::NotConfigured,
+            "plans need [architect] enabled = true in capstan.toml",
+        ));
+    };
+    if !is_active_architect(env, call, &config.architect.role) {
+        return Ok(fail(
+            ErrorCode::Forbidden,
+            "not_architect: only the designated architect may amend a plan",
+        ));
+    }
+    if !config.architect.plan_amend {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            "amend_disabled: plan amend is switched off by plan_amend = false in [architect]; submit a new revision with cstan plan submit",
+        ));
+    }
+    if rest.len() != 2 || !is_safe_agent_id(&rest[0]) {
+        return Ok(fail(
+            ErrorCode::InvalidRequest,
+            "plan amend needs a plan id and the amendment JSON",
+        ));
+    }
+    let (plan_id, amendment_text) = (rest[0].clone(), rest[1].clone());
+    let credential = call.credential.to_string();
+    let existing = {
+        let (credential, plan_id) = (credential.clone(), plan_id.clone());
+        env.deps
+            .kernel
+            .run(move |core| core.plan_record(&credential, &plan_id))?
+    };
+    if existing.is_null() {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            format!("unknown_plan: no plan {plan_id}"),
+        ));
+    }
+    let record = &existing["plan"];
+    let state = record["state"].as_str().unwrap_or("");
+    if state != "draft" {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            format!("amend_refused: plan {plan_id} is {state}, not a draft"),
+        ));
+    }
+    let plan_review = config.architect.plan_review.as_str();
+    let needs_review =
+        (record["tier"] == "high_risk" && plan_review != "never") || plan_review == "always";
+    if needs_review {
+        if env.deps.launcher.is_none() {
+            return Ok(fail(
+                ErrorCode::NotConfigured,
+                "a plan review needs Herdr and a git repository",
+            ));
+        }
+        if let Some(refusal) = review_limit_refusal(env, &credential, &plan_id)? {
+            return Ok(refusal);
+        }
+    }
+    let Some(previous) = existing["revision"]["bodyJson"].as_str() else {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            format!("amend_refused: plan {plan_id} has no revision yet; submit it with cstan plan submit"),
+        ));
+    };
+    let body_json = match amended_plan_body_json(previous, &amendment_text) {
+        Ok(body_json) => body_json,
+        Err(refusal) => return Ok(fail(ErrorCode::Rejected, refusal)),
+    };
+    let base_sha = env.deps.git.head_commit().map_err(|_| Thrown::Git)?;
+    let caller_id = env
+        .agent_of(call.identity)
+        .map(|c| c.agent_id.clone())
+        .unwrap_or_default();
+    env.log(
+        "plan_amend_requested",
+        json!({"requestedBy": caller_id, "planId": plan_id}),
+    );
+    let stored = {
+        let (credential, plan_id) = (credential.clone(), plan_id.clone());
+        let run = env.deps.kernel.run(move |core| {
+            let context = new_context(core, &credential)?;
+            core.amend_plan(
+                &context,
+                &json!({
+                    "planId": plan_id,
+                    "amendmentJson": amendment_text,
+                    "bodyJson": body_json,
+                    "baseSha": base_sha,
+                    "review": needs_review,
+                }),
+            )
+        });
+        match run {
+            Ok(stored) => stored,
+            Err(error) if error.is_controller_error() => {
+                let message = error.message();
+                let coded = ["amend_refused:", "amend_not_allowed:", "invalid_plan:"]
+                    .iter()
+                    .any(|code| message.starts_with(code));
+                return Ok(fail(
+                    ErrorCode::Rejected,
+                    if coded {
+                        message
+                    } else {
+                        format!("amend_refused: {message}")
+                    },
+                ));
+            }
+            Err(error) => return Err(Thrown::Kernel(error)),
+        }
+    };
+    if !needs_review {
+        return Ok(ok(json!({
+            "planId": field(&stored, "planId"),
+            "revision": field(&stored, "currentRevision"),
+            "state": field(&stored, "state"),
+        })));
+    }
+    start_review(env, &config.architect, &plan_id, &credential, &stored)
 }
 
 /// `linkFields`: what the Nexora links add to a plan or package.
@@ -660,13 +819,19 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
         let revision = &detail["revision"];
         let body: Value = serde_json::from_str(revision["bodyJson"].as_str().unwrap_or("null"))
             .map_err(KernelError::from)?;
-        json!({
+        let mut shown = json!({
             "revision": field(revision, "revision"),
             "baseSha": field(revision, "baseSha"),
             "authorAgentId": field(revision, "authorAgentId"),
             "createdAt": field(revision, "createdAt"),
             "body": body,
-        })
+        });
+        // An amended revision says what was added and which review it answers.
+        if !revision["amendment"].is_null() {
+            shown["amendment"] = field(revision, "amendment");
+            shown["amendsReviewId"] = field(revision, "amendsReviewId");
+        }
+        shown
     };
     let mut result = Map::new();
     result.insert("plan".into(), field(&detail, "plan"));

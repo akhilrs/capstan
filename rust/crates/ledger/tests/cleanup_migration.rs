@@ -37,6 +37,15 @@ fn row_dump(file: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
             .unwrap()
             .map(Result::unwrap)
             .filter(|c: &String| !(table == "messages" && c == "class")) // added by 0040, after this migration
+            .filter(|c: &String| {
+                // added by 0041, after this migration
+                !matches!(
+                    (table.as_str(), c.as_str()),
+                    ("plans", "max_review_rounds")
+                        | ("plan_revisions", "amendment_json" | "amends_review_id")
+                        | ("reviews", "findings_class")
+                )
+            })
             .collect();
         let select = columns
             .iter()

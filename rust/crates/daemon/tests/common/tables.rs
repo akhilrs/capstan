@@ -38,6 +38,13 @@ pub fn dump_tables(file: &Path) -> Value {
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
             // Rust-only column (the frozen Node corpus predates message classes).
             .filter(|c| !(name == "messages" && c == "class"))
+            // Rust-only columns of plans, revisions and reviews (plan amendments, review classes).
+            .filter(|c| !(name == "plans" && c == "max_review_rounds"))
+            .filter(|c| {
+                !(name == "plan_revisions"
+                    && matches!(c.as_str(), "amendment_json" | "amends_review_id"))
+            })
+            .filter(|c| !(name == "reviews" && c == "findings_class"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
         let only_node = if name == "schema_migrations" {
@@ -63,14 +70,24 @@ pub fn dump_tables(file: &Path) -> Value {
                             let text = String::from_utf8_lossy(t).into_owned();
                             // A stored result holds message records, which carry the Rust-only `class`.
                             Value::String(if column == "result_json" {
-                                text.replace("\"class\":\"action\",", "")
+                                (1..=20)
+                                    .fold(text, |text, n| {
+                                        text.replace(&format!("\"maxReviewRounds\":{n},"), "")
+                                    })
+                                    .replace("\"class\":\"action\",", "")
                                     .replace("\"class\":\"info\",", "")
+                                    .replace("\"maxReviewRounds\":null,", "")
+                                    .replace("\"amendment\":null,", "")
+                                    .replace("\"amendsReviewId\":null,", "")
                             } else {
                                 text
                             })
                         }
                         ValueRef::Blob(b) => json!({"$blob": capstan_kernel::canonical::hex(b)}),
                     });
+                }
+                if name == "messages" {
+                    legacy_plan_texts(&columns, &mut values);
                 }
                 Ok(Value::Array(values))
             })
@@ -247,18 +264,65 @@ mod rust_only_tests {
     }
 }
 
-/// Fields only the Rust build has (the frozen Node corpus predates them): message records carry `class` and the unread
+/// The review request of a plan and the needs-attention notice, as the frozen Node corpus has them (this build's brief adds
+/// an exhaustive-list instruction and the finding line format; the notice names the limit). The actual side gets the Node
+/// text and its hash back, so the corpus replays unchanged.
+fn legacy_plan_texts(columns: &[String], values: &mut [Value]) {
+    let (Some(body), Some(hash)) = (
+        columns.iter().position(|c| c == "body"),
+        columns.iter().position(|c| c == "body_hash"),
+    ) else {
+        return;
+    };
+    let Some(text) = values[body].as_str() else {
+        return;
+    };
+    let first = text.lines().next().unwrap_or_default();
+    let legacy = if let Some((plan, rest)) = first.split_once(" needs attention: it used ") {
+        if !(plan.starts_with("Plan ") && rest.contains(" design review rounds (limit ")) {
+            return;
+        }
+        format!("{plan} needs attention: it used 5 review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.")
+    } else if first.starts_with("Review request ") && first.contains(" for plan ") {
+        let mut lines: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                !line.starts_with("Give one exhaustive findings list")
+                    && !line.starts_with("Write one finding per line")
+                    && !line.starts_with("A finding about owns, depends_on")
+            })
+            .collect();
+        let Some(last) = lines.last_mut() else {
+            return;
+        };
+        *last = "Review only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and in which package.";
+        lines.join("\n")
+    } else {
+        return;
+    };
+    values[hash] = Value::String(capstan_kernel::canonical::sha256(&legacy));
+    values[body] = Value::String(legacy);
+}
+
+/// Fields only the Rust build has (the frozen Node corpus predates them): message records carry `class`, plan records
+/// `maxReviewRounds`, the shown plan revision `amendment` and `amendsReviewId` (null unless amended), and the unread
 /// summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side.
 pub fn without_rust_only(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let message_record = map.contains_key("messageId") && map.contains_key("actionNeeded");
             let summary = map.contains_key("oldestQueuedAt") && map.contains_key("messageIds");
+            let plan_record = map.contains_key("planId") && map.contains_key("approvedRevision");
+            let plan_revision = map.contains_key("bodySha") && map.contains_key("amendsReviewId");
             Value::Object(
                 map.iter()
-                    .filter(|(key, _)| {
+                    .filter(|(key, v)| {
                         !(message_record && key.as_str() == "class"
-                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount"))
+                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount")
+                            || plan_record && key.as_str() == "maxReviewRounds"
+                            || plan_revision
+                                && matches!(key.as_str(), "amendment" | "amendsReviewId")
+                                && v.is_null())
                     })
                     .map(|(key, v)| (key.clone(), without_rust_only(v)))
                     .collect(),

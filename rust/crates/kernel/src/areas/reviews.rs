@@ -5,9 +5,10 @@ use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     execute, js_trim, package_reviewed_notice, plan_needs_attention_notice, query_all, query_opt,
-    review_notice, review_record, review_task, safe_id_str,
+    review_notice, review_record, review_task, safe_id_str, PlanAmendmentBrief,
 };
 use crate::kernel::Kernel;
+use crate::plan_body::{findings_class, parse_plan_findings};
 use crate::records::{
     AgentReportRow, AgentRow, MutationEvent, MutationOutput, ReviewRow, MAX_REVIEW_ROUNDS,
     MAX_REVIEW_TEXT_BYTES,
@@ -178,7 +179,11 @@ fn review_checks(kernel: &Kernel, subject_id: &str, reviewer_role: &str) -> Kern
         |row| row.get::<_, i64>(0),
     )?
     .unwrap_or(0);
-    if done >= MAX_REVIEW_ROUNDS {
+    let limit_reached = match &plan_row {
+        Some(plan) => plans::plan_rounds(kernel, plan)?.exhausted(),
+        None => done >= MAX_REVIEW_ROUNDS,
+    };
+    if limit_reached {
         return Err(KernelError::controller(
             "the review limit for this subject is reached",
         ));
@@ -363,7 +368,23 @@ pub fn begin_review(
         let row = review_by_id(kernel, &review_id)?
             .ok_or_else(|| KernelError::controller("the review row is missing"))?;
         let authors: Vec<&AgentReportRow> = checked.authors.iter().collect();
-        let task = review_task(&row, &authors);
+        let amendment = match &checked.plan {
+            Some(plan) => query_opt(
+                &kernel.database,
+                "SELECT amendment_json, amends_review_id FROM plan_revisions
+                 WHERE project_id = ? AND plan_id = ? AND revision = ? AND amends_review_id IS NOT NULL",
+                rusqlite::params![kernel.project_id, subject_id, plan.revision],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )?,
+            None => None,
+        };
+        let brief = amendment
+            .as_ref()
+            .map(|(amendment_json, amends_review_id)| PlanAmendmentBrief {
+                amendment_json,
+                amends_review_id,
+            });
+        let task = review_task(&row, &authors, brief.as_ref());
         messages::insert_queued_message(
             kernel,
             &controller,
@@ -433,16 +454,28 @@ pub fn complete_review(
             let Some(row) = row else {
                 return Err(KernelError::controller("you have no review in progress"));
             };
+            // A plan's findings are read before anything is written, so a refused answer leaves the review started.
+            let class: Option<&str> = if verdict == "findings"
+                && row.subject_plan_id.is_some()
+                && !kernel.free_text_plan_findings.get()
+            {
+                let findings = parse_plan_findings(text)
+                    .map_err(KernelError::controller)?;
+                Some(findings_class(&findings))
+            } else {
+                None
+            };
             let now = kernel.now();
             execute(
                 &kernel.database,
-                "UPDATE reviews SET state = ?, verdict_text = ?, completed_at = ? WHERE project_id = ? AND review_id = ?",
-                [
+                "UPDATE reviews SET state = ?, verdict_text = ?, completed_at = ?, findings_class = ? WHERE project_id = ? AND review_id = ?",
+                rusqlite::params![
                     if verdict == "pass" { "passed" } else { "findings" },
                     text,
-                    &now,
-                    &kernel.project_id,
-                    &row.review_id,
+                    now,
+                    class,
+                    kernel.project_id,
+                    row.review_id,
                 ],
             )?;
             kernel.touch_agent(&row.reviewer_agent_id, &now)?;
@@ -488,11 +521,12 @@ fn settle_plan_review(
             "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
             [now, &kernel.project_id, &plan.plan_id],
         )?;
-        if plans::finished_plan_reviews(kernel, &plan.plan_id)? >= MAX_REVIEW_ROUNDS {
+        let rounds = plans::plan_rounds(kernel, &plan)?;
+        if rounds.exhausted() {
             message_notices::notice_to_pm(
                 kernel,
                 "plan_notice",
-                &plan_needs_attention_notice(&plan.plan_id),
+                &plan_needs_attention_notice(&plan.plan_id, rounds.limit, rounds.design),
                 now,
                 true,
             )?;

@@ -43,6 +43,9 @@ pub struct Kernel {
     pub(crate) prompt_relay: RefCell<crate::areas::prompt_relay::PromptRelayConfig>,
     /// The message policy (`pmWakeClass`, `noticeClass`...); the legacy behaviour until `set_message_policy`.
     pub(crate) message_policy: RefCell<crate::areas::messaging::MessagePolicy>,
+    /// Whether a plan review may answer findings in free text. Off: the answer must hold finding lines. Only the replay of
+    /// the frozen Node corpus, which predates the format, turns it on.
+    pub(crate) free_text_plan_findings: Cell<bool>,
     closed: Cell<bool>,
 }
 
@@ -253,6 +256,7 @@ impl Kernel {
                 env,
                 prompt_relay: RefCell::default(),
                 message_policy: RefCell::default(),
+                free_text_plan_findings: Cell::new(false),
                 closed: Cell::new(false),
             })
         })();
@@ -307,6 +311,7 @@ impl Kernel {
             env,
             prompt_relay: RefCell::default(),
             message_policy: RefCell::default(),
+            free_text_plan_findings: Cell::new(false),
             closed: Cell::new(false),
         })
     }

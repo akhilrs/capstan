@@ -466,9 +466,61 @@ pub fn review_record(row: &ReviewRow) -> ReviewRecord {
         verdict_text: row.verdict_text.clone(),
         failure_reason: row.failure_reason.clone(),
         notified_message_id: row.notified_message_id.clone(),
+        findings_class: row.findings_class.clone(),
         created_at: row.created_at.clone(),
         completed_at: row.completed_at.clone(),
     }
+}
+
+/// A stored plan body (the `PlanBody` JSON, camelCase) in the form `parse_plan_body` reads.
+fn stored_body_as_input(body_json: &str) -> Result<String, String> {
+    let mut body: Value = serde_json::from_str(body_json)
+        .map_err(|_| "the stored plan body is not JSON".to_string())?;
+    let rename = |object: &mut serde_json::Map<String, Value>, from: &str, to: &str| {
+        if let Some(value) = object.remove(from) {
+            object.insert(to.to_string(), value);
+        }
+    };
+    if let Some(object) = body.as_object_mut() {
+        rename(object, "integrationOrder", "integration_order");
+        if let Some(Value::Array(packages)) = object.get_mut("packages") {
+            for package in packages.iter_mut().filter_map(Value::as_object_mut) {
+                rename(package, "dependsOn", "depends_on");
+                rename(package, "estimateHours", "estimate_hours");
+                for key in ["type", "scope"] {
+                    if package.get(key).is_some_and(Value::is_null) {
+                        package.remove(key);
+                    }
+                }
+            }
+        }
+    }
+    Ok(body.to_string())
+}
+
+/// The body that results from applying `amendment_json` to the stored body `previous_body_json`, in the stored form.
+/// A refusal carries the `<code>: <reason>` text the commands show: `amend_not_allowed` for an edit outside the narrow
+/// amendment, `invalid_plan` for anything else.
+pub fn amended_plan_body_json(
+    previous_body_json: &str,
+    amendment_json: &str,
+) -> Result<String, String> {
+    use crate::plan_body::{
+        apply_plan_amendment, parse_plan_amendment, parse_plan_body, PlanError, PlanErrorCode,
+    };
+    let refused = |error: PlanError| {
+        let code = if error.code == PlanErrorCode::AmendNotAllowed {
+            "amend_not_allowed"
+        } else {
+            "invalid_plan"
+        };
+        format!("{code}: {}", error.reason)
+    };
+    let amendment = parse_plan_amendment(amendment_json).map_err(refused)?;
+    let input = stored_body_as_input(previous_body_json)?;
+    let body = parse_plan_body(&input, MAX_PLAN_PACKAGES).map_err(refused)?;
+    let amended = apply_plan_amendment(&body, &amendment, MAX_PLAN_PACKAGES).map_err(refused)?;
+    serde_json::to_string(&amended).map_err(|e| e.to_string())
 }
 
 pub fn plan_record_of(row: &PlanRow) -> PlanRecord {
@@ -483,6 +535,7 @@ pub fn plan_record_of(row: &PlanRow) -> PlanRecord {
         current_revision: row.current_revision,
         approved_revision: row.approved_revision,
         supersedes_plan_id: row.supersedes_plan_id.clone(),
+        max_review_rounds: row.max_review_rounds,
         cancelled_at: row.cancelled_at.clone(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -546,13 +599,73 @@ pub fn report_notice(row: &AgentReportRow, role_name: &str) -> String {
     .join("\n")
 }
 
-/// The task the reviewer receives. Everything but the authors' summaries is the controller's own text.
-pub fn review_task(row: &ReviewRow, authors: &[&AgentReportRow]) -> String {
+/// The amendment a plan revision under review was made by, and the review it answers.
+pub struct PlanAmendmentBrief<'a> {
+    pub amendment_json: &'a str,
+    pub amends_review_id: &'a str,
+}
+
+fn quoted_list(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|i| quoted(i))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The lines that tell a reviewer what an amended revision changed.
+fn amendment_lines(revision: i64, brief: &PlanAmendmentBrief<'_>) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Revision {revision} is an amendment of revision {} made after review {} (mechanical findings only). Only the additions below changed; check that they answer that review and that they are correct.",
+        revision - 1,
+        brief.amends_review_id
+    )];
+    match crate::plan_body::parse_plan_amendment(brief.amendment_json) {
+        Ok(amendment) => {
+            lines.push(format!(
+                "The architect's reason, not verified: {}",
+                quoted(&amendment.reason)
+            ));
+            for package in &amendment.packages {
+                let mut parts = Vec::new();
+                if !package.add_owns.is_empty() {
+                    parts.push(format!("added owns: {}", quoted_list(&package.add_owns)));
+                }
+                if !package.add_depends_on.is_empty() {
+                    parts.push(format!(
+                        "added depends_on: {}",
+                        quoted_list(&package.add_depends_on)
+                    ));
+                }
+                lines.push(format!("- package {}: {}", package.id, parts.join("; ")));
+            }
+            if let Some(order) = &amendment.integration_order {
+                lines.push(format!(
+                    "- integration order is now: {}",
+                    quoted_list(order)
+                ));
+            }
+        }
+        Err(_) => lines.push(format!(
+            "The amendment, not verified: {}",
+            quoted(brief.amendment_json)
+        )),
+    }
+    lines
+}
+
+/// The task the reviewer receives. Everything but the authors' summaries is the controller's own text. `amendment` is set
+/// for a plan revision that is an amendment.
+pub fn review_task(
+    row: &ReviewRow,
+    authors: &[&AgentReportRow],
+    amendment: Option<&PlanAmendmentBrief<'_>>,
+) -> String {
     if let Some(plan_id) = &row.subject_plan_id {
         let revision = row
             .subject_plan_revision
             .map_or("null".into(), |r| r.to_string());
-        return [
+        let mut lines = vec![
             format!(
                 "Review request {} (round {}) for plan {} revision {}",
                 row.review_id, row.round, plan_id, revision
@@ -564,10 +677,21 @@ pub fn review_task(row: &ReviewRow, authors: &[&AgentReportRow]) -> String {
             format!(
                 "Read the plan body, written by the Architect and not verified, with: cstan plan show {plan_id}   (revision {revision})"
             ),
+        ];
+        if let (Some(brief), Some(number)) = (amendment, row.subject_plan_revision) {
+            lines.extend(amendment_lines(number, brief));
+        }
+        lines.extend([
             "Check the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.".to_string(),
-            "Review only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and in which package.".to_string(),
-        ]
-        .join("\n");
+            "Give one exhaustive findings list in this answer: every problem you can find in the whole plan, so that a second round is not needed for something you could have named now.".to_string(),
+            format!(
+                "Write one finding per line in this format, grouped by package (all lines of one package together, in the plan's package order): {}",
+                crate::plan_body::FINDING_FORMAT
+            ),
+            "A finding about owns, depends_on or integration_order is mechanical: when every finding is of those kinds the architect amends the plan without a new review round. Use interface, acceptance, risk or design for anything else.".to_string(),
+            "Review only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". A findings answer without valid finding lines is refused and you answer again.".to_string(),
+        ]);
+        return lines.join("\n");
     }
     let subject = match &row.subject_integration_id {
         None => format!(
@@ -677,9 +801,9 @@ pub fn review_notice(row: &ReviewRow, author_agent_ids: &[String]) -> String {
     .join("\n")
 }
 
-pub fn plan_needs_attention_notice(plan_id: &str) -> String {
+pub fn plan_needs_attention_notice(plan_id: &str, limit: i64, design_rounds: i64) -> String {
     format!(
-        "Plan {plan_id} needs attention: it used {MAX_REVIEW_ROUNDS} review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan."
+        "Plan {plan_id} needs attention: it used {design_rounds} design review rounds (limit {limit}) without a pass. It is a draft; decide whether to replace the architect or open a new plan."
     )
 }
 

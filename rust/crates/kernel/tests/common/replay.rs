@@ -61,19 +61,26 @@ fn clip(value: &Value) -> String {
     }
 }
 
-/// Fields and columns only the Rust build has (the frozen Node corpus predates them): message records carry `class`
-/// and the unread summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side, so the corpus
+/// Fields and columns only the Rust build has (the frozen Node corpus predates them): message records carry `class`,
+/// plan records `maxReviewRounds`, the shown plan revision `amendment` and `amendsReviewId` (null unless amended), and
+/// the unread summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side, so the corpus
 /// replays unchanged; the Rust-only tests check them directly.
 fn without_rust_only(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let message_record = map.contains_key("messageId") && map.contains_key("actionNeeded");
             let summary = map.contains_key("oldestQueuedAt") && map.contains_key("messageIds");
+            let plan_record = map.contains_key("planId") && map.contains_key("approvedRevision");
+            let plan_revision = map.contains_key("bodySha") && map.contains_key("amendsReviewId");
             Value::Object(
                 map.iter()
-                    .filter(|(key, _)| {
+                    .filter(|(key, v)| {
                         !(message_record && key.as_str() == "class"
-                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount"))
+                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount")
+                            || plan_record && key.as_str() == "maxReviewRounds"
+                            || plan_revision
+                                && matches!(key.as_str(), "amendment" | "amendsReviewId")
+                                && v.is_null())
                     })
                     .map(|(key, v)| (key.clone(), without_rust_only(v)))
                     .collect(),
@@ -150,6 +157,48 @@ pub const NODE_LAST_MIGRATION: i64 = 37;
 /// writes rows there fails the comparison.
 pub const RUST_ONLY_TABLES: [&str; 2] = ["cleanups", "cleanup_branches"];
 
+/// The review request of a plan and the needs-attention notice, as the frozen Node corpus has them: the brief this build writes adds an exhaustive-list
+/// instruction, the finding line format and a closing sentence, and the corpus predates them. The dump of the actual side
+/// gets the Node text (and its hash) back, so the corpus replays unchanged; the Rust-only tests check the new brief.
+fn legacy_plan_brief(columns: &[String], values: &mut [Value]) {
+    let (Some(body), Some(hash)) = (
+        columns.iter().position(|c| c == "body"),
+        columns.iter().position(|c| c == "body_hash"),
+    ) else {
+        return;
+    };
+    let Some(text) = values[body].as_str() else {
+        return;
+    };
+    let first = text.lines().next().unwrap_or_default();
+    if let Some((plan, rest)) = first.split_once(" needs attention: it used ") {
+        if plan.starts_with("Plan ") && rest.contains(" design review rounds (limit ") {
+            let legacy = format!("{plan} needs attention: it used 5 review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan.");
+            values[hash] = Value::String(capstan_kernel::canonical::sha256(&legacy));
+            values[body] = Value::String(legacy);
+        }
+        return;
+    }
+    if !first.starts_with("Review request ") || !first.contains(" for plan ") {
+        return;
+    }
+    let mut lines: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            !line.starts_with("Give one exhaustive findings list")
+                && !line.starts_with("Write one finding per line")
+                && !line.starts_with("A finding about owns, depends_on")
+        })
+        .collect();
+    let Some(last) = lines.last_mut() else {
+        return;
+    };
+    *last = "Review only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and in which package.";
+    let legacy = lines.join("\n");
+    values[hash] = Value::String(capstan_kernel::canonical::sha256(&legacy));
+    values[body] = Value::String(legacy);
+}
+
 /// Every table of the ledger that has rows, as the Node exporter dumps it (empty tables are left out).
 pub fn dump_tables(file: &Path) -> Value {
     let conn =
@@ -172,6 +221,12 @@ pub fn dump_tables(file: &Path) -> Value {
             .map(Result::unwrap)
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
             .filter(|c| !(name == "messages" && c == "class"))
+            .filter(|c| !(name == "plans" && c == "max_review_rounds"))
+            .filter(|c| {
+                !(name == "plan_revisions"
+                    && matches!(c.as_str(), "amendment_json" | "amends_review_id"))
+            })
+            .filter(|c| !(name == "reviews" && c == "findings_class"))
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
         let only_node = if name == "schema_migrations" {
@@ -199,12 +254,18 @@ pub fn dump_tables(file: &Path) -> Value {
                             Value::String(if column == "result_json" {
                                 text.replace("\"class\":\"action\",", "")
                                     .replace("\"class\":\"info\",", "")
+                                    .replace("\"maxReviewRounds\":null,", "")
+                                    .replace("\"amendment\":null,", "")
+                                    .replace("\"amendsReviewId\":null,", "")
                             } else {
                                 text
                             })
                         }
                         ValueRef::Blob(b) => json!({"$blob": capstan_kernel::canonical::hex(b)}),
                     });
+                }
+                if name == "messages" {
+                    legacy_plan_brief(&columns, &mut values);
                 }
                 Ok(Value::Array(values))
             })
@@ -471,6 +532,8 @@ impl Run {
         } else {
             Core::open(&path, &project, &options, env)?
         };
+        // The corpus predates the finding line format of plan reviews.
+        core.allow_free_text_plan_findings(true);
         self.handles.insert(on, core);
         Ok(Value::Null)
     }

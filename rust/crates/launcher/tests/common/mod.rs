@@ -87,9 +87,19 @@ fn pm_prompt_opening() -> &'static str {
     })
 }
 
+/// The openings of the Architect and Verifier command references, which are Rust-owned text like the PM's: a prompt that
+/// carries either one is recorded as the marker too.
+const OWNED_REFERENCE_OPENINGS: [&str; 2] = [
+    "As a reviewer: a message from `controller` that starts with \"Review request\"",
+    "You are the architect of a Capstan delivery team.",
+];
+
 fn is_pm_prompt(text: &str) -> bool {
     text.find(pm_prompt_opening())
         .is_some_and(|at| at <= PM_PROMPT_WRAPPER)
+        || OWNED_REFERENCE_OPENINGS
+            .iter()
+            .any(|opening| text.contains(opening))
 }
 
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
@@ -331,6 +341,8 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             plan_review: "high_risk".into(),
             reviewer_role: None,
             max_packages: 8,
+            max_review_rounds: 5,
+            plan_amend: true,
             count_toward_worker_limit: flag(architect_spec, "counts"),
             high_risk_triggers: vec!["schema or migrations".into()],
         },

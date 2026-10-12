@@ -1155,6 +1155,118 @@ fn a_high_risk_plan_is_reviewed_by_a_spawned_reviewer_and_goes_back_to_draft_whe
     panic!("the reviewer was not released: {:?}", launcher.calls());
 }
 
+fn two_package_plan_json() -> String {
+    json!({
+        "summary": "split the work",
+        "packages": [
+            {"id": "core", "title": "Core", "owns": ["src/core/"], "acceptance": ["core works"], "estimate_hours": 2},
+            {"id": "ui", "title": "Ui", "owns": ["src/ui/"], "acceptance": ["ui works"], "estimate_hours": 2, "depends_on": ["core"]},
+        ],
+    })
+    .to_string()
+}
+
+fn scripted_spawn(agent: &str) -> SpawnResult {
+    SpawnResult {
+        state: "started".into(),
+        agent_id: agent.into(),
+        pane_id: "w1:p1".into(),
+        worktree_path: format!("/tmp/work/{agent}"),
+        branch: format!("capstan/{agent}"),
+        placement: capstan_launcher::api::Placement::Tab,
+        placement_note: None,
+        hint: None,
+        missing_env: None,
+        warning: None,
+    }
+}
+
+#[test]
+fn amending_a_high_risk_plan_starts_the_review_of_the_amended_revision_and_an_unstartable_reviewer_leaves_a_draft(
+) {
+    let launcher = Arc::new(StubLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    world.ok("pm-1", "plan", &["open", "high-risk", "Risky"]);
+    launcher.script_spawn(scripted_spawn("rev-1"));
+    let submitted = world.ok(
+        "arch-1",
+        "plan",
+        &["submit", "plan-1", &two_package_plan_json()],
+    );
+    assert_eq!(submitted["state"], "in_review");
+    // A reviewer answers with mechanical findings; the plan is a draft that can be amended.
+    let answered = world.ok(
+        "rev-1",
+        "review",
+        &["findings", "- [ui] major owns: ui also edits docs/ui"],
+    );
+    assert_eq!(answered["state"], "findings");
+    let amendment = r#"{"reason":"ui edits docs","packages":[{"id":"ui","add_owns":["docs/ui"]}]}"#;
+    // The reviewer cannot start: the amendment is stored, the plan goes back to draft and the refusal names the launcher.
+    launcher.fail_next(
+        "spawn",
+        capstan_launcher::api::LauncherError::new("blocked", "no pane for the reviewer"),
+    );
+    let refused = world.refused(
+        "arch-1",
+        "plan",
+        &["amend", "plan-1", amendment],
+        "rejected",
+    );
+    assert_eq!(refused, "blocked: no pane for the reviewer");
+    let shown = world.ok("operator", "plan", &["show", "plan-1"]);
+    assert_eq!(shown["plan"]["state"], "draft");
+    assert_eq!(shown["plan"]["currentRevision"], 2);
+    // The amendment is spent: a draft whose latest review is of revision 1 is not amended a second time.
+    let more = r#"{"reason":"more","packages":[{"id":"ui","add_owns":["docs/more"]}]}"#;
+    let again = world.refused("arch-1", "plan", &["amend", "plan-1", more], "rejected");
+    assert!(
+        again.starts_with("amend_refused:") && again.contains("not the current revision 2"),
+        "{again}"
+    );
+    // Submitting revision 3 starts a review again; the reviewer passes it.
+    launcher.script_spawn(scripted_spawn("rev-1"));
+    let resubmitted = world.ok(
+        "arch-1",
+        "plan",
+        &["submit", "plan-1", &two_package_plan_json()],
+    );
+    assert_eq!(resubmitted["state"], "in_review");
+    assert_eq!(resubmitted["revision"], 3);
+}
+
+#[test]
+fn amending_a_high_risk_plan_that_is_reviewable_goes_to_review_with_the_amendment_in_the_brief() {
+    let launcher = Arc::new(StubLauncher::new());
+    let world = World::new(Some(launcher.clone()), None);
+    world.ok("pm-1", "plan", &["open", "high-risk", "Risky"]);
+    launcher.script_spawn(scripted_spawn("rev-1"));
+    world.ok(
+        "arch-1",
+        "plan",
+        &["submit", "plan-1", &two_package_plan_json()],
+    );
+    world.ok(
+        "rev-1",
+        "review",
+        &["findings", "- [ui] major owns: ui also edits docs/ui"],
+    );
+    launcher.script_spawn(scripted_spawn("rev-1"));
+    let amendment = r#"{"reason":"ui edits docs","packages":[{"id":"ui","add_owns":["docs/ui"]}]}"#;
+    let amended = world.ok("arch-1", "plan", &["amend", "plan-1", amendment]);
+    assert_eq!(amended["state"], "in_review");
+    assert_eq!(amended["revision"], 2);
+    assert_eq!(amended["reviewerAgentId"], "rev-1");
+    assert!(amended["reviewId"].is_string());
+    let shown = world.ok("operator", "plan", &["show", "plan-1"]);
+    assert_eq!(shown["revision"]["amendment"]["reason"], "ui edits docs");
+    // The amended revision passes review and is approved at revision 2.
+    world.ok("rev-1", "review", &["pass", "The plan holds."]);
+    let shown = world.ok("operator", "plan", &["show", "plan-1"]);
+    assert_eq!(shown["plan"]["state"], "approved");
+    assert_eq!(shown["plan"]["approvedRevision"], 2);
+}
+
 #[test]
 fn request_review_spawns_a_reviewer_at_the_reported_commit() {
     let launcher = Arc::new(StubLauncher::new());

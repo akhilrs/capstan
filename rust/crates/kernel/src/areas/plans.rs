@@ -4,11 +4,14 @@ use crate::canonical::sha256;
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
-    execute, plan_approved_notice, plan_body_package_ids, plan_needs_attention_notice,
-    plan_record_of, plan_signed_off_notice, query_all, query_opt, safe_id, safe_id_str, safe_text,
+    amended_plan_body_json, execute, plan_approved_notice, plan_body_package_ids,
+    plan_needs_attention_notice, plan_record_of, plan_signed_off_notice, query_all, query_opt,
+    safe_id, safe_id_str, safe_text,
 };
 use crate::kernel::Kernel;
-use crate::records::{AgentRow, MutationEvent, MutationOutput, PlanRow, MAX_REVIEW_ROUNDS};
+use crate::records::{
+    AgentRow, MutationEvent, MutationOutput, PlanRow, DEFAULT_PLAN_REVIEW_ROUNDS,
+};
 use crate::types::MutationContext;
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -65,6 +68,17 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
         None => None,
         Some(value) => Some(safe_id(value, "superseded plan id")?),
     };
+    let max_review_rounds: Option<i64> = match input.get("maxReviewRounds") {
+        None | Some(Value::Null) => None,
+        Some(value) => match value.as_i64() {
+            Some(limit @ 1..=20) => Some(limit),
+            _ => {
+                return Err(KernelError::type_error(
+                    "the plan review round limit must be an integer from 1 to 20",
+                ))
+            }
+        },
+    };
     kernel.mutate(
         context,
         "plan.open",
@@ -105,8 +119,8 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
             let plan_id = format!("plan-{sequence}");
             execute(
                 &kernel.database,
-                "INSERT INTO plans(project_id, plan_id, sequence, title, tier, state, requested_by, supersedes_plan_id, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)",
+                "INSERT INTO plans(project_id, plan_id, sequence, title, tier, state, requested_by, supersedes_plan_id, max_review_rounds, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     kernel.project_id,
                     plan_id,
@@ -115,6 +129,7 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
                     tier,
                     actor.actor_id,
                     supersedes,
+                    max_review_rounds,
                     now,
                     now
                 ],
@@ -231,6 +246,173 @@ pub fn submit_plan(
     )
 }
 
+/// `amendPlan`: the plan's architect stores the next revision of a draft plan as an amendment of the current one, which the
+/// latest review asked for with mechanical findings only. A normal plan is approved at once; with `review` (default: a
+/// high-risk plan) it goes back to review.
+pub fn amend_plan(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
+    let plan_id = safe_id(field(input, "planId"), "plan id")?;
+    let base_sha = match field(input, "baseSha").as_str() {
+        Some(sha) if SHA1.is_match(sha) => sha,
+        _ => {
+            return Err(KernelError::type_error(
+                "the base commit must be a full lowercase sha1",
+            ))
+        }
+    };
+    plan_body_package_ids(field(input, "bodyJson"))?;
+    let body_json = field(input, "bodyJson").as_str().unwrap_or_default();
+    let amendment_json = match field(input, "amendmentJson").as_str() {
+        Some(text) if !text.trim().is_empty() => text,
+        _ => return Err(KernelError::type_error("the amendment must be JSON text")),
+    };
+    let review = input.get("review").and_then(Value::as_bool);
+    let mut payload = Map::new();
+    payload.insert("planId".into(), json!(plan_id));
+    payload.insert("amendmentSha".into(), json!(sha256(amendment_json)));
+    payload.insert("bodySha".into(), json!(sha256(body_json)));
+    payload.insert("baseSha".into(), json!(base_sha));
+    if let Some(review) = review {
+        payload.insert("review".into(), json!(review));
+    }
+    kernel.mutate(
+        context,
+        "plan.amend",
+        "plan:write",
+        &Value::Object(payload),
+        |actor| {
+            let refuse = |why: String| KernelError::controller(format!("amend_refused: {why}"));
+            let agent = match kernel.agent_by_actor(&actor.actor_id)? {
+                Some(agent) if agent.kind == "Developer" => agent,
+                _ => return Err(refuse("only the plan's architect amends a plan".into())),
+            };
+            let Some(plan) = plan_row(kernel, plan_id)? else {
+                return Err(refuse(format!("plan {plan_id} does not exist")));
+            };
+            if plan.architect_agent_id.as_deref() != Some(agent.agent_id.as_str()) {
+                return Err(refuse(format!(
+                    "plan {plan_id} belongs to the architect {}",
+                    plan.architect_agent_id.as_deref().unwrap_or("nobody")
+                )));
+            }
+            if plan.cancelled_at.is_some() {
+                return Err(refuse(format!("plan {plan_id} was cancelled")));
+            }
+            if plan.state != "draft" {
+                return Err(refuse(format!(
+                    "plan {plan_id} is {}; only a draft plan is amended",
+                    plan.state
+                )));
+            }
+            let last = query_opt(
+                &kernel.database,
+                "SELECT review_id, subject_plan_revision, state, findings_class FROM reviews
+                 WHERE project_id = ? AND subject_plan_id = ? AND state IN ('passed', 'findings')
+                 ORDER BY sequence DESC LIMIT 1",
+                [&kernel.project_id, plan_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )?;
+            let Some((review_id, reviewed_revision, review_state, class)) = last else {
+                return Err(refuse(format!("plan {plan_id} has no finished review to amend after")));
+            };
+            if reviewed_revision != plan.current_revision {
+                return Err(refuse(format!(
+                    "the latest review of plan {plan_id} answered revision {reviewed_revision}, not the current revision {}",
+                    plan.current_revision
+                )));
+            }
+            if review_state != "findings" || class.as_deref() != Some("mechanical") {
+                return Err(refuse(format!(
+                    "review {review_id} did not end in mechanical findings; submit a new revision with cstan plan submit"
+                )));
+            }
+            let amended_already = query_opt(
+                &kernel.database,
+                "SELECT revision FROM plan_revisions WHERE project_id = ? AND amends_review_id = ?",
+                [&kernel.project_id, &review_id],
+                |row| row.get::<_, i64>(0),
+            )?;
+            if let Some(revision) = amended_already {
+                return Err(refuse(format!(
+                    "review {review_id} was already amended by revision {revision}"
+                )));
+            }
+            if plan_rounds(kernel, &plan)?.exhausted() {
+                return Err(refuse(format!(
+                    "plan {plan_id} used its review rounds; the PM has been told"
+                )));
+            }
+            let previous = query_opt(
+                &kernel.database,
+                "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+                rusqlite::params![kernel.project_id, plan_id, plan.current_revision],
+                |row| row.get::<_, String>(0),
+            )?
+            .ok_or_else(|| refuse(format!("plan {plan_id} has no revision to amend")))?;
+            let amended = amended_plan_body_json(&previous, amendment_json)
+                .map_err(KernelError::controller)?;
+            let same = serde_json::from_str::<Value>(&amended).ok()
+                == serde_json::from_str::<Value>(body_json).ok();
+            if !same {
+                return Err(refuse(
+                    "the body is not the current revision with the amendment applied".into(),
+                ));
+            }
+            let now = kernel.now();
+            let revision = plan.current_revision + 1;
+            let to_review = review.unwrap_or(plan.tier == "high_risk");
+            execute(
+                &kernel.database,
+                "INSERT INTO plan_revisions(project_id, plan_id, revision, base_sha, body_json, body_sha, author_agent_id, author_actor_id, created_at, amendment_json, amends_review_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![
+                    kernel.project_id,
+                    plan_id,
+                    revision,
+                    base_sha,
+                    body_json,
+                    sha256(body_json),
+                    agent.agent_id,
+                    actor.actor_id,
+                    now,
+                    amendment_json,
+                    review_id
+                ],
+            )?;
+            execute(
+                &kernel.database,
+                "UPDATE plans SET current_revision = ?, state = ?, approved_revision = ?, updated_at = ?
+                 WHERE project_id = ? AND plan_id = ?",
+                rusqlite::params![
+                    revision,
+                    if to_review { "in_review" } else { "approved" },
+                    if to_review { None } else { Some(revision) },
+                    now,
+                    kernel.project_id,
+                    plan_id
+                ],
+            )?;
+            if !to_review {
+                settle_plan_approval(kernel, &plan, body_json, &now)?;
+            }
+            let event = MutationEvent::new("plan", plan_id, 0)
+                .transition("draft", if to_review { "in_review" } else { "approved" })
+                .with_details(json!({"revision": revision, "amendsReviewId": review_id}));
+            Ok(MutationOutput::new(plan_value(kernel, plan_id)?, event))
+        },
+    )
+}
+
 /// On approval: one package row per package of the approved body, and the superseded plan is retired. The caller owns the
 /// transaction and has already moved the plan to approved.
 pub(crate) fn settle_plan_approval(
@@ -302,7 +484,7 @@ pub fn unannounced_plan_notices(kernel: &Kernel, credential: &str) -> KernelResu
             if !notice_sent(kernel, &plan.plan_id, "approved")? {
                 out.push(json!({"planId": plan.plan_id, "kind": "approved"}));
             }
-        } else if finished_plan_reviews(kernel, &plan.plan_id)? >= MAX_REVIEW_ROUNDS
+        } else if plan_rounds(kernel, &plan)?.exhausted()
             && !notice_sent(kernel, &plan.plan_id, "needs attention")?
         {
             out.push(json!({"planId": plan.plan_id, "kind": "needs_attention"}));
@@ -406,7 +588,8 @@ pub fn announce_plan_notice(
                     &plan_packages::signoff_extra_reports(kernel, &plan.plan_id, integration_id)?,
                 )
             } else {
-                plan_needs_attention_notice(&plan.plan_id)
+                let rounds = plan_rounds(kernel, &plan)?;
+                plan_needs_attention_notice(&plan.plan_id, rounds.limit, rounds.design)
             };
             let announced = message_notices::notice_to_pm(kernel, "plan_notice", &body, &kernel.now(), true)?;
             Ok(MutationOutput::new(
@@ -418,21 +601,61 @@ pub fn announce_plan_notice(
     )
 }
 
-/// `planReviewRounds`: review rounds of a plan that finished with a verdict.
+/// The finished review rounds of a plan against its limit. A round that ended in mechanical findings is answered by an
+/// amendment and does not count as a design round; the total still bounds the plan at twice the limit.
+pub(crate) struct PlanRounds {
+    pub design: i64,
+    pub total: i64,
+    pub limit: i64,
+}
+
+impl PlanRounds {
+    pub(crate) fn exhausted(&self) -> bool {
+        self.design >= self.limit || self.total >= 2 * self.limit
+    }
+}
+
+pub(crate) fn plan_rounds(kernel: &Kernel, plan: &PlanRow) -> KernelResult<PlanRounds> {
+    let (total, design) = query_opt(
+        &kernel.database,
+        "SELECT COALESCE(SUM(state IN ('passed', 'findings')), 0),
+                COALESCE(SUM(state = 'findings' AND COALESCE(findings_class, 'design') = 'design'), 0)
+         FROM reviews WHERE project_id = ? AND subject_plan_id = ?",
+        [&kernel.project_id, &plan.plan_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )?
+    .unwrap_or((0, 0));
+    Ok(PlanRounds {
+        design,
+        total,
+        limit: plan.max_review_rounds.unwrap_or(DEFAULT_PLAN_REVIEW_ROUNDS),
+    })
+}
+
+/// `planReviewRounds`: the design review rounds of a plan (findings of class design, or of no class).
 pub fn plan_review_rounds(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelResult<Value> {
     kernel.authorize(credential, "plan:read")?;
     safe_id_str(plan_id, "plan id")?;
-    Ok(json!(finished_plan_reviews(kernel, plan_id)?))
+    Ok(match plan_row(kernel, plan_id)? {
+        Some(plan) => json!(plan_rounds(kernel, &plan)?.design),
+        None => json!(0),
+    })
 }
 
-pub(crate) fn finished_plan_reviews(kernel: &Kernel, plan_id: &str) -> KernelResult<i64> {
-    Ok(query_opt(
-        &kernel.database,
-        "SELECT COUNT(*) AS n FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state IN ('passed', 'findings')",
-        [&kernel.project_id, plan_id],
-        |row| row.get::<_, i64>(0),
-    )?
-    .unwrap_or(0))
+/// `planReviewStatus`: the review rounds of a plan, its limit, and whether the plan has used them up.
+pub fn plan_review_status(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelResult<Value> {
+    kernel.authorize(credential, "plan:read")?;
+    safe_id_str(plan_id, "plan id")?;
+    let Some(plan) = plan_row(kernel, plan_id)? else {
+        return Ok(Value::Null);
+    };
+    let rounds = plan_rounds(kernel, &plan)?;
+    Ok(json!({
+        "designRounds": rounds.design,
+        "totalRounds": rounds.total,
+        "limit": rounds.limit,
+        "exhausted": rounds.exhausted(),
+    }))
 }
 
 /// `abandonPlanReview`: a plan review that could not start; the plan goes back to draft and its architect is told why.
@@ -524,6 +747,10 @@ pub fn plan_record(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelRe
                 "bodySha": row.get::<_, String>("body_sha")?,
                 "authorAgentId": row.get::<_, String>("author_agent_id")?,
                 "createdAt": row.get::<_, String>("created_at")?,
+                "amendment": row
+                    .get::<_, Option<String>>("amendment_json")?
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok()),
+                "amendsReviewId": row.get::<_, Option<String>>("amends_review_id")?,
             }))
         },
     )?;
@@ -589,12 +816,32 @@ fn approval_note(kernel: &Kernel, plan: &PlanRow) -> KernelResult<Option<String>
         Some(id) => plan_row(kernel, id)?,
         None => None,
     };
-    Ok(old.filter(|old| old.cancelled_at.is_some()).map(|old| {
-        format!(
-            "Plan {} was cancelled before this plan was approved; it was not superseded",
-            old.plan_id
-        )
-    }))
+    let mut lines: Vec<String> = old
+        .filter(|old| old.cancelled_at.is_some())
+        .map(|old| {
+            format!(
+                "Plan {} was cancelled before this plan was approved; it was not superseded",
+                old.plan_id
+            )
+        })
+        .into_iter()
+        .collect();
+    // The approved revision is read from the ledger: the caller may hold the row from before the approval.
+    let amended = query_opt(
+        &kernel.database,
+        "SELECT r.revision, r.amends_review_id FROM plans p
+         JOIN plan_revisions r ON r.project_id = p.project_id AND r.plan_id = p.plan_id AND r.revision = p.approved_revision
+         WHERE p.project_id = ? AND p.plan_id = ? AND r.amends_review_id IS NOT NULL",
+        [&kernel.project_id, &plan.plan_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+    )?;
+    if let Some((revision, review_id)) = amended {
+        lines.push(format!(
+            "Approved at revision {revision} by amendment of revision {} after review {review_id} (mechanical findings)",
+            revision - 1
+        ));
+    }
+    Ok((!lines.is_empty()).then(|| lines.join("\n")))
 }
 
 /// Queues a controller notice to the plan's architect (while active) and to the sole active PM; returns the agents told. The
@@ -682,6 +929,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let input = a.value(1);
             Some(call(submit_plan(kernel, &context, input)))
         }
+        "amendPlan" => {
+            let context = arg!(a.ctx(0));
+            let input = a.value(1);
+            Some(call(amend_plan(kernel, &context, input)))
+        }
         "unannouncedPlanNotices" => {
             let credential = arg!(a.str(0, "credential"));
             Some(call(unannounced_plan_notices(kernel, credential)))
@@ -695,6 +947,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let credential = arg!(a.str(0, "credential"));
             let plan_id = arg!(a.str(1, "planId"));
             Some(call(plan_review_rounds(kernel, credential, plan_id)))
+        }
+        "planReviewStatus" => {
+            let credential = arg!(a.str(0, "credential"));
+            let plan_id = arg!(a.str(1, "planId"));
+            Some(call(plan_review_status(kernel, credential, plan_id)))
         }
         "abandonPlanReview" => {
             let context = arg!(a.ctx(0));

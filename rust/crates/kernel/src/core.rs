@@ -389,6 +389,16 @@ impl Core {
         plans::submit_plan(&self.kernel, context, input)
     }
 
+    /// Lets a plan review answer findings in free text (the frozen Node corpus predates the finding line format).
+    pub fn allow_free_text_plan_findings(&self, allowed: bool) {
+        self.kernel.free_text_plan_findings.set(allowed);
+    }
+
+    /// `ControllerCore.amendPlan`.
+    pub fn amend_plan(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        plans::amend_plan(&self.kernel, context, input)
+    }
+
     /// `ControllerCore.unannouncedPlanNotices`.
     pub fn unannounced_plan_notices(&self, credential: &str) -> KernelResult<Value> {
         plans::unannounced_plan_notices(&self.kernel, credential)
@@ -406,6 +416,11 @@ impl Core {
     /// `ControllerCore.planReviewRounds`.
     pub fn plan_review_rounds(&self, credential: &str, plan_id: &str) -> KernelResult<Value> {
         plans::plan_review_rounds(&self.kernel, credential, plan_id)
+    }
+
+    /// `ControllerCore.planReviewStatus`.
+    pub fn plan_review_status(&self, credential: &str, plan_id: &str) -> KernelResult<Value> {
+        plans::plan_review_status(&self.kernel, credential, plan_id)
     }
 
     /// `ControllerCore.abandonPlanReview`.

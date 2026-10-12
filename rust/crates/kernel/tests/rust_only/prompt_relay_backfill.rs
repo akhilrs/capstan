@@ -4,9 +4,21 @@
 
 use crate::fixture::Fixture;
 
-// DELIBERATE PIN: this SQL undoes exactly migrations 30..=40 on a ledger built by the current runner. A later migration
+// DELIBERATE PIN: this SQL undoes exactly migrations 30..=41 on a ledger built by the current runner. A later migration
 // that adds schema must add its undo here; migrations that only create new tables use `IF NOT EXISTS` and need nothing.
 const ROLL_BACK: &str = "
+  DROP TRIGGER plan_revisions_amendment_is_a_pair;
+  DROP TRIGGER plan_revisions_amend_a_mechanical_review;
+  DROP TRIGGER plan_revisions_amend_a_review_once;
+  DROP TRIGGER reviews_findings_class_only_for_plan_findings;
+  DROP TRIGGER reviews_findings_class_on_finish;
+  DROP TRIGGER plans_review_limit_is_immutable;
+  DROP TRIGGER finished_reviews_are_final;
+  CREATE TRIGGER finished_reviews_are_final BEFORE UPDATE OF state, verdict_text, failure_reason, completed_at ON reviews WHEN OLD.state <> 'started' BEGIN SELECT RAISE(ABORT, 'a finished review is final'); END;
+  ALTER TABLE reviews DROP COLUMN findings_class;
+  ALTER TABLE plan_revisions DROP COLUMN amends_review_id;
+  ALTER TABLE plan_revisions DROP COLUMN amendment_json;
+  ALTER TABLE plans DROP COLUMN max_review_rounds;
   DROP TABLE cleanup_branches;
   DROP TABLE cleanups;
   ALTER TABLE agent_panes DROP COLUMN terminal_id;

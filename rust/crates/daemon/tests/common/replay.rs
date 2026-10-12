@@ -159,7 +159,8 @@ fn same_response(expected: &str, actual: &str) -> bool {
         serde_json::from_str::<Value>(expected),
         serde_json::from_str::<Value>(actual),
     ) {
-        (Ok(e), Ok(a)) => e == a,
+        // A transcript recorded before a Rust-only field existed lacks it; one recorded after has it.
+        (Ok(e), Ok(a)) => e == a || e == super::tables::without_rust_only(&a),
         _ => expected == actual,
     }
 }
@@ -223,6 +224,8 @@ fn apply_setup(
         seeded_env(&format!("{seed}/setup")),
     )
     .map_err(|e| format!("setup: the controller does not open: {e}"))?;
+    // The corpus predates the finding line format of plan reviews.
+    core.allow_free_text_plan_findings(true);
     let outcome = (|| {
         for (index, step) in steps.as_array().into_iter().flatten().enumerate() {
             let op = step["op"].as_str().ok_or("a setup step has no op")?;
@@ -671,6 +674,7 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
                 },
                 env,
             )
+            .inspect(|core| core.allow_free_text_plan_findings(true))
         }) {
             Ok(kernel) => kernel,
             Err(error) => {

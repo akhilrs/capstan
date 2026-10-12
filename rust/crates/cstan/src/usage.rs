@@ -76,6 +76,7 @@ pub const ENTRIES: &[Entry] = &[
     e(REVIEW, "integrate", "integrate confirm|discard <integration-id>", "Keep a reviewed integration, or throw it away."),
     e(PLANS, "plan", "plan open normal|high-risk <title> [<superseded-plan-id>]", "Open a plan, optionally superseding an earlier one."),
     e(PLANS, "plan", "plan submit <plan-id> <json>", "Submit the plan's packages as JSON."),
+    e(PLANS, "plan", "plan amend <plan-id> <json>", "Amend the plan after a review whose findings were all mechanical: add owned paths and dependency edges as JSON (reason, packages of id/add_owns/add_depends_on, integration_order); no new review round."),
     e(REVIEW, "cleanup", "cleanup --dry-run", "List the local branches in three groups (landed, unlanded, active or protected) with the commit, worktree and reason of each. Changes nothing (PM and operator)."),
     e(REVIEW, "cleanup", "cleanup", "Offer the landed branches (and the unlanded ones when [cleanup] include_unlanded is set) for deletion and print the cleanup id. Nothing is deleted yet."),
     e(REVIEW, "cleanup", "cleanup apply <cleanup-id> [<branch>...]", "Delete the landed branches of an offer, or exactly the named ones; prints each deleted branch with its commit and the git branch command that restores it."),

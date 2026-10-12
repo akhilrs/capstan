@@ -4,7 +4,7 @@
   "reason": "[daemon] selects nothing now: an empty table loads and the RoleConfig JSON has no daemon member",
   "expected": {
     "kind": "ok",
-    "sha256": "96d2534445af2f4d8b731da7f085b6158c9e7f3f2357939839e93364c7ffd867",
-    "bytes": 3688
+    "sha256": "95015a7c5c11a7f936986295136fdccf0c70086f33ebc75094d6d882112aa45f",
+    "bytes": 3737
   }
 }

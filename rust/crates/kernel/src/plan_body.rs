@@ -431,6 +431,7 @@ pub enum PlanErrorCode {
     Cycle,
     Overlap,
     BadOrder,
+    AmendNotAllowed,
 }
 
 impl PlanErrorCode {
@@ -445,6 +446,7 @@ impl PlanErrorCode {
             Self::Cycle => "cycle",
             Self::Overlap => "overlap",
             Self::BadOrder => "bad_order",
+            Self::AmendNotAllowed => "amend_not_allowed",
         }
     }
 }
@@ -846,6 +848,269 @@ pub fn parse_plan_body(body_text: &str, max_packages: usize) -> Result<PlanBody,
     build(body_text, max_packages)
 }
 
+// ------------------------------------------------------------------------------------------------ plan amendments
+
+const AMENDMENT_KEYS: [&str; 3] = ["reason", "packages", "integration_order"];
+const AMENDMENT_PACKAGE_KEYS: [&str; 3] = ["id", "add_owns", "add_depends_on"];
+
+/// One package's additions in an amendment.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageAmendment {
+    pub id: String,
+    pub add_owns: Vec<String>,
+    pub add_depends_on: Vec<String>,
+}
+
+/// A narrow edit of a plan body: only added owned paths, added dependency edges and a new integration order.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAmendment {
+    pub reason: String,
+    pub packages: Vec<PackageAmendment>,
+    pub integration_order: Option<Vec<String>>,
+}
+
+fn refuse_unknown_keys(
+    entries: &[(String, Json)],
+    location: &str,
+    allowed: &[&str],
+) -> PlanResult<()> {
+    for (key, _) in entries {
+        if !allowed.contains(&key.as_str()) {
+            return plan_error(
+                PlanErrorCode::AmendNotAllowed,
+                format!(
+                    "{location} key \"{key}\" cannot be amended; an amendment may only use {}",
+                    allowed.join(", ")
+                ),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Parses an amendment: `reason`, `packages` of `{id, add_owns?, add_depends_on?}` and an optional `integration_order`.
+pub fn parse_plan_amendment(text_in: &str) -> Result<PlanAmendment, PlanError> {
+    if text_in.len() > MAX_PLAN_BODY_BYTES {
+        return plan_error(
+            PlanErrorCode::TooLarge,
+            format!("amendment is larger than {MAX_PLAN_BODY_BYTES} bytes"),
+        );
+    }
+    let raw = parse_json(text_in).map_err(|message| PlanError {
+        code: PlanErrorCode::InvalidJson,
+        reason: format!("amendment is not valid JSON: {message}"),
+    })?;
+    let Json::Object(record) = &raw else {
+        return shape_error("amendment must be an object");
+    };
+    refuse_unknown_keys(record, "amendment", &AMENDMENT_KEYS)?;
+    let reason = text(field(record, "reason"), "reason")?;
+    let items = match field(record, "packages") {
+        Some(Json::Array(items)) => items,
+        _ => return shape_error("packages must be an array"),
+    };
+    let mut packages = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let location = format!("packages[{index}]");
+        let Json::Object(entry) = item else {
+            return shape_error(format!("{location} must be an object"));
+        };
+        refuse_unknown_keys(entry, &location, &AMENDMENT_PACKAGE_KEYS)?;
+        let id = text(field(entry, "id"), &format!("{location}.id"))?;
+        let add_owns = text_list(
+            field(entry, "add_owns"),
+            &format!("{location}.add_owns"),
+            false,
+        )?
+        .iter()
+        .enumerate()
+        .map(|(i, p)| owned_path(p, &format!("{location}.add_owns[{i}]")))
+        .collect::<PlanResult<Vec<_>>>()?;
+        let add_depends_on = text_list(
+            field(entry, "add_depends_on"),
+            &format!("{location}.add_depends_on"),
+            false,
+        )?;
+        if add_owns.is_empty() && add_depends_on.is_empty() {
+            return shape_error(format!(
+                "{location} must add at least one item in add_owns or add_depends_on"
+            ));
+        }
+        packages.push(PackageAmendment {
+            id,
+            add_owns,
+            add_depends_on,
+        });
+    }
+    let integration_order = match field(record, "integration_order") {
+        None => None,
+        Some(declared) => Some(text_list(Some(declared), "integration_order", true)?),
+    };
+    Ok(PlanAmendment {
+        reason,
+        packages,
+        integration_order,
+    })
+}
+
+/// Applies an amendment to a body and revalidates the result with the submit rules; nothing else changes.
+pub fn apply_plan_amendment(
+    body: &PlanBody,
+    amendment: &PlanAmendment,
+    max_packages: usize,
+) -> Result<PlanBody, PlanError> {
+    let mut next = body.clone();
+    for change in &amendment.packages {
+        let Some(index) = next.packages.iter().position(|p| p.id == change.id) else {
+            return shape_error(format!("amendment names unknown package \"{}\"", change.id));
+        };
+        for path in &change.add_owns {
+            if next.packages[index].owns.contains(path) {
+                return shape_error(format!("package {} already owns \"{path}\"", change.id));
+            }
+            next.packages[index].owns.push(path.clone());
+        }
+        for dep in &change.add_depends_on {
+            if *dep == change.id {
+                return plan_error(
+                    PlanErrorCode::Cycle,
+                    format!("package {dep} cannot depend on itself"),
+                );
+            }
+            if !next.packages.iter().any(|p| &p.id == dep) {
+                return plan_error(
+                    PlanErrorCode::UnknownDependency,
+                    format!("package {} depends on unknown package \"{dep}\"", change.id),
+                );
+            }
+            if next.packages[index].depends_on.contains(dep) {
+                return shape_error(format!(
+                    "package {} already depends on \"{dep}\"",
+                    change.id
+                ));
+            }
+            next.packages[index].depends_on.push(dep.clone());
+        }
+    }
+    if next.packages.len() > max_packages {
+        return plan_error(
+            PlanErrorCode::TooManyPackages,
+            format!(
+                "plan has {} packages, at most {max_packages} are allowed",
+                next.packages.len()
+            ),
+        );
+    }
+    let order = topological_order(&next.packages)?;
+    check_overlaps(
+        &next.packages,
+        &transitive_dependencies(&next.packages, &order),
+    )?;
+    if let Some(declared) = &amendment.integration_order {
+        next.integration_order = declared.clone();
+    }
+    check_integration_order(&next.integration_order, &next.packages)?;
+    Ok(next)
+}
+
+// ------------------------------------------------------------------------------------------------- plan findings
+
+/// The line a reviewer writes for one finding of a plan.
+pub const FINDING_FORMAT: &str =
+    "- [<package-id>|plan] <blocker|major|minor> <owns|depends_on|integration_order|interface|acceptance|risk|design>: <text>";
+const FINDING_SEVERITIES: [&str; 3] = ["blocker", "major", "minor"];
+const FINDING_CATEGORIES: [&str; 7] = [
+    "owns",
+    "depends_on",
+    "integration_order",
+    "interface",
+    "acceptance",
+    "risk",
+    "design",
+];
+
+/// One structured review finding about a plan.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanFinding {
+    pub target: String,
+    pub severity: String,
+    pub category: String,
+    pub text: String,
+}
+
+fn parse_finding_line(line: &str) -> Result<PlanFinding, String> {
+    let bad = |why: &str| format!("bad finding line \"{line}\": {why}; expected {FINDING_FORMAT}");
+    let rest = line.strip_prefix(['-', '*']).unwrap_or(line).trim_start();
+    let inner = rest.strip_prefix('[').ok_or_else(|| bad("no [target]"))?;
+    let (target, rest) = inner.split_once(']').ok_or_else(|| bad("unclosed ["))?;
+    let target = target.trim();
+    if target != "plan" && !pattern_package_id(target) {
+        return Err(bad("target must be a package id or plan"));
+    }
+    let (head, body) = rest.split_once(':').ok_or_else(|| bad("missing ':'"))?;
+    let mut words = head.split_whitespace();
+    let severity = words.next().unwrap_or("");
+    let category = words.next().unwrap_or("");
+    if words.next().is_some() {
+        return Err(bad("too many words before ':'"));
+    }
+    if !FINDING_SEVERITIES.contains(&severity) {
+        return Err(bad(&format!("unknown severity \"{severity}\"")));
+    }
+    if !FINDING_CATEGORIES.contains(&category) {
+        return Err(bad(&format!("unknown category \"{category}\"")));
+    }
+    let text = body.trim();
+    if text.is_empty() {
+        return Err(bad("empty text"));
+    }
+    Ok(PlanFinding {
+        target: target.to_string(),
+        severity: severity.to_string(),
+        category: category.to_string(),
+        text: text.to_string(),
+    })
+}
+
+/// Reads finding lines (`[<package-id>|plan] <severity> <category>: <text>`); other lines are headings.
+pub fn parse_plan_findings(text: &str) -> Result<Vec<PlanFinding>, String> {
+    let mut findings = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let rest = line.strip_prefix(['-', '*']).unwrap_or(line).trim_start();
+        if rest.starts_with('[') {
+            findings.push(parse_finding_line(line)?);
+        }
+    }
+    if findings.is_empty() {
+        return Err(format!(
+            "no findings found; write one per line as {FINDING_FORMAT}"
+        ));
+    }
+    Ok(findings)
+}
+
+/// `mechanical` when every finding is about owns, depends_on or integration_order, else `design`.
+pub fn findings_class(findings: &[PlanFinding]) -> &'static str {
+    let mechanical = findings.iter().all(|f| {
+        matches!(
+            f.category.as_str(),
+            "owns" | "depends_on" | "integration_order"
+        )
+    });
+    if mechanical {
+        "mechanical"
+    } else {
+        "design"
+    }
+}
+
 /// The package fields a developer is shown, read from a stored body; missing fields read as empty.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1172,4 +1437,172 @@ pub fn format_subject(
         };
     }
     prefix + &description
+}
+
+#[cfg(test)]
+mod amendment_tests {
+    use super::*;
+
+    const BODY: &str = r#"{"summary":"s","packages":[
+        {"id":"a","title":"A","owns":["src/a"],"acceptance":["x"],"estimate_hours":2,"interfaces":["i"],"risks":["r"]},
+        {"id":"b","title":"B","owns":["src/b"],"acceptance":["y"],"estimate_hours":3,"depends_on":["a"]},
+        {"id":"c","title":"C","owns":["src/c"],"acceptance":["z"],"estimate_hours":1}
+    ],"risks":["pr"],"integration_order":["a","b","c"]}"#;
+
+    fn body() -> PlanBody {
+        parse_plan_body(BODY, 8).unwrap()
+    }
+
+    fn amend(json: &str) -> Result<PlanBody, PlanError> {
+        apply_plan_amendment(&body(), &parse_plan_amendment(json)?, 8)
+    }
+
+    fn code(r: Result<PlanBody, PlanError>) -> &'static str {
+        r.unwrap_err().code.as_str()
+    }
+
+    #[test]
+    fn applies_additions_only() {
+        let out = amend(
+            r#"{"reason":"r","packages":[{"id":"a","add_owns":["./docs/a/"]},{"id":"c","add_depends_on":["a"]}],"integration_order":["a","c","b"]}"#,
+        )
+        .unwrap();
+        let mut expected = body();
+        expected.packages[0].owns.push("docs/a".into());
+        expected.packages[2].depends_on.push("a".into());
+        expected.integration_order = vec!["a".into(), "c".into(), "b".into()];
+        assert_eq!(out, expected);
+        let same = amend(r#"{"reason":"r","packages":[{"id":"a","add_owns":["x"]}]}"#).unwrap();
+        let mut expected = body();
+        expected.packages[0].owns.push("x".into());
+        assert_eq!(
+            serde_json::to_string(&same).unwrap(),
+            serde_json::to_string(&expected).unwrap()
+        );
+    }
+
+    #[test]
+    fn refuses_fields_outside_the_allow_list() {
+        for key in [
+            "interfaces",
+            "acceptance",
+            "title",
+            "estimate_hours",
+            "risks",
+            "type",
+            "scope",
+            "breaking",
+            "owns",
+            "depends_on",
+            "bogus",
+        ] {
+            let json = format!(
+                r#"{{"reason":"r","packages":[{{"id":"a","add_owns":["x"],"{key}":[1]}}]}}"#
+            );
+            assert_eq!(code(amend(&json)), "amend_not_allowed", "{key}");
+        }
+        for key in ["summary", "risks", "packages2", "title"] {
+            let json = format!(r#"{{"reason":"r","packages":[],"{key}":"x"}}"#);
+            assert_eq!(code(amend(&json)), "amend_not_allowed", "{key}");
+        }
+        let err = parse_plan_amendment(r#"{"reason":"r","packages":[{"id":"a","owns":["x"]}]}"#)
+            .unwrap_err();
+        assert!(err.reason.contains("\"owns\""));
+        assert!(parse_plan_amendment(
+            r#"{"reason":"r","packages":[{"id":"zz","add_owns":["x"]}]}"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn refuses_empty_entries_and_bad_shapes() {
+        assert!(parse_plan_amendment(r#"{"reason":"r","packages":[{"id":"a"}]}"#).is_err());
+        assert!(parse_plan_amendment(r#"{"reason":" ","packages":[]}"#).is_err());
+        assert!(parse_plan_amendment(r#"{"packages":[]}"#).is_err());
+        assert!(parse_plan_amendment(
+            r#"{"reason":"r","packages":[{"id":"a","add_owns":["/abs"]}]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn refuses_invalid_additions() {
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"zz","add_owns":["x"]}]}"#
+            )),
+            "invalid_shape"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"a","add_owns":["./src/a/"]}]}"#
+            )),
+            "invalid_shape"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"b","add_depends_on":["a"]}]}"#
+            )),
+            "invalid_shape"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"b","add_depends_on":["nope"]}]}"#
+            )),
+            "unknown_dependency"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"b","add_depends_on":["b"]}]}"#
+            )),
+            "cycle"
+        );
+    }
+
+    #[test]
+    fn revalidates_with_submit_rules() {
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"c","add_owns":["src/b/deep"]}]}"#
+            )),
+            "overlap"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"a","add_depends_on":["b"]}]}"#
+            )),
+            "cycle"
+        );
+        assert_eq!(
+            code(amend(
+                r#"{"reason":"r","packages":[{"id":"a","add_depends_on":["c"]}]}"#
+            )),
+            "bad_order"
+        );
+        assert!(amend(r#"{"reason":"r","packages":[{"id":"a","add_depends_on":["c"]}],"integration_order":["c","a","b"]}"#).is_ok());
+    }
+
+    #[test]
+    fn parses_grouped_findings() {
+        let text = "## Review\nSome heading\n\n### b\n- [b] major owns: src/b misses the tests\n* [plan] minor design: split it\n[a] blocker depends_on: needs c";
+        let found = parse_plan_findings(text).unwrap();
+        assert_eq!(found.len(), 3);
+        assert_eq!(found[0].target, "b");
+        assert_eq!(found[0].text, "src/b misses the tests");
+        assert_eq!(found[1].category, "design");
+        assert_eq!(findings_class(&found), "design");
+        assert_eq!(
+            findings_class(&[found[0].clone(), found[2].clone()]),
+            "mechanical"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_findings() {
+        let err = parse_plan_findings("just prose\nmore").unwrap_err();
+        assert!(err.contains("[<package-id>|plan]"));
+        assert!(parse_plan_findings("- [a] huge owns: x").is_err());
+        assert!(parse_plan_findings("- [a] major style: x").is_err());
+        assert!(parse_plan_findings("- [a] major owns").is_err());
+    }
 }

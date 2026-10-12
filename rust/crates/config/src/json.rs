@@ -229,6 +229,8 @@ impl RoleConfig {
                     ("planReview", text(&self.architect.plan_review)),
                     ("reviewerRole", optional(&self.architect.reviewer_role)),
                     ("maxPackages", number(self.architect.max_packages)),
+                    ("maxReviewRounds", number(self.architect.max_review_rounds)),
+                    ("planAmend", Value::Bool(self.architect.plan_amend)),
                     (
                         "countTowardWorkerLimit",
                         Value::Bool(self.architect.count_toward_worker_limit),

@@ -563,3 +563,26 @@ pub fn build_role_prompt(input: &PromptInput) -> Result<String, PromptTooLarge> 
     }
     Ok(text)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ARCHITECT_REFERENCE, VERIFIER_REFERENCE};
+
+    #[test]
+    fn verifier_reference_asks_for_an_exhaustive_plan_review() {
+        assert!(VERIFIER_REFERENCE.contains(
+            "`[<package-id>|plan] <blocker|major|minor> <owns|depends_on|integration_order|interface|acceptance|risk|design>: <what and where>`"
+        ));
+        assert!(
+            VERIFIER_REFERENCE.contains("one exhaustive list of every issue you find in this pass")
+        );
+        assert!(VERIFIER_REFERENCE.contains("Do not hold findings back for a later round"));
+    }
+
+    #[test]
+    fn architect_reference_names_plan_amend_and_its_limits() {
+        assert!(ARCHITECT_REFERENCE.contains("cstan plan amend <plan-id>"));
+        assert!(ARCHITECT_REFERENCE.contains("cannot change interfaces or acceptance criteria"));
+        assert!(ARCHITECT_REFERENCE.contains("`cstan plan submit`"));
+    }
+}

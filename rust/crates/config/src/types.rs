@@ -13,6 +13,8 @@ pub const PLAN_REVIEW_MODES: [&str; 3] = ["high_risk", "always", "never"];
 pub const DEFAULT_ARCHITECT_ROLE: &str = "architect";
 pub const DEFAULT_ARCHITECT_MAX_PACKAGES: i64 = 8;
 pub const MAX_ARCHITECT_PACKAGES: i64 = 20;
+pub const DEFAULT_ARCHITECT_MAX_REVIEW_ROUNDS: i64 = 5;
+pub const MAX_ARCHITECT_REVIEW_ROUNDS: i64 = 20;
 pub const DEFAULT_HIGH_RISK_TRIGGERS: [&str; 4] = [
     "schema or migrations",
     "security or auth",
@@ -250,6 +252,8 @@ pub struct Architect {
     pub plan_review: String,
     pub reviewer_role: Option<String>,
     pub max_packages: i64,
+    pub max_review_rounds: i64,
+    pub plan_amend: bool,
     pub count_toward_worker_limit: bool,
     pub high_risk_triggers: Vec<String>,
 }

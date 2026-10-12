@@ -15,3 +15,7 @@ needs no test edit. Every other prompt and every other byte count or call still 
 What is not compared any more: the bytes after the opening of a string that carries a PM prompt, including the restart summary
 that follows it in a replacement's prompt (the summary text is covered by the kernel's restart tests). The prompt text itself is
 covered by `crates/config/tests/prompts_parity.rs` (see `crates/config/tests/divergences/README.md`).
+
+The Architect and Verifier command references (`architect_reference.txt`, `verifier_reference.txt`) are Rust-owned text as well
+(plan-38: the plan review finding format and `cstan plan amend`). `normal` also records a long string that contains the opening
+sentence of either one as the same marker, so an edit of those two files needs no number changed here.

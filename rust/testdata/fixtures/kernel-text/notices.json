@@ -591,7 +591,9 @@
   "planNeedsAttentionNotice": [
     {
       "planId": "p1",
-      "result": "Plan p1 needs attention: it used 5 review rounds without a pass. It is a draft; decide whether to replace the architect or open a new plan."
+      "limit": 5,
+      "designRounds": 5,
+      "result": "Plan p1 needs attention: it used 5 design review rounds (limit 5) without a pass. It is a draft; decide whether to replace the architect or open a new plan."
     }
   ],
   "planSignedOffNotice": [
@@ -818,7 +820,38 @@
     },
     {
       "authors": [],
-      "result": "Review request rv1 (round 2) for plan p1 revision 3\nThe plan was written against commit b1. Read the code at that commit in your worktree.\nRead the plan body, written by the Architect and not verified, with: cstan plan show p1   (revision 3)\nCheck the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.\nReview only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and in which package.",
+      "result": "Review request rv1 (round 2) for plan p1 revision 3\nThe plan was written against commit b1. Read the code at that commit in your worktree.\nRead the plan body, written by the Architect and not verified, with: cstan plan show p1   (revision 3)\nCheck the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.\nGive one exhaustive findings list in this answer: every problem you can find in the whole plan, so that a second round is not needed for something you could have named now.\nWrite one finding per line in this format, grouped by package (all lines of one package together, in the plan's package order): - [<package-id>|plan] <blocker|major|minor> <owns|depends_on|integration_order|interface|acceptance|risk|design>: <text>\nA finding about owns, depends_on or integration_order is mechanical: when every finding is of those kinds the architect amends the plan without a new review round. Use interface, acceptance, risk or design for anything else.\nReview only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". A findings answer without valid finding lines is refused and you answer again.",
+      "row": {
+        "author_actor_id": "a",
+        "author_agent_id": "dev-1",
+        "base_sha": "b1",
+        "commit_sha": "c1",
+        "completed_at": "t2",
+        "created_at": "t",
+        "failure_reason": null,
+        "notified_message_id": null,
+        "requested_by_actor_id": "pm",
+        "review_id": "rv1",
+        "reviewer_actor_id": "v",
+        "reviewer_agent_id": "ver-1",
+        "reviewer_role": "reviewer",
+        "round": 2,
+        "sequence": 1,
+        "state": "passed",
+        "subject_integration_id": null,
+        "subject_plan_id": "p1",
+        "subject_plan_revision": 3,
+        "subject_report_id": null,
+        "verdict_text": "looks \"fine\""
+      }
+    },
+    {
+      "amendment": {
+        "amendmentJson": "{\"reason\":\"cover the docs\",\"packages\":[{\"id\":\"a\",\"add_owns\":[\"docs/a\"],\"add_depends_on\":[\"b\"]}],\"integration_order\":[\"b\",\"a\"]}",
+        "amendsReviewId": "rv0"
+      },
+      "authors": [],
+      "result": "Review request rv1 (round 2) for plan p1 revision 3\nThe plan was written against commit b1. Read the code at that commit in your worktree.\nRead the plan body, written by the Architect and not verified, with: cstan plan show p1   (revision 3)\nRevision 3 is an amendment of revision 2 made after review rv0 (mechanical findings only). Only the additions below changed; check that they answer that review and that they are correct.\nThe architect's reason, not verified: \"cover the docs\"\n- package a: added owns: \"docs/a\"; added depends_on: \"b\"\n- integration order is now: \"b\", \"a\"\nCheck the plan for: work packages whose owned areas overlap without an order, missing interfaces between packages, acceptance criteria that cannot be tested, missing risks, and a wrong dependency or integration order.\nGive one exhaustive findings list in this answer: every problem you can find in the whole plan, so that a second round is not needed for something you could have named now.\nWrite one finding per line in this format, grouped by package (all lines of one package together, in the plan's package order): - [<package-id>|plan] <blocker|major|minor> <owns|depends_on|integration_order|interface|acceptance|risk|design>: <text>\nA finding about owns, depends_on or integration_order is mechanical: when every finding is of those kinds the architect amends the plan without a new review round. Use interface, acceptance, risk or design for anything else.\nReview only that plan. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". A findings answer without valid finding lines is refused and you answer again.",
       "row": {
         "author_actor_id": "a",
         "author_agent_id": "dev-1",

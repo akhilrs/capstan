@@ -481,6 +481,7 @@ fn review_row(v: &Value) -> ReviewRow {
         verdict_text: opt(&v["verdict_text"]),
         failure_reason: opt(&v["failure_reason"]),
         notified_message_id: opt(&v["notified_message_id"]),
+        findings_class: opt(&v["findings_class"]),
         created_at: v["created_at"].as_str().unwrap().into(),
         completed_at: opt(&v["completed_at"]),
     }
@@ -558,7 +559,16 @@ fn notice_builders_match_node() {
             .map(|a| report_row(&a["report"]))
             .collect();
         let refs: Vec<&AgentReportRow> = authors.iter().collect();
-        check(c, review_task(&review_row(&c["row"]), &refs), "reviewTask");
+        let amendment = c.get("amendment").filter(|a| !a.is_null());
+        let brief = amendment.map(|a| PlanAmendmentBrief {
+            amendment_json: a["amendmentJson"].as_str().unwrap(),
+            amends_review_id: a["amendsReviewId"].as_str().unwrap(),
+        });
+        check(
+            c,
+            review_task(&review_row(&c["row"]), &refs, brief.as_ref()),
+            "reviewTask",
+        );
     }
     for c in n["reviewNotice"].as_array().unwrap() {
         check(
@@ -570,7 +580,11 @@ fn notice_builders_match_node() {
     for c in n["planNeedsAttentionNotice"].as_array().unwrap() {
         check(
             c,
-            plan_needs_attention_notice(c["planId"].as_str().unwrap()),
+            plan_needs_attention_notice(
+                c["planId"].as_str().unwrap(),
+                c["limit"].as_i64().unwrap(),
+                c["designRounds"].as_i64().unwrap(),
+            ),
             "planNeedsAttentionNotice",
         );
     }

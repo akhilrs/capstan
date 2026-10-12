@@ -236,6 +236,8 @@ role = "architect"             # a role of kind Developer; must exist when enabl
 plan_review = "high_risk"      # "high_risk" | "always" | "never"; the review the tier gate runs
 reviewer_role = "reviewer"     # a Verifier role; default as chooseReviewerRole
 max_packages = 8
+max_review_rounds = 5          # 1 to 20; design rounds of a plan review (mechanical rounds and passes do not count; hard stop at 2 x)
+plan_amend = true              # allow `cstan plan amend` after a review with only owns/depends_on/integration_order findings
 count_toward_worker_limit = false
 high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
 

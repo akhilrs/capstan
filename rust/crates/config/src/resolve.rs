@@ -1048,6 +1048,8 @@ fn resolve_architect(table: &Table, roles: &[Role], hosts: &[Host]) -> Result<Ar
             "plan_review",
             "reviewer_role",
             "max_packages",
+            "max_review_rounds",
+            "plan_amend",
             "count_toward_worker_limit",
             "high_risk_triggers",
         ],
@@ -1082,6 +1084,14 @@ fn resolve_architect(table: &Table, roles: &[Role], hosts: &[Host]) -> Result<Ar
             MAX_ARCHITECT_PACKAGES,
             DEFAULT_ARCHITECT_MAX_PACKAGES,
         )?,
+        max_review_rounds: optional_integer(
+            table.get("max_review_rounds"),
+            "architect.max_review_rounds",
+            1,
+            MAX_ARCHITECT_REVIEW_ROUNDS,
+            DEFAULT_ARCHITECT_MAX_REVIEW_ROUNDS,
+        )?,
+        plan_amend: optional_boolean(table.get("plan_amend"), "architect.plan_amend", true)?,
         count_toward_worker_limit: optional_boolean(
             table.get("count_toward_worker_limit"),
             "architect.count_toward_worker_limit",

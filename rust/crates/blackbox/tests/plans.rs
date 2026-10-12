@@ -497,3 +497,205 @@ fn plan_show_brief_is_one_line_per_plan_and_per_package_and_plain_show_is_unchan
         full["revision"]["body"].is_object() && full["packages"][0]["assigneeAgentId"] == "dev-1"
     );
 }
+
+// ------------------------------------------------------------------------------------------------------- plan amend
+
+const MECHANICAL: &str =
+    "- [wp2] major owns: wp2 also writes docs/wp2\n- [wp2] minor depends_on: wp2 needs wp1";
+const DESIGN: &str = "- [wp1] blocker interface: wp1 has no error contract";
+const AMENDMENT: &str = r#"{"reason":"wp2 also writes docs","packages":[{"id":"wp2","add_owns":["docs/wp2"],"add_depends_on":["wp1"]}]}"#;
+
+/// A normal plan in review (the part a launcher would start) whose review `rev-1` has answered with `findings`.
+fn reviewed_plan(w: &mut World, findings: &str) -> String {
+    let plan = field(
+        &w.as_agent("pm-1", &["plan", "open", "normal", "a plan"])
+            .ok(),
+        "planId",
+    );
+    let body: Value = serde_json::from_str(&plan_body(&["wp1", "wp2"])).unwrap();
+    let body = capstan_kernel::plan_body::parse_plan_body(&body.to_string(), 8).unwrap();
+    let body_json = serde_json::to_string(&body).unwrap();
+    let credential = w.token("arch-1").to_string();
+    let id = plan.clone();
+    w.while_stopped(|core, ctx, _| {
+        core.submit_plan(
+            &ctx(&credential),
+            &json!({"planId": id, "bodyJson": body_json, "baseSha": "0123456789abcdef0123456789abcdef01234567", "review": true}),
+        )
+        .expect("the plan goes to review");
+    });
+    w.begin_review("arch-1", &plan, "reviewer", "rev-1");
+    w.as_agent("rev-1", &["review", "findings", findings]).ok();
+    plan
+}
+
+#[test]
+fn plan_amend_applies_mechanical_findings_without_another_round_and_plan_show_prints_it() {
+    let mut w = team();
+    let plan = reviewed_plan(&mut w, MECHANICAL);
+    assert_eq!(
+        w.as_agent("arch-1", &["plan", "show", &plan, "--json"])
+            .ok()
+            .json()["plan"]["state"],
+        "draft"
+    );
+    let amended = w
+        .as_agent("arch-1", &["plan", "amend", &plan, AMENDMENT])
+        .ok();
+    assert_eq!(field(&amended, "state"), "approved", "{}", amended.stdout);
+    assert_eq!(field(&amended, "revision"), "2", "{}", amended.stdout);
+    let shown = w
+        .as_agent("dev-1", &["plan", "show", &plan, "--json"])
+        .ok()
+        .json();
+    assert_eq!(shown["revision"]["revision"], 2);
+    assert_eq!(
+        shown["revision"]["amendment"]["reason"],
+        "wp2 also writes docs"
+    );
+    assert!(shown["revision"]["amendsReviewId"].is_string());
+    assert_eq!(
+        shown["revision"]["body"]["packages"][1]["owns"],
+        json!(["src/wp2", "docs/wp2"])
+    );
+    assert_eq!(
+        shown["revision"]["body"]["packages"][1]["dependsOn"],
+        json!(["wp1"])
+    );
+    let pm = w.as_agent("pm-1", &["inbox"]).ok();
+    assert!(
+        pm.stdout
+            .contains("Approved at revision 2 by amendment of revision 1 after review"),
+        "{}",
+        pm.stdout
+    );
+    // The amended plan is approved: another amendment is refused.
+    let again = w.as_agent("arch-1", &["plan", "amend", &plan, AMENDMENT]);
+    assert_ne!(again.code, 0);
+    assert!(again.text().contains("amend_refused"), "{}", again.text());
+}
+
+#[test]
+fn plan_amend_refuses_what_is_not_a_mechanical_delta_and_who_may_not() {
+    let mut w = team();
+    let plan = reviewed_plan(&mut w, MECHANICAL);
+    let revision = |w: &World| {
+        w.as_agent("arch-1", &["plan", "show", &plan, "--json"])
+            .ok()
+            .json()["plan"]["currentRevision"]
+            .clone()
+    };
+    // Only the architect.
+    assert_eq!(
+        w.wire_as("dev-1", "plan", &["amend", &plan, AMENDMENT])["code"],
+        "forbidden"
+    );
+    assert_eq!(
+        w.wire_as("pm-1", "plan", &["amend", &plan, AMENDMENT])["code"],
+        "forbidden"
+    );
+    // The delta may not touch interfaces or acceptance, nor name a package that is not there.
+    for (edit, expected) in [
+        (
+            r#"{"reason":"r","packages":[{"id":"wp2","add_owns":["docs/wp2"],"interfaces":["x"]}]}"#,
+            "amend_not_allowed",
+        ),
+        (
+            r#"{"reason":"r","packages":[{"id":"wp2","add_owns":["docs/wp2"],"acceptance":["x"]}]}"#,
+            "amend_not_allowed",
+        ),
+        (
+            r#"{"reason":"r","packages":[{"id":"nope","add_owns":["docs/x"]}]}"#,
+            "invalid_plan",
+        ),
+        ("not json", "invalid_plan"),
+    ] {
+        let out = w.as_agent("arch-1", &["plan", "amend", &plan, edit]);
+        assert_ne!(out.code, 0, "{edit}");
+        assert!(out.text().contains(expected), "{edit}: {}", out.text());
+    }
+    assert_eq!(revision(&w), 1);
+    let missing = w.as_agent("arch-1", &["plan", "amend", "plan-99", AMENDMENT]);
+    assert!(
+        missing.text().contains("unknown_plan"),
+        "{}",
+        missing.text()
+    );
+    let usage = w.as_agent("arch-1", &["plan", "amend", &plan]);
+    assert_ne!(usage.code, 0);
+
+    // Design findings are not amended.
+    let designed = reviewed_plan(&mut w, DESIGN);
+    let out = w.as_agent("arch-1", &["plan", "amend", &designed, AMENDMENT]);
+    assert_ne!(out.code, 0);
+    assert!(
+        out.text().contains("amend_refused") && out.text().contains("mechanical"),
+        "{}",
+        out.text()
+    );
+    // A plan with no review.
+    let open = field(
+        &w.as_agent("pm-1", &["plan", "open", "normal", "bare"]).ok(),
+        "planId",
+    );
+    let out = w.as_agent("arch-1", &["plan", "amend", &open, AMENDMENT]);
+    assert!(out.text().contains("amend_refused"), "{}", out.text());
+}
+
+#[test]
+fn a_plan_review_must_answer_in_finding_lines_and_stays_open_until_it_does() {
+    let mut w = team();
+    let plan = field(
+        &w.as_agent("pm-1", &["plan", "open", "normal", "a plan"])
+            .ok(),
+        "planId",
+    );
+    let body = capstan_kernel::plan_body::parse_plan_body(&plan_body(&["wp1"]), 8).unwrap();
+    let body_json = serde_json::to_string(&body).unwrap();
+    let credential = w.token("arch-1").to_string();
+    let id = plan.clone();
+    w.while_stopped(|core, ctx, _| {
+        core.submit_plan(
+            &ctx(&credential),
+            &json!({"planId": id, "bodyJson": body_json, "baseSha": "0123456789abcdef0123456789abcdef01234567", "review": true}),
+        )
+        .unwrap();
+    });
+    w.begin_review("arch-1", &plan, "reviewer", "rev-1");
+    let refused = w.as_agent("rev-1", &["review", "findings", "wp1 is badly split"]);
+    assert_ne!(refused.code, 0);
+    assert!(
+        refused.text().contains("review_refused") && refused.text().contains("[<package-id>|plan]"),
+        "{}",
+        refused.text()
+    );
+    // The reviewer answers again.
+    let answered = w
+        .as_agent(
+            "rev-1",
+            &["review", "findings", "- [wp1] major design: badly split"],
+        )
+        .ok();
+    assert_eq!(field(&answered, "state"), "findings", "{}", answered.stdout);
+}
+
+/// With `plan_amend = false` in `[architect]` the command is refused.
+#[test]
+fn plan_amend_is_refused_when_the_configuration_switches_it_off() {
+    let config = TEAM_CONFIG.replace(
+        "[architect]\nenabled = true",
+        "[architect]\nenabled = true\nplan_amend = false",
+    );
+    let mut w = World::builder("noamend")
+        .config(&config)
+        .agents(&[
+            agent("pm-1", "pm", "PM"),
+            agent("arch-1", "architect", "Developer"),
+            agent("rev-1", "reviewer", "Verifier"),
+        ])
+        .build();
+    let plan = reviewed_plan(&mut w, MECHANICAL);
+    let out = w.as_agent("arch-1", &["plan", "amend", &plan, AMENDMENT]);
+    assert_ne!(out.code, 0);
+    assert!(out.text().contains("amend_disabled"), "{}", out.text());
+}
