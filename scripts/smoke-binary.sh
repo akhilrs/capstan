@@ -12,7 +12,7 @@
 # and runs scripts/check-version.sh. A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
 # binfmt, or a native arm64 machine); the Release workflow runs the arm64 binaries on a native runner.
 # Usage: scripts/smoke-binary.sh [cstan binary...]
-#   default: release/cstan-<version>-linux-{x64,arm64}, else the host build under ${CARGO_TARGET_DIR}/release/cstan
+#   default: release/cstan-<version>-linux-{x64,arm64}, else the host build under ${CARGO_TARGET_DIR:-rust/target}/release/cstan
 #   CSTAN_DASH_SMOKE_BIN=<cstan-dash> names the dashboard; default: the one next to the release binary, else the host
 #   build (${CARGO_TARGET_DIR}/release/cstan-dash or dash/target/release/cstan-dash)
 # Exit code 0 means every check passed.
@@ -369,10 +369,24 @@ else
   for plat in linux-x64 linux-arm64; do
     [ -f "$ROOT/release/cstan-$VERSION-$plat" ] && BINARIES="$BINARIES $ROOT/release/cstan-$VERSION-$plat"
   done
-  if [ -z "$BINARIES" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/cstan" ]; then
-    BINARIES="$CARGO_TARGET_DIR/release/cstan"
+  if [ -z "$BINARIES" ]; then
+    # The host release build: under CARGO_TARGET_DIR when set, else the cargo default (rust/target/release).
+    for dir in "${CARGO_TARGET_DIR:-}" "$ROOT/rust/target"; do
+      if [ -n "$dir" ] && [ -x "$dir/release/cstan" ]; then
+        BINARIES="$dir/release/cstan"
+        break
+      fi
+    done
   fi
-  [ -n "$BINARIES" ] || echo "skip: no binaries (release/cstan-$VERSION-linux-*, or a release build under CARGO_TARGET_DIR)"
+  if [ -z "$BINARIES" ]; then
+    echo "no binaries (release/cstan-$VERSION-linux-*, or a release build under CARGO_TARGET_DIR or rust/target/release)"
+    # check.sh sets CSTAN_REQUIRE_BINARIES when it built release binaries: a missing one is then a failure, not a skip.
+    if [ "${CSTAN_REQUIRE_BINARIES:-}" = "1" ]; then
+      fail "no release binary to smoke-test although a release build was requested"
+    else
+      echo "skip: no binaries"
+    fi
+  fi
 fi
 
 for b in $BINARIES; do smoke "$b"; done

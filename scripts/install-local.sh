@@ -54,7 +54,6 @@ UNINSTALL=0
 NO_DASH=0
 DEBUG=0
 HOME_DIR="${CAPSTAN_HOME:-}"
-BIN_DIR="${CAPSTAN_BIN_DIR:-}"
 # The options for install.sh are rotated to the end of "$@" as they are read (so paths with spaces survive);
 # `todo` counts the arguments not read yet.
 todo=$#
@@ -66,7 +65,6 @@ while [ "$todo" -gt 0 ]; do
     --home | --bin-dir | --man-dir)
       [ "$todo" -ge 2 ] || die "$1 needs a value"
       [ "$1" != --home ] || HOME_DIR="$2"
-      [ "$1" != --bin-dir ] || BIN_DIR="$2"
       set -- "$@" "$1" "$2"
       shift 2
       todo=$((todo - 2))
@@ -75,7 +73,6 @@ while [ "$todo" -gt 0 ]; do
     --home=* | --bin-dir=* | --man-dir=*)
       case "$1" in
         --home=*) HOME_DIR="${1#*=}" ;;
-        --bin-dir=*) BIN_DIR="${1#*=}" ;;
       esac
       set -- "$@" "$1"
       ;;

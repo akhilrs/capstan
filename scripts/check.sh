@@ -179,6 +179,8 @@ release_build() {
 
 if [ "$STAGE" = release ] || { [ "$STAGE" = all ] && [ "${CSTAN_RELEASE_BUILD:-}" = "1" ]; }; then
   release_build
+  # smoke-binary.sh must then find the binaries just built: a missing one is a failure, not a skip.
+  export CSTAN_REQUIRE_BINARIES=1
 elif [ "$STAGE" = all ]; then
   echo
   echo "release builds: not run (set CSTAN_RELEASE_BUILD=1 or run scripts/check.sh release; the Release workflow builds them on tags)"

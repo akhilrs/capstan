@@ -446,14 +446,11 @@ stage_binaries() {
 }
 
 # Writes the man page of the staged cstan (it holds the page, generated from the same command table as `cstan help`)
-# into <staging>/share/man/man1/cstan.1. Sets MAN_FILE to it, or to nothing when this cstan cannot produce one.
+# into <staging>/share/man/man1/cstan.1. Leaves no share/ directory when this cstan cannot produce one.
 stage_man_page() {
-  MAN_FILE=""
   mkdir -p "$STAGING/share/man/man1"
-  if "$STAGING/bin/cstan" help --man </dev/null >"$STAGING/share/man/man1/cstan.1" 2>/dev/null &&
-    grep -q '^\.TH CSTAN 1' "$STAGING/share/man/man1/cstan.1"; then
-    MAN_FILE="$STAGING/share/man/man1/cstan.1"
-  else
+  if ! { "$STAGING/bin/cstan" help --man </dev/null >"$STAGING/share/man/man1/cstan.1" 2>/dev/null &&
+    grep -q '^\.TH CSTAN 1' "$STAGING/share/man/man1/cstan.1"; }; then
     rm -rf "$STAGING/share"
     warn "this cstan does not print a man page (cstan help --man); man cstan will not work."
   fi
