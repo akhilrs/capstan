@@ -521,32 +521,75 @@ pub fn record_agent_lost(
     )
 }
 
-/// `activeSuccessor`: an active agent of the same role created after the predecessor ended, or the successor its
-/// `replaced` event recorded. A read.
-pub fn active_successor(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
-    kernel.assert_open()?;
-    safe_id_str(agent_id, "agent id")?;
-    let Some(predecessor) = kernel.agent_row(agent_id)? else {
-        return Ok(Value::Null);
-    };
-    let recorded = query_opt(
+/// The successor an agent's latest `replaced` event recorded, if any.
+fn recorded_successor(kernel: &Kernel, agent_id: &str) -> KernelResult<Option<String>> {
+    Ok(query_opt(
         &kernel.database,
         "SELECT json_extract(payload_json, '$.details.successorId') FROM controller_events
          WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced' ORDER BY sequence DESC LIMIT 1",
         [&kernel.project_id, agent_id],
         |row| row.get::<_, Option<String>>(0),
     )?
-    .flatten();
-    let successor = match recorded {
-        Some(id) => kernel.agent_row(&id)?.filter(|a| a.state == "active").map(|a| a.agent_id),
-        None => query_opt(
+    .flatten())
+}
+
+/// Longest replacement chain followed; a chain is as long as the number of times one seat was replaced.
+const MAX_CHAIN: usize = 64;
+
+/// `replacementTip`: the last agent of the chain of recorded replacements that starts at `agent_id` (the agent itself
+/// when it was never replaced). A read.
+pub fn replacement_tip(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    safe_id_str(agent_id, "agent id")?;
+    let mut tip = agent_id.to_string();
+    for _ in 0..MAX_CHAIN {
+        match recorded_successor(kernel, &tip)? {
+            Some(next) if next != tip && kernel.agent_row(&next)?.is_some() => tip = next,
+            _ => break,
+        }
+    }
+    Ok(json!({"agentId": tip}))
+}
+
+/// `activeSuccessor`: the active agent that took over from the predecessor, if any. Follows the recorded replacements to
+/// the end of the chain; without a record, an active agent of the same role created after the predecessor ended. An
+/// agent that is recorded lost for its current generation is not a successor: it holds its place without working. A read.
+pub fn active_successor(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    safe_id_str(agent_id, "agent id")?;
+    let Some(predecessor) = kernel.agent_row(agent_id)? else {
+        return Ok(Value::Null);
+    };
+    let tip = replacement_tip(kernel, agent_id)?["agentId"]
+        .as_str()
+        .unwrap_or(agent_id)
+        .to_string();
+    let successor = if tip != agent_id {
+        match kernel.agent_row(&tip)? {
+            Some(a)
+                if a.state == "active" && !lost_recorded(kernel, &a.agent_id, a.generation)? =>
+            {
+                Some(a.agent_id)
+            }
+            _ => None,
+        }
+    } else {
+        let candidates = query_all(
             &kernel.database,
-            "SELECT s.agent_id FROM agents p JOIN agents s ON s.project_id = p.project_id AND s.role_name = p.role_name
+            "SELECT s.agent_id, s.generation FROM agents p JOIN agents s ON s.project_id = p.project_id AND s.role_name = p.role_name
              WHERE p.project_id = ? AND p.agent_id = ? AND p.ended_at IS NOT NULL AND s.state = 'active' AND s.agent_id <> p.agent_id
-               AND s.created_at > p.ended_at ORDER BY s.created_at, s.agent_id LIMIT 1",
+               AND s.created_at > p.ended_at ORDER BY s.created_at, s.agent_id",
             [&kernel.project_id, &predecessor.agent_id],
-            |row| row.get::<_, String>(0),
-        )?,
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        let mut found = None;
+        for (id, generation) in candidates {
+            if !lost_recorded(kernel, &id, generation)? {
+                found = Some(id);
+                break;
+            }
+        }
+        found
     };
     Ok(successor.map_or(Value::Null, |id| json!({"agentId": id})))
 }
@@ -896,6 +939,10 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         "activeSuccessor" => {
             let agent_id = arg!(a.str(0, "agentId"));
             Some(call(active_successor(kernel, agent_id)))
+        }
+        "replacementTip" => {
+            let agent_id = arg!(a.str(0, "agentId"));
+            Some(call(replacement_tip(kernel, agent_id)))
         }
         "lostAgentIds" => Some(call(lost_agent_ids(kernel))),
         "isAgentReplaced" => {

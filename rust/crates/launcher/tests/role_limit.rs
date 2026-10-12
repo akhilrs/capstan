@@ -159,3 +159,105 @@ fn a_spawn_racing_a_replace_never_leaves_two_active_supervisors() {
     );
     assert_eq!(active(&sc, "supervisor").len(), 1);
 }
+
+fn record_lost(sc: &Scenario, agent: &str) {
+    let agent = agent.to_string();
+    sc.ledger(move |core| {
+        core.record_agent_lost(
+            &Scenario::owner(core),
+            &json!({"agentId": agent, "reason": "process_exited"}),
+        )
+    });
+}
+
+#[test]
+fn replace_starts_a_new_agent_once_the_recorded_successor_has_ended() {
+    let sc = Scenario::new("successor-ended", json!({}));
+    launched(&sc);
+    let old = spawn(&sc, "supervisor");
+    sc.launcher.release(&old).expect("released");
+    let successor = spawn(&sc, "supervisor");
+    let adopted = sc.launcher.replace(&old).expect("replace answers");
+    assert_eq!(
+        adopted.to_value()["agentId"],
+        Value::String(successor.clone())
+    );
+    sc.launcher.release(&successor).expect("the successor ends");
+    assert!(active(&sc, "supervisor").is_empty());
+    sc.take_calls();
+    let result = sc
+        .launcher
+        .replace(&old)
+        .expect("replace starts a new agent");
+    let ReplaceResult::Replaced(done) = result else {
+        panic!("a new agent starts, not already_replaced");
+    };
+    assert_eq!(starts(&sc), 1);
+    assert_eq!(
+        done.predecessor, successor,
+        "the ended end of the chain is replaced"
+    );
+    assert_ne!(done.spawn.agent_id, successor);
+    assert_eq!(active(&sc, "supervisor"), vec![done.spawn.agent_id.clone()]);
+    assert_eq!(
+        replaced_by(&sc, &successor),
+        Some(done.spawn.agent_id.clone())
+    );
+    // The chain from the first agent now ends at the new one.
+    assert_eq!(replaced_by(&sc, &old), Some(done.spawn.agent_id.clone()));
+    let again = sc.launcher.replace(&old).expect("replace answers again");
+    assert_eq!(again.to_value()["state"], "already_replaced");
+    assert_eq!(
+        again.to_value()["agentId"],
+        Value::String(done.spawn.agent_id.clone())
+    );
+}
+
+#[test]
+fn replace_releases_a_lost_successor_and_starts_without_a_role_limit_deadlock() {
+    let sc = Scenario::new("successor-lost", json!({}));
+    launched(&sc);
+    let old = spawn(&sc, "supervisor");
+    sc.launcher.release(&old).expect("released");
+    let successor = spawn(&sc, "supervisor");
+    sc.launcher.replace(&old).expect("the link is recorded");
+    record_lost(&sc, &successor);
+    assert_eq!(
+        replaced_by(&sc, &old),
+        None,
+        "a lost agent is not a successor"
+    );
+    assert_eq!(refused(&sc, "supervisor").0, "role_limit");
+    let result = sc
+        .launcher
+        .replace(&old)
+        .expect("replace starts a new agent");
+    let ReplaceResult::Replaced(done) = result else {
+        panic!("a new agent starts, not already_replaced");
+    };
+    assert_eq!(done.predecessor, successor);
+    assert_eq!(active(&sc, "supervisor"), vec![done.spawn.agent_id.clone()]);
+    assert_eq!(replaced_by(&sc, &old), Some(done.spawn.agent_id));
+}
+
+#[test]
+fn replacing_the_original_and_the_chain_tip_at_once_never_starts_two_agents() {
+    let sc = Scenario::new("tip-race", json!({}));
+    launched(&sc);
+    let old = spawn(&sc, "supervisor");
+    sc.launcher.release(&old).expect("released");
+    let tip = spawn(&sc, "supervisor");
+    sc.launcher.replace(&old).expect("the link is recorded");
+    record_lost(&sc, &tip);
+    let (a, b) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| sc.launcher.replace(&old));
+        let b = scope.spawn(|| sc.launcher.replace(&tip));
+        (a.join().unwrap(), b.join().unwrap())
+    });
+    for result in [a, b] {
+        if let Err(error) = result {
+            assert_eq!(error.code, "replace_running", "{}", error.message);
+        }
+    }
+    assert_eq!(active(&sc, "supervisor").len(), 1);
+}

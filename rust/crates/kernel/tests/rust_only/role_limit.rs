@@ -146,6 +146,72 @@ fn active_successor_finds_a_later_agent_of_the_same_role_only() {
 }
 
 #[test]
+fn active_successor_follows_the_chain_and_skips_an_ended_or_lost_agent() {
+    let f = Fixture::new();
+    sync_roles(&f);
+    let core = f.core();
+    register(&f, "lim-1", "limited", "Developer", Some(1)).unwrap();
+    end(&f, "lim-1");
+    register(&f, "lim-2", "limited", "Developer", Some(1)).unwrap();
+    let replaced = |predecessor: &str, successor: &str| {
+        core.record_agent_replaced(
+            &context(core, OWNER),
+            &json!({"predecessorId": predecessor, "successorId": successor}),
+        )
+        .unwrap();
+    };
+    replaced("lim-1", "lim-2");
+    assert_eq!(
+        core.active_successor("lim-1").unwrap(),
+        json!({"agentId": "lim-2"})
+    );
+    assert_eq!(
+        core.replacement_tip("lim-1").unwrap(),
+        json!({"agentId": "lim-2"})
+    );
+    // Recorded lost: it holds its place but is not a successor.
+    core.record_agent_lost(&context(core, OWNER), &json!({"agentId": "lim-2"}))
+        .unwrap();
+    assert_eq!(core.active_successor("lim-1").unwrap(), Value::Null);
+    // Ended: not a successor either; the chain's tip is still it.
+    end(&f, "lim-2");
+    assert_eq!(core.active_successor("lim-1").unwrap(), Value::Null);
+    assert_eq!(
+        core.replacement_tip("lim-1").unwrap(),
+        json!({"agentId": "lim-2"})
+    );
+    // A further replacement extends the chain, and the first agent resolves to its end.
+    register(&f, "lim-3", "limited", "Developer", Some(1)).unwrap();
+    replaced("lim-2", "lim-3");
+    assert_eq!(
+        core.active_successor("lim-1").unwrap(),
+        json!({"agentId": "lim-3"})
+    );
+    assert_eq!(
+        core.replacement_tip("lim-3").unwrap(),
+        json!({"agentId": "lim-3"})
+    );
+}
+
+#[test]
+fn active_successor_without_a_record_skips_a_lost_candidate_and_finds_a_later_one() {
+    let f = Fixture::new();
+    sync_roles(&f);
+    let core = f.core();
+    end(&f, "dev-1");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    register(&f, "dev-2", "developer", "Developer", None).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    register(&f, "dev-3", "developer", "Developer", None).unwrap();
+    core.record_agent_lost(&context(core, OWNER), &json!({"agentId": "dev-2"}))
+        .unwrap();
+    assert_eq!(
+        core.active_successor("dev-1").unwrap(),
+        json!({"agentId": "dev-3"})
+    );
+}
+
+#[test]
 fn process_exited_is_recorded_once_per_generation_with_a_notice_that_names_it() {
     let f = Fixture::new();
     let core = f.core();

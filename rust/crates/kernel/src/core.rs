@@ -591,6 +591,11 @@ impl Core {
         actors::active_successor(&self.kernel, agent_id)
     }
 
+    /// `replacementTip`: the last agent of the chain of recorded replacements from an agent.
+    pub fn replacement_tip(&self, agent_id: &str) -> KernelResult<Value> {
+        actors::replacement_tip(&self.kernel, agent_id)
+    }
+
     /// `lostAgentIds`: the active agents recorded lost for their current generation.
     pub fn lost_agent_ids(&self) -> KernelResult<Value> {
         actors::lost_agent_ids(&self.kernel)

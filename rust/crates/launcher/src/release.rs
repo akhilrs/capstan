@@ -750,6 +750,31 @@ impl LauncherKernel {
                 "the PM is restarted with cstan pm restart, not replaced",
             ));
         }
+        // A replaced agent is answered by the end of its chain of replacements. The chain's last agent is adopted
+        // while it is active and not recorded lost; once it ended or is lost, it is the one replaced next, so the
+        // new agent goes through the same role limit and release as any replacement and the chain grows by one.
+        let (agent, agent_id) = if self.ledger.is_agent_replaced(agent_id)? {
+            let tip = self.ledger.replacement_tip(agent_id)?;
+            if let Some(successor) = self.ledger.active_successor(agent_id)? {
+                return Ok(ReplaceResult::AlreadyReplaced {
+                    predecessor: agent_id.to_string(),
+                    agent_id: successor,
+                });
+            }
+            match self.agent_record(&tip)? {
+                Some(record) if tip != agent_id => (record, tip),
+                _ => {
+                    return Err(OpError::launcher(
+                        "already_replaced",
+                        format!("{agent_id} was already replaced"),
+                    ))
+                }
+            }
+        } else {
+            (agent, agent_id.to_string())
+        };
+        let agent_id = agent_id.as_str();
+        // Keyed on the resolved agent, so a replace of the original and of the chain's tip exclude each other.
         if self
             .replacing
             .lock()
@@ -760,18 +785,6 @@ impl LauncherKernel {
                 "replace_running",
                 format!("a replacement of {agent_id} is already running"),
             ));
-        }
-        if self.ledger.is_agent_replaced(agent_id)? {
-            return match self.ledger.active_successor(agent_id)? {
-                Some(successor) => Ok(ReplaceResult::AlreadyReplaced {
-                    predecessor: agent_id.to_string(),
-                    agent_id: successor,
-                }),
-                None => Err(OpError::launcher(
-                    "already_replaced",
-                    format!("{agent_id} was already replaced"),
-                )),
-            };
         }
         if self.ledger.running_integrations()? > 0 {
             return Err(OpError::launcher(
@@ -827,10 +840,17 @@ impl LauncherKernel {
                 .map(|_| kept_ref.as_str()),
         )
         .ok_or_else(|| OpError::launcher("seed_too_large", "the replacement seed does not fit"))?;
-        self.replacing
+        if !self
+            .replacing
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(agent_id.to_string());
+            .insert(agent_id.to_string())
+        {
+            return Err(OpError::launcher(
+                "replace_running",
+                format!("a replacement of {agent_id} is already running"),
+            ));
+        }
         let _replacing = Replacing {
             kernel: self,
             agent_id: agent_id.to_string(),

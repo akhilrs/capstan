@@ -414,6 +414,17 @@ impl Ledger {
             .map(str::to_string))
     }
 
+    /// The last agent of the chain of recorded replacements from `agent_id` (itself when never replaced).
+    pub fn replacement_tip(&self, agent_id: &str) -> KernelResult<String> {
+        let agent = agent_id.to_string();
+        let value = self.call(move |core| core.replacement_tip(&agent))?;
+        Ok(value
+            .get("agentId")
+            .and_then(Value::as_str)
+            .unwrap_or(agent_id)
+            .to_string())
+    }
+
     pub fn running_integrations(&self) -> KernelResult<usize> {
         let credential = self.credential.clone();
         let value = self.call(move |core| core.running_integrations(&credential))?;
