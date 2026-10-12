@@ -10,3 +10,4 @@ mod plan_amend;
 mod prompt_relay_backfill;
 mod restart_summary;
 mod role_limit;
+mod verify_runs;

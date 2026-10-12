@@ -162,6 +162,12 @@ pub fn request_review(
         deps.kernel
             .run(move |core| core.check_review_request(&subject, &role))?
     };
+    // The gate is a ledger read: a run that is queued or running is refused at once, never waited for.
+    crate::handlers::verify::check_gate(
+        deps,
+        crate::handlers::verify::Gate::Review,
+        &[subject_id.to_string()],
+    )?;
     let commit_sha = check["commitSha"].as_str().unwrap_or("").to_string();
     let exists = deps
         .git
@@ -188,19 +194,17 @@ pub fn request_review(
             ..SpawnOptions::default()
         },
     )?;
+    // The brief of a project with a gate carries the recorded gate result for the commands in force.
+    let mut input =
+        json!({"subjectId": subject_id, "reviewerRole": role, "reviewerAgentId": spawned.agent_id});
+    if let Some(verify) = &deps.verify {
+        input["verifyCommandsSha"] = json!(verify.commands_sha());
+    }
     let begun = deps.kernel.run({
-        let (credential, subject, role, reviewer) = (
-            pm_credential.to_string(),
-            subject_id.to_string(),
-            role.clone(),
-            spawned.agent_id.clone(),
-        );
+        let credential = pm_credential.to_string();
         move |core| {
             let context = crate::deps::new_context(core, &credential)?;
-            core.begin_review(
-                &context,
-                &json!({"subjectId": subject, "reviewerRole": role, "reviewerAgentId": reviewer}),
-            )
+            core.begin_review(&context, &input)
         }
     });
     match begun {

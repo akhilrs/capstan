@@ -25,7 +25,7 @@ use capstan_kernel::{Core, KernelResult};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -195,7 +195,15 @@ pub struct RunOptions {
     pub on_spawn: Option<Box<dyn Fn(u32) + Send + Sync>>,
     /// Setting the flag kills the process group like a timeout does; the status is then `error`.
     pub abort: Option<Arc<AtomicBool>>,
+    /// Receives the raw output (both streams, as it arrives) before any cap or sanitising; a failing writer is dropped
+    /// quietly. `None` changes nothing.
+    pub log_sink: Option<Box<dyn Write + Send>>,
 }
+
+type SharedSink = Arc<Mutex<Option<Box<dyn Write + Send>>>>;
+
+/// How long a command with a log sink waits for its output to end after the command itself ended.
+const READER_GRACE_MS: u64 = 3000;
 
 fn kill_group(pgid: i64, signal: libc::c_int) {
     if pgid > 1 {
@@ -208,6 +216,7 @@ fn collect(
     mut stream: impl Read + Send + 'static,
     raw: Arc<Mutex<(Vec<u8>, bool)>>,
     window: usize,
+    sink: SharedSink,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut chunk = [0u8; 8192];
@@ -215,6 +224,14 @@ fn collect(
             match stream.read(&mut chunk) {
                 Ok(0) | Err(_) => return,
                 Ok(read) => {
+                    {
+                        let mut sink = sink.lock().unwrap_or_else(|p| p.into_inner());
+                        if let Some(writer) = sink.as_mut() {
+                            if writer.write_all(&chunk[..read]).is_err() {
+                                *sink = None;
+                            }
+                        }
+                    }
                     let mut guard = raw.lock().unwrap_or_else(|p| p.into_inner());
                     guard.0.extend_from_slice(&chunk[..read]);
                     if guard.0.len() > window {
@@ -231,7 +248,7 @@ fn collect(
 /// Runs one shell command: `sh -c` in its own process group, a timeout that ends the whole group, and a capped,
 /// sanitised tail of the output. The command, the working directory, the environment and the timeout are spawn options;
 /// nothing is interpolated into a shell string.
-pub fn run_command(options: RunOptions) -> RunResult {
+pub fn run_command(mut options: RunOptions) -> RunResult {
     let started = Instant::now();
     let window = MIN_RAW_WINDOW_BYTES.max(options.output_tail_bytes * RAW_WINDOW_FACTOR);
     let process_env: Vec<(String, String)> = std::env::vars().collect();
@@ -270,15 +287,17 @@ pub fn run_command(options: RunOptions) -> RunResult {
     };
     let pgid = i64::from(child.id());
     let raw = Arc::new(Mutex::new((Vec::new(), false)));
+    let has_sink = options.log_sink.is_some();
+    let sink: SharedSink = Arc::new(Mutex::new(options.log_sink.take()));
     let readers = [
         child
             .stdout
             .take()
-            .map(|out| collect(out, raw.clone(), window)),
+            .map(|out| collect(out, raw.clone(), window, sink.clone())),
         child
             .stderr
             .take()
-            .map(|err| collect(err, raw.clone(), window)),
+            .map(|err| collect(err, raw.clone(), window, sink.clone())),
     ];
     if let Some(on_spawn) = &options.on_spawn {
         on_spawn(child.id());
@@ -320,6 +339,17 @@ pub fn run_command(options: RunOptions) -> RunResult {
         kill_group(pgid, libc::SIGKILL);
     }
     for reader in readers.into_iter().flatten() {
+        if has_sink {
+            // A process the command left behind (a tool daemon that kept the pipe) must not hold the run: give the
+            // readers a moment after the command ended, then go on without them.
+            let until = Instant::now() + Duration::from_millis(READER_GRACE_MS);
+            while !reader.is_finished() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(RUN_POLL_MS));
+            }
+            if !reader.is_finished() {
+                continue;
+            }
+        }
         let _ = reader.join();
     }
     let (bytes, dropped) = {
@@ -749,6 +779,7 @@ impl Inner {
             output_tail_bytes: config.output_tail_bytes.max(0) as usize,
             on_spawn: Some(on_spawn),
             abort: Some(abort),
+            log_sink: None,
         });
         self.state().abort = None;
         self.finish_run(&proposal_id, &result)
@@ -1234,6 +1265,7 @@ mod tests {
             output_tail_bytes: 1000,
             on_spawn: None,
             abort: None,
+            log_sink: None,
         });
         assert_eq!(result.status, RunStatus::Ok);
         assert_eq!(result.output_tail, "x nohome\n");
@@ -1249,6 +1281,7 @@ mod tests {
             output_tail_bytes: 1000,
             on_spawn: None,
             abort,
+            log_sink: None,
         };
         let timed = run_command(base("sleep 30", 100, None));
         assert_eq!(timed.status, RunStatus::Timeout);

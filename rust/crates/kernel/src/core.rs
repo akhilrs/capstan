@@ -8,7 +8,7 @@
 use crate::areas::{
     actors, agents, findings, integrations, links, message_notices, messages, operator_grants,
     operator_proposals, operator_runs, panes, pauses, plan_packages, plans, prompt_relay, reports,
-    reviews, status,
+    reviews, status, verify_runs,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -350,6 +350,99 @@ impl Core {
     /// `ControllerCore.reviewsToRelease`.
     pub fn reviews_to_release(&self, credential: &str) -> KernelResult<Value> {
         reviews::reviews_to_release(&self.kernel, credential)
+    }
+
+    /// `ControllerCore.queueVerifyRun`.
+    pub fn queue_verify_run(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::queue_verify_run(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.claimVerifyRun`.
+    pub fn claim_verify_run(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::claim_verify_run(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.recordVerifyProcess`.
+    pub fn record_verify_process(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::record_verify_process(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.finishVerifyRun`.
+    pub fn finish_verify_run(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::finish_verify_run(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.cancelVerifyRun`.
+    pub fn cancel_verify_run(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::cancel_verify_run(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.interruptActiveVerifyRuns`.
+    pub fn interrupt_active_verify_runs(&self, context: &MutationContext) -> KernelResult<Value> {
+        verify_runs::interrupt_active_verify_runs(&self.kernel, context)
+    }
+
+    /// `ControllerCore.clearVerifyOrphan`.
+    pub fn clear_verify_orphan(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        verify_runs::clear_verify_orphan(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.verifyRun`.
+    pub fn verify_run(&self, run_id: &str) -> KernelResult<Value> {
+        verify_runs::verify_run(&self.kernel, run_id)
+    }
+
+    /// `ControllerCore.verifyRuns`.
+    pub fn verify_runs(&self, subject_id: Option<&str>, limit: i64) -> KernelResult<Value> {
+        verify_runs::verify_runs(&self.kernel, subject_id, limit)
+    }
+
+    /// `ControllerCore.nextQueuedVerifyRuns`.
+    pub fn next_queued_verify_runs(&self, limit: i64) -> KernelResult<Value> {
+        verify_runs::next_queued_verify_runs(&self.kernel, limit)
+    }
+
+    /// `ControllerCore.verifyGate`.
+    pub fn verify_gate(&self, commit_sha: &str, commands_sha: &str) -> KernelResult<Value> {
+        verify_runs::verify_gate(&self.kernel, commit_sha, commands_sha)
+    }
+
+    /// `ControllerCore.verifyGateForSubjects`: the gate for the commit of each report or integration id.
+    pub fn verify_gate_for_subjects(
+        &self,
+        subject_ids: &[String],
+        commands_sha: &str,
+    ) -> KernelResult<Value> {
+        verify_runs::verify_gate_for_subjects(&self.kernel, subject_ids, commands_sha)
+    }
+
+    /// `ControllerCore.verifyStatus`.
+    pub fn verify_status(&self) -> KernelResult<Value> {
+        verify_runs::verify_status(&self.kernel)
     }
 
     /// `ControllerCore.beginIntegration`.

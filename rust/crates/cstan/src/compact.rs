@@ -84,6 +84,10 @@ pub fn status(result: &Value, all: bool) -> Value {
                 continue;
             }
         }
+        // The text output prints the verify section as lines of its own.
+        if key.to_utf8_lossy() == "verify" {
+            continue;
+        }
         if !is_empty(value) {
             out.push((key.clone(), value.clone()));
         }
@@ -161,14 +165,19 @@ pub fn plan_brief(result: &Value) -> Option<Vec<String>> {
             Some(Value::Number(_)) => format!("{}h", text(p.get("estimateHours"))),
             _ => "-".to_string(),
         };
+        let gate = match p.get("verify") {
+            Some(verify) => format!(" {}", crate::render::verify_summary(Some(verify))),
+            None => String::new(),
+        };
         lines.push(format!(
-            "  {} {} {} deps {} {} {}{}",
+            "  {} {} {} deps {} {} {}{}{}",
             text(p.get("packageId")),
             text(p.get("type")),
             estimate,
             depends,
             text(p.get("assignee")),
             text(p.get("progress")),
+            gate,
             nexora(p),
         ));
     }

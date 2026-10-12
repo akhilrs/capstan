@@ -566,7 +566,12 @@ fn notice_builders_match_node() {
         });
         check(
             c,
-            review_task(&review_row(&c["row"]), &refs, brief.as_ref()),
+            review_task(
+                &review_row(&c["row"]),
+                &refs,
+                brief.as_ref(),
+                &capstan_kernel::helpers::ReviewBrief::default(),
+            ),
             "reviewTask",
         );
     }

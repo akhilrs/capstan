@@ -587,6 +587,10 @@ fn run_with(
     if let Some(operator) = &deps.operator {
         operator.stop();
     }
+    // Running gates are aborted and cleaned, and recorded as interrupted, while the ledger is still open.
+    if let Some(verify) = &deps.verify {
+        verify.stop();
+    }
     if let Some(server) = &running.server {
         server.drain();
     }
@@ -633,6 +637,11 @@ fn serve(deps: &mut Deps, wiring: Wiring, running: &mut Running) -> Result<(), R
                 .map(|skip| skip.as_ref() as &dyn Fn(&str) -> bool),
         );
         operator.start(None);
+    }
+    // The gate runner: its recovery of an earlier daemon's runs and its workers start on a thread of their own.
+    if let Some(verify) = crate::verify::VerifyService::new(deps) {
+        verify.start();
+        deps.verify = Some(verify);
     }
     let server = DaemonServer::start(deps.clone(), ServerOptions::new(deps.options.socket_path()))
         .map_err(|error| RunError::new(EXIT_RUNTIME, error.to_string()))?;

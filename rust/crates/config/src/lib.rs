@@ -21,6 +21,7 @@ pub mod starter;
 mod text;
 mod types;
 mod value;
+pub mod verify;
 
 pub use cache::{
     CacheConfig, CacheEntry, CacheOrigin, CacheScope, SetupReuse, DETECT_MARKERS, DETECT_MAX_DEPTH,
@@ -35,6 +36,7 @@ pub use resolve::{
 };
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};
 pub use types::*;
+pub use verify::Verify;
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd` and resolves it.
 pub fn load_role_config(cwd: &Path) -> Result<RoleConfig> {

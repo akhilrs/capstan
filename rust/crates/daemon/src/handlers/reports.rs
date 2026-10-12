@@ -339,6 +339,12 @@ fn report_checked(
             "duplicate": field(&result, "duplicate"),
         }),
     );
+    // A verified report is gated automatically when `[verify] auto` names reports; a repeat was gated the first time.
+    if result["duplicate"] != true {
+        if let Some(report_id) = record["reportId"].as_str() {
+            super::verify::auto_queue(env.deps, super::verify::Auto::Report, report_id);
+        }
+    }
     ok(json!({
         "reportId": field(record, "reportId"),
         "state": "accepted",
@@ -426,6 +432,9 @@ fn request_review_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Optio
                 "state": field(&review, "state"),
                 "reviewerState": spawn_state,
             })),
+            Err(RequestError::Kernel(error)) if error.code() == Some("verify_required") => {
+                fail(ErrorCode::Rejected, error.message())
+            }
             Err(RequestError::Review(refused)) => fail(
                 ErrorCode::Rejected,
                 format!("{}: {}", refused.code, refused.message),
@@ -504,6 +513,15 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
     } else {
         if call.args.iter().any(|id| !is_safe_agent_id(id)) {
             return Some(fail(ErrorCode::InvalidRequest, "a report id is not valid"));
+        }
+        if let Err(error) =
+            super::verify::check_gate(env.deps, super::verify::Gate::Integrate, call.args)
+        {
+            return Some(if error.code() == Some("verify_required") {
+                fail(ErrorCode::Rejected, error.message())
+            } else {
+                map_kernel_error(&error)
+            });
         }
         env.log(
             "integration_requested",
@@ -588,6 +606,11 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
         }
         Ok(record) => {
             let merged = record["state"] == "merged";
+            if merged {
+                if let Some(id) = record["integrationId"].as_str() {
+                    super::verify::auto_queue(env.deps, super::verify::Auto::Integration, id);
+                }
+            }
             let conflicted = record["state"] == "conflicted";
             let reports: Vec<Value> = record["reports"]
                 .as_array()

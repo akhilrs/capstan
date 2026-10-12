@@ -28,6 +28,7 @@ fn options(directory: &Path, command: &str) -> RunOptions {
         output_tail_bytes: 4000,
         on_spawn: None,
         abort: None,
+        log_sink: None,
     }
 }
 
@@ -48,6 +49,93 @@ fn gone(pid: u32) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     true
+}
+
+// ------------------------------------------------------------------------------------------------ the log sink
+
+/// A writer onto a buffer the test can read.
+#[derive(Clone, Default)]
+struct Collected(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Collected {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_log_sink_receives_all_the_raw_output_of_both_streams() {
+    let directory = tempfile::tempdir().unwrap();
+    let sink = Collected::default();
+    let mut run = options(
+        directory.path(),
+        "printf 'out\\033[31m1\\n'; printf 'err2\\n' >&2; head -c 200000 /dev/zero | tr '\\0' z",
+    );
+    run.output_tail_bytes = 100;
+    run.log_sink = Some(Box::new(sink.clone()));
+    let result = run_command(run);
+    assert_eq!(result.status, RunStatus::Ok);
+    // The tail is sanitised and capped; the sink holds every byte as it came.
+    assert!(result.output_tail.len() <= 100);
+    let got = sink.0.lock().unwrap().clone();
+    let text = String::from_utf8_lossy(&got);
+    assert!(
+        text.contains("out\u{1b}[31m1"),
+        "{}",
+        &text[..40.min(text.len())]
+    );
+    assert!(text.contains("err2"));
+    assert_eq!(got.iter().filter(|b| **b == b'z').count(), 200_000);
+}
+
+#[test]
+fn a_failing_log_sink_does_not_fail_the_command() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let mut run = options(directory.path(), "echo still-here");
+    run.log_sink = Some(Box::new(Broken));
+    let result = run_command(run);
+    assert_eq!(result.status, RunStatus::Ok);
+    assert!(result.output_tail.contains("still-here"));
+}
+
+#[test]
+fn a_process_left_holding_the_output_does_not_hold_a_command_with_a_sink() {
+    let directory = tempfile::tempdir().unwrap();
+    let pid_file = directory.path().join("pid");
+    let mut run = options(
+        directory.path(),
+        &format!("(sleep 30 & echo $! > {}) ; echo done", pid_file.display()),
+    );
+    run.log_sink = Some(Box::new(Collected::default()));
+    let started = Instant::now();
+    let result = run_command(run);
+    assert_eq!(result.status, RunStatus::Ok);
+    assert!(result.output_tail.contains("done"));
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    let pid: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    // SAFETY: stops the one `sleep` this test started, by the pid it wrote.
+    unsafe { libc::kill(pid, libc::SIGKILL) };
 }
 
 // ------------------------------------------------------------------------------------------------ sanitising

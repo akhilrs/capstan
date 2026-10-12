@@ -48,6 +48,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("resolve", Access::Operator),
     ("cleanup", Access::Any),
     ("cache", Access::Any),
+    ("verify", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -72,7 +73,9 @@ fn client_timeout_ms(command: &str) -> u64 {
         "cleanup" => 120_000,
         "cache" => 600_000,
         "replace" => 1_800_000,
-        "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" => 600_000,
+        "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" | "verify" => {
+            600_000
+        }
         _ => capstan_wire::DEFAULT_TIMEOUT.as_millis() as u64,
     }
 }
@@ -136,6 +139,17 @@ impl Cli<'_> {
                 "a command argument holds a replacement character, so its text was not valid UTF-8",
             ));
         }
+        if command == "verify" {
+            let shape_ok = match args.first().map(String::as_str) {
+                Some("show" | "cancel") => args.len() == 2,
+                Some("list") => args.len() <= 2,
+                Some(_) => args.len() == 1,
+                None => false,
+            };
+            if !shape_ok {
+                return Err(Fail::Usage);
+            }
+        }
         let access = access_of(command);
         let agent = if access == Access::Operator {
             None
@@ -190,6 +204,12 @@ impl Cli<'_> {
             brief: command == "plan"
                 && args.first().is_some_and(|a| a == "show")
                 && args.iter().any(|a| a == "--brief"),
+            verify_sub: match args.first().map(String::as_str) {
+                Some("show") => "show",
+                Some("list") => "list",
+                Some("cancel") => "cancel",
+                _ => "",
+            },
         };
         handle_wire(reply, &socket, json, command, now_ms, view, &mut self.io)?;
         Ok(Flow::Code(0))
@@ -383,6 +403,7 @@ impl Cli<'_> {
                 View {
                     all: false,
                     brief: false,
+                    verify_sub: "",
                 },
                 &mut self.io,
             )?;
@@ -398,6 +419,8 @@ struct View {
     all: bool,
     /// `plan show --brief`.
     brief: bool,
+    /// The subcommand of `verify`: `show`, `list`, `cancel`, or empty for a queue request.
+    verify_sub: &'static str,
 }
 
 /// `handleWire` and the error mapping of `runRouted`: what is printed, or the error the CLI would print.
@@ -440,6 +463,10 @@ fn handle_wire(
         for line in render::cleanup_lines(result) {
             text(stdout, &JsStr::from(line.as_str()));
         }
+    } else if !json && command == "verify" {
+        for line in render::verify_lines(view.verify_sub, result, now_ms) {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
     } else if !json && command == "cache" {
         for line in render::cache_lines(result, now_ms) {
             text(stdout, &JsStr::from(line.as_str()));
@@ -453,6 +480,11 @@ fn handle_wire(
         if !json && command == "status" {
             let mut lines = render::pause_lines(result, now_ms)?;
             lines.extend(render::pm_mail_lines(result));
+            lines.extend(
+                render::verify_status_lines(result, now_ms)
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             lines.extend(
                 render::cache_status_line(result, now_ms)
                     .iter()

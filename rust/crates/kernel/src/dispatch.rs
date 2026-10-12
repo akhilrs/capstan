@@ -205,5 +205,8 @@ pub fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> KernelResult<Value
     if let Some(result) = areas::messaging::dispatch(kernel, op, args) {
         return result;
     }
+    if let Some(result) = areas::verify_runs::dispatch(kernel, op, args) {
+        return result;
+    }
     Err(KernelError::type_error(format!("unknown operation {op}")))
 }

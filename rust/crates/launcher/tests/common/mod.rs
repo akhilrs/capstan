@@ -420,6 +420,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             ..Cleanup::default()
         },
         cache: None,
+        verify: None,
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

@@ -188,6 +188,7 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     let location = pid_and_location(deps);
     let cache =
         super::cache::runtime_of_deps(deps).map(|runtime| super::cache::status_member(&runtime));
+    let with_verify = deps.verify.is_some();
     let built = deps.kernel.run(move |core| {
         let agents = core.list_agents()?;
         let mut snapshot = match core.status_snapshot()? {
@@ -369,6 +370,9 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
         if let Some(cache) = cache {
             result.insert("cache".into(), cache);
+        }
+        if with_verify {
+            result.insert("verify".into(), core.verify_status()?);
         }
         Ok(Value::Object(result))
     });

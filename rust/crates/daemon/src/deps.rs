@@ -616,6 +616,8 @@ pub struct Deps {
     pub git: Arc<dyn GitPort>,
     pub driver: Arc<dyn DriverView>,
     pub loops: Arc<dyn Loops>,
+    /// The verify service, when capstan.toml has a `[verify]` section.
+    pub verify: Option<Arc<crate::verify::VerifyService>>,
 }
 
 impl Deps {
@@ -634,6 +636,7 @@ impl Deps {
             git: Arc::new(NoGit),
             driver: Arc::new(NoDriver),
             loops: Arc::new(NoLoops),
+            verify: None,
         }
     }
 

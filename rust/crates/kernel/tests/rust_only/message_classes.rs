@@ -57,6 +57,7 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         "finding_resolved",
         "finding_cancelled",
         "cleanup_done",
+        "verify_finished",
         "restart_result",
     ] {
         assert_eq!(notice_kind(kind).unwrap().1, MessageClass::Info, "{kind}");

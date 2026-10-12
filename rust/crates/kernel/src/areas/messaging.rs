@@ -52,6 +52,8 @@ pub const NOTICE_KINDS: &[(&str, MessageClass, bool)] = &[
     ("finding_cancelled", MessageClass::Info, true),
     ("cleanup_offer", MessageClass::Action, false),
     ("cleanup_done", MessageClass::Info, true),
+    // A passed gate is Info; any other ending is Action whatever the policy says (the finish decides).
+    ("verify_finished", MessageClass::Info, true),
     ("report_verified", MessageClass::Action, false),
     ("review_request", MessageClass::Action, false),
     ("review_verdict", MessageClass::Action, false),

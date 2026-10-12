@@ -65,6 +65,9 @@ impl KernelError {
     pub fn code(&self) -> Option<&'static str> {
         match self {
             Self::MutationConflict(m) if m.starts_with("role_limit: ") => Some("role_limit"),
+            Self::MutationConflict(m) if m.starts_with("verify_required: ") => {
+                Some("verify_required")
+            }
             _ => None,
         }
     }

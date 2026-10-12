@@ -706,3 +706,221 @@ pub fn cache_lines(result: Option<&Value>, now_ms: f64) -> Vec<String> {
         cache_clear_lines(result)
     }
 }
+
+// ------------------------------------------------------------------------------------------------ verify
+
+/// The most lines of a run's output tail `cstan verify show` prints (the daemon keeps at most 12288 bytes).
+pub const VERIFY_TAIL_LINES: usize = 40;
+
+/// A duration as `14m02s`, `45s` or `1h02m`.
+fn verify_duration(ms: f64) -> String {
+    let seconds = (ms.max(0.0) / 1000.0).round() as u64;
+    match seconds {
+        0..=59 => format!("{seconds}s"),
+        60..=3599 => format!("{}m{:02}s", seconds / 60, seconds % 60),
+        _ => format!("{}h{:02}m", seconds / 3600, (seconds % 3600) / 60),
+    }
+}
+
+fn short_sha(value: Option<&Value>) -> String {
+    text_of(value)
+        .unwrap_or_default()
+        .chars()
+        .take(12)
+        .collect()
+}
+
+fn number_text(value: Option<&Value>) -> Option<String> {
+    as_number(value).map(number_to_string)
+}
+
+/// The one-line summary of a package or integration row's `verify` member: `gate passed 14m02s`, `gate failed step 2`,
+/// `gate running`, or `no gate` when there is no run.
+pub fn verify_summary(verify: Option<&Value>) -> String {
+    let Some(run @ Value::Object(_)) = verify else {
+        return "no gate".to_string();
+    };
+    let state = text_of(run.get("state")).unwrap_or_default();
+    let duration = as_number(run.get("durationMs")).map(verify_duration);
+    match state.as_str() {
+        "passed" => match duration {
+            Some(d) => format!("gate passed {d}"),
+            None => "gate passed".to_string(),
+        },
+        "failed" => match number_text(run.get("failedStep")) {
+            Some(step) => format!("gate failed step {step}"),
+            None => "gate failed".to_string(),
+        },
+        "queued" => "gate queued".to_string(),
+        "running" => "gate running".to_string(),
+        "timeout" => "gate timed out".to_string(),
+        other => format!("gate {other}"),
+    }
+}
+
+fn run_state_line(run: &Value, now_ms: f64) -> String {
+    let id = text_of(run.get("runId")).unwrap_or_default();
+    let subject = format!(
+        "{} {}",
+        text_of(run.get("subjectKind")).unwrap_or_default(),
+        text_of(run.get("subjectId")).unwrap_or_default()
+    );
+    let state = text_of(run.get("state")).unwrap_or_default();
+    let mut line = format!(
+        "{id} {state} {subject} @{}",
+        short_sha(run.get("commitSha"))
+    );
+    match state.as_str() {
+        "queued" => {
+            if let Some(age) = ago(run.get("queuedAt"), now_ms) {
+                line.push_str(&format!(" queued {age}"));
+            }
+        }
+        "running" => {
+            if let Some(age) = ago(run.get("startedAt"), now_ms) {
+                line.push_str(&format!(" started {age}"));
+            }
+        }
+        _ => {
+            if let Some(ms) = as_number(run.get("durationMs")) {
+                line.push_str(&format!(" {}", verify_duration(ms)));
+            }
+            if state == "failed" {
+                if let Some(step) = number_text(run.get("failedStep")) {
+                    line.push_str(&format!(" failed step {step}"));
+                }
+            }
+        }
+    }
+    line
+}
+
+fn verify_show_lines(run: &Value) -> Vec<String> {
+    let state = text_of(run.get("state")).unwrap_or_default();
+    let mut lines = vec![
+        format!(
+            "verify run {}: {state}",
+            text_of(run.get("runId")).unwrap_or_default()
+        ),
+        format!(
+            "subject: {} {}",
+            text_of(run.get("subjectKind")).unwrap_or_default(),
+            text_of(run.get("subjectId")).unwrap_or_default()
+        ),
+        format!(
+            "commit: {}",
+            text_of(run.get("commitSha")).unwrap_or_default()
+        ),
+    ];
+    let commands = items(run.get("commands"));
+    lines.push(format!("commands ({}):", commands.len()));
+    for (i, command) in commands.iter().enumerate() {
+        lines.push(format!(
+            "  {}. {}",
+            i + 1,
+            text_of(Some(command)).unwrap_or_default()
+        ));
+    }
+    if let Some(code) = number_text(run.get("exitCode")) {
+        lines.push(format!("exit code: {code}"));
+    }
+    if let Some(step) = number_text(run.get("failedStep")) {
+        let command = items(run.get("commands"))
+            .get((as_number(run.get("failedStep")).unwrap_or(0.0) as usize).wrapping_sub(1))
+            .and_then(|c| text_of(Some(c)));
+        match command {
+            Some(command) => lines.push(format!("failed step: {step} ({command})")),
+            None => lines.push(format!("failed step: {step}")),
+        }
+    }
+    if let Some(ms) = as_number(run.get("durationMs")) {
+        lines.push(format!("duration: {}", verify_duration(ms)));
+    }
+    let log = text_of(run.get("logPath"));
+    if let Some(log) = &log {
+        lines.push(format!("log: {log}"));
+    }
+    let tail = text_of(run.get("outputTail")).unwrap_or_default();
+    if !tail.trim().is_empty() {
+        let all: Vec<&str> = tail.trim_end_matches('\n').lines().collect();
+        let cut = all.len().saturating_sub(VERIFY_TAIL_LINES);
+        let truncated = cut > 0 || matches!(run.get("outputTruncated"), Some(Value::Bool(true)));
+        lines.push(if truncated {
+            format!(
+                "output (last {} lines, earlier output cut):",
+                all.len() - cut
+            )
+        } else {
+            "output:".to_string()
+        });
+        lines.extend(all[cut..].iter().map(|l| format!("  {l}")));
+        if truncated {
+            if let Some(log) = &log {
+                lines.push(format!("  (full output: {log})"));
+            }
+        }
+    }
+    lines
+}
+
+/// What `cstan verify <id>|show|list|cancel` prints (without `--json`). `sub` is the first argument: `show`, `list` and
+/// `cancel` choose their shape; anything else is a queue answer.
+pub fn verify_lines(sub: &str, result: Option<&Value>, now_ms: f64) -> Vec<String> {
+    let Some(result) = result else {
+        return Vec::new();
+    };
+    match sub {
+        "list" => {
+            let runs = items(result.get("runs"));
+            if runs.is_empty() {
+                return vec!["no verify runs".to_string()];
+            }
+            runs.iter().map(|r| run_state_line(r, now_ms)).collect()
+        }
+        "cancel" => vec![format!(
+            "verify run {}: {}",
+            text_of(result.get("runId")).unwrap_or_default(),
+            text_of(result.get("state")).unwrap_or_default()
+        )],
+        "show" => verify_show_lines(result),
+        _ => {
+            let id = text_of(result.get("runId")).unwrap_or_default();
+            let state = text_of(result.get("state")).unwrap_or_default();
+            let at = short_sha(result.get("commitSha"));
+            if matches!(result.get("existing"), Some(Value::Bool(true))) {
+                vec![format!("verify run {id} already {state} at {at} (same commands); cstan verify show {id}")]
+            } else {
+                vec![format!(
+                    "verify run {id} queued at {at}; cstan verify show {id}"
+                )]
+            }
+        }
+    }
+}
+
+/// The verify lines of `cstan status`: the runs that are active, with their age, then the recent ones with state and
+/// duration. Empty when the status has no `verify` member or no runs.
+pub fn verify_status_lines(status: Option<&Value>, now_ms: f64) -> Vec<String> {
+    let Some(verify) = status.and_then(|s| s.get("verify")) else {
+        return Vec::new();
+    };
+    let (active, recent) = (items(verify.get("active")), items(verify.get("recent")));
+    let mut lines = Vec::new();
+    if !active.is_empty() {
+        lines.push("verify active:".to_string());
+        lines.extend(
+            active
+                .iter()
+                .map(|r| format!("  {}", run_state_line(r, now_ms))),
+        );
+    }
+    if !recent.is_empty() {
+        lines.push("verify recent:".to_string());
+        lines.extend(
+            recent
+                .iter()
+                .map(|r| format!("  {}", run_state_line(r, now_ms))),
+        );
+    }
+    lines
+}

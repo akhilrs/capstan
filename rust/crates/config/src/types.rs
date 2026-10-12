@@ -199,6 +199,7 @@ pub const MESSAGE_NOTICE_KINDS: &[(&str, bool)] = &[
     ("finding_cancelled", true),
     ("cleanup_offer", false),
     ("cleanup_done", true),
+    ("verify_finished", true),
     ("report_verified", false),
     ("review_request", false),
     ("review_verdict", false),
@@ -434,6 +435,8 @@ pub struct RoleConfig {
     pub cleanup: Cleanup,
     /// The `[cache]` section; `None` when it is absent.
     pub cache: Option<crate::cache::CacheConfig>,
+    /// The `[verify]` section; `None` when it is absent.
+    pub verify: Option<crate::verify::Verify>,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

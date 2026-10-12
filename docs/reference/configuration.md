@@ -293,6 +293,75 @@ An entry needs `dirs` or `set`. Variable names must be upper case letters, digit
 - contain `TOKEN`, `SECRET`, `KEY`, `PASSWORD`, `PASSWD` or `CREDENTIAL`: caches never carry secrets. A legitimate variable with such a name, for example a license key, goes through `[env] pass`, not `[cache]`;
 - are already set by another entry or preset.
 
+## Verify
+
+The `[verify]` section names the project's own gate commands. `cstan verify` runs them in a scratch worktree, in order, and records pass or fail for the exact commit and command list, so a report or a review can rely on a result instead of an agent's word. An absent section means no gate and no change for the project. Unknown keys, values of the wrong type and invalid values are refused by `cstan config check`, with a message naming the key (`verify.max_parallel`).
+
+```toml
+[verify]
+commands = ["scripts/check.sh rust"]
+env = { CI = "1" }
+timeout_seconds = 3600
+max_parallel = 1
+auto = ["report", "integration"]
+require = ["review", "integrate"]
+output_tail_bytes = 8192
+max_log_bytes = 4194304
+keep_logs = 20
+worktree_hooks = true
+reap = true
+scratch_dir = "~/.cache/capstan/verify"
+```
+
+| Key | Meaning |
+| --- | --- |
+| `commands` | Required. 1 to 16 non-empty strings of at most 1000 characters, each run with `sh -c` in the scratch worktree, in order; the run stops at the first non-zero exit. |
+| `env` | Extra variables for the commands, `{ NAME = "value" }`. A name is checked like `[env] pass`: upper-case letters, digits and underscore, not `CAPSTAN_*`, and none of the reserved names (`PATH`, `HOME`, `SHELL`, ...) or prefixes (`LD_`, `DYLD_`, `GIT_`, `BASH_`). Values must not look like credentials. |
+| `timeout_seconds` | Limit for the whole run, 60 to 14400. Default 3600. |
+| `max_parallel` | Runs that may be active at once, 1 to 8. Default 1. |
+| `auto` | Any of `"report"`, `"integration"`: verify automatically when a developer reports, or when an integration is made. Default `[]`. |
+| `require` | Any of `"review"`, `"integrate"`: refuse `cstan request-review` or `cstan integrate` with `verify_required` unless a passed run matches the commit and the commands. Default `[]`. |
+| `output_tail_bytes` | How much of the end of the output is kept in the result and shown in briefs, 1024 to 12288. Default 8192. |
+| `max_log_bytes` | Cap on the full log of one run, 65536 to 67108864. Default 4194304. |
+| `keep_logs` | Number of run logs kept, 1 to 500. Default 20. |
+| `worktree_hooks` | `true` (default) runs `[worktree] setup` before the commands and `teardown` after them, in the scratch worktree. |
+| `reap` | `true` (default) stops, when a run ends, every process that still carries the run's `CAPSTAN_VERIFY_RUN_ID` in its environment, including a tool daemon (an sccache server, say) the gate started in another session; `false` leaves them running, for tools other agents reuse. The scratch worktree is always removed. After a daemon crash or restart the processes of an interrupted run are always stopped this way, whatever `reap` says, because the ledger records only the first step's process group; the recovery teardown hook gets `CAPSTAN_VERIFY_COMMIT` like the run. |
+| `scratch_dir` | Where scratch worktrees are made: an absolute path or one starting with `~/`, without `..`. Default `<cache root>/projects/<project id>/verify`, resolved by the daemon. The daemon makes the directory with a `.capstan-verify` marker file naming the project and refuses a directory that already holds other files and has no marker (`verify_scratch_refused`); it removes only worktrees of this repository that it finds there. |
+
+A passed run is keyed by the commit and by the SHA-256 of the command list (`commands_sha`): changing, adding, removing or reordering a command makes earlier passes stale. A review brief carries a gate line; when it says the gate passed at the reviewed commit, the reviewer does targeted checks and does not rerun the full gate.
+
+### Examples
+
+Rust:
+
+```toml
+[verify]
+commands = ["scripts/check.sh rust"]
+```
+
+Python:
+
+```toml
+[verify]
+commands = ["pytest -q"]
+timeout_seconds = 1800
+```
+
+Node:
+
+```toml
+[verify]
+commands = ["npm test"]
+env = { CI = "1" }
+```
+
+Go:
+
+```toml
+[verify]
+commands = ["go vet ./...", "go test ./..."]
+```
+
 ## `CAPSTAN_ALLOW_FOREIGN_SOCKET`
 
 Set to `1` in an agent shell to let `cstan` use a `CAPSTAN_SOCKET` that is not the socket of the project (nearest `.capstan/` ancestor) the working directory is in. Without it such a command exits 2 and sends no request. With it, one warning line is printed per command. `cstan inbox --hook` ignores it: on a foreign socket it stays silent and makes no request.

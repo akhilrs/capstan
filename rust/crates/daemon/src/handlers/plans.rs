@@ -659,6 +659,70 @@ fn link_fields(links: &[Value], kind: &str, id: &str) -> Map<String, Value> {
     fields
 }
 
+/// The latest verify run of a report or integration as the short record the plan rows carry; null when none ran.
+fn latest_gate(
+    core: &capstan_kernel::Core,
+    subject_id: &str,
+) -> capstan_kernel::KernelResult<Value> {
+    let runs = core.verify_runs(Some(subject_id), 1)?;
+    let Some(run) = runs["runs"].as_array().and_then(|runs| runs.first()) else {
+        return Ok(Value::Null);
+    };
+    let mut gate = Map::new();
+    for key in [
+        "runId",
+        "state",
+        "commitSha",
+        "durationMs",
+        "failedStep",
+        "exitCode",
+        "finishedAt",
+    ] {
+        gate.insert(key.into(), field(run, key));
+    }
+    Ok(Value::Object(gate))
+}
+
+/// `packageId` -> the latest gate of the package's latest accepted report (the one its progress is read from), and
+/// `integrationId` -> the latest gate of each signed-off integration, for a project with a `[verify]` section.
+fn gates_of(
+    core: &capstan_kernel::Core,
+    controller: &str,
+    detail: &Value,
+) -> capstan_kernel::KernelResult<Map<String, Value>> {
+    let reports = core.agent_reports(controller, Some(1000))?;
+    let mut gates = Map::new();
+    for package in detail["packages"].as_array().into_iter().flatten() {
+        let (Some(id), Some(assignee), Some(assigned_at)) = (
+            package["packageId"].as_str(),
+            package["assigneeAgentId"].as_str(),
+            package["assignedAt"].as_str(),
+        ) else {
+            gates.insert(
+                package["packageId"].as_str().unwrap_or("").to_string(),
+                Value::Null,
+            );
+            continue;
+        };
+        let report = reports.as_array().into_iter().flatten().find(|r| {
+            r["agentId"] == assignee
+                && r["state"] == "accepted"
+                && r["createdAt"].as_str().is_some_and(|at| at >= assigned_at)
+        });
+        let gate = match report.and_then(|r| r["reportId"].as_str()) {
+            Some(report_id) => latest_gate(core, report_id)?,
+            None => Value::Null,
+        };
+        gates.insert(id.to_string(), gate);
+    }
+    for signoff in detail["signoffs"].as_array().into_iter().flatten() {
+        if let Some(id) = signoff["integrationId"].as_str() {
+            gates.insert(format!("integration:{id}"), latest_gate(core, id)?);
+        }
+    }
+    Ok(gates)
+}
+
 /// One line of `plan show --brief` per plan: the plan fields and a count of its packages by progress.
 fn brief_plans(
     core: &capstan_kernel::Core,
@@ -703,7 +767,12 @@ fn package_progress_label(package: &Value) -> String {
 }
 
 /// `plan show <id> --brief`: the plan, then one row per package with what the stored body says of it.
-fn brief_plan(detail: &Value, plan_id: &str, links: &[Value]) -> Value {
+fn brief_plan(
+    detail: &Value,
+    plan_id: &str,
+    links: &[Value],
+    gates: Option<&Map<String, Value>>,
+) -> Value {
     let body: Value = detail["revision"]["bodyJson"]
         .as_str()
         .and_then(|text| serde_json::from_str(text).ok())
@@ -733,6 +802,12 @@ fn brief_plan(detail: &Value, plan_id: &str, links: &[Value]) -> Value {
             );
             map.insert("assignee".into(), field(package, "assigneeAgentId"));
             map.insert("progress".into(), json!(package_progress_label(package)));
+            if let Some(gates) = gates {
+                map.insert(
+                    "verify".into(),
+                    gates.get(id).cloned().unwrap_or(Value::Null),
+                );
+            }
             map.extend(link_fields(links, "package", &format!("{plan_id}/{id}")));
             Value::Object(map)
         })
@@ -810,8 +885,22 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             format!("unknown_plan: no plan {plan_id}"),
         ));
     }
+    // The gate of each package and signed-off integration, read from the ledger only when the project has one.
+    let gates: Option<Map<String, Value>> = if env.deps.verify.is_some() {
+        let (controller, shown) = (env.deps.credential().to_string(), detail.clone());
+        Some(
+            env.deps
+                .kernel
+                .run(move |core| gates_of(core, &controller, &shown).map(Value::Object))?
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+    } else {
+        None
+    };
     if brief {
-        return Ok(ok(brief_plan(&detail, plan_id, &links)));
+        return Ok(ok(brief_plan(&detail, plan_id, &links, gates.as_ref())));
     }
     let revision = if detail["revision"].is_null() {
         Value::Null
@@ -853,10 +942,34 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             let mut map = package.as_object().cloned().unwrap_or_default();
             let id = format!("{plan_id}/{}", package["packageId"].as_str().unwrap_or(""));
             map.extend(link_fields(&links, "package", &id));
+            if let Some(gates) = &gates {
+                map.insert(
+                    "verify".into(),
+                    gates
+                        .get(package["packageId"].as_str().unwrap_or(""))
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                );
+            }
             Value::Object(map)
         })
         .collect();
     result.insert("packages".into(), Value::Array(packages));
-    result.insert("signoffs".into(), field(&detail, "signoffs"));
+    let mut signoffs = field(&detail, "signoffs");
+    if let Some(gates) = &gates {
+        for signoff in signoffs.as_array_mut().into_iter().flatten() {
+            let key = format!(
+                "integration:{}",
+                signoff["integrationId"].as_str().unwrap_or("")
+            );
+            if let Some(map) = signoff.as_object_mut() {
+                map.insert(
+                    "verify".into(),
+                    gates.get(&key).cloned().unwrap_or(Value::Null),
+                );
+            }
+        }
+    }
+    result.insert("signoffs".into(), signoffs);
     Ok(ok(Value::Object(result)))
 }

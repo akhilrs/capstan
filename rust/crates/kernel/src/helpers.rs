@@ -660,6 +660,7 @@ pub fn review_task(
     row: &ReviewRow,
     authors: &[&AgentReportRow],
     amendment: Option<&PlanAmendmentBrief<'_>>,
+    brief: &ReviewBrief,
 ) -> String {
     if let Some(plan_id) = &row.subject_plan_id {
         let revision = row
@@ -731,8 +732,119 @@ pub fn review_task(
             quoted(&report.summary)
         ));
     }
+    if let Some(verify) = &brief.verify {
+        lines.push(verify_line(row, verify));
+    }
     lines.push("Review only that change. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and where.".to_string());
     lines.join("\n")
+}
+
+/// What the controller adds to a review task beyond the review row. A default brief adds nothing, so the task is the
+/// one the review row alone gives. This is where further controller-side facts (the diff scope of PM-188) are added.
+#[derive(Clone, Debug, Default)]
+pub struct ReviewBrief {
+    /// The latest verify run at the reviewed commit, when the request asked for the gate (`verifyCommandsSha`).
+    pub verify: Option<VerifySummary>,
+}
+
+/// One verify run as a review brief shows it. `state` is `missing` when no run is recorded at the commit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VerifySummary {
+    pub run_id: String,
+    pub state: String,
+    pub commit_sha: String,
+    pub duration_ms: Option<i64>,
+    pub failed_step: Option<i64>,
+    pub exit_code: Option<i64>,
+    pub tail_excerpt: String,
+}
+
+/// The longest verify output excerpt a review task or a notice carries.
+const TAIL_EXCERPT_LINES: usize = 20;
+const TAIL_EXCERPT_BYTES: usize = 1500;
+
+/// The last lines of a verify output tail, bounded in lines and bytes (cut at a character boundary, keeping the end).
+pub fn tail_excerpt(tail: &str) -> String {
+    let lines: Vec<&str> = tail.trim_end().lines().collect();
+    let start = lines.len().saturating_sub(TAIL_EXCERPT_LINES);
+    let joined = lines[start..].join("\n");
+    if joined.len() <= TAIL_EXCERPT_BYTES {
+        return joined;
+    }
+    let mut cut = joined.len() - TAIL_EXCERPT_BYTES;
+    while !joined.is_char_boundary(cut) {
+        cut += 1;
+    }
+    joined[cut..].to_string()
+}
+
+/// A duration in milliseconds as short text: `850ms`, `12.3s`, `4m05s`.
+pub fn format_duration_ms(ms: i64) -> String {
+    if ms < 1000 {
+        format!("{ms}ms")
+    } else if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else {
+        format!("{}m{:02}s", ms / 60_000, (ms % 60_000) / 1000)
+    }
+}
+
+fn verify_line(row: &ReviewRow, verify: &VerifySummary) -> String {
+    let sha = &row.commit_sha;
+    let duration = verify
+        .duration_ms
+        .map_or("unknown time".to_string(), format_duration_ms);
+    match verify.state.as_str() {
+        "passed" => format!(
+            "Gate passed at {sha} (run {}, {duration}): do not rerun the full gate; run only targeted checks.",
+            verify.run_id
+        ),
+        "queued" | "running" => format!("Gate running at {sha} (run {}).", verify.run_id),
+        "missing" => format!("No gate run is recorded at {sha}."),
+        _ => format!(
+            "Gate {} at {sha} (run {}, step {}, exit {}). Tail: {}",
+            verify.state,
+            verify.run_id,
+            verify.failed_step.map_or("null".into(), |n| n.to_string()),
+            verify.exit_code.map_or("null".into(), |n| n.to_string()),
+            quoted(&tail_excerpt(&verify.tail_excerpt))
+        ),
+    }
+}
+
+/// The refusal for a review or integration request whose subjects lack a passing verify run. `failures` is the
+/// `failures` list of `verify_gate_for_subjects`. The message starts with the code `verify_required`.
+pub fn verify_required_error(failures: &[Value]) -> KernelError {
+    let reason = |code: &str| match code {
+        "verify_running" => "a verify run is still running",
+        "verify_failed" => "the last verify run did not pass",
+        "verify_stale_commands" => "the only passed run used other verify commands",
+        _ => "no verify run is recorded",
+    };
+    let parts: Vec<String> = failures
+        .iter()
+        .map(|failure| {
+            let text = |key: &str| failure.get(key).and_then(Value::as_str).unwrap_or("null");
+            format!(
+                "{} at {}: {}",
+                text("subjectId"),
+                text("commitSha"),
+                reason(text("code"))
+            )
+        })
+        .collect();
+    let ids: Vec<&str> = failures
+        .iter()
+        .filter_map(|f| f.get("subjectId").and_then(Value::as_str))
+        .collect();
+    KernelError::MutationConflict(format!(
+        "verify_required: {}. Run: {}",
+        parts.join("; "),
+        ids.iter()
+            .map(|id| format!("cstan verify {id}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
 }
 
 fn unique_in_order(items: &[String]) -> Vec<&String> {

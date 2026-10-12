@@ -126,7 +126,15 @@ impl Cli<'_> {
         )
         .map_err(|e| kernel_failure(&e))?;
         let result = match ask {
-            Ask::Status => core.status_snapshot(),
+            Ask::Status => core.status_snapshot().and_then(|mut snapshot| {
+                // A project with a `[verify]` section shows its runs, as the daemon's own status does.
+                let gated = capstan_config::load_role_config(&self.ctx.cwd)
+                    .is_ok_and(|config| config.verify.is_some());
+                if let (true, Some(members)) = (gated, snapshot.as_object_mut()) {
+                    members.insert("verify".into(), core.verify_status()?);
+                }
+                Ok(snapshot)
+            }),
             Ask::Inspect(id) => core.inspect(id),
         };
         core.close();
@@ -216,6 +224,11 @@ impl Cli<'_> {
         if !json {
             let mut lines = render::controller_lines(Some(&status));
             lines.extend(render::pause_lines(Some(&status), self.ctx.now_ms)?);
+            lines.extend(
+                render::verify_status_lines(Some(&status), self.ctx.now_ms)
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             lines.extend(
                 render::cache_status_line(Some(&status), self.ctx.now_ms)
                     .iter()

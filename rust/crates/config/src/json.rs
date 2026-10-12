@@ -365,6 +365,9 @@ impl RoleConfig {
         if let Some(cache) = &self.cache {
             members.push(("cache", cache.to_value()));
         }
+        if let Some(verify) = &self.verify {
+            members.push(("verify", verify.to_value()));
+        }
         members.push(("env", object(vec![("pass", strings(&self.env_pass))])));
         members.push(("hosts", Value::Array(self.hosts.iter().map(host).collect())));
         members.push(("roles", Value::Array(self.roles.iter().map(role).collect())));

@@ -289,3 +289,28 @@ fn cache_is_in_the_help_the_command_help_and_the_man_page() {
         .iter()
         .any(|l| l == "cache clear <entry>...|--all [--force]"));
 }
+
+#[test]
+fn verify_is_in_the_help_and_refuses_unknown_forms() {
+    let (help, _, _) = run(&["help"]);
+    for syntax in [
+        "verify <report-or-integration-id>",
+        "verify show <run-id>",
+        "verify list [<subject-id>]",
+        "verify cancel <run-id>",
+    ] {
+        assert!(collapse(&help).contains(syntax), "{syntax}");
+    }
+    let (one, err, exit) = run(&["help", "verify"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert_eq!(one.matches("usage: cstan verify").count(), 4, "{one}");
+    for args in [
+        &["verify"][..],
+        &["verify", "frobnicate", "x"],
+        &["verify", "show"],
+    ] {
+        let (_, err, exit) = run(args);
+        assert_eq!(exit, 2, "{args:?}");
+        assert!(err.contains("usage:"), "{err}");
+    }
+}

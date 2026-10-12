@@ -5,7 +5,7 @@ use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     execute, js_trim, package_reviewed_notice, plan_needs_attention_notice, query_all, query_opt,
-    review_notice, review_record, review_task, safe_id_str, PlanAmendmentBrief,
+    review_notice, review_record, review_task, safe_id_str, PlanAmendmentBrief, ReviewBrief,
 };
 use crate::kernel::Kernel;
 use crate::plan_body::{findings_class, parse_plan_findings};
@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use std::sync::LazyLock;
 
 use super::integrations::{integration_row, IntegrationRow};
-use super::{message_notices, messages, plan_packages, plans};
+use super::{message_notices, messages, plan_packages, plans, verify_runs};
 
 static SHA1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").expect("the pattern is valid"));
@@ -378,13 +378,24 @@ pub fn begin_review(
             )?,
             None => None,
         };
-        let brief = amendment
+        let amendment_brief = amendment
             .as_ref()
             .map(|(amendment_json, amends_review_id)| PlanAmendmentBrief {
                 amendment_json,
                 amends_review_id,
             });
-        let task = review_task(&row, &authors, brief.as_ref());
+
+        let gate_brief = ReviewBrief {
+            verify: match field(input, "verifyCommandsSha").as_str() {
+                Some(commands_sha) => Some(verify_runs::summary_at(
+                    kernel,
+                    &row.commit_sha,
+                    commands_sha,
+                )?),
+                None => None,
+            },
+        };
+        let task = review_task(&row, &authors, amendment_brief.as_ref(), &gate_brief);
         messages::insert_queued_message(
             kernel,
             &controller,

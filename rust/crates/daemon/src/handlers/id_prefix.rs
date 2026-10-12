@@ -19,6 +19,7 @@ const RELAYS: &[IdColumn] = &[("prompt_relays", "relay_id")];
 const PROPOSALS: &[IdColumn] = &[("operator_proposals", "proposal_id")];
 const GRANTS: &[IdColumn] = &[("operator_grants", "grant_id")];
 const CLEANUPS: &[IdColumn] = &[("cleanups", "cleanup_id")];
+const RUNS: &[IdColumn] = &[("verify_runs", "run_id")];
 
 /// The arguments of `command` that hold record ids, with the tables each may name.
 fn id_arguments(command: &str, args: &[String]) -> Vec<(usize, &'static [IdColumn])> {
@@ -35,6 +36,9 @@ fn id_arguments(command: &str, args: &[String]) -> Vec<(usize, &'static [IdColum
         ("op", Some("revoke")) => vec![(1, GRANTS)],
         ("cleanup", Some("apply" | "decline")) => vec![(1, CLEANUPS)],
         ("plan", Some("signoff")) => vec![(2, INTEGRATIONS)],
+        ("verify", Some("show" | "cancel")) => vec![(1, RUNS)],
+        ("verify", Some("list")) => vec![(1, REPORT_OR_INTEGRATION)],
+        ("verify", Some(_)) => vec![(0, REPORT_OR_INTEGRATION)],
         _ => Vec::new(),
     }
 }
@@ -91,5 +95,9 @@ mod tests {
         assert_eq!(at("plan", "signoff p1 i1 done"), [2]);
         assert_eq!(at("plan", "show p1"), Vec::<usize>::new());
         assert_eq!(at("send", "a1 hi"), Vec::<usize>::new());
+        assert_eq!(at("verify", "r1"), [0]);
+        assert_eq!(at("verify", "show run1"), [1]);
+        assert_eq!(at("verify", "cancel run1"), [1]);
+        assert_eq!(at("verify", "list r1"), [1]);
     }
 }
