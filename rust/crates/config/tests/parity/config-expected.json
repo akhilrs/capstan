@@ -3,48 +3,48 @@
   "name": "captured-0001",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0002",
   "outcome": {
    "kind": "ok",
-   "sha256": "5ee9ed39761a7f4ecaf5012a7d7efe6f56e736a48dc839db1da5df231b937744",
-   "bytes": 3373
+   "sha256": "351943b1eafc79bb4afe0df3782a478c8c21f05c77e2eba039a1ab8807b00da5",
+   "bytes": 3542
   }
  },
  {
   "name": "captured-0003",
   "outcome": {
    "kind": "ok",
-   "sha256": "76503f383c9dd4b96a462f0dc1422d2484b727f466cfeabea98af6e2f5691245",
-   "bytes": 3368
+   "sha256": "8b48f6fcf34c72ed639731606e376efeb980128e3d3409feb6df5e427eff7cff",
+   "bytes": 3537
   }
  },
  {
   "name": "captured-0004",
   "outcome": {
    "kind": "ok",
-   "sha256": "a973e32e6df36dbb3c6f87cd0d532c7b6226a97be6749954afbad9d5e994955f",
-   "bytes": 3366
+   "sha256": "0d70255151c65978e94530794f7007ee5bc5918caca021ee86492cc05cfa8329",
+   "bytes": 3535
   }
  },
  {
   "name": "captured-0005",
   "outcome": {
    "kind": "ok",
-   "sha256": "d3139a0dcaac6ec8f3cc0cd3d3f4741225948c0a8523a4551556b701fff251d7",
-   "bytes": 3366
+   "sha256": "cdf2d3e075abde20c034c1a3c5e3601d12dd8f7ababb1fa466bcf67cabfc16b7",
+   "bytes": 3535
   }
  },
  {
   "name": "captured-0006",
   "outcome": {
    "kind": "ok",
-   "sha256": "4a06d62d7dc8d60236faac98c51e3eb59e96aa26894d4320107c557fe42fbc31",
-   "bytes": 3369
+   "sha256": "ce608200a8fcee657fff0dc11eb793c7a0b0131d5f82be267a76bf650d781162",
+   "bytes": 3538
   }
  },
  {
@@ -100,32 +100,32 @@
   "name": "captured-0014",
   "outcome": {
    "kind": "ok",
-   "sha256": "f21c6a55bacc52f8c896dcd66a1a0caec132f29d741c725800436f88c3443fd2",
-   "bytes": 6737
+   "sha256": "0560e7c1ac74d5519a68b1aa9ce513d9421a99ceeed781c7cd4e3ba98109f87f",
+   "bytes": 7003
   }
  },
  {
   "name": "captured-0015",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0016",
   "outcome": {
    "kind": "ok",
-   "sha256": "b23776a8e99da0c6f6feef96219208a67fb2837946a04a298abe83f99693ea4c",
-   "bytes": 3367
+   "sha256": "6e4280c3edb71cbe304ff8edc465a61486c0b7eeffd947fbf5f6847bbfc45255",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0017",
   "outcome": {
    "kind": "ok",
-   "sha256": "dc838e35a9eeca1c1a8cf130543198770084ebe4bbdf1f86954b1aa46bb59d91",
-   "bytes": 3368
+   "sha256": "e137c761972a99f8d814e4aec37fc523a2c75173e2e916808005f45230a07128",
+   "bytes": 3537
   }
  },
  {
@@ -188,16 +188,16 @@
   "name": "captured-0026",
   "outcome": {
    "kind": "ok",
-   "sha256": "2d853fded06e4ef86904647935566bcb8a2d6005ffe174b86ecd2eb4c0fd5f83",
-   "bytes": 3367
+   "sha256": "7c07376a33765ccf829359667cc42b7bc29708547711628ac4c0e38997f0ac62",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0027",
   "outcome": {
    "kind": "ok",
-   "sha256": "1668ae2fc9cfd3a18dc32ce4f219d6702786f8bdbfc66a1381f69978761caf72",
-   "bytes": 3368
+   "sha256": "e2cd375ff4dc63307153cf1b733ebc611d99b2641432e6583a5df15f4621c649",
+   "bytes": 3537
   }
  },
  {
@@ -253,24 +253,24 @@
   "name": "captured-0035",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0036",
   "outcome": {
    "kind": "ok",
-   "sha256": "1e3f4182ba3c4ecd9013417774e9379c4df4cdc6f88be9345d489a8cd64099ae",
-   "bytes": 3419
+   "sha256": "670fe39818be5f35baa1f9a9d75818e3fdab736c8ebc9edda7104bec3bc12cbd",
+   "bytes": 3588
   }
  },
  {
   "name": "captured-0037",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -494,16 +494,16 @@
   "name": "captured-0069",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0070",
   "outcome": {
    "kind": "ok",
-   "sha256": "9816745fa3092cbecc0aebb61068bc5cf7c83adf1cfc578db8f3a23387d7ead2",
-   "bytes": 3368
+   "sha256": "c4d1d888869b890bea79da6e0d612d808f50907b2b345a9599d3cd5c42448e92",
+   "bytes": 3537
   }
  },
  {
@@ -657,32 +657,32 @@
   "name": "captured-0092",
   "outcome": {
    "kind": "ok",
-   "sha256": "4bc2099692c9dd0a16336f2d4b5d2be435d4e74004f251c3ed5238b266182fed",
-   "bytes": 3271
+   "sha256": "baa4d848916961bb3b1341871184a532c23cdd6902078a95d130b1488a68b777",
+   "bytes": 3440
   }
  },
  {
   "name": "captured-0093",
   "outcome": {
    "kind": "ok",
-   "sha256": "b615f5860bc119f72aa8793f93546c037d52e6c535ea86da99424db6589e8d6d",
-   "bytes": 3294
+   "sha256": "5afccfab356409f53450be3f3a6fb70192b8be0fecfb0af4f58f542c220733bd",
+   "bytes": 3463
   }
  },
  {
   "name": "captured-0094",
   "outcome": {
    "kind": "ok",
-   "sha256": "719754942ec59034e5b57156dca728d8a99d7261969bdb46c5c1dad6ec17d5ba",
-   "bytes": 3369
+   "sha256": "dd90cc8e1347d909db316a8dbddae4242a21ba26c794f3a6b26c0b240fc7006f",
+   "bytes": 3538
   }
  },
  {
   "name": "captured-0095",
   "outcome": {
    "kind": "ok",
-   "sha256": "a20d3cd83495bcec0a3055a92f3e112be07c14995cb9ca053a9ee128e9fb5150",
-   "bytes": 3367
+   "sha256": "a60b5276fc94281fb1c29a53d27c6aa9e599360864647086802fc739729112fa",
+   "bytes": 3536
   }
  },
  {
@@ -731,14 +731,14 @@
   "name": "captured-0102",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, liveness, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
   "name": "captured-0103",
   "outcome": {
    "kind": "error",
-   "message": "roles.pm has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+   "message": "roles.pm has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file, max_active"
   }
  },
  {
@@ -920,32 +920,32 @@
   "name": "captured-0129",
   "outcome": {
    "kind": "ok",
-   "sha256": "d03f546fe513fe8d4001640da34e43ac6a40e86821e73835fe6b26648386198e",
-   "bytes": 3431
+   "sha256": "09445c449fec133e4c459e89393970b575ab7cf45246b7f7dc80cadaec371264",
+   "bytes": 3600
   }
  },
  {
   "name": "captured-0130",
   "outcome": {
    "kind": "ok",
-   "sha256": "d03f546fe513fe8d4001640da34e43ac6a40e86821e73835fe6b26648386198e",
-   "bytes": 3431
+   "sha256": "09445c449fec133e4c459e89393970b575ab7cf45246b7f7dc80cadaec371264",
+   "bytes": 3600
   }
  },
  {
   "name": "captured-0131",
   "outcome": {
    "kind": "ok",
-   "sha256": "920731faf6e2e6e0bbc8374f5292f0d991a464f078d6c7774ce74f92d9d5031a",
-   "bytes": 3440
+   "sha256": "011756d366791a84da75a61645deefe65a08beb936a89e716eb32e2f9f864798",
+   "bytes": 3609
   }
  },
  {
   "name": "captured-0132",
   "outcome": {
    "kind": "ok",
-   "sha256": "1b7bcc87ca59cd673a97f61294f6b395856f8dfd955a4fa5217449e01d0d1f42",
-   "bytes": 3438
+   "sha256": "c70d898ca8e01532c6d0423a41e4e18c9fc90d56908fac7f01aca345fa652f02",
+   "bytes": 3607
   }
  },
  {
@@ -1029,8 +1029,8 @@
   "name": "captured-0144",
   "outcome": {
    "kind": "ok",
-   "sha256": "32800629164af23cae74b03f89d3d0a5f6c6ff07f6fbe69d0585153090818320",
-   "bytes": 3431
+   "sha256": "982b292e57579b4e736b439530f965824992e2ed4c8d5612d125ab9ed8115d76",
+   "bytes": 3600
   }
  },
  {
@@ -1058,8 +1058,8 @@
   "name": "captured-0148",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -1094,32 +1094,32 @@
   "name": "captured-0153",
   "outcome": {
    "kind": "ok",
-   "sha256": "5ad2554c09e5cffec277d1d9c4e74d7fc07a72f902be70afa939fd3543d91d27",
-   "bytes": 3373
+   "sha256": "5feed0ecede4825bdf4b92feb4b50c98b83baabb2474bcdd3ed50ffd937602e5",
+   "bytes": 3542
   }
  },
  {
   "name": "captured-0154",
   "outcome": {
    "kind": "ok",
-   "sha256": "a6491f6ead2a52049eed003cd794b47dcccf7ad15e41848b529935364274d370",
-   "bytes": 3382
+   "sha256": "c4ee41fb1493f4646600b266c3448f977004cdf94522f44307bd68fa369d1325",
+   "bytes": 3551
   }
  },
  {
   "name": "captured-0155",
   "outcome": {
    "kind": "ok",
-   "sha256": "6816d3bff14af65f1ff96040dfc1b7b4483b62a75618ed99986720beb96bd12b",
-   "bytes": 3369
+   "sha256": "6e239337c0395d403e42743244b1eb9b8fe8eab6aed6919757a1a996dceb381e",
+   "bytes": 3538
   }
  },
  {
   "name": "captured-0156",
   "outcome": {
    "kind": "ok",
-   "sha256": "4e6504636f51941cd950f95d33f63d27c4ccc727dd107f50d62f7daf1a368379",
-   "bytes": 3431
+   "sha256": "72f4bbc4f10e602b92b8f55f543c2d1b7ddcb4ce3d17b05b442b06e71e0981c6",
+   "bytes": 3600
   }
  },
  {
@@ -1182,8 +1182,8 @@
   "name": "captured-0165",
   "outcome": {
    "kind": "ok",
-   "sha256": "2e2841a22f408c43c62b07ef9e5130eba02c685d8a187e32cc2f4ef41bd0c78f",
-   "bytes": 3431
+   "sha256": "ae54e6aaafa2d7d3deacb576100508bad2493e0d4b1a306b465dfa1758c65dcc",
+   "bytes": 3600
   }
  },
  {
@@ -1204,8 +1204,8 @@
   "name": "captured-0168",
   "outcome": {
    "kind": "ok",
-   "sha256": "759157d4bc4b380f07019b688bf542a3659c7683a5b36793368c96565497ae1f",
-   "bytes": 3366
+   "sha256": "36c185bbf1c19747331cda435adc832937d330c6324611184261f6bd6e73f3e8",
+   "bytes": 3535
   }
  },
  {
@@ -1226,8 +1226,8 @@
   "name": "captured-0171",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -1241,8 +1241,8 @@
   "name": "captured-0173",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -1291,7 +1291,7 @@
   "name": "captured-0180",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, liveness, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -1312,16 +1312,16 @@
   "name": "captured-0183",
   "outcome": {
    "kind": "ok",
-   "sha256": "48cd4a73a2993b78d79403188430cec8b0ab601307ec25f71eebd09f0dedf261",
-   "bytes": 3452
+   "sha256": "4e4b5097d086354ba901ae5c22781d53a9e73f97dcf8cb5771b01c56be951467",
+   "bytes": 3621
   }
  },
  {
   "name": "captured-0184",
   "outcome": {
    "kind": "ok",
-   "sha256": "72d1c59eb63ce687889d5f8a811a58a7617870078b7e4b278268af1a6d27c461",
-   "bytes": 3452
+   "sha256": "a2be7cb18bba10dc4e03ec5ab7f7dc1e48d58c7afb67f44903c3e43af838c905",
+   "bytes": 3621
   }
  },
  {
@@ -1335,48 +1335,48 @@
   "name": "captured-0186",
   "outcome": {
    "kind": "ok",
-   "sha256": "b3b1708d9d97275b623c2997515020e709f5dc8fd5b009f4c0f947cc79822cdf",
-   "bytes": 3431
+   "sha256": "d687f11198401962dade8034226d82af5c1ad5b557d50396b857d80a78ac8e21",
+   "bytes": 3600
   }
  },
  {
   "name": "captured-0187",
   "outcome": {
    "kind": "ok",
-   "sha256": "24765be06f1bdd1da087ea550fb90895a98db2f1b0bdc76f45f4bad501e2fd56",
-   "bytes": 3971
+   "sha256": "cae42b4caa97599d75885b640afca2de40cde9da38e204bf31000d18d63a9c40",
+   "bytes": 4162
   }
  },
  {
   "name": "captured-0188",
   "outcome": {
    "kind": "ok",
-   "sha256": "a2ca97a60077b06d7aba6ee684c90f500b2df99907e71a1799c5e563ca8e961a",
-   "bytes": 3772
+   "sha256": "84937b5e57dadba312b30245136faf1a167f95ecaa5a628f043ade88bc432bb6",
+   "bytes": 3963
   }
  },
  {
   "name": "captured-0189",
   "outcome": {
    "kind": "ok",
-   "sha256": "2f1b3ca2ce01e1d69ae27d60e6afa4aa808be067ceda843e4b70b633d0fce34b",
-   "bytes": 3795
+   "sha256": "1ba826baf15186a61fcfcd1ab361b71fbd4e66f962ee081a914db9615ad56a7f",
+   "bytes": 3986
   }
  },
  {
   "name": "captured-0190",
   "outcome": {
    "kind": "ok",
-   "sha256": "f54dbe0b00d26e62e114aa591739d6936559d81747716c5fdd2873b65a284814",
-   "bytes": 3365
+   "sha256": "5f4f390a3f39460198212b7ced21e60ccb8844d2eeaee6a1dbfcea3cceb0ba07",
+   "bytes": 3534
   }
  },
  {
   "name": "captured-0191",
   "outcome": {
    "kind": "ok",
-   "sha256": "0ccd764dee090a854499b74835585bae7685e62ed3590920b8175e31885c0df1",
-   "bytes": 3368
+   "sha256": "feeb5bbd0adf43b802bc3489ecdfe6a6596e702e12437f121efa4d0cb255b834",
+   "bytes": 3537
   }
  },
  {
@@ -1432,8 +1432,8 @@
   "name": "captured-0199",
   "outcome": {
    "kind": "ok",
-   "sha256": "54fe1164fd95b22e8e4972693be1d64d6416c4d1003bb06ba80633b0970ccf3b",
-   "bytes": 4061
+   "sha256": "86c9eeb75465660a748484152c191f4cebbae99930d499dbe92a82abeed09d10",
+   "bytes": 4255
   }
  },
  {
@@ -1482,7 +1482,7 @@
   "name": "captured-0206",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, liveness, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
@@ -1496,24 +1496,24 @@
   "name": "captured-0208",
   "outcome": {
    "kind": "ok",
-   "sha256": "13532ec6b65a61ee68c52c00da1e1f3f3772eed4c97da4275bab6ab380d416d5",
-   "bytes": 3780
+   "sha256": "c955d1319f37b135606afa8ef14f32d10e8876bc1e970da52701c6d90ce3f5e6",
+   "bytes": 3974
   }
  },
  {
   "name": "captured-0209",
   "outcome": {
    "kind": "ok",
-   "sha256": "18054fe79a012bd2f0bc9aa88350467dced9c9cf9b8f3650cef2ca7a83cdca27",
-   "bytes": 3511
+   "sha256": "7b2939b6634230c55fd90166c5927c59f22de609f6fc999802a3e4abf0f1c61f",
+   "bytes": 3680
   }
  },
  {
   "name": "captured-0210",
   "outcome": {
    "kind": "ok",
-   "sha256": "1834a657ff79c3b044f70bcebb06c335d64e2af113097c1a3f2a927f6d88242f",
-   "bytes": 3366
+   "sha256": "1cad2d8b80760de1b5d61148fdeb19f884b193dce74ebdeb87b328c397ddec8e",
+   "bytes": 3535
   }
  },
  {
@@ -1576,24 +1576,24 @@
   "name": "captured-0219",
   "outcome": {
    "kind": "ok",
-   "sha256": "b219fcbdcabe6b6b3a902a92911300ae56cad0d49a7e18f33f8618f0e8332444",
-   "bytes": 4783
+   "sha256": "c109587597653c75471d4cb5a0ec4e700c802e3886a0047f1db86b3e4a112ee3",
+   "bytes": 5024
   }
  },
  {
   "name": "captured-0220",
   "outcome": {
    "kind": "ok",
-   "sha256": "ea93349a2f11b1d7ab2c8f4db5a860dc560e9c188393d583b954ed8816559c3e",
-   "bytes": 4837
+   "sha256": "8b7aeddb5e8f87f9cf17ee0a10b0ac24c51e7dec302fe0671f59b8fafcd81a43",
+   "bytes": 5078
   }
  },
  {
   "name": "captured-0221",
   "outcome": {
    "kind": "ok",
-   "sha256": "bb61d55de1068d829789d27fda230c342d1a18499a8f60a2bfa2338933aa835f",
-   "bytes": 4796
+   "sha256": "9b312f120df72c1a6d0aaebb36627f8c33c701852da94bebd7144e352c9fef48",
+   "bytes": 5037
   }
  },
  {
@@ -1663,32 +1663,32 @@
   "name": "captured-0231",
   "outcome": {
    "kind": "ok",
-   "sha256": "612cf85ece8ce4078e4009bfdc7723dff194deaa426ef09af2aed2ea843d4872",
-   "bytes": 3510
+   "sha256": "7d9543acc0ed2f7bf69a60541210ef5971d17b5081b88d5102200a7c001e2b57",
+   "bytes": 3679
   }
  },
  {
   "name": "captured-0232",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0233",
   "outcome": {
    "kind": "ok",
-   "sha256": "93fb3e5ebda1e38f13edd10ef06ebfcb6a8ace4dd998d8e51adeb8bf8eb9cea1",
-   "bytes": 3367
+   "sha256": "c5a33681dd096a5d9082569913beea112230a5bfab561b0a909ced041b43abee",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0234",
   "outcome": {
    "kind": "ok",
-   "sha256": "7fea6baefc23c750691231c142c3f27fbadcfee8115a538565fe7406e12f8110",
-   "bytes": 3702
+   "sha256": "4b0c6c5955b4b321f975719191a0435aa0a9ffa3545b70a92814f640b727e94f",
+   "bytes": 3896
   }
  },
  {
@@ -1800,48 +1800,48 @@
   "name": "captured-0250",
   "outcome": {
    "kind": "ok",
-   "sha256": "b0b517fdb627a69b53be2e8013b17e730f0be9c3135043d2a3f087ee0b5f922b",
-   "bytes": 12726
+   "sha256": "3e13a7a1ec8b154971ef65a6e2a61dec8bc713df8e466cbea72b472780bc2abe",
+   "bytes": 13092
   }
  },
  {
   "name": "captured-0251",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0252",
   "outcome": {
    "kind": "ok",
-   "sha256": "d59484ef538017a650ba542f2478ddff38c812f11d16b6fb51e7756ec79cb72f",
-   "bytes": 3373
+   "sha256": "e8a6af0c851bea38c94071ed35aa115bfb8b2622ce50cc43e775859f8903a632",
+   "bytes": 3542
   }
  },
  {
   "name": "captured-0253",
   "outcome": {
    "kind": "ok",
-   "sha256": "c67f9b093ce288710169802b3546d3ff5736079694bb5972806c975fae0908ba",
-   "bytes": 3371
+   "sha256": "4c95a04bdccb184b4c92397b8b911e39665966e550854c734d6b51c909410a9f",
+   "bytes": 3540
   }
  },
  {
   "name": "captured-0254",
   "outcome": {
    "kind": "ok",
-   "sha256": "1fccef761f11b25230d8b47d2bb5de78e2c4ead266cbe5cc18a789fcafa08b78",
-   "bytes": 3365
+   "sha256": "e94402d8efb5b9fe1839b2e530abde9fea27277571ecb387f5e722358cc5584e",
+   "bytes": 3534
   }
  },
  {
   "name": "captured-0255",
   "outcome": {
    "kind": "ok",
-   "sha256": "53a0450e720846115f24942b2a12dd22f63a8bb1b4b4d27eb646e399d6c71c75",
-   "bytes": 3192
+   "sha256": "3741e80f1ddeb84f28fe1fb2cf88600a7777f21bbb1ccc78e9c04a93a0a1a08f",
+   "bytes": 3361
   }
  },
  {
@@ -1883,72 +1883,72 @@
   "name": "captured-0261",
   "outcome": {
    "kind": "ok",
-   "sha256": "d59484ef538017a650ba542f2478ddff38c812f11d16b6fb51e7756ec79cb72f",
-   "bytes": 3373
+   "sha256": "e8a6af0c851bea38c94071ed35aa115bfb8b2622ce50cc43e775859f8903a632",
+   "bytes": 3542
   }
  },
  {
   "name": "captured-0262",
   "outcome": {
    "kind": "ok",
-   "sha256": "04b8616371cf001ee0c7968ce6d9be04d0b87855dc40b1b06981b76751739903",
-   "bytes": 3194
+   "sha256": "4948a261963511a4f4714e39070da6c4c8642f09388d6d0bf12ea1610d9a4df4",
+   "bytes": 3363
   }
  },
  {
   "name": "captured-0263",
   "outcome": {
    "kind": "ok",
-   "sha256": "d28ff72b95832c9fa18273afd8a329b72bc9525670e783b2653a7d43d0505de6",
-   "bytes": 3192
+   "sha256": "9a6cea17b08bd4af690fee17d15c493bc2d1d166fbfa86a7e0dd8dcf76a1e44a",
+   "bytes": 3361
   }
  },
  {
   "name": "captured-0264",
   "outcome": {
    "kind": "ok",
-   "sha256": "f21c6a55bacc52f8c896dcd66a1a0caec132f29d741c725800436f88c3443fd2",
-   "bytes": 6737
+   "sha256": "0560e7c1ac74d5519a68b1aa9ce513d9421a99ceeed781c7cd4e3ba98109f87f",
+   "bytes": 7003
   }
  },
  {
   "name": "captured-0265",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "captured-0266",
   "outcome": {
    "kind": "ok",
-   "sha256": "96ba6dee111d352dd7b8c8a645c18fd22130cf5852dd62c08da26792fe7bc457",
-   "bytes": 3447
+   "sha256": "4e61b9bcfc6b76a415915fdbd53180ab5929268c3fe2ffc49977e5096dc1531d",
+   "bytes": 3616
   }
  },
  {
   "name": "captured-0267",
   "outcome": {
    "kind": "ok",
-   "sha256": "5a8869e4121532299ffcb777449e80a54192f780f4a54e3a79689cb5496649b4",
-   "bytes": 3438
+   "sha256": "6ec40f9596d2d0cca1eecdeb8752f991297ca8b24d5038c95f10524befd67189",
+   "bytes": 3607
   }
  },
  {
   "name": "captured-0268",
   "outcome": {
    "kind": "ok",
-   "sha256": "7a1af5bf5973ceddefdc603b5a4ab007e6624d19d174447084e451115e4f5abf",
-   "bytes": 3439
+   "sha256": "17c9644a6c63473d88615adfb3ca7a37fd0f9564222a487a69ed20848139fe1a",
+   "bytes": 3608
   }
  },
  {
   "name": "captured-0269",
   "outcome": {
    "kind": "ok",
-   "sha256": "c853cdc5cb08daa6beb263fbeddddf6a7b415e08b8ea45ec9beddf5d039c369a",
-   "bytes": 3441
+   "sha256": "d746570c4873f9a582b2ebaeec1343b27114b65d42a9addf864cbd3158cda523",
+   "bytes": 3610
   }
  },
  {
@@ -2060,39 +2060,39 @@
   "name": "captured-0285",
   "outcome": {
    "kind": "error",
-   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
+   "message": "top level has 1 unknown key(s); allowed: schema_version, project, herdr_session, notifications, timers, supervision, liveness, architect, operator, researcher, mcp_servers, prompt_relay, nexora, defaults, limits, ledger, layout, worktree, daemon, env, hosts, roles"
   }
  },
  {
   "name": "captured-0286",
   "outcome": {
    "kind": "ok",
-   "sha256": "f7e1b9e9431c951158c2210fc3affa970a43a346aa5dac23f9abd2e29f360f73",
-   "bytes": 3481
+   "sha256": "38f509638a116ce149e2ab823d56f1b87f86bb0eb2b6b3c73e94d79372535dc5",
+   "bytes": 3650
   }
  },
  {
   "name": "captured-0287",
   "outcome": {
    "kind": "ok",
-   "sha256": "363554339312dc660052610aa37a52aadedab4edb591acdbeb2b82dc562901d5",
-   "bytes": 3498
+   "sha256": "8d79c0ea9da6c6b809f36ee95d442b4500241c6e58057c7d98bfc2a64df96553",
+   "bytes": 3667
   }
  },
  {
   "name": "captured-0288",
   "outcome": {
    "kind": "ok",
-   "sha256": "f2c69ef9bed625315301dd3b13e6e34e9aceeaad96d125ae7b4a0b59f41f39eb",
-   "bytes": 3473
+   "sha256": "b63d0ee5bab8940a3212f3464f0d7539f322d7ab38f4faeb81e5b80ed3c7224b",
+   "bytes": 3642
   }
  },
  {
   "name": "captured-0289",
   "outcome": {
    "kind": "ok",
-   "sha256": "5f12132db979850fe0b50715fa17cb90d7e0f43630e140ca9e1833dc4e67bd1a",
-   "bytes": 3476
+   "sha256": "f64b49752924ec17fc865e9e901c95dcec69bec153617301a6ad6b0a49481976",
+   "bytes": 3645
   }
  },
  {
@@ -2176,32 +2176,32 @@
   "name": "captured-0301",
   "outcome": {
    "kind": "ok",
-   "sha256": "c5f1d7928ddabade16e264d43d40ba68218ee30f313bc32714bbc0f912c0ec05",
-   "bytes": 7559
+   "sha256": "000c97fb70fe074fa1a41d8515d6276aaa0bd54044f94eb788006cef85260397",
+   "bytes": 7850
   }
  },
  {
   "name": "captured-0302",
   "outcome": {
    "kind": "ok",
-   "sha256": "75c4f06448326c99184182949ac3ed6fb095a222b4427b085fcacebd162ea5b6",
-   "bytes": 3366
+   "sha256": "daccabce54bc62aa701b3da628bf1b71ce5ee0cbb18c5001ac839e45ce47736c",
+   "bytes": 3535
   }
  },
  {
   "name": "captured-0303",
   "outcome": {
    "kind": "ok",
-   "sha256": "7fe8cb91e3837f6f70d22844771423bad02e00a2f6d8369e7b608a7817c8a94e",
-   "bytes": 3364
+   "sha256": "a93e84d2bd052d795b69a2cc0a5fdaa4e4801dde860e047db12a6c5d35273c63",
+   "bytes": 3533
   }
  },
  {
   "name": "captured-0304",
   "outcome": {
    "kind": "ok",
-   "sha256": "9a5ada68c8c5a748b092ad7f20505ae2320260bbf0266c3896245c58ce547286",
-   "bytes": 3367
+   "sha256": "823b9626672bb6360a9c1d3c1d34bd5e369805a64cffbb167c4d8df974699bf9",
+   "bytes": 3536
   }
  },
  {
@@ -2250,8 +2250,8 @@
   "name": "captured-0311",
   "outcome": {
    "kind": "ok",
-   "sha256": "b90211888e3a14cc600fdb257041dfc32e75c1ff587589c585c624e09043ba49",
-   "bytes": 6735
+   "sha256": "60b12a437b5d79d2deee976ea0ffb54abe6c6de83c26a4b0dbeb580d59be75ec",
+   "bytes": 7001
   }
  },
  {
@@ -2265,32 +2265,32 @@
   "name": "captured-0313",
   "outcome": {
    "kind": "ok",
-   "sha256": "18763881da1cde53616539b9e2cf5f51c8abbea4eac48022854d6121c1c38a4f",
-   "bytes": 3437
+   "sha256": "c44d8e51c4f925cd446fedbdf76f2484a1137a7bba0545aadc0ef1a1fe778a07",
+   "bytes": 3606
   }
  },
  {
   "name": "captured-0314",
   "outcome": {
    "kind": "ok",
-   "sha256": "d0f7e0bad3911dd4c744f24889c9f1bb93fa6963e0ab0b3196397b71f1759eb4",
-   "bytes": 3924
+   "sha256": "4021207c5c6d1066b76a8f6198c734db1f80fad50e1ab373c5d5b88b2c1bc4c3",
+   "bytes": 4118
   }
  },
  {
   "name": "captured-0315",
   "outcome": {
    "kind": "ok",
-   "sha256": "60d72124c1f8a98d8fa26f80ad4bf2d11c96abcdefea1360e0daba7c1b75fa70",
-   "bytes": 3923
+   "sha256": "6e5b3db2cab70dc9a6dbd095950197fd2ca807448a973a3d0f4f2da6eedb7d56",
+   "bytes": 4117
   }
  },
  {
   "name": "captured-0316",
   "outcome": {
    "kind": "ok",
-   "sha256": "a8cbe287a710ea017c19430a031bc0e46c2e15a13b97f4e7368f70280ae7b765",
-   "bytes": 4502
+   "sha256": "7fcbbbb2b8beace97695cfdd5a84d1a676b971ef5cf45b41b8f84dc43af89ac5",
+   "bytes": 4721
   }
  },
  {
@@ -2430,8 +2430,8 @@
   "name": "captured-0336",
   "outcome": {
    "kind": "ok",
-   "sha256": "7e713204c25eda0078590dd7aaa09c2c8a2d15fc9fc149c7dc29b4d321f29fe7",
-   "bytes": 4502
+   "sha256": "c10c999c8e3a6b4a77838dd358538dc7289a3971aa0e7636a1fb1d43255ca8f1",
+   "bytes": 4721
   }
  },
  {
@@ -2473,8 +2473,8 @@
   "name": "captured-0342",
   "outcome": {
    "kind": "ok",
-   "sha256": "9e1cf2f732eddbfee2edc545154c0abbf752f628978305c62f056ac3745cb1f6",
-   "bytes": 3997
+   "sha256": "138d2c23b86c8015be99fa1f13839692bad9a7efa75111dc27c84485f890db67",
+   "bytes": 4191
   }
  },
  {
@@ -2936,16 +2936,16 @@
   "name": "captured-0408",
   "outcome": {
    "kind": "ok",
-   "sha256": "e52568358f640331f33cbbf89dae46c4822c0aa54fdd69acaa2197df73a306b5",
-   "bytes": 7449
+   "sha256": "a9f574e16844d21f45bd347cac8e77fd2bf94f399cf42741c8ed85bb2fddd27b",
+   "bytes": 7740
   }
  },
  {
   "name": "captured-0409",
   "outcome": {
    "kind": "ok",
-   "sha256": "d63eb251df358ddda5e72419b5cdfc56d5d70abbbc2329e665fc9a2b54938df0",
-   "bytes": 4502
+   "sha256": "976809b5643a14369cc93e5658fab9fa61253472a28ae5aacc88058ee4016242",
+   "bytes": 4721
   }
  },
  {
@@ -3022,8 +3022,8 @@
   "name": "captured-0420",
   "outcome": {
    "kind": "ok",
-   "sha256": "c2fb27dba1c497cef878631c318158cb16e04b2b9464991f8677a6cbdc1aab13",
-   "bytes": 6942
+   "sha256": "cbca53f8747a8aae2fca302fee911baf4e71849b6deb662c226ee06f81aecbf9",
+   "bytes": 7136
   }
  },
  {
@@ -3786,8 +3786,8 @@
   "name": "captured-0529",
   "outcome": {
    "kind": "ok",
-   "sha256": "95edff245113923cc857bb379d20125a7f7b7161ad0f228573c00f182132aabb",
-   "bytes": 6930
+   "sha256": "66109870f60d14a301b3774e36adacd2f3a697543215aa297af2c037a22f6f2f",
+   "bytes": 7124
   }
  },
  {
@@ -3801,16 +3801,16 @@
   "name": "captured-0531",
   "outcome": {
    "kind": "ok",
-   "sha256": "8d2fcf1994d585b18000cc58c385ef2b08ed2531d0d36c8d002f51ea4ecd1214",
-   "bytes": 4151
+   "sha256": "67ef317d226126dc84d7e3029f69f1434451a8586efb29ecd738d0f51878b773",
+   "bytes": 4345
   }
  },
  {
   "name": "captured-0532",
   "outcome": {
    "kind": "ok",
-   "sha256": "8ce3362029ad79ff21d9634564eacf26d01f3ca6c317766866144fa4342c93bd",
-   "bytes": 4150
+   "sha256": "c202ee780e5dd26ca5c12e584797b12334c4a8c826e8c804c897fcd35a5b7538",
+   "bytes": 4344
   }
  },
  {
@@ -3831,80 +3831,80 @@
   "name": "captured-0535",
   "outcome": {
    "kind": "ok",
-   "sha256": "a0e78563941e4fbe4072922110827bc314e338bc465fedaeee2ff9099c6889a1",
-   "bytes": 4129
+   "sha256": "021d0f61dbcf4d05e5e6dc0b68d030aa6b57dbcde2efa0411bb79a994ac6f9a1",
+   "bytes": 4323
   }
  },
  {
   "name": "captured-0536",
   "outcome": {
    "kind": "ok",
-   "sha256": "bff65fabac3577d3e21e4e5fd4724f375d6aa8dd131c6f9a437467fc8dfc60d9",
-   "bytes": 4355
+   "sha256": "1debccb31fc2e34a24995652b49b2f54059377c26278de59e309dc05500d2ddb",
+   "bytes": 4549
   }
  },
  {
   "name": "captured-0537",
   "outcome": {
    "kind": "ok",
-   "sha256": "11a31bb9186809430bae5b697f2c0d57cc876a1a719ec1235cb24ca9045f4da6",
-   "bytes": 3911
+   "sha256": "34b43cff1eb17cb600351e96650fd45a0c073884ee4cce2f10416f17b1c08870",
+   "bytes": 4080
   }
  },
  {
   "name": "captured-0538",
   "outcome": {
    "kind": "ok",
-   "sha256": "e4a4d4475004ea24856db6e377cbb91430a1968c9705d318a94a7de26911acd7",
-   "bytes": 3702
+   "sha256": "8ebe61e2f88f9cca94bb5abb7989f10889685356cef0b3b9767748ba43c72868",
+   "bytes": 3871
   }
  },
  {
   "name": "captured-0539",
   "outcome": {
    "kind": "ok",
-   "sha256": "99be2a747447ced2dd8247a8db0dc1a5d30175e79a38408faedb72f47887dc27",
-   "bytes": 10567
+   "sha256": "db5a8af0d1cb486cc0010bdde5f912017c289f312317ba0519ace1b806f4ce21",
+   "bytes": 10858
   }
  },
  {
   "name": "captured-0540",
   "outcome": {
    "kind": "ok",
-   "sha256": "7acf90275234e771f7f0feafb9680dbb708b8af8f4200a80690570a8eccac1a2",
-   "bytes": 3920
+   "sha256": "26d48a35afb753eb2ed9ca04db35ddc66573fc1da8125f5367219d106c2d5d8f",
+   "bytes": 4089
   }
  },
  {
   "name": "captured-0541",
   "outcome": {
    "kind": "ok",
-   "sha256": "bf53a3031a2dfcff339c70b9480801fb92075701c1eacd92bf7517fa836259de",
-   "bytes": 3940
+   "sha256": "1bf5b20a7df3ac89a133e95bc1d46619dde873a89df65fd009266c167ccce7ee",
+   "bytes": 4109
   }
  },
  {
   "name": "captured-0542",
   "outcome": {
    "kind": "ok",
-   "sha256": "01ff8b069bc02f462494bab6b53bafff338ea4fc44ff2d82040bc97403b85453",
-   "bytes": 3829
+   "sha256": "102e60f1d7a57c751c8f4aa30fc92f9321ac4b5d8713a9bbf660d86e7e07bf33",
+   "bytes": 3998
   }
  },
  {
   "name": "captured-0543",
   "outcome": {
    "kind": "ok",
-   "sha256": "6a088e701c22f2b59bf118ac9556a3b20f57c2c609294c58764baa584a0fa1c3",
-   "bytes": 3827
+   "sha256": "58dd88279809f3886a111865370ffc219cee2044fe02eb1afd590cf6e5c7aa5f",
+   "bytes": 3996
   }
  },
  {
   "name": "captured-0544",
   "outcome": {
    "kind": "ok",
-   "sha256": "4768f842404103160e12fd6eccf4c4e91f12735483052b6824f62f370fdd98e9",
-   "bytes": 8336
+   "sha256": "e1d7d7cd34a64c3b10ff026eb8063df1573c328dc4e35b5f931b77ef07908354",
+   "bytes": 8530
   }
  },
  {
@@ -3925,16 +3925,16 @@
   "name": "captured-0547",
   "outcome": {
    "kind": "ok",
-   "sha256": "4beeca569165db09685a98c82a24581c99e47969b64e4e2a5c7fe695c0f25e96",
-   "bytes": 3444
+   "sha256": "973581c6cf11f73c6ab5917be65ab5b858d18f238561acef2dd30a96f0a185fb",
+   "bytes": 3613
   }
  },
  {
   "name": "edge-valid",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -3948,8 +3948,8 @@
   "name": "edge-exactly-max",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -3963,8 +3963,8 @@
   "name": "edge-bom",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -3978,16 +3978,16 @@
   "name": "edge-crlf",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "edge-lone-cr",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -4036,32 +4036,32 @@
   "name": "edge-hex-integer",
   "outcome": {
    "kind": "ok",
-   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
-   "bytes": 3367
+   "sha256": "d887e677ba9c294d0525396ce6061f2b76f9dba6b1c355c110cb615a2f6298b7",
+   "bytes": 3536
   }
  },
  {
   "name": "edge-octal-integer",
   "outcome": {
    "kind": "ok",
-   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
-   "bytes": 3367
+   "sha256": "d887e677ba9c294d0525396ce6061f2b76f9dba6b1c355c110cb615a2f6298b7",
+   "bytes": 3536
   }
  },
  {
   "name": "edge-binary-integer",
   "outcome": {
    "kind": "ok",
-   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
-   "bytes": 3367
+   "sha256": "d887e677ba9c294d0525396ce6061f2b76f9dba6b1c355c110cb615a2f6298b7",
+   "bytes": 3536
   }
  },
  {
   "name": "edge-underscore-integer",
   "outcome": {
    "kind": "ok",
-   "sha256": "69f1cf79fcbbf7e22132fe2b876ee496c2f9179d7743555ab76f61716a7ebe05",
-   "bytes": 3368
+   "sha256": "4ddb640226862a05ba22d8e5e1f0aa7138efcee3d8f5d315e1e976d76c1ada84",
+   "bytes": 3537
   }
  },
  {
@@ -4075,8 +4075,8 @@
   "name": "edge-plus-integer",
   "outcome": {
    "kind": "ok",
-   "sha256": "7e7f2534de3f7d99c0d242e4f148e8eb0d1e1f090f2a0d431c63ab309d4422c6",
-   "bytes": 3367
+   "sha256": "d887e677ba9c294d0525396ce6061f2b76f9dba6b1c355c110cb615a2f6298b7",
+   "bytes": 3536
   }
  },
  {
@@ -4146,47 +4146,47 @@
   "name": "edge-dotted-keys",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-dotted-then-table",
   "outcome": {
    "kind": "error",
-   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file, max_active"
   }
  },
  {
   "name": "edge-table-then-dotted",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-inline-tables",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-inline-newline",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-inline-trailing-comma",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
@@ -4200,7 +4200,7 @@
   "name": "edge-duplicate-key",
   "outcome": {
    "kind": "error",
-   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file, max_active"
   }
  },
  {
@@ -4242,16 +4242,16 @@
   "name": "edge-array-trailing-comma",
   "outcome": {
    "kind": "ok",
-   "sha256": "d00a1a788817ee0598dddf4648dd1cbb0c7b3447de9bf04597b55c4fa69698e6",
-   "bytes": 3382
+   "sha256": "d67d3854e0366551cdf0a9a9238389e28b791c46951b4f9fe65e483c455cc181",
+   "bytes": 3551
   }
  },
  {
   "name": "edge-array-comments",
   "outcome": {
    "kind": "ok",
-   "sha256": "d523615930a24351f5fbe6988fc363f5ab2df712ebc1c14b43f8fd16171e559d",
-   "bytes": 3393
+   "sha256": "3b13a45ba80fb934b4c6057cdc89707d002cfe03c15f700e5b716312ac9dd55f",
+   "bytes": 3562
   }
  },
  {
@@ -4272,15 +4272,15 @@
   "name": "edge-quoted-keys",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-empty-key",
   "outcome": {
    "kind": "error",
-   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file, max_active"
   }
  },
  {
@@ -4308,55 +4308,55 @@
   "name": "edge-proto-dotted",
   "outcome": {
    "kind": "error",
-   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file"
+   "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, mcp, prompt, prompt_file, max_active"
   }
  },
  {
   "name": "edge-literal-string",
   "outcome": {
    "kind": "ok",
-   "sha256": "388e9cc4b3a31c20aff628c72ae57947a9ad75de71c8a1c32608d13b69457bbd",
-   "bytes": 2963
+   "sha256": "4f7afe779870d7fe6d785f952548075a06d53582445701a9060808c91276f6e8",
+   "bytes": 3107
   }
  },
  {
   "name": "edge-multiline-string",
   "outcome": {
    "kind": "ok",
-   "sha256": "7ff92875ecf2e222a5695fbbb38dbb734fc04b04f43c14ee33d477a637b33956",
-   "bytes": 3431
+   "sha256": "328de3ab405a7b5b1118dd821b03e806a4d07334af9a19a34bad53daf38242c4",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-multiline-literal",
   "outcome": {
    "kind": "ok",
-   "sha256": "8eb1455decbd06c866b44b16848cb886fa46d82b976f5ab5ebcea7df35440a41",
-   "bytes": 3431
+   "sha256": "b15e21485953b0f19f16b1ba92094645c4a9463046d1c28448f600ae8ab37364",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-line-continuation",
   "outcome": {
    "kind": "ok",
-   "sha256": "2bca49c6e11abc9a0a00ae9dd917e28631b071d747123db61d88f1a21dc5f8ce",
-   "bytes": 3431
+   "sha256": "2bb8ee977e615d45462891372f4921a1a3f490c876fd10c3933bee5a8e200d72",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-escape-unicode",
   "outcome": {
    "kind": "ok",
-   "sha256": "3aa402ed017270630aa8371e8da763bf49a6797406c7f9fbb16b4dc986b6a325",
-   "bytes": 3431
+   "sha256": "8e2f530e4af52150f73534c7eda9a72a9d8bf44196affe2b55ca145a945a1db3",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-escape-hex",
   "outcome": {
    "kind": "ok",
-   "sha256": "bd07cc2b051567a319f7b890b2022bf62fc9e58bf460da09c6d7de68541f4589",
-   "bytes": 3431
+   "sha256": "a7e48e6fa0586cadddd441c0e72a4e0054c0f4d880d58d2807d57b5e15883657",
+   "bytes": 3600
   }
  },
  {
@@ -4405,8 +4405,8 @@
   "name": "edge-tab-in-string",
   "outcome": {
    "kind": "ok",
-   "sha256": "c9a19e1c9839b1e47b52660c624f05f9ad1f18c78c6eb1f7091bc52de26c19cb",
-   "bytes": 3431
+   "sha256": "10c3c5fbd4fbb5c54fe8d6f6d62b5e331fe9d58ba63bee07b6a9c9eeaf64ba81",
+   "bytes": 3600
   }
  },
  {
@@ -4448,16 +4448,16 @@
   "name": "edge-no-newline-end",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
   "name": "edge-tabs",
   "outcome": {
    "kind": "ok",
-   "sha256": "c0cccd36b6a5007ba808a643cc8d7f6c3fd35fe8c2639ed7b6d153b8bf3403ca",
-   "bytes": 3367
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -4492,8 +4492,8 @@
   "name": "edge-daemon-rust",
   "outcome": {
    "kind": "ok",
-   "sha256": "7523bf88689de6289d65343db59f3d62ae46b4a0230c7d802b17cea89d24f2d1",
-   "bytes": 3415
+   "sha256": "88faf85f35abdc205d9055116ee4e1eb97b491b2b8d345b3a3ece226bd6e7f0e",
+   "bytes": 3659
   }
  },
  {
@@ -4508,8 +4508,8 @@
   "name": "edge-daemon-empty",
   "outcome": {
    "kind": "ok",
-   "sha256": "58e5cb4bf1d263ce8834d225b5eec9dd3cc1f17c6415cc174a95c38cf55e9574",
-   "bytes": 3415
+   "sha256": "e7b71129a9891ad159acc1b3e59cc082810102c790e1a47911da58cd695f45f2",
+   "bytes": 3536
   }
  },
  {
@@ -4572,8 +4572,8 @@
   "name": "edge-project-name-nbsp",
   "outcome": {
    "kind": "ok",
-   "sha256": "dcefc11c85337164bfe79ecc5041ce570b9e554534d803505b602792a58f83f6",
-   "bytes": 3369
+   "sha256": "a7a3dd80c7e37f252722b47c11cfb9cefa58c0ec94c777f6b687ab4d4508db6e",
+   "bytes": 3538
   }
  },
  {
@@ -4587,8 +4587,8 @@
   "name": "edge-prompt-multiline-tab",
   "outcome": {
    "kind": "ok",
-   "sha256": "a960f1335ee2046b5c2017e74c9897e015ce4b745a3f8a74bbf2931de3ca5e68",
-   "bytes": 3431
+   "sha256": "5b0144a369d258f373040a0945bedd391b81ff61cc7b9dc710a787cc358cccd1",
+   "bytes": 3600
   }
  },
  {
@@ -4609,16 +4609,16 @@
   "name": "edge-bearer-no-digit",
   "outcome": {
    "kind": "ok",
-   "sha256": "417589a04d9f088f9caac393032f42ba44a0c8a32dc2af309ea120c5894a45e2",
-   "bytes": 3431
+   "sha256": "3b438a4aaf85dc47152577b4421fc3a13a8393a1e7cbbbed0859a36a15f9f6e1",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-bearer-word",
   "outcome": {
    "kind": "ok",
-   "sha256": "b701f24b09ed88ce3e8731b89c23168bc79609ed39b1a297774a2825ed6b0b3f",
-   "bytes": 3431
+   "sha256": "7b1c67658fa1fc7d5377642024de175f75553ad9288c5cb6cb63cd9588006e6a",
+   "bytes": 3600
   }
  },
  {
@@ -4632,8 +4632,8 @@
   "name": "edge-private-key-lower",
   "outcome": {
    "kind": "ok",
-   "sha256": "d3788a554505a823378c4c12a583bc8e27823669860a73e268c8171dce846070",
-   "bytes": 3431
+   "sha256": "87a4ffd5ccc99d5a28b652c8bb6bf58028fca03e8d37d4dee7863c97b13ad591",
+   "bytes": 3600
   }
  },
  {
@@ -4654,16 +4654,16 @@
   "name": "edge-sk-token-short",
   "outcome": {
    "kind": "ok",
-   "sha256": "d585b0a32f902835d1aeb8005c630328aba641a945dbea3b42f0e6a211fb03ad",
-   "bytes": 3431
+   "sha256": "440521253e12f8da2d89db05b1dfeae2a618ffae2f07e7d482fa1962f23501bc",
+   "bytes": 3600
   }
  },
  {
   "name": "edge-sk-token-after-word",
   "outcome": {
    "kind": "ok",
-   "sha256": "c9d4f4e13e8a455cfb410eb5d2319fe06eb3d159f3f0cf2a2dec8ca7885bee78",
-   "bytes": 3431
+   "sha256": "5314cde57bb96fc2d6641df3afce9e25b77c312558d4ba270082a2c4ee509ed8",
+   "bytes": 3600
   }
  }
 ]

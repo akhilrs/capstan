@@ -668,7 +668,12 @@ impl LauncherKernel {
     /// Ends a worker and frees its pane, worktree and, when it holds no commits, its branch. A branch with commits is kept
     /// for the user to merge.
     pub fn release(&self, agent_id: &str) -> OpResult<ReleaseResult> {
-        self.run(|_| {
+        self.run(|_| self.release_in_turn(agent_id))
+    }
+
+    /// The body of `release`, for a caller that already holds the launcher turn.
+    pub(crate) fn release_in_turn(&self, agent_id: &str) -> OpResult<ReleaseResult> {
+        {
             self.adopt_now(&self.budget(ADOPT_BUDGET_MS))?;
             let Some(agent) = self.agent_record(agent_id)? else {
                 return Err(OpError::launcher(
@@ -715,12 +720,24 @@ impl LauncherKernel {
                     cancelled_message_ids,
                 }),
             }
-        })
+        }
     }
 
     /// Replaces a worker: releases it (when it is still active) and starts a new agent of the same role whose prompt
     /// carries a seed built from the ledger. Nothing the predecessor was asked to do is sent again.
+    ///
+    /// Release and spawn run in one launcher turn, so a supervision start cannot take the role's place between them.
     pub fn replace(&self, agent_id: &str) -> OpResult<ReplaceResult> {
+        let (mut result, missing) =
+            self.run_starting(|budget| self.replace_in_turn(agent_id, budget))?;
+        if let (ReplaceResult::Replaced(done), Some((names, warning))) = (&mut result, missing) {
+            done.spawn.missing_env = Some(names);
+            done.spawn.warning = Some(warning);
+        }
+        Ok(result)
+    }
+
+    fn replace_in_turn(&self, agent_id: &str, budget: &Budget) -> OpResult<ReplaceResult> {
         let Some(agent) = self.agent_record(agent_id)? else {
             return Err(OpError::launcher(
                 "unknown_agent",
@@ -745,10 +762,16 @@ impl LauncherKernel {
             ));
         }
         if self.ledger.is_agent_replaced(agent_id)? {
-            return Err(OpError::launcher(
-                "already_replaced",
-                format!("{agent_id} was already replaced"),
-            ));
+            return match self.ledger.active_successor(agent_id)? {
+                Some(successor) => Ok(ReplaceResult::AlreadyReplaced {
+                    predecessor: agent_id.to_string(),
+                    agent_id: successor,
+                }),
+                None => Err(OpError::launcher(
+                    "already_replaced",
+                    format!("{agent_id} was already replaced"),
+                )),
+            };
         }
         if self.ledger.running_integrations()? > 0 {
             return Err(OpError::launcher(
@@ -763,6 +786,17 @@ impl LauncherKernel {
             ));
         };
         self.assert_role_synced(role)?;
+        // An ended agent whose place a later agent of a single-seat role already took is adopted, not replaced again.
+        if !agent.active() && role.max_active == Some(1) {
+            if let Some(successor) = self.ledger.active_successor(agent_id)? {
+                self.ledger
+                    .record_agent_replaced(agent_id, &successor, None, None)?;
+                return Ok(ReplaceResult::AlreadyReplaced {
+                    predecessor: agent_id.to_string(),
+                    agent_id: successor,
+                });
+            }
+        }
         let data = SeedData::from_value(&self.ledger.agent_seed(agent_id)?);
         let tip = data.branch.as_ref().and_then(|b| self.git.branch_tip(b));
         let kept_ref = format!("refs/capstan/kept/{agent_id}");
@@ -803,7 +837,7 @@ impl LauncherKernel {
         };
         let mut released: Option<ReleaseResult> = None;
         if agent.active() {
-            let result = self.release(agent_id)?;
+            let result = self.release_in_turn(agent_id)?;
             if result.outcome.pane_closed == Some(false) {
                 return Ok(ReplaceResult::Blocked {
                     predecessor: agent_id.to_string(),
@@ -850,21 +884,24 @@ impl LauncherKernel {
                     }
                 }
             }
-            self.spawn_worker(
-                &agent.role_name,
-                &SpawnOptions {
-                    base_sha: Some(base.sha.clone()),
-                    seed: Some(seed.clone()),
-                    branch: data.branch.clone(),
-                    record_task_ref: data.task_ref.clone(),
-                    record_task_title: data.task_title.clone(),
-                    ..SpawnOptions::default()
-                },
-            )
+            let options = SpawnOptions {
+                base_sha: Some(base.sha.clone()),
+                seed: Some(seed.clone()),
+                branch: data.branch.clone(),
+                record_task_ref: data.task_ref.clone(),
+                record_task_title: data.task_title.clone(),
+                ..SpawnOptions::default()
+            };
+            let task_fields = self.spawn_checks(&options)?;
+            self.spawn_in_turn(&agent.role_name, &options, &task_fields, budget)
         })();
         let spawned = match started {
             Ok(spawned) => spawned,
             Err(error) => {
+                // A full role is the answer itself: the caller sees which agents hold the places.
+                if matches!(&error, OpError::Launcher(e) if e.code == "role_limit") {
+                    return Err(error);
+                }
                 return Err(OpError::launcher(
                     "replacement_not_started",
                     format!(
@@ -872,14 +909,14 @@ impl LauncherKernel {
                         if released.is_none() { "already ended" } else { "released" },
                         error.message()
                     ),
-                ))
+                ));
             }
         };
         let mut replacement_recorded = true;
         if let Err(error) = self.ledger.record_agent_replaced(
             agent_id,
             &spawned.agent_id,
-            &spawned.branch,
+            Some(&spawned.branch),
             kept.as_ref().map(|(r, t)| (r.as_str(), t.as_str())),
         ) {
             replacement_recorded = false;

@@ -45,6 +45,23 @@ const STALE_ACTION: &str = "StaleActionError";
 const MESSAGE_TRANSITION: &str = "MessageTransitionError";
 const TYPE_ERROR: &str = "TypeError";
 
+/// The `[liveness]` settings the driver needs to find an agent whose CLI has exited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LivenessOptions {
+    pub check_seconds: i64,
+    pub confirm_checks: i64,
+    pub start_grace_seconds: i64,
+}
+
+/// What the driver keeps of one agent's process-exit judgement.
+struct ExitWatch {
+    generation: i64,
+    first_seen_ms: i64,
+    last_check_ms: Option<i64>,
+    dead_checks: i64,
+    first_dead_ms: i64,
+}
+
 pub type DriverLog = Arc<dyn Fn(&str, Value) + Send + Sync>;
 
 pub struct DriverOptions {
@@ -62,6 +79,8 @@ pub struct DriverOptions {
     pub process_probe: Option<Arc<dyn ProcessActivityProbe>>,
     /// A PM message pending this long raises one stale notification per episode.
     pub pm_stale_seconds: i64,
+    /// Finds agents whose CLI has exited while their pane stays; None turns that check off.
+    pub liveness: Option<LivenessOptions>,
     /// Where the status view of the driver is kept, when the caller made the view before the driver.
     pub snapshot: Option<Arc<Mutex<DriverSnapshot>>>,
 }
@@ -192,6 +211,14 @@ pub struct Driver {
     tick_ms: u64,
     process_probe: Option<Arc<dyn ProcessActivityProbe>>,
     pm_stale_seconds: i64,
+    liveness: Option<LivenessOptions>,
+    exit_watch: HashMap<String, ExitWatch>,
+    /// Agents recorded lost because their process exited: a live pane does not clear them.
+    exited: HashSet<String>,
+    /// Agents Herdr saw working in the current tick.
+    working_now: HashSet<String>,
+    /// The current tick found every observed agent missing (a Herdr restart?).
+    all_gone_now: bool,
     snapshot: Arc<Mutex<DriverSnapshot>>,
     stalled: Vec<String>,
     once: HashSet<String>,
@@ -231,6 +258,11 @@ impl Driver {
             tick_ms: options.tick_ms.unwrap_or(DEFAULT_TICK_MS).max(MIN_TICK_MS),
             process_probe: options.process_probe,
             pm_stale_seconds: options.pm_stale_seconds,
+            liveness: options.liveness,
+            exit_watch: HashMap::new(),
+            exited: HashSet::new(),
+            working_now: HashSet::new(),
+            all_gone_now: false,
             snapshot: options.snapshot.unwrap_or_else(|| {
                 Arc::new(Mutex::new(DriverSnapshot {
                     lost_agent_ids: Some(Vec::new()),
@@ -369,6 +401,7 @@ impl Driver {
         self.tick_skips = Vec::new();
         self.skipped_agents = HashSet::new();
         self.seen = HashSet::new();
+        self.working_now = HashSet::new();
         let agents = match self.read("activeAgents", |core| core.active_agents()) {
             Ok(Value::Array(agents)) => agents,
             Ok(_) => Vec::new(),
@@ -382,6 +415,7 @@ impl Driver {
             self.observe(agent, &mut outcomes);
         }
         self.judge_loss(&agents, &outcomes);
+        self.judge_process_exit(&agents, &outcomes);
         self.forget_processes(&agents);
         // Wakes are judged before the next one can be typed, so a wake that went unanswered is logged before it is
         // repeated.
@@ -422,6 +456,7 @@ impl Driver {
                     Ok(_) => {
                         outcomes.push((agent_id.clone(), Outcome::Ok));
                         if state == HerdrState::Working {
+                            self.working_now.insert(agent_id.clone());
                             self.sample_processes(&agent_id);
                         }
                     }
@@ -525,6 +560,7 @@ impl Driver {
             .filter(|(_, o)| *o == Outcome::NotFound)
             .count();
         let all_gone = observed >= 2 && not_found == observed;
+        self.all_gone_now = all_gone;
         if all_gone && !self.suppression_spent {
             self.suppressed_ticks += 1;
             self.log_once(
@@ -547,7 +583,10 @@ impl Driver {
             match outcome {
                 Outcome::Ok => {
                     self.missing.remove(id);
-                    self.lost.remove(id);
+                    // A pane that answers does not undo a process exit; only a live process does.
+                    if !self.exited.contains(id) {
+                        self.lost.remove(id);
+                    }
                 }
                 Outcome::Other => {
                     // Not knowing is not seeing it gone: the row of not-found observations is broken.
@@ -564,18 +603,144 @@ impl Driver {
         }
     }
 
+    /// Finds an agent whose CLI has exited while its pane stays. Every `check_seconds` the pane's shell is asked whether it
+    /// has a child process; `confirm_checks` answers in a row of "none", spanning at least two check intervals, record the
+    /// agent lost with the reason `process_exited`. A live child, a Herdr "working" observation, an unknown answer or a
+    /// failing probe starts the count again, and an agent still inside its start grace is never judged.
+    fn judge_process_exit(&mut self, agents: &[Value], outcomes: &[(String, Outcome)]) {
+        let Some(liveness) = self.liveness else {
+            return;
+        };
+        let Some(probe) = self.process_probe.clone() else {
+            return;
+        };
+        let active: HashSet<&str> = agents.iter().map(|a| str_of(a, "agentId")).collect();
+        self.exit_watch.retain(|id, _| active.contains(id.as_str()));
+        self.exited.retain(|id| active.contains(id.as_str()));
+        // A Herdr that lost every pane at once restarted; the pane-gone rule holds its counters and so does this one.
+        if self.all_gone_now {
+            return;
+        }
+        for agent in agents {
+            let agent_id = str_of(agent, "agentId").to_string();
+            let generation = agent["generation"].as_i64().unwrap_or(0);
+            let now = (self.now)();
+            let fresh = ExitWatch {
+                generation,
+                first_seen_ms: now,
+                last_check_ms: None,
+                dead_checks: 0,
+                first_dead_ms: 0,
+            };
+            let mut watch = match self.exit_watch.remove(&agent_id) {
+                Some(watch) if watch.generation == generation => watch,
+                Some(_) => {
+                    self.exited.remove(&agent_id);
+                    fresh
+                }
+                None => fresh,
+            };
+            let observed = outcomes
+                .iter()
+                .find(|(id, _)| *id == agent_id)
+                .map(|(_, o)| *o);
+            self.exit_step(&liveness, &probe, &agent_id, observed, now, &mut watch);
+            self.exit_watch.insert(agent_id, watch);
+        }
+    }
+
+    fn exit_step(
+        &mut self,
+        liveness: &LivenessOptions,
+        probe: &Arc<dyn ProcessActivityProbe>,
+        agent_id: &str,
+        observed: Option<Outcome>,
+        now: i64,
+        watch: &mut ExitWatch,
+    ) {
+        let check_ms = liveness.check_seconds.max(1) * 1000;
+        // A pane that is gone is the pane-gone rule's to judge.
+        if observed == Some(Outcome::NotFound) {
+            watch.dead_checks = 0;
+            return;
+        }
+        if self.working_now.contains(agent_id) {
+            watch.dead_checks = 0;
+            self.exited.remove(agent_id);
+            return;
+        }
+        if now - watch.first_seen_ms < liveness.start_grace_seconds * 1000 {
+            return;
+        }
+        if watch
+            .last_check_ms
+            .is_some_and(|last| now - last < check_ms)
+        {
+            return;
+        }
+        let Some(pane_id) = self.adapter.pane_for_agent(agent_id) else {
+            watch.dead_checks = 0;
+            return;
+        };
+        watch.last_check_ms = Some(now);
+        match probe.host_alive(&pane_id) {
+            Ok(Some(false)) => {
+                if watch.dead_checks == 0 {
+                    watch.first_dead_ms = now;
+                }
+                watch.dead_checks += 1;
+            }
+            Ok(Some(true)) => {
+                watch.dead_checks = 0;
+                self.exited.remove(agent_id);
+                return;
+            }
+            Ok(None) => {
+                watch.dead_checks = 0;
+                return;
+            }
+            Err(error) => {
+                watch.dead_checks = 0;
+                self.log_once(
+                    format!("{agent_id}|liveness_probe_failed"),
+                    "liveness_probe_failed",
+                    json!({"agentId": agent_id, "error": format!("HerdrError: {}", error.message)}),
+                );
+                return;
+            }
+        }
+        if watch.dead_checks >= liveness.confirm_checks
+            && now - watch.first_dead_ms >= 2 * check_ms
+            && !self.lost.contains(agent_id)
+            && self.record_lost(agent_id, Some("process_exited"))
+        {
+            self.exited.insert(agent_id.to_string());
+        }
+    }
+
     /// Listed lost only once the ledger took it, so a failed write is tried again on the next tick.
     fn mark_lost(&mut self, agent_id: &str) {
+        self.record_lost(agent_id, None);
+    }
+
+    /// Records the loss; `reason` is None for a pane that is gone. True when the ledger took it.
+    fn record_lost(&mut self, agent_id: &str, reason: Option<&'static str>) -> bool {
         let id = agent_id.to_string();
+        let input = match reason {
+            Some(reason) => json!({"agentId": id, "reason": reason}),
+            None => json!({"agentId": id}),
+        };
         match self.mutate("recordAgentLost", move |core, context| {
-            core.record_agent_lost(context, &json!({"agentId": id}))
+            core.record_agent_lost(context, &input)
         }) {
             Ok(result) => {
                 self.lost.insert(agent_id.to_string());
-                self.log(
-                    "agent_lost",
-                    json!({"agentId": agent_id, "recorded": result["recorded"]}),
-                );
+                let mut details = json!({"agentId": agent_id, "recorded": result["recorded"]});
+                if let Some(reason) = reason {
+                    details["reason"] = json!(reason);
+                }
+                self.log("agent_lost", details);
+                return true;
             }
             Err(error) => self.log_once(
                 format!("{agent_id}|agent_lost_not_recorded"),
@@ -583,6 +748,7 @@ impl Driver {
                 json!({"agentId": agent_id, "error": kernel_text(&error)}),
             ),
         }
+        false
     }
 
     fn open_unreadable(&mut self, agent_id: &str, message_id: &str, blocker: &str) {

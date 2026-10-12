@@ -980,6 +980,8 @@ pub fn lost_notice(
             if paused { " (paused)" } else { "" },
             if reason == "pane_gone" {
                 "Herdr no longer finds its pane or process"
+            } else if reason == "process_exited" {
+                "its process exited while the pane stayed"
             } else {
                 "its pane was gone when the daemon started, so the controller ended it"
             }

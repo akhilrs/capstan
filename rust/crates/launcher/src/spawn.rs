@@ -177,16 +177,7 @@ impl LauncherKernel {
     /// reviewer), or is `branch` itself (a replacement continues its predecessor's); otherwise it is an ad-hoc `chore/`
     /// name.
     pub fn spawn_worker(&self, role_name: &str, options: &SpawnOptions) -> OpResult<SpawnResult> {
-        self.ledger.assert_run_not_paused("spawn")?;
-        if let Some(base) = &options.base_sha {
-            if !is_sha40(base) {
-                return Err(OpError::launcher(
-                    "invalid_base",
-                    "the base commit must be a full lowercase id",
-                ));
-            }
-        }
-        let task_fields = self.task_fields(options)?;
+        let task_fields = self.spawn_checks(options)?;
         let (mut result, missing) = self
             .run_starting(|budget| self.spawn_in_turn(role_name, options, &task_fields, budget))?;
         if let Some((names, warning)) = missing {
@@ -196,7 +187,48 @@ impl LauncherKernel {
         Ok(result)
     }
 
-    fn spawn_in_turn(
+    /// The checks that need no launcher turn; the task fields of the options.
+    pub fn spawn_checks(&self, options: &SpawnOptions) -> OpResult<TaskFields> {
+        self.ledger.assert_run_not_paused("spawn")?;
+        if let Some(base) = &options.base_sha {
+            if !is_sha40(base) {
+                return Err(OpError::launcher(
+                    "invalid_base",
+                    "the base commit must be a full lowercase id",
+                ));
+            }
+        }
+        self.task_fields(options)
+    }
+
+    /// Refuses at once when the role already has `max_active` active agents, before any hub or worktree work. The ledger's
+    /// own check at registration stays the authority.
+    fn assert_role_room(&self, role: &Role) -> OpResult<()> {
+        let Some(limit) = role.max_active else {
+            return Ok(());
+        };
+        let active: Vec<String> = self
+            .active_agents()?
+            .into_iter()
+            .filter(|a| a.role_name == role.name)
+            .map(|a| a.agent_id)
+            .collect();
+        if (active.len() as i64) < limit {
+            return Ok(());
+        }
+        let lost = self.ledger.lost_agent_ids()?;
+        let mut message = format!(
+            "role_limit: {} {} already active (max_active = {limit})",
+            active.join(", "),
+            if active.len() == 1 { "is" } else { "are" }
+        );
+        for id in active.iter().filter(|id| lost.contains(id)) {
+            message.push_str(&format!("; {id} is recorded lost, replace or release it"));
+        }
+        Err(OpError::launcher("role_limit", message))
+    }
+
+    pub(crate) fn spawn_in_turn(
         &self,
         role_name: &str,
         options: &SpawnOptions,
@@ -226,6 +258,7 @@ impl LauncherKernel {
             ));
         }
         self.assert_role_synced(role)?;
+        self.assert_role_room(role)?;
         // The Supervisor watches the workers and does not take one of their places; the Architect and the Operator do not
         // either unless the configuration says they count.
         let architect_counts = self.config.architect.count_toward_worker_limit;

@@ -682,6 +682,7 @@ fn replay_driver(label: &str, sequence: &Value, run: &Run) -> Result<(), String>
             calls: Arc::clone(&run.calls),
         })),
         pm_stale_seconds: config["pmStaleSeconds"].as_i64().unwrap_or(1200),
+        liveness: None,
         snapshot: None,
     });
     let mut tables = Tables {
@@ -1147,6 +1148,7 @@ fn a_driver_tick_makes_the_calls_of_the_node_budget_whatever_the_ledger_holds() 
             tick_ms: None,
             process_probe: None,
             pm_stale_seconds: 1200,
+            liveness: None,
             snapshot: None,
         })
     };
@@ -1190,4 +1192,420 @@ fn a_driver_tick_makes_the_calls_of_the_node_budget_whatever_the_ledger_holds() 
     let total: u64 = busy.values().sum();
     assert!(total <= 80, "{total} kernel calls in one idle tick");
     kernel.close();
+}
+
+// ------------------------------------------------------------------------------------------------ liveness
+
+use capstan_daemon::loops::driver::LivenessOptions;
+
+/// A probe whose `host_alive` answers come from a script: a pane answers its scripted answer, or "alive".
+#[derive(Default)]
+struct HostProbe {
+    answers: Mutex<BTreeMap<String, Result<Option<bool>, String>>>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl HostProbe {
+    fn answer(&self, pane: &str, answer: Result<Option<bool>, &str>) {
+        lock(&self.answers).insert(pane.into(), answer.map_err(str::to_string));
+    }
+    fn asked(&self, pane: &str) -> usize {
+        lock(&self.asked).iter().filter(|p| *p == pane).count()
+    }
+}
+
+impl ProcessActivityProbe for HostProbe {
+    fn sample(&self, _pane_id: &str) -> Result<ProcessSample, HerdrError> {
+        Ok(ProcessSample {
+            shell_pid: None,
+            processes: Vec::new(),
+        })
+    }
+    fn host_alive(&self, pane_id: &str) -> Result<Option<bool>, HerdrError> {
+        lock(&self.asked).push(pane_id.to_string());
+        match lock(&self.answers).get(pane_id) {
+            None => Ok(Some(true)),
+            Some(Ok(answer)) => Ok(*answer),
+            Some(Err(message)) => Err(HerdrError::new("process_table", message.clone())),
+        }
+    }
+}
+
+struct World {
+    _scratch: Scratch,
+    kernel: KernelHandle,
+    script: Arc<Mutex<Script>>,
+    clock: Arc<AtomicI64>,
+    probe: Arc<HostProbe>,
+    log: Arc<Mutex<Vec<Value>>>,
+    driver: Driver,
+}
+
+const LIVENESS: LivenessOptions = LivenessOptions {
+    check_seconds: 30,
+    confirm_checks: 3,
+    start_grace_seconds: 120,
+};
+
+fn world(group: &str, liveness: Option<LivenessOptions>) -> World {
+    let groups = groups();
+    let sequence = &groups.iter().find(|(g, _)| g == group).unwrap().1["sequences"][0];
+    let (scratch, kernel) = open_kernel(sequence["seed"].as_str().unwrap());
+    for record in sequence["setup"].as_array().unwrap() {
+        replay_step(&kernel, record, "liveness setup").unwrap();
+    }
+    let script = Arc::new(Mutex::new(Script::new()));
+    let calls: Calls = Arc::new(Mutex::new(Vec::new()));
+    lock(&script).merge(&json!({
+        "panes": {"pm-1": "pane-pm", "dev-1": "pane-dev", "ver-1": "pane-ver", "sup-1": "pane-sup"},
+        "observe": {"pm-1": "idle", "dev-1": "idle", "ver-1": "idle", "sup-1": "idle"},
+    }));
+    let clock = Arc::new(AtomicI64::new(SEEDED_EPOCH_MS));
+    let probe = Arc::new(HostProbe::default());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let timers = json!({
+        "maxDeferralSeconds": 3600, "maxBusyDeferralSeconds": 3600, "pmAckTimeoutSeconds": 3600,
+        "pmNotifyAfterSeconds": 3600, "notifyIntervalSeconds": 3600, "stallAfterSeconds": 3600,
+        "workerAckTimeoutSeconds": 3600, "pmWakeAfterSeconds": 3600, "pmWakeIntervalSeconds": 3600,
+    });
+    let now = Arc::clone(&clock);
+    let driver = Driver::new(DriverOptions {
+        kernel: kernel.clone(),
+        adapter: Arc::new(StubDriverAdapter {
+            script: Arc::clone(&script),
+            calls: Arc::clone(&calls),
+        }),
+        timers,
+        notifier: Arc::new(Notifier::new(
+            Arc::new(StubNotifierAdapter {
+                script: Arc::clone(&script),
+                calls: Arc::clone(&calls),
+            }),
+            true,
+            true,
+            scratch.state.join("notifications.jsonl"),
+            Arc::new(|| SEEDED_EPOCH_MS),
+            Arc::new(|_, _| {}),
+        )),
+        credential: OWNER.into(),
+        now: Arc::new(move || now.load(Ordering::SeqCst)),
+        log: log_sink(&log),
+        tick_ms: None,
+        process_probe: Some(probe.clone()),
+        pm_stale_seconds: 1200,
+        liveness,
+        snapshot: None,
+    });
+    World {
+        _scratch: scratch,
+        kernel,
+        script,
+        clock,
+        probe,
+        log,
+        driver,
+    }
+}
+
+impl World {
+    fn advance(&self, seconds: i64) {
+        self.clock.fetch_add(seconds * 1000, Ordering::SeqCst);
+    }
+
+    fn lost(&self) -> Vec<String> {
+        let ids = self
+            .kernel
+            .run(|core| core.lost_agent_ids())
+            .expect("lostAgentIds");
+        ids.as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn lost_events(&self) -> usize {
+        lock(&self.log)
+            .iter()
+            .filter(|e| e["event"] == "agent_lost")
+            .count()
+    }
+
+    /// Ticks at the start (inside grace), then past the grace period, then `checks` checks of 30 s.
+    fn past_grace(&mut self) {
+        self.driver.tick();
+        self.advance(121);
+    }
+
+    fn lost_notices(&self) -> Vec<Value> {
+        let all = self
+            .kernel
+            .run(|core| core.messages_for("pm-1"))
+            .expect("messagesFor");
+        all.as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["body"].as_str().is_some_and(|b| b.contains("lost")))
+            .cloned()
+            .collect()
+    }
+
+    fn end(&self, agent: &'static str) {
+        self.kernel
+            .run(move |core| {
+                let context = json!({
+                    "credential": OWNER,
+                    "requestId": format!("end-{agent}"),
+                    "idempotencyKey": format!("end-{agent}"),
+                    "expectedVersion": core.state_version()?,
+                    "inputRevision": core.input_revision()?,
+                });
+                core.dispatch(
+                    "endAgent",
+                    &[context, json!(agent), json!({"reason": "released"})],
+                )
+            })
+            .expect("endAgent");
+    }
+}
+
+#[test]
+fn a_dead_cli_is_recorded_lost_once_after_three_checks_and_the_pm_is_told() {
+    let mut w = world("driver", Some(LIVENESS));
+    w.probe.answer("pane-dev", Ok(Some(false)));
+    w.past_grace();
+    // Check 1 at +121 s, 2 at +151 s: not yet; 3 at +181 s spans 60 s: lost.
+    w.driver.tick();
+    w.advance(30);
+    w.driver.tick();
+    assert!(w.lost().is_empty());
+    w.advance(30);
+    w.driver.tick();
+    assert_eq!(w.lost(), vec!["dev-1".to_string()]);
+    assert_eq!(w.lost_events(), 1);
+    assert_eq!(
+        lock(&w.log)
+            .iter()
+            .find(|e| e["event"] == "agent_lost")
+            .unwrap()["details"]["reason"],
+        "process_exited"
+    );
+    assert!(
+        !w.lost_notices().is_empty(),
+        "the PM has an Agent lost notice"
+    );
+    // The pane still answers "idle"; that does not clear the loss, and it is not recorded again.
+    for _ in 0..4 {
+        w.advance(30);
+        w.driver.tick();
+    }
+    assert_eq!(w.lost(), vec!["dev-1".to_string()]);
+    assert_eq!(w.lost_events(), 1);
+    // Only the dead agent was ever recorded.
+    assert!(w.probe.asked("pane-dev") > 0);
+    w.kernel.close();
+}
+
+#[test]
+fn a_child_a_working_state_or_an_unknown_answer_starts_the_count_again() {
+    let mut w = world("driver", Some(LIVENESS));
+    w.past_grace();
+    let steps: [(&str, Result<Option<bool>, &str>); 8] = [
+        ("idle", Ok(Some(false))),
+        ("idle", Ok(Some(false))),
+        ("idle", Ok(Some(true))), // a child reappeared after two dead samples
+        ("idle", Ok(Some(false))),
+        ("idle", Ok(Some(false))),
+        ("idle", Err("proc unreadable")), // a probe failure counts for nothing
+        ("idle", Ok(Some(false))),
+        ("idle", Ok(None)), // an unreadable table counts for nothing
+    ];
+    for (observed, answer) in steps {
+        lock(&w.script).merge(&json!({"observe": {"dev-1": observed}}));
+        w.probe.answer("pane-dev", answer);
+        w.driver.tick();
+        w.advance(30);
+    }
+    // Dead, then working (Herdr says so), then dead twice more: the working tick reset the count.
+    w.probe.answer("pane-dev", Ok(Some(false)));
+    w.driver.tick();
+    w.advance(30);
+    lock(&w.script).merge(&json!({"observe": {"dev-1": "working"}}));
+    w.driver.tick();
+    w.advance(30);
+    lock(&w.script).merge(&json!({"observe": {"dev-1": "idle"}}));
+    w.driver.tick();
+    w.advance(30);
+    w.driver.tick();
+    assert!(w.lost().is_empty());
+    assert_eq!(w.lost_events(), 0);
+    w.kernel.close();
+}
+
+#[test]
+fn an_agent_inside_its_start_grace_is_never_judged() {
+    let mut w = world("driver", Some(LIVENESS));
+    w.probe.answer("pane-dev", Ok(Some(false)));
+    for _ in 0..8 {
+        w.driver.tick();
+        w.advance(10);
+    }
+    assert_eq!(w.probe.asked("pane-dev"), 0);
+    assert!(w.lost().is_empty());
+    w.kernel.close();
+}
+
+#[test]
+fn only_unknown_samples_never_record_an_agent_lost() {
+    let mut w = world("driver", Some(LIVENESS));
+    w.probe.answer("pane-sup", Ok(None));
+    w.past_grace();
+    for _ in 0..40 {
+        w.driver.tick();
+        w.advance(30);
+    }
+    assert!(w.probe.asked("pane-sup") > 10);
+    assert!(w.lost().is_empty());
+    w.probe.answer("pane-sup", Err("shell pid unreadable"));
+    for _ in 0..40 {
+        w.driver.tick();
+        w.advance(30);
+    }
+    assert!(w.lost().is_empty());
+    w.kernel.close();
+}
+
+#[test]
+fn a_disabled_check_never_asks_the_probe() {
+    let mut w = world("driver", None);
+    w.probe.answer("pane-dev", Ok(Some(false)));
+    w.past_grace();
+    for _ in 0..10 {
+        w.driver.tick();
+        w.advance(30);
+    }
+    assert_eq!(w.probe.asked("pane-dev"), 0);
+    assert!(w.lost().is_empty());
+    w.kernel.close();
+}
+
+#[test]
+fn a_herdr_that_lost_every_pane_is_not_a_process_exit() {
+    let mut w = world("driver", Some(LIVENESS));
+    w.probe.answer("pane-dev", Ok(Some(false)));
+    w.past_grace();
+    let gone = json!({"error": "HerdrError:pane_not_found"});
+    lock(&w.script).merge(&json!({"observe": {
+        "pm-1": gone, "dev-1": gone, "ver-1": gone, "sup-1": gone}}));
+    for _ in 0..4 {
+        w.driver.tick();
+        w.advance(30);
+    }
+    assert_eq!(w.probe.asked("pane-dev"), 0);
+    assert!(w.lost().is_empty());
+    w.kernel.close();
+}
+
+fn supervision_for(w: &World) -> (Supervision, Arc<StubLauncher>) {
+    let launcher = Arc::new(StubLauncher::new());
+    let now = Arc::clone(&w.clock);
+    let supervision = Supervision::new(SupervisionOptions {
+        steps: Steps::new(w.kernel.clone(), OWNER.into()),
+        launcher: launcher.clone(),
+        enabled: true,
+        check_seconds: 60.0,
+        supervisor_role: Some("supervisor".into()),
+        now: Arc::new(move || now.load(Ordering::SeqCst)),
+        log: log_sink(&w.log),
+    });
+    (supervision, launcher)
+}
+
+fn active_supervisors(w: &World) -> usize {
+    w.kernel
+        .run(|core| core.active_agents())
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| a["kind"] == "Supervisor")
+        .count()
+}
+
+#[test]
+fn a_lost_supervisor_is_released_and_the_next_tick_starts_one() {
+    let mut w = world("driver", Some(LIVENESS));
+    let (mut supervision, launcher) = supervision_for(&w);
+    w.probe.answer("pane-sup", Ok(Some(false)));
+    w.past_grace();
+    for _ in 0..3 {
+        w.driver.tick();
+        w.advance(30);
+    }
+    assert_eq!(w.lost(), vec!["sup-1".to_string()]);
+    let notices = w.lost_notices().len();
+    assert!(notices > 0);
+    // A healthy supervisor would be left alone; a lost one is released.
+    supervision.tick();
+    assert!(launcher
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("release sup-1")));
+    assert!(launcher.calls().iter().all(|c| !c.starts_with("spawn")));
+    // The launcher ends the agent; the PM's notice survives the release.
+    w.end("sup-1");
+    assert_eq!(active_supervisors(&w), 0);
+    let kept = w.lost_notices();
+    assert_eq!(kept.len(), notices);
+    assert!(kept.iter().all(|m| m["state"] != "cancelled"), "{kept:?}");
+    supervision.tick();
+    assert!(launcher
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("spawn supervisor")));
+    w.kernel.close();
+}
+
+#[test]
+fn a_healthy_supervisor_is_not_released() {
+    let w = world("driver", Some(LIVENESS));
+    let (mut supervision, launcher) = supervision_for(&w);
+    supervision.tick();
+    assert!(launcher.calls().is_empty(), "{:?}", launcher.calls());
+    w.kernel.close();
+}
+
+#[test]
+fn a_spawn_refused_by_the_role_limit_is_logged_once_and_retried_later() {
+    let w = world("supervision", None);
+    let (mut supervision, launcher) = supervision_for(&w);
+    for _ in 0..3 {
+        launcher.fail_next(
+            "spawn",
+            LauncherError::new("role_limit", "supervisor is at its limit"),
+        );
+    }
+    supervision.tick();
+    supervision.tick(); // inside the retry interval: no new spawn
+    assert_eq!(launcher.calls().len(), 1);
+    w.advance(61);
+    supervision.tick();
+    w.advance(61);
+    supervision.tick();
+    assert_eq!(launcher.calls().len(), 3);
+    let refused = lock(&w.log)
+        .iter()
+        .filter(|e| e["event"] == "supervisor_spawn_refused")
+        .count();
+    assert_eq!(refused, 1);
+    assert!(lock(&w.log)
+        .iter()
+        .all(|e| e["event"] != "supervisor_spawn_failed"));
+    // The limit lifts: the next try starts one.
+    w.advance(61);
+    supervision.tick();
+    assert!(lock(&w.log)
+        .iter()
+        .any(|e| e["event"] == "supervisor_started"));
+    w.kernel.close();
 }

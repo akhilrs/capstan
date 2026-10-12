@@ -734,6 +734,12 @@ pub struct ProcessSample {
 /// runs `ps`, so it never runs inside a kernel closure.
 pub trait ProcessActivityProbe: Send + Sync {
     fn sample(&self, pane_id: &str) -> Result<ProcessSample, HerdrError>;
+
+    /// Whether the pane's shell has at least one live child process, whatever command it runs: Some(false) means the
+    /// agent's CLI has exited. None means unknown (the process table cannot be read); it counts for nothing.
+    fn host_alive(&self, _pane_id: &str) -> Result<Option<bool>, HerdrError> {
+        Ok(None)
+    }
 }
 
 // ------------------------------------------------------------------------------------------------ stubs

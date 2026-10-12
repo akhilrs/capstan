@@ -89,7 +89,7 @@ fn prompt(prompt: &PromptSource) -> Value {
 }
 
 /// The members of `resolved` in `resolveRoles` (no `configHash`; `mcp` only when the role has servers).
-fn resolved_role(role: &Role, prompt_value: Value) -> Vec<(&'static str, Value)> {
+fn resolved_role(role: &Role, prompt_value: Value, hashed: bool) -> Vec<(&'static str, Value)> {
     let mut members = vec![
         ("name", text(&role.name)),
         ("kind", text(&role.kind)),
@@ -100,6 +100,11 @@ fn resolved_role(role: &Role, prompt_value: Value) -> Vec<(&'static str, Value)>
         ("deny", strings(&role.deny)),
         ("hooks", text(role.hooks)),
     ];
+    // `configHash` covers only what the user wrote: the limit a kind has by default is left out, so adding the
+    // setting did not change the hash (and the role re-sync) of a project that does not use it.
+    if !(hashed && role.max_active == default_max_active(&role.kind)) {
+        members.push(("maxActive", role.max_active.map_or(Value::Null, number)));
+    }
     if !role.mcp.is_empty() {
         members.push((
             "mcp",
@@ -110,6 +115,11 @@ fn resolved_role(role: &Role, prompt_value: Value) -> Vec<(&'static str, Value)>
     members
 }
 
+/// The limit a role of `kind` has when `max_active` is not written (see `resolve`).
+fn default_max_active(kind: &str) -> Option<i64> {
+    (kind == "Supervisor").then_some(1)
+}
+
 /// What `configHash` covers: the role with only the prompt's source and hash, and its host.
 pub fn role_hash(role: &Role, role_host: &Host) -> String {
     let covered = object(vec![
@@ -117,13 +127,13 @@ pub fn role_hash(role: &Role, role_host: &Host) -> String {
         ("hash", optional(&role.prompt.hash)),
     ]);
     digest_json(&object(vec![
-        ("role", object(resolved_role(role, covered))),
+        ("role", object(resolved_role(role, covered, true))),
         ("host", host(role_host)),
     ]))
 }
 
 fn role(role: &Role) -> Value {
-    let mut members = resolved_role(role, prompt(&role.prompt));
+    let mut members = resolved_role(role, prompt(&role.prompt), false);
     if role.mcp.is_empty() {
         members.push(("mcp", Value::Array(Vec::new())));
     }
@@ -175,6 +185,18 @@ impl RoleConfig {
                 object(vec![
                     ("enabled", Value::Bool(self.supervision.enabled)),
                     ("checkSeconds", number(self.supervision.check_seconds)),
+                ]),
+            ),
+            (
+                "liveness",
+                object(vec![
+                    ("enabled", Value::Bool(self.liveness.enabled)),
+                    ("checkSeconds", number(self.liveness.check_seconds)),
+                    ("confirmChecks", number(self.liveness.confirm_checks)),
+                    (
+                        "startGraceSeconds",
+                        number(self.liveness.start_grace_seconds),
+                    ),
                 ]),
             ),
             (

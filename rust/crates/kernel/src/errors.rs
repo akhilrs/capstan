@@ -55,6 +55,20 @@ impl KernelError {
         Self::MutationConflict(message.into())
     }
 
+    /// A refusal because a role already has its limit of active agents. It is a conflict whose message starts with the
+    /// code `role_limit`.
+    pub fn role_limit(message: impl Into<String>) -> Self {
+        Self::MutationConflict(format!("role_limit: {}", message.into()))
+    }
+
+    /// The machine code a message starts with, for the refusals that carry one.
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::MutationConflict(m) if m.starts_with("role_limit: ") => Some("role_limit"),
+            _ => None,
+        }
+    }
+
     /// The `name` property of the Node error.
     pub fn name(&self) -> &'static str {
         match self {

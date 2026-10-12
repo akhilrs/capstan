@@ -68,7 +68,7 @@ pub fn context(core: &Core, credential: &str) -> MutationContext {
     }
 }
 
-fn step(core: &Core, op: &str, args: Value) -> Value {
+pub fn step(core: &Core, op: &str, args: Value) -> Value {
     let context = serde_json::to_value(context(core, OWNER)).unwrap();
     let mut all = vec![context];
     all.extend(args.as_array().cloned().unwrap());

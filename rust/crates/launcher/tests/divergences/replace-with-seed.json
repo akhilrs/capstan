@@ -1,0 +1,2499 @@
+{
+ "fixture": "replace.json",
+ "case": "replace-with-seed",
+ "expected": {
+  "config": {},
+  "name": "replace-with-seed",
+  "seed": "replace-with-seed",
+  "steps": [
+   {
+    "args": {},
+    "calls": [
+     {
+      "a": [
+       {
+        "cwd": "<tmp>/project",
+        "label": "project",
+        "role": "PM"
+       }
+      ],
+      "m": "createWorkspace"
+     },
+     {
+      "a": [
+       "w1",
+       "project"
+      ],
+      "m": "renameWorkspace"
+     },
+     {
+      "a": [
+       {
+        "workspaceId": "w1"
+       },
+       {
+        "project": "project"
+       }
+      ],
+      "m": "reportMetadata"
+     },
+     {
+      "a": [
+       "w1:t1",
+       "pm"
+      ],
+      "m": "renameTab"
+     },
+     {
+      "a": [
+       {
+        "cwd": "<tmp>/project",
+        "label": "watch",
+        "role": "worker",
+        "workspaceId": "w1"
+       }
+      ],
+      "m": "createTab"
+     },
+     {
+      "a": [
+       {
+        "environment": {
+         "HOME": "/home/x",
+         "LANG": "C",
+         "PATH": "<tmp>/project/.capstan/bin:/usr/bin:/bin"
+        },
+        "paneId": "w1:p102"
+       }
+      ],
+      "m": "prepareShell"
+     },
+     {
+      "a": [
+       "w1:p102",
+       "cd '<tmp>/project' && exec '/usr/bin/node' '/opt/capstan/cli.js' status --watch"
+      ],
+      "m": "runInPane"
+     },
+     {
+      "a": [
+       {
+        "bytes": 10575,
+        "sha256": "4a35eb187dc22b3adc8f02502bd86f428cb07d4d098a0b8eae96ed60aa158d9f"
+       }
+      ],
+      "m": "writePromptFile"
+     },
+     {
+      "a": [
+       {
+        "args": [
+         "--permission-mode",
+         "default",
+         "--allowedTools",
+         "Bash(cstan *)",
+         "--settings",
+         "{\"disableAllHooks\":true,\"includeCoAuthoredBy\":false,\"attribution\":{\"commit\":\"\",\"pr\":\"\"}}",
+         "--append-system-prompt-file",
+         "<tmp>/prompts/prompt-1.md"
+        ],
+        "environment": {
+         "CAPSTAN_SOCKET": "<tmp>/project/.capstan/state/control.sock",
+         "CAPSTAN_TOKEN": "2gh4wjeuKj1bvg1Iuruk1trtLd96BhF_2OxubZ829Ho",
+         "HOME": "/home/x",
+         "LANG": "C",
+         "PATH": "<tmp>/project/.capstan/bin:/usr/bin:/bin"
+        },
+        "kind": "claude",
+        "name": "pm-1",
+        "paneId": "w1:p1",
+        "timeoutMs": 30000
+       }
+      ],
+      "m": "startAgent"
+     },
+     {
+      "a": [
+       "w1:p1"
+      ],
+      "m": "paneIdentity"
+     },
+     {
+      "a": [
+       {
+        "paneId": "w1:p1"
+       },
+       {
+        "agent": "pm-1",
+        "project": "project",
+        "role": "pm"
+       }
+      ],
+      "m": "reportMetadata"
+     },
+     {
+      "a": [
+       {
+        "workspaceId": "w1"
+       },
+       {
+        "project": "project"
+       }
+      ],
+      "m": "reportMetadata"
+     }
+    ],
+    "events": [],
+    "git": [],
+    "op": "launch_pm",
+    "result": {
+     "agentId": "pm-1",
+     "hub": "opened",
+     "paneId": "w1:p1",
+     "state": "started"
+    },
+    "state": {
+     "refs": [
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ]
+     ]
+    },
+    "step": 0,
+    "tablesDiff": {
+     "actors": {
+      "added": [
+       [
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "proj1",
+        "pm-1",
+        "PM",
+        "pm-seat",
+        "e8a065e368ec449310ad3581fd9e1bf4c356bc71f25ff0a011fbdfe1a1edce0d",
+        1,
+        0,
+        "2026-01-01T00:00:00.005Z",
+        null
+       ]
+      ]
+     },
+     "agent_panes": {
+      "added": [
+       [
+        "proj1",
+        "pm-1",
+        "w1",
+        "w1:p1",
+        null,
+        null,
+        null,
+        1,
+        "2026-01-01T00:00:00.011Z",
+        "2026-01-01T00:00:00.011Z",
+        null,
+        null,
+        "term:w1:p1"
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "agent_id",
+       "workspace_id",
+       "pane_id",
+       "worktree_path",
+       "branch",
+       "base_sha",
+       "generation",
+       "created_at",
+       "updated_at",
+       "task_ref",
+       "task_title",
+       "terminal_id"
+      ]
+     },
+     "agents": {
+      "added": [
+       [
+        "proj1",
+        "pm-1",
+        "pm",
+        "PM",
+        "pm-seat",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        1,
+        "active",
+        "2026-01-01T00:00:00.007Z",
+        "2026-01-01T00:00:00.007Z",
+        null
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "agent_id",
+       "role_name",
+       "kind",
+       "seat_id",
+       "actor_id",
+       "generation",
+       "state",
+       "last_activity_at",
+       "created_at",
+       "ended_at"
+      ]
+     },
+     "capability_grants": {
+      "added": [
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "agent:observe",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "finding:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "message:receive",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "message:resolve",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "message:send",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "operator:decide",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "operator:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "plan:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "plan:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "project:inputs:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "prompt:relay",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "review:request",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "run:control",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "usage:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "work:report",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ],
+       [
+        "proj1",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "work:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.005Z",
+        null
+       ]
+      ]
+     },
+     "controller_events": {
+      "added": [
+       [
+        "proj1",
+        3,
+        "ffa257d2-bb92-4250-a3f2-76f8c20aa73a",
+        "seat",
+        "pm-seat",
+        null,
+        null,
+        3,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-a2328ba5-f3e2-4af8-b84e-b82055140806",
+        1,
+        "{\"action\":\"seat.create\",\"details\":null,\"entityVersion\":0,\"payload\":{\"name\":\"pm\",\"role\":\"PM\",\"seatId\":\"pm-seat\"}}",
+        "2026-01-01T00:00:00.004Z"
+       ],
+       [
+        "proj1",
+        4,
+        "1929c350-a2a0-4d20-884e-2e6e7ac7cc8b",
+        "actor",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        null,
+        null,
+        4,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-bbdf595d-b98b-496e-b086-e4eae3c9e6e3",
+        1,
+        "{\"action\":\"actor.create\",\"details\":null,\"entityVersion\":0,\"payload\":{\"displayName\":\"pm-1\",\"role\":\"PM\",\"seatId\":\"pm-seat\"}}",
+        "2026-01-01T00:00:00.006Z"
+       ],
+       [
+        "proj1",
+        5,
+        "b4c6ccd5-03d8-4a77-aa7d-fcbf2fff8455",
+        "agent",
+        "pm-1",
+        null,
+        "active",
+        5,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-a7ebe5e0-1948-4a22-92d5-39f7c90c6a75",
+        1,
+        "{\"action\":\"agent.register\",\"details\":null,\"entityVersion\":1,\"payload\":{\"actorId\":\"d09b1ea7-8525-4efb-bb27-1c819120b3d4\",\"agentId\":\"pm-1\",\"roleName\":\"pm\",\"seatId\":\"pm-seat\"}}",
+        "2026-01-01T00:00:00.008Z"
+       ],
+       [
+        "proj1",
+        6,
+        "a1c43755-7203-466c-954d-49b51efd7f3b",
+        "fallback_pane",
+        "proj1",
+        null,
+        null,
+        6,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-5dbee219-6f01-4473-84f4-3880a6b0ad3f",
+        1,
+        "{\"action\":\"fallback_pane.record\",\"details\":{\"paneId\":\"w1:p102\"},\"entityVersion\":0,\"payload\":{\"paneId\":\"w1:p102\",\"workspaceId\":\"w1\"}}",
+        "2026-01-01T00:00:00.010Z"
+       ],
+       [
+        "proj1",
+        7,
+        "f439feb1-cbff-4e45-92c5-cfa01f300821",
+        "agent_pane",
+        "pm-1",
+        null,
+        null,
+        7,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-09dd1345-5c03-4b7c-a14a-538dde5597ce",
+        1,
+        "{\"action\":\"agent_pane.record\",\"details\":{\"branch\":null,\"paneId\":\"w1:p1\"},\"entityVersion\":1,\"payload\":{\"agentId\":\"pm-1\",\"baseSha\":null,\"branch\":null,\"paneId\":\"w1:p1\",\"terminalId\":\"term:w1:p1\",\"workspaceId\":\"w1\",\"worktreePath\":null}}",
+        "2026-01-01T00:00:00.012Z"
+       ]
+      ]
+     },
+     "fallback_panes": {
+      "added": [
+       [
+        "proj1",
+        "w1",
+        "w1:p102",
+        "2026-01-01T00:00:00.009Z"
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "workspace_id",
+       "pane_id",
+       "created_at"
+      ]
+     },
+     "mutation_requests": {
+      "added": [
+       [
+        "proj1",
+        "idem-09dd1345-5c03-4b7c-a14a-538dde5597ce",
+        "req-09dd1345-5c03-4b7c-a14a-538dde5597ce",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.012Z"
+       ],
+       [
+        "proj1",
+        "idem-5dbee219-6f01-4473-84f4-3880a6b0ad3f",
+        "req-5dbee219-6f01-4473-84f4-3880a6b0ad3f",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.010Z"
+       ],
+       [
+        "proj1",
+        "idem-a2328ba5-f3e2-4af8-b84e-b82055140806",
+        "req-a2328ba5-f3e2-4af8-b84e-b82055140806",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"seatId\":\"pm-seat\"}",
+        "2026-01-01T00:00:00.004Z"
+       ],
+       [
+        "proj1",
+        "idem-a7ebe5e0-1948-4a22-92d5-39f7c90c6a75",
+        "req-a7ebe5e0-1948-4a22-92d5-39f7c90c6a75",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"actorId\":\"d09b1ea7-8525-4efb-bb27-1c819120b3d4\",\"agentId\":\"pm-1\",\"generation\":1,\"kind\":\"PM\",\"lastActivityAt\":\"2026-01-01T00:00:00.007Z\",\"roleName\":\"pm\",\"seatId\":\"pm-seat\",\"state\":\"active\"}",
+        "2026-01-01T00:00:00.008Z"
+       ],
+       [
+        "proj1",
+        "idem-bbdf595d-b98b-496e-b086-e4eae3c9e6e3",
+        "req-bbdf595d-b98b-496e-b086-e4eae3c9e6e3",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"ciphertext\":\"2k1URKH2XkTAgs97HHXFa8ky-vKuY-yWX83DeVo9EmJvJaWvv5r4Ij9itaAXACld0SBagfe2Z4p9fy8OKNoG5VoZly8szbq_2QcMS5OgHsmKQxVQdQePYh3soUvqRWAKLkeHlM7n7eib0y5MHQ\",\"nonce\":\"ttk0O-gpsoFAMu-w\",\"tag\":\"e0TSANrZIji2O9llOsLHug\"}",
+        "2026-01-01T00:00:00.006Z"
+       ]
+      ]
+     },
+     "projects": {
+      "added": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        7,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        2,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ]
+     },
+     "seats": {
+      "added": [
+       [
+        "proj1",
+        "pm-seat",
+        "pm",
+        "PM",
+        "active",
+        0,
+        "2026-01-01T00:00:00.003Z"
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "seat_id",
+       "name",
+       "role",
+       "state",
+       "state_version",
+       "created_at"
+      ]
+     }
+    }
+   },
+   {
+    "args": {
+     "options": {
+      "task": "req-1",
+      "title": "Fix"
+     },
+     "role": "developer"
+    },
+    "as": "dev",
+    "calls": [
+     {
+      "a": [
+       {
+        "base": "f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+        "branch": "feat/req-1-fix",
+        "label": "project \u00b7 developer-1",
+        "workspaceId": "w1"
+       }
+      ],
+      "m": "createWorktree"
+     },
+     {
+      "a": [
+       "w3:p1"
+      ],
+      "m": "paneIdentity"
+     },
+     {
+      "a": [
+       {
+        "bytes": 5434,
+        "sha256": "fdbbc6243eff859e0021471d5a2b139c1d98b266ca50ff3e49584b0fdc881a79"
+       }
+      ],
+      "m": "writePromptFile"
+     },
+     {
+      "a": [
+       {
+        "args": [
+         "--permission-mode",
+         "default",
+         "--allowedTools",
+         "Bash(cstan *)",
+         "--settings",
+         "{\"disableAllHooks\":true,\"includeCoAuthoredBy\":false,\"attribution\":{\"commit\":\"\",\"pr\":\"\"}}",
+         "--append-system-prompt-file",
+         "<tmp>/prompts/prompt-2.md"
+        ],
+        "environment": {
+         "CAPSTAN_SOCKET": "<tmp>/project/.capstan/state/control.sock",
+         "CAPSTAN_TOKEN": "M45bJNTeG0cm8yu31T4f98iSA91-XPqAbHBOntcn3QM",
+         "HOME": "/home/x",
+         "LANG": "C",
+         "PATH": "<tmp>/project/.capstan/bin:/usr/bin:/bin"
+        },
+        "kind": "claude",
+        "name": "developer-1",
+        "paneId": "w3:p1",
+        "timeoutMs": 30000
+       }
+      ],
+      "m": "startAgent"
+     },
+     {
+      "a": [
+       {
+        "paneId": "w3:p1"
+       },
+       {
+        "agent": "developer-1",
+        "project": "project",
+        "role": "developer"
+       }
+      ],
+      "m": "reportMetadata"
+     }
+    ],
+    "events": [],
+    "git": [
+     "-C <tmp>/project rev-parse --is-inside-work-tree",
+     "-C <tmp>/project rev-parse --show-toplevel",
+     "-C <tmp>/project rev-parse --verify --quiet HEAD^{commit}",
+     "-C <tmp>/project symbolic-ref --quiet HEAD",
+     "rev-parse HEAD",
+     "rev-parse --verify --quiet refs/heads/feat/req-1-fix^{commit}",
+     "worktree list --porcelain -z",
+     "check-ref-format refs/heads/feat/req-1-fix",
+     "-C <tmp>/project rev-parse --is-inside-work-tree",
+     "-C <tmp>/project rev-parse --show-toplevel",
+     "-C <tmp>/project rev-parse --verify --quiet HEAD^{commit}",
+     "-C <tmp>/project symbolic-ref --quiet HEAD",
+     "rev-parse HEAD"
+    ],
+    "op": "spawn",
+    "result": {
+     "agentId": "developer-1",
+     "branch": "feat/req-1-fix",
+     "paneId": "w3:p1",
+     "placement": "tab",
+     "state": "started",
+     "worktreePath": "<tmp>/worktrees/developer-1"
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 1,
+    "tablesDiff": {
+     "actors": {
+      "added": [
+       [
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "proj1",
+        "developer-1",
+        "Developer",
+        "developer-seat",
+        "093767c0ff8b035fd58c75bbf162d4d8bb07fcb79322b6f34a6060adfaf78f3e",
+        1,
+        0,
+        "2026-01-01T00:00:00.015Z",
+        null
+       ]
+      ]
+     },
+     "agent_panes": {
+      "added": [
+       [
+        "proj1",
+        "developer-1",
+        "w3",
+        "w3:p1",
+        "<tmp>/worktrees/developer-1",
+        "feat/req-1-fix",
+        "f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+        1,
+        "2026-01-01T00:00:00.019Z",
+        "2026-01-01T00:00:00.021Z",
+        "req-1",
+        "Fix",
+        "term:w3:p1"
+       ]
+      ]
+     },
+     "agents": {
+      "added": [
+       [
+        "proj1",
+        "developer-1",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        1,
+        "active",
+        "2026-01-01T00:00:00.017Z",
+        "2026-01-01T00:00:00.017Z",
+        null
+       ]
+      ]
+     },
+     "capability_grants": {
+      "added": [
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "finding:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:receive",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:send",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:propose",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "report:submit",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "review:request",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "usage:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "work:report",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ]
+      ]
+     },
+     "controller_events": {
+      "added": [
+       [
+        "proj1",
+        8,
+        "0a317149-ee9e-40f0-b730-fdbfb2d20b05",
+        "seat",
+        "developer-seat",
+        null,
+        null,
+        8,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-772ef339-a131-4106-b56a-5f2762c55bb4",
+        1,
+        "{\"action\":\"seat.create\",\"details\":null,\"entityVersion\":0,\"payload\":{\"name\":\"developer\",\"role\":\"Developer\",\"seatId\":\"developer-seat\"}}",
+        "2026-01-01T00:00:00.014Z"
+       ],
+       [
+        "proj1",
+        9,
+        "139d3f96-be91-45f4-a57e-465b18cfc1f0",
+        "actor",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        null,
+        null,
+        9,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-e61e028e-be2c-4965-b8a4-0cbeb0f5a11b",
+        1,
+        "{\"action\":\"actor.create\",\"details\":null,\"entityVersion\":0,\"payload\":{\"displayName\":\"developer-1\",\"role\":\"Developer\",\"seatId\":\"developer-seat\"}}",
+        "2026-01-01T00:00:00.016Z"
+       ],
+       [
+        "proj1",
+        10,
+        "c72352bb-d7c4-4c4a-ba65-534ed50638f9",
+        "agent",
+        "developer-1",
+        null,
+        "active",
+        10,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-6d111911-dd7b-4799-872c-d0356db42f08",
+        1,
+        "{\"action\":\"agent.register\",\"details\":null,\"entityVersion\":1,\"payload\":{\"actorId\":\"d2507e14-247d-460f-a630-4c4e902c19de\",\"agentId\":\"developer-1\",\"roleName\":\"developer\",\"seatId\":\"developer-seat\"}}",
+        "2026-01-01T00:00:00.018Z"
+       ],
+       [
+        "proj1",
+        11,
+        "62ffe531-b1a5-4d74-b820-9afdd8a2403a",
+        "agent_pane",
+        "developer-1",
+        null,
+        null,
+        11,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-f5cd3d8b-875d-448c-bc65-90f995b977b4",
+        1,
+        "{\"action\":\"agent_pane.record\",\"details\":{\"branch\":\"feat/req-1-fix\",\"paneId\":null},\"entityVersion\":1,\"payload\":{\"agentId\":\"developer-1\",\"baseSha\":\"f8572882fb5d35dd6210a0d7a2f169a325d3cc6e\",\"branch\":\"feat/req-1-fix\",\"paneId\":null,\"taskRef\":\"req-1\",\"taskTitle\":\"Fix\",\"workspaceId\":null,\"worktreePath\":null}}",
+        "2026-01-01T00:00:00.020Z"
+       ],
+       [
+        "proj1",
+        12,
+        "2fc24e80-3fec-4759-97e6-871d6d93f87c",
+        "agent_pane",
+        "developer-1",
+        null,
+        null,
+        12,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-8a279108-068f-4030-8c4d-dc419a9f966c",
+        1,
+        "{\"action\":\"agent_pane.record\",\"details\":{\"branch\":\"feat/req-1-fix\",\"paneId\":\"w3:p1\"},\"entityVersion\":1,\"payload\":{\"agentId\":\"developer-1\",\"baseSha\":\"f8572882fb5d35dd6210a0d7a2f169a325d3cc6e\",\"branch\":\"feat/req-1-fix\",\"paneId\":\"w3:p1\",\"taskRef\":\"req-1\",\"taskTitle\":\"Fix\",\"terminalId\":\"term:w3:p1\",\"workspaceId\":\"w3\",\"worktreePath\":\"<tmp>/worktrees/developer-1\"}}",
+        "2026-01-01T00:00:00.022Z"
+       ]
+      ]
+     },
+     "mutation_requests": {
+      "added": [
+       [
+        "proj1",
+        "idem-6d111911-dd7b-4799-872c-d0356db42f08",
+        "req-6d111911-dd7b-4799-872c-d0356db42f08",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"actorId\":\"d2507e14-247d-460f-a630-4c4e902c19de\",\"agentId\":\"developer-1\",\"generation\":1,\"kind\":\"Developer\",\"lastActivityAt\":\"2026-01-01T00:00:00.017Z\",\"roleName\":\"developer\",\"seatId\":\"developer-seat\",\"state\":\"active\"}",
+        "2026-01-01T00:00:00.018Z"
+       ],
+       [
+        "proj1",
+        "idem-772ef339-a131-4106-b56a-5f2762c55bb4",
+        "req-772ef339-a131-4106-b56a-5f2762c55bb4",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"seatId\":\"developer-seat\"}",
+        "2026-01-01T00:00:00.014Z"
+       ],
+       [
+        "proj1",
+        "idem-8a279108-068f-4030-8c4d-dc419a9f966c",
+        "req-8a279108-068f-4030-8c4d-dc419a9f966c",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.022Z"
+       ],
+       [
+        "proj1",
+        "idem-e61e028e-be2c-4965-b8a4-0cbeb0f5a11b",
+        "req-e61e028e-be2c-4965-b8a4-0cbeb0f5a11b",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"ciphertext\":\"1Lt0hGwcVdXQyTALtHv4KUZB6qHOs4IEptBdZ38oL349usfCzh8xXYUvlmTJkdrhFNUcMJ3YaHzSExp2aJZS9UOmBbIrIbH1VSj5rOXlh8oGHLu3hwonbkjXb08yJ3YiW4rRIy_mToOs9uU80g\",\"nonce\":\"gTje9R_GYo9W-m-G\",\"tag\":\"RZ2Jy-2R808a3CUZpS2J8g\"}",
+        "2026-01-01T00:00:00.016Z"
+       ],
+       [
+        "proj1",
+        "idem-f5cd3d8b-875d-448c-bc65-90f995b977b4",
+        "req-f5cd3d8b-875d-448c-bc65-90f995b977b4",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.020Z"
+       ]
+      ]
+     },
+     "projects": {
+      "added": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        12,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        7,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ]
+     },
+     "seats": {
+      "added": [
+       [
+        "proj1",
+        "developer-seat",
+        "developer",
+        "Developer",
+        "active",
+        0,
+        "2026-01-01T00:00:00.013Z"
+       ]
+      ]
+     }
+    }
+   },
+   {
+    "args": {
+     "dir": "$dev.worktreePath",
+     "file": "a.txt",
+     "text": "a\n"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "write",
+    "result": null,
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 2,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "args": [
+      "add",
+      "-A"
+     ],
+     "cwd": "$dev.worktreePath"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "git",
+    "result": {
+     "stdout": ""
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 3,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "args": [
+      "commit",
+      "-q",
+      "-m",
+      "feat: a"
+     ],
+     "cwd": "$dev.worktreePath"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "git",
+    "result": {
+     "stdout": ""
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 4,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "args": [
+      "rev-parse",
+      "HEAD"
+     ],
+     "cwd": "$dev.worktreePath"
+    },
+    "as": "first",
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "git",
+    "result": {
+     "stdout": "60c54c94c7a5eca6091e1240177378e1407a42d1"
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 5,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "agent": "developer-1",
+     "commit": "$first.stdout",
+     "summary": "wrote a.txt, \"quoted\" and more"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "report",
+    "result": {
+     "state": "accepted"
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 6,
+    "tablesDiff": {
+     "agent_reports": {
+      "added": [
+       [
+        "proj1",
+        "c6e768a1-41fb-4a36-aeaf-e5459e9da1ac",
+        1,
+        "developer-1",
+        1,
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "60c54c94c7a5eca6091e1240177378e1407a42d1",
+        "feat/req-1-fix",
+        "wrote a.txt, \"quoted\" and more",
+        "accepted",
+        null,
+        "{\"generation\":1,\"branch\":\"feat/req-1-fix\",\"baseSha\":\"f8572882fb5d35dd6210a0d7a2f169a325d3cc6e\",\"commitExists\":true,\"branchTip\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"isAncestorOfTip\":true,\"isAncestorOfBase\":false,\"checkedAt\":\"2026-10-01T00:00:00.000Z\"}",
+        "b6e84a7c-0227-4629-9cb7-2a0ad6736403",
+        "2026-01-01T00:00:00.023Z"
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "report_id",
+       "sequence",
+       "agent_id",
+       "generation",
+       "actor_id",
+       "commit_sha",
+       "branch",
+       "summary",
+       "state",
+       "reason",
+       "evidence_json",
+       "notified_message_id",
+       "created_at"
+      ]
+     },
+     "agents": {
+      "added": [
+       [
+        "proj1",
+        "developer-1",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        1,
+        "active",
+        "2026-01-01T00:00:00.023Z",
+        "2026-01-01T00:00:00.017Z",
+        null
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "developer-1",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        1,
+        "active",
+        "2026-01-01T00:00:00.017Z",
+        "2026-01-01T00:00:00.017Z",
+        null
+       ]
+      ]
+     },
+     "controller_events": {
+      "added": [
+       [
+        "proj1",
+        13,
+        "e68ef77c-275c-4fe7-ac19-076c2aba4c6c",
+        "agent_report",
+        "c6e768a1-41fb-4a36-aeaf-e5459e9da1ac",
+        null,
+        "accepted",
+        13,
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "req-3208caa3-d9c6-46b3-92b3-d190c3b2f26f",
+        1,
+        "{\"action\":\"report.record\",\"details\":{\"agentId\":\"developer-1\",\"generation\":1,\"reason\":null},\"entityVersion\":0,\"payload\":{\"commitSha\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"evidence\":{\"baseSha\":\"f8572882fb5d35dd6210a0d7a2f169a325d3cc6e\",\"branch\":\"feat/req-1-fix\",\"branchTip\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"checkedAt\":\"2026-10-01T00:00:00.000Z\",\"commitExists\":true,\"generation\":1,\"isAncestorOfBase\":false,\"isAncestorOfTip\":true},\"summaryHash\":\"10d18b1a384e543fafa208610af165280d0f8c6be4df1de24d6be41383fc6ddb\"}}",
+        "2026-01-01T00:00:00.024Z"
+       ]
+      ]
+     },
+     "messages": {
+      "added": [
+       [
+        "proj1",
+        "b6e84a7c-0227-4629-9cb7-2a0ad6736403",
+        1,
+        "pm-1",
+        1,
+        "23955486-8f57-4dce-b146-8ef97330e4d8",
+        "Verified report c6e768a1-41fb-4a36-aeaf-e5459e9da1ac\nWorker: developer-1 (role developer, generation 1)\nCommit: 60c54c94c7a5eca6091e1240177378e1407a42d1\nBranch: feat/req-1-fix\nThe controller checked that the commit exists and lies on that branch after the worker's recorded base commit. It did not review the work.\nSummary written by the worker, not verified: \"wrote a.txt, \\\"quoted\\\" and more\"",
+        "198cc0d4223f85eba685eec3b394ba980bab1cf22de792a0db0a76eec19c3bf9",
+        "queued",
+        0,
+        "2026-01-01T00:00:00.023Z",
+        null,
+        null,
+        0,
+        null,
+        null,
+        0,
+        null,
+        null,
+        null,
+        "2026-01-01T00:00:00.023Z",
+        "2026-01-01T00:00:00.023Z",
+        0
+       ]
+      ],
+      "columns": [
+       "project_id",
+       "message_id",
+       "sequence",
+       "recipient_agent_id",
+       "recipient_generation",
+       "sender_actor_id",
+       "body",
+       "body_hash",
+       "state",
+       "state_version",
+       "queued_at",
+       "deferred_at",
+       "deferred_reason",
+       "deferral_count",
+       "sent_at",
+       "acked_at",
+       "send_attempts",
+       "state_reason",
+       "notified_at",
+       "last_notified_at",
+       "created_at",
+       "updated_at",
+       "action_needed"
+      ]
+     },
+     "mutation_requests": {
+      "added": [
+       [
+        "proj1",
+        "idem-3208caa3-d9c6-46b3-92b3-d190c3b2f26f",
+        "req-3208caa3-d9c6-46b3-92b3-d190c3b2f26f",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "<hash>",
+        "{\"duplicate\":false,\"record\":{\"actorId\":\"d2507e14-247d-460f-a630-4c4e902c19de\",\"agentId\":\"developer-1\",\"branch\":\"feat/req-1-fix\",\"commitSha\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"createdAt\":\"2026-01-01T00:00:00.023Z\",\"evidence\":{\"baseSha\":\"f8572882fb5d35dd6210a0d7a2f169a325d3cc6e\",\"branch\":\"feat/req-1-fix\",\"branchTip\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"checkedAt\":\"2026-10-01T00:00:00.000Z\",\"commitExists\":true,\"generation\":1,\"isAncestorOfBase\":false,\"isAncestorOfTip\":true},\"generation\":1,\"notifiedMessageId\":\"b6e84a7c-0227-4629-9cb7-2a0ad6736403\",\"reason\":null,\"reportId\":\"c6e768a1-41fb-4a36-aeaf-e5459e9da1ac\",\"sequence\":1,\"state\":\"accepted\",\"summary\":\"wrote a.txt, \\\"quoted\\\" and more\"}}",
+        "2026-01-01T00:00:00.024Z"
+       ]
+      ]
+     },
+     "projects": {
+      "added": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        13,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        12,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ]
+     }
+    }
+   },
+   {
+    "args": {
+     "body": "Please also add b.txt now, with \"quotes\"",
+     "from": "pm-1",
+     "to": "developer-1"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "send",
+    "result": {
+     "messageId": "21be744f-412d-4495-823a-6b222340e10f"
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 7,
+    "tablesDiff": {
+     "agents": {
+      "added": [
+       [
+        "proj1",
+        "pm-1",
+        "pm",
+        "PM",
+        "pm-seat",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        1,
+        "active",
+        "2026-01-01T00:00:00.025Z",
+        "2026-01-01T00:00:00.007Z",
+        null
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "pm-1",
+        "pm",
+        "PM",
+        "pm-seat",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        1,
+        "active",
+        "2026-01-01T00:00:00.007Z",
+        "2026-01-01T00:00:00.007Z",
+        null
+       ]
+      ]
+     },
+     "controller_events": {
+      "added": [
+       [
+        "proj1",
+        14,
+        "17974f97-0148-41f1-925d-7178d14739ef",
+        "message",
+        "21be744f-412d-4495-823a-6b222340e10f",
+        null,
+        "queued",
+        14,
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "req-f8f203a1-0d41-49f3-883f-c600ed86684a",
+        1,
+        "{\"action\":\"message.enqueue\",\"details\":{\"bodyHash\":\"ca4cfa0713eaa9c161e3aa3fb2e21e05d8b12db40bd89211952c13da0cae3ead\",\"recipientAgentId\":\"developer-1\"},\"entityVersion\":0,\"payload\":{\"bodyBytes\":40,\"bodyHash\":\"ca4cfa0713eaa9c161e3aa3fb2e21e05d8b12db40bd89211952c13da0cae3ead\",\"recipientAgentId\":\"developer-1\"}}",
+        "2026-01-01T00:00:00.026Z"
+       ]
+      ]
+     },
+     "messages": {
+      "added": [
+       [
+        "proj1",
+        "21be744f-412d-4495-823a-6b222340e10f",
+        2,
+        "developer-1",
+        1,
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "Please also add b.txt now, with \"quotes\"",
+        "ca4cfa0713eaa9c161e3aa3fb2e21e05d8b12db40bd89211952c13da0cae3ead",
+        "queued",
+        0,
+        "2026-01-01T00:00:00.025Z",
+        null,
+        null,
+        0,
+        null,
+        null,
+        0,
+        null,
+        null,
+        null,
+        "2026-01-01T00:00:00.025Z",
+        "2026-01-01T00:00:00.025Z",
+        0
+       ]
+      ]
+     },
+     "mutation_requests": {
+      "added": [
+       [
+        "proj1",
+        "idem-f8f203a1-0d41-49f3-883f-c600ed86684a",
+        "req-f8f203a1-0d41-49f3-883f-c600ed86684a",
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "<hash>",
+        "{\"messageId\":\"21be744f-412d-4495-823a-6b222340e10f\"}",
+        "2026-01-01T00:00:00.026Z"
+       ]
+      ]
+     },
+     "projects": {
+      "added": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        14,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        13,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ]
+     }
+    }
+   },
+   {
+    "args": {
+     "dir": "$dev.worktreePath",
+     "file": "b.txt",
+     "text": "b\n"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "write",
+    "result": null,
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 8,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "args": [
+      "add",
+      "-A"
+     ],
+     "cwd": "$dev.worktreePath"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "git",
+    "result": {
+     "stdout": ""
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 9,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "args": [
+      "commit",
+      "-q",
+      "-m",
+      "feat: b"
+     ],
+     "cwd": "$dev.worktreePath"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "git",
+    "result": {
+     "stdout": ""
+    },
+    "state": {
+     "refs": [
+      "refs/heads/feat/req-1-fix b31828b02180826e40118f4491ae24ecc6ed1e76",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-1",
+       "HEAD b31828b02180826e40118f4491ae24ecc6ed1e76",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 10,
+    "tablesDiff": {}
+   },
+   {
+    "args": {
+     "agent": "developer-1"
+    },
+    "calls": [
+     {
+      "a": [
+       "w3:p1"
+      ],
+      "m": "paneIdentity"
+     },
+     {
+      "a": [
+       "w3:p1"
+      ],
+      "m": "closePane"
+     },
+     {
+      "a": [
+       {
+        "base": "60c54c94c7a5eca6091e1240177378e1407a42d1",
+        "branch": "feat/req-1-fix",
+        "label": "project \u00b7 developer-2",
+        "workspaceId": "w1"
+       }
+      ],
+      "m": "createWorktree"
+     },
+     {
+      "a": [
+       "w4:p1"
+      ],
+      "m": "paneIdentity"
+     },
+     {
+      "a": [
+       {
+        "bytes": 6767,
+        "sha256": "ba46ff69b498cb8b24a48d0fb993ee4aa3a1b5703b65782c477c7f02dd1fcde9"
+       }
+      ],
+      "m": "writePromptFile"
+     },
+     {
+      "a": [
+       {
+        "args": [
+         "--permission-mode",
+         "default",
+         "--allowedTools",
+         "Bash(cstan *)",
+         "--settings",
+         "{\"disableAllHooks\":true,\"includeCoAuthoredBy\":false,\"attribution\":{\"commit\":\"\",\"pr\":\"\"}}",
+         "--append-system-prompt-file",
+         "<tmp>/prompts/prompt-3.md"
+        ],
+        "environment": {
+         "CAPSTAN_SOCKET": "<tmp>/project/.capstan/state/control.sock",
+         "CAPSTAN_TOKEN": "J0bPEp8ANg5stTsnvGispMH27iWb4oyq_rvoj6HmOM0",
+         "HOME": "/home/x",
+         "LANG": "C",
+         "PATH": "<tmp>/project/.capstan/bin:/usr/bin:/bin"
+        },
+        "kind": "claude",
+        "name": "developer-2",
+        "paneId": "w4:p1",
+        "timeoutMs": 30000
+       }
+      ],
+      "m": "startAgent"
+     },
+     {
+      "a": [
+       {
+        "paneId": "w4:p1"
+       },
+       {
+        "agent": "developer-2",
+        "project": "project",
+        "role": "developer"
+       }
+      ],
+      "m": "reportMetadata"
+     }
+    ],
+    "events": [
+     {
+      "details": {
+       "agentId": "developer-1",
+       "dirty": 0
+      },
+      "event": "worktree_removing"
+     },
+     {
+      "details": {
+       "agentId": "developer-1",
+       "branch": "feat/req-1-fix"
+      },
+      "event": "branch_kept"
+     }
+    ],
+    "git": [
+     "rev-parse --verify --quiet refs/heads/feat/req-1-fix^{commit}",
+     "--version",
+     "rev-parse --verify --end-of-options 60c54c94c7a5eca6091e1240177378e1407a42d1^{commit}",
+     "merge-base --is-ancestor 60c54c94c7a5eca6091e1240177378e1407a42d1 refs/heads/feat/req-1-fix",
+     "-C <tmp>/worktrees/developer-1 status --porcelain -z",
+     "worktree list --porcelain -z",
+     "worktree remove --force <tmp>/worktrees/developer-1",
+     "update-ref -d refs/heads/feat/req-1-fix f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+     "rev-parse --verify --quiet refs/heads/feat/req-1-fix^{commit}",
+     "worktree list --porcelain -z",
+     "update-ref refs/capstan/kept/developer-1 b31828b02180826e40118f4491ae24ecc6ed1e76",
+     "update-ref -d refs/heads/feat/req-1-fix b31828b02180826e40118f4491ae24ecc6ed1e76",
+     "-C <tmp>/project rev-parse --is-inside-work-tree",
+     "-C <tmp>/project rev-parse --show-toplevel",
+     "-C <tmp>/project rev-parse --verify --quiet HEAD^{commit}",
+     "-C <tmp>/project symbolic-ref --quiet HEAD",
+     "rev-parse HEAD",
+     "rev-parse --verify --quiet refs/heads/feat/req-1-fix^{commit}",
+     "worktree list --porcelain -z",
+     "check-ref-format refs/heads/feat/req-1-fix"
+    ],
+    "op": "replace",
+    "result": {
+     "agentId": "developer-2",
+     "baseSha": "60c54c94c7a5eca6091e1240177378e1407a42d1",
+     "baseSource": "predecessor",
+     "branch": "feat/req-1-fix",
+     "cancelledMessageIds": [
+      "21be744f-412d-4495-823a-6b222340e10f"
+     ],
+     "keptRef": "refs/capstan/kept/developer-1",
+     "paneId": "w4:p1",
+     "placement": "tab",
+     "predecessor": "developer-1",
+     "predecessorWorktreeRemoved": true,
+     "replacementRecorded": true,
+     "state": "started",
+     "worktreePath": "<tmp>/worktrees/developer-2"
+    },
+    "state": {
+     "refs": [
+      "refs/capstan/kept/developer-1 b31828b02180826e40118f4491ae24ecc6ed1e76",
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-2",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 11,
+    "tablesDiff": {
+     "actors": {
+      "added": [
+       [
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "proj1",
+        "developer-2",
+        "Developer",
+        "developer-seat",
+        "aee4014759c4831190f07f5edfcf5fcd68eaec16848187df3b95bffc36e46360",
+        1,
+        0,
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "proj1",
+        "developer-1",
+        "Developer",
+        "developer-seat",
+        "093767c0ff8b035fd58c75bbf162d4d8bb07fcb79322b6f34a6060adfaf78f3e",
+        0,
+        0,
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ]
+      ],
+      "removed": [
+       [
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "proj1",
+        "developer-1",
+        "Developer",
+        "developer-seat",
+        "093767c0ff8b035fd58c75bbf162d4d8bb07fcb79322b6f34a6060adfaf78f3e",
+        1,
+        0,
+        "2026-01-01T00:00:00.015Z",
+        null
+       ]
+      ]
+     },
+     "agent_panes": {
+      "added": [
+       [
+        "proj1",
+        "developer-2",
+        "w4",
+        "w4:p1",
+        "<tmp>/worktrees/developer-2",
+        "feat/req-1-fix",
+        "60c54c94c7a5eca6091e1240177378e1407a42d1",
+        1,
+        "2026-01-01T00:00:00.035Z",
+        "2026-01-01T00:00:00.037Z",
+        "req-1",
+        "Fix",
+        "term:w4:p1"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "developer-1",
+        "w3",
+        "w3:p1",
+        "<tmp>/worktrees/developer-1",
+        "feat/req-1-fix",
+        "f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+        1,
+        "2026-01-01T00:00:00.019Z",
+        "2026-01-01T00:00:00.021Z",
+        "req-1",
+        "Fix",
+        "term:w3:p1"
+       ]
+      ]
+     },
+     "agents": {
+      "added": [
+       [
+        "proj1",
+        "developer-1",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        1,
+        "ended",
+        "2026-01-01T00:00:00.023Z",
+        "2026-01-01T00:00:00.017Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "developer-2",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        1,
+        "active",
+        "2026-01-01T00:00:00.033Z",
+        "2026-01-01T00:00:00.033Z",
+        null
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "developer-1",
+        "developer",
+        "Developer",
+        "developer-seat",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        1,
+        "active",
+        "2026-01-01T00:00:00.023Z",
+        "2026-01-01T00:00:00.017Z",
+        null
+       ]
+      ]
+     },
+     "capability_grants": {
+      "added": [
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "finding:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "message:receive",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "message:send",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "operator:propose",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "operator:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "plan:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "plan:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "report:submit",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "review:request",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "usage:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        "work:report",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.031Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "finding:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:receive",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:send",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:propose",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "report:submit",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "review:request",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "usage:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "work:report",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        "2026-01-01T00:00:00.027Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "finding:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:receive",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "message:send",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:propose",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "operator:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:read",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "plan:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "report:submit",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "review:request",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "usage:write",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ],
+       [
+        "proj1",
+        "d2507e14-247d-460f-a630-4c4e902c19de",
+        "work:report",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "2026-01-01T00:00:00.015Z",
+        null
+       ]
+      ]
+     },
+     "controller_events": {
+      "added": [
+       [
+        "proj1",
+        15,
+        "52cdc9cc-cb97-4c36-bd4e-4ec5d639334c",
+        "message",
+        "21be744f-412d-4495-823a-6b222340e10f",
+        "queued",
+        "cancelled",
+        15,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-17c6995d-2a29-4223-9ea4-22eeb83744d5",
+        1,
+        "{\"action\":\"message.transition\",\"details\":{\"reason\":\"agent_ended\"},\"entityVersion\":1,\"payload\":{\"batch\":true}}",
+        "2026-01-01T00:00:00.028Z"
+       ],
+       [
+        "proj1",
+        16,
+        "fb69b819-b56a-45c2-82ec-07c16158670a",
+        "agent",
+        "developer-1",
+        "active",
+        "ended",
+        15,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-17c6995d-2a29-4223-9ea4-22eeb83744d5",
+        1,
+        "{\"action\":\"agent.end\",\"details\":{\"branch\":\"feat/req-1-fix\",\"cancelledMessageIds\":[\"21be744f-412d-4495-823a-6b222340e10f\"]},\"entityVersion\":1,\"payload\":{\"agentId\":\"developer-1\",\"branch\":null,\"lost\":null}}",
+        "2026-01-01T00:00:00.029Z"
+       ],
+       [
+        "proj1",
+        17,
+        "3e2f37d0-6c0c-4bac-8e8e-cf0e12478930",
+        "agent_pane",
+        "developer-1",
+        null,
+        null,
+        16,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-25af307a-92ed-4c4d-ba41-c8bb63b45387",
+        1,
+        "{\"action\":\"agent_pane.clear\",\"details\":{\"cleared\":true},\"entityVersion\":0,\"payload\":{\"agentId\":\"developer-1\"}}",
+        "2026-01-01T00:00:00.030Z"
+       ],
+       [
+        "proj1",
+        18,
+        "98ccd5e9-d3fa-4aa1-ab87-b17f1fc3acae",
+        "actor",
+        "35e07e00-0576-4637-8aec-1bf5de10c81f",
+        null,
+        null,
+        17,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-8615b840-5cf2-4181-8f98-07c9c14b62c9",
+        1,
+        "{\"action\":\"actor.create\",\"details\":null,\"entityVersion\":0,\"payload\":{\"displayName\":\"developer-2\",\"role\":\"Developer\",\"seatId\":\"developer-seat\"}}",
+        "2026-01-01T00:00:00.032Z"
+       ],
+       [
+        "proj1",
+        19,
+        "e3434fcc-1b89-4c3b-a23b-fad39b7446e1",
+        "agent",
+        "developer-2",
+        null,
+        "active",
+        18,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-f7ce89b9-aa97-4d2f-b732-d4d58c1f7950",
+        1,
+        "{\"action\":\"agent.register\",\"details\":null,\"entityVersion\":1,\"payload\":{\"actorId\":\"35e07e00-0576-4637-8aec-1bf5de10c81f\",\"agentId\":\"developer-2\",\"roleName\":\"developer\",\"seatId\":\"developer-seat\"}}",
+        "2026-01-01T00:00:00.034Z"
+       ],
+       [
+        "proj1",
+        20,
+        "e9f97755-9ff8-456e-a506-1a0e990afe0e",
+        "agent_pane",
+        "developer-2",
+        null,
+        null,
+        19,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-acc024f8-0228-462e-ab1d-7697f1a1fbd3",
+        1,
+        "{\"action\":\"agent_pane.record\",\"details\":{\"branch\":\"feat/req-1-fix\",\"paneId\":null},\"entityVersion\":1,\"payload\":{\"agentId\":\"developer-2\",\"baseSha\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"branch\":\"feat/req-1-fix\",\"paneId\":null,\"taskRef\":\"req-1\",\"taskTitle\":\"Fix\",\"workspaceId\":null,\"worktreePath\":null}}",
+        "2026-01-01T00:00:00.036Z"
+       ],
+       [
+        "proj1",
+        21,
+        "fc6d576f-3348-4bc4-8955-fcd858f1e976",
+        "agent_pane",
+        "developer-2",
+        null,
+        null,
+        20,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-09f8a09d-8d0e-4b6a-84f3-17889dea3b1a",
+        1,
+        "{\"action\":\"agent_pane.record\",\"details\":{\"branch\":\"feat/req-1-fix\",\"paneId\":\"w4:p1\"},\"entityVersion\":1,\"payload\":{\"agentId\":\"developer-2\",\"baseSha\":\"60c54c94c7a5eca6091e1240177378e1407a42d1\",\"branch\":\"feat/req-1-fix\",\"paneId\":\"w4:p1\",\"taskRef\":\"req-1\",\"taskTitle\":\"Fix\",\"terminalId\":\"term:w4:p1\",\"workspaceId\":\"w4\",\"worktreePath\":\"<tmp>/worktrees/developer-2\"}}",
+        "2026-01-01T00:00:00.038Z"
+       ],
+       [
+        "proj1",
+        22,
+        "c26fffdd-accc-4d0c-991d-b9cb91c27536",
+        "agent",
+        "developer-1",
+        "ended",
+        "replaced",
+        21,
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "req-82921b6e-3447-4945-ae1b-ba4dff0ba9b9",
+        1,
+        "{\"action\":\"agent.replaced\",\"details\":{\"branch\":\"feat/req-1-fix\",\"keptRef\":\"refs/capstan/kept/developer-1\",\"keptTip\":\"b31828b02180826e40118f4491ae24ecc6ed1e76\",\"packagesRebound\":0,\"successorId\":\"developer-2\"},\"entityVersion\":1,\"payload\":{\"branch\":\"feat/req-1-fix\",\"keptRef\":\"refs/capstan/kept/developer-1\",\"keptTip\":\"b31828b02180826e40118f4491ae24ecc6ed1e76\",\"predecessorId\":\"developer-1\",\"successorId\":\"developer-2\"}}",
+        "2026-01-01T00:00:00.039Z"
+       ]
+      ]
+     },
+     "messages": {
+      "added": [
+       [
+        "proj1",
+        "21be744f-412d-4495-823a-6b222340e10f",
+        2,
+        "developer-1",
+        1,
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "Please also add b.txt now, with \"quotes\"",
+        "ca4cfa0713eaa9c161e3aa3fb2e21e05d8b12db40bd89211952c13da0cae3ead",
+        "cancelled",
+        1,
+        "2026-01-01T00:00:00.025Z",
+        null,
+        null,
+        0,
+        null,
+        null,
+        0,
+        "agent_ended",
+        null,
+        null,
+        "2026-01-01T00:00:00.025Z",
+        "2026-01-01T00:00:00.027Z",
+        0
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "21be744f-412d-4495-823a-6b222340e10f",
+        2,
+        "developer-1",
+        1,
+        "d09b1ea7-8525-4efb-bb27-1c819120b3d4",
+        "Please also add b.txt now, with \"quotes\"",
+        "ca4cfa0713eaa9c161e3aa3fb2e21e05d8b12db40bd89211952c13da0cae3ead",
+        "queued",
+        0,
+        "2026-01-01T00:00:00.025Z",
+        null,
+        null,
+        0,
+        null,
+        null,
+        0,
+        null,
+        null,
+        null,
+        "2026-01-01T00:00:00.025Z",
+        "2026-01-01T00:00:00.025Z",
+        0
+       ]
+      ]
+     },
+     "mutation_requests": {
+      "added": [
+       [
+        "proj1",
+        "idem-09f8a09d-8d0e-4b6a-84f3-17889dea3b1a",
+        "req-09f8a09d-8d0e-4b6a-84f3-17889dea3b1a",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.038Z"
+       ],
+       [
+        "proj1",
+        "idem-17c6995d-2a29-4223-9ea4-22eeb83744d5",
+        "req-17c6995d-2a29-4223-9ea4-22eeb83744d5",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"cancelledMessageIds\":[\"21be744f-412d-4495-823a-6b222340e10f\"]}",
+        "2026-01-01T00:00:00.029Z"
+       ],
+       [
+        "proj1",
+        "idem-25af307a-92ed-4c4d-ba41-c8bb63b45387",
+        "req-25af307a-92ed-4c4d-ba41-c8bb63b45387",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"cleared\":true}",
+        "2026-01-01T00:00:00.030Z"
+       ],
+       [
+        "proj1",
+        "idem-82921b6e-3447-4945-ae1b-ba4dff0ba9b9",
+        "req-82921b6e-3447-4945-ae1b-ba4dff0ba9b9",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.039Z"
+       ],
+       [
+        "proj1",
+        "idem-8615b840-5cf2-4181-8f98-07c9c14b62c9",
+        "req-8615b840-5cf2-4181-8f98-07c9c14b62c9",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"ciphertext\":\"QOp3IadlrKc7lovagB_sHL0NKmFQWryBJoD0_VzjVM3eZFt_NszMPty0YPgPEDleF6ALh28mbO_2HIZKtmPmKxLvImzXgB3Sy_DbuwOHaTY_twTLhxUP0XzY2iUtzWQZN8IyKY3W2s08zFlT4g\",\"nonce\":\"6D62reBtiPU1lUoL\",\"tag\":\"SDVUzL6bYV7vmMTKWQuxNg\"}",
+        "2026-01-01T00:00:00.032Z"
+       ],
+       [
+        "proj1",
+        "idem-acc024f8-0228-462e-ab1d-7697f1a1fbd3",
+        "req-acc024f8-0228-462e-ab1d-7697f1a1fbd3",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"recorded\":true}",
+        "2026-01-01T00:00:00.036Z"
+       ],
+       [
+        "proj1",
+        "idem-f7ce89b9-aa97-4d2f-b732-d4d58c1f7950",
+        "req-f7ce89b9-aa97-4d2f-b732-d4d58c1f7950",
+        "7556d6a2-b55d-48d1-88b5-092cb067b7ff",
+        "<hash>",
+        "{\"actorId\":\"35e07e00-0576-4637-8aec-1bf5de10c81f\",\"agentId\":\"developer-2\",\"generation\":1,\"kind\":\"Developer\",\"lastActivityAt\":\"2026-01-01T00:00:00.033Z\",\"roleName\":\"developer\",\"seatId\":\"developer-seat\",\"state\":\"active\"}",
+        "2026-01-01T00:00:00.034Z"
+       ]
+      ]
+     },
+     "projects": {
+      "added": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        21,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ],
+      "removed": [
+       [
+        "proj1",
+        "Parity Project",
+        1,
+        14,
+        "2026-01-01T00:00:00.000Z"
+       ]
+      ]
+     }
+    }
+   },
+   {
+    "args": {
+     "agent": "developer-1"
+    },
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "replace",
+    "state": {
+     "refs": [
+      "refs/capstan/kept/developer-1 b31828b02180826e40118f4491ae24ecc6ed1e76",
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-2",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 12,
+    "tablesDiff": {},
+    "result": {
+     "state": "already_replaced",
+     "predecessor": "developer-1",
+     "agentId": "developer-2"
+    }
+   },
+   {
+    "args": {},
+    "calls": [],
+    "events": [],
+    "git": [],
+    "op": "status",
+    "result": {
+     "cleanupFailed": [],
+     "orphanPanes": []
+    },
+    "state": {
+     "refs": [
+      "refs/capstan/kept/developer-1 b31828b02180826e40118f4491ae24ecc6ed1e76",
+      "refs/heads/feat/req-1-fix 60c54c94c7a5eca6091e1240177378e1407a42d1",
+      "refs/heads/main f8572882fb5d35dd6210a0d7a2f169a325d3cc6e"
+     ],
+     "worktrees": [
+      [
+       "worktree <tmp>/project",
+       "HEAD f8572882fb5d35dd6210a0d7a2f169a325d3cc6e",
+       "branch refs/heads/main"
+      ],
+      [
+       "worktree <tmp>/worktrees/developer-2",
+       "HEAD 60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch refs/heads/feat/req-1-fix"
+      ]
+     ]
+    },
+    "step": 13,
+    "tablesDiff": {}
+   }
+  ]
+ },
+ "reason": "A replace of an agent that already has an active successor answers already_replaced (exit 0, agentId = the successor) instead of failing (plan-35/launcher-replace)."
+}

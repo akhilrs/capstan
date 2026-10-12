@@ -111,6 +111,7 @@ pub const DEFAULT_PM_WIDTH_PERCENT: i64 = 60;
 pub const DEFAULT_MIN_PANE_COLUMNS: i64 = 60;
 pub const DEFAULT_MIN_PANE_ROWS: i64 = 12;
 pub const DEFAULT_SUPERVISION_CHECK_SECONDS: i64 = 300;
+pub const MAX_MAX_ACTIVE: i64 = 1000;
 pub const DEFAULT_PM_STALE_MINUTES: i64 = 10;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -138,6 +139,15 @@ pub struct Timers {
 pub struct Supervision {
     pub enabled: bool,
     pub check_seconds: i64,
+}
+
+/// The `[liveness]` table: the check that finds an agent whose session has died.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Liveness {
+    pub enabled: bool,
+    pub check_seconds: i64,
+    pub confirm_checks: i64,
+    pub start_grace_seconds: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -218,6 +228,8 @@ pub struct Role {
     pub prompt: PromptSource,
     /// The prompt's text, kept for the launcher; it is not part of the printed JSON.
     pub prompt_text: Option<String>,
+    /// The most agents of this role that may be active at once; `None` is unlimited.
+    pub max_active: Option<i64>,
     pub config_hash: String,
 }
 
@@ -310,6 +322,7 @@ pub struct RoleConfig {
     pub notifications: Notifications,
     pub timers: Timers,
     pub supervision: Supervision,
+    pub liveness: Liveness,
     pub architect: Architect,
     pub operator: Operator,
     pub researcher: Researcher,

@@ -82,6 +82,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             "notifications",
             "timers",
             "supervision",
+            "liveness",
             "architect",
             "operator",
             "researcher",
@@ -186,6 +187,42 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             60,
             3600,
             DEFAULT_SUPERVISION_CHECK_SECONDS,
+        )?,
+    };
+
+    let liveness_table = optional_table(root.get("liveness"), "liveness")?;
+    reject_unknown_keys(
+        liveness_table,
+        &[
+            "enabled",
+            "check_seconds",
+            "confirm_checks",
+            "start_grace_seconds",
+        ],
+        "liveness",
+    )?;
+    let liveness = Liveness {
+        enabled: optional_boolean(liveness_table.get("enabled"), "liveness.enabled", true)?,
+        check_seconds: optional_integer(
+            liveness_table.get("check_seconds"),
+            "liveness.check_seconds",
+            10,
+            3600,
+            30,
+        )?,
+        confirm_checks: optional_integer(
+            liveness_table.get("confirm_checks"),
+            "liveness.confirm_checks",
+            2,
+            100,
+            3,
+        )?,
+        start_grace_seconds: optional_integer(
+            liveness_table.get("start_grace_seconds"),
+            "liveness.start_grace_seconds",
+            30,
+            3600,
+            120,
         )?,
     };
 
@@ -335,6 +372,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         notifications,
         timers,
         supervision,
+        liveness,
         architect,
         operator,
         researcher,
@@ -750,6 +788,7 @@ fn resolve_roles(
                 "mcp",
                 "prompt",
                 "prompt_file",
+                "max_active",
             ],
             &at,
         )?;
@@ -801,6 +840,22 @@ fn resolve_roles(
             some => enum_value(some, &format!("{at}.hooks"), &["off", "inherit"])?,
         };
         let mcp = resolve_role_mcp(role.get("mcp"), &format!("{at}.mcp"), mcp_servers)?;
+        let max_active = match (role.get("max_active"), kind) {
+            (Some(_), "PM") => {
+                return invalid(format!(
+                    "{at}.max_active is not allowed on a PM role: a project has exactly one PM"
+                ))
+            }
+            (None, "Supervisor") => Some(1),
+            (None, _) => None,
+            (value, _) => Some(optional_integer(
+                value,
+                &format!("{at}.max_active"),
+                1,
+                MAX_MAX_ACTIVE,
+                1,
+            )?),
+        };
         let (prompt, prompt_text) = resolve_prompt(role, &at, project_root)?;
         if host.kind != "claude" {
             reject_unenforceable(&at, host, kind, permission_mode, &allow, &deny, &mcp)?;
@@ -817,6 +872,7 @@ fn resolve_roles(
             mcp,
             prompt,
             prompt_text,
+            max_active,
             config_hash: String::new(),
         };
         resolved.config_hash = role_hash(&resolved, host);

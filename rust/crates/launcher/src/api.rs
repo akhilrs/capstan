@@ -282,7 +282,15 @@ pub struct Replaced {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplaceResult {
     Replaced(Box<Replaced>),
-    Blocked { predecessor: String, reason: String },
+    Blocked {
+        predecessor: String,
+        reason: String,
+    },
+    /// The predecessor already has a successor; nothing was started.
+    AlreadyReplaced {
+        predecessor: String,
+        agent_id: String,
+    },
 }
 
 impl ReplaceResult {
@@ -290,6 +298,7 @@ impl ReplaceResult {
         match self {
             Self::Replaced(done) => &done.spawn.state,
             Self::Blocked { .. } => "blocked",
+            Self::AlreadyReplaced { .. } => "already_replaced",
         }
     }
 
@@ -299,6 +308,12 @@ impl ReplaceResult {
                 predecessor,
                 reason,
             } => json!({"state": "blocked", "predecessor": predecessor, "reason": reason}),
+            Self::AlreadyReplaced {
+                predecessor,
+                agent_id,
+            } => {
+                json!({"state": "already_replaced", "predecessor": predecessor, "agentId": agent_id})
+            }
             Self::Replaced(done) => {
                 let Value::Object(mut map) = done.spawn.to_value() else {
                     unreachable!("a spawn result is an object")

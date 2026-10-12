@@ -35,7 +35,10 @@ fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
 }
 
-/// `registerAgent`.
+/// `registerAgent`. `maxActive` (an integer >= 1) is the role's configured limit of active agents; the caller must pass
+/// it, because the kernel does not store it. When absent the kernel applies only the safe default: 1 for a Supervisor
+/// kind, no limit otherwise. A caller that omits it for a Supervisor role whose configuration was raised above 1 is
+/// refused at 1 active agent. Past the limit the call is refused with a conflict whose code is `role_limit`.
 pub fn register_agent(
     kernel: &Kernel,
     context: &MutationContext,
@@ -52,11 +55,27 @@ pub fn register_agent(
             ))
         }
     };
+    let max_active = match field(input, "maxActive") {
+        Value::Null => None,
+        value => match value.as_i64().filter(|n| *n >= 1) {
+            Some(n) => Some(n),
+            None => {
+                return Err(KernelError::type_error(
+                    "maxActive must be an integer of at least 1",
+                ))
+            }
+        },
+    };
+    let mut payload =
+        json!({"agentId": agent_id, "roleName": role_name, "seatId": seat_id, "actorId": actor_id});
+    if let Some(limit) = max_active {
+        payload["maxActive"] = json!(limit);
+    }
     kernel.mutate(
         context,
         "agent.register",
         "actor:manage",
-        &json!({"agentId": agent_id, "roleName": role_name, "seatId": seat_id, "actorId": actor_id}),
+        &payload,
         |_| {
             let definitions = actors::role_definitions(kernel)?;
             let definition = definitions
@@ -118,6 +137,31 @@ pub fn register_agent(
                 return Err(KernelError::conflict(
                     "agent id, actor or seat is already bound to an agent",
                 ));
+            }
+            let limit = max_active.or(if kind == "Supervisor" { Some(1) } else { None });
+            if let Some(limit) = limit {
+                let active = query_all(
+                    &kernel.database,
+                    "SELECT agent_id, generation FROM agents WHERE project_id = ? AND role_name = ? AND state = 'active' ORDER BY created_at, agent_id",
+                    [&kernel.project_id, role_name],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                if active.len() as i64 >= limit {
+                    let names: Vec<&str> = active.iter().map(|(id, _)| id.as_str()).collect();
+                    let mut message = format!(
+                        "{} {} already active (max_active = {limit})",
+                        names.join(", "),
+                        if names.len() == 1 { "is" } else { "are" }
+                    );
+                    for (id, generation) in &active {
+                        if actors::lost_recorded(kernel, id, *generation)? {
+                            message.push_str(&format!(
+                                "; {id} is recorded lost, replace or release it"
+                            ));
+                        }
+                    }
+                    return Err(KernelError::role_limit(message));
+                }
             }
             let now = kernel.now();
             execute(

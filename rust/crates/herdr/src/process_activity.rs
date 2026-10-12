@@ -82,6 +82,11 @@ pub fn tool_processes(table: &[ProcEntry], shell_pid: i64) -> Vec<ProcEntry> {
     counted
 }
 
+/// Whether `shell_pid` has at least one child in the table, whatever its command is.
+pub fn shell_has_child(table: &[ProcEntry], shell_pid: i64) -> bool {
+    table.iter().any(|entry| entry.ppid == shell_pid)
+}
+
 /// `Math.round`: halves go up.
 fn js_round(value: f64) -> f64 {
     if (value - value.floor()) == 0.5 {
@@ -253,13 +258,24 @@ impl ToolProcessWalker {
     }
 
     pub fn read(&self, shell_pid: i64) -> Option<Vec<ProcEntry>> {
+        self.guarded(|| self.walk(shell_pid))
+    }
+
+    /// Whether the process has at least one child, or None when the caller has to read the whole table.
+    pub fn has_child(&self, pid: i64) -> Option<bool> {
+        self.guarded(|| self.child_pids(pid).map(|pids| !pids.is_empty()))
+    }
+
+    /// Runs a read that needs `children` lists: None for good when the kernel has none, and for `retry_ms` after any
+    /// other failure.
+    fn guarded<T>(&self, read: impl FnOnce() -> io::Result<T>) -> Option<T> {
         {
             let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             if state.supported == Some(false) || (self.now)() < state.retry_at {
                 return None;
             }
         }
-        let outcome = (|| -> io::Result<Option<Vec<ProcEntry>>> {
+        let outcome = (|| -> io::Result<Option<T>> {
             let supported = {
                 let known = self
                     .state
@@ -281,7 +297,7 @@ impl ToolProcessWalker {
             if !supported {
                 return Ok(None);
             }
-            self.walk(shell_pid).map(Some)
+            read().map(Some)
         })();
         match outcome {
             Ok(result) => result,
@@ -526,6 +542,9 @@ pub fn default_process_table_reader() -> ProcessTableReader {
 /// Finds the tool processes under a shell pid, or None when the caller has to read the whole table.
 pub type ToolProcessReader = Arc<dyn Fn(i64) -> Option<Vec<ProcEntry>> + Send + Sync>;
 
+/// Tells whether a pid has a child by following `children` lists, or None when the caller has to read the whole table.
+pub type ChildCheckReader = Arc<dyn Fn(i64) -> Option<bool> + Send + Sync>;
+
 /// What `sample` reads: the shell pid of the pane and the counted processes under it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DetailedSample {
@@ -537,14 +556,21 @@ pub struct HerdrProcessProbe {
     runner: Arc<dyn HerdrRunner>,
     read_table: ProcessTableReader,
     read_tools: Option<ToolProcessReader>,
+    has_child: Option<ChildCheckReader>,
 }
 
 impl HerdrProcessProbe {
     /// The production probe: follows `children` lists on Linux and reads the whole table when it cannot.
     pub fn new(runner: Arc<dyn HerdrRunner>) -> Self {
         let walker = Arc::new(ToolProcessWalker::system());
+        let child_walker = Arc::clone(&walker);
         let read_tools: Option<ToolProcessReader> = if cfg!(target_os = "linux") {
             Some(Arc::new(move |pid| walker.read(pid)))
+        } else {
+            None
+        };
+        let has_child: Option<ChildCheckReader> = if cfg!(target_os = "linux") {
+            Some(Arc::new(move |pid| child_walker.has_child(pid)))
         } else {
             None
         };
@@ -552,6 +578,7 @@ impl HerdrProcessProbe {
             runner,
             read_table: default_process_table_reader(),
             read_tools,
+            has_child,
         }
     }
 
@@ -561,16 +588,17 @@ impl HerdrProcessProbe {
             runner,
             read_table,
             read_tools: None,
+            has_child: None,
         }
     }
 
-    pub fn sample_detailed(&self, pane_id: &str) -> Result<DetailedSample, HerdrError> {
+    fn shell_pid(&self, pane_id: &str) -> Result<i64, HerdrError> {
         let args: Vec<String> = ["pane", "process-info", "--pane", pane_id]
             .iter()
             .map(|s| s.to_string())
             .collect();
         let result = run_json(self.runner.as_ref(), &args, &RunOptions::default())?;
-        let shell_pid = result
+        result
             .get("process_info")
             .and_then(|info| info.as_object())
             .and_then(|info| info.get("shell_pid"))
@@ -579,7 +607,11 @@ impl HerdrProcessProbe {
                     .or_else(|| pid.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
             })
             .filter(|pid| *pid > 0)
-            .ok_or_else(|| HerdrError::new("bad_output", "herdr process info has no shell_pid"))?;
+            .ok_or_else(|| HerdrError::new("bad_output", "herdr process info has no shell_pid"))
+    }
+
+    pub fn sample_detailed(&self, pane_id: &str) -> Result<DetailedSample, HerdrError> {
+        let shell_pid = self.shell_pid(pane_id)?;
         let direct = self.read_tools.as_ref().and_then(|read| read(shell_pid));
         let processes = match direct {
             Some(processes) => processes,
@@ -601,6 +633,16 @@ impl HerdrProcessProbe {
 }
 
 impl api::ProcessActivityProbe for HerdrProcessProbe {
+    fn host_alive(&self, pane_id: &str) -> Result<Option<bool>, HerdrError> {
+        let shell_pid = self.shell_pid(pane_id)?;
+        if let Some(alive) = self.has_child.as_ref().and_then(|check| check(shell_pid)) {
+            return Ok(Some(alive));
+        }
+        Ok((self.read_table)()
+            .ok()
+            .map(|table| shell_has_child(&table, shell_pid)))
+    }
+
     fn sample(&self, pane_id: &str) -> Result<api::ProcessSample, HerdrError> {
         let sample = self.sample_detailed(pane_id)?;
         Ok(api::ProcessSample {
@@ -662,5 +704,84 @@ impl ProcessActivityTracker {
     /// Every agent with a last activity, for the messaging evaluation.
     pub fn activity(&self) -> &HashMap<String, u64> {
         &self.last_activity
+    }
+}
+
+#[cfg(test)]
+mod host_alive_tests {
+    use super::*;
+    use crate::api::{HerdrOutput, ProcessActivityProbe, StubRunner};
+
+    fn entry(pid: i64, ppid: i64, comm: &str) -> ProcEntry {
+        ProcEntry {
+            pid,
+            ppid,
+            comm: comm.into(),
+            cpu_ms: 0.0,
+            start_key: pid.to_string(),
+        }
+    }
+
+    fn probe(table: io::Result<ProcessTable>, info: &str) -> (HerdrProcessProbe, Arc<StubRunner>) {
+        let runner = Arc::new(StubRunner::new());
+        runner.push(Ok(HerdrOutput {
+            code: 0,
+            stdout: info.into(),
+            stderr: String::new(),
+        }));
+        let table = Mutex::new(Some(table));
+        let probe = HerdrProcessProbe::with_table_reader(
+            runner.clone(),
+            Arc::new(move || {
+                table
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap_or_else(|| Err(io::Error::other("again")))
+            }),
+        );
+        (probe, runner)
+    }
+
+    const INFO: &str = r#"{"result":{"process_info":{"shell_pid":10}}}"#;
+
+    #[test]
+    fn a_shell_with_a_child_is_alive_whatever_the_command() {
+        let table = vec![entry(10, 1, "bash"), entry(11, 10, "some-other-cli")];
+        assert!(shell_has_child(&table, 10));
+        let (probe, _) = probe(Ok(table), INFO);
+        assert_eq!(probe.host_alive("w1:p1").unwrap(), Some(true));
+    }
+
+    #[test]
+    fn a_shell_without_a_child_is_dead() {
+        // A grandchild of the shell does not count: only the shell's own children do.
+        let table = vec![
+            entry(10, 1, "bash"),
+            entry(20, 2, "other"),
+            entry(21, 20, "x"),
+        ];
+        assert!(!shell_has_child(&table, 10));
+        let (probe, _) = probe(Ok(table), INFO);
+        assert_eq!(probe.host_alive("w1:p1").unwrap(), Some(false));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_real_process_table_sees_a_child_of_this_process() {
+        let me = i64::from(std::process::id());
+        let mut child = Command::new("sleep").arg("5").spawn().expect("sleep");
+        assert!(shell_has_child(&read_proc_table().unwrap(), me));
+        assert_eq!(ToolProcessWalker::system().has_child(me), Some(true));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn an_unreadable_table_or_shell_pid_is_unknown() {
+        let (unreadable, _) = probe(Err(io::Error::other("no /proc")), INFO);
+        assert_eq!(unreadable.host_alive("w1:p1").unwrap(), None);
+        let (no_pid, _) = probe(Ok(vec![]), r#"{"result":{"process_info":{}}}"#);
+        assert!(no_pid.host_alive("w1:p1").is_err());
     }
 }

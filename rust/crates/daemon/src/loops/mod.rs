@@ -23,7 +23,7 @@ use capstan_herdr::api::{
 };
 use capstan_herdr::process_activity::HerdrProcessProbe;
 use capstan_herdr::runner::{ProcessRunner, RunnerOptions};
-use driver::{Driver, DriverLog, DriverOptions, Steps, DEFAULT_TICK_MS};
+use driver::{Driver, DriverLog, DriverOptions, LivenessOptions, Steps, DEFAULT_TICK_MS};
 use notifier::{Clock, Notifier};
 use relay::{Relay, RelayOptions};
 use serde_json::{json, Value};
@@ -249,6 +249,11 @@ impl Loops for RustLoops {
                 tick_ms: deps.options.tick_ms,
                 process_probe: self.probe.clone().or_else(|| default_probe(&config)),
                 pm_stale_seconds: config.notifications.pm_stale_minutes * 60,
+                liveness: config.liveness.enabled.then_some(LivenessOptions {
+                    check_seconds: config.liveness.check_seconds,
+                    confirm_checks: config.liveness.confirm_checks,
+                    start_grace_seconds: config.liveness.start_grace_seconds,
+                }),
                 snapshot: Some(Arc::clone(&self.snapshot)),
             });
             let (flag, tick_ms, tick_log) = (stop.clone(), driver.tick_ms(), Arc::clone(&log));

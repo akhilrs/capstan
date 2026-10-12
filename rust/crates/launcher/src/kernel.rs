@@ -200,8 +200,12 @@ impl Ledger {
         role_name: &str,
         seat_id: &str,
         actor_id: &str,
+        max_active: Option<i64>,
     ) -> KernelResult<()> {
-        let input = json!({"agentId": agent_id, "roleName": role_name, "seatId": seat_id, "actorId": actor_id});
+        let mut input = json!({"agentId": agent_id, "roleName": role_name, "seatId": seat_id, "actorId": actor_id});
+        if let Some(limit) = max_active {
+            input["maxActive"] = json!(limit);
+        }
         self.mutate(move |core, context| core.register_agent(context, &input))
             .map(drop)
     }
@@ -394,6 +398,22 @@ impl Ledger {
         Ok(value.as_bool().unwrap_or(false))
     }
 
+    pub fn lost_agent_ids(&self) -> KernelResult<Vec<String>> {
+        let value = self.call(move |core| core.lost_agent_ids())?;
+        Ok(strings(Some(&value)))
+    }
+
+    /// The active agent that took over from `agent_id`: its recorded successor, or the active agent of the same role
+    /// created after it ended.
+    pub fn active_successor(&self, agent_id: &str) -> KernelResult<Option<String>> {
+        let agent = agent_id.to_string();
+        let value = self.call(move |core| core.active_successor(&agent))?;
+        Ok(value
+            .get("agentId")
+            .and_then(Value::as_str)
+            .map(str::to_string))
+    }
+
     pub fn running_integrations(&self) -> KernelResult<usize> {
         let credential = self.credential.clone();
         let value = self.call(move |core| core.running_integrations(&credential))?;
@@ -409,13 +429,15 @@ impl Ledger {
         &self,
         predecessor_id: &str,
         successor_id: &str,
-        branch: &str,
+        branch: Option<&str>,
         kept: Option<(&str, &str)>,
     ) -> KernelResult<()> {
         let mut input = Map::new();
         input.insert("predecessorId".into(), json!(predecessor_id));
         input.insert("successorId".into(), json!(successor_id));
-        input.insert("branch".into(), json!(branch));
+        if let Some(branch) = branch {
+            input.insert("branch".into(), json!(branch));
+        }
         if let Some((kept_ref, kept_tip)) = kept {
             input.insert("keptRef".into(), json!(kept_ref));
             input.insert("keptTip".into(), json!(kept_tip));
@@ -808,18 +830,30 @@ impl LauncherKernel {
             }
             let (actor_id, credential) =
                 self.ledger.create_actor(&agent_id, &role.kind, &seat_id)?;
-            match self
-                .ledger
-                .register_agent(&agent_id, &role.name, &seat_id, &actor_id)
-            {
+            match self.ledger.register_agent(
+                &agent_id,
+                &role.name,
+                &seat_id,
+                &actor_id,
+                role.max_active,
+            ) {
                 Ok(()) => return Ok((agent_id, credential)),
                 Err(error) => {
-                    last_error = Some(error.into());
+                    let limit = error.code() == Some("role_limit");
+                    let error = if limit {
+                        OpError::launcher("role_limit", error.message())
+                    } else {
+                        error.into()
+                    };
+                    last_error = Some(error);
                     if let Err(revoke_error) = self.ledger.revoke_actor(&actor_id) {
                         self.log(
                             "actor_not_revoked",
                             json!({"error": OpError::from(revoke_error).js_string()}),
                         );
+                    }
+                    if limit {
+                        break;
                     }
                 }
             }

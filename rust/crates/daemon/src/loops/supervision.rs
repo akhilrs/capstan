@@ -27,6 +27,8 @@ pub struct Supervision {
     last_worker_seen: i64,
     retry_at: i64,
     release_retry_at: i64,
+    /// The last spawn was refused by a role limit and that was logged.
+    refusal_logged: bool,
 }
 
 impl Supervision {
@@ -37,6 +39,7 @@ impl Supervision {
             last_worker_seen,
             retry_at: 0,
             release_retry_at: 0,
+            refusal_logged: false,
         }
     }
 
@@ -46,6 +49,18 @@ impl Supervision {
 
     fn now(&self) -> i64 {
         (self.options.now)()
+    }
+
+    /// Whether the ledger lists the agent as recorded lost for its current generation.
+    fn is_lost(&self, agent_id: &str) -> Result<bool, String> {
+        let lost = self
+            .options
+            .steps
+            .read("lostAgentIds", |core| core.lost_agent_ids())
+            .map_err(|e| e.to_string())?;
+        Ok(lost
+            .as_array()
+            .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(agent_id))))
     }
 
     /// One look; a failure is logged as `supervision_failed`.
@@ -90,7 +105,21 @@ impl Supervision {
         }
         if workers > 0 && supervisors.is_empty() && self.now() >= self.retry_at {
             match self.options.launcher.spawn(&role, &SpawnOptions::default()) {
-                Ok(result) => self.log("supervisor_started", json!({"state": result.state})),
+                Ok(result) => {
+                    self.refusal_logged = false;
+                    self.log("supervisor_started", json!({"state": result.state}))
+                }
+                Err(error) if error.code == "role_limit" => {
+                    // The role is at its limit: not an error to repeat, so log it once and try again later.
+                    self.retry_at = self.now() + SPAWN_RETRY_MS;
+                    if !self.refusal_logged {
+                        self.refusal_logged = true;
+                        self.log(
+                            "supervisor_spawn_refused",
+                            json!({"error": format!("LauncherError: {}", error.message)}),
+                        );
+                    }
+                }
                 Err(error) => {
                     self.retry_at = self.now() + SPAWN_RETRY_MS;
                     self.log(
@@ -102,6 +131,23 @@ impl Supervision {
             return Ok(());
         }
         if supervisors.len() == 1 {
+            if self.now() >= self.release_retry_at && self.is_lost(&supervisors[0])? {
+                // A Supervisor whose session died holds nothing worth keeping: release it, the next tick starts one.
+                match self.options.launcher.release(&supervisors[0]) {
+                    Ok(_) => self.log(
+                        "supervisor_lost_released",
+                        json!({"agentId": supervisors[0]}),
+                    ),
+                    Err(error) => {
+                        self.release_retry_at = self.now() + SPAWN_RETRY_MS;
+                        self.log(
+                            "supervisor_release_failed",
+                            json!({"error": format!("LauncherError: {}", error.message)}),
+                        );
+                    }
+                }
+                return Ok(());
+            }
             if workers == 0
                 && self.now() - self.last_worker_seen >= SUPERVISOR_IDLE_MS
                 && self.now() >= self.release_retry_at

@@ -382,7 +382,11 @@ fn role_difference(
     })
 }
 
-fn lost_recorded(kernel: &Kernel, agent_id: &str, generation: i64) -> KernelResult<bool> {
+pub(crate) fn lost_recorded(
+    kernel: &Kernel,
+    agent_id: &str,
+    generation: i64,
+) -> KernelResult<bool> {
     exists(
         &kernel.database,
         "SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ?
@@ -472,6 +476,16 @@ pub fn record_agent_lost(
     input: &Value,
 ) -> KernelResult<Value> {
     let agent_id = safe_id_str(text_field(input, "agentId").unwrap_or(""), "agent id")?;
+    let reason = match input.get("reason") {
+        None | Some(Value::Null) => "pane_gone",
+        Some(Value::String(r)) if r == "pane_gone" => "pane_gone",
+        Some(Value::String(r)) if r == "process_exited" => "process_exited",
+        Some(_) => {
+            return Err(KernelError::type_error(
+                "reason must be pane_gone or process_exited",
+            ))
+        }
+    };
     kernel.mutate(
         context,
         "agent.lost",
@@ -493,7 +507,7 @@ pub fn record_agent_lost(
                 actor,
                 context,
                 &agent,
-                "pane_gone",
+                reason,
                 &unacknowledged,
                 &now,
                 None,
@@ -505,6 +519,54 @@ pub fn record_agent_lost(
             ))
         },
     )
+}
+
+/// `activeSuccessor`: an active agent of the same role created after the predecessor ended, or the successor its
+/// `replaced` event recorded. A read.
+pub fn active_successor(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    safe_id_str(agent_id, "agent id")?;
+    let Some(predecessor) = kernel.agent_row(agent_id)? else {
+        return Ok(Value::Null);
+    };
+    let recorded = query_opt(
+        &kernel.database,
+        "SELECT json_extract(payload_json, '$.details.successorId') FROM controller_events
+         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced' ORDER BY sequence DESC LIMIT 1",
+        [&kernel.project_id, agent_id],
+        |row| row.get::<_, Option<String>>(0),
+    )?
+    .flatten();
+    let successor = match recorded {
+        Some(id) => kernel.agent_row(&id)?.filter(|a| a.state == "active").map(|a| a.agent_id),
+        None => query_opt(
+            &kernel.database,
+            "SELECT s.agent_id FROM agents p JOIN agents s ON s.project_id = p.project_id AND s.role_name = p.role_name
+             WHERE p.project_id = ? AND p.agent_id = ? AND p.ended_at IS NOT NULL AND s.state = 'active' AND s.agent_id <> p.agent_id
+               AND s.created_at > p.ended_at ORDER BY s.created_at, s.agent_id LIMIT 1",
+            [&kernel.project_id, &predecessor.agent_id],
+            |row| row.get::<_, String>(0),
+        )?,
+    };
+    Ok(successor.map_or(Value::Null, |id| json!({"agentId": id})))
+}
+
+/// `lostAgentIds`: active agents with an `agent.lost` event for their current generation. A read.
+pub fn lost_agent_ids(kernel: &Kernel) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let active = query_all(
+        &kernel.database,
+        "SELECT agent_id, generation FROM agents WHERE project_id = ? AND state = 'active' ORDER BY created_at, agent_id",
+        [&kernel.project_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    let mut lost = Vec::new();
+    for (id, generation) in active {
+        if lost_recorded(kernel, &id, generation)? {
+            lost.push(id);
+        }
+    }
+    Ok(json!(lost))
 }
 
 /// `isAgentReplaced`: whether the ledger holds a replacement of this agent.
@@ -562,7 +624,21 @@ pub fn record_agent_replaced(
             "UPDATE external_links SET bound_agent_id = ? WHERE project_id = ? AND bound_agent_id = ?",
             [successor_id, &kernel.project_id, predecessor_id],
         )?;
+        // The ledger lets a plan's architect move only once the predecessor has stopped, so a predecessor that is
+        // still active keeps its plans.
+        let plans_rebound = if predecessor.state == "active" {
+            0
+        } else {
+            execute(
+                &kernel.database,
+                "UPDATE plans SET architect_agent_id = ? WHERE project_id = ? AND architect_agent_id = ? AND state <> 'superseded' AND cancelled_at IS NULL",
+                [successor_id, &kernel.project_id, predecessor_id],
+            )?
+        };
         let mut details = json!({"successorId": successor_id, "packagesRebound": rebound});
+        if plans_rebound > 0 {
+            details["plansRebound"] = json!(plans_rebound);
+        }
         if let Some(branch) = input.get("branch").filter(|v| !v.is_null()) {
             details["branch"] = branch.clone();
         }
@@ -817,6 +893,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let input = a.value(1);
             Some(call(record_agent_lost(kernel, &context, input)))
         }
+        "activeSuccessor" => {
+            let agent_id = arg!(a.str(0, "agentId"));
+            Some(call(active_successor(kernel, agent_id)))
+        }
+        "lostAgentIds" => Some(call(lost_agent_ids(kernel))),
         "isAgentReplaced" => {
             let agent_id = arg!(a.str(0, "agentId"));
             Some(call(is_agent_replaced(kernel, agent_id)))

@@ -6,3 +6,4 @@
 mod fixture;
 mod prompt_relay_backfill;
 mod restart_summary;
+mod role_limit;

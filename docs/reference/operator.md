@@ -81,3 +81,17 @@ cstan start
 ```
 
 The known-good copy is not refreshed during a restart. The helper never deletes anything it did not create; `restart/<id>/`, `ledger.bak/` and `<binary>.failed-<id>` stay until you remove them.
+
+## Liveness: an agent whose CLI has exited
+
+The controller records an agent lost in two ways. The first is a pane that is gone (Herdr no longer finds it for three observations in a row). The second, described here, is a pane that stays open while the CLI inside it has exited, so the shell sits at its prompt.
+
+**Detection.** For each active agent that has a pane, the controller asks Herdr for the pane's shell pid (`pane process-info`, already used for the activity check) and looks at the operating system's process table. The shell having at least one live child process of any kind means the CLI is running; the command is not looked at, so any CLI a role's host config allows is covered, and no screen text is used. On Linux the check follows the kernel's `children` lists and falls back to the whole process table (and to `ps` elsewhere), as the activity check does.
+
+**Guards.** An agent is recorded lost with the reason `process_exited` only when `confirm_checks` samples in a row find no child process and they span at least two `check_seconds`. Any of these starts the count again: a live child, a Herdr observation of `working`, a failed Herdr call or an unreadable shell pid or process table (an unknown sample counts for nothing, in either direction). An agent is never judged within `start_grace_seconds` of the moment the controller first saw it or its new generation. When Herdr reports every pane missing at once (a Herdr restart) the check is skipped, as the pane-gone rule is. The PM gets the usual Agent lost notice, once. A pane that still answers does not clear the loss; only a live process does.
+
+**Settings.** The `[liveness]` table (defaults): `enabled = true`, `check_seconds = 30`, `confirm_checks = 3`, `start_grace_seconds = 120`. A dead CLI is recorded lost about 90 to 120 seconds after it exits. Set `enabled = false` to turn the process check off; pane-gone detection is not affected.
+
+**What happens next.** A lost Supervisor is released by the controller (the pane is closed and the agent ends) and the next supervision tick starts a new one; if the Supervisor role is at its `max_active`, the refusal is logged once as `supervisor_spawn_refused` and the start is retried after a minute. A lost Developer or Verifier is not released automatically: the PM decides with `cstan replace` or `cstan release`.
+
+**Limits.** A role whose host command replaces the shell (exec) closes its pane when the CLI exits; that is the pane-gone case and is covered by it. A CLI wrapper that daemonizes and exits leaves no child process, so it looks dead; set `liveness.enabled = false` for such a setup.

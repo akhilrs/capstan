@@ -18,6 +18,14 @@ pm_width_percent = 60
 enabled = true
 check_seconds = 300
 
+# The controller checks that each agent's session is still alive and restarts one that has died.
+# The defaults are shown; remove the leading # to change them.
+# [liveness]
+# enabled = true
+# check_seconds = 30
+# confirm_checks = 3
+# start_grace_seconds = 120
+
 # An optional Architect plans normal and high-risk work, runs integration and signs it off. The
 # user still merges to the main branch. While enabled = false, nothing about plans reaches an agent.
 # To use it, remove the leading # from this table and from [roles.architect] below. The role must

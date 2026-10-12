@@ -35,6 +35,19 @@ impl Core {
         })
     }
 
+    /// A second connection without the project lock, for tests that race two writers on one ledger file.
+    #[doc(hidden)]
+    pub fn open_shared(
+        state_dir: &Path,
+        project: &InitialProject,
+        options: &KernelOptions,
+        env: Box<dyn Env>,
+    ) -> KernelResult<Core> {
+        Ok(Core {
+            kernel: Kernel::open_shared(state_dir, project, options, env)?,
+        })
+    }
+
     pub fn open_read_only(
         state_dir: &Path,
         project: &InitialProject,
@@ -571,6 +584,16 @@ impl Core {
         input: &Value,
     ) -> KernelResult<Value> {
         actors::record_agent_lost(&self.kernel, context, input)
+    }
+
+    /// `activeSuccessor`: the active agent that took over from an ended or replaced one, if any.
+    pub fn active_successor(&self, agent_id: &str) -> KernelResult<Value> {
+        actors::active_successor(&self.kernel, agent_id)
+    }
+
+    /// `lostAgentIds`: the active agents recorded lost for their current generation.
+    pub fn lost_agent_ids(&self) -> KernelResult<Value> {
+        actors::lost_agent_ids(&self.kernel)
     }
 
     /// `ControllerCore.isAgentReplaced`.

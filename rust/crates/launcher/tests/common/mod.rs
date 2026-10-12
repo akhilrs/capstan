@@ -8,9 +8,9 @@ pub mod ledger;
 pub mod stub;
 
 use capstan_config::{
-    Architect, Cleanup, CleanupWorktrees, Host, Layout, Ledger, Limits, McpServer, Nexora,
-    Notifications, Operator, PromptRelay, PromptSource, Researcher, Role, RoleConfig, Supervision,
-    Timers, Worktree,
+    Architect, Cleanup, CleanupWorktrees, Host, Layout, Ledger, Limits, Liveness, McpServer,
+    Nexora, Notifications, Operator, PromptRelay, PromptSource, Researcher, Role, RoleConfig,
+    Supervision, Timers, Worktree,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -98,6 +98,8 @@ pub fn normal(value: &Value, scratch: &str) -> Value {
     match value {
         Value::String(text) => {
             let text = text.replace(scratch, "<tmp>");
+            // The frozen registrations predate `maxActive`; the Supervisor role now registers with its limit.
+            let text = text.replace("\"maxActive\":1,", "");
             if text.encode_utf16().count() > LONG_STRING && is_pm_prompt(&text) {
                 return json!({ PM_PROMPT_MARKER: true });
             }
@@ -216,6 +218,7 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
             hash: None,
         },
         prompt_text: prompt_text.map(str::to_string),
+        max_active: (kind == "Supervisor").then_some(1),
         config_hash: hash_of(name),
     }
 }
@@ -268,6 +271,13 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         }];
         roles.push(researcher);
     }
+    if let Some(limits) = spec.get("maxActive").and_then(Value::as_object) {
+        for role in roles.iter_mut() {
+            if let Some(limit) = limits.get(&role.name).and_then(Value::as_i64) {
+                role.max_active = Some(limit);
+            }
+        }
+    }
     let flag = |value: Option<&Value>, key: &str| -> bool {
         value
             .and_then(|v| v.get(key))
@@ -306,6 +316,12 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         supervision: Supervision {
             enabled: false,
             check_seconds: 300,
+        },
+        liveness: Liveness {
+            enabled: true,
+            check_seconds: 30,
+            confirm_checks: 3,
+            start_grace_seconds: 120,
         },
         architect: Architect {
             enabled: architect_spec.is_some(),

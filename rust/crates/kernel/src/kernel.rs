@@ -177,9 +177,37 @@ impl Kernel {
         options: &KernelOptions,
         env: Box<dyn Env>,
     ) -> KernelResult<Kernel> {
+        Self::open_inner(state_dir, project, options, env, true)
+    }
+
+    /// A second writable connection to a ledger another kernel holds the project lock of, for tests that race two
+    /// connections on one file. It takes no lock and does not reconcile; production code uses `open`.
+    #[doc(hidden)]
+    pub fn open_shared(
+        state_dir: &Path,
+        project: &InitialProject,
+        options: &KernelOptions,
+        env: Box<dyn Env>,
+    ) -> KernelResult<Kernel> {
+        Self::open_inner(state_dir, project, options, env, false)
+    }
+
+    fn open_inner(
+        state_dir: &Path,
+        project: &InitialProject,
+        options: &KernelOptions,
+        env: Box<dyn Env>,
+        take_lock: bool,
+    ) -> KernelResult<Kernel> {
         check_project_id(project)?;
         let state_directory = check_state_directory(state_dir, true)?;
-        let mut lock = ProjectLock::acquire(&state_directory.join("controller.lock"))?;
+        let mut lock = if take_lock {
+            Some(ProjectLock::acquire(
+                &state_directory.join("controller.lock"),
+            )?)
+        } else {
+            None
+        };
         let attempt = (|| -> KernelResult<Kernel> {
             let database_path = resolve_database_path(&state_directory)?;
             match fs::symlink_metadata(&database_path) {
@@ -226,8 +254,9 @@ impl Kernel {
             })
         })();
         match attempt {
+            Ok(kernel) if lock.is_none() => Ok(kernel),
             Ok(kernel) => {
-                *kernel.lock.borrow_mut() = Some(lock);
+                *kernel.lock.borrow_mut() = lock;
                 if let Err(error) =
                     crate::areas::reconcile::reconcile_uncertain_assignments(&kernel)
                 {
@@ -237,7 +266,9 @@ impl Kernel {
                 Ok(kernel)
             }
             Err(error) => {
-                lock.close();
+                if let Some(lock) = lock.as_mut() {
+                    lock.close();
+                }
                 Err(error)
             }
         }
