@@ -6,6 +6,7 @@
 //! progress, as Node's `stop()` awaits its running tick.
 
 pub mod activity;
+pub mod cache;
 pub mod driver;
 pub mod notifier;
 pub mod pm_mail;
@@ -220,6 +221,7 @@ impl Loops for RustLoops {
         let mut handles = Vec::new();
         let log = detail_log(deps);
         let credential = deps.credential().to_string();
+        handles.extend(cache::start(deps, &stop, &log));
         if let (Some(config), Some(adapter)) = (deps.options.capstan.clone(), deps.adapter.clone())
         {
             let notifier_log = {

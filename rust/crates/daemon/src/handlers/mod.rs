@@ -9,6 +9,7 @@
 //! (frame size, timeouts, half-close, drain) belongs to the server.
 
 pub mod agents;
+pub mod cache;
 pub mod cleanup;
 pub mod env;
 pub mod findings;
@@ -93,7 +94,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 30] = [
+pub const ROUTES: [Route; 31] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -124,10 +125,11 @@ pub const ROUTES: [Route; 30] = [
     route("resolve", Access::Operator, "messages"),
     route("shutdown", Access::Operator, "agents"),
     route("cleanup", Access::Any, "cleanup"),
+    route("cache", Access::Any, "cache"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 1] = ["cleanup"];
+pub const RUST_ONLY_ROUTES: [&str; 2] = ["cleanup", "cache"];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
 pub fn route_of(command: &str) -> Option<&'static Route> {
@@ -140,9 +142,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 11] = [
+pub const MODULES: [&str; 12] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator", "cleanup",
+    "operator", "cleanup", "cache",
 ];
 
 /// The table of handlers by command name.
@@ -175,6 +177,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     findings::register(&mut map);
     operator::register(&mut map);
     cleanup::register(&mut map);
+    cache::register(&mut map);
     map
 });
 
@@ -224,7 +227,7 @@ pub fn command_limit_ms(deps: &Deps, command: &str, identity: &Identity) -> Opti
             Some(u64::try_from(seconds).unwrap_or(0) * 1000)
         }
         "launch" | "spawn" | "request-review" | "plan" | "integrate" | "prompt" | "release"
-        | "pm-restart" => Some(LAUNCHER_LIMIT_MS),
+        | "pm-restart" | "cache" => Some(LAUNCHER_LIMIT_MS),
         // A replacement is a release and a spawn, each with its own budget, behind whatever else the launcher runs.
         "replace" => Some(3 * LAUNCHER_LIMIT_MS),
         _ => None,
@@ -652,10 +655,9 @@ mod tests {
         routes
     }
 
-    #[test]
-    fn routes_equal_the_routes_of_daemon_ts() {
-        let node = node_routes();
-        let rust: Vec<(String, String, bool)> = ROUTES
+    /// The routes of `routes` that daemon.ts has must equal its routes exactly; the rest must be in `RUST_ONLY_ROUTES`.
+    fn compare_with_node(routes: &[Route]) -> Result<(), String> {
+        let rust: Vec<(String, String, bool)> = routes
             .iter()
             .filter(|r| !RUST_ONLY_ROUTES.contains(&r.name))
             .map(|r| {
@@ -666,7 +668,15 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(rust, node, "ROUTES differs from src/daemon.ts");
+        if rust != node_routes() {
+            return Err("ROUTES differs from src/daemon.ts".to_string());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn routes_equal_the_routes_of_daemon_ts() {
+        compare_with_node(&ROUTES).unwrap();
         assert!(include_str!("../../../../testdata/node/daemon.ts")
             .contains("const STUB_STAGE = \"Stage 2e\""));
         assert_eq!(STUB_STAGE, "Stage 2e");
@@ -678,6 +688,20 @@ mod tests {
             );
             assert!(route_of(name).is_some(), "{name} is not in ROUTES");
         }
+        assert_eq!(RUST_ONLY_ROUTES, ["cleanup", "cache"]);
+    }
+
+    #[test]
+    fn a_route_that_is_not_listed_as_rust_only_fails_the_comparison() {
+        let mut routes = ROUTES.to_vec();
+        routes.push(route("fake-route", Access::Any, "cache"));
+        assert!(compare_with_node(&routes).is_err());
+        let without_cache: Vec<Route> = ROUTES
+            .iter()
+            .filter(|r| r.name != "cache")
+            .copied()
+            .collect();
+        compare_with_node(&without_cache).unwrap();
     }
 
     #[test]
@@ -697,7 +721,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 11);
+        assert_eq!(MODULES.len(), 12);
     }
 
     #[test]

@@ -270,3 +270,22 @@ fn cleanup_is_in_the_help_the_command_help_and_the_man_page() {
         .iter()
         .any(|l| l == "cleanup apply <cleanup-id> [<branch>...]"));
 }
+
+#[test]
+fn cache_is_in_the_help_the_command_help_and_the_man_page() {
+    let (help, _, _) = run(&["help"]);
+    for syntax in [
+        "cache status [--json]",
+        "cache prune [<entry>...] [--dry-run]",
+        "cache clear <entry>...|--all [--force]",
+    ] {
+        assert!(collapse(&help).contains(syntax), "{syntax}");
+    }
+    let (one, err, exit) = run(&["help", "cache"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert_eq!(one.matches("usage: cstan cache").count(), 3, "{one}");
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page)
+        .iter()
+        .any(|l| l == "cache clear <entry>...|--all [--force]"));
+}

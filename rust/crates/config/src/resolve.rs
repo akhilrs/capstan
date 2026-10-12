@@ -66,10 +66,10 @@ pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
 }
 
 fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
-    // `cleanup` is accepted but kept out of the list the refusal prints, which the frozen corpus pins.
+    // `cleanup` and `cache` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
     let known = Table::from_members(
         root.entries()
-            .filter(|(key, _)| *key != "cleanup")
+            .filter(|(key, _)| *key != "cleanup" && *key != "cache")
             .map(|(key, item)| (key.to_string(), item.clone()))
             .collect(),
     );
@@ -284,6 +284,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, &["pass"], "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
+    let cache = crate::cache::resolve_cache(root.get("cache"), project_root, &env_pass)?;
 
     let hosts = resolve_hosts(required_table(root.get("hosts"), "hosts")?)?;
     let mcp_servers = resolve_mcp_servers(
@@ -345,6 +346,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         layout,
         worktree,
         cleanup,
+        cache,
         env_pass,
         hosts,
         roles,

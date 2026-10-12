@@ -423,7 +423,9 @@ impl<'a> Parser<'a> {
         }
         let text = String::from_utf16_lossy(&value);
         match text.as_str() {
-            "-inf" | "inf" | "+inf" | "nan" | "+nan" | "-nan" => return Ok(Item::Float),
+            "-inf" => return Ok(Item::Float(f64::NEG_INFINITY)),
+            "inf" | "+inf" => return Ok(Item::Float(f64::INFINITY)),
+            "nan" | "+nan" | "-nan" => return Ok(Item::Float(f64::NAN)),
             "-0" => return Ok(Item::Int(0)),
             _ => {}
         }
@@ -439,7 +441,7 @@ impl<'a> Parser<'a> {
             return Ok(if integer {
                 integer_item(&digits)
             } else {
-                Item::Float
+                Item::Float(digits.parse().unwrap_or(f64::NAN))
             });
         }
         if crate::smol_date::is_valid_toml_date(&text) {
@@ -1052,7 +1054,7 @@ mod tests {
         };
         assert_eq!(t.get("x"), Some(&Item::Int(255)));
         assert_eq!(t.get("y"), Some(&Item::BigInt(false)));
-        assert_eq!(t.get("z"), Some(&Item::Float));
+        assert!(matches!(t.get("z"), Some(Item::Float(_))));
         assert_eq!(t.get("d"), Some(&Item::Date));
     }
 

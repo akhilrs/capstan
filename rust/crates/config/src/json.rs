@@ -5,23 +5,23 @@ use sha2::{Digest, Sha256};
 
 use crate::types::{Cleanup, Host, McpServer, PromptSource, Role, RoleConfig};
 
-fn text(value: &str) -> Value {
+pub(crate) fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
 }
 
-fn number(value: i64) -> Value {
+pub(crate) fn number(value: i64) -> Value {
     Value::Number(value as f64)
 }
 
-fn optional(value: &Option<String>) -> Value {
+pub(crate) fn optional(value: &Option<String>) -> Value {
     value.as_deref().map_or(Value::Null, text)
 }
 
-fn strings(values: &[String]) -> Value {
+pub(crate) fn strings(values: &[String]) -> Value {
     Value::Array(values.iter().map(|v| text(v)).collect())
 }
 
-fn object(members: Vec<(&str, Value)>) -> Value {
+pub(crate) fn object(members: Vec<(&str, Value)>) -> Value {
     Value::Object(
         members
             .into_iter()
@@ -315,6 +315,9 @@ impl RoleConfig {
                     ),
                 ]),
             ));
+        }
+        if let Some(cache) = &self.cache {
+            members.push(("cache", cache.to_value()));
         }
         members.push(("env", object(vec![("pass", strings(&self.env_pass))])));
         members.push(("hosts", Value::Array(self.hosts.iter().map(host).collect())));

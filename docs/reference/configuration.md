@@ -35,6 +35,7 @@ cstan dash            # watch the team (optional)
 | `[cleanup]` | `branches`, `worktrees`, `include_unlanded` | Optional. `branches` is `"auto"`, `"ask"` or `"off"` (default `"ask"`). `worktrees` is `"release"` or `"keep"` (default `"release"`). `include_unlanded` is true or false (default false). See [Cleanup](#cleanup). |
 | `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `[defaults]`, `[defaults.PM]`, `.Supervisor`, `.Developer`, `.Verifier` | `model`, `permission_mode`                                                                                                                                                                                                                                             | Used when a role sets none. `permission_mode` is one of `default`, `acceptEdits`, `plan`, `auto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `[cache]` | `presets`, `detect`, `root`, `scope`, `max_size_gb`, `max_age_days`, `rust`, `python`, `node`, `go`, `entries`, `setup_reuse` | Optional. Shared tool caches for agents. See [Cache](#cache). |
 | `[env]`                                                                 | `pass`                                                                                                                                                                                                                                                                 | Extra environment variable names copied from where the daemon started into every agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `[hosts.<name>]`                                                        | `kind` (`claude`, `codex`, `omp`), `command`, `shell_command_timeout_seconds`, `wait_timeout_seconds`                                                                                                                                                                  | `codex` and `omp` hosts run unattended with full access; `cstan config check` warns about it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `[roles.<name>]`                                                        | `kind` (`PM`, `Developer`, `Verifier`, `Supervisor`), `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks` (`off` or `inherit`), `prompt` or `prompt_file`                                                                                                     | Role names match `^[a-z][a-z0-9-]{0,31}$`. A PM may not edit files or start subagents by default, and a Supervisor may not edit or push, unless the role sets `deny` itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -141,6 +142,82 @@ include_unlanded = false
 - `include_unlanded` (true or false, default false): whether branches that are not merged are candidates for cleanup. Unlanded branches are never removed automatically, whatever this is set to.
 
 To restore a branch that was removed, recreate it from the commit it pointed at: `git branch <name> <sha>`.
+
+## Cache
+
+The `[cache]` section gives agents shared compiler and package-manager caches, so a new worktree does not start cold. An absent section means no caches and no change for the project. Unknown keys, values of the wrong type and invalid entries are refused by `cstan config check`, with a message naming the key (`cache.entries.<name>.dirs.<ENV>`).
+
+```toml
+[cache]
+presets = ["rust", "python", "node", "go"]
+detect = false
+root = "~/.cache/capstan"
+scope = "project"
+max_size_gb = 20
+max_age_days = 30
+
+[cache.rust]
+mode = "sccache"
+
+[cache.entries.bundler]
+dirs = { BUNDLE_PATH = "bundle" }
+set = { BUNDLE_JOBS = "4" }
+requires = "bundle"
+prune = ["bundle clean"]
+
+[cache.setup_reuse]
+key_files = ["Cargo.lock"]
+paths = ["target"]
+```
+
+| Key | Meaning |
+| --- | --- |
+| `presets` | Built-in entries to turn on: `rust`, `python`, `node`, `go`. A listed preset is always on. |
+| `detect` | `true` also turns on the presets whose marker files are in the project root or one directory below it (skipping `.git`, `node_modules` and `target`). It never turns a listed preset off. Default `false`. The config only stores the flag; the project is scanned when the daemon loads the config and by the `cstan cache` commands, never when `capstan.toml` is parsed. |
+| `root` | Where the caches live: an absolute path or one starting with `~/`, without `..`, and not inside the project root. |
+| `scope` | `"project"` (default) or `"user"`: whether the caches belong to this project or are shared by every project that uses the same `root`. |
+| `max_size_gb` | The total size cap, a number from 0.1 to 10000. Default 20 when `[cache]` is present. |
+| `max_age_days` | Entries unused for longer are pruned, an integer from 1 to 3650. Default 30. |
+| `[cache.<preset>]` | Settings of a preset: `max_size_gb` for any, and `mode` for `rust`. The table is allowed only for a listed preset (or when `detect` is true). |
+| `[cache.entries.<name>]` | Your own entry; see below. |
+| `[cache.setup_reuse]` | `key_files` and `paths`, both non-empty lists of relative paths without `..`: the files that identify a worktree's setup result and the directories to reuse when they are unchanged. |
+
+An entry's `max_size_gb` may not exceed the total, and the entries' sizes may not add up to more than the total.
+
+### Presets
+
+Each `dirs` pair is `ENV = subdirectory` of the entry's cache directory; `set` pairs are fixed values.
+
+| Preset | Variables | Needs | Also |
+| --- | --- | --- | --- |
+| `rust`, mode `sccache` (default) | `SCCACHE_DIR=sccache`; `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE` from the cap (the preset's `max_size_gb`, or the total) | `sccache` on PATH | stops the server with `sccache --stop-server` before the cache is cleared |
+| `rust`, mode `shared-build-dir` | `CARGO_BUILD_BUILD_DIR=cargo-build` | `cargo` | |
+| `rust`, mode `off` | none | | |
+| `python` | `PIP_CACHE_DIR=pip`, `UV_CACHE_DIR=uv`, `POETRY_CACHE_DIR=poetry` | | prune: `uv cache prune` |
+| `node` | `NPM_CONFIG_CACHE=npm`, `NPM_CONFIG_STORE_DIR=pnpm-store`, `YARN_CACHE_FOLDER=yarn` | | prune: `npm cache verify`, `pnpm store prune` |
+| `go` | `GOCACHE=go-build`, `GOMODCACHE=go-mod` | | |
+
+`[cache.rust] mode` accepts `sccache`, `shared-build-dir` and `off`; anything else is refused.
+
+Detection markers: `Cargo.toml` (rust); `pyproject.toml`, `requirements*.txt`, `setup.py`, `uv.lock`, `poetry.lock` (python); `package.json` (node); `go.mod` (go).
+
+### Adding your own entry
+
+A project with a tool that has no preset adds `[cache.entries.<name>]` (a lower-case name, not `rust`, `python`, `node` or `go`). Keys:
+
+- `dirs`: a table `ENV = "subdir"`. Each subdirectory is one directory name of letters, digits, `.`, `_` and `-`: no `/`, no `..`, not absolute.
+- `set`: a table `ENV = "value"` of fixed values. One line, no credential-shaped text. Use it for non-secret values only.
+- `requires`: a program name that must be on the agent's PATH for the entry to apply.
+- `prune`: commands run with the entry's environment when the cache is pruned. A command for a tool that is not installed is skipped by the cache store.
+- `stop`: commands run before the entry's directories are cleared, for example to stop a background server.
+- `max_size_gb`: a cap for this entry (0.1 to 10000).
+
+An entry needs `dirs` or `set`. Variable names must be upper case letters, digits and `_` (at most 64 characters), and are refused when they:
+
+- start with `CAPSTAN_`, or are `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR` or another name Capstan reserves for `[env] pass` (including the `LD_`, `DYLD_`, `GIT_` and `BASH_` prefixes);
+- are listed in `[env] pass`;
+- contain `TOKEN`, `SECRET`, `KEY`, `PASSWORD`, `PASSWD` or `CREDENTIAL`: caches never carry secrets. A legitimate variable with such a name, for example a license key, goes through `[env] pass`, not `[cache]`;
+- are already set by another entry or preset.
 
 ## `CAPSTAN_ALLOW_FOREIGN_SOCKET`
 

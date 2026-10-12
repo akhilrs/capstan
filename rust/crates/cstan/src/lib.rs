@@ -3,6 +3,7 @@
 //! `Outcome`: the bytes and exit code to give, or one of the few things only the process can do (replace itself with
 //! `cstan-dash`, serve the daemon, poll `status --watch`).
 pub mod agent;
+pub mod cache_cmd;
 pub mod config_cmd;
 pub mod dash;
 pub mod git;
@@ -318,6 +319,7 @@ impl Cli<'_> {
             "__restart-helper" => return self.restart_helper(&rest),
             "init" => return self.init(&rest),
             "config" => return self.config(&rest),
+            "cache" => return self.cache(&rest),
             "herdr-config" => {
                 if !rest.is_empty() {
                     return Err(Fail::Usage);

@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
+use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -24,6 +25,57 @@ const RAW_WINDOW_FACTOR: usize = 4;
 const MIN_RAW_WINDOW_BYTES: usize = 16384;
 const MIN_SECRET_VALUE_CHARS: usize = 8;
 const REDACTED: &str = "[redacted]";
+
+struct ReusePlan {
+    key: String,
+    paths: Vec<String>,
+}
+
+/// Why `path` cannot be snapshotted before the setup ran: tracked by git, or not a plain relative path.
+fn tracked_or_unsafe(worktree: &Path, path: &str) -> Option<String> {
+    let p = Path::new(path);
+    if path.is_empty() || !p.components().all(|c| matches!(c, Component::Normal(_))) {
+        return Some("is not a relative path inside the worktree".into());
+    }
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(worktree)
+        .args(["ls-files", "--", path])
+        .stdin(Stdio::null())
+        .output();
+    match listed {
+        Ok(o) if o.status.success() => {
+            (!o.stdout.is_empty()).then(|| "is tracked by git".to_string())
+        }
+        _ => Some("could not be checked against git".to_string()),
+    }
+}
+
+/// Why the content at `at` cannot be snapshotted: a venv (`pyvenv.cfg`, absolute paths inside) or a symlink that leaves
+/// the worktree.
+fn unsafe_content(worktree: &Path, at: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(at).ok()?;
+    if meta.file_type().is_symlink() {
+        let root = worktree.canonicalize().ok()?;
+        let relative = std::fs::read_link(at).is_ok_and(|t| t.is_relative());
+        return match at.canonicalize() {
+            Ok(target) if relative && target.starts_with(&root) => None,
+            _ => Some("holds a symlink that is absolute or leaves the worktree".into()),
+        };
+    }
+    if !meta.is_dir() {
+        return None;
+    }
+    if at.join("pyvenv.cfg").exists() {
+        return Some("contains pyvenv.cfg (a venv is not relocatable)".into());
+    }
+    for child in std::fs::read_dir(at).ok()?.flatten() {
+        if let Some(reason) = unsafe_content(worktree, &child.path()) {
+            return Some(reason);
+        }
+    }
+    None
+}
 
 fn pattern(source: &str) -> Regex {
     Regex::new(source).expect("the pattern is valid")
@@ -273,6 +325,12 @@ impl LauncherKernel {
             return Ok(());
         };
         budget.check("running the worktree setup")?;
+        let reuse = self.setup_reuse_plan(setup, Path::new(worktree_path));
+        if let Some(plan) = &reuse {
+            if self.restore_setup(plan, agent_id, Path::new(worktree_path)) {
+                return Ok(());
+            }
+        }
         let started = self.now_ms();
         let outcome = self.run_setup(
             setup,
@@ -283,7 +341,12 @@ impl LauncherKernel {
         let outcome = outcome?;
         let command = one_line(setup, 200);
         match outcome {
-            SetupOutcome::Ok => Ok(()),
+            SetupOutcome::Ok => {
+                if let Some(plan) = &reuse {
+                    self.snapshot_setup(plan, agent_id, Path::new(worktree_path));
+                }
+                Ok(())
+            }
             SetupOutcome::Timeout => Err(OpError::launcher(
                 "worktree_setup_failed",
                 format!(
@@ -306,6 +369,121 @@ impl LauncherKernel {
                     ),
                 ))
             }
+        }
+    }
+
+    /// The snapshot key and paths of `[cache.setup_reuse]` for this spawn; `None` (with one warning where the reason is
+    /// the user's configuration) when reuse is off or refused.
+    fn setup_reuse_plan(&self, setup: &str, worktree: &Path) -> Option<ReusePlan> {
+        let runtime = self.cache_runtime()?;
+        let reuse = runtime.setup_reuse.as_ref()?;
+        for file in &reuse.key_files {
+            if !worktree.join(file).is_file() {
+                return None;
+            }
+        }
+        for path in &reuse.paths {
+            if let Some(reason) = tracked_or_unsafe(worktree, path) {
+                self.warn_reuse(path, &reason);
+                return None;
+            }
+        }
+        let content = capstan_cache::setup_key(worktree, reuse).ok()??;
+        let mut text = format!("{setup}\0{content}\0{}\0", reuse.paths.join("\0"));
+        let mut env: Vec<&(String, String)> = runtime
+            .entries
+            .iter()
+            .filter(|e| e.enabled)
+            .flat_map(|e| e.env.iter())
+            .collect();
+        env.sort();
+        for (name, value) in env {
+            text.push_str(&format!("{name}={value}\0"));
+        }
+        Some(ReusePlan {
+            key: capstan_config::sha256(&text),
+            paths: reuse.paths.clone(),
+        })
+    }
+
+    fn warn_reuse(&self, path: &str, reason: &str) {
+        self.log(
+            "setup_reuse_refused",
+            json!({"path": path, "message": format!("setup reuse is off for this spawn: {path} {reason}")}),
+        );
+    }
+
+    /// Copies the snapshot in; `true` when the setup can be skipped. A failed restore removes the partial copy.
+    fn restore_setup(&self, plan: &ReusePlan, agent_id: &str, worktree: &Path) -> bool {
+        let Some(runtime) = self.cache_runtime() else {
+            return false;
+        };
+        let snapshot = runtime
+            .entry_dir(capstan_cache::SETUP_ENTRY)
+            .join(&plan.key);
+        let complete = plan
+            .paths
+            .iter()
+            .all(|p| std::fs::symlink_metadata(snapshot.join(p)).is_ok());
+        if !complete {
+            // A partial snapshot would win over a complete one at store time.
+            if snapshot.is_dir() {
+                let _ = std::fs::remove_dir_all(&snapshot);
+            }
+            return false;
+        }
+        let existing: Vec<bool> = plan
+            .paths
+            .iter()
+            .map(|p| std::fs::symlink_metadata(worktree.join(p)).is_ok())
+            .collect();
+        match runtime.restore_snapshot(&plan.key, worktree, &plan.paths) {
+            Ok(true) => {
+                self.log(
+                    "setup_reused",
+                    json!({"agentId": agent_id, "key": plan.key}),
+                );
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                for (path, _) in plan.paths.iter().zip(&existing).filter(|(_, e)| !**e) {
+                    let target = worktree.join(path);
+                    let _ = match std::fs::symlink_metadata(&target) {
+                        Ok(m) if m.is_dir() => std::fs::remove_dir_all(&target),
+                        Ok(_) => std::fs::remove_file(&target),
+                        Err(_) => Ok(()),
+                    };
+                }
+                self.log(
+                    "setup_restore_failed",
+                    json!({"agentId": agent_id, "message": error.to_string()}),
+                );
+                false
+            }
+        }
+    }
+
+    /// Stores the result of a successful setup; a refusal or failure is logged and never fails the spawn.
+    fn snapshot_setup(&self, plan: &ReusePlan, agent_id: &str, worktree: &Path) {
+        let Some(runtime) = self.cache_runtime() else {
+            return;
+        };
+        for path in &plan.paths {
+            if let Some(reason) = unsafe_content(worktree, &worktree.join(path)) {
+                self.warn_reuse(path, &reason);
+                return;
+            }
+        }
+        match runtime.store_snapshot(&plan.key, worktree, &plan.paths) {
+            Ok(()) => self.log(
+                "setup_snapshot_stored",
+                json!({"agentId": agent_id, "key": plan.key}),
+            ),
+            Err(error) => self.log(
+                "setup_snapshot_failed",
+                json!({"agentId": agent_id, "message": error.to_string()}),
+            ),
         }
     }
 

@@ -306,6 +306,8 @@ pub struct LauncherOptions {
     pub adapter: Arc<dyn LauncherAdapter>,
     pub config: RoleConfig,
     pub project_root: String,
+    /// The project id of `.capstan/project.json`; names the shared cache root.
+    pub project_id: String,
     pub cli_path: String,
     pub socket_path: String,
     /// The project (operator) credential.

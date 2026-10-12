@@ -230,6 +230,7 @@ impl World {
             adapter: self.stub.clone(),
             config: test_config(spec),
             project_root: project_root.to_string_lossy().into_owned(),
+            project_id: "proj1".into(),
             cli_path: "/opt/capstan/cli.js".into(),
             socket_path: state_dir
                 .join("control.sock")

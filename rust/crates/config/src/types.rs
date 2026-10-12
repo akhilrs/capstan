@@ -321,6 +321,8 @@ pub struct RoleConfig {
     pub layout: Layout,
     pub worktree: Option<Worktree>,
     pub cleanup: Cleanup,
+    /// The `[cache]` section; `None` when it is absent.
+    pub cache: Option<crate::cache::CacheConfig>,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,
