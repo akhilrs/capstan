@@ -9,7 +9,7 @@
 #   - `cstan dash` in a real terminal (a pty from script(1)) becomes a real cstan-dash beside it, draws its first frame
 #     and ends cleanly on q
 #   - a ledger made by cstan v0.4.1 (rust/testdata/ledger/ledger-v0.4.1.sqlite) is served by the daemon and `cstan status` reads it
-# and runs scripts/check-version.sh (skipped where package.json is gone). A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
+# and runs scripts/check-version.sh. A binary that cannot run on this machine is skipped (arm64 needs qemu-aarch64
 # binfmt, or a native arm64 machine); the Release workflow runs the arm64 binaries on a native runner.
 # Usage: scripts/smoke-binary.sh [cstan binary...]
 #   default: release/cstan-<version>-linux-{x64,arm64}, else the host build under ${CARGO_TARGET_DIR}/release/cstan
@@ -356,9 +356,7 @@ smoke_dash() {
   if [ -n "$DASHDAEMON" ]; then wait_gone "$DASHDAEMON" || fail "$NAME: dash: its daemon $DASHDAEMON is still alive"; fi
 }
 
-if [ ! -f "$ROOT/package.json" ]; then
-  echo "skip check-version.sh: no package.json (the Node tree is gone; remove-node updates that script)"
-elif sh "$ROOT/scripts/check-version.sh" "$ROOT" >"$SANDBOX/check-version.out" 2>&1; then
+if sh "$ROOT/scripts/check-version.sh" "$ROOT" >"$SANDBOX/check-version.out" 2>&1; then
   pass "check-version.sh: $(cat "$SANDBOX/check-version.out")"
 else
   fail "check-version.sh: $(cat "$SANDBOX/check-version.out")"

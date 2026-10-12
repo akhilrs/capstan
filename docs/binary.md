@@ -77,7 +77,7 @@ until they are restarted.
 repository with `PATH` limited to the binary's directory plus `/usr/bin:/bin`. It runs
 `scripts/check-version.sh`, then checks `--version`, `--help`, `init`, `cstan daemon` started with `CAPSTAN_LAUNCH=off`
 (its `/proc/<pid>/exe` is the binary), `ping`, `status`, `inbox --hook`, empty stderr and `stop`. It then opens a ledger made
-by an earlier release (`test/fixtures/ledger-better-sqlite3.sqlite`, migration 31), checks that it migrates to the current migration with
+by an earlier release (`rust/testdata/ledger/ledger-better-sqlite3.sqlite`, migration 31), checks that it migrates to the current migration with
 the same `schema_migrations` rows and checksums and a backup, and runs send, inbox and ack as the agents in it. Last, with a
 `cstan-dash` for the same architecture (`CSTAN_DASH_SMOKE_BIN`, `release/cstan-dash-<v>-<platform>` or a host build), it
 runs `cstan dash` in a real terminal (a pty from `script`), checks the process became `cstan-dash`, sees its first frame and

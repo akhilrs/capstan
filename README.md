@@ -218,7 +218,7 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 | `[nexora]`                             | `track`, `default_action`                                                                                            |
 | `[notifications]`, `[timers]`          | notification channels; delivery, stall and wake timers                                                               |
 
-The full reference, with defaults, ranges, Codex and OMP workers and the teardown example, is in [Configuration reference](docs/reference/configuration.md). The schema itself is [`src/config/capstan-config.ts`](src/config/capstan-config.ts).
+The full reference, with defaults, ranges, Codex and OMP workers and the teardown example, is in [Configuration reference](docs/reference/configuration.md).
 
 </details>
 
@@ -376,13 +376,13 @@ Day to day:
 
 ```sh
 scripts/check.sh                       # the single gate: every stage except the release build
-scripts/check.sh rust                  # one stage: rust | dash | tools | scripts | release | test-map (CI runs one job per stage)
+scripts/check.sh rust                  # one stage: rust | dash | tools | scripts | release | node-guard (CI runs one job per stage)
 CSTAN_RELEASE_BUILD=1 scripts/check.sh # also builds the release binaries, so smoke-binary.sh runs on them
 cargo test --locked --manifest-path rust/Cargo.toml -p capstan-blackbox   # the black-box suites, about a minute
 CSTAN_LIVE=1 scripts/check.sh          # adds the live suites (a real Herdr and Claude Code)
 ```
 
-`CARGO_TARGET_DIR` puts the build outside the checkout and `CSTAN_CHECK_JOBS` limits cargo's jobs. The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild; see [docs/binary.md](docs/binary.md). The daemon is described in [docs/daemon.md](docs/daemon.md), and the test map in [docs/test-map/](docs/test-map/core.md).
+`CARGO_TARGET_DIR` puts the build outside the checkout and `CSTAN_CHECK_JOBS` limits cargo's jobs. The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild; see [docs/binary.md](docs/binary.md). The daemon is described in [docs/daemon.md](docs/daemon.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
 
@@ -403,7 +403,7 @@ Details are in the [Install reference](docs/reference/install.md#upgrading-from-
 - Delete the `[daemon]` table from `capstan.toml` and unset `CSTAN_DAEMON`. `implementation = "rust"` still loads, with a warning; `implementation = "node"` and `CSTAN_DAEMON=node` are errors. See [docs/daemon.md](docs/daemon.md).
 - `CSTAN_DAEMON_BIN`, `CSTAN_NODE_CLI` and `CSTAN_NODE` are no longer read. `CSTAN_DASH=node` is gone: there is no Node dashboard.
 - A `[worktree] setup` that ran `npm ci` is yours to keep; Capstan itself no longer needs npm.
-- The repository still holds the old TypeScript sources and their tests (`src/`, `test/`, `package.json`) until they are deleted; they are frozen and are not part of a release. A source checkout is built and checked with cargo as described above.
+- The old TypeScript sources and their tests are deleted from the repository; a source checkout is built and checked with cargo as described above.
 
 ## Contributing
 

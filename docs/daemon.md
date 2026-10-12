@@ -66,7 +66,7 @@ Operator, no driver.
 
 `scripts/check.sh` is the single gate and needs no node: `cargo fmt --check`, `clippy -D warnings` and `cargo test --locked` for
 `rust/`, `dash/` and `tools/release`, then the smoke test of the release binaries, the installer test, the release workflow
-check, the version check, and the test-map check. The smoke test runs on the release binaries only when they are built (`CSTAN_RELEASE_BUILD=1` or `scripts/check.sh release`); the Release workflow builds and verifies them on tags. `scripts/check.sh <stage>` runs one stage (`rust`, `dash`, `tools`, `scripts`, `release`, `test-map`), and CI runs one parallel job per stage. With `CSTAN_LIVE=1` it also runs the live suites. `CARGO_TARGET_DIR` and
+check, the version check, and the no-Node guard (no tracked TypeScript, `.mjs` or npm file outside `scripts/node-allowlist`). The smoke test runs on the release binaries only when they are built (`CSTAN_RELEASE_BUILD=1` or `scripts/check.sh release`); the Release workflow builds and verifies them on tags. `scripts/check.sh <stage>` runs one stage (`rust`, `dash`, `tools`, `scripts`, `release`, `node-guard`), and CI runs one parallel job per stage. With `CSTAN_LIVE=1` it also runs the live suites. `CARGO_TARGET_DIR` and
 `CSTAN_CHECK_JOBS` (cargo's `-j`) are honoured.
 
 The daemon's own tests are the strict transcript replay (`rust/crates/daemon/tests/replay.rs`) of the frozen Node corpus, the
@@ -75,24 +75,11 @@ loops, Herdr, launcher and Operator replays, and the black-box suites of `rust/c
 step. Where Rust differs from a case of the corpus on purpose, an overlay next to the harness replaces that case
 (`rust/crates/parity-overlay/README.md`; the `[daemon]` cases are in `rust/crates/config/tests/divergences`).
 
-## Shadow runs (by hand, while the Node tree exists)
+## Shadow run
 
-The shadow run compares against the frozen Node daemon, so it needs node and `npm run build`; it is not part of `scripts/check.sh`.
-
-`node scripts/shadow-daemon.mjs <ledger-or-project>` compares the two daemons on a real ledger:
-
-1. refuses a source whose daemon is running (a live pid file, or a socket that answers) and a ledger without its project;
-2. copies the ledger twice with the SQLite backup API into `/tmp/capstan-shadow-*/{node,rust}` (it never opens the source
-   itself);
-3. starts the Node daemon on the first copy with `CAPSTAN_LAUNCH=off`, sends a battery of wire requests and records them;
-4. starts the Rust daemon on the second copy and replays the transcript;
-5. diffs the responses and a dump of every table. Ids and times differ between runs, so every uuid a daemon made and every
-   ISO time is replaced by a placeholder numbered in order of appearance; ids already in the source stay as they are.
-
-`--generate <dir>` writes a large scratch project (default 50 agents, 5000 messages, 20 plans with reports and integrations),
-`--self-test` generates a small one and shadows it. Never point it at a project whose daemon runs, and never at the live
-`.capstan` of a project you are working in: copy a stopped project first. The large run is
-`cargo test -p capstan-daemon --test shadow -- --ignored`.
+The Node shadow tool was deleted with the Node tree. The large generated-project run that
+remains is Rust: `cargo test -p capstan-daemon --test shadow -- --ignored`. Never point a shadow run at the live `.capstan` of a
+project you are working in.
 
 ## Live test
 

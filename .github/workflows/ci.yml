@@ -84,7 +84,7 @@ jobs:
         env:
           CSTAN_NO_NODE: "1"
       # smoke-binary.sh (skips without release binaries), the installer test, the release workflow and version
-      # checks, and the test-map check.
+      # checks, and the no-Node guard.
       - run: scripts/check.sh scripts
         env:
           CSTAN_NO_NODE: "1"

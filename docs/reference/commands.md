@@ -2,7 +2,7 @@
 
 Back to the [README](../../README.md).
 
-Checked against the `usage` string in `src/cli.ts` (run `cstan` with no arguments to print it), the `ROUTES` table in `src/daemon.ts` and the handlers in `src/commands.ts`. "Who" shows which credential the daemon accepts: operator (the key in `.capstan/`), agent (an agent's environment token), or either. Every routed command accepts `--json`.
+Checked against the `usage` string in `rust/crates/cstan/src/usage.rs` (run `cstan` with no arguments to print it), the `ROUTES` table in `rust/crates/daemon/src/handlers/mod.rs` and the handlers in `rust/crates/daemon/src/handlers/`. "Who" shows which credential the daemon accepts: operator (the key in `.capstan/`), agent (an agent's environment token), or either. Every routed command accepts `--json`.
 
 Record ids (reports, reviews, integrations, messages, findings, prompt relays, operator proposals and grants, cleanups, and what `inspect` reads) may be given as a unique prefix of at least four characters, as in git. The daemon resolves the prefix before the command runs: a unique one becomes the full id, an ambiguous one is refused with the candidates listed, one shorter than four characters is refused when it would have matched, and an unknown one fails as it always did. An exact id always wins. Agent ids, plan ids and package ids are matched exactly.
 
@@ -157,7 +157,7 @@ To fix a `commit_message` refusal: reword the commit (`git commit --amend` for t
 
 ## Releases
 
-`scripts/release.sh` is run by the person who releases, from a clean checkout; it is not a `cstan` command. It is POSIX `sh` plus `tools/release`, a small Rust program (a separate cargo workspace) that reads the commit history, so it needs `cargo`. It follows [SemVer](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): it picks the next version from the commits since the last `v*` tag, updates `VERSION`, `package.json`, the lockfile and `CHANGELOG.md`, commits `chore(release): v<version>` and creates a local annotated tag. It builds nothing, and nothing is pushed or published: pushing the tag starts `.github/workflows/release.yml`.
+`scripts/release.sh` is run by the person who releases, from a clean checkout; it is not a `cstan` command. It is POSIX `sh` plus `tools/release`, a small Rust program (a separate cargo workspace) that reads the commit history, so it needs `cargo`. It follows [SemVer](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): it picks the next version from the commits since the last `v*` tag, updates `VERSION` and `CHANGELOG.md`, commits `chore(release): v<version>` and creates a local annotated tag. It builds nothing, and nothing is pushed or published: pushing the tag starts `.github/workflows/release.yml`.
 
 | Option            | Effect                                                                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- |
@@ -168,7 +168,7 @@ It refuses to run with uncommitted tracked changes, when nothing releasable (`fe
 
 ## Controller messages
 
-Messages whose sender is `controller` start with one of these prefixes (`src/controller/core.ts`, `src/prompts.ts`):
+Messages whose sender is `controller` start with one of these prefixes (`rust/crates/kernel/src/areas/`, `rust/crates/config/src/prompts.rs`):
 
 | Prefix                            | Meaning                                                                                        |
 | --------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -188,7 +188,7 @@ Messages whose sender is `controller` start with one of these prefixes (`src/con
 
 ## Exit codes
 
-From `EXIT` in `src/cli.ts`: `0` ok, `2` usage error, `3` invalid input or configuration, `4` blocked (the controller refused the request, for example `worker_limit`, or `cstan start` failed to launch), `5` runtime error.
+From `EXIT` in `rust/crates/cstan/src/usage.rs`: `0` ok, `2` usage error, `3` invalid input or configuration, `4` blocked (the controller refused the request, for example `worker_limit`, or `cstan start` failed to launch), `5` runtime error.
 
 ## Foreign socket guard
 

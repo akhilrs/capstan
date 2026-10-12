@@ -19,15 +19,9 @@ Build: `cargo build --release --locked` gives `target/release/cstan-dash`; `csta
 
 ## Parity fixtures
 
-`tests/parity/*.json` is what the Node implementation computes for the cases in `test/dash-golden-cases.ts`: the status, the
-model, the helpers, and every frame and overlay. Regenerate after an intended change in Node:
-
-```
-npm run build && node dist/test/dash-parity-export.js
-```
-
-`test/dash-parity.test.ts` fails while the committed files differ from a fresh export. The Rust tests read them through
-`tests/common`. Numbers are compared as `f64`; objects by key set; arrays in order.
+`tests/parity/*.json` is what the Node dashboard computed for its golden cases: the status, the model, the helpers, and every
+frame and overlay. The corpus is frozen (see [docs/parity-fixtures.md](../docs/parity-fixtures.md)); the Node exporter is gone,
+so a file changes only by hand, in the same commit as the Rust change. The Rust tests read them through `tests/common`. Numbers are compared as `f64`; objects by key set; arrays in order.
 
 ## Shapes
 

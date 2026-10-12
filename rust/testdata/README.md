@@ -1,19 +1,19 @@
 # rust/testdata
 
 Test data the Rust tests and `scripts/smoke-binary.sh` read. The files that came from the Node tree are **frozen copies**:
-they were copied (not moved) from `test/`, `src/` and `migrations/`-adjacent data when the Node tree was about to go, and
+they were copied (not moved) from the Node tests, sources and `migrations/`-adjacent data when the Node tree was about to go, and
 nothing regenerates them. Consumers find them relative to `CARGO_MANIFEST_DIR` (crates) or the repository root (the script).
 
 | Path | Copied from | Read by |
 |---|---|---|
-| `fixtures/prompts-off/` | `test/fixtures/prompts-off/` | `config/tests/prompts_parity.rs` |
-| `fixtures/plan-bodies/`, `fixtures/kernel-text/` | same names under `test/fixtures/` | `kernel/tests` (`fixture()`) |
-| `fixtures/*.ansi`, `*.txt`, `fixtures/prompts/`, `ps-macos.txt` | `test/fixtures/` (only the files `herdr/tests/parity/screen.json` names) | `herdr/tests/parity.rs` |
-| `fixtures/fake-claude.py`, `fixtures/claude-trust-dialog.txt` | `test/fixtures/` | the live suites (`herdr/tests/common/live_env.rs`) |
-| `golden/legacy-status-inspect.json` | `test/golden/` | `kernel/src/areas/status.rs` tests |
-| `node/daemon.ts` | `src/daemon.ts` | `daemon/src/handlers/mod.rs` (`ROUTES` test) |
-| `daemon-api-coverage.txt` | the `api-coverage` block of `test/daemon-scenarios/README.md` | `daemon/src/deps.rs` test |
-| `ledger/ledger-better-sqlite3.sqlite` | `test/fixtures/ledger-better-sqlite3.sqlite` (schema v31, made by Node) | `ledger/tests/compat.rs`, `smoke-binary.sh` |
+| `fixtures/prompts-off/` | Node tests: `fixtures/prompts-off/` | `config/tests/prompts_parity.rs` |
+| `fixtures/plan-bodies/`, `fixtures/kernel-text/` | same names under Node tests: `fixtures/` | `kernel/tests` (`fixture()`) |
+| `fixtures/*.ansi`, `*.txt`, `fixtures/prompts/`, `ps-macos.txt` | Node tests: `fixtures/` (only the files `herdr/tests/parity/screen.json` names) | `herdr/tests/parity.rs` |
+| `fixtures/fake-claude.py`, `fixtures/claude-trust-dialog.txt` | Node tests: `fixtures/` | the live suites (`herdr/tests/common/live_env.rs`) |
+| `golden/legacy-status-inspect.json` | Node tests: `golden/` | `kernel/src/areas/status.rs` tests |
+| `node/daemon.ts` | Node `daemon.ts` | `daemon/src/handlers/mod.rs` (`ROUTES` test) |
+| `daemon-api-coverage.txt` | the `api-coverage` block of Node tests: `daemon-scenarios/README.md` | `daemon/src/deps.rs` test |
+| `ledger/ledger-better-sqlite3.sqlite` | Node tests: `fixtures/ledger-better-sqlite3.sqlite` (schema v31, made by Node) | `ledger/tests/compat.rs`, `smoke-binary.sh` |
 
 The reference for behaviour that used to be compared with a live Node daemon is the frozen corpus: the parity transcripts
 under the crates' `tests/`, `cstan/tests/support/node-usage.txt` and the `divergences/` overlays.
@@ -65,3 +65,5 @@ Steps (`cstan` is the v0.4.1 binary; the operator commands run in `/tmp/cg/repo`
    (`sqlite3.connect(controller.sqlite).backup(...)`, WAL mode kept).
 
 Credentials in the file are SHA-256 hashes; the paths in it point into `/tmp/cg`.
+
+`node/daemon.ts` is TypeScript read only as data (`include_str!`); it is exempt from the no-Node guard through `rust/testdata/node/` in `scripts/node-allowlist`. Add no other `.ts` file here.

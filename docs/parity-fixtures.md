@@ -1,25 +1,26 @@
 # Parity fixtures and the freeze
 
-Every Node behaviour the Rust port has to keep is recorded as a fixture: a JSON file that an exporter in `test/` wrote
-by running the Node code, and that a Rust test replays and compares byte for byte. The Rust port was built against
-these fixtures, and once Node is deleted they are the only reference there is.
+Every Node behaviour the Rust port had to keep is recorded as a fixture: a JSON file that an exporter wrote by running the
+Node code, and that a Rust test replays and compares byte for byte. The Node tree and its exporters are deleted; the
+corpus is **frozen** and is the only reference there is. The fixtures live under `rust/crates/*/tests/**`, `dash/tests/parity`
+and the shared inputs in [`rust/testdata/`](../rust/testdata/README.md) (which says which Node file each came from). A fixture
+changes only by hand, in the same commit as the Rust change, with the reason in the commit body; nothing regenerates it.
+The Node exporters are in the git history at the commit below if one is ever needed.
 
 ## The freeze point
 
 **`be41e824207a002996822e991aa8b61b90219b47`** (`feat(daemon): Rust daemon port phase 2b: opt-in Rust daemon with Node`)
-is the main commit the freeze branch started from, and the commit every exporter below ran on: at it,
-`npm run build && npm test` runs the staleness test of each exporter, which re-exports and fails on any difference, and
-all of them pass. This commit, not main at the time of merge, is the freeze point. From it on, the committed fixtures
+is the main commit the freeze branch started from, and the commit every exporter below ran on: at it, the staleness test of each exporter re-exported and passed. This commit, not main at the time of merge, is the freeze point. From it on, the committed fixtures
 are the reference.
 
 ## The exporters
 
-| Exporter (`node dist/test/<name>.js`) | Fixtures                                                            | Replayed by (Rust)                                                      | Staleness test (`test/`)          |
+| Exporter (historic) | Fixtures                                                            | Replayed by (Rust)                                                      | Staleness test (historic)          |
 | ------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------- |
 | `config-parity-export`                | `rust/crates/config/tests/parity`                                   | `config/tests/config_parity.rs`, `prompts_parity.rs`, `differential.rs` | `config-parity.test.ts`           |
 | `cli-transcript-export`               | `rust/crates/cstan/tests/transcripts`                               | `cstan/tests/transcripts.rs`                                            | `cli-transcript.test.ts`          |
 | `cli-local-transcript-export`         | `rust/crates/cstan/tests/local-transcripts` (inputs: `ledgers/`)    | `cstan/tests/local.rs`                                                  | `cli-local-transcript.test.ts`    |
-| `kernel-parity-export`                | `rust/crates/kernel/tests/parity` (and `test/fixtures/plan-bodies`) | `kernel/tests/replay.rs`, `strict.rs`                                   | `kernel-parity.test.ts`           |
+| `kernel-parity-export`                | `rust/crates/kernel/tests/parity` (and `rust/testdata/fixtures/plan-bodies`) | `kernel/tests/replay.rs`, `strict.rs`                                   | `kernel-parity.test.ts`           |
 | `kernel-integrate-export`             | `rust/crates/kernel/tests/parity-integrate`                         | `kernel/tests/integrate.rs`                                             | `kernel-integrate-parity.test.ts` |
 | `daemon-transcript-export`            | `rust/crates/daemon/tests/transcripts`                              | `daemon/tests/replay.rs`, `cmds.rs`, `budget.rs`, `shadow.rs`           | `daemon-transcript.test.ts`       |
 | `loops-parity-export`                 | `rust/crates/daemon/tests/loops-parity`                             | `daemon/tests/loops.rs`                                                 | `loops-parity.test.ts`            |
@@ -29,7 +30,7 @@ are the reference.
 | `dash-parity-export`                  | `dash/tests/parity`                                                 | `dash/tests/model_parity.rs`, `view_parity.rs`, `e2e_parity.rs`         | `dash-parity.test.ts`             |
 | `ledger-parity-export`                | `rust/crates/ledger/tests/parity`                                   | `ledger/tests/migrate.rs`, `refusals.rs`                                | `ledger-rust-interop.test.ts`     |
 
-The first ten rows are the exporters the freeze check ran. Each staleness test builds a fresh export and fails while the
+The first ten rows are the exporters the freeze check ran. Each staleness test (deleted with the Node tree) built a fresh export and failed while the
 committed files differ from it, or while a file is missing or unexpected.
 
 ## The CLI corpus
@@ -53,12 +54,12 @@ in an empty one, without git, with `.capstan` in the way; `config check` and `co
 unreachable, refused, launch failed); `status --watch` (first frame, bad `--interval`); the refusals of `dash` (not a
 terminal, agent shell, bad flags); offline `status` and `inspect`, text and `--json`, over the committed ledgers at
 migration versions 20, 30, 36 and 37 (`local-transcripts/ledgers`); `inbox --hook`; and one transcript for every
-`ROUTES` command of `src/daemon.ts` in the operator environment and, where its access allows, the agent environment.
-`cli-local-transcript.test.ts` enumerates `ROUTES` and fails on a command with no transcript.
+`ROUTES` command of the Node daemon in the operator environment and, where its access allows, the agent environment.
+Its staleness test enumerated `ROUTES` and failed on a command with no transcript.
 
 ### Normalisation
 
-It follows `test/cli-parity-harness.ts`: a value of a kind is replaced by a placeholder that keeps the kind, and
+It followed the Node CLI parity harness: a value of a kind is replaced by a placeholder that keeps the kind, and
 everything else is exact.
 
 | In                         | Placeholder                                                 |
@@ -76,26 +77,14 @@ fixture. The Rust replay substitutes the version the binary was built with. `__f
 its transcripts carry the output the front end must print in `expected`.
 
 The ledgers under `local-transcripts/ledgers` are inputs, not exports: a ledger at the current schema with one project, its
-operator and one work item, and the same rows cut back to the first 20, 30 and 36 migrations. They are rebuilt only on
-purpose, by `node dist/test/cli-local-transcript-export.js --ledgers`, after which the transcripts are exported again.
-
-### Regenerating
-
-Only for an intended change to a Node behaviour, and see the rules below first:
-
-```
-npm run build
-node dist/test/cli-transcript-export.js
-node dist/test/cli-local-transcript-export.js
-```
+operator and one work item, and the same rows cut back to the first 20, 30 and 36 migrations. Their exporter is gone.
 
 ## After the freeze
 
 1. The freeze point is the main commit the freeze branch started from, and the exporters ran on it. From then the
    committed fixtures are the reference.
 2. The version is normalised in the transcripts (`<VERSION>`), so a release bump changes no fixture.
-3. Node is frozen, and committed Node fixtures are not edited until plan D (Node removal), so every staleness test keeps
-   passing.
+3. Committed fixtures are edited only by hand, as rule 7 says.
 4. A deliberate Rust divergence is an overlay: one JSON file per changed case under
    `rust/crates/<crate>/tests/divergences/`, naming the fixture, the expected Rust output and the reason. The schema and
    the reader are in the `capstan-parity-overlay` crate: see [`rust/crates/parity-overlay/README.md`](../rust/crates/parity-overlay/README.md).
@@ -105,11 +94,11 @@ node dist/test/cli-local-transcript-export.js
    `local-transcripts/<file>`, relative to `rust/crates/cstan/tests`, and the case is the transcript's `name`.
 5. The 80 `cstan` transcripts marked `fallback` already hold Node's output under `node`, and cli-native compares against
    that.
-6. A Node fix after the freeze re-exports only with PM approval, and no new Node-generated fixtures are made.
+6. No new Node-generated fixtures are made.
 7. After Node removal a fixture changes only by hand, in the same commit as the Rust change, with the reason in the commit
    body.
-8. Fixtures stay where the Rust tests read them (`rust/crates/*/tests/**`, `test/fixtures/`).
-9. The frozen Node tree stays unchanged and is no longer run by CI (its job was removed; plan D deletes the tree).
+8. Fixtures stay where the Rust tests read them (`rust/crates/*/tests/**`, `rust/testdata/`).
+9. The Node tree is deleted (plan D); the corpus above is what remains of it.
 
 ## Divergences from Node
 

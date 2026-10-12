@@ -1,7 +1,7 @@
 //! A real Claude Code worker blocked on a permission prompt is captured and answered through the PM's `cstan prompt`
 //! commands; an answer for a prompt that is no longer the shown one types nothing (replaces test/prompt-relay-live.test.ts;
 //! the command-level cases of test/prompt-relay-commands.test.ts and prompt-relay-ledger.test.ts are the daemon's and the
-//! kernel's replays, named in docs/test-map/live.md).
+//! kernel's replays, retired test map).
 //!
 //! It needs the real `claude` with a login in the operator's home; the agents get a private copy of the sign-in in a scratch
 //! `CLAUDE_CONFIG_DIR` (nothing is linked; the stand-in cannot draw a permission prompt). Without it a test says

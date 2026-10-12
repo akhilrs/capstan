@@ -1,9 +1,9 @@
 # The soak gate
 
-Rust became the only implementation at cutover (plan-30), but the frozen Node tree (`src/`, `test/`, `package.json`,
-`.github/workflows/ci.yml`'s Node job) is still in the repository. It is deleted by **plan D**, and plan D does not open until
-a release has run on a real project for the agreed time without a problem. This page defines that gate. The decision to open
-plan D is the user's; nothing here lets an agent take it.
+Rust became the only implementation at cutover (plan-30). The frozen Node tree was deleted by **plan D** (plan-31,
+remove-node) after a release had run on a real project for the agreed time without a problem; the user approved the end of
+the 0.4.x soak on 2026-10-12. This page records the gate that was applied. The decision to open plan D was the user's;
+nothing here lets an agent take it.
 
 ## What happens
 
@@ -55,5 +55,5 @@ All of these hold at the end of the period:
 ## If a criterion fails
 
 The soak stops, the PM writes what failed with the evidence (log lines, samples, the copy of the ledger), and the fix is made
-on the Rust side. Plan D stays closed. The Node tree is untouched, so a project that needs it can install the release before
+on the Rust side. Plan D stays closed. The Node tree stayed untouched until the gate passed, and a project that needs it can install the release before
 0.4.0 (see [Upgrading from 0.3](reference/install.md#upgrading-from-03)).

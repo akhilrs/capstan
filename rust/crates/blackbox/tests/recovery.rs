@@ -1,6 +1,6 @@
 //! Recovery (test/recovery.test.ts, recovery-core.test.ts, commands.test.ts "kill -9"): what a daemon does at start with an
 //! agent that has no pane, a daemon killed in the middle of mail, and the lost-agent record the PM reads. Observing a pane
-//! that disappears needs Herdr; the loop that does it is replayed in daemon/tests/loops.rs (see docs/test-map/core.md).
+//! that disappears needs Herdr; the loop that does it is replayed in daemon/tests/loops.rs.
 
 use capstan_blackbox::*;
 use std::io::Read;

@@ -1,0 +1,5 @@
+# One pattern per line: a tracked path starting with a pattern is exempt from the no-Node guard (scripts/check.sh).
+# docs/research/ holds historical measurement scripts that need Node to rerun.
+# rust/testdata/node/ holds frozen TypeScript that Rust only reads as data (include_str! in the daemon ROUTES test); it never runs.
+docs/research/
+rust/testdata/node/

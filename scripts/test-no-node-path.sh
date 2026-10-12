@@ -34,10 +34,10 @@ chmod +x "$SANDBOX/mixed/git"
 
 # 1. The scrub: faketool resolves, node and the other node tools do not, the log names the scrubbed directory.
 out="$SANDBOX/out"
-if PATH="$SANDBOX/mixed:$BASE" CSTAN_NO_NODE=1 sh "$ROOT/scripts/check.sh" test-map >"$out" 2>&1; then
-  ok "check.sh test-map passes under CSTAN_NO_NODE=1"
+if PATH="$SANDBOX/mixed:$BASE" CSTAN_NO_NODE=1 sh "$ROOT/scripts/check.sh" node-guard >"$out" 2>&1; then
+  ok "check.sh node-guard passes under CSTAN_NO_NODE=1"
 else
-  bad "check.sh test-map fails under CSTAN_NO_NODE=1"; cat "$out" >&2
+  bad "check.sh node-guard fails under CSTAN_NO_NODE=1"; cat "$out" >&2
 fi
 grep -q "^no-node: $SANDBOX/mixed -> " "$out" && ok "the log shows the scrubbed directory" || bad "the log does not show the scrubbed directory"
 if [ -f "$SANDBOX/resolved" ]; then
@@ -57,7 +57,7 @@ mirror="$(sed -n 's/^no-node: .* -> \([^ ]*\) (.*/\1/p' "$out" | head -n 1)"
 # 2. check.sh fails, naming node, when node still resolves: an empty PATH entry is the working directory, which the scrub
 # leaves as it is.
 cp "$SANDBOX/mixed/node" "$SANDBOX/cwd/node"
-if (cd "$SANDBOX/cwd" && PATH=":$BASE" CSTAN_NO_NODE=1 sh "$ROOT/scripts/check.sh" test-map >"$out" 2>&1); then
+if (cd "$SANDBOX/cwd" && PATH=":$BASE" CSTAN_NO_NODE=1 sh "$ROOT/scripts/check.sh" node-guard >"$out" 2>&1); then
   bad "check.sh passed although node still resolves"
 else
   grep -q 'node still resolves' "$out" && ok "check.sh fails and names node" || { bad "check.sh failed without naming node"; cat "$out" >&2; }

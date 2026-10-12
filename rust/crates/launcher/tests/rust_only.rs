@@ -1,4 +1,4 @@
-//! The launcher behaviours the frozen Node corpus never replayed (the rows `docs/test-map/live.md` listed as not ported for
+//! The launcher behaviours the frozen Node corpus never replayed (rows the retired test map listed as not ported for
 //! `launcher-lifecycle`, `launcher-spawn` and `launcher-release`), stated directly against the Rust launcher: stub Herdr, real
 //! git in a scratch repository and a real ledger, built by `common::engine::Scenario`. Each test names the Node test it
 //! stands for. Nothing here starts Node or Herdr.
