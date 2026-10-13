@@ -247,18 +247,36 @@ pub fn request_review(
         None => None,
     };
     let mut reused_agent: Option<String> = None;
+    // Held from the retarget until the review has begun, so the idle loop cannot release the reviewer in between.
+    let mut _claim: Option<crate::warm::Claim> = None;
     if let Some(agent_id) = reuse {
-        crate::warm::wait_for_verdict_print(&agent_id);
-        match launcher.retarget_review(&agent_id, &commit_sha, subject_id) {
-            Ok(_) => reused_agent = Some(agent_id),
-            Err(error) => {
-                crate::warm::retarget_failed(deps, &error, &agent_id);
-                crate::warm::release_row(deps, &agent_id, "retarget_failed", false);
-                if let Err(release_error) = launcher.release(&agent_id) {
-                    deps.detail_log(
-                        "review_reviewer_not_released",
-                        json!({"agentId": agent_id, "error": format!("LauncherError: {}", release_error.message)}),
-                    );
+        if let Some(held) = crate::warm::claim(deps, &agent_id) {
+            // The reviewer may have been released between the check above and the claim.
+            let still = deps.kernel.run({
+                let (subject, role) = (subject_id.to_string(), role.clone());
+                let max = config.review.max_reviews;
+                move |core| core.warm_reviewer_for(&subject, &role, max)
+            })?;
+            if still["agentId"].as_str() == Some(agent_id.as_str()) {
+                if let Some(row) = crate::warm::rows(deps)
+                    .iter()
+                    .find(|row| row["agentId"].as_str() == Some(agent_id.as_str()))
+                {
+                    crate::warm::wait_for_verdict_print(deps, row);
+                }
+                _claim = Some(held);
+                match launcher.retarget_review(&agent_id, &commit_sha, subject_id) {
+                    Ok(_) => reused_agent = Some(agent_id),
+                    Err(error) => {
+                        crate::warm::retarget_failed(deps, &error, &agent_id);
+                        crate::warm::release_row(deps, &agent_id, "retarget_failed", false);
+                        if let Err(release_error) = launcher.release(&agent_id) {
+                            deps.detail_log(
+                                "review_reviewer_not_released",
+                                json!({"agentId": agent_id, "error": format!("LauncherError: {}", release_error.message)}),
+                            );
+                        }
+                    }
                 }
             }
         }

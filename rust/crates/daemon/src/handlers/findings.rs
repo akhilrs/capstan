@@ -122,9 +122,6 @@ fn keep_or_release(env: &CommandEnv<'_>, review: &Value) {
     let agent_id = field(review, "reviewerAgentId");
     if !field(review, "warmPlanId").is_null() {
         if field(review, "warmReviews").as_i64().unwrap_or(0) < max_reviews {
-            if let Some(agent_id) = agent_id.as_str() {
-                crate::warm::note_verdict(agent_id);
-            }
             return;
         }
         if let Some(agent_id) = agent_id.as_str() {

@@ -9,37 +9,50 @@ use capstan_launcher::api::{
     LauncherError, LauncherResult, LauncherService, SpawnOptions, SpawnResult,
 };
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-/// When this process last kept a reviewer after a verdict, by agent: a retarget waits until the reviewer's own
-/// `cstan review` call has finished printing.
-fn kept_at() -> &'static Mutex<HashMap<String, Instant>> {
-    static KEPT: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
-    KEPT.get_or_init(Mutex::default)
+/// A reviewer held for reuse while a review request moves it to a new commit; dropping it lets the idle loop and
+/// eviction see the reviewer again. Idle release and eviction skip a held reviewer, and take the same lock while they
+/// release a row, so a reviewer is never released between its retarget and the begin of its review.
+pub struct Claim {
+    held: Arc<Mutex<HashSet<String>>>,
+    agent_id: String,
 }
 
-/// Notes that the reviewer just gave a verdict and stays warm.
-pub fn note_verdict(agent_id: &str) {
-    kept_at()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert(agent_id.to_string(), Instant::now());
+impl Drop for Claim {
+    fn drop(&mut self) {
+        self.held
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.agent_id);
+    }
 }
 
-/// Waits out what is left of the delay since the reviewer's last verdict.
-pub fn wait_for_verdict_print(agent_id: &str) {
-    let since = kept_at()
+/// Holds `agent_id` for a reuse; `None` when another request already holds it.
+pub fn claim(deps: &Deps, agent_id: &str) -> Option<Claim> {
+    let mut held = deps
+        .claimed_reviewers
         .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .get(agent_id)
-        .copied();
-    if let Some(since) = since {
-        let delay = Duration::from_millis(REVIEWER_RELEASE_DELAY_MS);
-        if let Some(left) = delay.checked_sub(since.elapsed()) {
-            std::thread::sleep(left);
-        }
+        .unwrap_or_else(|p| p.into_inner());
+    held.insert(agent_id.to_string()).then(|| Claim {
+        held: deps.claimed_reviewers.clone(),
+        agent_id: agent_id.to_string(),
+    })
+}
+
+/// Waits out what is left of the delay since the reviewer's last verdict, so its own `cstan review` call has finished
+/// printing. The verdict time is the ledger's completion time of the reviewer's last review, so a daemon restart does not
+/// forget it.
+pub fn wait_for_verdict_print(deps: &Deps, row: &Value) {
+    let Some(at) = row["lastVerdictAt"].as_str() else {
+        return;
+    };
+    let passed = deps.kernel.now_ms() - parse_iso_ms(at);
+    let delay = REVIEWER_RELEASE_DELAY_MS as i64;
+    if passed < delay {
+        std::thread::sleep(Duration::from_millis((delay - passed.max(0)) as u64));
     }
 }
 
@@ -71,7 +84,13 @@ pub fn release_now(
     agent_id: &str,
     reason: &str,
 ) -> bool {
-    let released = release_row(deps, agent_id, reason, true);
+    let released = {
+        let held = deps
+            .claimed_reviewers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        !held.contains(agent_id) && release_row(deps, agent_id, reason, true)
+    };
     if released {
         if let Err(error) = launcher.release(agent_id) {
             deps.detail_log(

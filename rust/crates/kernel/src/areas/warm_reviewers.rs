@@ -198,6 +198,18 @@ fn has_started_review(kernel: &Kernel, agent_id: &str) -> KernelResult<bool> {
     .is_some())
 }
 
+/// When the reviewer last gave a verdict, from the review records (so it survives a daemon restart).
+fn last_verdict_at(kernel: &Kernel, agent_id: &str) -> KernelResult<Option<String>> {
+    Ok(query_opt(
+        &kernel.database,
+        "SELECT MAX(completed_at) AS at FROM reviews
+         WHERE project_id = ? AND reviewer_agent_id = ? AND state IN ('passed', 'findings')",
+        [&kernel.project_id, agent_id],
+        |row| row.get::<_, Option<String>>("at"),
+    )?
+    .flatten())
+}
+
 /// `warmReviewerFor`: the plan's warm reviewer when it can take the subject.
 pub fn warm_reviewer_for(
     kernel: &Kernel,
@@ -374,6 +386,7 @@ pub fn warm_reviewers(kernel: &Kernel, credential: &str) -> KernelResult<Value> 
             "reviewsCount": row.reviews_count,
             "lastUsedAt": row.last_used_at,
             "busy": has_started_review(kernel, &row.agent_id)?,
+            "lastVerdictAt": last_verdict_at(kernel, &row.agent_id)?,
         }));
     }
     Ok(Value::Array(out))

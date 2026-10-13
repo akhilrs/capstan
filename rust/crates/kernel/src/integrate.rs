@@ -1672,6 +1672,15 @@ pub fn settle_integration(
         .and_then(Value::as_str)
         .map(str::to_string);
     let branch = text_of(&before, "branch").to_string();
+    if state == "conflicted" && outcome == "discarded" {
+        // Merging stopped at the conflict: there is no branch to remove.
+        let record = integrations::settle_integration(
+            deps.kernel,
+            &deps.ctx(),
+            &json!({"integrationId": integration_id, "outcome": outcome}),
+        )?;
+        return Ok(json!({"record": record, "branchRemoved": false}));
+    }
     let Some(head_sha) = head_sha.filter(|_| state == "merged") else {
         return Err(integration_error(
             "not_merged_state",

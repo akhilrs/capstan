@@ -1403,3 +1403,87 @@ fn a_cancel_between_the_claim_and_the_start_of_the_run_is_not_lost() {
     assert_eq!(cancelled["state"], "interrupted", "{cancelled}");
     world.assert_clean(&id);
 }
+
+#[test]
+fn a_worker_that_panics_finishes_its_run_as_error_and_frees_its_slot() {
+    let world = World::new(spec(&["echo ok"]).tweak(|v| v.max_parallel = 1));
+    world
+        .service
+        .as_ref()
+        .unwrap()
+        .panic_next_run
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let (first, _) = world.report("dev-1");
+    let (second, _) = world.report("dev-2");
+    let id = world.ok("dev-1", "verify", &[&first])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let run = world.finished(&id);
+    assert_eq!(run["state"], "error", "{run}");
+    assert!(
+        run["outputTail"].as_str().unwrap().contains("panicked"),
+        "{run}"
+    );
+    world.assert_clean(&id);
+    // The only slot is free again: the next run goes through.
+    let next = world.ok("dev-2", "verify", &[&second])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(world.finished(&next)["state"], "passed");
+}
+
+#[test]
+fn a_worker_that_panics_after_starting_a_process_leaves_none_even_with_reap_off() {
+    let pidfile = tempfile::tempdir().unwrap();
+    let pid_path = pidfile.path().join("daemon-pid");
+    let command = format!(
+        "(setsid sh -c 'echo $$ > {}; sleep 60' &) ; sleep 1; test -s {}",
+        pid_path.display(),
+        pid_path.display()
+    );
+    let world = World::new(spec(&[&command]).tweak(|v| v.reap = false));
+    world
+        .service
+        .as_ref()
+        .unwrap()
+        .panic_after_steps
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let (report, _) = world.report("dev-1");
+    let id = world.ok("operator", "verify", &[&report])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(world.finished(&id)["state"], "error");
+    let pid = read_pid(&pid_path).unwrap();
+    let survived = alive(pid);
+    if survived {
+        // SAFETY: stops the one process this test started.
+        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    }
+    assert!(!survived, "the panicked run left its process");
+    world.assert_clean(&id);
+}
+
+#[test]
+fn a_cancel_that_lands_after_the_steps_ended_answers_the_real_final_state() {
+    let world = World::new(spec(&["echo ok"]));
+    world
+        .service
+        .as_ref()
+        .unwrap()
+        .finish_delay_ms
+        .store(1500, std::sync::atomic::Ordering::SeqCst);
+    let (report, _) = world.report("dev-1");
+    let id = world.ok("operator", "verify", &[&report])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // The steps end quickly; the finish is held back, so the ledger still says running and nothing can be aborted.
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(world.run(&id)["state"], "running");
+    let cancelled = world.ok("operator", "verify", &["cancel", &id]);
+    assert_eq!(cancelled["state"], "passed", "{cancelled}");
+    assert_eq!(cancelled["alreadyFinished"], true, "{cancelled}");
+}

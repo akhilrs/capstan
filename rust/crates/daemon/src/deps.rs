@@ -626,6 +626,8 @@ pub struct Deps {
     pub loops: Arc<dyn Loops>,
     /// The verify service, when capstan.toml has a `[verify]` section.
     pub verify: Option<Arc<crate::verify::VerifyService>>,
+    /// Warm reviewers a review request is moving to a new commit (see `warm::claim`).
+    pub claimed_reviewers: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl Deps {
@@ -645,6 +647,7 @@ impl Deps {
             driver: Arc::new(NoDriver),
             loops: Arc::new(NoLoops),
             verify: None,
+            claimed_reviewers: Arc::default(),
         }
     }
 

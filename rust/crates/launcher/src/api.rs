@@ -297,6 +297,9 @@ pub struct Replaced {
     pub predecessor_worktree_removed: Option<bool>,
     pub cancelled_message_ids: Vec<String>,
     pub kept_ref: Option<String>,
+    /// The branch commits past the base that the new branch no longer has (short sha, subject), newest first; they
+    /// stay reachable from `kept_ref`.
+    pub rewound_commits: Vec<(String, String)>,
     pub replacement_recorded: bool,
 }
 
@@ -356,6 +359,16 @@ impl ReplaceResult {
                     "keptRef",
                     done.kept_ref.as_ref().map(|v| json!(v)),
                 );
+                if !done.rewound_commits.is_empty() {
+                    map.insert(
+                        "rewoundCommits".into(),
+                        json!(done
+                            .rewound_commits
+                            .iter()
+                            .map(|(sha, subject)| json!({"sha": sha, "subject": subject}))
+                            .collect::<Vec<_>>()),
+                    );
+                }
                 map.insert(
                     "replacementRecorded".into(),
                     json!(done.replacement_recorded),
@@ -484,6 +497,7 @@ pub struct StubLauncher {
 struct StubLauncherState {
     calls: Vec<String>,
     errors: HashMap<String, VecDeque<LauncherError>>,
+    hooks: HashMap<String, VecDeque<Box<dyn FnOnce() + Send>>>,
     spawns: VecDeque<SpawnResult>,
     counter: u64,
     in_flight: usize,
@@ -505,6 +519,15 @@ impl StubLauncher {
             .entry(method.to_string())
             .or_default()
             .push_back(error);
+    }
+
+    /// Runs `hook` after the next call of `method` is recorded and answered successfully (with the stub unlocked).
+    pub fn after_next(&self, method: &str, hook: Box<dyn FnOnce() + Send>) {
+        lock(&self.state)
+            .hooks
+            .entry(method.to_string())
+            .or_default()
+            .push_back(hook);
     }
 
     /// The next `spawn` answers this result.
@@ -627,6 +650,13 @@ impl LauncherService for StubLauncher {
             format!("retarget_review {agent_id} {commit_sha} {review_target}"),
             "retarget_review",
         )?;
+        let hook = lock(&self.state)
+            .hooks
+            .get_mut("retarget_review")
+            .and_then(VecDeque::pop_front);
+        if let Some(hook) = hook {
+            hook();
+        }
         Ok(RetargetResult {
             agent_id: agent_id.to_string(),
             worktree_path: format!("/tmp/work/{agent_id}"),

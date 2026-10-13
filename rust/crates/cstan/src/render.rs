@@ -877,11 +877,21 @@ pub fn verify_lines(sub: &str, result: Option<&Value>, now_ms: f64) -> Vec<Strin
             }
             runs.iter().map(|r| run_state_line(r, now_ms)).collect()
         }
-        "cancel" => vec![format!(
-            "verify run {}: {}",
-            text_of(result.get("runId")).unwrap_or_default(),
-            text_of(result.get("state")).unwrap_or_default()
-        )],
+        "cancel" => {
+            let id = text_of(result.get("runId")).unwrap_or_default();
+            let state = text_of(result.get("state")).unwrap_or_default();
+            if matches!(result.get("alreadyFinished"), Some(Value::Bool(true))) {
+                vec![format!(
+                    "verify run {id} already finished: {state} (it ended before the cancel)"
+                )]
+            } else if state == "running" {
+                vec![format!(
+                    "verify run {id}: still running (the cancel was sent; check cstan verify show {id})"
+                )]
+            } else {
+                vec![format!("verify run {id}: {state}")]
+            }
+        }
         "show" => verify_show_lines(result),
         _ => {
             let id = text_of(result.get("runId")).unwrap_or_default();

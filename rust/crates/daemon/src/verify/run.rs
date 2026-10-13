@@ -406,8 +406,68 @@ impl VerifyService {
         ))
     }
 
+    /// Runs a claimed run to its end; a panic in the run ends it as an error (with its slot released) instead of leaving
+    /// it recorded as running.
+    pub(crate) fn execute_guarded(&self, run: &Value, abort: Arc<AtomicBool>) {
+        let started = Instant::now();
+        // Owned here so what the run started is still known when it panics.
+        let mut left = Left::default();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.execute(run, abort, &mut left)
+        }));
+        let Err(payload) = result else { return };
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|m| m.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic".into());
+        let run_id = run["runId"].as_str().unwrap_or("").to_string();
+        let commit = run["commitSha"].as_str().unwrap_or("").to_string();
+        self.detail_log(
+            "verify_worker_panicked",
+            json!({"runId": run_id, "message": message}),
+        );
+        let scratch = self.scratch_root.join(&run_id);
+        left.worktree_added |= scratch.exists();
+        // The cleanup of the run may itself be what panicked; the finish is recorded either way.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.clean_up(&run_id, &commit, &scratch, &left, None);
+            // Whatever `reap` says: the worker is gone and nothing is waiting on this run's processes, as after a crash.
+            let min_start = *left.first_start.lock().unwrap_or_else(|p| p.into_inner());
+            scratch::reap_marked(&scratch::marker(&run_id), min_start);
+        }));
+        self.unregister(&run_id);
+        let input = json!({
+            "runId": run_id,
+            "state": "error",
+            "exitCode": Value::Null,
+            "failedStep": Value::Null,
+            "durationMs": started.elapsed().as_millis() as i64,
+            "outputTail": format!("the verify worker panicked: {message}"),
+            "outputTruncated": false,
+        });
+        self.finish_once(&run_id, input);
+    }
+
+    /// Records the end of a run unless it is already recorded (a second finish is a no-op).
+    fn finish_once(&self, run_id: &str, input: Value) {
+        let id = run_id.to_string();
+        let result = self.step(move |core, context| {
+            if core.verify_run(&id)?["state"] != "running" {
+                return Ok(());
+            }
+            core.finish_verify_run(context, &input).map(|_| ())
+        });
+        if let Err(error) = result {
+            self.detail_log(
+                "verify_finish_failed",
+                json!({"runId": run_id, "error": error.to_string()}),
+            );
+        }
+    }
+
     /// Runs a claimed run to its end.
-    pub(crate) fn execute(&self, run: &Value, abort: Arc<AtomicBool>) {
+    pub(crate) fn execute(&self, run: &Value, abort: Arc<AtomicBool>, left: &mut Left) {
         let run_id = run["runId"].as_str().unwrap_or("").to_string();
         let commit = run["commitSha"].as_str().unwrap_or("").to_string();
         let commands: Vec<String> = run["commands"]
@@ -416,9 +476,11 @@ impl VerifyService {
             .flatten()
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect();
+        if self.panic_next_run.swap(false, Ordering::SeqCst) {
+            panic!("verify worker test panic");
+        }
         let started = Instant::now();
         let scratch = self.scratch_root.join(&run_id);
-        let mut left = Left::default();
         let outcome = match self.open_log(&run_id) {
             Err(message) => Some(Outcome::error(message)),
             Ok(log) => {
@@ -431,14 +493,21 @@ impl VerifyService {
                     abort: &abort,
                     started,
                 };
-                let outcome = self.steps(&job, &mut left);
+                let outcome = self.steps(&job, left);
                 log.finish();
                 outcome
             }
         };
-        self.clean_up(&run_id, &commit, &scratch, &left, None);
+        if self.panic_after_steps.swap(false, Ordering::SeqCst) {
+            panic!("verify worker test panic after the steps");
+        }
+        self.clean_up(&run_id, &commit, &scratch, left, None);
         self.trim_logs();
         let cancelled = self.unregister(&run_id);
+        let delay = self.finish_delay_ms.load(Ordering::SeqCst);
+        if delay > 0 {
+            std::thread::sleep(Duration::from_millis(delay));
+        }
         let duration_ms = started.elapsed().as_millis() as i64;
         let outcome = match outcome {
             Some(outcome) => outcome,
@@ -461,12 +530,6 @@ impl VerifyService {
             "outputTail": outcome.tail,
             "outputTruncated": outcome.truncated,
         });
-        if let Err(error) = self.step(move |core, context| core.finish_verify_run(context, &input))
-        {
-            self.detail_log(
-                "verify_finish_failed",
-                json!({"runId": run_id, "error": error.to_string()}),
-            );
-        }
+        self.finish_once(&run_id, input);
     }
 }

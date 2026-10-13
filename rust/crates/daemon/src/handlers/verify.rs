@@ -178,6 +178,17 @@ fn may_cancel(core: &Core, identity: &Identity, run: &Value) -> KernelResult<boo
     Ok(subject_architects(core, run)?.contains(&agent.agent_id))
 }
 
+/// The answer of a cancel that waited for a running run: its real final state, and `alreadyFinished` when the run ended
+/// some other way than by this cancel (it finished first).
+fn cancel_answer(run_id: &str, state: Value) -> Value {
+    let by_cancel = state == "interrupted" || state == "cancelled";
+    let mut answer = json!({"runId": run_id, "state": state});
+    if !by_cancel {
+        answer["alreadyFinished"] = Value::Bool(true);
+    }
+    answer
+}
+
 fn cancel(
     env: &CommandEnv<'_>,
     call: &CommandCall<'_>,
@@ -239,7 +250,7 @@ fn cancel(
             .map(|run| run["state"].clone());
         match state {
             Ok(state) if state != "running" && !state.is_null() => {
-                return ok(json!({"runId": run_id, "state": state}))
+                return ok(cancel_answer(run_id, state))
             }
             Err(error) => return map_kernel_error(&error),
             Ok(_) => {}

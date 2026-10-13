@@ -218,6 +218,28 @@ fn a_branch_is_deleted_only_while_it_is_at_the_recorded_commit() {
 }
 
 #[test]
+fn commits_between_lists_the_commits_past_a_base_newest_first() {
+    let (_keep, root) = repository();
+    let runner = DefaultGit::new(&text(&root));
+    let base = runner.head_sha().unwrap();
+    assert!(runner.commits_between(&base, &base).is_empty());
+    git_ok(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", "first extra"],
+    );
+    git_ok(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", "second extra"],
+    );
+    let tip = runner.head_sha().unwrap();
+    let listed = runner.commits_between(&base, &tip);
+    let subjects: Vec<&str> = listed.iter().map(|(_, s)| s.as_str()).collect();
+    assert_eq!(subjects, ["second extra", "first extra"]);
+    assert!(tip.starts_with(listed[0].0.as_str()));
+    assert!(runner.commits_between("not-a-sha", &tip).is_empty());
+}
+
+#[test]
 fn a_failing_git_never_reads_as_no_worktree() {
     let scratch = tempfile::tempdir().unwrap();
     let not_a_repository = text(&std::fs::canonicalize(scratch.path()).unwrap());

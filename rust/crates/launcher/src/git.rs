@@ -375,6 +375,23 @@ impl GitRunner for DefaultGit {
         self.run(&["update-ref", reference, sha]).ok()
     }
 
+    fn commits_between(&self, base: &str, tip: &str) -> Vec<(String, String)> {
+        if !is_hex(base, 40) || !is_hex(tip, 40) {
+            return Vec::new();
+        }
+        let range = format!("{base}..{tip}");
+        let result = self.run(&["log", "--format=%h %s", "--end-of-options", &range]);
+        if !result.ok() {
+            return Vec::new();
+        }
+        result
+            .stdout
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .map(|(sha, subject)| (sha.to_string(), one_line(subject, MAX_NOTE_LENGTH)))
+            .collect()
+    }
+
     fn branch_tip(&self, branch: &str) -> Option<String> {
         let result = self.run(&[
             "rev-parse",

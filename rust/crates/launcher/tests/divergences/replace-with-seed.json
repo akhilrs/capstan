@@ -596,8 +596,8 @@
      {
       "a": [
        {
-        "bytes": 5693,
-        "sha256": "e7e59dde89bafd7f07a80d6df8edb68845346ae1c6e4c600679def4779ed5faf"
+        "bytes": 5901,
+        "sha256": "6355ac54651a3c5f9a7e099f2eb0c572628487a885ef920993890fc062a732cd"
        }
       ],
       "m": "writePromptFile"
@@ -1639,8 +1639,8 @@
      {
       "a": [
        {
-        "bytes":7026,
-        "sha256": "65ddd1db75c4a0afb182ad7a47832e2acfd41bb24123861beffa1298924e3536"
+        "bytes":7234,
+        "sha256": "ac99ec29377ccd787bca7e5671c037f7db42a1ba7ac60b2379594efd21f2670c"
        }
       ],
       "m": "writePromptFile"
@@ -1701,6 +1701,23 @@
        "branch": "feat/req-1-fix"
       },
       "event": "branch_kept"
+     },
+     {
+      "details": {
+       "base": "60c54c94c7a5eca6091e1240177378e1407a42d1",
+       "branch": "feat/req-1-fix",
+       "keptRef": "refs/capstan/kept/developer-1",
+       "keptTip": "b31828b02180826e40118f4491ae24ecc6ed1e76",
+       "predecessor": "developer-1",
+       "rewoundCommits": [
+        {
+         "sha": "b31828b",
+         "subject": "feat: b"
+        }
+       ],
+       "successor": "developer-2"
+      },
+      "event": "replacement_rewound_branch"
      }
     ],
     "git": [
@@ -1715,6 +1732,7 @@
      "rev-parse --verify --quiet refs/heads/feat/req-1-fix^{commit}",
      "worktree list --porcelain -z",
      "update-ref refs/capstan/kept/developer-1 b31828b02180826e40118f4491ae24ecc6ed1e76",
+     "log --format=%h %s --end-of-options 60c54c94c7a5eca6091e1240177378e1407a42d1..b31828b02180826e40118f4491ae24ecc6ed1e76",
      "update-ref -d refs/heads/feat/req-1-fix b31828b02180826e40118f4491ae24ecc6ed1e76",
      "-C <tmp>/project rev-parse --is-inside-work-tree",
      "-C <tmp>/project rev-parse --show-toplevel",
@@ -1740,6 +1758,12 @@
      "predecessor": "developer-1",
      "predecessorWorktreeRemoved": true,
      "replacementRecorded": true,
+     "rewoundCommits": [
+      {
+       "sha": "b31828b",
+       "subject": "feat: b"
+      }
+     ],
      "state": "started",
      "worktreePath": "<tmp>/worktrees/developer-2"
     },

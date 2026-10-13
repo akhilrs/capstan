@@ -867,6 +867,7 @@ impl LauncherKernel {
             released = Some(result);
         }
         let mut kept: Option<(String, String)> = None;
+        let mut rewound: Vec<(String, String)> = Vec::new();
         let started = (|| -> OpResult<SpawnResult> {
             // The successor continues the predecessor's branch at the base; commits past it are saved first.
             if let Some(branch) = &data.branch {
@@ -894,6 +895,7 @@ impl LauncherKernel {
                                 format!("could not save {current} at {kept_ref}"),
                             ));
                         }
+                        rewound = self.git.commits_between(&base.sha, &current);
                         kept = Some((kept_ref.clone(), current.clone()));
                     }
                     if !self.git.delete_branch_if(branch, &current) {
@@ -949,6 +951,23 @@ impl LauncherKernel {
                 }),
             );
         }
+        if let Some((reference, tip)) = &kept {
+            self.log(
+                "replacement_rewound_branch",
+                json!({
+                    "predecessor": agent_id,
+                    "successor": spawned.agent_id,
+                    "branch": spawned.branch,
+                    "base": base.sha,
+                    "keptRef": reference,
+                    "keptTip": tip,
+                    "rewoundCommits": rewound
+                        .iter()
+                        .map(|(sha, subject)| json!({"sha": sha, "subject": subject}))
+                        .collect::<Vec<_>>(),
+                }),
+            );
+        }
         Ok(ReplaceResult::Replaced(Box::new(Replaced {
             spawn: spawned,
             predecessor: agent_id.to_string(),
@@ -961,6 +980,7 @@ impl LauncherKernel {
                 .map(|r| r.cancelled_message_ids)
                 .unwrap_or_default(),
             kept_ref: kept.map(|(r, _)| r),
+            rewound_commits: rewound,
             replacement_recorded,
         })))
     }

@@ -51,6 +51,12 @@ pub struct VerifyService {
     problem: Mutex<Option<String>>,
     /// A test hook: milliseconds a worker waits between claiming a run and starting it.
     pub claim_delay_ms: std::sync::atomic::AtomicU64,
+    /// A test hook: the next run a worker executes panics (once).
+    pub panic_next_run: AtomicBool,
+    /// A test hook: the next run panics once its steps ended, before its cleanup (once).
+    pub panic_after_steps: AtomicBool,
+    /// A test hook: milliseconds a worker waits after its run's steps ended and before the finish is recorded.
+    pub finish_delay_ms: std::sync::atomic::AtomicU64,
 }
 
 /// `~/x` against `$HOME`, otherwise the path as it is.
@@ -118,6 +124,9 @@ impl VerifyService {
             threads: Mutex::new(Vec::new()),
             problem: Mutex::new(None),
             claim_delay_ms: std::sync::atomic::AtomicU64::new(0),
+            panic_next_run: AtomicBool::new(false),
+            panic_after_steps: AtomicBool::new(false),
+            finish_delay_ms: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -267,7 +276,7 @@ impl VerifyService {
             }
             let seen = *self.wake.0.lock().unwrap_or_else(|p| p.into_inner());
             match self.claim_next() {
-                Some((run, abort)) => self.execute(&run, abort),
+                Some((run, abort)) => self.execute_guarded(&run, abort),
                 None => {
                     let (counter, condvar) = &self.wake;
                     let guard = counter.lock().unwrap_or_else(|p| p.into_inner());

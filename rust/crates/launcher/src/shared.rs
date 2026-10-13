@@ -284,6 +284,12 @@ pub trait GitRunner: Send + Sync {
     fn rename_branch(&self, from: &str, to: &str) -> WorktreeRemoval;
     /// Points `reference` (a full ref name) at `sha`.
     fn save_ref(&self, reference: &str, sha: &str) -> bool;
+    /// The commits reachable from `tip` but not from `base`, newest first, as (short sha, subject). Empty when git
+    /// cannot tell or there are none.
+    fn commits_between(&self, base: &str, tip: &str) -> Vec<(String, String)> {
+        let _ = (base, tip);
+        Vec::new()
+    }
     /// The commit a branch points at, or None when there is no such branch.
     fn branch_tip(&self, branch: &str) -> Option<String>;
     /// Moves the checked-out branch of `worktree_path` to `sha` and leaves the tree clean at it. Refuses with

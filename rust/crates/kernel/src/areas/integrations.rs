@@ -426,7 +426,9 @@ pub fn settle_integration(
         input,
         |_| {
             let row = required_row(kernel, integration_id)?;
-            if row.state != "merged" {
+            // A conflicted integration holds no branch; it can only be discarded.
+            let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
+            if row.state != "merged" && !discarding_conflicted {
                 return Err(KernelError::controller(
                     "only a merged integration can be settled",
                 ));
@@ -460,7 +462,7 @@ pub fn settle_integration(
                 [outcome, &kernel.project_id, integration_id],
             )?;
             let event = MutationEvent::new("integration", integration_id, 0)
-                .transition("merged", outcome)
+                .transition(&row.state, outcome)
                 .with_details(json!({}));
             Ok(MutationOutput::new(integration_record(kernel, integration_id)?, event))
         },

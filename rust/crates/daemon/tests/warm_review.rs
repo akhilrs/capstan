@@ -498,6 +498,56 @@ fn the_idle_loop_releases_a_reviewer_only_after_idle_minutes() {
 }
 
 #[test]
+fn the_idle_loop_cannot_release_a_reviewer_between_its_retarget_and_its_review() {
+    let w = World::new("\n[review]\nidle_minutes = 5\n", false);
+    w.plan();
+    let (first, _) = w.report("dev-1");
+    let (second, _) = w.report("dev-2");
+    w.script_spawn("rev-1");
+    w.ok("pm-1", "request-review", &[&first]);
+    w.ok("rev-1", "review", &["pass", "fine"]);
+    let used = w.warm()[0]["lastUsedAt"].as_str().unwrap().to_string();
+    let far = capstan_kernel::areas::messaging::parse_iso_ms(&used) + 60 * 60_000;
+    let deps = w.deps.clone();
+    w.launcher.after_next(
+        "retarget_review",
+        Box::new(move || capstan_daemon::warm::release_idle(&deps, far, 5)),
+    );
+    let two = w.ok("pm-1", "request-review", &[&second]);
+    assert_eq!(two["reviewerAgentId"], "rev-1");
+    assert_eq!(two["reviewerReused"], true);
+    assert!(!w.released("rev-1"), "{:?}", w.calls());
+    assert_eq!(w.warm().len(), 1);
+    assert_eq!(w.warm()[0]["busy"], true);
+}
+
+#[test]
+fn the_verdict_time_comes_from_the_ledger_so_a_restart_keeps_the_print_wait() {
+    let w = World::new("", false);
+    w.plan();
+    let (first, _) = w.report("dev-1");
+    let (second, _) = w.report("dev-2");
+    w.script_spawn("rev-1");
+    w.ok("pm-1", "request-review", &[&first]);
+    assert!(w.warm()[0]["lastVerdictAt"].is_null());
+    w.ok("rev-1", "review", &["pass", "fine"]);
+    assert!(w.warm()[0]["lastVerdictAt"].is_string());
+    // Nothing is held in this process's memory: the wait is derived from the row alone.
+    let row = w.warm()[0].clone();
+    let started = Instant::now();
+    capstan_daemon::warm::wait_for_verdict_print(&w.deps, &row);
+    let waited = started.elapsed();
+    let clock_passed = w.deps.kernel.now_ms()
+        - capstan_kernel::areas::messaging::parse_iso_ms(row["lastVerdictAt"].as_str().unwrap());
+    assert!(
+        waited + Duration::from_millis(clock_passed.max(0) as u64) >= Duration::from_millis(700),
+        "waited {waited:?}, clock passed {clock_passed} ms"
+    );
+    let two = w.ok("pm-1", "request-review", &[&second]);
+    assert_eq!(two["reviewerReused"], true);
+}
+
+#[test]
 fn the_max_reviews_th_verdict_releases_the_reviewer() {
     let w = World::new("\n[review]\nmax_reviews = 1\n", false);
     w.plan();

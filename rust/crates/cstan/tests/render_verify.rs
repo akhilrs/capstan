@@ -191,3 +191,19 @@ fn rows_and_status_without_verify_are_unchanged() {
         "  p1 code 2h deps - dev working"
     );
 }
+
+#[test]
+fn a_cancel_that_found_the_run_finished_says_so() {
+    let finished = parse(r#"{"runId":"r1","state":"passed","alreadyFinished":true}"#);
+    assert_eq!(
+        render::verify_lines("cancel", Some(&finished), NOW),
+        ["verify run r1 already finished: passed (it ended before the cancel)"]
+    );
+    let cancelled = parse(r#"{"runId":"r1","state":"interrupted"}"#);
+    assert_eq!(
+        render::verify_lines("cancel", Some(&cancelled), NOW),
+        ["verify run r1: interrupted"]
+    );
+    let slow = parse(r#"{"runId":"r1","state":"running"}"#);
+    assert!(render::verify_lines("cancel", Some(&slow), NOW)[0].contains("still running"));
+}
