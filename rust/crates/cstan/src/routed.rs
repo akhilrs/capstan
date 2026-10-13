@@ -189,7 +189,13 @@ impl Cli<'_> {
         let request = frame(&credential, command, args)
             .map_err(|_| invalid("command request is too large"))?;
         let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms(command)));
-        let reply = call(&socket, &request, timeout);
+        let mut reply = call(&socket, &request, timeout);
+        // A daemon older than the client rejects the digest argument it never heard of; ask again the way it understands.
+        if args == digest_args && refused_as_invalid(&reply) {
+            let request = frame(&credential, command, &[])
+                .map_err(|_| invalid("command request is too large"))?;
+            reply = call(&socket, &request, timeout);
+        }
         if let Err(WireError::NotSent { code, .. }) = &reply {
             if code == "ENOENT" || code == "ECONNREFUSED" {
                 return Err(blocked(if agent.is_some() {
@@ -334,21 +340,28 @@ impl Cli<'_> {
         json: bool,
     ) -> Result<Flow, Fail> {
         let deadline = std::time::Instant::now() + until;
+        // Set once an older daemon rejected the digest and limit arguments: plain waits from then on.
+        let mut legacy = false;
         loop {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             let limit = left.as_secs() + u64::from(left.subsec_nanos() > 0);
-            let request = frame(
-                credential,
-                "wait",
-                &[
+            let wait_args = if legacy {
+                Vec::new()
+            } else {
+                vec![
                     "--digest".to_string(),
                     "--limit".to_string(),
                     limit.max(1).to_string(),
-                ],
-            )
-            .map_err(|_| invalid("command request is too large"))?;
+                ]
+            };
+            let request = frame(credential, "wait", &wait_args)
+                .map_err(|_| invalid("command request is too large"))?;
             let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms("wait")));
             let reply = call(socket, &request, timeout);
+            if !legacy && refused_as_invalid(&reply) {
+                legacy = true;
+                continue;
+            }
             match &reply {
                 Err(WireError::NotSent { code, .. })
                     if code == "ENOENT" || code == "ECONNREFUSED" =>
@@ -411,6 +424,11 @@ impl Cli<'_> {
             return Ok(Flow::Code(0));
         }
     }
+}
+
+/// Whether the daemon answered `invalid_request`: what a daemon older than the client says to an argument it lacks.
+fn refused_as_invalid(reply: &Result<Vec<u8>, WireError>) -> bool {
+    matches!(reply, Ok(line) if matches!(response(line), Response::Refused { code, .. } if code.to_utf8_lossy() == "invalid_request"))
 }
 
 /// What the text output of a reply is trimmed to.
