@@ -518,6 +518,11 @@ pub fn squash_message(info: &Value, subjects: &HashMap<String, String>) -> (Stri
     };
     let subject = format_subject(&kind, scope.as_deref(), breaking, &description, SUBJECT_MAX);
     let mut lines = lines;
+    // A long title is cut at a word boundary in the subject; the whole of it goes first in the body.
+    if !subject.ends_with(&description) {
+        lines.insert(0, format!("Title: {description}"));
+        lines.insert(1, String::new());
+    }
     if let Some(plan) = plan_id {
         lines.push(String::new());
         lines.push(format!("Refs: {plan}"));

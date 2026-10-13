@@ -198,7 +198,10 @@ fn rank(kind: &str) -> usize {
 }
 
 fn merge(prior: &Entry, c: &Entry) -> Entry {
-    let better = if rank(&c.parsed.kind) < rank(&prior.parsed.kind) {
+    // The first entry is the newest commit, the final reworded squash: its type stands unless the repeat is a
+    // changelog-worthy type (feat, fix, perf, revert) that outranks it, so a retyped repeat cannot hide a chore.
+    let headline = SECTIONS.iter().any(|(k, _)| *k == c.parsed.kind);
+    let better = if headline && rank(&c.parsed.kind) < rank(&prior.parsed.kind) {
         c
     } else {
         prior
@@ -228,7 +231,7 @@ fn merge(prior: &Entry, c: &Entry) -> Entry {
 
 /// Parsed commits with repeats removed. Scope is ignored when comparing; subjects match when their normalized forms are
 /// equal or one is a prefix of the other and at least 30 characters (a cut-off title). Types are compared across: the
-/// merged entry takes the highest-ranking type, the longest subject and the more specific scope, at the first one's
+/// merged entry takes the first one's type unless a later repeat is a higher-ranking feat, fix, perf or revert; it takes the longest subject and the more specific scope, at the first one's
 /// position.
 pub fn dedupe_commits(commits: &[Commit]) -> Vec<Entry> {
     let mut kept: Vec<(String, Entry)> = Vec::new();
@@ -312,13 +315,20 @@ pub fn last_release_tag(root: &Path) -> Option<String> {
 }
 
 /// The commits since `tag` (all of them without one) that count toward the release, and the lines naming those that were
-/// ignored (merges and non-conforming subjects). `chore(release):` commits are neither.
+/// ignored (merges and non-conforming subjects). `chore(release):` commits are neither. Only first-parent history is read:
+/// a change brought in by `merge -s ours` is already on the first parent as its reworded squash, so the merged-in original
+/// would list it twice; integration squashes keep the first-parent line complete.
 pub fn commits_since(root: &Path, tag: Option<&str>) -> Result<(Vec<Commit>, Vec<String>), String> {
     let range = tag
         .map(|t| format!("{t}..HEAD"))
         .unwrap_or_else(|| "HEAD".to_string());
     let out = Command::new("git")
-        .args(["log", "--format=%H%x1f%P%x1f%B%x1e", &range])
+        .args([
+            "log",
+            "--first-parent",
+            "--format=%H%x1f%P%x1f%B%x1e",
+            &range,
+        ])
         .current_dir(root)
         .output()
         .map_err(|e| format!("cannot run git: {e}"))?;

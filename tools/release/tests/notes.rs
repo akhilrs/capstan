@@ -283,3 +283,82 @@ fn changelog_keeps_a_scope_and_breaking_flag_from_either_repeat() {
     assert_eq!(merged[0].parsed.scope.as_deref(), Some("cli"));
     assert!(merged[0].parsed.breaking);
 }
+
+#[test]
+fn changelog_keeps_a_chore_that_a_reworded_repeat_retyped_as_a_test() {
+    let title = "Rust port phase D: remove the Node implementation";
+    let commits = [
+        Commit::new("1949445", &format!("chore(node): {title}")),
+        Commit::new("6247785", &format!("test: {title}")),
+    ];
+    let merged = dedupe_commits(&commits);
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].parsed.kind, "chore");
+    assert_eq!(merged[0].parsed.scope.as_deref(), Some("node"));
+    let section = render_changelog_section("1.0.0", "2026-10-13", &commits);
+    assert!(section.contains("### Chores"));
+    assert!(!section.contains("### Tests"));
+}
+
+#[test]
+fn changelog_lists_breaking_changes_by_bang_or_footer() {
+    let section = render_changelog_section(
+        "1.0.0",
+        "2026-10-13",
+        &[
+            Commit::new(
+                "aaaaaaa1",
+                "refactor(node)!: remove the Node implementation",
+            ),
+            Commit::new(
+                "bbbbbbb2",
+                "chore: drop the old flag\n\nBREAKING CHANGE: --old is gone",
+            ),
+        ],
+    );
+    assert!(section.contains("### Breaking changes"));
+    assert!(section.contains("- **node:** remove the Node implementation (aaaaaaa)"));
+    assert!(section.contains("- --old is gone (bbbbbbb)"));
+}
+
+#[test]
+fn commits_since_follows_first_parent_history_only() {
+    let dir = std::env::temp_dir().join(format!("capstan-release-fp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(
+        &dir,
+        &["commit", "-q", "--allow-empty", "-m", "chore: base"],
+    );
+    git(&dir, &["tag", "v0.1.0"]);
+    git(&dir, &["checkout", "-q", "-b", "orig"]);
+    git(
+        &dir,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "feat: add the cache section",
+        ],
+    );
+    git(&dir, &["checkout", "-q", "main"]);
+    git(
+        &dir,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "feat(cache): shared build cache",
+        ],
+    );
+    git(&dir, &["merge", "-q", "-s", "ours", "--no-edit", "orig"]);
+    let (commits, ignored) = commits_since(&dir, Some("v0.1.0")).unwrap();
+    let subjects: Vec<&str> = commits.iter().map(|c| c.message.trim()).collect();
+    assert_eq!(subjects, ["feat(cache): shared build cache"]);
+    assert_eq!(ignored.len(), 1);
+    assert!(ignored[0].ends_with("(merge)"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

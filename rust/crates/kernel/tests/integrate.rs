@@ -462,6 +462,14 @@ fn squash_messages_are_node_s_text() {
             .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
             .collect();
         let (subject, body) = squash_message(&case["info"], &subjects);
+        // The fixtures predate the "Title:" line a cut subject adds; a_long_plan_title_... covers it.
+        let body = match body
+            .strip_prefix("Title: ")
+            .and_then(|b| b.split_once("\n\n"))
+        {
+            Some((_, rest)) => rest.to_string(),
+            None => body,
+        };
         let actual = json!({"subject": subject, "body": body});
         let expected = json!({"subject": case["subject"], "body": case["body"]});
         if let Some(diff) = first_difference(&expected, &actual, "squash") {
@@ -469,6 +477,26 @@ fn squash_messages_are_node_s_text() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn a_long_plan_title_is_cut_at_a_word_in_the_subject_and_whole_in_the_body() {
+    let title = "Time-boxed auto-approve grant for non-destructive Operator actions and reviews";
+    let info = json!({"planTitle": title, "planId": "plan-1", "reports": [], "packages": []});
+    let (subject, body) = squash_message(&info, &HashMap::new());
+    assert_eq!(
+        subject,
+        "feat: Time-boxed auto-approve grant for non-destructive Operator actions and"
+            .trim_end_matches(" and")
+    );
+    assert!(subject.chars().count() <= 72);
+    assert!(body.starts_with(&format!("Title: {title}\n")));
+    let (short, body) = squash_message(
+        &json!({"planTitle": "Add a thing", "reports": []}),
+        &HashMap::new(),
+    );
+    assert_eq!(short, "feat: Add a thing");
+    assert!(!body.contains("Title:"));
 }
 
 #[test]
