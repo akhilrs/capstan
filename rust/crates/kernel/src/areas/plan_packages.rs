@@ -13,7 +13,9 @@ use crate::records::{MutationEvent, MutationOutput, MAX_MESSAGE_BYTES};
 use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 
-use super::{integrations, message_notices, messages, pauses, plans, warm_reviewers};
+use super::{
+    design_approvals, integrations, message_notices, messages, pauses, plans, warm_reviewers,
+};
 
 /// True for the report `r` (agent_reports) that counts for package `pp` (plan_packages): the assignee's accepted report of
 /// its current generation made since the assignment, unless a later-assigned package of the same agent claims it.
@@ -183,8 +185,24 @@ pub(crate) fn plan_packages(kernel: &Kernel, plan_id: &str) -> KernelResult<Vec<
             ))
         },
     )?;
+    let body = query_opt(
+        &kernel.database,
+        "SELECT r.body_json FROM plan_revisions r JOIN plans p ON p.project_id = r.project_id AND p.plan_id = r.plan_id AND p.approved_revision = r.revision
+         WHERE r.project_id = ? AND r.plan_id = ?",
+        [&kernel.project_id, plan_id],
+        |row| row.get::<_, String>(0),
+    )?;
     let mut out = Vec::new();
     for (package_id, assignee, assigned_at, message_id, cancelled_at) in rows {
+        let design = body
+            .as_deref()
+            .is_some_and(|b| crate::plan_body::package_is_design(b, &package_id));
+        let design_decision = if design {
+            design_approvals::current_decision(kernel, plan_id, &package_id)?
+                .map_or(Value::Null, |d| d.summary())
+        } else {
+            Value::Null
+        };
         let progress = package_progress(
             kernel,
             plan_id,
@@ -199,6 +217,8 @@ pub(crate) fn plan_packages(kernel: &Kernel, plan_id: &str) -> KernelResult<Vec<
             "assignmentMessageId": message_id,
             "cancelledAt": cancelled_at,
             "progress": progress,
+            "design": design,
+            "designDecision": design_decision,
         }));
     }
     Ok(out)
@@ -217,6 +237,10 @@ pub fn assign_package(
         None => None,
         Some(value) => Some(safe_text(value, "early reason", 500, false)?),
     };
+    let require_design_approval = input
+        .get("requireDesignApproval")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     kernel.mutate(context, "plan.assign", "plan:write", input, |actor| {
         pauses::assert_run_not_paused(kernel, "plan assign")?;
         if actor.role != "PM" && actor.role != "operator" {
@@ -305,7 +329,9 @@ pub fn assign_package(
             rusqlite::params![kernel.project_id, plan_id, plan.approved_revision],
             |row| row.get::<_, String>(0),
         )?;
-        let view = revision.and_then(|body| package_of_body(&body, package_id));
+        let view = revision
+            .as_deref()
+            .and_then(|body| package_of_body(body, package_id));
         let (Some(view), Some(architect)) = (view, plan.architect_agent_id.as_deref()) else {
             return Err(KernelError::controller(format!(
                 "plan {plan_id} has no readable text for package {package_id}"
@@ -346,6 +372,21 @@ pub fn assign_package(
                 "dependencies_unmet: package {package_id} depends on {}; assign them first, or pass --early \"<reason>\" to assign anyway",
                 unmet.join(", ")
             )));
+        }
+        if require_design_approval {
+            for dep in &view.depends_on {
+                if !revision
+                    .as_deref()
+                    .is_some_and(|body| crate::plan_body::package_is_design(body, dep))
+                {
+                    continue;
+                }
+                if let Some(state) = design_approvals::gate_state(kernel, plan_id, dep)? {
+                    return Err(KernelError::controller(format!(
+                        "design_approval_missing: package {package_id} depends on design package {dep} ({state}); the PM records the user's approval with cstan design approve {plan_id}/{dep} --link <url> --asked-user \"<what the user said>\""
+                    )));
+                }
+            }
         }
         let task = work_package_message(plan_id, package_id, architect, &view, &unmet);
         if task.len() > MAX_MESSAGE_BYTES {

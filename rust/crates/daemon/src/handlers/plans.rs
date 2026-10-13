@@ -260,12 +260,26 @@ fn assign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
     input.insert("planId".into(), json!(plan_id));
     input.insert("packageId".into(), json!(package_id));
     input.insert("agentId".into(), json!(agent_id));
+    let require_design_approval = env
+        .config()
+        .is_none_or(|config| config.design.require_approval);
     if let Some(early) = early {
         input.insert("early".into(), json!(early));
     }
     let credential = call.credential.to_string();
+    let design_plan_id = plan_id.clone();
     let assigned = env.deps.kernel.run(move |core| {
         let context = new_context(core, &credential)?;
+        // The gate matters only for a plan with a design package; a plan without one is assigned with the input it always had.
+        if require_design_approval {
+            let designs = core.design_approvals(&design_plan_id, None)?;
+            if designs["packages"]
+                .as_array()
+                .is_some_and(|p| !p.is_empty())
+            {
+                input.insert("requireDesignApproval".into(), json!(true));
+            }
+        }
         core.assign_package(&context, &Value::Object(input))
     })?;
     let named = env.rename_branch(agent_id, &format!("{plan_id}/{package_id}"));

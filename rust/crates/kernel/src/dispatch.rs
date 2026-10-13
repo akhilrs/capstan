@@ -208,6 +208,9 @@ pub fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> KernelResult<Value
     if let Some(result) = areas::verify_runs::dispatch(kernel, op, args) {
         return result;
     }
+    if let Some(result) = areas::design_approvals::dispatch(kernel, op, args) {
+        return result;
+    }
     if let Some(result) = areas::warm_reviewers::dispatch(kernel, op, args) {
         return result;
     }

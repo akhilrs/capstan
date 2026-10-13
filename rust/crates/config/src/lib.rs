@@ -8,6 +8,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
 pub mod cache;
+pub mod design;
 mod error;
 mod json;
 mod operator_policy;
@@ -28,6 +29,7 @@ pub use cache::{
     CacheConfig, CacheEntry, CacheOrigin, CacheScope, SetupReuse, DETECT_MARKERS, DETECT_MAX_DEPTH,
     DETECT_SKIP_DIRS,
 };
+pub use design::Design;
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
 pub use operator_policy::auto_approve_rule_problem;

@@ -4,9 +4,10 @@
 
 use crate::fixture::Fixture;
 
-// DELIBERATE PIN: this SQL undoes exactly migrations 30..=44 on a ledger built by the current runner. A later migration
+// DELIBERATE PIN: this SQL undoes every migration from 30 on, on a ledger built by the current runner. A later migration
 // that adds schema must add its undo here; migrations that only create new tables use `IF NOT EXISTS` and need nothing.
 const ROLL_BACK: &str = "
+  DROP TABLE design_approvals;
   DROP TABLE warm_reviewers;
   DROP TABLE verify_runs;
   DROP TRIGGER plan_revisions_amendment_is_a_pair;

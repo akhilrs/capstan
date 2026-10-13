@@ -362,6 +362,19 @@ Go:
 commands = ["go vet ./...", "go test ./..."]
 ```
 
+## Design
+
+The `[design]` section controls the user's approval of a design before the packages that build on it are assigned. An absent section behaves as `require_approval = true`; `cstan config` prints a `design` object `{ configured, requireApproval }` only when the section is written. A non-boolean value or an unknown key is refused by `cstan config check`, with a message naming the key (`design.require_approval`).
+
+| Key                | Default | Meaning |
+| ------------------ | ------- | ------- |
+| `require_approval` | `true`  | When true, `cstan plan assign` refuses a package that depends on a design package (`"design": true` in the plan) until the PM has recorded the user's approval of that design package's latest report with `cstan design approve`. When false, assignment ignores design approvals. Plans without design packages are not affected either way. |
+
+```toml
+[design]
+require_approval = false
+```
+
 ## Review
 
 The `[review]` section controls whether a plan's reviewer is kept between review requests. An absent section behaves as an empty one, with every default below, except that `cstan config` prints a `review` object only when the section is written. Unknown keys, values of the wrong type and out-of-range values are refused by `cstan config check`, with a message naming the key (`review.idle_minutes`).

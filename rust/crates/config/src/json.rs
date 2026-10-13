@@ -368,6 +368,9 @@ impl RoleConfig {
         if let Some(verify) = &self.verify {
             members.push(("verify", verify.to_value()));
         }
+        if self.design.configured {
+            members.push(("design", self.design.to_value()));
+        }
         if self.review.configured {
             members.push(("review", self.review.to_value()));
         }

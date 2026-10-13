@@ -49,6 +49,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("cleanup", Access::Any),
     ("cache", Access::Any),
     ("verify", Access::Any),
+    ("design", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {

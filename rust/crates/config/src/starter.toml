@@ -125,6 +125,11 @@ model = "claude-sonnet-5-5"
 [defaults.Verifier]
 model = "claude-sonnet-5-5"
 
+# The user approves a design before packages that build on it are assigned (see docs/reference/configuration.md).
+# [design]
+# require_approval = true          # a package that depends on a design package ("design": true in the plan) is assigned only after
+#                                  # the PM records the user's approval with cstan design approve <plan>/<package>
+
 # Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
 # from the environment where `cstan start` runs, never from your interactive shell file alone.
 # Name them here (one-line values only); a name that is not set where the daemon starts is reported

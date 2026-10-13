@@ -77,6 +77,7 @@ pub fn dump_tables(file: &Path) -> Value {
                                     .replace("\"class\":\"action\",", "")
                                     .replace("\"class\":\"info\",", "")
                                     .replace("\"maxReviewRounds\":null,", "")
+                                    .replace("\"design\":false,\"designDecision\":null,", "")
                                     .replace("\"amendment\":null,", "")
                                     .replace("\"amendsReviewId\":null,", "")
                             } else {
@@ -305,7 +306,7 @@ fn legacy_plan_texts(columns: &[String], values: &mut [Value]) {
 }
 
 /// Fields only the Rust build has (the frozen Node corpus predates them): message records carry `class`, plan records
-/// `maxReviewRounds`, the shown plan revision `amendment` and `amendsReviewId` (null unless amended), and the unread
+/// `maxReviewRounds`, package records `design` and `designDecision` (false and null unless a design package), the shown plan revision `amendment` and `amendsReviewId` (null unless amended), and the unread
 /// summary `wakeCount` and `infoCount`. A comparison leaves them out of the actual side.
 pub fn without_rust_only(value: &Value) -> Value {
     match value {
@@ -314,12 +315,16 @@ pub fn without_rust_only(value: &Value) -> Value {
             let summary = map.contains_key("oldestQueuedAt") && map.contains_key("messageIds");
             let plan_record = map.contains_key("planId") && map.contains_key("approvedRevision");
             let plan_revision = map.contains_key("bodySha") && map.contains_key("amendsReviewId");
+            let package_record = map.contains_key("packageId") && map.contains_key("progress");
             Value::Object(
                 map.iter()
                     .filter(|(key, v)| {
                         !(message_record && key.as_str() == "class"
                             || summary && matches!(key.as_str(), "wakeCount" | "infoCount")
                             || plan_record && key.as_str() == "maxReviewRounds"
+                            || package_record
+                                && matches!(key.as_str(), "design" | "designDecision")
+                                && (v.is_null() || v.as_bool() == Some(false))
                             || plan_revision
                                 && matches!(key.as_str(), "amendment" | "amendsReviewId")
                                 && v.is_null())

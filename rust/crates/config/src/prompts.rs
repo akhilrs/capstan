@@ -585,4 +585,26 @@ mod tests {
         assert!(ARCHITECT_REFERENCE.contains("cannot change interfaces or acceptance criteria"));
         assert!(ARCHITECT_REFERENCE.contains("`cstan plan submit`"));
     }
+
+    #[test]
+    fn architect_reference_puts_design_in_its_own_package() {
+        assert!(ARCHITECT_REFERENCE.contains("`\"design\": true`"));
+        assert!(ARCHITECT_REFERENCE.contains("docs/design/<plan-id>-<package-id>*"));
+    }
+
+    #[test]
+    fn pm_plan_section_asks_the_user_before_approving_a_design() {
+        let section = super::pm_plan_section(&super::ArchitectInput {
+            role: "architect".into(),
+            high_risk_triggers: vec![],
+        });
+        assert!(
+            section.contains("AskUserQuestion picker with the options Approve and Changes needed")
+        );
+        assert!(section
+            .contains("cstan design approve <plan-id>/<package-id> --link <link> --asked-user"));
+        assert!(section.contains("cstan design changes <plan-id>/<package-id> --asked-user"));
+        assert!(section.contains("Never approve on your own judgement"));
+        assert!(section.contains("design_approval_missing"));
+    }
 }

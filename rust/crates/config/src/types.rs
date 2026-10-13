@@ -437,6 +437,8 @@ pub struct RoleConfig {
     pub cache: Option<crate::cache::CacheConfig>,
     /// The `[verify]` section; `None` when it is absent.
     pub verify: Option<crate::verify::Verify>,
+    /// The `[design]` section; the default (approval required) when it is absent.
+    pub design: crate::design::Design,
     /// The `[review]` section; `Review::default()` when it is absent.
     pub review: crate::review::Review,
     pub env_pass: Vec<String>,

@@ -11,6 +11,7 @@
 pub mod agents;
 pub mod cache;
 pub mod cleanup;
+pub mod design;
 pub mod env;
 pub mod findings;
 pub mod id_prefix;
@@ -96,7 +97,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 32] = [
+pub const ROUTES: [Route; 33] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -129,10 +130,11 @@ pub const ROUTES: [Route; 32] = [
     route("cleanup", Access::Any, "cleanup"),
     route("cache", Access::Any, "cache"),
     route("verify", Access::Any, "verify"),
+    route("design", Access::Any, "design"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 3] = ["cleanup", "cache", "verify"];
+pub const RUST_ONLY_ROUTES: [&str; 4] = ["cleanup", "cache", "verify", "design"];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
 pub fn route_of(command: &str) -> Option<&'static Route> {
@@ -145,9 +147,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 13] = [
+pub const MODULES: [&str; 14] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator", "cleanup", "cache", "verify",
+    "operator", "cleanup", "cache", "verify", "design",
 ];
 
 /// The table of handlers by command name.
@@ -182,6 +184,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     cleanup::register(&mut map);
     cache::register(&mut map);
     verify::register(&mut map);
+    design::register(&mut map);
     map
 });
 
@@ -703,7 +706,7 @@ mod tests {
             );
             assert!(route_of(name).is_some(), "{name} is not in ROUTES");
         }
-        assert_eq!(RUST_ONLY_ROUTES, ["cleanup", "cache", "verify"]);
+        assert_eq!(RUST_ONLY_ROUTES, ["cleanup", "cache", "verify", "design"]);
     }
 
     #[test]
@@ -736,7 +739,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 13);
+        assert_eq!(MODULES.len(), 14);
     }
 
     #[test]

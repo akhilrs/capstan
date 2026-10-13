@@ -19,7 +19,7 @@ pub const COMMIT_TYPES: [&str; 11] = [
 ];
 
 const PLAN_KEYS: [&str; 4] = ["summary", "packages", "risks", "integration_order"];
-const PACKAGE_KEYS: [&str; 12] = [
+const PACKAGE_KEYS: [&str; 13] = [
     "id",
     "title",
     "role",
@@ -32,6 +32,7 @@ const PACKAGE_KEYS: [&str; 12] = [
     "type",
     "scope",
     "breaking",
+    "design",
 ];
 const PACKAGE_ID_PATTERN_SOURCE: &str = "^[a-z][a-z0-9-]{0,31}$";
 const SCOPE_PATTERN_SOURCE: &str = "^[a-z0-9][a-z0-9._/-]{0,29}$";
@@ -396,6 +397,13 @@ pub struct PlanPackage {
     pub kind: Option<String>,
     pub scope: Option<String>,
     pub breaking: bool,
+    /// A design package: its dependents wait for the user's approval of its report. Omitted from the body when false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub design: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn serialize_hours<S: serde::Serializer>(hours: &f64, serializer: S) -> Result<S::Ok, S::Error> {
@@ -602,6 +610,11 @@ fn parse_package(value: &Json, index: usize) -> PlanResult<PlanPackage> {
             return shape_error(format!("{location}.breaking must be a boolean"));
         }
     }
+    if let Some(design) = field(record, "design") {
+        if !matches!(design, Json::Bool(_)) {
+            return shape_error(format!("{location}.design must be a boolean"));
+        }
+    }
     let title = text(field(record, "title"), &format!("{location}.title"))?;
     let role = match field(record, "role") {
         None => "developer".to_string(),
@@ -641,6 +654,7 @@ fn parse_package(value: &Json, index: usize) -> PlanResult<PlanPackage> {
         kind,
         scope,
         breaking: matches!(field(record, "breaking"), Some(Json::Bool(true))),
+        design: matches!(field(record, "design"), Some(Json::Bool(true))),
     })
 }
 
@@ -1201,6 +1215,33 @@ pub fn package_of_body(body_json: &str, package_id: &str) -> Option<PackageView>
         acceptance: string_items(found.get("acceptance")),
         risks: string_items(found.get("risks")),
     })
+}
+
+/// True when the package `package_id` of a stored body is a design package (`design: true`).
+pub fn package_is_design(body_json: &str, package_id: &str) -> bool {
+    parse_json(body_json)
+        .ok()
+        .and_then(|body| find_package(&body, package_id).and_then(|p| p.get("design").cloned()))
+        .is_some_and(|design| matches!(design, Json::Bool(true)))
+}
+
+/// The ids of the packages of a stored body that list `package_id` in `dependsOn`.
+pub fn dependents_of_package(body_json: &str, package_id: &str) -> Vec<String> {
+    let Some(body) = parse_json(body_json).ok() else {
+        return Vec::new();
+    };
+    let Some(Json::Array(packages)) = body.get("packages") else {
+        return Vec::new();
+    };
+    packages
+        .iter()
+        .filter(|p| {
+            string_items(p.get("dependsOn"))
+                .iter()
+                .any(|d| d == package_id)
+        })
+        .filter_map(|p| p.get("id").and_then(Json::as_str).map(str::to_string))
+        .collect()
 }
 
 /// The naming keys of a package in a stored body.

@@ -421,6 +421,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         },
         cache: None,
         verify: None,
+        design: capstan_config::Design::default(),
         review: capstan_config::Review {
             warm_reviewer: false,
             ..capstan_config::Review::default()

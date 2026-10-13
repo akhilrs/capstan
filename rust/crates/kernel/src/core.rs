@@ -6,9 +6,9 @@
 //! changes when they do.
 
 use crate::areas::{
-    actors, agents, findings, integrations, links, message_notices, messages, operator_grants,
-    operator_proposals, operator_runs, panes, pauses, plan_packages, plans, prompt_relay, reports,
-    reviews, status, verify_runs, warm_reviewers,
+    actors, agents, design_approvals, findings, integrations, links, message_notices, messages,
+    operator_grants, operator_proposals, operator_runs, panes, pauses, plan_packages, plans,
+    prompt_relay, reports, reviews, status, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -374,6 +374,20 @@ impl Core {
         input: &Value,
     ) -> KernelResult<Value> {
         warm_reviewers::release_warm_reviewer(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.recordDesignDecision`.
+    pub fn record_design_decision(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        design_approvals::record_design_decision(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.designApprovals`.
+    pub fn design_approvals(&self, plan_id: &str, package_id: Option<&str>) -> KernelResult<Value> {
+        design_approvals::design_approvals(&self.kernel, plan_id, package_id)
     }
 
     /// `ControllerCore.warmReviewers`.

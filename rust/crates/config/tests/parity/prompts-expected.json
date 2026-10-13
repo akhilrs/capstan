@@ -14,8 +14,8 @@
  {
   "name": "golden-architect",
   "fixture": "architect",
-  "bytes": 6453,
-  "sha256": "eb9281ba38c511a06cf2d0d363aeb36fef9d4d5427c191f1b19312a4dddfe1e7"
+  "bytes": 6702,
+  "sha256": "7fe6f0f8b406e61456ad2095576a30e502c9398659270bdd707376fc6fe050ff"
  },
  {
   "name": "golden-reviewer",
@@ -137,13 +137,13 @@
  },
  {
   "name": "captured-prompt-0021",
-  "bytes": 6461,
-  "sha256": "ef4e9d926e269b59aed0a6d55573a49c31fa765fb6cf152e89ce2a9302d14745"
+  "bytes": 6710,
+  "sha256": "68b3e8eb8e1c8c36119e2759f0148cfef4b69c521bf02d9a1dbaf7d79cf02ef0"
  },
  {
   "name": "captured-prompt-0022",
-  "bytes": 6437,
-  "sha256": "b6fd36d08f493c7c34af75cf0b2ebea5a1dfc9ad8cbb6a09cd5db6eaf8c86fad"
+  "bytes": 6686,
+  "sha256": "92400867870c48521a991d170211459e935fe4f695c4773ee3674db585ff1a53"
  },
  {
   "name": "captured-prompt-0023",
@@ -242,8 +242,8 @@
  },
  {
   "name": "captured-prompt-0042",
-  "bytes": 6453,
-  "sha256": "eb9281ba38c511a06cf2d0d363aeb36fef9d4d5427c191f1b19312a4dddfe1e7"
+  "bytes": 6702,
+  "sha256": "7fe6f0f8b406e61456ad2095576a30e502c9398659270bdd707376fc6fe050ff"
  },
  {
   "name": "captured-prompt-0043",
@@ -272,8 +272,8 @@
  },
  {
   "name": "captured-prompt-0048",
-  "bytes": 6453,
-  "sha256": "eb9281ba38c511a06cf2d0d363aeb36fef9d4d5427c191f1b19312a4dddfe1e7"
+  "bytes": 6702,
+  "sha256": "7fe6f0f8b406e61456ad2095576a30e502c9398659270bdd707376fc6fe050ff"
  },
  {
   "name": "captured-prompt-0049",
