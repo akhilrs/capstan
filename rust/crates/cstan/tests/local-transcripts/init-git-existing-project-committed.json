@@ -51,12 +51,19 @@
   "stopAfter": null,
   "request": null,
   "node": {
-    "stdout": "The repository already has a commit; nothing to commit\n",
+    "stdout": "Created .gitignore with the capstan block\nThe repository already has a commit; nothing to commit\n",
     "stderr": "",
     "exit": 0,
     "signal": null
   },
-  "files": [],
+  "files": [
+    {
+      "path": "proj/.gitignore",
+      "kind": "file",
+      "mode": "0644",
+      "text": "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\n# <<< capstan\n"
+    }
+  ],
   "commits": {
     "proj": [
       {

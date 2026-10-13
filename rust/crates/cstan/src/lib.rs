@@ -8,6 +8,7 @@ pub mod compact;
 pub mod config_cmd;
 pub mod dash;
 pub mod git;
+pub mod gitignore;
 pub mod init;
 pub mod jsops;
 pub mod operator;

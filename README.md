@@ -137,7 +137,7 @@ To install a build of your own checkout instead (cstan, cstan-dash and the man p
 Then, in the root of the git repository you want the team to work on. If the folder is not a repository yet, or has no commit, run `cstan init --git` instead: it runs `git init` when needed, lists the files it will commit, and creates an initial commit (`chore: initial commit`) of the current files, honouring your `.gitignore`. Capstan never runs git init or commits without that flag; `cstan start` refuses to run until the requirement is met.
 
 ```sh
-cstan init            # (or: cstan init --git) creates .capstan/, a starter capstan.toml and roles/designer.md
+cstan init            # (or: cstan init --git) creates .capstan/, a starter capstan.toml and the capstan block of .gitignore
 cstan config check    # validates capstan.toml and prints the resolved config
 cstan start           # starts the controller and launches the PM in Herdr
 cstan dash            # optional: watch the team
@@ -146,11 +146,11 @@ cstan dash            # optional: watch the team
 Switch to the PM's Herdr pane and tell it what you want built. `cstan stop` shuts the controller down.
 
 > [!NOTE]
-> `cstan init` adds `/.capstan/` to the repository's local git exclude. The folder holds the ledger and the operator key (`0600`); keep it out of commits.
+> `cstan init` writes a managed block to `.gitignore` (between `# >>> capstan (managed by cstan init)` and `# <<< capstan`) that ignores `.capstan/`, `capstan.toml` and `capstan.toml~`, and adds `/.capstan/` to the repository's local git exclude as a backstop. Lines outside the block are never touched. `.capstan/` holds the ledger and the operator key (`0600`); keep it out of commits. `capstan.toml` is ignored by default, so `cstan init --git` does not commit it; run `cstan init --track-config` (or `cstan init --gitignore --track-config` on an existing project) to leave it out of the block and commit it to share the configuration. `cstan init --gitignore` only adds or updates the block, in any project, and `cstan config check` warns when the block is missing.
 
 ## Configuration
 
-`cstan init` writes a commented starter `capstan.toml` and, next to it, `roles/designer.md`, the designer role's prompt file. Keys are checked strictly: an unknown key is an error. A trimmed example:
+`cstan init` writes a commented starter `capstan.toml`. The designer role's prompt is built in; set `prompt_file` on `[roles.designer]` to replace it. Keys are checked strictly: an unknown key is an error. A trimmed example:
 
 ```toml
 schema_version = 1
@@ -230,7 +230,7 @@ A role has a free name and one of four kinds; the kind decides what the agent ma
 | ------------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `pm`         | PM         | Talks to you, plans, spawns and releases workers, requests reviews, integrates. Never edits project files. |
 | `developer`  | Developer  | Implements changes in its own worktree and branch, then reports a commit.                                  |
-| `designer`   | Developer  | Designs and builds UI: Claude Design, a brief, directions, build, Playwright checks (`roles/designer.md`). |
+| `designer`   | Developer  | Designs and builds UI: Claude Design, a brief, directions, build, Playwright checks (built-in prompt). |
 | `reviewer`   | Verifier   | Reviews one commit or integration, answers pass or findings once, is ended. Cannot write files.            |
 | `tester`     | Verifier   | Runs the real checks and reports what passed and failed.                                                   |
 | `supervisor` | Supervisor | Watches active workers and raises findings. Read and report only.                                          |

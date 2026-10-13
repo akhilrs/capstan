@@ -44,10 +44,6 @@ fn project(label: &str, index: usize, with_toml: bool) -> Project {
             "proj/capstan.toml".into(),
             json!(capstan_config::starter::STARTER_CONFIG),
         );
-        contents.insert(
-            format!("proj/{}", capstan_config::starter::DESIGNER_PROMPT_PATH),
-            json!(capstan_config::starter::DESIGNER_PROMPT),
-        );
     }
     let layout = json!({
         "dirs": ["proj/.capstan/state", "bin"],

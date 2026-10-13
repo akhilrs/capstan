@@ -18,3 +18,9 @@ design/landing/screens/
 *.swp
 *.pre-*
 .DS_Store
+
+# >>> capstan (managed by cstan init)
+.capstan/
+capstan.toml
+capstan.toml~
+# <<< capstan

@@ -100,8 +100,8 @@
   "name": "captured-0014",
   "outcome": {
    "kind": "ok",
-   "sha256": "7909f26d4ba641abf0947bfa674acd29be348a54ab3358c711da91f8c4babd19",
-   "bytes": 7204
+   "sha256": "7d2da0a7d429e335c738d445ea38ff4e79e50163085d0af4e4577121d9bcd5aa",
+   "bytes": 7186
   }
  },
  {
@@ -2257,8 +2257,9 @@
  {
   "name": "captured-0312",
   "outcome": {
-   "kind": "error",
-   "message": "roles.designer.prompt_file does not exist"
+   "kind": "ok",
+   "sha256": "7d2da0a7d429e335c738d445ea38ff4e79e50163085d0af4e4577121d9bcd5aa",
+   "bytes": 7186
   }
  },
  {

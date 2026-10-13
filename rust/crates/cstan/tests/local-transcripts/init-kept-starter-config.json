@@ -36,7 +36,7 @@
   "stopAfter": null,
   "request": null,
   "node": {
-    "stdout": "Kept existing capstan.toml\nInitialized Capstan project <ID#1>\nOperator credential: <ROOT>/proj/.capstan/operator.key (0600)\nAdd .capstan/ to .gitignore before staging project files.\n",
+    "stdout": "Kept existing capstan.toml\nCreated .gitignore with the capstan block\nInitialized Capstan project <ID#1>\nOperator credential: <ROOT>/proj/.capstan/operator.key (0600)\n.capstan/ and capstan.toml are ignored through the capstan block in .gitignore.\n",
     "stderr": "warning: Capstan needs a git repository with at least one commit (workers get their own git worktree and branch from HEAD), but <ROOT>/proj is not inside a git work tree.\nFix: run in <ROOT>/proj:\n  git init\n  git add -A\n  git commit -m \"chore: initial commit\"\nor let Capstan do it: cstan init --git (it lists the files it will commit first)\n",
     "exit": 0,
     "signal": null
@@ -63,6 +63,12 @@
       "path": "proj/.capstan/state",
       "kind": "dir",
       "mode": "0700"
+    },
+    {
+      "path": "proj/.gitignore",
+      "kind": "file",
+      "mode": "0644",
+      "text": "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\n# <<< capstan\n"
     }
   ],
   "commits": {}

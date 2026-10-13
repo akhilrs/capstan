@@ -122,7 +122,7 @@ fn the_starter_and_designer_prompt_are_the_tracked_bytes() {
         capstan_config::starter::DESIGNER_PROMPT,
         std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../roles/designer.md"
+            "/src/prompts/designer.md"
         ))
         .unwrap()
     );

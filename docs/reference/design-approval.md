@@ -19,6 +19,6 @@ The designer builds the design in Claude Design through the `Artifact` tool (act
 
 When `Artifact` is missing or denied, the designer makes a static HTML mock and screenshots under `docs/design/<plan-id>-<package-id>/`, reports that path as the link and says Claude Design was unavailable. The approval flow is unchanged.
 
-## Refreshing `roles/designer.md`
+## The built-in designer prompt
 
-`cstan init` writes `roles/designer.md` once and never overwrites it. A project that ran `cstan init` before this flow keeps the old file, which has no design-package stage. To refresh it, move the old file aside and copy the text from a fresh `cstan init` in a scratch directory (or from `rust/crates/config/src/designer.md` in the Capstan repository), then re-apply any local edits.
+The designer's workflow, including this design-package stage, is built into Capstan: a Developer role named `designer` with no `prompt` or `prompt_file` uses it, and it updates with Capstan. A project that ran `cstan init` before this still has `prompt_file = "roles/designer.md"` and keeps the old file, which has no design-package stage. To adopt the built-in prompt, remove the `prompt_file` line from `[roles.designer]`. To keep local edits, leave it, or set `prompt` or `prompt_file` to override the built-in text.

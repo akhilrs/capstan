@@ -42,7 +42,8 @@ const CACHE: &str = "Tool caches";
 
 /// Every command, in the order `cstan help` lists them. The groups run together.
 pub const ENTRIES: &[Entry] = &[
-    e(SETUP, "init", "init", "Create .capstan/ and a starter capstan.toml in this git repository."),
+    e(SETUP, "init", "init [--git] [--track-config]", "Create .capstan/, a starter capstan.toml and the capstan block of .gitignore."),
+    e(SETUP, "init", "init --gitignore [--track-config]", "Only add or update the capstan block of .gitignore (also in an initialized project)."),
     e(SETUP, "start", "start", "Start the controller daemon and launch the PM."),
     e(SETUP, "stop", "stop", "Stop the controller daemon."),
     e(SETUP, "ping", "ping", "Check that the controller answers."),
@@ -331,7 +332,7 @@ pub fn man_page(version: &str) -> String {
         }
     }
     out.push_str(".SH FILES\n.TP\n.I capstan.toml\nThe project configuration: the agent hosts, the roles and the run settings. Checked by\n.B cstan config check\nand created by\n.BR \"cstan init\" .\n");
-    out.push_str(".TP\n.I .capstan/\nThe project state, created by\n.BR \"cstan init\" :\nthe ledger, the controller's control socket under\n.IR state/ ,\nthe operator key and the logs. It is kept out of git; do not commit it.\n");
+    out.push_str(".TP\n.I .capstan/\nThe project state, created by\n.BR \"cstan init\" :\nthe ledger, the controller's control socket under\n.IR state/ ,\nthe operator key and the logs. It is kept out of git by the managed block of\n.IR .gitignore ;\ndo not commit it.\n");
     out.push_str(".SH ENVIRONMENT\n");
     for (name, text) in [
         ("CAPSTAN_TOKEN", "The credential of an agent. Set by the controller in the agent's pane."),

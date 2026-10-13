@@ -4,7 +4,7 @@ Every Node behaviour the Rust port had to keep is recorded as a fixture: a JSON 
 Node code, and that a Rust test replays and compares byte for byte. The Node tree and its exporters are deleted; the
 corpus is **frozen** and is the only reference there is. The fixtures live under `rust/crates/*/tests/**`, `dash/tests/parity`
 and the shared inputs in [`rust/testdata/`](../rust/testdata/README.md) (which says which Node file each came from). A fixture
-changes only by hand, in the same commit as the Rust change, with the reason in the commit body; nothing regenerates it.
+changes only by hand, in the same commit as the Rust change, with the reason in the commit body; nothing regenerates it. The one exception is the `init-*` and `usage-init-*` local transcripts, whose recorded result (the `node` field, `files`, `commits`) is rewritten from the Rust binary after `cstan init` changed (the managed `.gitignore` block, no `roles/` folder): `CSTAN_REGEN_LOCAL=init-,usage-init- cargo test -p cstan-front --test local`, then review the diff. The `config-expected.json` files of the two parity cases `captured-0014` and `captured-0312`, which load the starter, were likewise regenerated from the Rust output: the starter no longer sets `prompt_file` for the designer, and `cstan init` now writes the managed `.gitignore` block.
 The Node exporters are in the git history at the commit below if one is ever needed.
 
 ## The freeze point

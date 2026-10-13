@@ -47,6 +47,9 @@ impl Cli<'_> {
                     ));
                 }
             }
+            for path in crate::gitignore::unignored(&self.ctx.env, &self.ctx.cwd) {
+                self.io.err_line(path.warning());
+            }
             return Ok(Flow::Code(0));
         }
         let (config, credential) = self.load_config()?;

@@ -51,7 +51,7 @@ cstan dash            # watch the team (optional)
 
 There is no `[daemon]` table any more: Rust is the only daemon. An old `implementation = "rust"` still loads, with a warning; `"node"` is an error (see [docs/daemon.md](../daemon.md)).
 
-The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`rust/crates/config/src/prompts.rs`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` is the one starter role with a `prompt_file`; see [The designer role](#the-designer-role).
+The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`rust/crates/config/src/prompts.rs`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` role has a built-in prompt when it sets none; see [The designer role](#the-designer-role).
 
 ### `max_active`
 
@@ -144,7 +144,9 @@ A role may set `prompt_file` instead of `prompt` (never both). The rules:
 
 ### The designer role
 
-`cstan init` writes `roles/designer.md` next to `capstan.toml`, and the starter `[roles.designer]` points at it. The file holds the designer's workflow (and the commit-subject and no-attribution rule; the same text is embedded in `rust/crates/config/src/designer.md`, which `cstan init` writes, so the two change together): Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. Edit the file to change the workflow; `cstan init` never overwrites an existing `roles/designer.md`, and it writes none when `capstan.toml` already exists.
+The designer's workflow is built into Capstan (`rust/crates/config/src/prompts/designer.md`). A role named `designer` of kind `Developer` that sets neither `prompt` nor `prompt_file` gets that text, and `cstan config check` shows its prompt source as `builtin` with the text's SHA-256 hash. The workflow covers the commit-subject and no-attribution rule, Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. The default is keyed on the name and the kind: a `designer` role of another kind, or a Developer role with another name, gets none. To replace it, set `prompt` or `prompt_file` on the role.
+
+An older project keeps working unchanged: its `[roles.designer]` still has `prompt_file = "roles/designer.md"`, which resolves to that file with the same text, path and hash as before. To adopt the built-in prompt, delete the `prompt_file` line (and the file if you no longer want it); to keep your edits, leave both.
 
 The starter role sets:
 
@@ -152,12 +154,11 @@ The starter role sets:
 [roles.designer]
 mcp = ["playwright"]
 allow = ["Bash(git *)", "Skill", "Artifact", "DesignSync", "mcp__playwright", "Bash(python3 -m http.server *)"]
-prompt_file = "roles/designer.md"
 ```
 
 `[mcp_servers.playwright]` (pinned `@playwright/mcp`, headless and isolated) is defined in the starter file and shared with the optional researcher. `Artifact` and `DesignSync` exist only when Claude Code on the machine is signed in to claude.ai; without them the prompt tells the designer to say so and report the work as unverified. `DesignSync` is allowed in full, so only the prompt keeps it read-only. Because `mcp` makes Claude Code run with `--strict-mcp-config`, the designer sees only the servers it lists, not your other MCP servers.
 
-To switch Playwright off for the designer, remove the `mcp` line and the `mcp__playwright` allow rule. The prompt then reports the screenshot and contrast checks as unverified. To adopt the workflow in an existing `capstan.toml`, add those three lines to `[roles.designer]`, remove its `prompt`, define `[mcp_servers.playwright]`, and copy `roles/designer.md` from a fresh `cstan init`.
+To switch Playwright off for the designer, remove the `mcp` line and the `mcp__playwright` allow rule. The prompt then reports the screenshot and contrast checks as unverified. To adopt the workflow in an existing `capstan.toml`, add those lines to `[roles.designer]`, remove its `prompt` and `prompt_file`, and define `[mcp_servers.playwright]`; the workflow text is then the built-in one.
 
 `[researcher]` (`enabled`, `role`, `output_dir`, `user_agent`) turns on the web-research role; `[mcp_servers.<name>]` (`command`, optional `args`) defines an MCP server and `roles.<name>.mcp` lists the servers a `claude`-host role may use. See the [Researcher reference](researcher.md).
 

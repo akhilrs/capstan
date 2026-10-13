@@ -85,14 +85,6 @@ fn a_spawned_researcher_has_the_playwright_mcp_connected_and_runs_a_read_only_cu
     }) else {
         return;
     };
-    // The starter's designer prompt file, which `cstan init` writes beside capstan.toml.
-    std::fs::create_dir_all(live.repo.join("roles")).unwrap();
-    std::fs::write(
-        live.repo
-            .join(capstan_config::starter::DESIGNER_PROMPT_PATH),
-        capstan_config::starter::DESIGNER_PROMPT,
-    )
-    .unwrap();
 
     // Step 1: the starter template with the researcher blocks uncommented passes the config check.
     let check = live.cstan(&["config", "check"]);

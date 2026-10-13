@@ -46,7 +46,7 @@
   "stopAfter": null,
   "request": null,
   "node": {
-    "stdout": "Ran git init\nCommitting 2 files as \"chore: initial commit\":\n  capstan.toml\n  roles/designer.md\nCreated the initial commit\n",
+    "stdout": "Created .gitignore with the capstan block\nRan git init\nCommitting 2 files as \"chore: initial commit\":\n  .gitignore\n  roles/designer.md\nCreated the initial commit\n",
     "stderr": "",
     "exit": 0,
     "signal": null
@@ -56,6 +56,12 @@
       "path": "proj/.git",
       "kind": "dir",
       "mode": "0755"
+    },
+    {
+      "path": "proj/.gitignore",
+      "kind": "file",
+      "mode": "0644",
+      "text": "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\n# <<< capstan\n"
     }
   ],
   "commits": {
@@ -63,7 +69,7 @@
       {
         "subject": "chore: initial commit",
         "files": [
-          "capstan.toml",
+          ".gitignore",
           "roles/designer.md"
         ]
       }

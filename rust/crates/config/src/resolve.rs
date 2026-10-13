@@ -881,7 +881,7 @@ fn resolve_roles(
                 1,
             )?),
         };
-        let (prompt, prompt_text) = resolve_prompt(role, &at, project_root)?;
+        let (prompt, prompt_text) = resolve_prompt(role, &at, name, kind, project_root)?;
         if host.kind != "claude" {
             reject_unenforceable(&at, host, kind, permission_mode, &allow, &deny, &mcp)?;
         }
@@ -909,6 +909,8 @@ fn resolve_roles(
 fn resolve_prompt(
     role: &Table,
     at: &str,
+    name: &str,
+    kind: &str,
     project_root: &Path,
 ) -> Result<(PromptSource, Option<String>)> {
     if role.get("prompt").is_some() && role.get("prompt_file").is_some() {
@@ -932,6 +934,16 @@ fn resolve_prompt(
         ));
     }
     if role.get("prompt_file").is_none() {
+        if let Some(text) = crate::prompts::builtin_role_prompt(name, kind) {
+            return Ok((
+                PromptSource {
+                    source: "builtin",
+                    path: None,
+                    hash: Some(sha256(text)),
+                },
+                Some(text.to_string()),
+            ));
+        }
         return Ok((
             PromptSource {
                 source: "none",

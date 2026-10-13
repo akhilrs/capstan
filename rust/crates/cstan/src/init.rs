@@ -1,21 +1,24 @@
-//! `cstan init`: the project directory, the operator key, the project record, the starter `capstan.toml` and the designer
-//! prompt, with `--git` to set up the repository and its first commit.
+//! `cstan init`: the project directory, the operator key, the project record, the starter `capstan.toml` and the managed
+//! `.gitignore` block, with `--git` to set up the repository and its first commit, `--gitignore` to only update the block
+//! and `--track-config` to leave `capstan.toml` out of it.
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
-use capstan_config::starter::{DESIGNER_PROMPT, DESIGNER_PROMPT_PATH, STARTER_CONFIG};
+use capstan_config::starter::STARTER_CONFIG;
 use capstan_config::CONFIG_FILE_NAME;
 use capstan_kernel::{Env, SystemEnv};
 use capstan_wire::js;
 
 use crate::git::{self, Check, Problem};
+use crate::gitignore::{self, Outcome};
 use crate::operator::{number, object, string};
 use crate::{invalid, runtime, take_flag, Cli, Fail, Flow};
 
 const CONFIG_NAME: &str = ".capstan/project.json";
 const KEY_NAME: &str = ".capstan/operator.key";
+const TRACK_CONFIG_LINE: &str = "capstan.toml is not ignored; commit it to share the configuration";
 
 /// The message of a Node `fs` error: `CODE: description, syscall 'path'`.
 pub fn fs_error(error: &std::io::Error, syscall: &str, path: &Path) -> String {
@@ -64,19 +67,51 @@ fn write_new(path: &Path, text: &str, mode: u32) -> std::io::Result<()> {
     file.write_all(text.as_bytes())
 }
 
+fn outcome_line(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Created => "Created .gitignore with the capstan block",
+        Outcome::Added => "Added the capstan block to .gitignore",
+        Outcome::Updated => "Updated the capstan block in .gitignore",
+        Outcome::Unchanged => "The capstan block in .gitignore is current",
+    }
+}
+
+/// Writes the managed block; a refusal (two blocks, an unterminated one) or a write failure names `.gitignore`.
+fn write_block(cwd: &Path, track_config: bool) -> Result<Outcome, Fail> {
+    gitignore::write(cwd, track_config).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            invalid(format!("{error}"))
+        } else {
+            runtime(fs_error(&error, "open", &cwd.join(".gitignore")))
+        }
+    })
+}
+
 fn already_exists(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(libc::EEXIST)
 }
 
 impl Cli<'_> {
-    /// `cstan init [--git]`.
+    /// `cstan init [--git] [--track-config]` or `cstan init --gitignore [--track-config]`.
     pub fn init(&mut self, rest: &[String]) -> Result<Flow, Fail> {
         let mut flags = rest.to_vec();
         let with_git = take_flag(&mut flags, "--git");
-        if !flags.is_empty() {
+        let track_config = take_flag(&mut flags, "--track-config");
+        let gitignore_only = take_flag(&mut flags, "--gitignore");
+        if !flags.is_empty() || (gitignore_only && with_git) {
             return Err(Fail::Usage);
         }
         let cwd = self.ctx.cwd.clone();
+        if gitignore_only {
+            let outcome = write_block(&cwd, track_config)?;
+            self.io.out_line(outcome_line(outcome));
+            git::exclude_capstan_state(&self.ctx.env, &cwd)
+                .map_err(|e| runtime(fs_error(&e, "open", &cwd)))?;
+            if track_config {
+                self.io.out_line(TRACK_CONFIG_LINE);
+            }
+            return Ok(Flow::Code(0));
+        }
         let name = cwd
             .file_name()
             .map(|n| String::from_utf8_lossy(n.as_bytes()).into_owned())
@@ -91,10 +126,18 @@ impl Cli<'_> {
             }
         }
         if with_git && exists(&directory) {
-            // An initialized project: only the git part runs.
+            // An initialized project: only the block and the git part run.
+            let outcome = write_block(&cwd, track_config)?;
+            self.io.out_line(outcome_line(outcome));
             self.setup_git(false)?;
             return Ok(Flow::Code(0));
         }
+        if exists(&directory) {
+            return Err(invalid(
+                "Capstan project directory already exists; refusing to modify existing contents",
+            ));
+        }
+        let block_outcome = write_block(&cwd, track_config)?;
         if let Err(error) = std::fs::DirBuilder::new().mode(0o700).create(&directory) {
             return Err(if already_exists(&error) {
                 invalid("Capstan project directory already exists; refusing to modify existing contents")
@@ -143,33 +186,29 @@ impl Cli<'_> {
             Err(error) if already_exists(&error) => false,
             Err(error) => return Err(runtime(fs_error(&error, "open", &starter_path))),
         };
-        let mut designer_line = String::new();
-        if starter_written {
-            let designer_path = cwd.join(DESIGNER_PROMPT_PATH);
-            if let Some(parent) = designer_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| runtime(fs_error(&e, "mkdir", parent)))?;
-            }
-            designer_line = match write_new(&designer_path, DESIGNER_PROMPT, 0o644) {
-                Ok(()) => format!("Wrote {DESIGNER_PROMPT_PATH}\n"),
-                Err(error) if already_exists(&error) => {
-                    format!("Kept existing {DESIGNER_PROMPT_PATH}\n")
-                }
-                Err(error) => return Err(runtime(fs_error(&error, "open", &designer_path))),
-            };
-        }
         let starter_line = if starter_written {
             format!("Wrote starter {CONFIG_FILE_NAME}\n")
         } else {
             format!("Kept existing {CONFIG_FILE_NAME}\n")
         };
-        let protect = if credential_ignored {
-            "The repository-local Git exclude protects .capstan from ordinary staging."
+        let block_line = outcome_line(block_outcome);
+        let protect = if track_config {
+            ".capstan/ is ignored through the capstan block in .gitignore."
         } else {
-            "Add .capstan/ to .gitignore before staging project files."
+            ".capstan/ and capstan.toml are ignored through the capstan block in .gitignore."
+        };
+        let exclude = if credential_ignored {
+            "\nThe repository-local Git exclude protects .capstan from ordinary staging."
+        } else {
+            ""
+        };
+        let track = if track_config {
+            format!("\n{TRACK_CONFIG_LINE}")
+        } else {
+            String::new()
         };
         let text = format!(
-            "{starter_line}{designer_line}Initialized Capstan project {project_id}\nOperator credential: {} (0600)\n{protect}\n",
+            "{starter_line}{block_line}\nInitialized Capstan project {project_id}\nOperator credential: {} (0600)\n{protect}{exclude}{track}\n",
             key_path.display()
         );
         self.io.out.extend_from_slice(text.as_bytes());

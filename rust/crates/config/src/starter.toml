@@ -188,8 +188,7 @@ permission_mode = "acceptEdits"
 mcp = ["playwright"]
 allow = ["Bash(git *)", "Skill", "Artifact", "DesignSync", "mcp__playwright", "Bash(python3 -m http.server *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
-# The designer's workflow lives in roles/designer.md, which `cstan init` writes. Edit that file to change it.
-prompt_file = "roles/designer.md"
+# The designer prompt is built in. To replace it, set prompt_file = "<repo-relative path>" to your own file.
 
 [roles.reviewer]
 kind = "Verifier"

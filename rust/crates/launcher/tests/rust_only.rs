@@ -496,13 +496,6 @@ fn researcher_config() -> String {
 fn the_cstan_allow_rule_the_launcher_appends_passes_the_researcher_rule_check() {
     use capstan_config::prompts::CSTAN_ALLOW_RULE;
     let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(root.path().join("roles")).unwrap();
-    std::fs::write(
-        root.path()
-            .join(capstan_config::starter::DESIGNER_PROMPT_PATH),
-        capstan_config::starter::DESIGNER_PROMPT,
-    )
-    .unwrap();
     let text = researcher_config();
     let plain = capstan_config::parse_config(text.as_bytes(), root.path())
         .expect("the starter with the researcher enabled loads");

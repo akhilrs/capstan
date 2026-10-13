@@ -119,6 +119,17 @@ fn env_of(value: &Value, root: &str) -> Vec<(OsString, OsString)> {
         .collect()
 }
 
+/// `CSTAN_REGEN_LOCAL=<prefix>[,<prefix>...]` rewrites the recorded stdout, stderr, exit, files and commits of every
+/// transcript whose name starts with a prefix from what the Rust binary does, instead of comparing. Run it as
+/// `CSTAN_REGEN_LOCAL=init-,usage-init- cargo test -p cstan-front --test local`, then review the diff.
+fn regenerate_wanted(name: &str) -> bool {
+    std::env::var("CSTAN_REGEN_LOCAL").is_ok_and(|prefixes| {
+        prefixes
+            .split(',')
+            .any(|p| !p.is_empty() && name.starts_with(p))
+    })
+}
+
 fn replay(
     file: &Path,
     index: usize,
@@ -266,6 +277,25 @@ fn replay_in(
         .unwrap_or_else(|| transcript.get("node").unwrap());
     let want_out = rewrite_node_usage(&argv, string(want, "stdout"));
     let want_err = rewrite_node_usage(&argv, string(want, "stderr"));
+    if regenerate_wanted(name) {
+        // Rewrites the recorded result of this transcript from what the Rust binary just did (see `regenerate_wanted`).
+        let mut updated = transcript.clone();
+        updated["node"] = json!({
+            "stdout": got_out,
+            "stderr": got_err,
+            "exit": observed.exit,
+            "signal": observed.signal,
+        });
+        if let Some(files) = &files {
+            updated["files"] = Value::Array(files.clone());
+        }
+        if let Some(commits) = &commits {
+            updated["commits"] = Value::Object(commits.clone());
+        }
+        let text = serde_json::to_string_pretty(&updated).unwrap() + "\n";
+        std::fs::write(file, text).unwrap();
+        return Ok(());
+    }
     let mut problems = Vec::new();
     if want_out != got_out {
         problems.push(format!("stdout {got_out:?}, want {want_out:?}"));

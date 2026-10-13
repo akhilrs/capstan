@@ -14,6 +14,14 @@ pub const MAX_PROMPT_BYTES: usize = 160 * 1024;
 /// Added to every role prompt: a controller daemon may serve a different project than the one an agent runs in.
 pub const PROCESS_SAFETY_RULE: &str = include_str!("prompts/process_safety_rule.txt");
 
+/// The designer role's built-in prompt: used when a Developer role named `designer` sets neither `prompt` nor `prompt_file`.
+pub const DESIGNER_PROMPT: &str = include_str!("prompts/designer.md");
+
+/// The prompt a role gets when it configures none: only a Developer role named `designer` has one.
+pub fn builtin_role_prompt(role_name: &str, kind: &str) -> Option<&'static str> {
+    (role_name == "designer" && kind == "Developer").then_some(DESIGNER_PROMPT)
+}
+
 const SUMMARY_FENCE: &str = "=====";
 
 const PM_RULE_OFF: &str =
