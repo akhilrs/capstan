@@ -135,10 +135,10 @@ The daemon also keeps the caches in shape on its own. When it starts it removes 
 | -------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
 | `cstan op propose "<command>" "<reason>"`                                        | Operator                   | Propose one shell command.                           |
 | `cstan op propose --restart [--force] "<reason>"`                                | Operator                   | Propose a controller restart.                        |
-| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>]` | PM                         | Approve a proposal, optionally with a session grant. |
+| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>\|timed\|timed=session]` | PM | Approve a proposal, optionally with a session grant (kind `exact`, `prefix` or `timed`). |
 | `cstan op decide <id> deny ["<note>"]`                                           | PM or operator             | Deny a proposal.                                     |
 | `cstan op show [<id>]` / `cstan op cancel <id>`                                  | see the Operator reference | Show proposals and runs / withdraw a proposal.       |
-| `cstan op grants` / `cstan op revoke <grant-id>`                                 | PM or operator             | List / end session grants.                           |
+| `cstan op grants` / `cstan op revoke <grant-id>`                                 | PM or operator             | List session grants (kind and time left) / end one.  |
 | `cstan op full-auto on [<minutes>] --asked-user "<text>"`                        | PM                         | Switch every guard off for a limited time.           |
 | `cstan op full-auto off` / `status`                                              | PM or operator             | Switch full auto off / show the time left.           |
 

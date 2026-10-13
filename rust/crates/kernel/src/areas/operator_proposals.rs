@@ -27,6 +27,10 @@ const UNTRUSTED_LEAD: &str =
 /// The `auto_rule` of a proposal approved under full auto.
 pub(crate) const FULL_AUTO_RULE: &str = "full-auto";
 const SESSION_RULE_LEAD: &str = "session:";
+/// The fixed text of a timed grant: it has no command words, the controller's classifier decides per command.
+pub(crate) const TIMED_GRANT_TEXT: &str = "non-destructive commands";
+/// The hard cap on a timed grant, in minutes; the configured cap is enforced in the service.
+pub(crate) const OPERATOR_HARD_MAX_SESSION_MINUTES: i64 = 480;
 const PREFIX_NEEDS_SUBCOMMAND: [&str; 2] = ["git", "cstan"];
 
 pub(crate) const OPERATOR_PROPOSAL_STATES: [&str; 10] = [
@@ -402,6 +406,8 @@ pub(crate) fn proposal_notice_to_pm(proposal: &Value) -> KernelResult<String> {
 pub(crate) fn describe_grant(grant: &Value) -> String {
     if text_of(grant, "kind") == "exact" {
         format!("the exact command {}", fenced(text_of(grant, "text")))
+    } else if text_of(grant, "kind") == "timed" {
+        "a timed grant that auto-approves commands the controller classifies as non-destructive (read-only listings and status commands; never a command with an always-approve word, a destructive or unknown command, or one it cannot parse)".to_string()
     } else {
         format!(
             "a command that starts with the whole words {} (any other words after them still go through the always-approve check)",
@@ -1056,9 +1062,27 @@ pub fn decide_operator_proposal(
                     ));
                 }
                 let session_kind = session.get("kind").and_then(Value::as_str);
+                if !matches!(session_kind, Some("exact" | "prefix" | "timed")) {
+                    return Err(KernelError::controller(
+                        "session_kind_invalid: a session grant is exact, prefix or timed",
+                    ));
+                }
                 let exact = session_kind == Some("exact");
+                let timed = session_kind == Some("timed");
+                if timed {
+                    let minutes = number_field(session, "maxMinutes");
+                    if !(minutes.fract() == 0.0
+                        && (1.0..=OPERATOR_HARD_MAX_SESSION_MINUTES as f64).contains(&minutes))
+                    {
+                        return Err(KernelError::controller(format!(
+                            "session_minutes_invalid: a timed grant lasts a whole number of minutes from 1 to {OPERATOR_HARD_MAX_SESSION_MINUTES}"
+                        )));
+                    }
+                }
                 let text: Value = if exact {
                     json!(row.command)
+                } else if timed {
+                    json!(TIMED_GRANT_TEXT)
                 } else {
                     match session.get("text") {
                         None => {
@@ -1069,7 +1093,7 @@ pub fn decide_operator_proposal(
                         Some(text) => text.clone(),
                     }
                 };
-                let problem = if exact { None } else { prefix_grant_problem(&text) };
+                let problem = if exact || timed { None } else { prefix_grant_problem(&text) };
                 if let Some(problem) = problem {
                     return Err(KernelError::controller(format!(
                         "session_prefix_refused: the prefix {problem}"

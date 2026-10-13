@@ -566,7 +566,7 @@ pub fn build_role_prompt(input: &PromptInput) -> Result<String, PromptTooLarge> 
 
 #[cfg(test)]
 mod tests {
-    use super::{ARCHITECT_REFERENCE, VERIFIER_REFERENCE};
+    use super::{fill, ARCHITECT_REFERENCE, PM_OPERATOR_SECTION, VERIFIER_REFERENCE};
 
     #[test]
     fn verifier_reference_asks_for_an_exhaustive_plan_review() {
@@ -584,6 +584,32 @@ mod tests {
         assert!(ARCHITECT_REFERENCE.contains("cstan plan amend <plan-id>"));
         assert!(ARCHITECT_REFERENCE.contains("cannot change interfaces or acceptance criteria"));
         assert!(ARCHITECT_REFERENCE.contains("`cstan plan submit`"));
+    }
+
+    #[test]
+    fn pm_operator_section_names_the_picker_and_timed_grants() {
+        let text = fill(PM_OPERATOR_SECTION, &["operator-1", "operator"]);
+        for needle in [
+            "\"Approve once\"",
+            "\"Approve + allow similar commands for the session\"",
+            "\"Auto-approve safe (read-only) commands\"",
+            "\"Deny\"",
+            "\"This exact command\"",
+            "\"Commands that start with: <prefix>\"",
+            "\"For 1 hour\"",
+            "\"For this session (up to the configured cap)\"",
+            "--session timed",
+            "--session timed=session",
+            "--session prefix=",
+            "always-approve word",
+            "unparseable",
+            "restart",
+            "Offer it only when the user asks for it",
+            "cstan op grants",
+        ] {
+            assert!(text.contains(needle), "missing {needle}");
+        }
+        assert!(!text.contains("options \"Approve\" and \"Deny\""));
     }
 
     #[test]

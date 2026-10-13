@@ -705,6 +705,201 @@ pub fn match_session_grant(kind: ProposalKind, command: &str, grants: &[GrantRef
     unmatched("no session grant matches")
 }
 
+// ------------------------------------------------------------------------------------------------ safe commands
+
+/// The rules a command may be judged safe by: timed-grant prefixes plus the configured auto-approve rules.
+#[derive(Clone, Copy, Debug)]
+pub struct SafeCommandSet<'a> {
+    pub safe_prefixes: &'a [String],
+    pub exact_rules: &'a [String],
+    pub prefix_rules: &'a [String],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SafeVerdict {
+    Safe,
+    NotSafe { reason: String },
+}
+
+fn not_safe(reason: impl Into<String>) -> SafeVerdict {
+    SafeVerdict::NotSafe {
+        reason: reason.into(),
+    }
+}
+
+/// Parts of a long option that never end; grep's `--directories=recurse` form is caught by `RECURSION_MARK`.
+const UNSAFE_LONG_OPTION_PARTS: [&str; 1] = ["follow"];
+/// Any argument containing this (any case) is refused: recursing into directories would read dot files that the path
+/// rule keeps out of an argument (`grep -r`, `--recursive`, `--directories recurse`).
+const RECURSION_MARK: &str = "recurs";
+
+/// `-x` (letters and digits) or `--name[=value]` with a plain value.
+fn is_option(token: &str) -> bool {
+    let plain = |b: u8| b.is_ascii_alphanumeric();
+    if let Some(name) = token.strip_prefix("--") {
+        let (name, value) = match name.split_once('=') {
+            Some((name, value)) => (name, Some(value)),
+            None => (name, None),
+        };
+        let name_ok = name.as_bytes().split_first().is_some_and(|(head, tail)| {
+            plain(*head) && tail.iter().all(|b| plain(*b) || *b == b'-')
+        });
+        let value_ok = value.is_none_or(|value| {
+            !value.is_empty() && value.bytes().all(|b| plain(b) || b"_./:@%+,-".contains(&b))
+        });
+        let lower = name.to_ascii_lowercase();
+        return name_ok
+            && value_ok
+            && !UNSAFE_LONG_OPTION_PARTS
+                .iter()
+                .any(|part| lower.contains(part));
+    }
+    token
+        .strip_prefix('-')
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(plain))
+}
+
+/// Why `token` (an argument) is not a plain relative path; `None` when it is. Every part after splitting on `=` and
+/// `:` is checked, so `--opt=/x` and `HEAD:.env` are caught. Lexical only: symlinks and non-dot secret files pass.
+fn path_problem(token: &str) -> Option<String> {
+    for part in token.split(['=', ':']) {
+        if part.starts_with('/') || part.starts_with('~') {
+            return Some(format!(
+                "argument \"{token}\" is not a relative path (it starts with \"{}\")",
+                &part[..1]
+            ));
+        }
+        for component in part.split('/') {
+            if component == ".." {
+                return Some(format!("argument \"{token}\" has a \"..\" component"));
+            }
+            if component.starts_with('.') && component != "." {
+                return Some(format!(
+                    "argument \"{token}\" names a dot file or directory (\"{component}\")"
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Why `tokens` is not a safe prefix command; `None` when it is.
+fn prefix_problem(tokens: &[&str], safe_prefixes: &[String]) -> Option<String> {
+    for prefix in safe_prefixes {
+        let head = words(prefix);
+        if head.is_empty() || tokens.len() < head.len() || tokens[..head.len()] != head[..] {
+            continue;
+        }
+        for token in &tokens[head.len()..] {
+            if !is_option(token) && !is_safe_positional(token) {
+                return Some(format!(
+                    "has argument \"{token}\", which is neither a plain option nor a plain path or word"
+                ));
+            }
+        }
+        return None;
+    }
+    Some("is not a known read-only command".into())
+}
+
+/// Why one segment is not safe; `None` when it is.
+fn segment_problem(segment: &str, set: &SafeCommandSet) -> Option<String> {
+    let segment = js_trim(segment);
+    if segment.is_empty() {
+        return Some("is empty".into());
+    }
+    let classification = classify_command(segment);
+    if !classification.simple {
+        return Some("cannot be parsed safely".into());
+    }
+    if !classification.always_approval.is_empty() {
+        return Some(format!(
+            "contains {}, which always needs a human decision",
+            classification.always_approval.join(", ")
+        ));
+    }
+    let tokens = words(segment);
+    if tokens[0].contains('=') {
+        return Some("starts with an assignment".into());
+    }
+    for token in &tokens[1..] {
+        if token.to_ascii_lowercase().contains(RECURSION_MARK) {
+            return Some(format!(
+                "argument \"{token}\" would recurse into directories"
+            ));
+        }
+        if let Some(problem) = path_problem(token) {
+            return Some(problem);
+        }
+    }
+    if allowlist_problem(&tokens).is_none()
+        || matches_auto_approve(segment, set.exact_rules, set.prefix_rules).auto
+    {
+        return None;
+    }
+    prefix_problem(&tokens, set.safe_prefixes)
+}
+
+/// Splits on the separators `|`, `&&`, `||` and `;`; `None` when a lone `&` or any other character is present.
+fn split_segments(command: &str) -> Option<Vec<&str>> {
+    let bytes = command.as_bytes();
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'|' | b'&' | b';' => {
+                let doubled = b != b';' && bytes.get(i + 1) == Some(&b);
+                if b == b'&' && !doubled {
+                    return None;
+                }
+                segments.push(&command[start..i]);
+                i += if doubled { 2 } else { 1 };
+                start = i;
+            }
+            _ if b.is_ascii_alphanumeric() || b" _./:=@%+,-".contains(&b) => i += 1,
+            _ => return None,
+        }
+    }
+    segments.push(&command[start..]);
+    Some(segments)
+}
+
+/// Whether `command` may run under a timed grant: read-only, no shell features beyond `| && || ;`, every segment a
+/// known safe command with plain options and relative non-dot paths. Conservative: anything doubtful is `NotSafe`.
+pub fn classify_safe_command(
+    kind: ProposalKind,
+    command: &str,
+    set: &SafeCommandSet,
+) -> SafeVerdict {
+    if kind == ProposalKind::Restart {
+        return not_safe("a restart always needs a human decision");
+    }
+    if let Err(refusal) = normalize_command(command) {
+        return not_safe(format!(
+            "the command is not usable text ({})",
+            refusal.code()
+        ));
+    }
+    if command.contains('\n') {
+        return not_safe("the command must be one line");
+    }
+    let Some(segments) = split_segments(command) else {
+        return not_safe("the command cannot be parsed safely");
+    };
+    for (index, segment) in segments.iter().enumerate() {
+        if let Some(problem) = segment_problem(segment, set) {
+            return not_safe(format!(
+                "segment {} (\"{}\") {problem}",
+                index + 1,
+                js_trim(segment)
+            ));
+        }
+    }
+    SafeVerdict::Safe
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -794,5 +989,206 @@ mod tests {
         assert_eq!(session_rule_grant_id(Some("session:g9")), Some("g9"));
         assert_eq!(session_rule_grant_id(Some("full-auto")), None);
         assert_eq!(session_rule_grant_id(None), None);
+    }
+
+    // ---------------------------------------------------------------------------------------- safe commands
+
+    fn default_prefixes() -> Vec<String> {
+        capstan_config::DEFAULT_TIMED_SAFE_COMMANDS
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect()
+    }
+
+    fn verdict(command: &str) -> SafeVerdict {
+        let prefixes = default_prefixes();
+        let set = SafeCommandSet {
+            safe_prefixes: &prefixes,
+            exact_rules: &[],
+            prefix_rules: &[],
+        };
+        classify_safe_command(ProposalKind::Command, command, &set)
+    }
+
+    fn assert_safe(command: &str) {
+        assert_eq!(verdict(command), SafeVerdict::Safe, "{command}");
+    }
+
+    fn assert_not_safe(command: &str) {
+        match verdict(command) {
+            SafeVerdict::NotSafe { reason } => assert!(!reason.is_empty(), "{command}"),
+            SafeVerdict::Safe => panic!("{command:?} was classified safe"),
+        }
+    }
+
+    #[test]
+    fn safe_commands_are_classified_safe() {
+        for command in [
+            "git status",
+            "git log --oneline -5",
+            "ls -la src",
+            "git log --oneline | head -20",
+            "git status && git diff --stat",
+            "cstan status; df -h",
+            "git diff --stat=100",
+            "git log --format=%h",
+        ] {
+            assert_safe(command);
+        }
+    }
+
+    #[test]
+    fn unsafe_commands_are_refused_with_a_reason() {
+        for command in [
+            "git push",
+            "git status && git push",
+            "rm -rf x",
+            "ls -R",
+            "cat a > b",
+            "echo $(id)",
+            "ls `id`",
+            "(cd x; ls)",
+            "ls &",
+            "ls\nls",
+            "ssh host ls",
+            "docker exec c ls",
+            "env X=1 ls",
+            "npm test",
+            "X=1 git status",
+            "foo --help",
+            "git status |",
+            "| ls",
+            "ls ||| ls",
+            "ls\tsrc",
+            "ls 'a'",
+            "ls *",
+            "git log HEAD~1",
+            "",
+        ] {
+            assert_not_safe(command);
+        }
+        let prefixes = default_prefixes();
+        let set = SafeCommandSet {
+            safe_prefixes: &prefixes,
+            exact_rules: &[],
+            prefix_rules: &[],
+        };
+        assert!(matches!(
+            classify_safe_command(ProposalKind::Restart, "git status", &set),
+            SafeVerdict::NotSafe { .. }
+        ));
+    }
+
+    #[test]
+    fn the_reason_names_the_first_failing_segment() {
+        let SafeVerdict::NotSafe { reason } = verdict("git status && git push && rm x") else {
+            panic!("safe");
+        };
+        assert!(reason.contains("segment 2"), "{reason}");
+    }
+
+    #[test]
+    fn the_path_rule_refuses_absolute_home_parent_and_dot_paths() {
+        for command in [
+            "cat /etc/passwd",
+            "cat ~/.ssh/id_rsa",
+            "head ../x",
+            "grep foo .env",
+            "cat .capstan/state/x",
+            "git show HEAD:.env",
+            "git diff --stat=/x",
+            "du -h /",
+            "cat src/../x",
+            "ls .git",
+            "ls ./.ssh",
+            "git show HEAD:/etc/x",
+            "ls /etc",
+        ] {
+            assert_not_safe(command);
+        }
+        for command in [
+            "cat src/main.rs",
+            "grep foo src",
+            "head -n 5 README.md",
+            "du -h .",
+            "git show HEAD:src/main.rs",
+            "ls ./src",
+        ] {
+            assert_safe(command);
+        }
+    }
+
+    /// Every default entry paired with a write, exec or recursion option the policy must block.
+    #[test]
+    fn every_default_entry_has_a_blocked_write_option() {
+        let blocked = [
+            ("git status", "git status --output=x"),
+            ("git log", "git log --output=x"),
+            ("git log", "git log --ext-diff"),
+            ("git log", "git log --textconv"),
+            ("git diff", "git diff --output=x"),
+            ("git diff", "git diff --ext-diff"),
+            ("git diff", "git diff --textconv"),
+            ("git diff", "git diff -O orderfile"),
+            ("git show", "git show --output=x"),
+            ("git show", "git show --ext-diff"),
+            ("git show", "git show --textconv"),
+            ("git ls-files", "git ls-files --exclude-from=/x"),
+            ("git rev-parse", "git rev-parse --git-dir=/x"),
+            ("git blame", "git blame --contents=/x f"),
+            ("git blame", "git blame -S ../revs f"),
+            ("cstan status", "cstan status --output=x"),
+            ("cstan ping", "cstan ping rm"),
+            ("ls", "ls -R"),
+            ("ls", "ls --recursive"),
+            ("pwd", "pwd -o"),
+            ("whoami", "whoami > x"),
+            ("uname", "uname -o"),
+            ("df", "df --output=source"),
+            ("du", "du --files0-from=/x"),
+            ("du", "du --exclude-from=.env"),
+            ("wc", "wc --files0-from=.env"),
+            ("head", "head -c 5 .env"),
+            ("tail", "tail -f log"),
+            ("tail", "tail --follow log"),
+            ("cat", "cat > x"),
+            ("grep", "grep -r foo ."),
+            ("grep", "grep --recursive foo ."),
+            ("grep", "grep --directories=recurse foo ."),
+            ("grep", "grep --directories recurse foo ."),
+            ("grep", "grep -e foo x"),
+            ("grep", "grep --file=.env x"),
+            ("grep", "grep --include=*.rs foo"),
+            ("uptime", "uptime -c"),
+            ("free", "free -c 3"),
+        ];
+        for entry in capstan_config::DEFAULT_TIMED_SAFE_COMMANDS {
+            assert!(
+                blocked.iter().any(|(name, _)| *name == entry),
+                "{entry} has no write-option test"
+            );
+        }
+        for (entry, command) in blocked {
+            assert!(
+                default_prefixes().iter().any(|p| p == entry),
+                "{entry} is not a default"
+            );
+            assert_not_safe(command);
+        }
+    }
+
+    #[test]
+    fn configured_auto_approve_rules_count_as_safe_and_empty_prefixes_match_nothing() {
+        let exact = strings(&["cstan ping"]);
+        let prefix = strings(&["ls"]);
+        let empty = strings(&["", " "]);
+        let set = SafeCommandSet {
+            safe_prefixes: &empty,
+            exact_rules: &exact,
+            prefix_rules: &prefix,
+        };
+        let safe = |c| classify_safe_command(ProposalKind::Command, c, &set);
+        assert_eq!(safe("cstan ping && ls src"), SafeVerdict::Safe);
+        assert!(matches!(safe("cat src/x"), SafeVerdict::NotSafe { .. }));
     }
 }

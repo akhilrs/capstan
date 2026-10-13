@@ -395,12 +395,23 @@ impl OperatorService for Scripted {
 
     fn decide(&self, _credential: &str, input: DecideInput) -> OperatorResult<Value> {
         self.log(format!(
-            "decide {} {:?} hash={:?} note={:?} session={:?}",
+            "decide {} {:?} hash={:?} note={:?} session={}",
             input.proposal_id,
             input.decision,
             input.hash,
             input.note,
-            input.session.map(|s| (s.kind.as_str().to_string(), s.text))
+            match input.session {
+                None => "None".to_string(),
+                Some(s) => {
+                    let kind = s.kind.as_str().to_string();
+                    match s.minutes {
+                        None => format!("Some(({kind:?}, {:?}))", s.text),
+                        Some(minutes) => {
+                            format!("Some(({kind:?}, {:?}, minutes={minutes}))", s.text)
+                        }
+                    }
+                }
+            }
         ));
         let state = if input.decision == Decision::Approve {
             "approved"
@@ -441,6 +452,7 @@ impl OperatorService for Scripted {
             "createdAt": "2026-01-01T00:00:00.000Z",
             "expiresAt": "2026-01-01T01:00:00.000Z",
             "endedReason": null,
+            "remainingSeconds": 3000,
         })]
     }
 
@@ -1825,4 +1837,71 @@ fn an_unacked_action_message_refuses_the_report_but_info_in_a_digest_does_not() 
     let after_ack = world.call("dev-2", "report", &[&second, "Two"]);
     assert_eq!(after_ack["ok"], true, "{after_ack}");
     world.deps.kernel.close();
+}
+
+const TIMED_CONFIG_FROM: &str = "[operator]\nenabled = true";
+
+fn decide_args(session: &str) -> Vec<&str> {
+    vec![
+        "decide",
+        "prop-1",
+        "approve",
+        "--hash",
+        "abababababab",
+        "--session",
+        session,
+    ]
+}
+
+#[test]
+fn op_decide_parses_the_five_session_forms_and_the_timed_minutes() {
+    let config = CONFIG.replace(
+        TIMED_CONFIG_FROM,
+        "[operator]\nenabled = true\ntimed_grant_default_minutes = 45\ntimed_grant_max_minutes = 90",
+    );
+    let service = Arc::new(Scripted::default());
+    let world = World::with_config(&config, None, Some(service.clone()));
+    for session in [
+        "exact",
+        "prefix=git log",
+        "timed",
+        "timed=30",
+        "timed=session",
+    ] {
+        world.ok("pm-1", "op", &decide_args(session));
+    }
+    let calls = service.calls();
+    for expected in [
+        r#"session=Some(("exact", None))"#,
+        r#"session=Some(("prefix", Some("git log")))"#,
+        r#"session=Some(("timed", None, minutes=45))"#,
+        r#"session=Some(("timed", None, minutes=30))"#,
+        r#"session=Some(("timed", None, minutes=90))"#,
+    ] {
+        assert!(
+            calls.iter().any(|call| call.ends_with(expected)),
+            "{expected} in {calls:?}"
+        );
+    }
+    for bad in ["timed=0", "timed=91", "timed=abc", "timed=-5", "timed=1.5"] {
+        let message = world.refused("pm-1", "op", &decide_args(bad), "rejected");
+        assert!(message.starts_with("timed_minutes:"), "{bad}: {message}");
+        assert!(message.contains("90"), "names the cap: {message}");
+    }
+    world.refused("pm-1", "op", &decide_args("timedx"), "invalid_request");
+    // op grants shows the kind and the time left.
+    let grants = world.ok("pm-1", "op", &["grants"]);
+    assert_eq!(grants["grants"][0]["remainingSeconds"], 3000);
+}
+
+#[test]
+fn op_decide_refuses_a_timed_grant_when_timed_grants_are_disabled() {
+    let config = CONFIG.replace(
+        TIMED_CONFIG_FROM,
+        "[operator]\nenabled = true\ntimed_safe_commands = []",
+    );
+    let world = World::with_config(&config, None, Some(Arc::new(Scripted::default())));
+    let message = world.refused("pm-1", "op", &decide_args("timed"), "rejected");
+    assert!(message.starts_with("timed_grants_disabled:"), "{message}");
+    world.ok("pm-1", "op", &decide_args("exact"));
 }

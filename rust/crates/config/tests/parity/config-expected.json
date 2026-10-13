@@ -2466,7 +2466,7 @@
   "name": "captured-0341",
   "outcome": {
    "kind": "error",
-   "message": "operator has 1 unknown key(s); allowed: enabled, role, auto_approve, auto_approve_prefix, timeout_seconds, max_timeout_seconds, output_tail_bytes, proposal_ttl_minutes, approval_ttl_minutes, max_pending_proposals, count_toward_worker_limit, restart_health_timeout_seconds, restart_idle_wait_seconds, session_grant_max_minutes, full_auto_default_minutes, full_auto_max_minutes"
+   "message": "operator has 1 unknown key(s); allowed: enabled, role, auto_approve, auto_approve_prefix, timeout_seconds, max_timeout_seconds, output_tail_bytes, proposal_ttl_minutes, approval_ttl_minutes, max_pending_proposals, count_toward_worker_limit, restart_health_timeout_seconds, restart_idle_wait_seconds, session_grant_max_minutes, full_auto_default_minutes, full_auto_max_minutes, timed_grant_default_minutes, timed_grant_max_minutes, timed_safe_commands"
   }
  },
  {

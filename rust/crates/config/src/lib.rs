@@ -32,7 +32,7 @@ pub use cache::{
 pub use design::Design;
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
-pub use operator_policy::auto_approve_rule_problem;
+pub use operator_policy::{auto_approve_rule_problem, timed_safe_command_problem};
 pub use resolve::{
     parse_config, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV, DAEMON_RUST_ENV_WARNING,
     DAEMON_RUST_WARNING,

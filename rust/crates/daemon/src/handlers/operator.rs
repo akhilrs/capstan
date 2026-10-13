@@ -102,7 +102,7 @@ fn op(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
     let credential = call.credential;
     Some(match sub {
         Some("propose") => propose(env, service, &who, credential, rest),
-        Some("decide") => decide(service, &who, credential, rest),
+        Some("decide") => decide(service, &config.operator, &who, credential, rest),
         Some("grants") => grants(service, &who, rest),
         Some("revoke") => revoke(service, &who, credential, rest),
         Some("full-auto") => full_auto(service, &who, credential, rest),
@@ -173,8 +173,41 @@ fn propose(
     ))
 }
 
+/// The minutes of a `--session timed[=<minutes>|=session]` grant: the default, the cap, or a whole number in 1..=cap.
+fn timed_minutes(
+    operator: &capstan_config::Operator,
+    value: Option<&str>,
+) -> Result<i64, CommandResponse> {
+    let refuse_with =
+        |code: &str, message: String| fail(ErrorCode::Rejected, format!("{code}: {message}"));
+    if operator.timed_safe_commands.is_empty() {
+        return Err(refuse_with(
+            "timed_grants_disabled",
+            "timed grants are off; operator.timed_safe_commands is empty".into(),
+        ));
+    }
+    let cap = operator.timed_grant_max_minutes;
+    let minutes = match value {
+        None => operator.timed_grant_default_minutes,
+        Some("session") => cap,
+        Some(text) => text
+            .parse::<i64>()
+            .ok()
+            .filter(|_| text.bytes().all(|b| b.is_ascii_digit()))
+            .unwrap_or(0),
+    };
+    if !(1..=cap).contains(&minutes) {
+        return Err(refuse_with(
+            "timed_minutes",
+            format!("a timed grant lasts a whole number of minutes from 1 to {cap} (operator.timed_grant_max_minutes)"),
+        ));
+    }
+    Ok(minutes)
+}
+
 fn decide(
     service: &dyn OperatorService,
+    operator: &capstan_config::Operator,
     who: &Who,
     credential: &str,
     rest: &[String],
@@ -202,7 +235,7 @@ fn decide(
         }
         let usage = fail(
             ErrorCode::InvalidRequest,
-            "op decide approve needs --hash <hash12> and may add --session exact or --session prefix=\"<words>\"; it takes no --force, the force value is part of the proposal",
+            "op decide approve needs --hash <hash12> and may add --session exact, --session prefix=\"<words>\", --session timed, --session timed=<minutes> or --session timed=session; it takes no --force, the force value is part of the proposal",
         );
         if tail.first().map(String::as_str) != Some("--hash") || tail.get(1).is_none() {
             return usage;
@@ -220,12 +253,25 @@ fn decide(
                 session = Some(SessionGrantInput {
                     kind: GrantKind::Exact,
                     text: None,
+                    minutes: None,
                 });
             } else if let Some(text) = wanted.strip_prefix("prefix=") {
                 session = Some(SessionGrantInput {
                     kind: GrantKind::Prefix,
                     text: Some(text.to_string()),
+                    minutes: None,
                 });
+            } else if wanted == "timed" || wanted.starts_with("timed=") {
+                match timed_minutes(operator, wanted.strip_prefix("timed=")) {
+                    Ok(minutes) => {
+                        session = Some(SessionGrantInput {
+                            kind: GrantKind::Timed,
+                            text: None,
+                            minutes: Some(minutes),
+                        });
+                    }
+                    Err(refusal) => return refusal,
+                }
             } else {
                 return usage;
             }

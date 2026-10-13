@@ -23,6 +23,9 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 | `restart_health_timeout_seconds`          | `60`           | How long a restarted controller has to answer `ping`.             |
 | `restart_idle_wait_seconds`               | `120`          | How long a restart waits for the controller to be idle.           |
 | `session_grant_max_minutes`               | `60`           | Longest a session grant lasts (at most 480).                      |
+| `timed_grant_default_minutes`             | `60`           | Length of `--session timed` (at most `timed_grant_max_minutes`).  |
+| `timed_grant_max_minutes`                 | `240`          | Longest a timed grant lasts, also for `timed=session` (hard cap 480). |
+| `timed_safe_commands`                     | built-in list  | Read-only commands a timed grant may cover; `[]` disables timed grants. |
 | `full_auto_default_minutes`               | `30`           | Full auto duration when the PM gives none (at most the maximum).  |
 | `full_auto_max_minutes`                   | `120`          | Longest full auto period (at most 480).                           |
 
@@ -42,11 +45,14 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 
 ## Session grants
 
-Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds `--session exact` or `--session prefix="<words>"` to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`.
+Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds one of `--session exact`, `--session prefix="<words>"`, `--session timed` or `--session timed=session` to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`. A grant has a kind (`exact`, `prefix` or `timed`); `cstan op grants` shows the kind and the time left.
 
 - **Exact.** An identical command (same text, same kind) from the Operator runs with no new approval; the proposal records `auto_rule` `session:<grant-id>`. Any changed text needs approval again.
 - **Prefix.** The grant stores the words verbatim; the PM notice, `cstan op show` and `cstan op grants` print them. A later command matches only when it starts with those whole words (`ls -l` matches `ls -l docs`, not `ls -la` and not `lsx -l`). The rest of the command goes through the same check as any command: if it has a metacharacter, a second line or any word from the denylist (`push`, `rm`, `-f`, ...), it needs approval. The controller refuses a prefix that contains a denylist word, that is empty, that is not a simple one-line command, or that is only `git` or `cstan` with no subcommand.
+- **Timed.** `--session timed` auto-approves safe read-only commands for `timed_grant_default_minutes`; `--session timed=session` does so until the cap `timed_grant_max_minutes`, and also ends on Operator release, restart or revoke. Only a command that starts with an entry of `timed_safe_commands`, where every part of a `|`, `&&`, `||` or `;` chain is itself safe (any other shell syntax is refused), and whose path arguments are relative, contain no `..` and no dot-component (such as `.env` or `.git`) is covered; the run records `auto_rule` `session:<grant-id>`. A timed grant never covers a command with an always-approve word (`push`, `rm`, `-f`, ...), a destructive, unknown or unparseable command, or a restart: those need the PM as usual. Every run under it is still reported to the PM. The PM offers it as "Auto-approve safe (read-only) commands" in the approval picker, with the choices "For 1 hour" and "For this session (up to the configured cap)".
 - **End.** A grant ends when the Operator agent is released or replaced, when the controller restarts, when `session_grant_max_minutes` has passed (the cap is measured with the system clock, because grants are stored), or when the PM or you run `cstan op revoke <grant-id>`. A command proposed after that needs approval. `cstan op grants` lists the grants in force. Each grant is created, used, revoked or expired as a ledger event.
+
+**Accepted risk of the path rule.** The check that path arguments are safe is lexical only. It does not follow symlinks, so a tracked symlink that points outside the project or at a secret is not detected, and it only rejects dot-components, so a secret file with a non-dot name such as `config/secrets.json` (no leading dot) is not detected. A git helper configured in the project can also run project code. A timed grant accepts these risks; do not approve one in a project where they matter.
 
 A prefix widens what a later command can do, up to the denylist. Read the prefix the PM shows you before you agree.
 

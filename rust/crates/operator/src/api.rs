@@ -111,6 +111,8 @@ pub enum Decision {
 pub enum GrantKind {
     Exact,
     Prefix,
+    /// Lets commands the controller classifies as non-destructive run for a number of minutes.
+    Timed,
 }
 
 impl GrantKind {
@@ -118,6 +120,7 @@ impl GrantKind {
         match self {
             Self::Exact => "exact",
             Self::Prefix => "prefix",
+            Self::Timed => "timed",
         }
     }
 }
@@ -129,10 +132,13 @@ pub struct ProposeInput {
     pub force_restart: bool,
 }
 
-/// Approve and allow the same text (exact) or the same leading words (prefix) again for the session.
+/// Approve and allow the same text (exact), the same leading words (prefix) or non-destructive commands (timed) again
+/// for the session.
 pub struct SessionGrantInput {
     pub kind: GrantKind,
     pub text: Option<String>,
+    /// Only for `Timed`: how long the grant lasts.
+    pub minutes: Option<i64>,
 }
 
 pub struct DecideInput {

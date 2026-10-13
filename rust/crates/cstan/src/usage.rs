@@ -93,7 +93,7 @@ pub const ENTRIES: &[Entry] = &[
     e(RELAY, "prompt", "prompt answer <relay-id> --hash <hash12> option <n> | esc | text <text>", "Answer the prompt with an option number, Escape or text."),
     e(OPERATOR, "op", "op propose <command> <reason>", "Propose a shell command for approval."),
     e(OPERATOR, "op", "op propose --restart [--force] <reason>", "Propose restarting the controller."),
-    e(OPERATOR, "op", "op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>]", "Approve a proposal, optionally for the rest of the session."),
+    e(OPERATOR, "op", "op decide <proposal-id> approve --hash <hash12> [--session exact|--session prefix=<words>] [--session timed[=<minutes>|=session]]", "Approve a proposal, optionally for the rest of the session."),
     e(OPERATOR, "op", "op decide <proposal-id> deny [<note>]", "Deny a proposal."),
     e(OPERATOR, "op", "op show [<proposal-id>]", "Show a proposal, or the pending ones."),
     e(OPERATOR, "op", "op cancel <proposal-id>", "Withdraw a proposal."),

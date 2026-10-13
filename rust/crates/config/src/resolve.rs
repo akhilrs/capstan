@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::error::{invalid, ConfigError, Result};
 use crate::json::{role_hash, sha256};
-use crate::operator_policy::auto_approve_rule_problem;
+use crate::operator_policy::{auto_approve_rule_problem, timed_safe_command_problem};
 use crate::primitives::*;
 use crate::researcher_policy::researcher_rule_problems;
 use crate::text::{len16, trim};
@@ -1258,6 +1258,24 @@ fn operator_rules(value: Option<&Item>, at: &str) -> Result<Vec<String>> {
     Ok(rules)
 }
 
+/// `operator.timed_safe_commands`: absent is the built-in list, `[]` disables timed grants.
+fn timed_safe_commands(value: Option<&Item>) -> Result<Vec<String>> {
+    let at = "operator.timed_safe_commands";
+    if value.is_none() {
+        return Ok(DEFAULT_TIMED_SAFE_COMMANDS
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect());
+    }
+    let entries = string_list(value, at, MAX_LIST_ENTRIES)?;
+    for (index, entry) in entries.iter().enumerate() {
+        if let Some(problem) = timed_safe_command_problem(entry) {
+            return invalid(format!("{at}[{index}] {problem}"));
+        }
+    }
+    Ok(entries)
+}
+
 fn resolve_prompt_relay(table: &Table, present: bool) -> Result<PromptRelay> {
     reject_unknown_keys(table, &["enabled", "capture_ttl_seconds"], "prompt_relay")?;
     Ok(PromptRelay {
@@ -1317,6 +1335,9 @@ fn resolve_operator(
             "session_grant_max_minutes",
             "full_auto_default_minutes",
             "full_auto_max_minutes",
+            "timed_grant_default_minutes",
+            "timed_grant_max_minutes",
+            "timed_safe_commands",
         ],
         "operator",
     )?;
@@ -1380,7 +1401,33 @@ fn resolve_operator(
             OPERATOR_HARD_MAX_SESSION_MINUTES,
             120,
         )?,
+        timed_grant_written: [
+            "timed_grant_default_minutes",
+            "timed_grant_max_minutes",
+            "timed_safe_commands",
+        ]
+        .iter()
+        .any(|key| table.get(key).is_some()),
+        timed_grant_default_minutes: int(
+            "timed_grant_default_minutes",
+            1,
+            OPERATOR_HARD_MAX_SESSION_MINUTES,
+            60,
+        )?,
+        timed_grant_max_minutes: int(
+            "timed_grant_max_minutes",
+            1,
+            OPERATOR_HARD_MAX_SESSION_MINUTES,
+            240,
+        )?,
+        timed_safe_commands: timed_safe_commands(table.get("timed_safe_commands"))?,
     };
+    if operator.timed_grant_default_minutes > operator.timed_grant_max_minutes {
+        return invalid(format!(
+            "operator.timed_grant_default_minutes ({}) must not exceed operator.timed_grant_max_minutes ({})",
+            operator.timed_grant_default_minutes, operator.timed_grant_max_minutes
+        ));
+    }
     if operator.full_auto_default_minutes > operator.full_auto_max_minutes {
         return invalid(format!(
             "operator.full_auto_default_minutes ({}) must not exceed operator.full_auto_max_minutes ({})",

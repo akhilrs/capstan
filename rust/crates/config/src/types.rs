@@ -26,6 +26,32 @@ pub const DEFAULT_OPERATOR_ROLE: &str = "operator";
 pub const OPERATOR_HARD_MAX_TIMEOUT_SECONDS: i64 = 3600;
 pub const MAX_OPERATOR_OUTPUT_TAIL_BYTES: i64 = 12288;
 pub const OPERATOR_HARD_MAX_SESSION_MINUTES: i64 = 480;
+/// Read-only commands that run no project code, used when `operator.timed_safe_commands` is absent. Each entry's
+/// write or exec options are blocked by the always-approve words and dangerous short letters (see the policy tests).
+pub const DEFAULT_TIMED_SAFE_COMMANDS: [&str; 22] = [
+    "git status",
+    "git log",
+    "git diff",
+    "git show",
+    "git ls-files",
+    "git rev-parse",
+    "git blame",
+    "cstan status",
+    "cstan ping",
+    "ls",
+    "pwd",
+    "whoami",
+    "uname",
+    "df",
+    "du",
+    "wc",
+    "head",
+    "tail",
+    "cat",
+    "grep",
+    "uptime",
+    "free",
+];
 /// Tool rules the Operator role must deny so it cannot read the state directory, tokens or the key, or hand work to a subagent.
 pub const OPERATOR_REQUIRED_DENY: [&str; 8] = [
     "Write",
@@ -278,6 +304,12 @@ pub struct Operator {
     pub session_grant_max_minutes: i64,
     pub full_auto_default_minutes: i64,
     pub full_auto_max_minutes: i64,
+    /// True when capstan.toml writes any timed-grant key (the JSON output prints the three only then).
+    pub timed_grant_written: bool,
+    pub timed_grant_default_minutes: i64,
+    pub timed_grant_max_minutes: i64,
+    /// Whole-word command prefixes a timed grant lets run; empty disables timed grants.
+    pub timed_safe_commands: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

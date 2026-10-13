@@ -101,6 +101,16 @@ pub fn operator_lines(operator: Option<&Value>) -> Vec<String> {
         ));
     }
     for grant in list(field(operator, "grants")) {
+        if clean(field(grant, "kind")) == "timed" {
+            let remaining = crate::jsops::to_number(field(grant, "remainingSeconds"));
+            lines.push(format!(
+                "grant {} (timed) \"{}\" {} min left",
+                clean(field(grant, "grantId")),
+                clean(field(grant, "text")),
+                js::number_to_string((remaining / 60.0).ceil())
+            ));
+            continue;
+        }
         lines.push(format!(
             "grant {} ({}) \"{}\" until {}",
             clean(field(grant, "grantId")),

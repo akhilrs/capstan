@@ -3,7 +3,7 @@
 use capstan_wire::js::{self, JsStr, Value};
 use sha2::{Digest, Sha256};
 
-use crate::types::{Cleanup, Host, McpServer, PromptSource, Role, RoleConfig};
+use crate::types::{Cleanup, Host, McpServer, Operator, PromptSource, Role, RoleConfig};
 
 pub(crate) fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
@@ -19,6 +19,54 @@ pub(crate) fn optional(value: &Option<String>) -> Value {
 
 pub(crate) fn strings(values: &[String]) -> Value {
     Value::Array(values.iter().map(|v| text(v)).collect())
+}
+
+/// The `operator` object; the timed-grant keys print only when capstan.toml wrote one of them, so configs that do not
+/// are unchanged.
+fn operator_members(o: &Operator) -> Vec<(&'static str, Value)> {
+    let mut members = vec![
+        ("configured", Value::Bool(o.configured)),
+        ("enabled", Value::Bool(o.enabled)),
+        ("role", text(&o.role)),
+        ("autoApprove", strings(&o.auto_approve)),
+        ("autoApprovePrefix", strings(&o.auto_approve_prefix)),
+        ("timeoutSeconds", number(o.timeout_seconds)),
+        ("maxTimeoutSeconds", number(o.max_timeout_seconds)),
+        ("outputTailBytes", number(o.output_tail_bytes)),
+        ("proposalTtlMinutes", number(o.proposal_ttl_minutes)),
+        ("approvalTtlMinutes", number(o.approval_ttl_minutes)),
+        ("maxPendingProposals", number(o.max_pending_proposals)),
+        (
+            "countTowardWorkerLimit",
+            Value::Bool(o.count_toward_worker_limit),
+        ),
+        (
+            "restartHealthTimeoutSeconds",
+            number(o.restart_health_timeout_seconds),
+        ),
+        (
+            "restartIdleWaitSeconds",
+            number(o.restart_idle_wait_seconds),
+        ),
+        (
+            "sessionGrantMaxMinutes",
+            number(o.session_grant_max_minutes),
+        ),
+        (
+            "fullAutoDefaultMinutes",
+            number(o.full_auto_default_minutes),
+        ),
+        ("fullAutoMaxMinutes", number(o.full_auto_max_minutes)),
+    ];
+    if o.timed_grant_written {
+        members.push((
+            "timedGrantDefaultMinutes",
+            number(o.timed_grant_default_minutes),
+        ));
+        members.push(("timedGrantMaxMinutes", number(o.timed_grant_max_minutes)));
+        members.push(("timedSafeCommands", strings(&o.timed_safe_commands)));
+    }
+    members
 }
 
 pub(crate) fn object(members: Vec<(&str, Value)>) -> Value {
@@ -241,43 +289,7 @@ impl RoleConfig {
                     ),
                 ]),
             ),
-            (
-                "operator",
-                object(vec![
-                    ("configured", Value::Bool(o.configured)),
-                    ("enabled", Value::Bool(o.enabled)),
-                    ("role", text(&o.role)),
-                    ("autoApprove", strings(&o.auto_approve)),
-                    ("autoApprovePrefix", strings(&o.auto_approve_prefix)),
-                    ("timeoutSeconds", number(o.timeout_seconds)),
-                    ("maxTimeoutSeconds", number(o.max_timeout_seconds)),
-                    ("outputTailBytes", number(o.output_tail_bytes)),
-                    ("proposalTtlMinutes", number(o.proposal_ttl_minutes)),
-                    ("approvalTtlMinutes", number(o.approval_ttl_minutes)),
-                    ("maxPendingProposals", number(o.max_pending_proposals)),
-                    (
-                        "countTowardWorkerLimit",
-                        Value::Bool(o.count_toward_worker_limit),
-                    ),
-                    (
-                        "restartHealthTimeoutSeconds",
-                        number(o.restart_health_timeout_seconds),
-                    ),
-                    (
-                        "restartIdleWaitSeconds",
-                        number(o.restart_idle_wait_seconds),
-                    ),
-                    (
-                        "sessionGrantMaxMinutes",
-                        number(o.session_grant_max_minutes),
-                    ),
-                    (
-                        "fullAutoDefaultMinutes",
-                        number(o.full_auto_default_minutes),
-                    ),
-                    ("fullAutoMaxMinutes", number(o.full_auto_max_minutes)),
-                ]),
-            ),
+            ("operator", object(operator_members(o))),
             (
                 "researcher",
                 object(vec![

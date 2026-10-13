@@ -196,6 +196,13 @@ pub fn operator_config(overrides: impl FnOnce(&mut Operator)) -> Operator {
         session_grant_max_minutes: 60,
         full_auto_default_minutes: 30,
         full_auto_max_minutes: 120,
+        timed_grant_written: false,
+        timed_grant_default_minutes: 60,
+        timed_grant_max_minutes: 240,
+        timed_safe_commands: capstan_config::DEFAULT_TIMED_SAFE_COMMANDS
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect(),
     };
     overrides(&mut config);
     config

@@ -364,6 +364,45 @@ fn refusal(text: &str) -> Option<&'static str> {
     None
 }
 
+/// `None` when `entry` may be a configured `operator.timed_safe_commands` prefix: one line of the simple character set,
+/// single-spaced, no always-approve word or dangerous letter, no leading assignment, and not a bare `git` or `cstan`.
+pub fn timed_safe_command_problem(entry: &str) -> Option<String> {
+    if let Some(code) = refusal(entry) {
+        return Some(format!("is not a usable command ({code})"));
+    }
+    let classification = classify_command(entry);
+    if !classification.simple {
+        return Some(
+            "must be one line of letters, digits, space and _ . / : = @ % + , - only".into(),
+        );
+    }
+    if !classification.always_approval.is_empty() {
+        let quoted: Vec<String> = classification
+            .always_approval
+            .iter()
+            .map(|word| format!("\"{word}\""))
+            .collect();
+        return Some(format!(
+            "contains {}, which always needs a human decision",
+            quoted.join(", ")
+        ));
+    }
+    if entry != trim(entry) || entry.contains("  ") {
+        return Some("must have single spaces and no leading or trailing space".into());
+    }
+    let tokens = words(entry);
+    if tokens[0].contains('=') {
+        return Some("must not start with a variable assignment".into());
+    }
+    if tokens.len() == 1 && matches!(tokens[0], "git" | "cstan") {
+        return Some(format!(
+            "is only \"{}\"; name the subcommand too",
+            tokens[0]
+        ));
+    }
+    None
+}
+
 /// `None` when `rule` may be a configured auto-approve rule; otherwise why not.
 pub fn auto_approve_rule_problem(rule: &str) -> Option<String> {
     if let Some(code) = refusal(rule) {

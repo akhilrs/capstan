@@ -125,6 +125,14 @@ A notice kind that is not overridable is always an action message, so a problem 
 
 Upgrade note: this table is part of the configuration hash, and the ledger schema that carries message classes is 40. An older binary refuses a ledger at schema 40. To go back, stop the daemon, restore the backup the migration made (`.capstan/state/controller.sqlite.pre-v<N>-<timestamp>.sqlite`, see `[ledger]`) over `controller.sqlite`, and start the older binary.
 
+### Timed grants (`[operator]`)
+
+Three `[operator]` keys control `--session timed` (see [Operator reference](operator.md#session-grants)):
+
+- `timed_grant_default_minutes` (default `60`): the length of `--session timed`. It may not exceed `timed_grant_max_minutes`.
+- `timed_grant_max_minutes` (default `240`, hard cap `480`): the longest a timed grant lasts; `--session timed=session` lasts until this cap and also ends on Operator release, restart or revoke.
+- `timed_safe_commands`: the read-only commands a timed grant may cover. The default is a built-in list of simple read commands; `[]` disables timed grants (the PM's request is refused). Each entry is a whole-word command prefix that may contain spaces (for example `git status`, `git log`); it must contain no always-approve word or dangerous short letter, use a simple character set with single spaces, have no leading assignment, and not be a bare `git` or `cstan`; an invalid entry makes the configuration fail to load.
+
 ### `prompt_file`
 
 A role may set `prompt_file` instead of `prompt` (never both). The rules:

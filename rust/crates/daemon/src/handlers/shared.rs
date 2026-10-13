@@ -606,7 +606,7 @@ fn member(value: &Value, key: &str) -> Value {
 
 /// What `op` answers for a session grant; the text is printed verbatim.
 pub fn describe_grant_record(grant: &Value) -> Value {
-    json!({
+    let mut described = json!({
         "grantId": member(grant, "grantId"),
         "kind": member(grant, "kind"),
         "text": member(grant, "text"),
@@ -614,7 +614,12 @@ pub fn describe_grant_record(grant: &Value) -> Value {
         "createdAt": member(grant, "createdAt"),
         "expiresAt": member(grant, "expiresAt"),
         "endedReason": member(grant, "endedReason"),
-    })
+    });
+    // Only a grant still in force has a remaining time (the service adds it from its in-memory deadline).
+    if let Some(remaining) = grant.get("remainingSeconds") {
+        described["remainingSeconds"] = remaining.clone();
+    }
+    described
 }
 
 pub fn describe_full_auto(status: FullAutoStatus) -> Value {

@@ -368,6 +368,13 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             session_grant_max_minutes: 60,
             full_auto_default_minutes: 30,
             full_auto_max_minutes: 120,
+            timed_grant_written: false,
+            timed_grant_default_minutes: 60,
+            timed_grant_max_minutes: 240,
+            timed_safe_commands: capstan_config::DEFAULT_TIMED_SAFE_COMMANDS
+                .iter()
+                .map(|entry| (*entry).to_string())
+                .collect(),
         },
         researcher: Researcher {
             configured: researcher_spec.is_some(),

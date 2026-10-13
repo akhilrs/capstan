@@ -17,7 +17,8 @@ use crate::api::{
     RestartCoordinator, OPERATOR_TICK_MS, ORPHAN_KILL_WAIT_MS,
 };
 use crate::policy::{
-    auto_decision, match_session_grant, session_rule, GrantRef, GrantVerdict, FULL_AUTO_RULE,
+    auto_decision, classify_safe_command, match_session_grant, session_rule, GrantRef,
+    GrantVerdict, SafeCommandSet, SafeVerdict, FULL_AUTO_RULE,
 };
 use capstan_kernel::helpers::strip_terminal_sequences;
 use capstan_kernel::types::MutationContext;
@@ -642,9 +643,16 @@ impl Inner {
         let state = self.state();
         active
             .into_iter()
-            .filter(|grant| {
-                let id = grant["grantId"].as_str().unwrap_or_default();
-                now < state.grant_deadlines.get(id).copied().unwrap_or(i64::MAX)
+            .filter_map(|mut grant| {
+                let id = grant["grantId"].as_str().unwrap_or_default().to_string();
+                let deadline = state.grant_deadlines.get(&id).copied().unwrap_or(i64::MAX);
+                if now >= deadline {
+                    return None;
+                }
+                if deadline != i64::MAX {
+                    grant["remainingSeconds"] = json!(((deadline - now) / 1000).max(0));
+                }
+                Some(grant)
             })
             .collect()
     }
@@ -930,6 +938,7 @@ impl OperatorService for ProcessOperatorService {
                         kind: match grant["kind"].as_str()? {
                             "exact" => crate::api::GrantKind::Exact,
                             "prefix" => crate::api::GrantKind::Prefix,
+                            // A timed grant has no words to match; it is consulted below.
                             _ => return None,
                         },
                         text: grant["text"].as_str()?.to_string(),
@@ -940,6 +949,29 @@ impl OperatorService for ProcessOperatorService {
                 match_session_grant(input.kind, &input.command, &grants)
             {
                 auto_rule = Some(session_rule(&grant_id));
+            } else if input.kind == ProposalKind::Command {
+                // Oldest live timed grant first, so two of them pick deterministically.
+                let timed = inner
+                    .live_grants()
+                    .into_iter()
+                    .filter(|grant| grant["kind"].as_str() == Some("timed"))
+                    .min_by_key(|grant| {
+                        (
+                            grant["createdAt"].as_str().unwrap_or_default().to_string(),
+                            grant["grantId"].as_str().unwrap_or_default().to_string(),
+                        )
+                    });
+                if let Some(grant_id) = timed.as_ref().and_then(|g| g["grantId"].as_str()) {
+                    let set = SafeCommandSet {
+                        safe_prefixes: &config.timed_safe_commands,
+                        exact_rules: &config.auto_approve,
+                        prefix_rules: &config.auto_approve_prefix,
+                    };
+                    if classify_safe_command(input.kind, &input.command, &set) == SafeVerdict::Safe
+                    {
+                        auto_rule = Some(session_rule(grant_id));
+                    }
+                }
             }
         }
         let body = json!({
@@ -995,13 +1027,35 @@ impl OperatorService for ProcessOperatorService {
             "proposalTtlMinutes".into(),
             json!(config.proposal_ttl_minutes),
         );
+        let mut grant_minutes = config.session_grant_max_minutes;
         if let Some(session) = &input.session {
+            if session.kind == crate::api::GrantKind::Timed {
+                if config.timed_safe_commands.is_empty() {
+                    return Err(OperatorError::new(
+                        "timed_grants_disabled",
+                        "timed grants are off; operator.timed_safe_commands is empty",
+                    )
+                    .into());
+                }
+                let cap = config.timed_grant_max_minutes;
+                let minutes = session
+                    .minutes
+                    .unwrap_or(config.timed_grant_default_minutes);
+                if !(1..=cap).contains(&minutes) {
+                    return Err(OperatorError::new(
+                        "timed_minutes",
+                        format!("a timed grant lasts a whole number of minutes from 1 to {cap} (operator.timed_grant_max_minutes)"),
+                    )
+                    .into());
+                }
+                grant_minutes = minutes;
+            }
             let mut grant = Map::new();
             grant.insert("kind".into(), json!(session.kind.as_str()));
             if let Some(text) = &session.text {
                 grant.insert("text".into(), json!(text));
             }
-            grant.insert("maxMinutes".into(), json!(config.session_grant_max_minutes));
+            grant.insert("maxMinutes".into(), json!(grant_minutes));
             body.insert("session".into(), Value::Object(grant));
         }
         let body = Value::Object(body);
@@ -1011,7 +1065,7 @@ impl OperatorService for ProcessOperatorService {
             })
             .map_err(OperatorFailure::from)?;
         if let Some(grant_id) = record["sessionGrant"]["grantId"].as_str() {
-            let deadline = inner.now() + config.session_grant_max_minutes * 60_000;
+            let deadline = inner.now() + grant_minutes * 60_000;
             inner
                 .state()
                 .grant_deadlines
