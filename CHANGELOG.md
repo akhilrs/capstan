@@ -2,6 +2,44 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.5.0 (2026-10-13)
+
+### Features
+
+- cstan init: built-in designer prompt (no roles/ folder) (cf18f8c)
+- Time-boxed auto-approve grant for non-destructive Operator (9b4f7c2)
+- Design approval gate: designer creates the design in Claude (5c9a12d)
+- Warm reviewer per plan with diff-scoped briefs (cf23abd)
+- Controller-recorded test runs (cstan verify) so reviewers don't (fbd87b3)
+- Plan review: report all findings at once and allow ownership (4e94720)
+- Info messages don't wake the PM; bulk ack (54b98a3)
+- accept unique id prefixes in commands that take a record id (dfde26d)
+- per-role max_active and a [liveness] table (cc9d56b)
+- **cache:** shared build cache across agents (a188928)
+- Configurable branch and worktree cleanup after integration (4f9abfa)
+- **install:** add install-local.sh to build and install a local (cbe128e)
+- **cli:** group cstan help from one command table and add a man page (8619bee)
+
+### Bug fixes
+
+- **release:** complete changelog and whole plan titles in squash bodies (42db871)
+- cstan inbox and wait fall back when an older daemon rejects (b7bb675)
+- kill a panicked verify run's processes regardless of reap (d4370c5)
+- **cli:** back off briefly when wait --until gets an early empty answer (42411ce)
+- **scripts:** run the release smoke on built binaries; clear shellcheck (707426d)
+- **launcher:** replace starts a new agent when the recorded successor (c5290be)
+
+### Documentation
+
+- **site:** refresh the Pages site for the Rust 0.4.1 release (a0ddbc1)
+
+### Tests
+
+- derive version-dependent test expectations from the current build (be8a9a0)
+
+### Chores
+
+- **node:** Rust port phase D: remove the Node implementation (1949445)
 ## Unreleased
 
 ### Features
