@@ -2,7 +2,7 @@ mod common;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use capstan_cache::{
     clear_hooked, read_manifest, recover, write_manifest_hooked, Manifest, Runtime, StoreLock,
@@ -22,7 +22,7 @@ fn spawn_child(test: &str, base: &Path, project: &Path, marker: &Path) -> std::p
         .env("CACHE_CHILD_BASE", base)
         .env("CACHE_CHILD_PROJECT", project)
         .env("CACHE_CHILD_MARKER", marker)
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .unwrap()
@@ -49,6 +49,7 @@ fn child_clear_stalls_after_rename() {
     if let Some((rt, marker)) = child_env() {
         let hook = || {
             fs::write(&marker, "renamed").unwrap();
+            signal_ready();
             std::thread::sleep(Duration::from_secs(120));
         };
         let _ = clear_hooked(&rt, None, true, &env(&[]), &ok_runner, &hook);
@@ -61,20 +62,34 @@ fn child_manifest_stalls_before_rename() {
         let manifest = Manifest::new(&rt, Vec::new(), 222);
         let hook = || {
             fs::write(&marker, "written").unwrap();
+            signal_ready();
             std::thread::sleep(Duration::from_secs(120));
         };
         let _ = write_manifest_hooked(&rt, &manifest, &hook);
     }
 }
 
-fn wait_for(path: &Path) {
-    for _ in 0..1500 {
-        if path.exists() {
+const READY: &str = "CAPSTAN-CHILD-READY";
+
+/// Tells the parent the child reached its stall point.
+fn signal_ready() {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "\n{READY}").unwrap();
+    out.flush().unwrap();
+}
+
+/// Blocks until the child reports it reached its stall point. No deadline: the
+/// read ends when the child signals or exits, so load cannot make it flaky.
+fn wait_ready(child: &mut std::process::Child) {
+    use std::io::{BufRead, BufReader};
+    let out = child.stdout.take().expect("child stdout is piped");
+    for line in BufReader::new(out).lines() {
+        if line.unwrap().contains(READY) {
             return;
         }
-        std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("{} never appeared", path.display());
+    panic!("the child exited before reaching its stall point");
 }
 
 #[test]
@@ -117,7 +132,7 @@ fn a_clear_killed_between_rename_and_delete_is_recovered() {
     fs::write(rt.root.join("a/x/data"), "payload").unwrap();
     let marker = dir.path().join("renamed");
     let mut child = spawn_child("child_clear_stalls_after_rename", &base, &project, &marker);
-    wait_for(&marker);
+    wait_ready(&mut child);
     child.kill().unwrap();
     child.wait().unwrap();
     let trash: Vec<_> = fs::read_dir(rt.root.join(".trash")).unwrap().collect();
@@ -145,7 +160,7 @@ fn a_manifest_write_killed_midway_leaves_the_old_manifest_readable() {
         &project,
         &marker,
     );
-    wait_for(&marker);
+    wait_ready(&mut child);
     child.kill().unwrap();
     child.wait().unwrap();
     assert_eq!(
@@ -165,5 +180,4 @@ fn a_manifest_write_killed_midway_leaves_the_old_manifest_readable() {
         read_manifest(&rt.root).unwrap().unwrap().measured_at_ms,
         111
     );
-    let _ = Instant::now();
 }
