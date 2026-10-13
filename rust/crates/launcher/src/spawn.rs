@@ -1,7 +1,9 @@
 //! Spawns a worker into its own worktree and names its branch (src/launcher/spawn.ts), and where the worker's pane goes in
 //! the PM's tab (src/layout.ts).
 
-use crate::api::{BranchRenameResult, Placement, SpawnOptions, SpawnResult, ADOPT_BUDGET_MS};
+use crate::api::{
+    BranchRenameResult, Placement, RetargetResult, SpawnOptions, SpawnResult, ADOPT_BUDGET_MS,
+};
 use crate::kernel::LauncherKernel;
 use crate::shared::*;
 use crate::text::{is_task_ref, normalize_task_title, one_line};
@@ -756,6 +758,71 @@ impl LauncherKernel {
                 branch: Some(name),
                 renamed: true,
                 note: None,
+            })
+        })
+    }
+
+    /// Moves an active reviewer's worktree to `commit_sha`: its branch follows, the ledger's base moves with it (so release
+    /// removes the branch as for a fresh reviewer), and the pane and session are untouched. The daemon retargets only an
+    /// idle reviewer that has not started a review, so nothing runs in the worktree during the reset.
+    pub fn retarget_review(
+        &self,
+        agent_id: &str,
+        commit_sha: &str,
+        review_target: &str,
+    ) -> OpResult<RetargetResult> {
+        self.run(|_| {
+            let agent = self
+                .agent_record(agent_id)?
+                .filter(AgentRec::active)
+                .ok_or_else(|| {
+                    OpError::launcher("unknown_agent", format!("{agent_id} is not an active agent"))
+                })?;
+            if agent.kind != "Verifier" {
+                return Err(OpError::launcher(
+                    "not_reviewer",
+                    format!("{agent_id} is not a reviewer"),
+                ));
+            }
+            let row = self
+                .ledger
+                .agent_panes()?
+                .into_iter()
+                .find(|candidate| candidate.agent_id == agent_id);
+            let (Some(path), Some(branch)) = (
+                row.as_ref().and_then(|r| r.worktree_path.clone()),
+                row.as_ref().and_then(|r| r.branch.clone()),
+            ) else {
+                return Err(OpError::launcher("no_worktree", format!("{agent_id} has no worktree")));
+            };
+            if !self.git.worktree_present(&path) {
+                return Err(OpError::launcher("no_worktree", format!("the worktree {path} is gone")));
+            }
+            let from_sha = self.git.branch_tip(&branch).unwrap_or_default();
+            self.git.reset_worktree(&path, commit_sha)?;
+            let row = row.expect("a worktree path came from the row");
+            let mut record = json!({
+                "agentId": agent_id,
+                "workspaceId": row.workspace_id,
+                "paneId": row.pane_id,
+                "worktreePath": path,
+                "branch": branch,
+                "baseSha": commit_sha,
+            });
+            if let Some(terminal) = self.ledger.pane_terminal_id(agent_id)? {
+                record["terminalId"] = json!(terminal);
+            }
+            self.ledger.record_agent_pane(record)?;
+            self.log(
+                "review_retargeted",
+                json!({"agentId": agent_id, "from": from_sha, "to": commit_sha, "reviewTarget": review_target}),
+            );
+            Ok(RetargetResult {
+                agent_id: agent_id.to_string(),
+                worktree_path: path,
+                branch,
+                from_sha,
+                to_sha: commit_sha.to_string(),
             })
         })
     }

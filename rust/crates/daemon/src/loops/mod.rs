@@ -148,6 +148,9 @@ fn default_probe(config: &RoleConfig) -> Option<Arc<dyn ProcessActivityProbe>> {
     Some(Arc::new(HerdrProcessProbe::new(Arc::new(runner))))
 }
 
+/// How often idle warm reviewers are looked for.
+const WARM_RELEASE_TICK_MS: u64 = 60_000;
+
 fn system_clock() -> Clock {
     Arc::new(capstan_ledger::now_millis)
 }
@@ -299,6 +302,17 @@ impl Loops for RustLoops {
                         guarded(&tick_log, "supervision_failed", || supervision.tick());
                     }
                 }));
+                if config.review.warm_reviewer {
+                    let (flag, tick_log, deps) = (stop.clone(), Arc::clone(&log), deps.clone());
+                    let (now, idle_minutes) = (Arc::clone(&self.now), config.review.idle_minutes);
+                    handles.extend(spawn("warm-release", move || {
+                        while !flag.sleep(Duration::from_millis(WARM_RELEASE_TICK_MS)) {
+                            guarded(&tick_log, "warm_release_failed", || {
+                                crate::warm::release_idle(&deps, now(), idle_minutes)
+                            });
+                        }
+                    }));
+                }
             }
         }
         let mut running = self.running();

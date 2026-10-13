@@ -13,7 +13,7 @@ use crate::records::{MutationEvent, MutationOutput, MAX_MESSAGE_BYTES};
 use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 
-use super::{integrations, message_notices, messages, pauses, plans};
+use super::{integrations, message_notices, messages, pauses, plans, warm_reviewers};
 
 /// True for the report `r` (agent_reports) that counts for package `pp` (plan_packages): the assignee's accepted report of
 /// its current generation made since the assignment, unless a later-assigned package of the same agent claims it.
@@ -78,6 +78,54 @@ pub(crate) fn package_report(
         ],
         |row| row.get::<_, String>(0),
     )
+}
+
+/// The plan package whose current assignee `agent_id` reported `report_id`, as `(plan_id, package_id)`: the packages the
+/// agent holds in plans that are not cancelled, the first whose derived report is this one. `linked_only` keeps the plans
+/// that have a Nexora `plan` link (the ones the PM is told about).
+pub(crate) fn package_of_report(
+    kernel: &Kernel,
+    report_id: &str,
+    agent_id: &str,
+    linked_only: bool,
+) -> KernelResult<Option<(String, String)>> {
+    let link = if linked_only {
+        "JOIN external_links l ON l.project_id = p.project_id AND l.ref_kind = 'plan' AND l.ref_id = p.plan_id AND l.system = 'nexora'"
+    } else {
+        ""
+    };
+    let candidates = query_all(
+        &kernel.database,
+        &format!(
+            "SELECT p.plan_id, p.package_id, p.assignee_agent_id, p.assigned_at FROM plan_packages p
+             JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
+             {link}
+             WHERE p.project_id = ? AND p.assignee_agent_id = ? AND p.cancelled_at IS NULL AND pl.cancelled_at IS NULL
+             ORDER BY p.plan_id, p.package_id"
+        ),
+        rusqlite::params![kernel.project_id, agent_id],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        },
+    )?;
+    for (plan_id, package_id, assignee, assigned_at) in candidates {
+        let report = package_report(
+            kernel,
+            &plan_id,
+            &package_id,
+            Some(&assignee),
+            Some(&assigned_at),
+        )?;
+        if report.as_deref() == Some(report_id) {
+            return Ok(Some((plan_id, package_id)));
+        }
+    }
+    Ok(None)
 }
 
 fn package_progress(
@@ -513,6 +561,9 @@ pub fn record_signoff(
                     now.as_str(),
                 ],
             )?;
+            let released: Vec<String> = warm_reviewers::release_plan(kernel, plan_id, "signoff", &now)?
+                .into_iter()
+                .collect();
             let extra = signoff_extra_reports(kernel, plan_id, integration_id)?;
             message_notices::notice_to_pm(kernel, "plan_notice",
                 &plan_signed_off_notice(
@@ -527,14 +578,18 @@ pub fn record_signoff(
                 &now,
                 true,
             )?;
+            let mut value = json!({
+                "integrationId": integration_id,
+                "architectAgentId": agent.agent_id,
+                "summary": summary,
+                "createdAt": now,
+                "extraReports": signoff_extra_reports(kernel, plan_id, integration_id)?,
+            });
+            if !released.is_empty() {
+                value["releasedReviewerAgentIds"] = json!(released);
+            }
             Ok(MutationOutput::new(
-                json!({
-                    "integrationId": integration_id,
-                    "architectAgentId": agent.agent_id,
-                    "summary": summary,
-                    "createdAt": now,
-                    "extraReports": signoff_extra_reports(kernel, plan_id, integration_id)?,
-                }),
+                value,
                 MutationEvent::new("plan", plan_id, 0)
                     .with_details(json!({"integrationId": integration_id})),
             ))
@@ -712,6 +767,13 @@ pub fn cancel_plan(
                 [now.as_str(), now.as_str(), kernel.project_id.as_str(), plan_id],
             )?;
         }
+        let released: Vec<String> = if package_id.is_none() {
+            warm_reviewers::release_plan(kernel, plan_id, "cancel", &now)?
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut notified = plans::queue_plan_notice(kernel, "plan_notice",
             &plan,
             &plan_cancelled_notice(plan_id, package_id),
@@ -748,15 +810,19 @@ pub fn cancel_plan(
                 notified.push(developer.agent_id.clone());
             }
         }
+        let mut value = json!({
+            "planId": plan_id,
+            "packageId": package_id,
+            "cancelledPackages": cancelled_packages,
+            "reviewId": review_id,
+            "reviewerAgentId": reviewer_agent_id,
+            "notified": notified,
+        });
+        if !released.is_empty() {
+            value["releasedReviewerAgentIds"] = json!(released);
+        }
         Ok(MutationOutput::new(
-            json!({
-                "planId": plan_id,
-                "packageId": package_id,
-                "cancelledPackages": cancelled_packages,
-                "reviewId": review_id,
-                "reviewerAgentId": reviewer_agent_id,
-                "notified": notified,
-            }),
+            value,
             MutationEvent::new("plan", plan_id, 0)
                 .with_details(json!({"packageId": package_id, "cancelledPackages": cancelled_packages})),
         ))

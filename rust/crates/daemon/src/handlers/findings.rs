@@ -114,6 +114,26 @@ fn finding(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespon
     })
 }
 
+/// After a verdict: a warm reviewer with reviews left stays; anything else is released shortly.
+fn keep_or_release(env: &CommandEnv<'_>, review: &Value) {
+    let max_reviews = env
+        .config()
+        .map_or(i64::MAX, |config| config.review.max_reviews);
+    let agent_id = field(review, "reviewerAgentId");
+    if !field(review, "warmPlanId").is_null() {
+        if field(review, "warmReviews").as_i64().unwrap_or(0) < max_reviews {
+            if let Some(agent_id) = agent_id.as_str() {
+                crate::warm::note_verdict(agent_id);
+            }
+            return;
+        }
+        if let Some(agent_id) = agent_id.as_str() {
+            crate::warm::release_row(env.deps, agent_id, "max_reviews", false);
+        }
+    }
+    release_reviewer_later(env.deps, review);
+}
+
 fn review(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
     let caller = env.agent_of(call.identity);
     if !caller.is_some_and(|c| c.kind == "Verifier" && c.state == "active") {
@@ -154,7 +174,7 @@ fn review(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                 "review_completed",
                 json!({"reviewId": field(&review, "reviewId"), "state": field(&review, "state")}),
             );
-            release_reviewer_later(env.deps, &review);
+            keep_or_release(env, &review);
             ok(json!({
                 "reviewId": field(&review, "reviewId"),
                 "round": field(&review, "round"),

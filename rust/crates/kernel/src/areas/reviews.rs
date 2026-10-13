@@ -5,10 +5,11 @@ use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     execute, js_trim, package_reviewed_notice, plan_needs_attention_notice, query_all, query_opt,
-    review_notice, review_record, review_task, safe_id_str, PlanAmendmentBrief, ReviewBrief,
+    review_notice, review_record, review_task, safe_id_str, PackageScope, PlanAmendmentBrief,
+    PriorVerdict, ReviewBrief, ScopeBrief, ScopeFile, MAX_SCOPE_FILES,
 };
 use crate::kernel::Kernel;
-use crate::plan_body::{findings_class, parse_plan_findings};
+use crate::plan_body::{findings_class, package_of_body, parse_plan_findings};
 use crate::records::{
     AgentReportRow, AgentRow, MutationEvent, MutationOutput, ReviewRow, MAX_REVIEW_ROUNDS,
     MAX_REVIEW_TEXT_BYTES,
@@ -19,7 +20,7 @@ use serde_json::{json, Value};
 use std::sync::LazyLock;
 
 use super::integrations::{integration_row, IntegrationRow};
-use super::{message_notices, messages, plan_packages, plans, verify_runs};
+use super::{message_notices, messages, plan_packages, plans, verify_runs, warm_reviewers};
 
 static SHA1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").expect("the pattern is valid"));
@@ -287,6 +288,11 @@ pub fn begin_review(
     let subject_id = text_field(input, "subjectId", "report or integration id")?;
     let reviewer_role = text_field(input, "reviewerRole", "reviewer role")?;
     let reviewer_agent_id = text_field(input, "reviewerAgentId", "reviewer agent id")?;
+    let warm_plan_id = match input.get("warmPlanId") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(text_field(input, "warmPlanId", "warm plan id")?),
+    };
+    let diff_scope = parse_diff_scope(input.get("diffScope"))?;
     kernel.mutate(context, "review.begin", "review:request", input, |actor| {
         let checked = review_checks(kernel, subject_id, reviewer_role)?;
         let reviewer = kernel.agent_row(reviewer_agent_id)?;
@@ -312,10 +318,16 @@ pub fn begin_review(
                 .collect(),
             Some(plan) => vec![(plan.author_agent_id.clone(), plan.author_actor_id.clone())],
         };
-        if author_parties.iter().any(|(agent_id, actor_id)| {
-            reviewer.actor_id == *actor_id || reviewer.agent_id == *agent_id
-        }) {
+        if warm_reviewers::is_author(kernel, &reviewer, &author_parties)? {
             return Err(KernelError::controller("a reviewer cannot be an author"));
+        }
+        let subject_plan = warm_reviewers::plan_of_subject(kernel, subject_id)?;
+        if let Some(warm_plan_id) = warm_plan_id {
+            if subject_plan.as_ref().map(|(plan_id, _)| plan_id.as_str()) != Some(warm_plan_id) {
+                return Err(KernelError::controller(
+                    "the warm plan is not the plan of the reviewed subject",
+                ));
+            }
         }
         let single = if checked.subject == "integration" {
             None
@@ -385,7 +397,21 @@ pub fn begin_review(
                 amends_review_id,
             });
 
+        let held = match warm_plan_id {
+            Some(plan_id) => {
+                let history = warm_history(kernel, plan_id, &reviewer.agent_id)?;
+                warm_reviewers::hold_for_review(kernel, plan_id, &reviewer, &now)?
+                    .then_some(history)
+            }
+            None => None,
+        };
+        let scope = match &diff_scope {
+            Some(diff) => Some(scope_brief(kernel, diff, subject_plan.as_ref())?),
+            None => None,
+        };
         let gate_brief = ReviewBrief {
+            scope,
+            history: held.clone().unwrap_or_default(),
             verify: match field(input, "verifyCommandsSha").as_str() {
                 Some(commands_sha) => Some(verify_runs::summary_at(
                     kernel,
@@ -406,6 +432,10 @@ pub fn begin_review(
             false,
             messages::class_for_kind(kernel, "review_request"),
         )?;
+        let mut value = review_value(&row)?;
+        if held.is_some() {
+            value["warm"] = json!(true);
+        }
         let mut event = MutationEvent::new("review", &review_id, 0).with_details(json!({
             "subjectId": subject_id,
             "round": checked.round,
@@ -413,8 +443,142 @@ pub fn begin_review(
             "authorAgentIds": author_parties.iter().map(|(agent_id, _)| agent_id.as_str()).collect::<Vec<_>>(),
         }));
         event.to_state = Some("started".into());
-        Ok(MutationOutput::new(review_value(&row)?, event))
+        Ok(MutationOutput::new(value, event))
     })
+}
+
+/// A `diffScope` of a review request: the touched files (at most `MAX_SCOPE_FILES` kept) and the totals.
+struct DiffScope {
+    files: Vec<ScopeFile>,
+    files_total: i64,
+    insertions: i64,
+    deletions: i64,
+}
+
+fn count(value: Option<&Value>, label: &str) -> KernelResult<i64> {
+    match value.and_then(Value::as_i64) {
+        Some(n) if n >= 0 => Ok(n),
+        _ => Err(KernelError::type_error(format!(
+            "{label} must be a non-negative integer"
+        ))),
+    }
+}
+
+fn parse_diff_scope(value: Option<&Value>) -> KernelResult<Option<DiffScope>> {
+    let value = match value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(value) => value,
+    };
+    let Some(items) = value.get("files").and_then(Value::as_array) else {
+        return Err(KernelError::type_error("diffScope files must be a list"));
+    };
+    let mut files = Vec::new();
+    for item in items.iter().take(MAX_SCOPE_FILES) {
+        let path = match item.get("path").and_then(Value::as_str) {
+            Some(path)
+                if !path.is_empty() && path.len() <= 512 && !UNSAFE_REVIEW_TEXT.is_match(path) =>
+            {
+                path
+            }
+            _ => {
+                return Err(KernelError::type_error(
+                    "a diffScope path must be printable text of at most 512 bytes",
+                ))
+            }
+        };
+        let optional = |key: &str| -> KernelResult<Option<i64>> {
+            match item.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                other => count(other, "a diffScope line count").map(Some),
+            }
+        };
+        files.push(ScopeFile {
+            path: path.to_string(),
+            added: optional("added")?,
+            deleted: optional("deleted")?,
+        });
+    }
+    Ok(Some(DiffScope {
+        files,
+        files_total: count(value.get("filesTotal"), "diffScope filesTotal")?,
+        insertions: count(value.get("insertions"), "diffScope insertions")?,
+        deletions: count(value.get("deletions"), "diffScope deletions")?,
+    }))
+}
+
+/// The scope of a review task, with the package's owned paths and acceptance from the approved plan when the subject is a
+/// package's report.
+fn scope_brief(
+    kernel: &Kernel,
+    diff: &DiffScope,
+    subject_plan: Option<&(String, Option<String>)>,
+) -> KernelResult<ScopeBrief> {
+    let mut package = None;
+    if let Some((plan_id, Some(package_id))) = subject_plan {
+        let body = query_opt(
+            &kernel.database,
+            "SELECT r.body_json FROM plans p JOIN plan_revisions r
+               ON r.project_id = p.project_id AND r.plan_id = p.plan_id AND r.revision = p.approved_revision
+             WHERE p.project_id = ? AND p.plan_id = ?",
+            [&kernel.project_id, plan_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if let Some(view) = body.and_then(|body| package_of_body(&body, package_id)) {
+            package = Some(PackageScope {
+                plan_id: plan_id.clone(),
+                package_id: package_id.clone(),
+                owns: view.owns,
+                acceptance: view.acceptance,
+            });
+        }
+    }
+    Ok(ScopeBrief {
+        files: diff.files.clone(),
+        files_total: diff.files_total,
+        insertions: diff.insertions,
+        deletions: diff.deletions,
+        package,
+    })
+}
+
+/// How many earlier verdicts a warm review task lists.
+const MAX_HISTORY: usize = 10;
+
+/// The verdicts `reviewer` gave on this plan's reports and integrations, oldest first, the latest `MAX_HISTORY`.
+fn warm_history(
+    kernel: &Kernel,
+    plan_id: &str,
+    reviewer_agent_id: &str,
+) -> KernelResult<Vec<PriorVerdict>> {
+    let rows = query_all(
+        &kernel.database,
+        "SELECT * FROM reviews WHERE project_id = ? AND reviewer_agent_id = ? AND state IN ('passed', 'findings')
+           AND subject_plan_id IS NULL ORDER BY sequence",
+        [&kernel.project_id, reviewer_agent_id],
+        ReviewRow::from_row,
+    )?;
+    let mut history = Vec::new();
+    for row in rows {
+        let (kind, subject) = match (&row.subject_report_id, &row.subject_integration_id) {
+            (Some(id), _) => ("report", id.clone()),
+            (_, Some(id)) => ("integration", id.clone()),
+            _ => continue,
+        };
+        let in_plan = warm_reviewers::plan_of_subject(kernel, &subject)?
+            .is_some_and(|(plan, _)| plan == plan_id);
+        if in_plan {
+            history.push(PriorVerdict {
+                plan_id: plan_id.to_string(),
+                review_id: row.review_id,
+                round: row.round,
+                subject: format!("{kind} {subject}"),
+                commit_sha: row.commit_sha,
+                verdict: row.state,
+            });
+        }
+    }
+    let skip = history.len().saturating_sub(MAX_HISTORY);
+    Ok(history.split_off(skip))
 }
 
 /// `completeReview`.
@@ -506,7 +670,12 @@ pub fn complete_review(
             let event = MutationEvent::new("review", &row.review_id, 0)
                 .transition("started", &done.state)
                 .with_details(json!({"subjectId": subject, "round": row.round}));
-            Ok(MutationOutput::new(review_value(&done)?, event))
+            let mut value = review_value(&done)?;
+            if let Some(warm) = warm_reviewers::warm_of_agent(kernel, &row.reviewer_agent_id)? {
+                value["warmPlanId"] = json!(warm.plan_id);
+                value["warmReviews"] = json!(warm.reviews_count);
+            }
+            Ok(MutationOutput::new(value, event))
         },
     )
 }
@@ -562,37 +731,15 @@ fn settle_plan_review(
 /// Tells the PM that a package's report passed review, once per report, when the package's plan has a `plan` link: this is
 /// the one status change the PM has no other signal for. A cancelled plan or package is not announced.
 fn notice_package_reviewed(kernel: &Kernel, row: &ReviewRow, now: &str) -> KernelResult<()> {
-    let candidates = query_all(
-        &kernel.database,
-        "SELECT p.plan_id, p.package_id, p.assignee_agent_id, p.assigned_at FROM plan_packages p
-         JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
-         JOIN external_links l ON l.project_id = p.project_id AND l.ref_kind = 'plan' AND l.ref_id = p.plan_id AND l.system = 'nexora'
-         WHERE p.project_id = ? AND p.assignee_agent_id = ? AND p.cancelled_at IS NULL AND pl.cancelled_at IS NULL
-         ORDER BY p.plan_id, p.package_id",
-        rusqlite::params![kernel.project_id, row.author_agent_id],
-        |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-            ))
-        },
-    )?;
-    let mut found = None;
-    for (plan_id, package_id, assignee, assigned_at) in candidates {
-        let report = plan_packages::package_report(
-            kernel,
-            &plan_id,
-            &package_id,
-            Some(&assignee),
-            Some(&assigned_at),
-        )?;
-        if report.is_some() && report == row.subject_report_id {
-            found = Some((plan_id, package_id));
-            break;
+    let found = match (
+        row.subject_report_id.as_deref(),
+        row.author_agent_id.as_deref(),
+    ) {
+        (Some(report_id), Some(agent_id)) => {
+            plan_packages::package_of_report(kernel, report_id, agent_id, true)?
         }
-    }
+        _ => None,
+    };
     let Some((plan_id, package_id)) = found else {
         return Ok(());
     };
@@ -739,7 +886,9 @@ pub fn reviews_to_release(kernel: &Kernel, credential: &str) -> KernelResult<Val
     let rows = query_all(
         &kernel.database,
         "SELECT r.* FROM reviews r JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.reviewer_agent_id
-         WHERE r.project_id = ? AND r.state IN ('passed', 'findings') AND a.state = 'active' ORDER BY r.sequence",
+         WHERE r.project_id = ? AND r.state IN ('passed', 'findings') AND a.state = 'active'
+           AND NOT EXISTS (SELECT 1 FROM warm_reviewers w WHERE w.project_id = r.project_id AND w.agent_id = r.reviewer_agent_id AND w.released_at IS NULL)
+         ORDER BY r.sequence",
         [&kernel.project_id],
         ReviewRow::from_row,
     )?;

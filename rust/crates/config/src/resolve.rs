@@ -66,10 +66,12 @@ pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
 }
 
 fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
-    // `cleanup`, `cache` and `verify` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
+    // `cleanup`, `cache`, `verify` and `review` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
     let known = Table::from_members(
         root.entries()
-            .filter(|(key, _)| *key != "cleanup" && *key != "cache" && *key != "verify")
+            .filter(|(key, _)| {
+                *key != "cleanup" && *key != "cache" && *key != "verify" && *key != "review"
+            })
             .map(|(key, item)| (key.to_string(), item.clone()))
             .collect(),
     );
@@ -378,6 +380,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     }
 
     let verify = crate::verify::resolve_verify(root.get("verify"))?;
+    let review = crate::review::resolve_review(root.get("review"))?;
 
     Ok(RoleConfig {
         project_name: project_name.map(str::to_string),
@@ -400,6 +403,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         cleanup,
         cache,
         verify,
+        review,
         env_pass,
         hosts,
         roles,

@@ -721,6 +721,9 @@ pub fn review_task(
             row.base_sha, row.commit_sha, row.base_sha, row.commit_sha
         ),
     ];
+    if let Some(scope) = &brief.scope {
+        lines.extend(scope_lines(row, scope));
+    }
     for report in authors {
         let who = if integration {
             format!("Report {} by {}:", report.report_id, report.agent_id)
@@ -735,8 +738,94 @@ pub fn review_task(
     if let Some(verify) = &brief.verify {
         lines.push(verify_line(row, verify));
     }
+    if !brief.history.is_empty() {
+        lines.extend(history_lines(&brief.history));
+    }
     lines.push("Review only that change. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and where.".to_string());
     lines.join("\n")
+}
+
+/// The most files a review task lists.
+pub const MAX_SCOPE_FILES: usize = 50;
+/// The most paths a review task lists as touched outside the owned paths.
+const MAX_OUTSIDE_PATHS: usize = 20;
+
+fn scope_lines(row: &ReviewRow, scope: &ScopeBrief) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Scope: {}..{}: {} files changed, +{} -{}",
+        row.base_sha, row.commit_sha, scope.files_total, scope.insertions, scope.deletions
+    )];
+    for file in scope.files.iter().take(MAX_SCOPE_FILES) {
+        let counts = match (file.added, file.deleted) {
+            (Some(added), Some(deleted)) => format!("+{added} -{deleted}"),
+            _ => "binary".to_string(),
+        };
+        lines.push(format!("Files touched: {} ({counts})", quoted(&file.path)));
+    }
+    let shown = scope.files.len().min(MAX_SCOPE_FILES);
+    let more = scope.files_total.saturating_sub(shown as i64);
+    if more > 0 {
+        lines.push(format!("Files touched: and {more} more"));
+    }
+    if let Some(package) = &scope.package {
+        lines.push(format!(
+            "Package {}/{} owns: {}",
+            package.plan_id,
+            package.package_id,
+            quoted_list(&package.owns)
+        ));
+        if !package.acceptance.is_empty() {
+            lines.push("Acceptance (from the approved plan, not verified):".to_string());
+            for criterion in &package.acceptance {
+                lines.push(format!("- {}", quoted(criterion)));
+            }
+        }
+        let outside = outside_owned(&scope.files, &package.owns);
+        if !outside.is_empty() {
+            let mut listed: Vec<String> = outside.iter().take(MAX_OUTSIDE_PATHS).cloned().collect();
+            if outside.len() > MAX_OUTSIDE_PATHS {
+                listed.push(format!("and {} more", outside.len() - MAX_OUTSIDE_PATHS));
+            }
+            lines.push(format!(
+                "Touched outside the owned paths: {}",
+                listed.join(", ")
+            ));
+        }
+    }
+    lines
+}
+
+/// The touched paths no owned path covers: an owned path covers itself and everything below it.
+fn outside_owned(files: &[ScopeFile], owns: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| {
+            !owns.iter().any(|owned| {
+                let owned = owned.trim_end_matches('/');
+                file.path == owned
+                    || file
+                        .path
+                        .strip_prefix(owned)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+        })
+        .map(|file| quoted(&file.path))
+        .collect()
+}
+
+fn history_lines(history: &[PriorVerdict]) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Your earlier verdicts in plan {}:",
+        history[0].plan_id
+    )];
+    for prior in history {
+        lines.push(format!(
+            "- review {} round {} of {} at {}: {}",
+            prior.review_id, prior.round, prior.subject, prior.commit_sha, prior.verdict
+        ));
+    }
+    lines.push("Judge this commit on its own; an earlier verdict does not carry over.".to_string());
+    lines
 }
 
 /// What the controller adds to a review task beyond the review row. A default brief adds nothing, so the task is the
@@ -745,6 +834,50 @@ pub fn review_task(
 pub struct ReviewBrief {
     /// The latest verify run at the reviewed commit, when the request asked for the gate (`verifyCommandsSha`).
     pub verify: Option<VerifySummary>,
+    /// The size of the change and, for a plan's package, what the plan said about it.
+    pub scope: Option<ScopeBrief>,
+    /// The warm reviewer's earlier verdicts in the same plan, oldest first.
+    pub history: Vec<PriorVerdict>,
+}
+
+/// One touched file; `added` and `deleted` are `None` for a binary file.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopeFile {
+    pub path: String,
+    pub added: Option<i64>,
+    pub deleted: Option<i64>,
+}
+
+/// The diff scope of a review task (`diffScope` of the request), with the package it belongs to when the plan names one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopeBrief {
+    pub files: Vec<ScopeFile>,
+    pub files_total: i64,
+    pub insertions: i64,
+    pub deletions: i64,
+    pub package: Option<PackageScope>,
+}
+
+/// What the approved plan says about the package a report belongs to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackageScope {
+    pub plan_id: String,
+    pub package_id: String,
+    pub owns: Vec<String>,
+    pub acceptance: Vec<String>,
+}
+
+/// A verdict the same reviewer gave earlier in the plan.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PriorVerdict {
+    pub plan_id: String,
+    pub review_id: String,
+    pub round: i64,
+    /// `report <id>` or `integration <id>`.
+    pub subject: String,
+    pub commit_sha: String,
+    /// `passed` or `findings`.
+    pub verdict: String,
 }
 
 /// One verify run as a review brief shows it. `state` is `missing` when no run is recorded at the commit.

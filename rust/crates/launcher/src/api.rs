@@ -264,6 +264,28 @@ impl ReleaseResult {
     }
 }
 
+/// `RetargetResult`: where an active reviewer's worktree was moved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetargetResult {
+    pub agent_id: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub from_sha: String,
+    pub to_sha: String,
+}
+
+impl RetargetResult {
+    pub fn to_value(&self) -> Value {
+        json!({
+            "agentId": self.agent_id,
+            "worktreePath": self.worktree_path,
+            "branch": self.branch,
+            "fromSha": self.from_sha,
+            "toSha": self.to_sha,
+        })
+    }
+}
+
 /// The new agent of a replacement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replaced {
@@ -403,6 +425,23 @@ pub trait LauncherService: Send + Sync {
     ) -> LauncherResult<BranchRenameResult>;
     /// Ends a worker and frees its pane, worktree and, without commits, its branch.
     fn release(&self, agent_id: &str) -> LauncherResult<ReleaseResult>;
+    /// Moves an idle reviewer's worktree to `commit_sha` (its branch follows, its pane and session stay), so the next
+    /// review reuses the agent instead of spawning a fresh one. Refuses with `unknown_agent`, `not_reviewer`, `no_worktree`,
+    /// `worktree_dirty` (a staged or unstaged change to a tracked file; untracked files never block) or `commit_missing`,
+    /// leaving the worktree as it was. The caller retargets only a reviewer that has not started a review, so no command
+    /// of the reviewer runs in the worktree during the reset.
+    fn retarget_review(
+        &self,
+        agent_id: &str,
+        commit_sha: &str,
+        review_target: &str,
+    ) -> LauncherResult<RetargetResult> {
+        let _ = (commit_sha, review_target);
+        Err(LauncherError::new(
+            "not_supported",
+            format!("this launcher cannot retarget {agent_id}"),
+        ))
+    }
     /// Releases a worker and starts a new agent of the same role whose prompt carries a seed built from the ledger.
     fn replace(&self, agent_id: &str) -> LauncherResult<ReplaceResult>;
     /// The recent screen of an active agent (a read: it does not wait for other launcher operations); also what `peek` uses.
@@ -575,6 +614,25 @@ impl LauncherService for StubLauncher {
             agent_id: agent_id.to_string(),
             branch: None,
             cancelled_message_ids: Vec::new(),
+        })
+    }
+
+    fn retarget_review(
+        &self,
+        agent_id: &str,
+        commit_sha: &str,
+        review_target: &str,
+    ) -> LauncherResult<RetargetResult> {
+        self.record(
+            format!("retarget_review {agent_id} {commit_sha} {review_target}"),
+            "retarget_review",
+        )?;
+        Ok(RetargetResult {
+            agent_id: agent_id.to_string(),
+            worktree_path: format!("/tmp/work/{agent_id}"),
+            branch: format!("capstan/{agent_id}"),
+            from_sha: "0".repeat(40),
+            to_sha: commit_sha.to_string(),
         })
     }
 

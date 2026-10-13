@@ -1066,7 +1066,7 @@ fn role_config(dir: &Path) -> capstan_config::RoleConfig {
     let file = dir.join("capstan.toml");
     std::fs::write(
         &file,
-        "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n\n[roles.supervisor]\nkind = \"Supervisor\"\nhost = \"claude\"\n",
+        "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n\n[review]\nwarm_reviewer = false\n\n[roles.supervisor]\nkind = \"Supervisor\"\nhost = \"claude\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();

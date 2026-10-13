@@ -444,6 +444,14 @@ pub trait GitPort: Send + Sync {
     fn delete_branch(&self, branch: &str, sha: &str) -> GitResult<bool>;
     /// `coveredReports`: the covered reports as JSON.
     fn covered_reports(&self, head: &str, reports: &Value, options: &Value) -> GitResult<Value>;
+    /// The files `commit` changes against `base`, as the `diffScope` of a review request: `{files: [{path, added,
+    /// deleted}], filesTotal, insertions, deletions}`; a binary file has null counts.
+    fn diff_stat(&self, base: &str, commit: &str) -> GitResult<Value> {
+        let _ = (base, commit);
+        Err(GitError {
+            message: "git is not available in this daemon".into(),
+        })
+    }
 }
 
 /// A git port that refuses everything, for a daemon built without one (and for in-process tests).

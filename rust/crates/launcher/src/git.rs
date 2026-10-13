@@ -386,6 +386,63 @@ impl GitRunner for DefaultGit {
         (result.ok() && is_hex(sha, 40)).then(|| sha.to_string())
     }
 
+    fn reset_worktree(&self, worktree_path: &str, sha: &str) -> Result<(), LauncherError> {
+        let missing =
+            || LauncherError::new("commit_missing", format!("commit {sha} does not exist"));
+        if !is_hex(sha, 40) {
+            return Err(missing());
+        }
+        let verify = run_git(
+            &[
+                "-C",
+                worktree_path,
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{sha}^{{commit}}"),
+            ],
+            None,
+        );
+        if !verify.ok() {
+            return Err(missing());
+        }
+        // Tracked files only: untracked and ignored files (host files, setup output) must not stop a reuse.
+        let status = run_git(
+            &[
+                "-C",
+                worktree_path,
+                "status",
+                "--porcelain",
+                "-z",
+                "--untracked-files=no",
+            ],
+            None,
+        );
+        if !status.ok() {
+            return Err(LauncherError::new(
+                "git_error",
+                "git could not read the worktree status",
+            ));
+        }
+        if status.stdout.split('\0').any(|entry| !entry.is_empty()) {
+            return Err(LauncherError::new(
+                "worktree_dirty",
+                "the worktree has changes to tracked files",
+            ));
+        }
+        let reset = run_git(
+            &["-C", worktree_path, "reset", "--hard", "--quiet", sha],
+            None,
+        );
+        if !reset.ok() {
+            return Err(LauncherError::new(
+                "git_error",
+                one_line(&reset.stderr, MAX_NOTE_LENGTH),
+            ));
+        }
+        Ok(())
+    }
+
     fn reachable_commit(&self, sha: &str, from: &[String]) -> Result<bool, LauncherError> {
         if !is_hex(sha, 40) {
             return Ok(false);

@@ -209,10 +209,12 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
         title: get(&named, "title"),
         ..SpawnOptions::default()
     };
-    Some(match launcher.spawn(role_name, &options) {
-        Ok(result) => ok(result.to_value()),
-        Err(error) => map_error(&HandlerError::from(error)),
-    })
+    Some(
+        match crate::warm::spawn_with_eviction(env.deps, launcher, role_name, &options) {
+            Ok(result) => ok(result.to_value()),
+            Err(error) => map_error(&HandlerError::from(error)),
+        },
+    )
 }
 
 /// The agent id a replace or release names, with the refusals before the launcher check.

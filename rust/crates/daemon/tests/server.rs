@@ -259,7 +259,7 @@ fn role_config(dir: &Path, seconds: i64) -> capstan_config::RoleConfig {
     std::fs::write(
         &file,
         format!(
-            "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\nwait_timeout_seconds = {seconds}\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
+            "schema_version = 1\n\n[hosts.claude]\nkind = \"claude\"\nwait_timeout_seconds = {seconds}\n\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n\n[review]\nwarm_reviewer = false\n\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n"
         ),
     )
     .unwrap();

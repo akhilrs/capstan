@@ -286,6 +286,16 @@ pub trait GitRunner: Send + Sync {
     fn save_ref(&self, reference: &str, sha: &str) -> bool;
     /// The commit a branch points at, or None when there is no such branch.
     fn branch_tip(&self, branch: &str) -> Option<String>;
+    /// Moves the checked-out branch of `worktree_path` to `sha` and leaves the tree clean at it. Refuses with
+    /// `commit_missing` (no such commit) and `worktree_dirty` (a staged or unstaged change to a tracked file; untracked
+    /// files, ignored or not, do not block and stay) before anything changes.
+    fn reset_worktree(&self, worktree_path: &str, sha: &str) -> Result<(), LauncherError> {
+        let _ = (worktree_path, sha);
+        Err(LauncherError::new(
+            "not_supported",
+            "this git runner cannot reset a worktree",
+        ))
+    }
     /// Whether `sha` (40 lowercase hex characters) resolves as a commit and is an ancestor of one of the refs.
     fn reachable_commit(&self, sha: &str, from: &[String]) -> Result<bool, LauncherError>;
 }

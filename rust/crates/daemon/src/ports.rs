@@ -128,6 +128,37 @@ fn is_full_sha(text: &str) -> bool {
 }
 
 impl GitPort for ProjectGit {
+    fn diff_stat(&self, base: &str, commit: &str) -> GitResult<Value> {
+        if !is_full_sha(base) || !is_full_sha(commit) {
+            return Err(failure("the commits to compare are not full ids"));
+        }
+        let (code, out) = self.run(&["diff", "--numstat", "--no-renames", "-z", base, commit])?;
+        if code != 0 {
+            return Err(failure("git could not compare the commits"));
+        }
+        let (mut files, mut total, mut insertions, mut deletions) =
+            (Vec::new(), 0_i64, 0_i64, 0_i64);
+        for entry in out.split('\0').filter(|entry| !entry.is_empty()) {
+            let mut parts = entry.splitn(3, '\t');
+            let (Some(added), Some(deleted), Some(path)) =
+                (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let (added, deleted) = (added.parse::<i64>().ok(), deleted.parse::<i64>().ok());
+            total += 1;
+            insertions += added.unwrap_or(0);
+            deletions += deleted.unwrap_or(0);
+            // The kernel refuses a path it cannot print; such a file counts in the totals but is not listed.
+            if path.len() <= 512 && !path.chars().any(char::is_control) {
+                files.push(json!({"path": path, "added": added, "deleted": deleted}));
+            }
+        }
+        Ok(
+            json!({"files": files, "filesTotal": total, "insertions": insertions, "deletions": deletions}),
+        )
+    }
+
     fn commit_exists(&self, sha: &str) -> GitResult<bool> {
         self.repo.commit_exists(sha).map_err(from_integrate)
     }

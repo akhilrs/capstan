@@ -12,7 +12,7 @@ use super::HandlerMap;
 use crate::deps::{
     new_context, CommitInspection, InspectCommitInput, NewCommitMessages, NewCommitMessagesInput,
 };
-use crate::reviews::{request_review, RequestError};
+use crate::reviews::{request_review, RequestError, Requested};
 use capstan_kernel::areas::messaging::parse_iso_ms;
 use capstan_kernel::integrate::{
     check_commit_message, integrate, settle_integration, GitRepo, IntegrateError, IntegrationDeps,
@@ -423,14 +423,19 @@ fn request_review_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Optio
     );
     Some(
         match request_review(env.deps, &report_id, role.as_deref(), call.credential) {
-            Ok((review, spawn_state)) => ok(json!({
+            Ok(Requested {
+                review,
+                reviewer_state,
+                reused,
+            }) => ok(json!({
                 "reviewId": field(&review, "reviewId"),
                 "round": field(&review, "round"),
                 "reviewerAgentId": field(&review, "reviewerAgentId"),
                 "reviewerRole": field(&review, "reviewerRole"),
                 "commit": field(&review, "commitSha"),
                 "state": field(&review, "state"),
-                "reviewerState": spawn_state,
+                "reviewerState": reviewer_state,
+                "reviewerReused": reused,
             })),
             Err(RequestError::Kernel(error)) if error.code() == Some("verify_required") => {
                 fail(ErrorCode::Rejected, error.message())

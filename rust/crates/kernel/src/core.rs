@@ -8,7 +8,7 @@
 use crate::areas::{
     actors, agents, findings, integrations, links, message_notices, messages, operator_grants,
     operator_proposals, operator_runs, panes, pauses, plan_packages, plans, prompt_relay, reports,
-    reviews, status, verify_runs,
+    reviews, status, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -350,6 +350,35 @@ impl Core {
     /// `ControllerCore.reviewsToRelease`.
     pub fn reviews_to_release(&self, credential: &str) -> KernelResult<Value> {
         reviews::reviews_to_release(&self.kernel, credential)
+    }
+
+    /// `ControllerCore.reviewPlanOf`.
+    pub fn review_plan_of(&self, subject_id: &str) -> KernelResult<Value> {
+        warm_reviewers::review_plan_of(&self.kernel, subject_id)
+    }
+
+    /// `ControllerCore.warmReviewerFor`.
+    pub fn warm_reviewer_for(
+        &self,
+        subject_id: &str,
+        reviewer_role: &str,
+        max_reviews: i64,
+    ) -> KernelResult<Value> {
+        warm_reviewers::warm_reviewer_for(&self.kernel, subject_id, reviewer_role, max_reviews)
+    }
+
+    /// `ControllerCore.releaseWarmReviewer`.
+    pub fn release_warm_reviewer(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        warm_reviewers::release_warm_reviewer(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.warmReviewers`.
+    pub fn warm_reviewers(&self, credential: &str) -> KernelResult<Value> {
+        warm_reviewers::warm_reviewers(&self.kernel, credential)
     }
 
     /// `ControllerCore.queueVerifyRun`.

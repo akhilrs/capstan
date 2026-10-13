@@ -421,6 +421,10 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         },
         cache: None,
         verify: None,
+        review: capstan_config::Review {
+            warm_reviewer: false,
+            ..capstan_config::Review::default()
+        },
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

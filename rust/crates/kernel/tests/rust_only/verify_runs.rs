@@ -583,7 +583,17 @@ fn the_review_brief_adds_one_gate_line_and_the_default_brief_adds_none() {
     let row = review_row();
     let plain = review_task(&row, &[], None, &ReviewBrief::default());
     assert!(!plain.contains("Gate"));
-    let with = |s: VerifySummary| review_task(&row, &[], None, &ReviewBrief { verify: Some(s) });
+    let with = |s: VerifySummary| {
+        review_task(
+            &row,
+            &[],
+            None,
+            &ReviewBrief {
+                verify: Some(s),
+                ..ReviewBrief::default()
+            },
+        )
+    };
     let passed = with(summary("passed"));
     assert!(passed.contains(&format!("Gate passed at {COMMIT} (run run-1, 12.3s): do not rerun the full gate; run only targeted checks.")));
     let failed = with(summary("failed"));

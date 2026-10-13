@@ -9,7 +9,7 @@ use super::shared::{
 };
 use super::HandlerMap;
 use crate::deps::new_context;
-use crate::reviews::{release_reviewer_later, request_review, RequestError};
+use crate::reviews::{release_reviewer_later, request_review, RequestError, Requested};
 use capstan_herdr::api::is_agent_name;
 use capstan_kernel::helpers::amended_plan_body_json;
 use capstan_kernel::plan_body::parse_plan_body;
@@ -189,6 +189,7 @@ fn cancel(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
         let context = new_context(core, &credential)?;
         core.cancel_plan(&context, &Value::Object(input))
     })?;
+    release_warm_later(env, &cancelled);
     if !cancelled["reviewerAgentId"].is_null() && env.deps.launcher.is_some() {
         release_reviewer_later(
             env.deps,
@@ -319,11 +320,23 @@ fn signoff(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String], role: 
         let context = new_context(core, &credential)?;
         core.record_signoff(&context, &input)
     })?;
+    release_warm_later(env, &signed);
     Ok(ok(json!({
         "planId": plan_id,
         "integrationId": field(&signed, "integrationId"),
         "signedAt": field(&signed, "createdAt"),
     })))
+}
+
+/// Ends the warm reviewers a signoff or a cancel released in the ledger.
+fn release_warm_later(env: &CommandEnv<'_>, answer: &Value) {
+    for agent_id in answer["releasedReviewerAgentIds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        release_reviewer_later(env.deps, &json!({"reviewerAgentId": agent_id}));
+    }
 }
 
 fn signoff_usage() -> CommandResponse {
@@ -468,13 +481,17 @@ fn start_review(
     let (plan_id, credential) = (plan_id.to_string(), credential.to_string());
     let requested_role = architect.reviewer_role.as_deref();
     match request_review(env.deps, &plan_id, requested_role, &credential) {
-        Ok((review, spawn_state)) => Ok(ok(json!({
+        Ok(Requested {
+            review,
+            reviewer_state,
+            ..
+        }) => Ok(ok(json!({
             "planId": field(stored, "planId"),
             "revision": field(stored, "currentRevision"),
             "state": "in_review",
             "reviewId": field(&review, "reviewId"),
             "reviewerAgentId": field(&review, "reviewerAgentId"),
-            "reviewerState": spawn_state,
+            "reviewerState": reviewer_state,
         }))),
         Err(error) => {
             let reason = match &error {

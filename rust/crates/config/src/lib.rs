@@ -15,6 +15,7 @@ pub mod primitives;
 pub mod prompts;
 mod researcher_policy;
 mod resolve;
+pub mod review;
 mod smol;
 mod smol_date;
 pub mod starter;
@@ -34,6 +35,7 @@ pub use resolve::{
     parse_config, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV, DAEMON_RUST_ENV_WARNING,
     DAEMON_RUST_WARNING,
 };
+pub use review::Review;
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};
 pub use types::*;
 pub use verify::Verify;

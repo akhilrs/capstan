@@ -362,6 +362,27 @@ Go:
 commands = ["go vet ./...", "go test ./..."]
 ```
 
+## Review
+
+The `[review]` section controls whether a plan's reviewer is kept between review requests. An absent section behaves as an empty one, with every default below, except that `cstan config` prints a `review` object only when the section is written. Unknown keys, values of the wrong type and out-of-range values are refused by `cstan config check`, with a message naming the key (`review.idle_minutes`).
+
+```toml
+[review]
+warm_reviewer = true
+idle_minutes = 30
+max_reviews = 6
+integration = false
+```
+
+| Key | Meaning |
+| --- | --- |
+| `warm_reviewer` | `true` or `false`. Keep a plan's reviewer after its verdict, so the next `cstan request-review` of the same plan reuses it (the architect sees `reviewerReused` in the output). Default `true`: a reused reviewer already has the repository and the plan in context, which saves the start-up time and tokens of a fresh session for every package. With `false`, the controller ends the reviewer after each verdict and every request starts a fresh one, as before this section existed. |
+| `idle_minutes` | 5 to 240. How long a kept reviewer may wait for its next request before the controller ends it. Default `30`: long enough to span a package's fix cycle, short enough that an abandoned plan does not hold a session open. |
+| `max_reviews` | 1 to 20. How many requests one reviewer answers before it is replaced by a fresh one. Default `6`: a long-lived reviewer's context fills with earlier verdicts, so a bound keeps its judgement of each commit independent. |
+| `integration` | `true` or `false`. Whether integration reviews may also reuse the plan's reviewer. Default `false`: an integration review should look at the merged result without the bias of the package reviews. |
+
+Each request is its own task: the reviewer judges the commit it names, treats earlier verdicts as context only, and waits for the next request until the controller ends the session.
+
 ## `CAPSTAN_ALLOW_FOREIGN_SOCKET`
 
 Set to `1` in an agent shell to let `cstan` use a `CAPSTAN_SOCKET` that is not the socket of the project (nearest `.capstan/` ancestor) the working directory is in. Without it such a command exits 2 and sends no request. With it, one warning line is printed per command. `cstan inbox --hook` ignores it: on a foreign socket it stays silent and makes no request.

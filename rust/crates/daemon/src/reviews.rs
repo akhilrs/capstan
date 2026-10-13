@@ -142,14 +142,22 @@ fn field(value: &Value, key: &str) -> Value {
     value.get(key).cloned().unwrap_or(Value::Null)
 }
 
-/// Spawns a fresh reviewer at the reported commit and records the review. A failure after the spawn releases the reviewer.
-/// Returns the review record and the reviewer's spawn state.
+/// What `request_review` settled: the review record, the reviewer's state and whether a warm reviewer was reused.
+pub struct Requested {
+    pub review: Value,
+    pub reviewer_state: String,
+    pub reused: bool,
+}
+
+/// Starts a review of the subject at its commit. With `[review] warm_reviewer` the plan's warm reviewer is moved to the
+/// commit and reused; otherwise (or when it cannot take the subject) a fresh reviewer is spawned on a worktree at the
+/// commit. A failure after a spawn releases the fresh reviewer; a reused one stays warm.
 pub fn request_review(
     deps: &Deps,
     subject_id: &str,
     requested_role: Option<&str>,
     pm_credential: &str,
-) -> Result<(Value, String), RequestError> {
+) -> Result<Requested, RequestError> {
     let config = deps.options.capstan.as_deref().ok_or_else(|| {
         RequestError::Review(ReviewRequestError::new(
             "no_reviewer_role",
@@ -186,19 +194,101 @@ pub fn request_review(
             "reviews need capstan.toml and Herdr",
         ))
     })?;
-    let spawned = launcher.spawn(
-        &role,
-        &SpawnOptions {
-            base_sha: Some(commit_sha),
-            review_target: Some(subject_id.to_string()),
-            ..SpawnOptions::default()
+    // The warm reviewer of the subject's plan, when the configuration keeps one.
+    let mut warm_plan: Option<String> = None;
+    let mut reuse: Option<String> = None;
+    if config.review.warm_reviewer {
+        let plan = deps
+            .kernel
+            .run({
+                let subject = subject_id.to_string();
+                move |core| core.review_plan_of(&subject)
+            })
+            .unwrap_or(Value::Null);
+        let is_report = !plan["packageId"].is_null();
+        if let Some(plan_id) = plan["planId"].as_str() {
+            if is_report || config.review.integration {
+                warm_plan = Some(plan_id.to_string());
+                let answer = deps.kernel.run({
+                    let (subject, role) = (subject_id.to_string(), role.clone());
+                    let max = config.review.max_reviews;
+                    move |core| core.warm_reviewer_for(&subject, &role, max)
+                })?;
+                match (answer["reason"].as_str(), answer["agentId"].as_str()) {
+                    (Some("ok"), Some(agent_id)) => reuse = Some(agent_id.to_string()),
+                    (Some("inactive"), _) => {
+                        // The plan's warm reviewer is gone: free its row so a fresh reviewer can take its place.
+                        let stale = crate::warm::rows(deps)
+                            .into_iter()
+                            .find(|row| row["planId"].as_str() == Some(plan_id));
+                        if let Some(agent_id) =
+                            stale.as_ref().and_then(|row| row["agentId"].as_str())
+                        {
+                            crate::warm::release_row(deps, agent_id, "lost", false);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    // The brief carries what the commit changes, when git can say.
+    let diff_scope = match check["baseSha"].as_str() {
+        Some(base) => match deps.git.diff_stat(base, &commit_sha) {
+            Ok(scope) => Some(scope),
+            Err(error) => {
+                deps.detail_log(
+                    "review_diff_stat_failed",
+                    json!({"subjectId": subject_id, "error": error.message}),
+                );
+                None
+            }
         },
-    )?;
+        None => None,
+    };
+    let mut reused_agent: Option<String> = None;
+    if let Some(agent_id) = reuse {
+        crate::warm::wait_for_verdict_print(&agent_id);
+        match launcher.retarget_review(&agent_id, &commit_sha, subject_id) {
+            Ok(_) => reused_agent = Some(agent_id),
+            Err(error) => {
+                crate::warm::retarget_failed(deps, &error, &agent_id);
+                crate::warm::release_row(deps, &agent_id, "retarget_failed", false);
+                if let Err(release_error) = launcher.release(&agent_id) {
+                    deps.detail_log(
+                        "review_reviewer_not_released",
+                        json!({"agentId": agent_id, "error": format!("LauncherError: {}", release_error.message)}),
+                    );
+                }
+            }
+        }
+    }
+    let (reviewer_agent_id, reviewer_state) = match &reused_agent {
+        Some(agent_id) => (agent_id.clone(), "reused".to_string()),
+        None => {
+            let spawned = crate::warm::spawn_with_eviction(
+                deps,
+                launcher,
+                &role,
+                &SpawnOptions {
+                    base_sha: Some(commit_sha),
+                    review_target: Some(subject_id.to_string()),
+                    ..SpawnOptions::default()
+                },
+            )?;
+            (spawned.agent_id, spawned.state)
+        }
+    };
     // The brief of a project with a gate carries the recorded gate result for the commands in force.
-    let mut input =
-        json!({"subjectId": subject_id, "reviewerRole": role, "reviewerAgentId": spawned.agent_id});
+    let mut input = json!({"subjectId": subject_id, "reviewerRole": role, "reviewerAgentId": reviewer_agent_id});
     if let Some(verify) = &deps.verify {
         input["verifyCommandsSha"] = json!(verify.commands_sha());
+    }
+    if let Some(plan_id) = &warm_plan {
+        input["warmPlanId"] = json!(plan_id);
+    }
+    if let Some(scope) = diff_scope {
+        input["diffScope"] = scope;
     }
     let begun = deps.kernel.run({
         let credential = pm_credential.to_string();
@@ -208,13 +298,20 @@ pub fn request_review(
         }
     });
     match begun {
-        Ok(review) => Ok((review, spawned.state)),
+        Ok(review) => Ok(Requested {
+            review,
+            reviewer_state,
+            reused: reused_agent.is_some(),
+        }),
         Err(error) => {
-            if let Err(release_error) = launcher.release(&spawned.agent_id) {
-                deps.detail_log(
-                    "review_reviewer_not_released",
-                    json!({"agentId": spawned.agent_id, "error": format!("LauncherError: {}", release_error.message)}),
-                );
+            // A reused reviewer stays warm (it is idle at the new commit); a fresh one is released.
+            if reused_agent.is_none() {
+                if let Err(release_error) = launcher.release(&reviewer_agent_id) {
+                    deps.detail_log(
+                        "review_reviewer_not_released",
+                        json!({"agentId": reviewer_agent_id, "error": format!("LauncherError: {}", release_error.message)}),
+                    );
+                }
             }
             Err(error.into())
         }
@@ -244,11 +341,13 @@ pub fn release_reviewer_later(deps: &Deps, review: &Value) {
         });
 }
 
-/// At daemon start: finished reviews whose reviewer is still active (a crash after the verdict) get their reviewer released.
+/// At daemon start: finished reviews whose reviewer is still active (a crash after the verdict) get their reviewer released, except a held
+/// warm reviewer, which stays; a warm row whose agent is no longer active is marked lost.
 pub fn recover_reviews(deps: &Deps, credential: &str) {
     let Some(launcher) = deps.launcher.as_ref() else {
         return;
     };
+    crate::warm::recover_lost(deps);
     let rows = deps.kernel.run({
         let credential = credential.to_string();
         move |core| core.reviews_to_release(&credential)
