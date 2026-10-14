@@ -347,7 +347,14 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     )?;
     let role_table = required_table(root.get("roles"), "roles")?;
     let defaults = resolve_defaults(optional_table(root.get("defaults"), "defaults")?)?;
-    let roles = resolve_roles(role_table, &hosts, project_root, &defaults, &mcp_servers)?;
+    let roles = resolve_roles(
+        role_table,
+        &hosts,
+        project_root,
+        &defaults,
+        &mcp_servers,
+        &mut warnings,
+    )?;
     if roles.iter().filter(|role| role.kind == "PM").count() != 1 {
         return invalid("exactly one role must have kind PM");
     }
@@ -791,6 +798,7 @@ fn resolve_roles(
     project_root: &Path,
     defaults: &Defaults,
     mcp_servers: &[McpServer],
+    warnings: &mut Vec<String>,
 ) -> Result<Vec<Role>> {
     let names = validated_names(table, "roles", "role")?;
     if names.is_empty() {
@@ -881,7 +889,7 @@ fn resolve_roles(
                 1,
             )?),
         };
-        let (prompt, prompt_text) = resolve_prompt(role, &at, name, kind, project_root)?;
+        let (prompt, prompt_text) = resolve_prompt(role, &at, name, kind, project_root, warnings)?;
         if host.kind != "claude" {
             reject_unenforceable(&at, host, kind, permission_mode, &allow, &deny, &mcp)?;
         }
@@ -912,6 +920,7 @@ fn resolve_prompt(
     name: &str,
     kind: &str,
     project_root: &Path,
+    warnings: &mut Vec<String>,
 ) -> Result<(PromptSource, Option<String>)> {
     if role.get("prompt").is_some() && role.get("prompt_file").is_some() {
         return invalid(format!("{at} sets both prompt and prompt_file"));
@@ -962,9 +971,25 @@ fn resolve_prompt(
     if relative.starts_with('/') {
         return invalid(format!("{at}.prompt_file must be relative to the project"));
     }
-    let missing = || ConfigError::Invalid(format!("{at}.prompt_file does not exist"));
-    let real_root = fs::canonicalize(project_root).map_err(|_| missing())?;
-    let real_file = fs::canonicalize(resolve_path(&real_root, relative)).map_err(|_| missing())?;
+    let resolved = fs::canonicalize(project_root)
+        .and_then(|root| fs::canonicalize(resolve_path(&root, relative)).map(|file| (root, file)));
+    let Ok((real_root, real_file)) = resolved else {
+        // A stale prompt_file must not stop the controller when the role has a built-in prompt to fall back on.
+        if let Some(text) = crate::prompts::builtin_role_prompt(name, kind) {
+            warnings.push(format!(
+                "{at}.prompt_file {relative} does not exist; using the built-in {name} prompt (remove the prompt_file line)"
+            ));
+            return Ok((
+                PromptSource {
+                    source: "builtin",
+                    path: None,
+                    hash: Some(sha256(text)),
+                },
+                Some(text.to_string()),
+            ));
+        }
+        return invalid(format!("{at}.prompt_file does not exist"));
+    };
     let (Some(root_text), Some(file_text)) = (real_root.to_str(), real_file.to_str()) else {
         return Err(ConfigError::Unreadable(
             "a project path that is not UTF-8".into(),

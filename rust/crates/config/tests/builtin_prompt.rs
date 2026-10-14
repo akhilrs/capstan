@@ -42,11 +42,9 @@ fn a_legacy_prompt_file_still_wins() {
     assert!(r.prompt.path.is_some() && r.prompt.hash.is_some());
     assert_eq!(r.prompt_text.as_deref(), Some("my own designer text\n"));
     std::fs::remove_file(dir.join(DESIGNER_PROMPT_PATH)).unwrap();
-    let error = role(toml, "designer", &dir).unwrap_err();
-    assert!(
-        error.contains("roles.designer.prompt_file does not exist"),
-        "{error}"
-    );
+    let r = role(toml, "designer", &dir).unwrap();
+    assert_eq!(r.prompt.source, "builtin");
+    assert_eq!(r.prompt_text.as_deref(), Some(DESIGNER_PROMPT));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -95,4 +93,34 @@ fn the_built_in_text_reaches_the_assembled_prompt() {
 fn the_starter_designer_is_still_a_valid_config() {
     // package init removes the starter's prompt_file line; until then the starter's file case keeps working.
     assert!(STARTER_CONFIG.contains("[roles.designer]"));
+}
+
+fn warnings(extra: &str, root: &Path) -> Vec<String> {
+    parse_config(format!("{BASE}{extra}").as_bytes(), root)
+        .unwrap()
+        .warnings
+}
+
+#[test]
+fn a_missing_prompt_file_warns_when_the_role_has_a_built_in() {
+    let toml = "[roles.designer]\nkind = \"Developer\"\nhost = \"claude\"\nprompt_file = \"roles/designer.md\"\n";
+    let w = warnings(toml, Path::new("/nonexistent"));
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(
+        w[0].contains("roles.designer")
+            && w[0].contains("roles/designer.md")
+            && w[0].contains("built-in"),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn a_missing_prompt_file_still_errors_without_a_built_in() {
+    let toml =
+        "[roles.ui]\nkind = \"Developer\"\nhost = \"claude\"\nprompt_file = \"roles/ui.md\"\n";
+    let error = role(toml, "ui", Path::new("/nonexistent")).unwrap_err();
+    assert!(
+        error.contains("roles.ui.prompt_file does not exist"),
+        "{error}"
+    );
 }
