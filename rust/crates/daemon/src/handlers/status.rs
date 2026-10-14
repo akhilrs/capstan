@@ -59,6 +59,15 @@ fn ping(env: &CommandEnv<'_>, _call: &CommandCall<'_>) -> Option<CommandResponse
     Some(ok(Value::Object(result)))
 }
 
+/// The old control row is created disabled and `degraded`, and nothing enables it, so its health is not applicable
+/// rather than a fault: a disabled row reports `disabled`. An enabled row keeps its stored health.
+pub fn disabled_legacy_health(mut legacy: Value) -> Value {
+    if legacy["enabled"] == false && legacy["health"] == "degraded" {
+        legacy["health"] = json!("disabled");
+    }
+    legacy
+}
+
 fn pick(value: &Value, keys: &[&str]) -> Value {
     let mut map = Map::new();
     for key in keys {
@@ -218,7 +227,7 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
             state.extend(activity);
         }
         result.insert("supervisionState".into(), Value::Object(state));
-        result.insert("legacySupervision".into(), legacy);
+        result.insert("legacySupervision".into(), disabled_legacy_health(legacy));
         result.insert("controller".into(), Value::Object(location));
         if let Some(outside) = &outside {
             let unresolved = core.unresolved_messages(&credential, MAX_STATUS_MESSAGES as i64)?;
@@ -238,9 +247,11 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                     ],
                 ),
             );
+            let reason = core.supervision_reason(&credential)?;
+            let disabled = result["legacySupervision"]["health"] == "disabled";
             result.insert(
                 "legacySupervisionReason".into(),
-                core.supervision_reason(&credential)?,
+                if disabled { Value::Null } else { reason },
             );
             result.insert("messagesTruncated".into(), unresolved["truncated"].clone());
             let pm = agents
@@ -460,6 +471,24 @@ mod tests {
 
     fn message(id: &str, state: &str, queued: &str) -> Value {
         json!({"messageId": id, "state": state, "queuedAt": queued})
+    }
+
+    #[test]
+    fn a_disabled_legacy_row_is_not_applicable_and_an_enabled_one_keeps_its_health() {
+        let row = |enabled: bool, health: &str| json!({"enabled": enabled, "health": health});
+        assert_eq!(
+            disabled_legacy_health(row(false, "degraded")),
+            row(false, "disabled")
+        );
+        assert_eq!(
+            disabled_legacy_health(row(true, "degraded")),
+            row(true, "degraded")
+        );
+        assert_eq!(
+            disabled_legacy_health(row(false, "healthy")),
+            row(false, "healthy")
+        );
+        assert_eq!(disabled_legacy_health(Value::Null), Value::Null);
     }
 
     #[test]

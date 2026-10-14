@@ -735,24 +735,30 @@ fn due_finding_ids(kernel: &Kernel, deadline_seconds: i64) -> KernelResult<Vec<S
     Ok(due)
 }
 
-/// `supervisionReason`: why supervision is degraded: the reason of the newest degraded event, or null.
+/// `supervisionReason`: why supervision is degraded, or null when it is not. Never null for a degraded row:
+/// the newest degraded event's reason, else a fixed text naming why the row is degraded without one.
+pub const LEGACY_DISABLED_REASON: &str = "legacy supervision control is disabled: the row starts degraded and nothing enables it; the live loop is in supervisionState";
+pub const NO_RECORDED_REASON: &str = "supervision degraded with no recorded reason";
+
 pub fn supervision_reason(kernel: &Kernel, credential: &str) -> KernelResult<Value> {
     kernel.assert_open()?;
     kernel.authorize(credential, "controller:reconcile")?;
-    let reason = query_opt(
+    let row = query_opt(
         &kernel.database,
-        "SELECT json_extract(e.payload_json, '$.details.reason') AS reason
+        "SELECT c.enabled, json_extract(e.payload_json, '$.details.reason') AS reason
          FROM supervision_control c
          LEFT JOIN controller_events e ON e.project_id = c.project_id
            AND e.sequence = (SELECT MAX(sequence) FROM controller_events
              WHERE project_id = c.project_id AND entity_type = 'run_control' AND to_state = 'degraded')
          WHERE c.project_id = ? AND c.health = 'degraded'",
         [&kernel.project_id],
-        |row| row.get::<_, Sql>(0),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Sql>(1)?)),
     )?;
-    Ok(match reason {
-        Some(Sql::Text(text)) => Value::String(text),
-        _ => Value::Null,
+    Ok(match row {
+        None => Value::Null,
+        Some((_, Sql::Text(text))) if !text.is_empty() => Value::String(text),
+        Some((0, _)) => Value::String(LEGACY_DISABLED_REASON.into()),
+        Some(_) => Value::String(NO_RECORDED_REASON.into()),
     })
 }
 

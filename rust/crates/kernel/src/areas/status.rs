@@ -1532,6 +1532,52 @@ mod tests {
         assert_eq!(reason, json!("golden supervision failure"));
     }
 
+    /// Every degraded condition names its reason; a healthy row has none.
+    #[test]
+    fn supervision_reason_is_set_for_every_degraded_condition() {
+        use crate::areas::findings::{
+            supervision_reason, LEGACY_DISABLED_REASON, NO_RECORDED_REASON,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            directory.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        let info = project(
+            "pdegradedreasons",
+            "owner-degraded-reason-credential-0123456789",
+        );
+        let id = info.project_id.clone();
+        let credential = info.owner_credential.clone();
+        let kernel = open_kernel(directory.path(), &info);
+        let reason = |kernel: &Kernel| supervision_reason(kernel, &credential).unwrap();
+        let set = |sql: &str| {
+            open_ledger(directory.path()).execute(sql, [&id]).unwrap();
+        };
+
+        // A fresh project: disabled, degraded by default, no event.
+        assert_eq!(reason(&kernel), json!(LEGACY_DISABLED_REASON));
+        // Enabled and degraded with no recorded event.
+        set("UPDATE supervision_control SET enabled = 1 WHERE project_id = ?");
+        assert_eq!(reason(&kernel), json!(NO_RECORDED_REASON));
+        // An event whose payload carries no reason.
+        kernel.close();
+        drop(kernel);
+        set_supervision_degraded(&open_ledger(directory.path()), &id, "");
+        let kernel = open_kernel(directory.path(), &info);
+        assert_eq!(reason(&kernel), json!(NO_RECORDED_REASON));
+        // An event with a reason.
+        kernel.close();
+        drop(kernel);
+        set_supervision_degraded(&open_ledger(directory.path()), &id, "checkpoint stale");
+        let kernel = open_kernel(directory.path(), &info);
+        assert_eq!(reason(&kernel), json!("checkpoint stale"));
+        // Healthy: no reason.
+        set("UPDATE supervision_control SET health = 'healthy' WHERE project_id = ?");
+        assert_eq!(reason(&kernel), Value::Null);
+    }
+
     fn inspect_record(kernel: &Kernel, target: &str) -> Value {
         inspect(kernel, target).unwrap()
     }
