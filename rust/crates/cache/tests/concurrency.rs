@@ -2,6 +2,7 @@ mod common;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use capstan_cache::{
@@ -15,8 +16,20 @@ fn build(base: &Path, project: &Path) -> Runtime {
     runtime(&cfg, project)
 }
 
+/// A forked child holds a copy of every descriptor the parent has open until it execs, and a copy
+/// of a held `flock` keeps the lock held. Tests run as threads of one process, so a spawn racing
+/// another test's lock would leak that lock into the child for as long as load delays the exec.
+/// Spawning and every parent-side hold of the store lock take this mutex, so they never overlap.
+static SPAWN_VS_LOCK: Mutex<()> = Mutex::new(());
+
+fn while_not_spawning<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = SPAWN_VS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    f()
+}
+
 /// Re-runs this test binary as a child that executes the named `child_*` test.
 fn spawn_child(test: &str, base: &Path, project: &Path, marker: &Path) -> std::process::Child {
+    let _guard = SPAWN_VS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test, "--nocapture", "--test-threads=1"])
         .env("CACHE_CHILD_BASE", base)
@@ -137,12 +150,13 @@ fn a_clear_killed_between_rename_and_delete_is_recovered() {
     child.wait().unwrap();
     let trash: Vec<_> = fs::read_dir(rt.root.join(".trash")).unwrap().collect();
     assert!(!trash.is_empty(), "the renamed entry waits in .trash");
-    let removed = recover(&rt.root).unwrap();
+    let removed = while_not_spawning(|| recover(&rt.root)).unwrap();
     assert!(!removed.is_empty());
     assert_eq!(fs::read_dir(rt.root.join(".trash")).unwrap().count(), 0);
     rt.ensure().unwrap();
     assert!(rt.root.join("a/x").is_dir() && !rt.root.join("a/x/data").exists());
-    StoreLock::try_acquire(&rt.root).expect("the killed process released the lock");
+    while_not_spawning(|| StoreLock::try_acquire(&rt.root))
+        .expect("the killed process released the lock");
 }
 
 #[test]
@@ -152,7 +166,7 @@ fn a_manifest_write_killed_midway_leaves_the_old_manifest_readable() {
     let rt = build(&base, &project);
     rt.ensure().unwrap();
     let old = Manifest::new(&rt, Vec::new(), 111);
-    capstan_cache::write_manifest(&rt, &old).unwrap();
+    while_not_spawning(|| capstan_cache::write_manifest(&rt, &old)).unwrap();
     let marker = dir.path().join("written");
     let mut child = spawn_child(
         "child_manifest_stalls_before_rename",
@@ -171,7 +185,7 @@ fn a_manifest_write_killed_midway_leaves_the_old_manifest_readable() {
         .unwrap()
         .flatten()
         .any(|e| e.file_name().to_string_lossy().contains(".tmp-")));
-    recover(&rt.root).unwrap();
+    while_not_spawning(|| recover(&rt.root)).unwrap();
     assert!(!fs::read_dir(&rt.root)
         .unwrap()
         .flatten()
