@@ -13,6 +13,9 @@ coverage/
 # Local design screenshots (verification only, not committed)
 design/landing/screens/
 
+# Launch-video build output (the published video lives in site/assets/)
+brag-output*/
+
 # Editor and local backups
 *~
 *.swp
