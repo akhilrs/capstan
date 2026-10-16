@@ -15,6 +15,10 @@
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Configuration](#configuration) · [Commands](#command-reference) · [Safety](#safety-model) · [Docs](docs/reference/)
 
+<a href="https://akhilrs.github.io/capstan/#video"><img alt="Watch Capstan in 22 seconds" src="docs/assets/capstan-launch.jpg" width="720"></a>
+
+<sub>Click to watch Capstan in 22 seconds (with sound).</sub>
+
 </div>
 
 ## What is Capstan
