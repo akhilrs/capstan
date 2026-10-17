@@ -43,11 +43,12 @@ fn absent_keys_resolve_to_the_defaults_and_are_not_printed() {
         assert_eq!(o.timed_safe_commands, DEFAULT_TIMED_SAFE_COMMANDS);
         assert!(!config.to_json().contains("timedGrant"));
         assert!(!config.to_json().contains("timedSafeCommands"));
+        assert!(config.warnings.is_empty());
     }
 }
 
 #[test]
-fn written_values_resolve_and_are_printed() {
+fn written_values_resolve_warn_and_are_not_printed() {
     let config = operator(
         "timed_grant_default_minutes = 10\ntimed_grant_max_minutes = 480\ntimed_safe_commands = [\"git status\", \"ls\"]\n",
     )
@@ -56,16 +57,11 @@ fn written_values_resolve_and_are_printed() {
     assert_eq!(o.timed_grant_default_minutes, 10);
     assert_eq!(o.timed_grant_max_minutes, 480);
     assert_eq!(o.timed_safe_commands, ["git status", "ls"]);
-    let json: String = config
-        .to_json()
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    assert!(json.contains("\"timedGrantDefaultMinutes\":10"), "{json}");
-    assert!(
-        json.contains("\"timedSafeCommands\":[\"gitstatus\",\"ls\"]"),
-        "{json}"
-    );
+    let json = config.to_json();
+    assert!(!json.contains("timedGrant"), "{json}");
+    assert!(!json.contains("timedSafeCommands"), "{json}");
+    assert_eq!(config.warnings.len(), 3, "{:?}", config.warnings);
+    assert!(config.warnings[0].starts_with("operator.timed_grant_default_minutes "));
 }
 
 #[test]
@@ -75,12 +71,15 @@ fn an_empty_list_disables_timed_grants() {
 }
 
 #[test]
-fn minutes_are_range_checked_and_default_must_not_exceed_max() {
+fn minutes_are_range_checked_and_the_deprecated_pair_is_not_cross_checked() {
     assert!(refusal("timed_grant_default_minutes = 0\n").contains("timed_grant_default_minutes"));
     assert!(refusal("timed_grant_max_minutes = 481\n").contains("timed_grant_max_minutes"));
-    let message = refusal("timed_grant_default_minutes = 90\ntimed_grant_max_minutes = 60\n");
-    assert!(message.contains("must not exceed"), "{message}");
-    assert!(refusal("timed_grant_default_minutes = 300\n").contains("must not exceed"));
+    // The deprecated pair is no longer cross-checked: a stale pair only warns.
+    let config =
+        operator("timed_grant_default_minutes = 90\ntimed_grant_max_minutes = 60\n").unwrap();
+    assert_eq!(config.warnings.len(), 2, "{:?}", config.warnings);
+    assert_eq!(config.operator.auto_window_max_minutes, 60);
+    assert!(operator("timed_grant_default_minutes = 300\n").is_ok());
 }
 
 #[test]

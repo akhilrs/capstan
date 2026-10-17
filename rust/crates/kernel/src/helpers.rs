@@ -1460,3 +1460,120 @@ pub fn decrypt_actor_result(
         })?;
     Ok(serde_json::from_slice(&plain)?)
 }
+
+// ------------------------------------------------------------------------------------------ approval window notices
+
+/// The normal notice to the PM when a window opens. `floor` is the configured floor when the caller knows it.
+pub fn window_opened_notice(
+    window: &Value,
+    source: &str,
+    floor: Option<&[String]>,
+    tool_prompts: bool,
+    relay_sourced: bool,
+) -> String {
+    let text = |key: &str| window[key].as_str().unwrap_or("");
+    let mut parts = vec![
+        format!(
+            "Approval window {} is open for {} minutes ({}) until {}, opened from {source}.",
+            text("windowId"),
+            window["minutes"],
+            text("kind"),
+            text("expiresAt")
+        ),
+        "Inside it the controller approves Operator command proposals and answers worker prompts with an option that asks once, without asking the user. It never picks an option that widens permissions, types text or presses Esc.".to_string(),
+        if tool_prompts {
+            format!("It also answers non-file tool prompts. {}", capstan_config::TOOL_PROMPT_DISCLOSURE)
+        } else {
+            "It does not answer non-file tool prompts.".to_string()
+        },
+    ];
+    match floor {
+        Some([]) => parts.push(
+            "WARNING: the approval floor is empty, so nothing is held back for the user."
+                .to_string(),
+        ),
+        Some(entries) => parts.push(format!(
+            "These always need the user, even inside the window: {}.",
+            entries.join("; ")
+        )),
+        None => {}
+    }
+    parts.push(capstan_config::FLOOR_DISCLOSURE.to_string());
+    if relay_sourced {
+        parts.push(
+            "A window opened from a worker prompt also covers later Operator proposals."
+                .to_string(),
+        );
+    }
+    parts.push(
+        "It ends at its time cap, when it is revoked or replaced, or when the controller restarts."
+            .to_string(),
+    );
+    parts.join(" ")
+}
+
+/// The normal notice when a window ends.
+pub fn window_ended_notice(window_id: &str, reason: &str) -> String {
+    let why = match reason {
+        "expired" => "reached its time cap",
+        "revoked" => "was revoked",
+        "replaced" => "was replaced by a newer window",
+        _ => "ended because the controller restarted",
+    };
+    format!("Approval window {window_id} {why}. Operator proposals and worker prompts need the user again.")
+}
+
+/// The normal notice when the Operator agent of a window is released.
+pub fn window_operator_ended_notice(window_id: &str) -> String {
+    format!("The Operator part of approval window {window_id} ended because the Operator agent was released. Operator proposals need a decision again; worker prompts are still answered inside the window.")
+}
+
+fn unchecked_suffix(unchecked_reason: Option<&str>) -> String {
+    match unchecked_reason {
+        None => String::new(),
+        Some(reason) => format!(" Approved without the floor check: {reason}"),
+    }
+}
+
+/// The info notice when a window approves an Operator proposal.
+pub fn window_used_notice(
+    proposal_id: &str,
+    window_id: &str,
+    unchecked_reason: Option<&str>,
+) -> String {
+    format!(
+        "Operator proposal {proposal_id} was approved by approval window {window_id}.{}",
+        unchecked_suffix(unchecked_reason)
+    )
+}
+
+/// The info notice when a window answers a worker prompt.
+pub fn window_answered_notice(
+    relay_id: &str,
+    agent_id: &str,
+    option: i64,
+    window_id: &str,
+    unchecked_reason: Option<&str>,
+) -> String {
+    format!(
+        "Prompt relay {relay_id} of {agent_id} was answered with option {option} by approval window {window_id}.{}",
+        unchecked_suffix(unchecked_reason)
+    )
+}
+
+/// The sentence added to the PM's proposal notice when the floor held a proposal back.
+pub fn window_floor_proposal_note(window_id: &str, entry: &str, detail: &str) -> String {
+    format!(" It needs the user even inside approval window {window_id}: it matches the floor entry \"{entry}\" ({detail}).")
+}
+
+/// The notice when a prompt hit the floor and waits for the user.
+pub fn window_floor_hit_notice(
+    window_id: &str,
+    relay_id: &str,
+    agent_id: &str,
+    action: &str,
+    entry: &str,
+    detail: &str,
+) -> String {
+    format!("Prompt relay {relay_id} of {agent_id} needs the user even inside approval window {window_id}: \"{action}\" matches the floor entry \"{entry}\" ({detail}).")
+}

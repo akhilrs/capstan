@@ -40,6 +40,7 @@ const ROLL_BACK: &str = "
   DROP INDEX assignments_by_seat_authority;
   DELETE FROM schema_migrations WHERE version >= 30;
   DROP TABLE prompt_relays;
+  DROP TABLE approval_windows;
   DELETE FROM role_capabilities WHERE capability = 'prompt:relay';
   DELETE FROM capability_grants WHERE capability = 'prompt:relay';
 ";
@@ -86,7 +87,7 @@ fn an_existing_ledger_that_lacks_0030_migrates_keeps_its_data_and_backfills_the_
         "every migration is recorded again"
     );
     let grants: Vec<String> = database
-        .prepare("SELECT actor_id FROM capability_grants WHERE capability = 'prompt:relay' AND revoked_at IS NULL")
+        .prepare("SELECT actor_id FROM capability_grants WHERE capability = 'prompt:relay' AND revoked_at IS NULL AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM')")
         .unwrap()
         .query_map([], |row| row.get(0))
         .unwrap()
@@ -98,6 +99,8 @@ fn an_existing_ledger_that_lacks_0030_migrates_keeps_its_data_and_backfills_the_
         "only the active PM actor is granted, and only once"
     );
     assert_eq!(count(&database, "SELECT count(*) FROM role_capabilities WHERE capability = 'prompt:relay' AND role = 'PM'"), 1);
+    // Migration 0047 also gives the controller the capability, once.
+    assert_eq!(count(&database, "SELECT count(*) FROM capability_grants WHERE capability = 'prompt:relay' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'controller')"), 1);
     assert_eq!(
         count(&database, "SELECT count(*) FROM prompt_relays"),
         0,

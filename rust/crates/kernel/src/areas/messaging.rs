@@ -77,6 +77,10 @@ pub const NOTICE_KINDS: &[(&str, MessageClass, bool)] = &[
     ("restart_result", MessageClass::Info, true),
     ("operator_notice", MessageClass::Info, true),
     ("operator_message", MessageClass::Action, false),
+    ("auto_approved", MessageClass::Info, true),
+    ("auto_answered", MessageClass::Info, true),
+    ("approval_window", MessageClass::Action, false),
+    ("approval_floor_hit", MessageClass::Action, false),
 ];
 
 /// The table's row for a kind.

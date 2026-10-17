@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod agents;
+pub mod approval_windows;
 pub mod cleanups;
 pub mod design_approvals;
 pub mod findings;

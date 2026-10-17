@@ -7,7 +7,9 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::error::{invalid, ConfigError, Result};
 use crate::json::{role_hash, sha256};
-use crate::operator_policy::{auto_approve_rule_problem, timed_safe_command_problem};
+use crate::operator_policy::{
+    approval_floor_entry_problem, auto_approve_rule_problem, timed_safe_command_problem,
+};
 use crate::primitives::*;
 use crate::researcher_policy::researcher_rule_problems;
 use crate::text::{len16, trim};
@@ -369,6 +371,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         &roles,
         &hosts,
         &architect,
+        &mut warnings,
     )?;
     let researcher = resolve_researcher(
         optional_table(root.get("researcher"), "researcher")?,
@@ -1313,6 +1316,29 @@ fn timed_safe_commands(value: Option<&Item>) -> Result<Vec<String>> {
     Ok(entries)
 }
 
+/// `operator.approval_floor`: absent is the built-in floor; `[]` is accepted with a warning.
+fn approval_floor(value: Option<&Item>, warnings: &mut Vec<String>) -> Result<Vec<String>> {
+    let at = "operator.approval_floor";
+    if value.is_none() {
+        return Ok(DEFAULT_APPROVAL_FLOOR
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect());
+    }
+    let entries = string_list(value, at, MAX_LIST_ENTRIES)?;
+    for (index, entry) in entries.iter().enumerate() {
+        if let Some(problem) = approval_floor_entry_problem(entry) {
+            return invalid(format!("{at}[{index}] {problem}"));
+        }
+    }
+    if entries.is_empty() {
+        warnings.push(format!(
+            "{at} is empty: an auto-approval window will answer every file-tool prompt without a floor check"
+        ));
+    }
+    Ok(entries)
+}
+
 fn resolve_prompt_relay(table: &Table, present: bool) -> Result<PromptRelay> {
     reject_unknown_keys(table, &["enabled", "capture_ttl_seconds"], "prompt_relay")?;
     Ok(PromptRelay {
@@ -1352,6 +1378,7 @@ fn resolve_operator(
     roles: &[Role],
     hosts: &[Host],
     architect: &Architect,
+    warnings: &mut Vec<String>,
 ) -> Result<Operator> {
     reject_unknown_keys(
         table,
@@ -1375,6 +1402,9 @@ fn resolve_operator(
             "timed_grant_default_minutes",
             "timed_grant_max_minutes",
             "timed_safe_commands",
+            "approval_floor",
+            "auto_window_max_minutes",
+            "auto_window_tool_prompts",
         ],
         "operator",
     )?;
@@ -1458,12 +1488,42 @@ fn resolve_operator(
             240,
         )?,
         timed_safe_commands: timed_safe_commands(table.get("timed_safe_commands"))?,
+        auto_window_written: [
+            "approval_floor",
+            "auto_window_max_minutes",
+            "auto_window_tool_prompts",
+        ]
+        .iter()
+        .any(|key| table.get(key).is_some()),
+        approval_floor: approval_floor(table.get("approval_floor"), warnings)?,
+        auto_window_max_minutes: match table.get("auto_window_max_minutes") {
+            Some(_) => int(
+                "auto_window_max_minutes",
+                1,
+                OPERATOR_HARD_MAX_SESSION_MINUTES,
+                240,
+            )?,
+            None => int(
+                "timed_grant_max_minutes",
+                1,
+                OPERATOR_HARD_MAX_SESSION_MINUTES,
+                240,
+            )?,
+        },
+        auto_window_tool_prompts: optional_boolean(
+            table.get("auto_window_tool_prompts"),
+            "operator.auto_window_tool_prompts",
+            true,
+        )?,
     };
-    if operator.timed_grant_default_minutes > operator.timed_grant_max_minutes {
-        return invalid(format!(
-            "operator.timed_grant_default_minutes ({}) must not exceed operator.timed_grant_max_minutes ({})",
-            operator.timed_grant_default_minutes, operator.timed_grant_max_minutes
-        ));
+    for key in [
+        "timed_grant_default_minutes",
+        "timed_grant_max_minutes",
+        "timed_safe_commands",
+    ] {
+        if table.get(key).is_some() {
+            warnings.push(format!("operator.{key} {TIMED_GRANT_REMOVED}"));
+        }
     }
     if operator.full_auto_default_minutes > operator.full_auto_max_minutes {
         return invalid(format!(

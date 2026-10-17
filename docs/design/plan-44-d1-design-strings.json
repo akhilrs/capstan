@@ -1,0 +1,37 @@
+[
+  {
+    "id": "line.window.open",
+    "template": "AUTO-APPROVE {left} min left, Operator and workers ({windowId})",
+    "colourRole": "warn",
+    "maxWidth": { "80": 80, "40": 40 },
+    "truncate": "end"
+  },
+  {
+    "id": "line.window.operatorEnded",
+    "template": "AUTO-APPROVE {left} min left, workers only; Operator ended ({windowId})",
+    "colourRole": "warn",
+    "maxWidth": { "80": 80, "40": 40 },
+    "truncate": "end"
+  },
+  {
+    "id": "status.window.none",
+    "template": "AUTO-APPROVE off: no window open",
+    "colourRole": "dim",
+    "maxWidth": { "80": 32, "40": 32 },
+    "truncate": "none"
+  },
+  {
+    "id": "dash.window.open",
+    "template": "AUTO-APPROVE {left}m",
+    "colourRole": "warn",
+    "maxWidth": { "80": 17, "40": 0 },
+    "truncate": "none"
+  },
+  {
+    "id": "dash.window.operatorEnded",
+    "template": "AUTO-APPROVE {left}m workers",
+    "colourRole": "warn",
+    "maxWidth": { "80": 25, "40": 0 },
+    "truncate": "none"
+  }
+]

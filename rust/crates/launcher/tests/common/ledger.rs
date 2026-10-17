@@ -159,9 +159,19 @@ pub fn dump_tables(core: &Core) -> Value {
             .filter(|c| !(name == "schema_migrations" && c == "applied_at"))
             // Rust-only column (the frozen Node corpus predates message classes).
             .filter(|c| !(name == "messages" && c == "class"))
+            .filter(|c| {
+                !(name == "prompt_relays"
+                    && matches!(c.as_str(), "auto_window_id" | "auto_begin_at"))
+            })
             .collect();
+        // The controller's prompt:relay grant (migration 0047) is Rust-only, like the later migrations.
+        let only_node = match name.as_str() {
+            "role_capabilities" => " WHERE NOT (role = 'controller' AND capability = 'prompt:relay')",
+            "capability_grants" => " WHERE NOT (capability = 'prompt:relay' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'controller'))",
+            _ => "",
+        };
         let sql = format!(
-            "SELECT json_array({0}) FROM {name} ORDER BY {0}",
+            "SELECT json_array({0}) FROM {name}{only_node} ORDER BY {0}",
             columns.join(", ")
         );
         let rows: Vec<Value> = connection

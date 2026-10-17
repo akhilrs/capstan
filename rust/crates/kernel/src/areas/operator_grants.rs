@@ -8,11 +8,11 @@ use crate::records::{AgentRow, MutationEvent, MutationOutput};
 use crate::types::MutationContext;
 use serde_json::{json, Value};
 
-use super::message_notices;
 use super::messaging::parse_iso_ms;
 use super::operator_proposals::{
     self, ended_without_run_notice, full_auto_notice, grant_ended_notice, FULL_AUTO_RULE,
 };
+use super::{approval_windows, message_notices};
 use rusqlite::Row;
 
 struct GrantRow {
@@ -126,7 +126,7 @@ pub fn list_operator_grants(kernel: &Kernel, limit: Option<i64>) -> KernelResult
 }
 
 /// `endOperatorGrantsOf`: the session grants approved for an agent's proposals end when the agent is released or
-/// replaced. The caller owns the transaction.
+/// replaced, and so does the Operator part of the open approval window. The caller owns the transaction.
 pub(crate) fn end_operator_grants_of(kernel: &Kernel, agent_id: &str) -> KernelResult<()> {
     execute(
         &kernel.database,
@@ -135,7 +135,7 @@ pub(crate) fn end_operator_grants_of(kernel: &Kernel, agent_id: &str) -> KernelR
            (SELECT proposal_id FROM operator_proposals WHERE project_id = ? AND proposer_agent_id = ?)",
         [&kernel.project_id, &kernel.project_id, agent_id],
     )?;
-    Ok(())
+    approval_windows::end_operator_part_of(kernel, agent_id)
 }
 
 fn due_ids(kernel: &Kernel, also_due: Option<&[String]>) -> KernelResult<Vec<String>> {
@@ -505,6 +505,6 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let proposal_id = arg!(a.str(1, "proposalId"));
             Some(call(end_full_auto_proposal(kernel, &context, proposal_id)))
         }
-        _ => None,
+        _ => approval_windows::dispatch(kernel, op, args),
     }
 }

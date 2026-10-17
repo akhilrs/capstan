@@ -102,6 +102,32 @@ fn ledger_0037(file: &Path) {
     .unwrap();
 }
 
+/// Migration 0047 gives the controller `prompt:relay`: one role_capabilities row and one capability_grants row per
+/// controller. They are the only rows it adds to these tables, so a comparison of the old rows leaves them out.
+fn without_controller_relay(
+    file: &Path,
+    mut dump: std::collections::BTreeMap<String, Vec<String>>,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let conn = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let controllers: Vec<String> = conn
+        .prepare("SELECT quote(actor_id) FROM actors WHERE role = 'controller'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    if let Some(rows) = dump.get_mut("role_capabilities") {
+        rows.retain(|row| row != "'controller'|'prompt:relay'");
+    }
+    if let Some(rows) = dump.get_mut("capability_grants") {
+        rows.retain(|row| {
+            let fields: Vec<&str> = row.split('|').collect();
+            !(fields[2] == "'prompt:relay'" && controllers.iter().any(|c| c == fields[1]))
+        });
+    }
+    dump
+}
+
 #[test]
 fn a_ledger_at_schema_37_migrates_to_38_with_every_row_intact() {
     let (dir, file) = scratch();
@@ -110,7 +136,7 @@ fn a_ledger_at_schema_37_migrates_to_38_with_every_row_intact() {
     assert_eq!(before["schema_migrations"].len(), 37);
     assert_eq!(before["integrations"].len(), 1);
     open_database(&file, &keep_all()).unwrap().close().unwrap();
-    let mut after = row_dump(&file);
+    let mut after = without_controller_relay(&file, row_dump(&file));
     let migrations_after = after.remove("schema_migrations").unwrap();
     assert_eq!(
         migrations_after.len() as i64,

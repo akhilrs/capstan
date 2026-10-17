@@ -73,22 +73,30 @@ fn without_rust_only(value: &Value) -> Value {
             let plan_record = map.contains_key("planId") && map.contains_key("approvedRevision");
             let plan_revision = map.contains_key("bodySha") && map.contains_key("amendsReviewId");
             let package_record = map.contains_key("packageId") && map.contains_key("progress");
-            Value::Object(
-                map.iter()
-                    .filter(|(key, v)| {
-                        !(message_record && key.as_str() == "class"
-                            || summary && matches!(key.as_str(), "wakeCount" | "infoCount")
-                            || plan_record && key.as_str() == "maxReviewRounds"
-                            || package_record
-                                && matches!(key.as_str(), "design" | "designDecision")
-                                && (v.is_null() || v.as_bool() == Some(false))
-                            || plan_revision
-                                && matches!(key.as_str(), "amendment" | "amendsReviewId")
-                                && v.is_null())
-                    })
-                    .map(|(key, v)| (key.clone(), without_rust_only(v)))
-                    .collect(),
-            )
+            // The controller's capabilities include prompt:relay (migration 0047), which the Node corpus never had.
+            let controller = map.get("role").and_then(Value::as_str) == Some("controller");
+            let mut kept: Map<String, Value> = map
+                .iter()
+                .filter(|(key, v)| {
+                    !(matches!(key.as_str(), "auto_window_id" | "auto_begin_at") && v.is_null()
+                        || message_record && key.as_str() == "class"
+                        || summary && matches!(key.as_str(), "wakeCount" | "infoCount")
+                        || plan_record && key.as_str() == "maxReviewRounds"
+                        || package_record
+                            && matches!(key.as_str(), "design" | "designDecision")
+                            && (v.is_null() || v.as_bool() == Some(false))
+                        || plan_revision
+                            && matches!(key.as_str(), "amendment" | "amendsReviewId")
+                            && v.is_null())
+                })
+                .map(|(key, v)| (key.clone(), without_rust_only(v)))
+                .collect();
+            if let (true, Some(Value::Array(capabilities))) =
+                (controller, kept.get_mut("capabilities"))
+            {
+                capabilities.retain(|capability| capability != "prompt:relay");
+            }
+            Value::Object(kept)
         }
         Value::Array(items) => Value::Array(items.iter().map(without_rust_only).collect()),
         other => other.clone(),
@@ -231,12 +239,18 @@ pub fn dump_tables(file: &Path) -> Value {
                     && matches!(c.as_str(), "amendment_json" | "amends_review_id"))
             })
             .filter(|c| !(name == "reviews" && c == "findings_class"))
+            .filter(|c| {
+                !(name == "prompt_relays"
+                    && matches!(c.as_str(), "auto_window_id" | "auto_begin_at"))
+            })
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
-        let only_node = if name == "schema_migrations" {
-            format!(" WHERE version <= {NODE_LAST_MIGRATION}")
-        } else {
-            String::new()
+        // The controller's prompt:relay grant (migration 0047) is Rust-only, like the later migrations.
+        let only_node = match name.as_str() {
+            "schema_migrations" => format!(" WHERE version <= {NODE_LAST_MIGRATION}"),
+            "role_capabilities" => " WHERE NOT (role = 'controller' AND capability = 'prompt:relay')".to_string(),
+            "capability_grants" => " WHERE NOT (capability = 'prompt:relay' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'controller'))".to_string(),
+            _ => String::new(),
         };
         let sql = format!(
             "SELECT {} FROM {name}{only_node} ORDER BY {}",

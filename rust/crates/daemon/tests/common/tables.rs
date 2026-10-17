@@ -45,12 +45,18 @@ pub fn dump_tables(file: &Path) -> Value {
                     && matches!(c.as_str(), "amendment_json" | "amends_review_id"))
             })
             .filter(|c| !(name == "reviews" && c == "findings_class"))
+            .filter(|c| {
+                !(name == "prompt_relays"
+                    && matches!(c.as_str(), "auto_window_id" | "auto_begin_at"))
+            })
             .collect();
         let order: Vec<String> = (1..=columns.len()).map(|i| i.to_string()).collect();
-        let only_node = if name == "schema_migrations" {
-            format!(" WHERE version <= {NODE_LAST_MIGRATION}")
-        } else {
-            String::new()
+        // The controller's prompt:relay grant (migration 0047) is Rust-only, like the later migrations.
+        let only_node = match name.as_str() {
+            "schema_migrations" => format!(" WHERE version <= {NODE_LAST_MIGRATION}"),
+            "role_capabilities" => " WHERE NOT (role = 'controller' AND capability = 'prompt:relay')".to_string(),
+            "capability_grants" => " WHERE NOT (capability = 'prompt:relay' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'controller'))".to_string(),
+            _ => String::new(),
         };
         let sql = format!(
             "SELECT {} FROM {name}{only_node} ORDER BY {}",

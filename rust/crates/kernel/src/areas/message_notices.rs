@@ -8,6 +8,7 @@ use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     advance, agent_stuck_notice, assert_timers, delivery_problem_notice, execute, exists,
     message_record, one_line_text, query_all, query_opt, safe_id, safe_id_str,
+    window_floor_hit_notice,
 };
 use crate::kernel::Kernel;
 use crate::records::{
@@ -636,6 +637,63 @@ pub fn queue_input_blocked_notice(
     )
 }
 
+/// `queueFloorHitNotice`: the PM is told once per relay that a prompt hit the approval floor and waits for the user.
+pub fn queue_floor_hit_notice(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
+    kernel.authorize(&context.credential, "controller:reconcile")?;
+    let null = Value::Null;
+    let field = |name: &str| input.get(name).unwrap_or(&null);
+    let window_id = safe_id(field("windowId"), "window id")?.to_string();
+    let relay_id = safe_id(field("relayId"), "relay id")?.to_string();
+    let agent_id = safe_id(field("agentId"), "agent id")?.to_string();
+    let text = |name: &str| {
+        field(name)
+            .as_str()
+            .map(|text| one_line_text(text, 200))
+            .filter(|text| !text.is_empty())
+            .ok_or_else(|| KernelError::type_error(format!("the floor hit {name} must be text")))
+    };
+    let (action, entry, detail) = (text("action")?, text("entry")?, text("detail")?);
+    let episode = format!("floor-hit:{relay_id}");
+    let known = exists(
+        &kernel.database,
+        "SELECT 1 AS present FROM pm_notices WHERE project_id = ? AND kind = 'blocked' AND subject = ? AND episode = ?",
+        [&kernel.project_id, &agent_id, &episode],
+    )?;
+    if known || notice_parties(kernel)?.is_none() {
+        return Ok(json!({"queued": false}));
+    }
+    let body = window_floor_hit_notice(&window_id, &relay_id, &agent_id, &action, &entry, &detail);
+    kernel.mutate(
+        context,
+        "pm.floor_hit",
+        "controller:reconcile",
+        input,
+        |_| {
+            let queued = queue_pm_notice(
+                kernel,
+                "approval_floor_hit",
+                "blocked",
+                &agent_id,
+                &episode,
+                &body,
+                &kernel.now(),
+                true,
+            )?;
+            Ok(MutationOutput::new(
+                json!({"queued": queued}),
+                notice_event(
+                    kernel,
+                    json!({"queued": queued, "windowId": window_id, "relayId": relay_id, "entry": entry}),
+                ),
+            ))
+        },
+    )
+}
+
 fn episode_text(episode: &Value) -> String {
     match episode.get("episodeMs") {
         Some(Value::Number(n)) => js_number(n),
@@ -1051,6 +1109,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         "queueMissingDeliveryNotices" => {
             let context = arg!(a.ctx(0));
             Some(call(queue_missing_delivery_notices(kernel, &context)))
+        }
+        "queueFloorHitNotice" => {
+            let context = arg!(a.ctx(0));
+            let input = a.value(1);
+            Some(call(queue_floor_hit_notice(kernel, &context, input)))
         }
         "queueInputBlockedNotice" => {
             let context = arg!(a.ctx(0));

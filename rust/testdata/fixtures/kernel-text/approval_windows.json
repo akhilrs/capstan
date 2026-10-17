@@ -1,0 +1,147 @@
+{
+  "windowOpenedNotice": [
+    {
+      "window": {
+        "windowId": "win-1",
+        "kind": "minutes",
+        "minutes": 30,
+        "expiresAt": "2026-01-01T00:30:00.000Z"
+      },
+      "source": "Operator proposal op-3",
+      "floor": [
+        "git push --force",
+        "@controller-restart"
+      ],
+      "toolPrompts": false,
+      "relaySourced": false,
+      "result": "Approval window win-1 is open for 30 minutes (minutes) until 2026-01-01T00:30:00.000Z, opened from Operator proposal op-3. Inside it the controller approves Operator command proposals and answers worker prompts with an option that asks once, without asking the user. It never picks an option that widens permissions, types text or presses Esc. It does not answer non-file tool prompts. These always need the user, even inside the window: git push --force; @controller-restart. The floor is not a sandbox; scripts and shells are approved unchecked during a window. It ends at its time cap, when it is revoked or replaced, or when the controller restarts."
+    },
+    {
+      "window": {
+        "windowId": "win-2",
+        "kind": "hour",
+        "minutes": 60,
+        "expiresAt": "2026-01-01T01:00:00.000Z"
+      },
+      "source": "prompt relay relay-2",
+      "floor": [],
+      "toolPrompts": true,
+      "relaySourced": true,
+      "result": "Approval window win-2 is open for 60 minutes (hour) until 2026-01-01T01:00:00.000Z, opened from prompt relay relay-2. Inside it the controller approves Operator command proposals and answers worker prompts with an option that asks once, without asking the user. It never picks an option that widens permissions, types text or presses Esc. It also answers non-file tool prompts. Web fetch, MCP and other non-file tool prompts are answered without a floor check. WARNING: the approval floor is empty, so nothing is held back for the user. The floor is not a sandbox; scripts and shells are approved unchecked during a window. A window opened from a worker prompt also covers later Operator proposals. It ends at its time cap, when it is revoked or replaced, or when the controller restarts."
+    },
+    {
+      "window": {
+        "windowId": "win-1",
+        "kind": "minutes",
+        "minutes": 30,
+        "expiresAt": "2026-01-01T00:30:00.000Z"
+      },
+      "source": "Operator proposal op-4",
+      "floor": null,
+      "toolPrompts": false,
+      "relaySourced": false,
+      "result": "Approval window win-1 is open for 30 minutes (minutes) until 2026-01-01T00:30:00.000Z, opened from Operator proposal op-4. Inside it the controller approves Operator command proposals and answers worker prompts with an option that asks once, without asking the user. It never picks an option that widens permissions, types text or presses Esc. It does not answer non-file tool prompts. The floor is not a sandbox; scripts and shells are approved unchecked during a window. It ends at its time cap, when it is revoked or replaced, or when the controller restarts."
+    }
+  ],
+  "windowEndedNotice": [
+    {
+      "args": [
+        "win-1",
+        "expired"
+      ],
+      "result": "Approval window win-1 reached its time cap. Operator proposals and worker prompts need the user again."
+    },
+    {
+      "args": [
+        "win-1",
+        "revoked"
+      ],
+      "result": "Approval window win-1 was revoked. Operator proposals and worker prompts need the user again."
+    },
+    {
+      "args": [
+        "win-1",
+        "replaced"
+      ],
+      "result": "Approval window win-1 was replaced by a newer window. Operator proposals and worker prompts need the user again."
+    },
+    {
+      "args": [
+        "win-1",
+        "restart"
+      ],
+      "result": "Approval window win-1 ended because the controller restarted. Operator proposals and worker prompts need the user again."
+    }
+  ],
+  "windowOperatorEndedNotice": [
+    {
+      "args": [
+        "win-1"
+      ],
+      "result": "The Operator part of approval window win-1 ended because the Operator agent was released. Operator proposals need a decision again; worker prompts are still answered inside the window."
+    }
+  ],
+  "windowUsedNotice": [
+    {
+      "args": [
+        "op-5",
+        "win-1",
+        null
+      ],
+      "result": "Operator proposal op-5 was approved by approval window win-1."
+    },
+    {
+      "args": [
+        "op-5",
+        "win-1",
+        "runs a script the floor cannot read"
+      ],
+      "result": "Operator proposal op-5 was approved by approval window win-1. Approved without the floor check: runs a script the floor cannot read"
+    }
+  ],
+  "windowAnsweredNotice": [
+    {
+      "args": [
+        "relay-2",
+        "dev-2",
+        1,
+        "win-1",
+        null
+      ],
+      "result": "Prompt relay relay-2 of dev-2 was answered with option 1 by approval window win-1."
+    },
+    {
+      "args": [
+        "relay-2",
+        "dev-2",
+        1,
+        "win-1",
+        "a shell it cannot parse"
+      ],
+      "result": "Prompt relay relay-2 of dev-2 was answered with option 1 by approval window win-1. Approved without the floor check: a shell it cannot parse"
+    }
+  ],
+  "windowFloorProposalNote": [
+    {
+      "args": [
+        "win-1",
+        "git push --force",
+        "force push"
+      ],
+      "result": " It needs the user even inside approval window win-1: it matches the floor entry \"git push --force\" (force push)."
+    }
+  ],
+  "windowFloorHitNotice": [
+    {
+      "args": [
+        "win-1",
+        "relay-2",
+        "dev-2",
+        "git push --force",
+        "git push --force",
+        "force push"
+      ],
+      "result": "Prompt relay relay-2 of dev-2 needs the user even inside approval window win-1: \"git push --force\" matches the floor entry \"git push --force\" (force push)."
+    }
+  ]
+}

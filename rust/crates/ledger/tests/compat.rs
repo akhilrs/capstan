@@ -752,13 +752,36 @@ fn columns_of_every_table(file: &Path) -> Rows {
 }
 
 /// The rows of the v0.4.1 ledger, before and after this build migrates it, over the tables and columns it had.
+/// Migration 0047 gives the controller `prompt:relay`: one role_capabilities row and one capability_grants row per
+/// controller. They are the only rows it adds to these tables, so a comparison of the old rows leaves them out.
+fn without_controller_relay(file: &Path, mut dump: Rows) -> Rows {
+    let conn = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let controllers: Vec<String> = conn
+        .prepare("SELECT quote(actor_id) FROM actors WHERE role = 'controller'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    if let Some(rows) = dump.get_mut("role_capabilities") {
+        rows.retain(|row| row != "'controller'|'prompt:relay'");
+    }
+    if let Some(rows) = dump.get_mut("capability_grants") {
+        rows.retain(|row| {
+            let fields: Vec<&str> = row.split('|').collect();
+            !(fields[2] == "'prompt:relay'" && controllers.iter().any(|c| c == fields[1]))
+        });
+    }
+    dump
+}
+
 fn v041_before_and_after() -> (Rows, Rows, PathBuf, tempfile::TempDir) {
     let (dir, file) = scratch();
     std::fs::copy(v041_fixture(), &file).unwrap();
     let shape = columns_of_every_table(&file);
     let before = row_dump(&file, None);
     open_database(&file, &keep_all()).unwrap().close().unwrap();
-    let after = row_dump(&file, Some(&shape));
+    let after = without_controller_relay(&file, row_dump(&file, Some(&shape)));
     (before, after, file, dir)
 }
 
