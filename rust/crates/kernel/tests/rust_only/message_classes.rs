@@ -59,6 +59,8 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         "cleanup_done",
         "verify_finished",
         "restart_result",
+        "auto_approved",
+        "auto_answered",
     ] {
         assert_eq!(notice_kind(kind).unwrap().1, MessageClass::Info, "{kind}");
     }
@@ -72,6 +74,8 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         "agent_stalled",
         "agent_blocked",
         "agent_lost",
+        "approval_window",
+        "approval_floor_hit",
     ] {
         assert_eq!(notice_kind(kind).unwrap().1, MessageClass::Action, "{kind}");
     }

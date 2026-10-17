@@ -3,6 +3,7 @@
 //! (test/prompt-relay-ledger.test.ts). They state the behaviour as the Node tests described it and build every state through
 //! the kernel, with the database edited only where a Node test edited it (raw SQL on the closed ledger).
 
+mod approval_windows;
 mod design_approvals;
 mod fixture;
 mod id_prefix;

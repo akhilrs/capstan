@@ -3,6 +3,7 @@
 //! owns each.
 
 pub mod api;
+pub mod floor;
 pub mod policy;
 pub mod restart;
 pub mod restart_helper;

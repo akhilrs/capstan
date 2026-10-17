@@ -3,7 +3,9 @@
 
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
-use crate::helpers::{execute, is_js_space, js_trim, query_all, query_opt, safe_id, safe_text};
+use crate::helpers::{
+    execute, is_js_space, js_trim, query_all, query_opt, safe_id, safe_text, window_answered_notice,
+};
 use crate::json::stringify;
 use crate::kernel::Kernel;
 use crate::records::{AgentRow, MutationEvent, MutationOutput, PROMPT_RELAY_TEXT_MAX_CHARS};
@@ -14,6 +16,8 @@ use rusqlite::Row;
 use serde_json::{json, Map, Value};
 use std::sync::LazyLock;
 
+use super::approval_windows::{self, OpenNoticeInput, WindowSource, WindowSpec};
+use super::message_notices;
 use super::messaging::parse_iso_ms;
 
 const RELAY_TEXT_MAX_BYTES: usize = 1000;
@@ -124,6 +128,7 @@ struct RelayRow {
     answered_at: Option<String>,
     outcome_reason: Option<String>,
     keys_json: Option<String>,
+    auto_window_id: Option<String>,
 }
 
 impl RelayRow {
@@ -149,6 +154,7 @@ impl RelayRow {
             answered_at: row.get("answered_at")?,
             outcome_reason: row.get("outcome_reason")?,
             keys_json: row.get("keys_json")?,
+            auto_window_id: row.get("auto_window_id")?,
         })
     }
 
@@ -225,6 +231,27 @@ fn active_pm_of(kernel: &Kernel, actor_id: &str) -> KernelResult<AgentRow> {
         Some(agent) if agent.kind == "PM" => Ok(agent),
         _ => Err(KernelError::controller(
             "forbidden: only an active PM agent relays prompts",
+        )),
+    }
+}
+
+/// The actor of a window request is the controller itself, never a PM or a worker.
+fn controller_of(actor: &crate::auth::AuthenticatedActor) -> KernelResult<()> {
+    if actor.role == "controller" {
+        Ok(())
+    } else {
+        Err(KernelError::controller(
+            "forbidden: only the controller answers inside an approval window",
+        ))
+    }
+}
+
+/// Why `agent_id` may not be served by a window, or ok: a window never answers the PM's own prompts.
+fn window_agent_ok(kernel: &Kernel, agent_id: &str) -> KernelResult<()> {
+    match kernel.agent_row(agent_id)? {
+        Some(agent) if agent.kind != "PM" => Ok(()),
+        _ => Err(KernelError::controller(
+            "window_agent_refused: an approval window does not answer the PM or an unknown agent",
         )),
     }
 }
@@ -459,13 +486,30 @@ pub fn record_prompt_capture(
         )));
     }
     let agent_id = safe_id(&prompt["agentId"], "agent id")?.to_string();
+    let auto_window_id: Option<String> = match input.get("autoWindowId") {
+        None | Some(Value::Null) => None,
+        Some(id) => Some(safe_id(id, "window id")?.to_string()),
+    };
+    let mut call_payload = json!({"agentId": agent_id, "promptSha": prompt_sha});
+    if let Some(id) = &auto_window_id {
+        call_payload["autoWindowId"] = json!(id);
+    }
     kernel.mutate(
         context,
         "prompt_relay.capture",
         "prompt:relay",
-        &json!({"agentId": agent_id, "promptSha": prompt_sha}),
+        &call_payload,
         |actor| {
-            active_pm_of(kernel, &actor.actor_id)?;
+            match &auto_window_id {
+                None => {
+                    active_pm_of(kernel, &actor.actor_id)?;
+                }
+                Some(window_id) => {
+                    controller_of(actor)?;
+                    approval_windows::usable_window(kernel, window_id, false)?;
+                    window_agent_ok(kernel, &agent_id)?;
+                }
+            }
             let config = config_of(kernel);
             if !config.enabled {
                 return Err(KernelError::controller(
@@ -537,8 +581,8 @@ pub fn record_prompt_capture(
             execute(
                 &kernel.database,
                 "INSERT INTO prompt_relays(project_id, relay_id, sequence, agent_id, pane_id, host_kind, prompt_text, options_json,
-                   prompt_sha, captured_by_actor_id, captured_at, expires_at, state)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured')",
+                   prompt_sha, captured_by_actor_id, captured_at, expires_at, state, auto_window_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured', ?)",
                 rusqlite::params![
                     kernel.project_id,
                     relay_id,
@@ -551,7 +595,8 @@ pub fn record_prompt_capture(
                     prompt_sha,
                     actor.actor_id,
                     now,
-                    expires_at
+                    expires_at,
+                    auto_window_id
                 ],
             )?;
             let record = record_of(kernel, &relay_id)?;
@@ -572,38 +617,153 @@ pub fn record_prompt_capture(
 
 /// `beginPromptAnswer`: the target of the launcher's beforeType: captured -> typing, with the answer, in one
 /// transaction that re-checks state, expiry and hash.
+///
+/// With `autoWindowId` the controller answers inside that window, and only with an option that asks once; with
+/// `openWindow` the PM answers such an option and opens a window from this relay in the same transaction.
 pub fn begin_prompt_answer(
     kernel: &Kernel,
     context: &MutationContext,
     input: &Value,
 ) -> KernelResult<Value> {
+    let present = |name: &str| input.get(name).is_some_and(|value| !value.is_null());
+    let mut base = payload(&[
+        ("relayId", input.get("relayId")),
+        ("hash", input.get("hash")),
+        ("answer", input.get("answer")),
+    ]);
+    for name in ["autoWindowId", "uncheckedReason", "openWindow"] {
+        if present(name) {
+            base[name] = input[name].clone();
+        }
+    }
     kernel.mutate(
         context,
         "prompt_relay.begin",
         "prompt:relay",
-        &payload(&[
-            ("relayId", input.get("relayId")),
-            ("hash", input.get("hash")),
-            ("answer", input.get("answer")),
-        ]),
+        &base,
         |actor| {
-            active_pm_of(kernel, &actor.actor_id)?;
+            if present("autoWindowId") && present("openWindow") {
+                return Err(KernelError::controller(
+                    "window_args_conflict: an answer inside a window cannot also open one",
+                ));
+            }
+            if present("uncheckedReason") && !present("autoWindowId") {
+                return Err(KernelError::controller(
+                    "window_args_conflict: uncheckedReason comes only with autoWindowId",
+                ));
+            }
             let answer = &input["answer"];
+            if present("autoWindowId") {
+                controller_of(actor)?;
+            } else {
+                active_pm_of(kernel, &actor.actor_id)?;
+            }
             let row = answerable_relay(kernel, &input["relayId"], &input["hash"], answer)?;
-            record_answer(kernel, &row, answer, &actor.actor_id, "typing", None, None)?;
-            Ok(MutationOutput::new(
-                record_of(kernel, &row.relay_id)?,
+            let mut events = Vec::new();
+            let mut auto: Option<(String, String)> = None;
+            if present("autoWindowId") {
+                let window_id = safe_id(&input["autoWindowId"], "window id")?.to_string();
+                approval_windows::usable_window(kernel, &window_id, false)?;
+                if row
+                    .auto_window_id
+                    .as_deref()
+                    .is_some_and(|id| id != window_id)
+                {
+                    return Err(KernelError::controller(
+                        "window_args_conflict: the capture was made under another window",
+                    ));
+                }
+                window_agent_ok(kernel, &row.agent_id)?;
+                require_asks_once(&row, answer, "window_option_refused")?;
+                auto = Some((window_id, kernel.now()));
+            } else if present("openWindow") {
+                require_asks_once(&row, answer, "window_needs_allow_once")?;
+            }
+            record_answer(
+                kernel,
+                &row,
+                answer,
+                &actor.actor_id,
+                "typing",
+                None,
+                None,
+                auto.as_ref(),
+            )?;
+            if let Some((window_id, now)) = &auto {
+                let unchecked = match input.get("uncheckedReason") {
+                    Some(Value::Null) | None => None,
+                    Some(reason) => Some(safe_text(reason, "unchecked reason", 1024, false)?),
+                };
+                message_notices::notice_to_pm(
+                    kernel,
+                    "auto_answered",
+                    &window_answered_notice(
+                        &row.relay_id,
+                        &row.agent_id,
+                        answer["number"].as_i64().unwrap_or(0),
+                        window_id,
+                        unchecked.as_deref(),
+                    ),
+                    now,
+                    false,
+                )?;
+                events.push(MutationEvent {
+                    to_state: Some("used".into()),
+                    details: Some(json!({
+                        "event": "operator.window_answered",
+                        "relayId": row.relay_id,
+                        "option": answer["number"],
+                        "unchecked": unchecked,
+                    })),
+                    ..MutationEvent::new("approval_window", window_id, 0)
+                });
+            }
+            let mut record = record_of(kernel, &row.relay_id)?;
+            if present("openWindow") {
+                let spec = WindowSpec::parse(&input["openWindow"])?;
+                let (window, window_events) = approval_windows::open_window(
+                    kernel,
+                    actor,
+                    &spec,
+                    WindowSource::Relay(&row.relay_id),
+                    &OpenNoticeInput::of(input),
+                )?;
+                record["window"] = window;
+                events.extend(window_events);
+            }
+            let mut output = MutationOutput::new(
+                record,
                 relay_event(
                     &row.relay_id,
                     Some("captured"),
                     "typing",
                     json!({"answerKind": answer["kind"]}),
                 ),
-            ))
+            );
+            output.extra_events = events;
+            Ok(output)
         },
     )
 }
 
+/// An answer a window may give: an option that neither widens permissions nor takes text.
+fn require_asks_once(row: &RelayRow, answer: &Value, code: &str) -> KernelResult<()> {
+    let option = if answer_kind(answer) == Some("option") {
+        row.options()?
+            .into_iter()
+            .find(|entry| same_number(&entry["number"], &answer["number"]))
+    } else {
+        None
+    };
+    match option {
+        Some(option) if !truthy(&option["widensPermissions"]) && !truthy(&option["acceptsText"]) => Ok(()),
+        _ => Err(KernelError::controller(format!(
+            "{code}: only an option that asks once (no widening, no text) is answered through a window"
+        ))),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn record_answer(
     kernel: &Kernel,
     row: &RelayRow,
@@ -612,13 +772,15 @@ fn record_answer(
     state: &str,
     reason: Option<&str>,
     keys: Option<&Value>,
+    auto: Option<&(String, String)>,
 ) -> KernelResult<()> {
     let now = kernel.now();
     let kind = answer_kind(answer);
     execute(
         &kernel.database,
         "UPDATE prompt_relays SET state = ?, answer_kind = ?, answer_option = ?, answer_widens_permissions = ?,
-           answer_text = ?, answered_by_actor_id = ?, answered_at = ?, outcome_reason = ?, keys_json = ?
+           answer_text = ?, answered_by_actor_id = ?, answered_at = ?, outcome_reason = ?, keys_json = ?,
+           auto_window_id = COALESCE(?, auto_window_id), auto_begin_at = ?
          WHERE project_id = ? AND relay_id = ?",
         rusqlite::params![
             state,
@@ -630,6 +792,8 @@ fn record_answer(
             if state == "typing" { None } else { Some(now) },
             reason,
             keys.map(stringify),
+            auto.map(|(window_id, _)| window_id.as_str()),
+            auto.map(|(_, at)| at.as_str()),
             kernel.project_id,
             row.relay_id
         ],
@@ -672,6 +836,7 @@ pub fn refuse_prompt_answer(
                 "refused",
                 Some(&reason),
                 Some(&json!([])),
+                None,
             )?;
             Ok(MutationOutput::new(
                 record_of(kernel, &row.relay_id)?,

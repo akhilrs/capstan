@@ -120,18 +120,41 @@ The notice kinds, their built-in class and whether `notice_class` may change the
 | `restart_result` | info | yes |
 | `operator_notice` | info | yes |
 | `operator_message` | action | no |
+| `auto_approved` | info | yes |
+| `auto_answered` | info | yes |
+| `approval_window` | action | no |
+| `approval_floor_hit` | action | no |
 
 A notice kind that is not overridable is always an action message, so a problem that needs the PM cannot be hidden in the digest.
 
 Upgrade note: this table is part of the configuration hash, and the ledger schema that carries message classes is 40. An older binary refuses a ledger at schema 40. To go back, stop the daemon, restore the backup the migration made (`.capstan/state/controller.sqlite.pre-v<N>-<timestamp>.sqlite`, see `[ledger]`) over `controller.sqlite`, and start the older binary.
 
-### Timed grants (`[operator]`)
+### Approval windows (`[operator]`)
 
-Three `[operator]` keys control `--session timed` (see [Operator reference](operator.md#session-grants)):
+Three `[operator]` keys control auto-approval windows. They change nothing outside a window; with no window open every prompt waits for a human as before.
 
-- `timed_grant_default_minutes` (default `60`): the length of `--session timed`. It may not exceed `timed_grant_max_minutes`.
-- `timed_grant_max_minutes` (default `240`, hard cap `480`): the longest a timed grant lasts; `--session timed=session` lasts until this cap and also ends on Operator release, restart or revoke.
-- `timed_safe_commands`: the read-only commands a timed grant may cover. The default is a built-in list of simple read commands; `[]` disables timed grants (the PM's request is refused). Each entry is a whole-word command prefix that may contain spaces (for example `git status`, `git log`); it must contain no always-approve word or dangerous short letter, use a simple character set with single spaces, have no leading assignment, and not be a bare `git` or `cstan`; an invalid entry makes the configuration fail to load.
+- `approval_floor` (list of strings): what a window never answers. Absent means the built-in floor, in this order: `git push --force`, `git push -f`, `git push --force-with-lease`, `git push --force-if-includes`, `git push --delete`, `git push -d`, `git push --mirror`, `git push --prune`, `@push-rewrite-refspec`, `@delete-outside-project`, `@write-outside-project`, `@controller-restart`. `[]` is accepted with a warning and leaves no floor.
+- `auto_window_max_minutes` (default `240`, 1 to `480`): the longest a window lasts. When absent, a written `timed_grant_max_minutes` is used (with its existing 1 to 480 check).
+- `auto_window_tool_prompts` (default `true`): whether a window also answers non-file tool prompts. Web fetch, MCP and other non-file tool prompts are answered without a floor check.
+
+An entry is either one of four predicates or a command prefix:
+
+- `@push-rewrite-refspec`: a `git push` whose refspec rewrites a ref (a `+` or leading `:` refspec).
+- `@delete-outside-project`: a delete whose target is outside the project root.
+- `@write-outside-project`: a write whose target is outside the project root.
+- `@controller-restart`: a command that restarts the controller.
+
+A command prefix is 1 to 8 words separated by single spaces, using only letters, digits and `_ . / : = @ % + , -`. It may not start with a variable assignment, and its first word may not be an option. Any other entry starting with `@` is refused. A bad entry makes the configuration fail to load and the message names `operator.approval_floor[i]`.
+
+How a command is matched: it is split into tokens, a leading `cd <dir> &&` is followed so the rest is checked against the directory it names, and an entry matches when its words are a whole-word prefix of the command's tokens (a short option such as `-f` also matches inside a combined group like `-fu`). Paths are compared lexically: `..` and `.` are resolved by text and symlinks are not followed.
+
+The floor is not a sandbox; scripts and shells are approved unchecked during a window.
+
+The JSON output of `cstan config check` prints `approvalFloor`, `autoWindowMaxMinutes` and `autoWindowToolPrompts` only when at least one of the three is written.
+
+#### Removed timed-grant keys
+
+`timed_grant_default_minutes`, `timed_grant_max_minutes` and `timed_safe_commands` are still parsed and validated but no longer have any effect except that `timed_grant_max_minutes` is the fallback for `auto_window_max_minutes`. Each one written gives one warning at daemon start and in `cstan config check`, and none appears in the configuration JSON.
 
 ### `prompt_file`
 

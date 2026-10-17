@@ -203,6 +203,13 @@ pub fn operator_config(overrides: impl FnOnce(&mut Operator)) -> Operator {
             .iter()
             .map(|entry| (*entry).to_string())
             .collect(),
+        auto_window_written: false,
+        approval_floor: capstan_config::DEFAULT_APPROVAL_FLOOR
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect(),
+        auto_window_max_minutes: 240,
+        auto_window_tool_prompts: true,
     };
     overrides(&mut config);
     config

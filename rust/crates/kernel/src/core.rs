@@ -6,9 +6,9 @@
 //! changes when they do.
 
 use crate::areas::{
-    actors, agents, design_approvals, findings, integrations, links, message_notices, messages,
-    operator_grants, operator_proposals, operator_runs, panes, pauses, plan_packages, plans,
-    prompt_relay, reports, reviews, status, verify_runs, warm_reviewers,
+    actors, agents, approval_windows, design_approvals, findings, integrations, links,
+    message_notices, messages, operator_grants, operator_proposals, operator_runs, panes, pauses,
+    plan_packages, plans, prompt_relay, reports, reviews, status, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -1225,6 +1225,47 @@ impl Core {
         grant_id: &str,
     ) -> KernelResult<Value> {
         operator_grants::revoke_operator_grant(&self.kernel, context, grant_id)
+    }
+
+    /// The open approval window, or null.
+    pub fn active_approval_window(&self) -> KernelResult<Value> {
+        approval_windows::active_approval_window(&self.kernel)
+    }
+
+    /// Approval windows, newest first.
+    pub fn list_approval_windows(&self, limit: Option<i64>) -> KernelResult<Value> {
+        approval_windows::list_approval_windows(&self.kernel, limit)
+    }
+
+    /// Ends the open approval window when it is past its cap.
+    pub fn expire_approval_windows(&self, context: &MutationContext) -> KernelResult<Value> {
+        approval_windows::expire_approval_windows(&self.kernel, context)
+    }
+
+    /// Ends the open approval window at startup.
+    pub fn end_approval_windows_for_restart(
+        &self,
+        context: &MutationContext,
+    ) -> KernelResult<Value> {
+        approval_windows::end_approval_windows_for_restart(&self.kernel, context)
+    }
+
+    /// Revokes one approval window.
+    pub fn end_approval_window(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        approval_windows::end_approval_window(&self.kernel, context, input)
+    }
+
+    /// Tells the PM once per relay that a prompt hit the approval floor.
+    pub fn queue_floor_hit_notice(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        message_notices::queue_floor_hit_notice(&self.kernel, context, input)
     }
 
     /// `ControllerCore.recordOperatorFullAuto`.

@@ -4,7 +4,10 @@
 use crate::canonical::{js_f64, js_number, sha256};
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
-use crate::helpers::{execute, is_js_space, js_trim, query_all, query_opt, safe_id, safe_text};
+use crate::helpers::{
+    execute, is_js_space, js_trim, query_all, query_opt, safe_id, safe_text,
+    window_floor_proposal_note, window_used_notice,
+};
 use crate::json::stringify;
 use crate::kernel::Kernel;
 use crate::records::{MutationEvent, MutationOutput, RESTART_COMMAND_TEXT};
@@ -13,6 +16,7 @@ use capstan_ledger::iso_from_millis;
 use rusqlite::Row;
 use serde_json::{json, Map, Value};
 
+use super::approval_windows::{self, OpenNoticeInput, WindowSource, WindowSpec};
 use super::messaging::parse_iso_ms;
 use super::{message_notices, operator_grants, operator_runs};
 
@@ -27,6 +31,7 @@ const UNTRUSTED_LEAD: &str =
 /// The `auto_rule` of a proposal approved under full auto.
 pub(crate) const FULL_AUTO_RULE: &str = "full-auto";
 const SESSION_RULE_LEAD: &str = "session:";
+const WINDOW_RULE_LEAD: &str = "window:";
 /// The fixed text of a timed grant: it has no command words, the controller's classifier decides per command.
 pub(crate) const TIMED_GRANT_TEXT: &str = "non-destructive commands";
 /// The hard cap on a timed grant, in minutes; the configured cap is enforced in the service.
@@ -432,9 +437,19 @@ fn decision_notice(proposal: &Value, decision: &str) -> KernelResult<String> {
             text_of(grant, "expiresAt")
         )
     };
+    let window = &proposal["window"];
+    let windowed = if window.is_null() {
+        String::new()
+    } else {
+        format!(
+            " Approval window {} is open until {}: a command that passes the controller's checks is approved without a new decision.",
+            text_of(window, "windowId"),
+            text_of(window, "expiresAt")
+        )
+    };
     fit_message(if decision == "approved" {
         format!(
-            "Operator proposal {} was approved (hash {}). The controller runs it next and sends the result.{granted}{note}",
+            "Operator proposal {} was approved (hash {}). The controller runs it next and sends the result.{granted}{windowed}{note}",
             text_of(proposal, "proposalId"),
             hash_prefix(text_of(proposal, "commandSha"))
         )
@@ -772,6 +787,65 @@ fn is_integer(value: &Value) -> bool {
         .is_some_and(|f| f.is_finite() && f.fract() == 0.0)
 }
 
+/// The window fields of a proposal: why a window approved it without the floor check, or which floor entry holds it back.
+struct WindowNote {
+    unchecked: Option<String>,
+    floor: Option<(String, String, String)>,
+}
+
+impl WindowNote {
+    fn of(input: &Value, auto_rule: Option<&str>, window_rule: bool) -> KernelResult<Self> {
+        let unchecked = input.get("windowUnchecked").filter(|v| !v.is_null());
+        let floor = input.get("windowFloor").filter(|v| !v.is_null());
+        if unchecked.is_some() && floor.is_some() {
+            return Err(KernelError::type_error(
+                "windowUnchecked and windowFloor cannot both be given",
+            ));
+        }
+        if unchecked.is_some() && !window_rule {
+            return Err(KernelError::type_error(
+                "windowUnchecked comes only with an autoRule of window:<id>",
+            ));
+        }
+        if floor.is_some() && auto_rule.is_some() {
+            return Err(KernelError::type_error(
+                "windowFloor is for a proposal that stays proposed; it comes with no autoRule",
+            ));
+        }
+        let text = |value: &Value, label: &str| {
+            normalize_reason(value).map_err(|code| {
+                KernelError::type_error(format!(
+                    "the {label} must be non-empty printable ASCII ({code})"
+                ))
+            })
+        };
+        Ok(Self {
+            unchecked: match unchecked {
+                None => None,
+                Some(unchecked) => Some(text(&unchecked["reason"], "window unchecked reason")?),
+            },
+            floor: match floor {
+                None => None,
+                Some(floor) => Some((
+                    safe_id(&floor["windowId"], "window id")?.to_string(),
+                    text(&floor["entry"], "window floor entry")?,
+                    text(&floor["detail"], "window floor detail")?,
+                )),
+            },
+        })
+    }
+
+    fn add_to(&self, payload: &mut Value) {
+        if let Some(reason) = &self.unchecked {
+            payload["windowUnchecked"] = json!({"reason": reason});
+        }
+        if let Some((window_id, entry, detail)) = &self.floor {
+            payload["windowFloor"] =
+                json!({"windowId": window_id, "entry": entry, "detail": detail});
+        }
+    }
+}
+
 /// `proposeOperatorAction`: records a proposal from the Operator agent. `autoRule` is the rule the controller matched
 /// for an auto-approved command; the row then starts approved.
 pub fn propose_operator_action(
@@ -824,16 +898,23 @@ pub fn propose_operator_action(
     })?;
     let sha = command_hash(&kind, &command, force_restart);
     let requested_grant_id = session_rule_grant_id(auto_rule.as_deref()).map(str::to_string);
+    let window_rule_id = auto_rule
+        .as_deref()
+        .and_then(|rule| rule.strip_prefix(WINDOW_RULE_LEAD))
+        .map(str::to_string);
+    let window_note = WindowNote::of(input, auto_rule.as_deref(), window_rule_id.is_some())?;
+    let mut payload = json!({
+        "kind": kind,
+        "commandSha": sha,
+        "reasonSha": sha256(&reason),
+        "autoRule": auto_rule,
+    });
+    window_note.add_to(&mut payload);
     kernel.mutate(
         context,
         "operator.propose",
         "operator:propose",
-        &json!({
-            "kind": kind,
-            "commandSha": sha,
-            "reasonSha": sha256(&reason),
-            "autoRule": auto_rule,
-        }),
+        &payload,
         |actor| {
             // A session grant that ended between the match and this write no longer approves anything.
             let grant = match &requested_grant_id {
@@ -854,6 +935,10 @@ pub fn propose_operator_action(
                         "only an active developer-kind agent proposes an operator action",
                     ))
                 }
+            };
+            let window = match &window_rule_id {
+                Some(window_id) => Some(approval_windows::usable_window(kernel, window_id, true)?),
+                None => None,
             };
             let parties = message_notices::notice_parties(kernel)?;
             if parties.is_none() && effective_rule.is_none() {
@@ -900,7 +985,20 @@ pub fn propose_operator_action(
                 ],
             )?;
             let record = record_of(kernel, &proposal_id)?;
-            message_notices::notice_to_pm(kernel, "operator_proposal", &proposal_notice_to_pm(&record)?, &now, true)?;
+            let mut pm_notice = proposal_notice_to_pm(&record)?;
+            if let Some((window_id, entry, detail)) = &window_note.floor {
+                pm_notice.push_str(&window_floor_proposal_note(window_id, entry, detail));
+            }
+            message_notices::notice_to_pm(kernel, "operator_proposal", &pm_notice, &now, true)?;
+            if let Some(window) = &window {
+                message_notices::notice_to_pm(
+                    kernel,
+                    "auto_approved",
+                    &window_used_notice(&proposal_id, text_of(window, "windowId"), window_note.unchecked.as_deref()),
+                    &now,
+                    false,
+                )?;
+            }
             let mut details = Map::new();
             details.insert("kind".into(), json!(kind));
             details.insert("autoRule".into(), json!(effective_rule));
@@ -917,6 +1015,18 @@ pub fn propose_operator_action(
                     Value::Object(details),
                 ),
             );
+            if let Some(window) = &window {
+                output.extra_events.push(MutationEvent {
+                    to_state: Some("used".into()),
+                    details: Some(json!({
+                        "event": "operator.window_used",
+                        "proposalId": proposal_id,
+                        "commandSha": sha,
+                        "unchecked": window_note.unchecked,
+                    })),
+                    ..MutationEvent::new("approval_window", text_of(window, "windowId"), 0)
+                });
+            }
             if let Some(grant) = &grant {
                 output.extra_events.push(MutationEvent {
                     to_state: Some("used".into()),
@@ -1054,8 +1164,25 @@ pub fn decide_operator_proposal(
                 }
             }
             let state = if decision == "approve" { "approved" } else { "denied" };
+            let is_window = |session: &Value| session.get("kind").and_then(Value::as_str) == Some("window");
+            let mut opened: Option<(Value, Vec<MutationEvent>)> = None;
+            if let Some(window_session) = session.filter(|session| is_window(session)) {
+                if row.kind != "command" {
+                    return Err(KernelError::controller(
+                        "session_not_for_restart: a restart is never granted for the session",
+                    ));
+                }
+                let spec = WindowSpec::parse(window_session)?;
+                opened = Some(approval_windows::open_window(
+                    kernel,
+                    actor,
+                    &spec,
+                    WindowSource::Proposal(&row.proposal_id),
+                    &OpenNoticeInput::of(input),
+                )?);
+            }
             let mut grant: Option<Value> = None;
-            if let Some(session) = session {
+            if let Some(session) = session.filter(|session| !is_window(session)) {
                 if row.kind != "command" {
                     return Err(KernelError::controller(
                         "session_not_for_restart: a restart is never granted for the session",
@@ -1154,7 +1281,10 @@ pub fn decide_operator_proposal(
                     row.proposal_id
                 ],
             )?;
-            let record = record_of(kernel, &row.proposal_id)?;
+            let mut record = record_of(kernel, &row.proposal_id)?;
+            if let Some((window, _)) = &opened {
+                record["window"] = window.clone();
+            }
             message_notices::notice_to_agent(kernel, "operator_proposal_update",
                 &row.proposer_agent_id,
                 &decision_notice(&record, state)?,
@@ -1170,6 +1300,9 @@ pub fn decide_operator_proposal(
                     json!({"decidedBy": actor.actor_id}),
                 ),
             );
+            if let Some((_, events)) = opened {
+                output.extra_events.extend(events);
+            }
             if let Some(grant) = &grant {
                 output.extra_events.push(MutationEvent {
                     to_state: Some("created".into()),

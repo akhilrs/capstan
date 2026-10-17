@@ -1,6 +1,7 @@
 //! The subset of `src/operator-policy.ts` that config loading uses: which commands may be configured as auto-approve
 //! rules (`autoApproveRuleProblem`, with `normalizeCommand`, `classifyCommand` and the read-only allowlist behind it).
 use crate::text::{is_js_space, trim};
+use crate::types::APPROVAL_FLOOR_PREDICATES;
 
 const MAX_OPERATOR_COMMAND_BYTES: usize = 8192;
 
@@ -433,4 +434,71 @@ pub fn auto_approve_rule_problem(rule: &str) -> Option<String> {
         return Some("must not start with a variable assignment".into());
     }
     allowlist_problem(&tokens)
+}
+
+/// `None` when `entry` may be a configured `operator.approval_floor` entry: one of the `@` predicates, or 1 to 8
+/// single-spaced words of the simple character set, no leading assignment and a first word that is not an option.
+pub fn approval_floor_entry_problem(entry: &str) -> Option<String> {
+    if entry.starts_with('@') {
+        if APPROVAL_FLOOR_PREDICATES.contains(&entry) {
+            return None;
+        }
+        return Some(format!(
+            "is not a known predicate; the predicates are {}",
+            APPROVAL_FLOOR_PREDICATES.join(", ")
+        ));
+    }
+    if entry.is_empty() {
+        return Some("is empty".into());
+    }
+    if !simple_command(entry) {
+        return Some(
+            "must be one line of letters, digits, space and _ . / : = @ % + , - only".into(),
+        );
+    }
+    if entry != trim(entry) || entry.contains("  ") {
+        return Some("must have single spaces and no leading or trailing space".into());
+    }
+    let tokens = words(entry);
+    if tokens.len() > 8 {
+        return Some(format!("has {} words; at most 8 are allowed", tokens.len()));
+    }
+    if tokens[0].contains('=') {
+        return Some("must not start with a variable assignment".into());
+    }
+    if tokens[0].starts_with('-') {
+        return Some("must not start with an option".into());
+    }
+    None
+}
+
+/// How an auto-approval window was asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoWindowKind {
+    Hour,
+    Session,
+    Minutes,
+}
+
+/// Reads a window length: `60` is the hour (cut to `max`), `session` is `max`, any other whole number of minutes
+/// from 1 to `max` is that long.
+pub fn parse_auto_window(value: &str, max: i64) -> Result<(AutoWindowKind, i64), String> {
+    if value == "session" {
+        return Ok((AutoWindowKind::Session, max));
+    }
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!(
+            "window \"{value}\" must be \"session\" or a whole number of minutes from 1 to {max}"
+        ));
+    }
+    let minutes: i64 = value
+        .parse()
+        .map_err(|_| format!("window \"{value}\" is too long a number"))?;
+    if minutes == 60 {
+        return Ok((AutoWindowKind::Hour, 60.min(max)));
+    }
+    if (1..=max).contains(&minutes) {
+        return Ok((AutoWindowKind::Minutes, minutes));
+    }
+    Err(format!("window {minutes} must be from 1 to {max} minutes"))
 }

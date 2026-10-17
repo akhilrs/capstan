@@ -58,13 +58,13 @@ fn operator_members(o: &Operator) -> Vec<(&'static str, Value)> {
         ),
         ("fullAutoMaxMinutes", number(o.full_auto_max_minutes)),
     ];
-    if o.timed_grant_written {
+    if o.auto_window_written {
+        members.push(("approvalFloor", strings(&o.approval_floor)));
+        members.push(("autoWindowMaxMinutes", number(o.auto_window_max_minutes)));
         members.push((
-            "timedGrantDefaultMinutes",
-            number(o.timed_grant_default_minutes),
+            "autoWindowToolPrompts",
+            Value::Bool(o.auto_window_tool_prompts),
         ));
-        members.push(("timedGrantMaxMinutes", number(o.timed_grant_max_minutes)));
-        members.push(("timedSafeCommands", strings(&o.timed_safe_commands)));
     }
     members
 }

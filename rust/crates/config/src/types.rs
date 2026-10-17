@@ -52,6 +52,35 @@ pub const DEFAULT_TIMED_SAFE_COMMANDS: [&str; 22] = [
     "uptime",
     "free",
 ];
+/// Commands and predicates an auto-approval window never answers, used when `operator.approval_floor` is absent.
+pub const DEFAULT_APPROVAL_FLOOR: [&str; 12] = [
+    "git push --force",
+    "git push -f",
+    "git push --force-with-lease",
+    "git push --force-if-includes",
+    "git push --delete",
+    "git push -d",
+    "git push --mirror",
+    "git push --prune",
+    "@push-rewrite-refspec",
+    "@delete-outside-project",
+    "@write-outside-project",
+    "@controller-restart",
+];
+/// The predicates an `operator.approval_floor` entry may name besides a command prefix.
+pub const APPROVAL_FLOOR_PREDICATES: [&str; 4] = [
+    "@push-rewrite-refspec",
+    "@delete-outside-project",
+    "@write-outside-project",
+    "@controller-restart",
+];
+/// The tail of the warning for a removed timed-grant key; the warning names the key first.
+pub const TIMED_GRANT_REMOVED: &str =
+    "is ignored: timed grants were replaced by auto-approval windows (operator.auto_window_max_minutes, operator.approval_floor)";
+pub const TOOL_PROMPT_DISCLOSURE: &str =
+    "Web fetch, MCP and other non-file tool prompts are answered without a floor check.";
+pub const FLOOR_DISCLOSURE: &str =
+    "The floor is not a sandbox; scripts and shells are approved unchecked during a window.";
 /// Tool rules the Operator role must deny so it cannot read the state directory, tokens or the key, or hand work to a subagent.
 pub const OPERATOR_REQUIRED_DENY: [&str; 8] = [
     "Write",
@@ -248,6 +277,10 @@ pub const MESSAGE_NOTICE_KINDS: &[(&str, bool)] = &[
     ("restart_result", true),
     ("operator_notice", true),
     ("operator_message", false),
+    ("auto_approved", true),
+    ("auto_answered", true),
+    ("approval_window", false),
+    ("approval_floor_hit", false),
 ];
 
 /// The `[messages]` table: how messages are classed and when info wakes the PM.
@@ -310,6 +343,13 @@ pub struct Operator {
     pub timed_grant_max_minutes: i64,
     /// Whole-word command prefixes a timed grant lets run; empty disables timed grants.
     pub timed_safe_commands: Vec<String>,
+    /// True when capstan.toml writes any auto-window key (the JSON output prints the three only then).
+    pub auto_window_written: bool,
+    /// Commands and `@` predicates a window never auto-answers; empty means no floor.
+    pub approval_floor: Vec<String>,
+    pub auto_window_max_minutes: i64,
+    /// Whether a window also answers non-file tool prompts.
+    pub auto_window_tool_prompts: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
