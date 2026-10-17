@@ -23,9 +23,8 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 | `restart_health_timeout_seconds`          | `60`           | How long a restarted controller has to answer `ping`.             |
 | `restart_idle_wait_seconds`               | `120`          | How long a restart waits for the controller to be idle.           |
 | `session_grant_max_minutes`               | `60`           | Longest a session grant lasts (at most 480).                      |
-| `timed_grant_default_minutes`             | `60`           | Length of `--session timed` (at most `timed_grant_max_minutes`).  |
-| `timed_grant_max_minutes`                 | `240`          | Longest a timed grant lasts, also for `timed=session` (hard cap 480). |
-| `timed_safe_commands`                     | built-in list  | Read-only commands a timed grant may cover; `[]` disables timed grants. |
+| `auto_window_max_minutes`                 | `240`          | Longest an auto-approve window lasts (1 to 480); see [Auto-approve windows](#auto-approve-windows). |
+| `approval_floor`                          | built-in list  | What a window never answers ([Configuration](configuration.md#approval-windows-operator)). |
 | `full_auto_default_minutes`               | `30`           | Full auto duration when the PM gives none (at most the maximum).  |
 | `full_auto_max_minutes`                   | `120`          | Longest full auto period (at most 480).                           |
 
@@ -45,14 +44,29 @@ An optional **Operator** agent lets the PM have a shell command run, or the cont
 
 ## Session grants
 
-Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds one of `--session exact`, `--session prefix="<words>"`, `--session timed` or `--session timed=session` to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`. A grant has a kind (`exact`, `prefix` or `timed`); `cstan op grants` shows the kind and the time left.
+Approving one proposal can also allow the same thing again for a while, so the PM does not ask you for every repeat. The PM adds one of `--session exact`, `--session prefix="<words>"`, or `--session auto=60`, `--session auto=session` or `--session auto=<n>` (a window, see below) to the approval: `cstan op decide <id> approve --hash <hash12> --session exact`. A grant has a kind (`exact` or `prefix`); `cstan op grants` shows the kind, and the window if one is open, with the time left.
 
 - **Exact.** An identical command (same text, same kind) from the Operator runs with no new approval; the proposal records `auto_rule` `session:<grant-id>`. Any changed text needs approval again.
 - **Prefix.** The grant stores the words verbatim; the PM notice, `cstan op show` and `cstan op grants` print them. A later command matches only when it starts with those whole words (`ls -l` matches `ls -l docs`, not `ls -la` and not `lsx -l`). The rest of the command goes through the same check as any command: if it has a metacharacter, a second line or any word from the denylist (`push`, `rm`, `-f`, ...), it needs approval. The controller refuses a prefix that contains a denylist word, that is empty, that is not a simple one-line command, or that is only `git` or `cstan` with no subcommand.
-- **Timed.** `--session timed` auto-approves safe read-only commands for `timed_grant_default_minutes`; `--session timed=session` does so until the cap `timed_grant_max_minutes`, and also ends on Operator release, restart or revoke. Only a command that starts with an entry of `timed_safe_commands`, where every part of a `|`, `&&`, `||` or `;` chain is itself safe (any other shell syntax is refused), and whose path arguments are relative, contain no `..` and no dot-component (such as `.env` or `.git`) is covered; the run records `auto_rule` `session:<grant-id>`. A timed grant never covers a command with an always-approve word (`push`, `rm`, `-f`, ...), a destructive, unknown or unparseable command, or a restart: those need the PM as usual. Every run under it is still reported to the PM. The PM offers it as "Auto-approve safe (read-only) commands" in the approval picker, with the choices "For 1 hour" and "For this session (up to the configured cap)".
 - **End.** A grant ends when the Operator agent is released or replaced, when the controller restarts, when `session_grant_max_minutes` has passed (the cap is measured with the system clock, because grants are stored), or when the PM or you run `cstan op revoke <grant-id>`. A command proposed after that needs approval. `cstan op grants` lists the grants in force. Each grant is created, used, revoked or expired as a ledger event.
 
-**Accepted risk of the path rule.** The check that path arguments are safe is lexical only. It does not follow symlinks, so a tracked symlink that points outside the project or at a secret is not detected, and it only rejects dot-components, so a secret file with a non-dot name such as `config/secrets.json` (no leading dot) is not detected. A git helper configured in the project can also run project code. A timed grant accepts these risks; do not approve one in a project where they matter.
+## Auto-approve windows
+
+An auto-approve window lets the controller approve for a while without asking you each time. It replaced the timed (read-only) grants: `--session timed...` is refused with `timed_grant_removed`, and the timed keys are warned about and ignored ([Configuration](configuration.md#removed-timed-grant-keys)).
+
+**Opening one.** The PM offers "Auto-approve all for 1 hour / for this session" in the approval picker of an Operator proposal, then asks "For 1 hour" or "For this session". It records `--session auto=60` or `--session auto=session` (also `auto=<n>` minutes) on `cstan op decide`. The option text says what it does: it approves every Operator command and every worker permission prompt, pushes and deletes included, except the floor list. A worker prompt that has an allow-once option offers the same choice: `cstan prompt answer <relay-id> --hash <hash12> option <n> --session auto=60`. The window never lasts longer than `auto_window_max_minutes`. A daemon that predates windows rejects `auto=`; `cstan` then says so and does not retry (`cstan restart`, or approve once).
+
+**Coverage.** The controller, not the PM, approves: an Operator proposal at propose time and a recognised worker permission prompt. Each auto-approval reaches the PM as an info message, so it is summarised to you; nothing is asked. Prompts the controller does not recognise, options that widen permissions, text and dialogs still go through the PM to you.
+
+**The floor and precedence.** The floor (`operator.approval_floor`, default in [Configuration](configuration.md#approval-windows-operator)) always comes to you, even in a window. It takes precedence over every grant and over the window, and a floor hit is an action message to the PM. The floor is not a sandbox; scripts and shells are approved unchecked during a window. Web fetch, MCP and other non-file tool prompts are answered without a floor check (`auto_window_tool_prompts`).
+
+**What is checked.** A command is split into tokens; a leading `cd <dir> &&` is tracked, so the rest is judged against the directory it names. A command the controller cannot fully read (an elided command) is not auto-approved: it goes to you. Paths are compared lexically (`..` and `.` are resolved by text; symlinks are not followed), and the worker's working directory is assumed to be its worktree.
+
+**Audit.** Opening, every auto-approval, every floor hit and the end of a window are ledger events. `cstan status` and `cstan op grants` show the open window, its id and the time left.
+
+**How it ends.** At the time cap, on `cstan op revoke <window-id>` (the PM or you), when the controller restarts, or, for the Operator part, when the Operator is released or replaced (worker prompts are then still answered until the cap).
+
+**Compatibility.** `--session timed` and `timed=<n>` are refused with `timed_grant_removed`; use `auto=`.
 
 A prefix widens what a later command can do, up to the denylist. Read the prefix the PM shows you before you agree.
 

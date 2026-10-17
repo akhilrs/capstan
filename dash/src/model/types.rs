@@ -194,6 +194,19 @@ pub struct Header {
     /// Session grants in force; present only when there are any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grants: Option<i64>,
+    /// The auto-approve window in force; present only while one is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowHeader>,
+}
+
+/// The p3 window record, as far as the header shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowHeader {
+    /// Whole minutes left, rounded up.
+    pub minutes: i64,
+    /// False once the Operator part ended: worker prompts are still auto-approved.
+    pub operator_active: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

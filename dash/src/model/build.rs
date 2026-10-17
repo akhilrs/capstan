@@ -172,6 +172,15 @@ fn operator_header(operator: Option<&Value>) -> (Option<i64>, Option<i64>) {
     (minutes, (grants > 0).then_some(grants as i64))
 }
 
+/// The auto-approve window from the Operator part of the status; nothing when none is open.
+fn window_header(operator: Option<&Value>) -> Option<WindowHeader> {
+    let window = field(operator.unwrap_or(&Value::Null), "window").filter(|w| is_objectish(w))?;
+    Some(WindowHeader {
+        minutes: (num(get(window, "remainingSeconds")) / 60.0).ceil() as i64,
+        operator_active: is_true(get(window, "operatorActive")),
+    })
+}
+
 /// One operator `status` response to display rows.
 pub fn build_dash_model(status: &Value, now_ms: i64, worker_limit: Option<i64>) -> DashModel {
     let empty = Value::Object(Default::default());
@@ -476,6 +485,7 @@ pub fn build_dash_model(status: &Value, now_ms: i64, worker_limit: Option<i64>) 
             worker_limit,
             full_auto_minutes,
             grants,
+            window: window_header(get(status, "operator")),
         },
         agents: active
             .into_iter()
@@ -777,6 +787,7 @@ mod tests {
             })
         );
         assert_eq!((h.full_auto_minutes, h.grants), (Some(2), Some(2)));
+        assert_eq!(h.window, None);
         let paused: Vec<bool> = model.agents.iter().map(|a| a.paused_at.is_some()).collect();
         // The PM is not paused by the run pause; `d` is paused on its own; `e` by the run.
         assert_eq!(paused, [false, true, true]);

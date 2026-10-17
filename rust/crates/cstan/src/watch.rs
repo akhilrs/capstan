@@ -82,6 +82,51 @@ pub fn signals_of(status: &Value) -> BTreeSet<String> {
     signals
 }
 
+/// The designed window strings (docs/design/plan-44-d1-design-strings.json), looked up by id.
+const WINDOW_STRINGS: &str = include_str!("../../../../docs/design/plan-44-d1-design-strings.json");
+
+fn window_template(id: &str) -> String {
+    let table: serde_json::Value =
+        serde_json::from_str(WINDOW_STRINGS).expect("window strings table is valid JSON");
+    table
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == id))
+        .and_then(|row| row["template"].as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The auto-approve window line of `cstan status` and `cstan watch`: minutes left and who is covered, or, with
+/// `none_line`, the line that says no window is open. `None` when there is nothing to print.
+pub fn window_line(operator: Option<&Value>, none_line: bool) -> Option<String> {
+    let Some(operator @ Value::Object(_)) = operator else {
+        return None;
+    };
+    let Some(window @ Value::Object(_)) = field(operator, "window") else {
+        return none_line.then(|| window_template("status.window.none"));
+    };
+    let id = if matches!(field(window, "operatorActive"), Some(Value::Bool(true))) {
+        "line.window.open"
+    } else {
+        "line.window.operatorEnded"
+    };
+    let remaining = crate::jsops::to_number(field(window, "remainingSeconds"));
+    Some(
+        window_template(id)
+            .replace("{left}", &js::number_to_string((remaining / 60.0).ceil()))
+            .replace("{windowId}", &clean(field(window, "windowId"))),
+    )
+}
+
+/// Cuts `line` to `width` cells the way the dash does: keep `width - 1` characters, then `…`.
+pub fn cut_to_width(line: &str, width: usize) -> String {
+    if line.chars().count() <= width {
+        return line.to_string();
+    }
+    let kept: String = line.chars().take(width.saturating_sub(1)).collect();
+    format!("{kept}…")
+}
+
 /// `operatorLines`: full auto and the session grants in force; nothing when the Operator is off.
 pub fn operator_lines(operator: Option<&Value>) -> Vec<String> {
     let Some(operator @ Value::Object(_)) = operator else {
@@ -100,6 +145,7 @@ pub fn operator_lines(operator: Option<&Value>) -> Vec<String> {
             js::number_to_string((remaining / 60.0).ceil())
         ));
     }
+    lines.extend(window_line(Some(operator), false));
     for grant in list(field(operator, "grants")) {
         if clean(field(grant, "kind")) == "timed" {
             let remaining = crate::jsops::to_number(field(grant, "remainingSeconds"));
@@ -272,5 +318,100 @@ impl Cli<'_> {
             credential,
             interval_seconds,
         }))
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    fn operator(json: &str) -> Value {
+        crate::to_js(&serde_json::from_str(json).unwrap())
+    }
+
+    #[test]
+    fn the_window_line_rounds_minutes_up_and_names_who_is_covered() {
+        let open = operator(
+            r#"{"window":{"windowId":"win-12","operatorActive":true,"remainingSeconds":45}}"#,
+        );
+        assert_eq!(
+            window_line(Some(&open), false).unwrap(),
+            "AUTO-APPROVE 1 min left, Operator and workers (win-12)"
+        );
+        let ended = operator(
+            r#"{"window":{"windowId":"win-12","operatorActive":false,"remainingSeconds":2520}}"#,
+        );
+        assert_eq!(
+            window_line(Some(&ended), true).unwrap(),
+            "AUTO-APPROVE 42 min left, workers only; Operator ended (win-12)"
+        );
+    }
+
+    #[test]
+    fn no_window_is_a_line_for_status_and_nothing_for_watch() {
+        let none = operator(r#"{"grants":[]}"#);
+        assert_eq!(
+            window_line(Some(&none), true).unwrap(),
+            "AUTO-APPROVE off: no window open"
+        );
+        assert_eq!(window_line(Some(&none), false), None);
+        assert_eq!(window_line(None, true), None);
+    }
+
+    #[test]
+    fn the_window_line_follows_full_auto_and_precedes_grants() {
+        let op = operator(
+            r#"{"fullAuto":{"on":true,"remainingSeconds":720},"window":{"windowId":"win-12","operatorActive":true,"remainingSeconds":2520},"grants":[{"grantId":"g-7","kind":"timed","text":"cargo test","remainingSeconds":1080}]}"#,
+        );
+        let lines = operator_lines(Some(&op));
+        assert!(lines[0].starts_with("FULL AUTO ON"));
+        assert!(lines[1].starts_with("AUTO-APPROVE 42 min left"));
+        assert!(lines[2].starts_with("grant g-7"));
+    }
+
+    #[test]
+    fn minutes_round_up_at_the_minute_edges() {
+        for (seconds, minutes) in [(1, 1), (60, 1), (61, 2)] {
+            let op = operator(&format!(
+                r#"{{"window":{{"windowId":"win-1","operatorActive":true,"remainingSeconds":{seconds}}}}}"#
+            ));
+            let line = window_line(Some(&op), false).unwrap();
+            assert!(
+                line.starts_with(&format!("AUTO-APPROVE {minutes} min left")),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_is_cut_at_forty_columns_keeping_the_state_words() {
+        let open = operator(
+            r#"{"window":{"windowId":"win-12","operatorActive":true,"remainingSeconds":2520}}"#,
+        );
+        let ended = operator(
+            r#"{"window":{"windowId":"win-12","operatorActive":false,"remainingSeconds":2520}}"#,
+        );
+        assert_eq!(
+            cut_to_width(&window_line(Some(&open), false).unwrap(), 40),
+            "AUTO-APPROVE 42 min left, Operator and …"
+        );
+        assert_eq!(
+            cut_to_width(&window_line(Some(&ended), false).unwrap(), 40),
+            "AUTO-APPROVE 42 min left, workers only;…"
+        );
+        assert_eq!(
+            cut_to_width(&window_template("status.window.none"), 40),
+            "AUTO-APPROVE off: no window open"
+        );
+    }
+
+    #[test]
+    fn every_window_string_says_auto_approve_and_never_full_auto() {
+        let table: serde_json::Value = serde_json::from_str(WINDOW_STRINGS).unwrap();
+        for row in table.as_array().unwrap() {
+            let template = row["template"].as_str().unwrap();
+            assert!(template.starts_with("AUTO-APPROVE"), "{template}");
+            assert!(!template.to_lowercase().contains("full auto"), "{template}");
+        }
     }
 }

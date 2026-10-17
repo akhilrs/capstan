@@ -116,3 +116,81 @@ fn wait_until_falls_back_to_a_plain_wait_on_an_older_daemon() {
         vec![json!(["--digest", "--limit", "30"]), json!([])]
     );
 }
+
+const WINDOW_MESSAGE: &str = "this controller predates auto-approve windows; restart it (cstan restart) or ask the user with Approve once";
+
+#[test]
+fn a_rejected_auto_window_gets_the_restart_message_and_one_request_only() {
+    for args in [
+        vec![
+            "op",
+            "decide",
+            "p-1",
+            "approve",
+            "--hash",
+            "abcdef123456",
+            "--session",
+            "auto=60",
+        ],
+        vec![
+            "prompt",
+            "answer",
+            "r-1",
+            "--hash",
+            "abcdef123456",
+            "option",
+            "1",
+            "--session",
+            "auto=session",
+        ],
+    ] {
+        let (d, thread) = daemon(&format!("window-{}", args[0]), true, 1);
+        let output = run(&d, &args);
+        thread.join().unwrap();
+        assert_ne!(output.status.code(), Some(0));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(WINDOW_MESSAGE), "{stderr}");
+        assert_eq!(sent(&d).len(), 1);
+    }
+}
+
+#[test]
+fn a_current_daemon_refusal_of_a_bad_window_keeps_its_own_message() {
+    let dir = std::env::temp_dir().join(format!("capstan-olddaemon-bad-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let listener = UnixListener::bind(dir.join("control.sock")).unwrap();
+    let thread = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&stream).read_line(&mut line).unwrap();
+        let reply = json!({"ok": false, "code": "invalid_request", "message": "window 0 must be from 1 to 240 minutes; use --session auto=<minutes>"});
+        writeln!(&stream, "{reply}").unwrap();
+    });
+    let d = Daemon {
+        dir,
+        frames: Arc::new(Mutex::new(Vec::new())),
+    };
+    let output = run(
+        &d,
+        &[
+            "prompt",
+            "answer",
+            "r-1",
+            "--hash",
+            "abcdef123456",
+            "option",
+            "1",
+            "--session",
+            "auto=0",
+        ],
+    );
+    thread.join().unwrap();
+    assert_ne!(output.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("window 0 must be from 1 to 240 minutes"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("predates"), "{stderr}");
+}

@@ -595,29 +595,39 @@ mod tests {
     }
 
     #[test]
-    fn pm_operator_section_names_the_picker_and_timed_grants() {
+    fn pm_operator_section_names_the_picker_and_auto_windows() {
         let text = fill(PM_OPERATOR_SECTION, &["operator-1", "operator"]);
         for needle in [
             "\"Approve once\"",
             "\"Approve + allow similar commands for the session\"",
-            "\"Auto-approve safe (read-only) commands\"",
+            "\"Auto-approve all for 1 hour / for this session\"",
             "\"Deny\"",
             "\"This exact command\"",
             "\"Commands that start with: <prefix>\"",
             "\"For 1 hour\"",
-            "\"For this session (up to the configured cap)\"",
-            "--session timed",
-            "--session timed=session",
+            "\"For this session\"",
+            "--session auto=60",
+            "--session auto=session",
             "--session prefix=",
-            "always-approve word",
-            "unparseable",
-            "restart",
+            "approves every Operator command and every worker permission prompt, pushes and deletes included, except the floor list",
+            crate::FLOOR_DISCLOSURE,
+            crate::TOOL_PROMPT_DISCLOSURE,
             "Offer it only when the user asks for it",
             "cstan op grants",
         ] {
             assert!(text.contains(needle), "missing {needle}");
         }
+        assert!(!text.contains("timed"));
+        assert!(!text.contains("read-only"));
         assert!(!text.contains("options \"Approve\" and \"Deny\""));
+    }
+
+    #[test]
+    fn pm_relay_section_adds_the_window_option_for_allow_once_only() {
+        assert!(super::PM_PROMPT_RELAY_SECTION
+            .contains("only when the prompt has an allow-once option"));
+        assert!(super::PM_PROMPT_RELAY_SECTION
+            .contains("prompt answer <relay-id> --hash <hash> option <n> --session auto="));
     }
 
     #[test]

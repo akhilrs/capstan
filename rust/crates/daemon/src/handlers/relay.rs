@@ -233,7 +233,7 @@ fn window_mode(env: &CommandEnv<'_>, value: &str) -> Result<AnswerMode<'static>,
         parse_auto_window(minutes, operator.auto_window_max_minutes).map_err(|problem| {
             fail(
                 ErrorCode::InvalidRequest,
-                format!("{problem}; nothing was typed"),
+                format!("auto_window_invalid: {problem}; nothing was typed"),
             )
         })?;
     let kind = match kind {

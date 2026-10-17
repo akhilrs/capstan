@@ -422,3 +422,38 @@ fn a_restart_proposal_is_refused_when_no_restart_is_available() {
     }
     let _: Value = json!(null);
 }
+
+#[test]
+fn auto_60_opens_a_window_shown_by_status_and_op_grants_and_timed_is_removed() {
+    let w = operator_world("window");
+    let (id, hash) = propose(&w, "echo windowed >> window.log");
+    let decide = |session: &str| {
+        w.as_agent(
+            "pm-1",
+            &[
+                "op",
+                "decide",
+                &id,
+                "approve",
+                "--hash",
+                &hash,
+                "--session",
+                session,
+            ],
+        )
+    };
+    let removed = decide("timed=60");
+    assert_ne!(removed.code, 0);
+    assert!(removed.has("timed_grant_removed"), "{}", removed.text());
+    assert!(w.wire_op("status", &[])["result"]["operator"]
+        .get("window")
+        .is_none());
+    decide("auto=60").ok();
+    until_state(&w, &id, "finished");
+    let status = w.wire_op("status", &[])["result"].clone();
+    let window = &status["operator"]["window"];
+    assert_eq!(window["minutes"], 60, "{status}");
+    assert_eq!(window["operatorActive"], true, "{status}");
+    let grants = w.op(&["op", "grants", "--json"]).ok().json();
+    assert_eq!(grants["window"]["windowId"], window["windowId"], "{grants}");
+}

@@ -8,6 +8,25 @@ use super::lines::{fit_line, line_width, merge_spans, plain, span, Style};
 use super::types::{ColorRole, Line, Link, Span, Theme, ViewState};
 use crate::model::DashModel;
 
+/// The designed window strings (docs/design/plan-44-d1-design-strings.json), looked up by id.
+const WINDOW_STRINGS: &str = include_str!("../../../docs/design/plan-44-d1-design-strings.json");
+
+fn window_tab_text(operator_active: bool, minutes: i64) -> String {
+    let id = if operator_active {
+        "dash.window.open"
+    } else {
+        "dash.window.operatorEnded"
+    };
+    let table: serde_json::Value =
+        serde_json::from_str(WINDOW_STRINGS).expect("window strings table is valid JSON");
+    table
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == id))
+        .and_then(|row| row["template"].as_str())
+        .unwrap_or_default()
+        .replace("{left}", &minutes.to_string())
+}
+
 struct Chip {
     text: String,
     role: ColorRole,
@@ -139,27 +158,39 @@ pub fn header_lines(model: &DashModel, view: &ViewState, theme: &Theme, g: &Glyp
         color(ColorRole::Info),
     ));
     let mut left_tabs = vec![
-        Tab::new(h.project_id.as_str(), color(ColorRole::Fg)),
-        Tab::new(format!("run {}", h.run_state), color(ColorRole::Fg)),
+        Tab::new(h.project_id.as_str(), color(ColorRole::Fg)).with_priority(0),
+        Tab::new(format!("run {}", h.run_state), color(ColorRole::Fg)).with_priority(1),
     ];
     if let Some(pause) = &h.run_pause {
-        left_tabs.push(Tab::new(
-            format!(
-                "PAUSED {}: {}",
-                age(Some(&pause.paused_at), view.now_ms),
-                pause.reason
-            ),
-            color(ColorRole::Warn),
-        ));
+        left_tabs.push(
+            Tab::new(
+                format!(
+                    "PAUSED {}: {}",
+                    age(Some(&pause.paused_at), view.now_ms),
+                    pause.reason
+                ),
+                color(ColorRole::Warn),
+            )
+            .with_priority(2),
+        );
     }
     if let Some(minutes) = h.full_auto_minutes {
-        left_tabs.push(Tab::new(
-            format!("FULL AUTO {minutes}m"),
-            color(ColorRole::Bad),
-        ));
+        left_tabs.push(
+            Tab::new(format!("FULL AUTO {minutes}m"), color(ColorRole::Bad)).with_priority(5),
+        );
+    }
+    if let Some(window) = &h.window {
+        left_tabs.push(
+            Tab::new(
+                window_tab_text(window.operator_active, window.minutes),
+                color(ColorRole::Warn),
+            )
+            .with_priority(4),
+        );
     }
     if let Some(grants) = h.grants {
-        left_tabs.push(Tab::new(format!("grants {grants}"), color(ColorRole::Warn)));
+        left_tabs
+            .push(Tab::new(format!("grants {grants}"), color(ColorRole::Warn)).with_priority(3));
     }
     let top = top_border(
         w,

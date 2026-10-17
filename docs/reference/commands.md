@@ -125,10 +125,10 @@ The daemon also keeps the caches in shape on its own. When it starts it removes 
 
 ### Prompt relay (with `[prompt_relay] enabled = true`)
 
-| Command                                                                       | Who       | Purpose                                                                                                             |
-| ----------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------- |
-| `cstan prompt show <agent-id>`                                                | active PM | Capture a blocked worker's permission prompt, or an unrecognised blocking dialog (Esc only), with options and hash. |
-| `cstan prompt answer <relay-id> --hash <hash12> option <n>\|esc\|text <text>` | active PM | Type the answer the user chose; a dialog relay takes `esc` only and reports `inputReadable`.                        |
+| Command                                                                                                                   | Who       | Purpose                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cstan prompt show <agent-id>`                                                                                            | active PM | Capture a blocked worker's permission prompt, or an unrecognised blocking dialog (Esc only), with options and hash.                                                    |
+| `cstan prompt answer <relay-id> --hash <hash12> option <n> [--session auto=60\|auto=session\|auto=<n>]\|esc\|text <text>` | active PM | Type the answer the user chose (`--session` opens an auto-approve window, for an allow-once option only); a dialog relay takes `esc` only and reports `inputReadable`. |
 
 ### Operator (with `[operator] enabled = true`)
 
@@ -136,10 +136,10 @@ The daemon also keeps the caches in shape on its own. When it starts it removes 
 | -------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
 | `cstan op propose "<command>" "<reason>"`                                        | Operator                   | Propose one shell command.                           |
 | `cstan op propose --restart [--force] "<reason>"`                                | Operator                   | Propose a controller restart.                        |
-| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>\|timed\|timed=session]` | PM | Approve a proposal, optionally with a session grant (kind `exact`, `prefix` or `timed`). |
+| `cstan op decide <id> approve --hash <hash12> [--session exact\|prefix=<words>\|auto=60\|auto=session\|auto=<n>]` | PM | Approve a proposal, optionally with a session grant (kind `exact` or `prefix`) or an auto-approve window (`auto=`; `timed` was removed and gives `timed_grant_removed`). |
 | `cstan op decide <id> deny ["<note>"]`                                           | PM or operator             | Deny a proposal.                                     |
 | `cstan op show [<id>]` / `cstan op cancel <id>`                                  | see the Operator reference | Show proposals and runs / withdraw a proposal.       |
-| `cstan op grants` / `cstan op revoke <grant-id>`                                 | PM or operator             | List session grants (kind and time left) / end one.  |
+| `cstan op grants` / `cstan op revoke <grant-id>`                                 | PM or operator             | List session grants and the window (time left) / end one (grant or window).  |
 | `cstan op full-auto on [<minutes>] --asked-user "<text>"`                        | PM                         | Switch every guard off for a limited time.           |
 | `cstan op full-auto off` / `status`                                              | PM or operator             | Switch full auto off / show the time left.           |
 

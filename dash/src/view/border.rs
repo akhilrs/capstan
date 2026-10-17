@@ -8,6 +8,8 @@ use super::types::{Line, Span};
 pub struct Tab {
     pub text: String,
     pub color: Option<String>,
+    /// Left tabs: the lowest priority is dropped first when the line is too narrow; ties drop the last one.
+    pub priority: u8,
 }
 
 impl Tab {
@@ -15,7 +17,13 @@ impl Tab {
         Tab {
             text: text.into(),
             color,
+            priority: 0,
         }
+    }
+
+    pub fn with_priority(mut self, priority: u8) -> Tab {
+        self.priority = priority;
+        self
     }
 }
 
@@ -46,7 +54,7 @@ fn tabs_width(tabs: &[Tab]) -> usize {
 pub struct TopBorder {
     pub number: Option<usize>,
     pub title: String,
-    /// Tabs right after the title, for the header.
+    /// Tabs right after the title, for the header; the lowest `priority` goes first when the line is too narrow.
     pub left_tabs: Vec<Tab>,
     /// Right-aligned tabs; the last ones are dropped first when the line is too narrow.
     pub tabs: Vec<Tab>,
@@ -82,7 +90,12 @@ pub fn top_border(width: usize, o: &TopBorder, g: &Glyphs, colors: &BorderColors
         right.pop();
     }
     while fill(&title, &left, &right) < 0 && !left.is_empty() {
-        left.pop();
+        let drop = left
+            .iter()
+            .enumerate()
+            .min_by_key(|(i, t)| (t.priority, std::cmp::Reverse(*i)))
+            .map_or(0, |(i, _)| i);
+        left.remove(drop);
     }
     let f = fill(&title, &left, &right);
     if f < 0 {

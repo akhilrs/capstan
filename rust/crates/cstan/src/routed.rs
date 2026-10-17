@@ -196,6 +196,13 @@ impl Cli<'_> {
                 .map_err(|_| invalid("command request is too large"))?;
             reply = call(&socket, &request, timeout);
         }
+        // A daemon older than the client rejects an `auto=` window it never heard of: say so, and do not retry it as a
+        // timed grant. A current daemon's refusal of a bad window names `auto`, and is shown as it is.
+        if is_window_request(command, args) && refused_as_unaware_of_windows(&reply) {
+            return Err(invalid(
+                "this controller predates auto-approve windows; restart it (cstan restart) or ask the user with Approve once",
+            ));
+        }
         if let Err(WireError::NotSent { code, .. }) = &reply {
             if code == "ENOENT" || code == "ECONNREFUSED" {
                 return Err(blocked(if agent.is_some() {
@@ -431,6 +438,22 @@ fn refused_as_invalid(reply: &Result<Vec<u8>, WireError>) -> bool {
     matches!(reply, Ok(line) if matches!(response(line), Response::Refused { code, .. } if code.to_utf8_lossy() == "invalid_request"))
 }
 
+/// Whether the daemon answered `invalid_request` with text that does not mention `auto`: an older daemon, which has
+/// never heard of the window; a current daemon's own refusal of the window names it.
+fn refused_as_unaware_of_windows(reply: &Result<Vec<u8>, WireError>) -> bool {
+    matches!(reply, Ok(line) if matches!(response(line), Response::Refused { code, message }
+        if code.to_utf8_lossy() == "invalid_request"
+            && !message.to_utf8_lossy().to_lowercase().contains("auto")))
+}
+
+/// Whether the request opens an auto-approve window: `op decide` or `prompt answer` with `--session auto=...`.
+fn is_window_request(command: &str, args: &[String]) -> bool {
+    matches!(command, "op" | "prompt")
+        && args
+            .iter()
+            .any(|a| a.starts_with("auto=") || a.starts_with("--session=auto="))
+}
+
 /// What the text output of a reply is trimmed to.
 #[derive(Clone, Copy)]
 struct View {
@@ -499,6 +522,10 @@ fn handle_wire(
         if !json && command == "status" {
             let mut lines = render::pause_lines(result, now_ms)?;
             lines.extend(render::pm_mail_lines(result));
+            lines.extend(
+                crate::watch::window_line(result.and_then(|r| r.get("operator")), true)
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             lines.extend(
                 render::verify_status_lines(result, now_ms)
                     .iter()
