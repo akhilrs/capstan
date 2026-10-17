@@ -635,3 +635,214 @@ fn a_prompt_file_is_private_and_close_removes_it() {
     adapter.close();
     assert!(!parent.exists());
 }
+
+// ------------------------------------------------------------------------------------------------ prompt actions
+
+mod prompt_actions {
+    use capstan_herdr::api::{CapturedPrompt, PromptAction};
+    use capstan_herdr::prompt_relay::{allow_once_option, prompt_action};
+    use capstan_herdr::screen::parse_host_prompt;
+
+    const RULE: &str = "────────────────────────────────────────────────────────────────────────";
+    const DASH: &str = "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌";
+
+    fn captured(screen: &str) -> CapturedPrompt {
+        let parsed = parse_host_prompt("claude", screen).expect("a prompt");
+        CapturedPrompt {
+            agent_id: "worker-1".into(),
+            pane_id: "p1".into(),
+            host_kind: "claude".into(),
+            text: parsed.text,
+            options: parsed.options,
+            prompt_sha: "0".repeat(64),
+            dialog: false,
+        }
+    }
+
+    fn screen(body: &[&str], question: &str, options: &[&str]) -> String {
+        let mut lines = vec![String::new(), RULE.to_string()];
+        lines.extend(body.iter().map(|l| l.to_string()));
+        lines.push(question.to_string());
+        for (index, option) in options.iter().enumerate() {
+            let marker = if index == 0 { "❯" } else { " " };
+            lines.push(format!(" {marker} {}. {option}", index + 1));
+        }
+        lines.push(String::new());
+        lines.push(" Esc to cancel · Tab to amend".to_string());
+        lines.join("\n")
+    }
+
+    fn bash(command_lines: &[&str]) -> CapturedPrompt {
+        let mut body = vec![" Bash command", " Run it", DASH];
+        body.extend(command_lines);
+        body.push(DASH);
+        captured(&screen(
+            &body,
+            " Do you want to proceed?",
+            &[
+                "Yes",
+                "Yes, and always allow access to /w from this project",
+                "No",
+            ],
+        ))
+    }
+
+    fn file(header: &str, path_lines: &[&str], question: &str, options: &[&str]) -> CapturedPrompt {
+        let mut body = vec![header];
+        body.extend(path_lines);
+        body.push(DASH);
+        body.push("  1 hi");
+        body.push(DASH);
+        captured(&screen(&body, question, options))
+    }
+
+    #[test]
+    fn a_bash_command_shown_whole_is_a_command() {
+        let prompt = bash(&[" cargo test -p capstan-herdr"]);
+        assert_eq!(
+            prompt_action(&prompt),
+            Some(PromptAction::Command {
+                text: "cargo test -p capstan-herdr".into()
+            })
+        );
+        assert_eq!(allow_once_option(&prompt), Some(1));
+    }
+
+    #[test]
+    fn a_recorded_bash_capture_is_a_command() {
+        let screen = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testdata/fixtures/prompts/claude-bash-permission.ansi"),
+        )
+        .unwrap();
+        let prompt = captured(&screen);
+        assert_eq!(
+            prompt_action(&prompt),
+            Some(PromptAction::Command {
+                text: "touch spike-a.txt".into()
+            })
+        );
+        assert_eq!(allow_once_option(&prompt), Some(1));
+    }
+
+    #[test]
+    fn a_wrapped_elided_or_multi_line_command_is_not_read() {
+        assert_eq!(prompt_action(&bash(&[" cargo test …"])), None);
+        assert_eq!(prompt_action(&bash(&[" cargo test ... --all"])), None);
+        assert_eq!(prompt_action(&bash(&[" echo a", " echo b"])), None);
+        assert_eq!(
+            prompt_action(&bash(&[" cargo test -p a -p b -p c -p d", " -p e"])),
+            None
+        );
+        assert_eq!(prompt_action(&bash(&[" "])), None);
+    }
+
+    #[test]
+    fn a_file_prompt_gives_its_path() {
+        let edit = file(
+            " Edit file",
+            &[" src/lib.rs"],
+            " Do you want to make this edit to lib.rs?",
+            &[
+                "Yes",
+                "Yes, and switch to accept edits for this session",
+                "No",
+            ],
+        );
+        assert_eq!(
+            prompt_action(&edit),
+            Some(PromptAction::Write {
+                path: "src/lib.rs".into()
+            })
+        );
+        assert_eq!(allow_once_option(&edit), Some(1));
+        let notebook = file(
+            " Edit notebook",
+            &[" /a/b/nb.ipynb"],
+            " Do you want to make this edit to nb.ipynb?",
+            &["Yes", "No"],
+        );
+        assert_eq!(
+            prompt_action(&notebook),
+            Some(PromptAction::Write {
+                path: "/a/b/nb.ipynb".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_create_prompt_has_a_yes_that_takes_text_so_nothing_is_answered_once() {
+        let create = file(
+            " Create file",
+            &[" notes.txt"],
+            " Do you want to create notes.txt?",
+            &["Yes", "No"],
+        );
+        assert_eq!(
+            prompt_action(&create),
+            Some(PromptAction::Write {
+                path: "notes.txt".into()
+            })
+        );
+        assert_eq!(allow_once_option(&create), None);
+    }
+
+    #[test]
+    fn an_elided_wrapped_or_expanded_path_is_not_read() {
+        let question = " Do you want to make this edit to lib.rs?";
+        let options = ["Yes", "No"];
+        for lines in [
+            &[" /very/long/…/lib.rs"][..],
+            &[" /very/long/pa", " th/lib.rs"][..],
+            &[" ~/lib.rs"][..],
+            &[" $HOME/lib.rs"][..],
+        ] {
+            assert_eq!(
+                prompt_action(&file(" Edit file", lines, question, &options)),
+                None
+            );
+        }
+        // The question must name the file the detail shows.
+        assert_eq!(
+            prompt_action(&file(" Edit file", &[" other.rs"], question, &options)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_tool_prompt_is_other_and_an_unplaced_layout_is_none() {
+        let fetch = captured(&screen(
+            &[" Fetch", " https://example.com"],
+            " Do you want to allow Claude to fetch this content?",
+            &["Yes", "No"],
+        ));
+        assert_eq!(
+            prompt_action(&fetch),
+            Some(PromptAction::Other {
+                header: "Fetch".into()
+            })
+        );
+        assert_eq!(allow_once_option(&fetch), Some(1));
+        let shell = captured(&screen(
+            &[" PowerShell command", DASH, " ls", DASH],
+            " Do you want to proceed?",
+            &["Yes", "No"],
+        ));
+        assert_eq!(prompt_action(&shell), None);
+    }
+
+    #[test]
+    fn a_widening_only_prompt_and_a_dialog_have_no_allow_once_option() {
+        let widening = captured(&screen(
+            &[" Fetch", " https://example.com"],
+            " Do you want to allow Claude to fetch this content?",
+            &["Yes, and don't ask again for example.com", "No"],
+        ));
+        assert_eq!(allow_once_option(&widening), None);
+        let mut dialog = bash(&[" ls"]);
+        dialog.dialog = true;
+        assert_eq!(allow_once_option(&dialog), None);
+        dialog.options.clear();
+        assert_eq!(prompt_action(&dialog), None);
+    }
+}

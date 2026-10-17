@@ -4,6 +4,7 @@
 //! the kernel, with the database edited only where a Node test edited it (raw SQL on the closed ledger).
 
 mod approval_windows;
+mod controller_relay;
 mod design_approvals;
 mod fixture;
 mod id_prefix;

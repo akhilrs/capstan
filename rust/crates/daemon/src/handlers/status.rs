@@ -6,9 +6,9 @@
 //! kernel thread.
 
 use super::shared::{
-    describe_full_auto, describe_grant_record, fail, map_kernel_error, ok, CommandCall, CommandEnv,
-    CommandResponse, ErrorCode, MAX_STATUS_CLEARS, MAX_STATUS_MESSAGES, MAX_STATUS_PROPOSALS,
-    MAX_STATUS_REPORTS, MAX_STATUS_TASK_PACKAGES, MAX_STATUS_TASK_PLANS,
+    describe_full_auto, describe_grant_record, describe_window, fail, map_kernel_error, ok,
+    CommandCall, CommandEnv, CommandResponse, ErrorCode, MAX_STATUS_CLEARS, MAX_STATUS_MESSAGES,
+    MAX_STATUS_PROPOSALS, MAX_STATUS_REPORTS, MAX_STATUS_TASK_PACKAGES, MAX_STATUS_TASK_PLANS,
     MAX_STATUS_TASK_REQUIREMENTS,
 };
 use super::HandlerMap;
@@ -134,8 +134,8 @@ pub fn pm_mail_summary(messages: &Value, now_ms: i64, stale_seconds: i64) -> Map
 /// What the operator view takes from outside the ledger.
 struct Outside {
     driver: DriverSnapshot,
-    /// (full auto, grants, pending proposals), when `[operator]` is enabled and the service runs.
-    operator: Option<(Value, Value, Value)>,
+    /// (full auto, grants, pending proposals, open window), when `[operator]` is enabled and the service runs.
+    operator: Option<(Value, Value, Value, Value)>,
     launcher: Option<Value>,
 }
 
@@ -170,6 +170,10 @@ fn outside(deps: &Deps) -> Outside {
                     })
                     .collect(),
             ),
+            service
+                .window()
+                .as_ref()
+                .map_or(Value::Null, describe_window),
         )),
         _ => None,
     };
@@ -304,11 +308,12 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                 "inputClears".into(),
                 core.input_clears(&credential, MAX_STATUS_CLEARS as i64)?,
             );
-            if let Some((full_auto, grants, _)) = &outside.operator {
-                result.insert(
-                    "operator".into(),
-                    json!({"fullAuto": full_auto, "grants": grants}),
-                );
+            if let Some((full_auto, grants, _, window)) = &outside.operator {
+                let mut operator = json!({"fullAuto": full_auto, "grants": grants});
+                if !window.is_null() {
+                    operator["window"] = window.clone();
+                }
+                result.insert("operator".into(), operator);
             }
             result.insert("panes".into(), core.agent_panes(&credential)?);
             result.insert(
@@ -335,7 +340,7 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                 "awaitingConfirm".into(),
                 core.awaiting_confirm(&credential, Some(MAX_STATUS_REPORTS as i64))?,
             );
-            if let Some((_, _, proposals)) = &outside.operator {
+            if let Some((_, _, proposals, _)) = &outside.operator {
                 result.insert("pendingProposals".into(), proposals.clone());
             }
             result.insert(

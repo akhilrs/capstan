@@ -26,7 +26,7 @@ use capstan_launcher::api::{
 };
 use capstan_operator::api::{
     DecideInput, Decision, FullAutoOnInput, FullAutoStatus, ListFilter, OperatorError,
-    OperatorResult, OperatorService, ProposalKind, ProposeInput,
+    OperatorResult, OperatorService, ProposalKind, ProposeInput, SessionGrantInput,
 };
 use common::project::{build_repo, write_project, Identity};
 use common::replay::ReplayGit;
@@ -315,6 +315,7 @@ struct Scripted {
     calls: Mutex<Vec<String>>,
     proposals: Mutex<Vec<Value>>,
     full_auto: Mutex<Option<FullAutoStatus>>,
+    window: Mutex<Option<Value>>,
 }
 
 impl Scripted {
@@ -402,14 +403,11 @@ impl OperatorService for Scripted {
             input.note,
             match input.session {
                 None => "None".to_string(),
-                Some(s) => {
-                    let kind = s.kind.as_str().to_string();
-                    match s.minutes {
-                        None => format!("Some(({kind:?}, {:?}))", s.text),
-                        Some(minutes) => {
-                            format!("Some(({kind:?}, {:?}, minutes={minutes}))", s.text)
-                        }
-                    }
+                Some(SessionGrantInput::Grant { kind, text }) => {
+                    format!("Some(({:?}, {text:?}))", kind.as_str())
+                }
+                Some(SessionGrantInput::Window { kind, minutes }) => {
+                    format!("Some((window {kind:?}, minutes={minutes}))")
                 }
             }
         ));
@@ -466,6 +464,26 @@ impl OperatorService for Scripted {
             return Err(OperatorError::new("unknown_grant", "no such grant").into());
         }
         Ok(json!({"grantId": grant_id, "kind": "exact", "text": "ls", "endedReason": "revoked"}))
+    }
+
+    fn window(&self) -> Option<Value> {
+        self.log("window".into());
+        lock(&self.window).clone()
+    }
+
+    fn list_windows(&self, _limit: Option<i64>) -> Vec<Value> {
+        self.log("list_windows".into());
+        lock(&self.window).iter().cloned().collect()
+    }
+
+    fn revoke_window(&self, _credential: &str, window_id: &str) -> OperatorResult<Value> {
+        self.log(format!("revoke_window {window_id}"));
+        if window_id == "win-404" {
+            return Err(OperatorError::new("window_not_found", "no such window").into());
+        }
+        Ok(
+            json!({"windowId": window_id, "kind": "minutes", "minutes": 30, "endedReason": "revoked"}),
+        )
     }
 
     fn full_auto_on(
@@ -1854,19 +1872,19 @@ fn decide_args(session: &str) -> Vec<&str> {
 }
 
 #[test]
-fn op_decide_parses_the_five_session_forms_and_the_timed_minutes() {
+fn op_decide_parses_the_session_forms_and_the_window_minutes() {
     let config = CONFIG.replace(
         TIMED_CONFIG_FROM,
-        "[operator]\nenabled = true\ntimed_grant_default_minutes = 45\ntimed_grant_max_minutes = 90",
+        "[operator]\nenabled = true\nauto_window_max_minutes = 90",
     );
     let service = Arc::new(Scripted::default());
     let world = World::with_config(&config, None, Some(service.clone()));
     for session in [
         "exact",
         "prefix=git log",
-        "timed",
-        "timed=30",
-        "timed=session",
+        "auto=60",
+        "auto=session",
+        "auto=15",
     ] {
         world.ok("pm-1", "op", &decide_args(session));
     }
@@ -1874,34 +1892,65 @@ fn op_decide_parses_the_five_session_forms_and_the_timed_minutes() {
     for expected in [
         r#"session=Some(("exact", None))"#,
         r#"session=Some(("prefix", Some("git log")))"#,
-        r#"session=Some(("timed", None, minutes=45))"#,
-        r#"session=Some(("timed", None, minutes=30))"#,
-        r#"session=Some(("timed", None, minutes=90))"#,
+        "session=Some((window Hour, minutes=60))",
+        "session=Some((window Session, minutes=90))",
+        "session=Some((window Minutes, minutes=15))",
     ] {
         assert!(
             calls.iter().any(|call| call.ends_with(expected)),
             "{expected} in {calls:?}"
         );
     }
-    for bad in ["timed=0", "timed=91", "timed=abc", "timed=-5", "timed=1.5"] {
+    let before = service.calls().len();
+    for bad in [
+        "auto=0", "auto=999", "auto=x", "auto=-5", "auto=1.5", "auto=",
+    ] {
         let message = world.refused("pm-1", "op", &decide_args(bad), "rejected");
-        assert!(message.starts_with("timed_minutes:"), "{bad}: {message}");
-        assert!(message.contains("90"), "names the cap: {message}");
+        assert!(
+            message.starts_with("auto_window_invalid:"),
+            "{bad}: {message}"
+        );
     }
-    world.refused("pm-1", "op", &decide_args("timedx"), "invalid_request");
-    // op grants shows the kind and the time left.
+    for removed in ["timed", "timed=60", "timed=session", "timed=0"] {
+        let message = world.refused("pm-1", "op", &decide_args(removed), "rejected");
+        assert!(
+            message.starts_with("timed_grant_removed:"),
+            "{removed}: {message}"
+        );
+    }
+    assert_eq!(
+        service.calls().len(),
+        before,
+        "a refused session reaches no service"
+    );
+    world.refused("pm-1", "op", &decide_args("autox"), "invalid_request");
+    // op grants shows the kind and the time left, and no window when none is open.
     let grants = world.ok("pm-1", "op", &["grants"]);
     assert_eq!(grants["grants"][0]["remainingSeconds"], 3000);
+    assert!(grants.get("window").is_none());
 }
 
 #[test]
-fn op_decide_refuses_a_timed_grant_when_timed_grants_are_disabled() {
-    let config = CONFIG.replace(
-        TIMED_CONFIG_FROM,
-        "[operator]\nenabled = true\ntimed_safe_commands = []",
+fn op_grants_shows_the_window_and_op_revoke_ends_it() {
+    let service = Arc::new(Scripted::default());
+    *service.window.lock().unwrap() = Some(json!({
+        "windowId": "win-3", "kind": "minutes", "minutes": 30, "operatorActive": false,
+        "source": {"proposalId": "prop-1"}, "createdAt": "2026-01-01T00:00:00.000Z",
+        "expiresAt": "2026-01-01T00:30:00.000Z", "remainingSeconds": 600,
+    }));
+    let world = World::with_config(CONFIG, None, Some(service.clone()));
+    let grants = world.ok("pm-1", "op", &["grants"]);
+    assert_eq!(grants["window"]["windowId"], "win-3");
+    assert_eq!(grants["window"]["operatorActive"], false);
+    assert_eq!(grants["grants"][0]["grantId"], "grant-1");
+    assert_eq!(
+        world.ok("pm-1", "op", &["grants", "--history"])["windows"][0]["windowId"],
+        "win-3"
     );
-    let world = World::with_config(&config, None, Some(Arc::new(Scripted::default())));
-    let message = world.refused("pm-1", "op", &decide_args("timed"), "rejected");
-    assert!(message.starts_with("timed_grants_disabled:"), "{message}");
-    world.ok("pm-1", "op", &decide_args("exact"));
+    let revoked = world.ok("pm-1", "op", &["revoke", "win-3"]);
+    assert_eq!(revoked["endedReason"], "revoked");
+    assert!(service.calls().contains(&"revoke_window win-3".to_string()));
+    assert!(!service.calls().contains(&"revoke win-3".to_string()));
+    world.refused("pm-1", "op", &["revoke", "win-404"], "rejected");
+    world.refused("dev-1", "op", &["revoke", "win-3"], "forbidden");
 }

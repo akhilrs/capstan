@@ -6,6 +6,7 @@
 //! kernel crate. Every method blocks; the worker that runs commands has its own thread and takes the kernel per ledger
 //! step, never while a command runs.
 
+use capstan_config::AutoWindowKind;
 use capstan_kernel::KernelError;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -111,8 +112,6 @@ pub enum Decision {
 pub enum GrantKind {
     Exact,
     Prefix,
-    /// Lets commands the controller classifies as non-destructive run for a number of minutes.
-    Timed,
 }
 
 impl GrantKind {
@@ -120,7 +119,6 @@ impl GrantKind {
         match self {
             Self::Exact => "exact",
             Self::Prefix => "prefix",
-            Self::Timed => "timed",
         }
     }
 }
@@ -132,13 +130,17 @@ pub struct ProposeInput {
     pub force_restart: bool,
 }
 
-/// Approve and allow the same text (exact), the same leading words (prefix) or non-destructive commands (timed) again
-/// for the session.
-pub struct SessionGrantInput {
-    pub kind: GrantKind,
-    pub text: Option<String>,
-    /// Only for `Timed`: how long the grant lasts.
-    pub minutes: Option<i64>,
+/// Approve and allow the same text (exact) or the same leading words (prefix) again for the session, or open an
+/// auto-approval window of `minutes` (already read and cut to the configured cap by `parse_auto_window`).
+pub enum SessionGrantInput {
+    Grant {
+        kind: GrantKind,
+        text: Option<String>,
+    },
+    Window {
+        kind: AutoWindowKind,
+        minutes: i64,
+    },
 }
 
 pub struct DecideInput {
@@ -183,6 +185,12 @@ pub trait OperatorService: Send + Sync {
     /// Every grant, ended ones included, newest first.
     fn list_grants(&self) -> Vec<Value>;
     fn revoke_grant(&self, credential: &str, grant_id: &str) -> OperatorResult<Value>;
+    /// The open approval window (its record), or none; a window whose Operator part ended is still shown.
+    fn window(&self) -> Option<Value>;
+    /// Approval windows, newest first, ended ones with the way each ended.
+    fn list_windows(&self, limit: Option<i64>) -> Vec<Value>;
+    /// Ends the open approval window `window_id` at once.
+    fn revoke_window(&self, credential: &str, window_id: &str) -> OperatorResult<Value>;
     /// Switches full auto on for `minutes` (the configured default when omitted) after the PM asked the user.
     fn full_auto_on(
         &self,
@@ -247,7 +255,7 @@ impl StubOperator {
         lock(&self.state).calls.clone()
     }
 
-    /// Queues the answer of the next call of `method` (propose, decide, cancel, revoke_grant).
+    /// Queues the answer of the next call of `method` (propose, decide, cancel, revoke_grant, revoke_window).
     pub fn script(&self, method: &str, answer: OperatorResult<Value>) {
         lock(&self.state)
             .answers
@@ -322,6 +330,20 @@ impl OperatorService for StubOperator {
 
     fn revoke_grant(&self, _credential: &str, grant_id: &str) -> OperatorResult<Value> {
         self.answer(format!("revoke_grant {grant_id}"), "revoke_grant")
+    }
+
+    fn window(&self) -> Option<Value> {
+        self.log("window".into());
+        None
+    }
+
+    fn list_windows(&self, _limit: Option<i64>) -> Vec<Value> {
+        self.log("list_windows".into());
+        Vec::new()
+    }
+
+    fn revoke_window(&self, _credential: &str, window_id: &str) -> OperatorResult<Value> {
+        self.answer(format!("revoke_window {window_id}"), "revoke_window")
     }
 
     fn full_auto_on(

@@ -869,7 +869,13 @@ pub fn propose_operator_action(
         ));
     }
     let auto_rule: Option<String> = field("autoRule").as_str().map(str::to_string);
-    if auto_rule.is_some() && kind != "command" && auto_rule.as_deref() != Some(FULL_AUTO_RULE) {
+    if auto_rule.is_some()
+        && kind != "command"
+        && auto_rule.as_deref() != Some(FULL_AUTO_RULE)
+        && !auto_rule
+            .as_deref()
+            .is_some_and(|rule| rule.starts_with(WINDOW_RULE_LEAD))
+    {
         return Err(KernelError::type_error(
             "only a command, or any proposal under full auto, can be auto-approved",
         ));

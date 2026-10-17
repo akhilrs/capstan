@@ -14,12 +14,13 @@
 use crate::api::{
     DecideInput, Decision, FullAutoOnInput, FullAutoStatus, ListFilter, OperatorError,
     OperatorFailure, OperatorResult, OperatorService, ProposalKind, ProposeInput,
-    RestartCoordinator, OPERATOR_TICK_MS, ORPHAN_KILL_WAIT_MS,
+    RestartCoordinator, SessionGrantInput, OPERATOR_TICK_MS, ORPHAN_KILL_WAIT_MS,
 };
+use crate::floor::{check_floor, FloorAction, FloorContext, FloorVerdict};
 use crate::policy::{
-    auto_decision, classify_safe_command, match_session_grant, session_rule, GrantRef,
-    GrantVerdict, SafeCommandSet, SafeVerdict, FULL_AUTO_RULE,
+    auto_decision, match_session_grant, session_rule, GrantRef, GrantVerdict, FULL_AUTO_RULE,
 };
+use capstan_config::AutoWindowKind;
 use capstan_kernel::helpers::strip_terminal_sequences;
 use capstan_kernel::types::MutationContext;
 use capstan_kernel::{Core, KernelResult};
@@ -524,6 +525,30 @@ impl ProcessOperatorService {
     }
 }
 
+const WINDOW_RULE_LEAD: &str = "window:";
+
+/// The project root and every worktree git lists for it (the Capstan worktrees); the root alone when git cannot say.
+fn protected_roots(project_root: &std::path::Path) -> Vec<String> {
+    let root = project_root.to_string_lossy().into_owned();
+    let mut roots = vec![root];
+    let listed = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(project_root)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    if let Ok(output) = listed {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Some(path) = line.strip_prefix("worktree ") {
+                if !roots.iter().any(|known| known == path) {
+                    roots.push(path.to_string());
+                }
+            }
+        }
+    }
+    roots
+}
+
 fn limits_json(config: &capstan_config::Operator) -> Value {
     json!({
         "proposalTtlMinutes": config.proposal_ttl_minutes,
@@ -632,6 +657,33 @@ impl Inner {
             );
         }
         false
+    }
+
+    /// The open window while its Operator part is still open, or none.
+    fn operator_window(&self) -> Option<Value> {
+        match self.read(|core| core.active_approval_window()) {
+            Ok(window) if window["operatorActive"].as_bool() == Some(true) => Some(window),
+            _ => None,
+        }
+    }
+
+    /// What the floor says about a proposal. Proposals carry no directory: the Operator runs every command in the
+    /// project root, so that is where a relative path and a `cd` start.
+    fn check_window_floor(&self, kind: ProposalKind, command: &str) -> FloorVerdict {
+        let root = self.options.project_root.to_string_lossy().into_owned();
+        let ctx = FloorContext {
+            entries: self.config().approval_floor.clone(),
+            own_root: root.clone(),
+            protected_roots: protected_roots(&self.options.project_root),
+        };
+        let action = match kind {
+            ProposalKind::Restart => FloorAction::Restart,
+            ProposalKind::Command => FloorAction::Command {
+                text: command.to_string(),
+                cwd: root,
+            },
+        };
+        check_floor(&action, &ctx)
     }
 
     fn live_grants(&self) -> Vec<Value> {
@@ -862,6 +914,7 @@ impl Inner {
         }
         let outcome = (|| -> KernelResult<()> {
             self.check_full_auto();
+            self.as_controller(|core, context| core.expire_approval_windows(context))?;
             let now = self.now();
             let active = array(self.read(|core| core.active_operator_grants())?);
             let late: Vec<String> = {
@@ -915,20 +968,44 @@ impl OperatorService for ProcessOperatorService {
             _ => None,
         };
         let config = inner.config();
-        let verdict = auto_decision(
-            input.kind,
-            &input.command,
-            &config.auto_approve,
-            &config.auto_approve_prefix,
-        );
-        let mut auto_rule: Option<String> = if inner.check_full_auto() {
-            Some(FULL_AUTO_RULE.to_string())
-        } else if verdict.auto {
-            verdict.rule
-        } else {
+        let full_auto = inner.check_full_auto();
+        let window = if full_auto {
             None
+        } else {
+            inner.operator_window()
         };
+        let mut auto_rule: Option<String> = full_auto.then(|| FULL_AUTO_RULE.to_string());
+        // Inside a window the floor is asked first: a floored proposal gets no grant, no allowlist rule and no window.
+        let mut window_floor = None;
+        let mut window_unchecked = None;
+        let mut unchecked_verdict = None;
         if auto_rule.is_none() {
+            if let Some(window) = &window {
+                match inner.check_window_floor(input.kind, &input.command) {
+                    FloorVerdict::Floor { entry, detail } => {
+                        window_floor = Some(json!({
+                            "windowId": window["windowId"],
+                            "entry": entry,
+                            "detail": detail,
+                        }));
+                    }
+                    FloorVerdict::Unchecked { reason } => unchecked_verdict = Some(reason),
+                    FloorVerdict::Clear => {}
+                }
+            }
+        }
+        if auto_rule.is_none() && window_floor.is_none() {
+            let verdict = auto_decision(
+                input.kind,
+                &input.command,
+                &config.auto_approve,
+                &config.auto_approve_prefix,
+            );
+            if verdict.auto {
+                auto_rule = verdict.rule;
+            }
+        }
+        if auto_rule.is_none() && window_floor.is_none() {
             let grants: Vec<GrantRef> = inner
                 .live_grants()
                 .iter()
@@ -938,7 +1015,6 @@ impl OperatorService for ProcessOperatorService {
                         kind: match grant["kind"].as_str()? {
                             "exact" => crate::api::GrantKind::Exact,
                             "prefix" => crate::api::GrantKind::Prefix,
-                            // A timed grant has no words to match; it is consulted below.
                             _ => return None,
                         },
                         text: grant["text"].as_str()?.to_string(),
@@ -949,28 +1025,15 @@ impl OperatorService for ProcessOperatorService {
                 match_session_grant(input.kind, &input.command, &grants)
             {
                 auto_rule = Some(session_rule(&grant_id));
-            } else if input.kind == ProposalKind::Command {
-                // Oldest live timed grant first, so two of them pick deterministically.
-                let timed = inner
-                    .live_grants()
-                    .into_iter()
-                    .filter(|grant| grant["kind"].as_str() == Some("timed"))
-                    .min_by_key(|grant| {
-                        (
-                            grant["createdAt"].as_str().unwrap_or_default().to_string(),
-                            grant["grantId"].as_str().unwrap_or_default().to_string(),
-                        )
-                    });
-                if let Some(grant_id) = timed.as_ref().and_then(|g| g["grantId"].as_str()) {
-                    let set = SafeCommandSet {
-                        safe_prefixes: &config.timed_safe_commands,
-                        exact_rules: &config.auto_approve,
-                        prefix_rules: &config.auto_approve_prefix,
-                    };
-                    if classify_safe_command(input.kind, &input.command, &set) == SafeVerdict::Safe
-                    {
-                        auto_rule = Some(session_rule(grant_id));
-                    }
+            }
+        }
+        if auto_rule.is_none() && window_floor.is_none() {
+            if let Some(window) = &window {
+                auto_rule = window["windowId"]
+                    .as_str()
+                    .map(|id| format!("{WINDOW_RULE_LEAD}{id}"));
+                if auto_rule.is_some() {
+                    window_unchecked = unchecked_verdict.map(|reason| json!({"reason": reason}));
                 }
             }
         }
@@ -982,11 +1045,28 @@ impl OperatorService for ProcessOperatorService {
             "autoRule": auto_rule,
             "maxPending": config.max_pending_proposals,
         });
-        let record = inner
-            .step(credential, move |core, context| {
-                core.propose_operator_action(context, &body)
-            })
-            .map_err(OperatorFailure::from)?;
+        let mut body = body;
+        if let Some(floor) = window_floor {
+            body["windowFloor"] = floor;
+        }
+        if let Some(unchecked) = window_unchecked {
+            body["windowUnchecked"] = unchecked;
+        }
+        let mut retry = body.clone();
+        let mut record = inner.step(credential, move |core, context| {
+            core.propose_operator_action(context, &body)
+        });
+        // A window that ended between the look and the write approves nothing; the proposal waits for the PM instead.
+        if matches!(&record, Err(error) if error.message().contains("window_not_active")) {
+            retry["autoRule"] = Value::Null;
+            if let Some(map) = retry.as_object_mut() {
+                map.remove("windowUnchecked");
+            }
+            record = inner.step(credential, move |core, context| {
+                core.propose_operator_action(context, &retry)
+            });
+        }
+        let record = record.map_err(OperatorFailure::from)?;
         if let Some(warning) = restart_warning {
             if let Some(notify) = &inner.options.notify_pm {
                 notify(
@@ -1028,35 +1108,39 @@ impl OperatorService for ProcessOperatorService {
             json!(config.proposal_ttl_minutes),
         );
         let mut grant_minutes = config.session_grant_max_minutes;
-        if let Some(session) = &input.session {
-            if session.kind == crate::api::GrantKind::Timed {
-                if config.timed_safe_commands.is_empty() {
-                    return Err(OperatorError::new(
-                        "timed_grants_disabled",
-                        "timed grants are off; operator.timed_safe_commands is empty",
-                    )
-                    .into());
+        let mut grant_made = false;
+        match &input.session {
+            None => {}
+            Some(SessionGrantInput::Grant { kind, text }) => {
+                let mut grant = Map::new();
+                grant.insert("kind".into(), json!(kind.as_str()));
+                if let Some(text) = text {
+                    grant.insert("text".into(), json!(text));
                 }
-                let cap = config.timed_grant_max_minutes;
-                let minutes = session
-                    .minutes
-                    .unwrap_or(config.timed_grant_default_minutes);
-                if !(1..=cap).contains(&minutes) {
-                    return Err(OperatorError::new(
-                        "timed_minutes",
-                        format!("a timed grant lasts a whole number of minutes from 1 to {cap} (operator.timed_grant_max_minutes)"),
-                    )
-                    .into());
-                }
-                grant_minutes = minutes;
+                grant.insert("maxMinutes".into(), json!(grant_minutes));
+                body.insert("session".into(), Value::Object(grant));
+                grant_made = true;
             }
-            let mut grant = Map::new();
-            grant.insert("kind".into(), json!(session.kind.as_str()));
-            if let Some(text) = &session.text {
-                grant.insert("text".into(), json!(text));
+            Some(SessionGrantInput::Window { kind, minutes }) => {
+                grant_minutes = *minutes;
+                body.insert(
+                    "session".into(),
+                    json!({
+                        "kind": "window",
+                        "windowKind": match kind {
+                            AutoWindowKind::Hour => "hour",
+                            AutoWindowKind::Session => "session",
+                            AutoWindowKind::Minutes => "minutes",
+                        },
+                        "maxMinutes": minutes,
+                    }),
+                );
+                body.insert("approvalFloor".into(), json!(config.approval_floor));
+                body.insert(
+                    "windowToolPrompts".into(),
+                    json!(config.auto_window_tool_prompts),
+                );
             }
-            grant.insert("maxMinutes".into(), json!(grant_minutes));
-            body.insert("session".into(), Value::Object(grant));
         }
         let body = Value::Object(body);
         let record = inner
@@ -1064,7 +1148,7 @@ impl OperatorService for ProcessOperatorService {
                 core.decide_operator_proposal(context, &body)
             })
             .map_err(OperatorFailure::from)?;
-        if let Some(grant_id) = record["sessionGrant"]["grantId"].as_str() {
+        if let (true, Some(grant_id)) = (grant_made, record["sessionGrant"]["grantId"].as_str()) {
             let deadline = inner.now() + grant_minutes * 60_000;
             inner
                 .state()
@@ -1128,6 +1212,29 @@ impl OperatorService for ProcessOperatorService {
         self.inner
             .step(credential, move |core, context| {
                 core.revoke_operator_grant(context, &id)
+            })
+            .map_err(OperatorFailure::from)
+    }
+
+    fn window(&self) -> Option<Value> {
+        match self.inner.read(|core| core.active_approval_window()) {
+            Ok(Value::Null) | Err(_) => None,
+            Ok(window) => Some(window),
+        }
+    }
+
+    fn list_windows(&self, limit: Option<i64>) -> Vec<Value> {
+        self.inner
+            .read(move |core| core.list_approval_windows(limit))
+            .map(array)
+            .unwrap_or_default()
+    }
+
+    fn revoke_window(&self, credential: &str, window_id: &str) -> OperatorResult<Value> {
+        let body = json!({"windowId": window_id});
+        self.inner
+            .step(credential, move |core, context| {
+                core.end_approval_window(context, &body)
             })
             .map_err(OperatorFailure::from)
     }
@@ -1218,6 +1325,7 @@ impl OperatorService for ProcessOperatorService {
                 core.abandon_running_operator_runs(context, has_filter.then_some(&filter))
             }),
             inner.as_controller(|core, context| core.end_operator_grants_for_restart(context)),
+            inner.as_controller(|core, context| core.end_approval_windows_for_restart(context)),
         ];
         for outcome in steps {
             if let Err(error) = outcome {

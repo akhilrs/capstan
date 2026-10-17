@@ -6,7 +6,7 @@
 //! differs.
 
 use crate::adapter::validate::{js_trim, js_trim_end, utf16_len};
-use crate::api::{InputBlocker, RelayOption, RELAY_PROMPT_MAX_BYTES};
+use crate::api::{InputBlocker, PromptAction, RelayOption, RELAY_PROMPT_MAX_BYTES};
 use crate::naming::is_js_space;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -809,6 +809,102 @@ pub fn parse_host_prompt(kind: &str, ansi_screen: &str) -> Option<HostPrompt> {
                 widens_permissions: widens_permissions(&row.text),
             })
             .collect(),
+    })
+}
+
+/// `/^╌{10,}$/`: the dashed line that frames the detail of a Claude permission prompt.
+fn is_detail_line(text: &str) -> bool {
+    text.chars().count() >= 10 && text.chars().all(|c| c == '╌')
+}
+
+/// A line cut short by Claude's own elision.
+fn elided(text: &str) -> bool {
+    text.contains('…') || text.contains("...")
+}
+
+/// The one line of a detail (a command or a path) that is shown whole, or None when it is empty, elided, holds a
+/// control character, or is a path that a shell would expand.
+fn whole_line(line: &str, path: bool) -> Option<String> {
+    let text = js_trim(line);
+    if text.is_empty()
+        || elided(text)
+        || leftover_control(text)
+        || text.chars().any(is_line_terminator)
+    {
+        return None;
+    }
+    if path && (text.starts_with('~') || text.contains('$')) {
+        return None;
+    }
+    Some(text.to_string())
+}
+
+/// What a prompt text (the body `parse_host_prompt` returns: header, detail, question) asks to allow. A command or a
+/// path that is elided, wrapped over several lines or not alone in its detail gives None, as does a header the relay
+/// cannot place (a shell or file prompt of a layout it has not seen).
+pub fn parse_prompt_action(text: &str) -> Option<PromptAction> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let header = js_trim(lines.first()?);
+    let question = js_trim(lines.last()?);
+    if header.is_empty() || lines.len() < 3 {
+        return None;
+    }
+    let lower = header.to_ascii_lowercase();
+    let dashes: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| is_detail_line(js_trim(line)))
+        .map(|(index, _)| index)
+        .collect();
+    let is_tip = |line: &&str| js_trim(line).starts_with("Tip:");
+    if header == "Bash command" {
+        if question != "Do you want to proceed?" || dashes.len() != 2 || dashes[1] != dashes[0] + 2
+        {
+            return None;
+        }
+        return whole_line(lines[dashes[0] + 1], false).map(|text| PromptAction::Command { text });
+    }
+    if lower.contains("bash")
+        || lower.contains("command")
+        || lower.contains("shell")
+        || lower.contains("powershell")
+    {
+        return None;
+    }
+    if lower.contains("file") || lower.contains("notebook") {
+        let first = *dashes.first()?;
+        let detail: Vec<&str> = lines[1..first]
+            .iter()
+            .filter(|l| !is_tip(l))
+            .copied()
+            .collect();
+        if detail.len() != 1 {
+            return None;
+        }
+        let path = whole_line(detail[0], true)?;
+        let name = path.rsplit('/').next().unwrap_or("");
+        if name.is_empty() || !question.contains(name) {
+            return None;
+        }
+        return Some(PromptAction::Write { path });
+    }
+    // A header that names a file or a command action without saying "file" is a layout not seen before.
+    if [
+        "edit",
+        "write",
+        "create",
+        "overwrite",
+        "delete",
+        "remove",
+        "update",
+    ]
+    .iter()
+    .any(|word| lower.split_whitespace().any(|w| w == *word))
+    {
+        return None;
+    }
+    Some(PromptAction::Other {
+        header: header.to_string(),
     })
 }
 

@@ -867,3 +867,26 @@ fn a_fresh_ledger_gives_the_controller_prompt_relay() {
         .unwrap();
     assert_eq!(granted, 1);
 }
+
+#[test]
+fn a_restart_is_approved_by_a_window_rule_and_by_no_other_rule_but_full_auto() {
+    let w = World::new();
+    w.open("minutes", 30);
+    let approved = w
+        .propose(json!({"kind": "restart", "autoRule": "window:win-1"}))
+        .unwrap();
+    assert_eq!(approved["state"], "approved");
+    assert_eq!(approved["autoRule"], "window:win-1");
+    for rule in ["ls", "session:grant-1", "exact"] {
+        let message = error(w.propose(json!({"kind": "restart", "autoRule": rule})));
+        assert!(
+            message.contains("can be auto-approved"),
+            "{rule}: {message}"
+        );
+    }
+    w.core
+        .end_approval_window(&w.ctx(OWNER), &json!({"windowId": "win-1"}))
+        .unwrap();
+    let message = error(w.propose(json!({"kind": "restart", "autoRule": "window:win-1"})));
+    assert!(message.contains("window_not_active"), "{message}");
+}

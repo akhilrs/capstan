@@ -3,9 +3,10 @@
 
 mod common;
 
+use capstan_config::AutoWindowKind;
 use capstan_operator::api::{
     DecideInput, Decision, FullAutoOnInput, FullAutoStatus, GrantKind, OperatorService,
-    ProposalKind, ProposeInput, SessionGrantInput,
+    ProposalKind, ProposeInput, RestartCoordinator, SessionGrantInput, StubRestart,
 };
 use capstan_operator::service::{
     run_command, OperatorLedger, OperatorServiceOptions, ProcessOperatorService, RunOptions,
@@ -13,7 +14,7 @@ use capstan_operator::service::{
 };
 use common::*;
 use serde_json::Value;
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 type Environment = Vec<(String, String)>;
@@ -23,8 +24,6 @@ struct Setup {
     service: Arc<ProcessOperatorService>,
     runs: Arc<AtomicUsize>,
     seen: Arc<std::sync::Mutex<Vec<Environment>>>,
-    /// Milliseconds the service's clock has been moved ahead.
-    skew: Arc<AtomicI64>,
 }
 
 fn setup(overrides: impl FnOnce(&mut capstan_config::Operator)) -> Setup {
@@ -46,7 +45,6 @@ fn setup_with(
             run_command(options)
         })
     };
-    let skew = Arc::new(AtomicI64::new(0));
     let started = std::time::Instant::now();
     let service = Arc::new(ProcessOperatorService::new(OperatorServiceOptions {
         ledger: world.ledger.clone(),
@@ -66,12 +64,9 @@ fn setup_with(
         restart,
         notify_pm: None,
         processes: None,
-        monotonic_now: Some({
-            let skew = skew.clone();
-            Arc::new(move || {
-                1_000_000 + started.elapsed().as_millis() as i64 + skew.load(Ordering::SeqCst)
-            })
-        }),
+        monotonic_now: Some(Arc::new(move || {
+            1_000_000 + started.elapsed().as_millis() as i64
+        })),
         orphan_kill_wait_ms: None,
         log: None,
     }));
@@ -80,7 +75,6 @@ fn setup_with(
         service,
         runs,
         seen,
-        skew,
     }
 }
 
@@ -210,10 +204,9 @@ fn a_session_grant_lets_the_same_text_run_again_without_a_decision() {
     let first = s.propose("echo granted");
     let approved = s.approve(
         &first,
-        Some(SessionGrantInput {
+        Some(SessionGrantInput::Grant {
             kind: GrantKind::Exact,
             text: None,
-            minutes: None,
         }),
     );
     let grant_id = approved["sessionGrant"]["grantId"]
@@ -352,12 +345,18 @@ fn a_restart_proposal_is_refused_without_a_coordinator() {
     s.service.stop();
 }
 
-// ------------------------------------------------------------------------------------------------ timed grants
+// ------------------------------------------------------------------------------------------------ approval windows
 
-fn timed(minutes: Option<i64>) -> Option<SessionGrantInput> {
-    Some(SessionGrantInput {
-        kind: GrantKind::Timed,
+fn exact() -> Option<SessionGrantInput> {
+    Some(SessionGrantInput::Grant {
+        kind: GrantKind::Exact,
         text: None,
+    })
+}
+
+fn window(minutes: i64) -> Option<SessionGrantInput> {
+    Some(SessionGrantInput::Window {
+        kind: AutoWindowKind::Minutes,
         minutes,
     })
 }
@@ -375,85 +374,144 @@ fn messages(s: &Setup, agent: &str) -> Vec<String> {
         .collect()
 }
 
-/// A setup with a live timed grant of `minutes`; returns the grant id.
-fn with_timed_grant(s: &Setup, minutes: i64) -> String {
+/// Opens a window of `minutes` through a decision; returns its id.
+fn open_window(s: &Setup, minutes: i64) -> String {
     let first = s.propose("echo start");
-    let approved = s.approve(&first, timed(Some(minutes)));
+    let approved = s.approve(&first, window(minutes));
     s.wait(&first, "finished");
-    approved["sessionGrant"]["grantId"]
+    approved["window"]["windowId"]
         .as_str()
-        .expect("a grant")
+        .expect("a window")
         .to_string()
 }
 
-#[test]
-fn a_timed_grant_approves_and_runs_a_safe_command_and_the_pm_gets_the_notice() {
-    let s = setup(|_| {});
-    let grant = with_timed_grant(&s, 30);
-    let proposal = s.propose("git status");
-    assert_eq!(proposal["state"], "approved");
-    assert_eq!(proposal["autoRule"], format!("session:{grant}"));
-    s.wait_ended(&proposal);
-    let done = s
-        .service
-        .show(proposal["proposalId"].as_str().unwrap())
-        .unwrap();
-    assert_eq!(done["autoRule"], format!("session:{grant}"));
-    let id = proposal["proposalId"].as_str().unwrap();
-    assert!(
-        messages(&s, "pm-1")
-            .iter()
-            .any(|m| m.contains(&format!("Operator run {id} finished"))),
-        "the PM got the run notice"
-    );
-    let ledger = s.service.list(&Default::default());
-    assert!(ledger
+fn floor_note(s: &Setup) -> bool {
+    messages(s, "pm-1")
         .iter()
-        .any(|p| p["proposalId"] == proposal["proposalId"]));
-    s.service.stop();
+        .any(|m| m.contains("needs the user even inside approval window"))
 }
 
 #[test]
-fn a_timed_grant_leaves_destructive_unknown_and_unparseable_commands_to_the_pm() {
+fn the_floor_holds_back_what_a_grant_or_the_window_would_approve() {
     let s = setup(|_| {});
-    with_timed_grant(&s, 30);
-    for command in ["git push", "rm -rf x", "npm test", "ls | $(id)"] {
+    let floored = [
+        "git push --force-with-lease",
+        "rm -rf /srv/x",
+        "bash -c \"git push -f\"",
+        "cd /outside && rm -rf x",
+    ];
+    // An exact grant for each, made before any window exists.
+    for command in floored {
+        let proposal = s.propose(command);
+        s.approve(&proposal, exact());
+        s.wait_ended(&proposal);
+    }
+    assert_eq!(s.service.grants().len(), floored.len());
+    let window_id = open_window(&s, 30);
+    for command in floored {
         let proposal = s.propose(command);
         assert_eq!(proposal["state"], "proposed", "{command}");
         assert_eq!(proposal["autoRule"], Value::Null, "{command}");
     }
+    assert!(floor_note(&s));
+    // Without a grant the window approves what the floor lets through, with an info notice.
+    for command in ["git push origin main", "rm -rf target", "npm publish"] {
+        let proposal = s.propose(command);
+        assert_eq!(proposal["state"], "approved", "{command}");
+        assert_eq!(
+            proposal["autoRule"],
+            format!("window:{window_id}"),
+            "{command}"
+        );
+        s.wait_ended(&proposal);
+    }
+    let notices = messages(&s, "pm-1");
+    assert!(
+        notices
+            .iter()
+            .any(|m| m.contains("was approved by approval window") && m.contains(&window_id)),
+        "{notices:?}"
+    );
+    // A script the floor cannot read is approved with the reason.
+    let unchecked = s.propose("bash deploy.sh");
+    assert_eq!(unchecked["autoRule"], format!("window:{window_id}"));
+    s.wait_ended(&unchecked);
+    assert!(messages(&s, "pm-1")
+        .iter()
+        .any(|m| m.contains("Approved without the floor check")));
     s.service.stop();
 }
 
 #[test]
-fn a_timed_grant_ends_at_its_cap_on_revoke_on_recover_and_on_release() {
-    // At its cap (the in-memory deadline comes from the grant's own minutes).
-    let s = setup(|_| {});
-    with_timed_grant(&s, 5);
-    assert_eq!(s.propose("git status")["state"], "approved");
-    s.skew.fetch_add(5 * 60_000 + 1, Ordering::SeqCst);
-    assert!(s.service.grants().is_empty());
-    assert_eq!(s.propose("git status")["state"], "proposed");
+fn without_a_window_nothing_changes_and_a_grant_or_rule_keeps_its_own_rule_inside_one() {
+    let s = setup(|c| c.auto_approve_prefix = vec!["ls".into()]);
+    assert_eq!(s.propose("bash deploy.sh")["state"], "proposed");
+    let first = s.propose("echo granted");
+    let granted = s.approve(&first, exact());
+    s.wait(&first, "finished");
+    let grant_id = granted["sessionGrant"]["grantId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    open_window(&s, 30);
+    let again = s.propose("echo granted");
+    assert_eq!(again["autoRule"], format!("session:{grant_id}"));
+    assert_eq!(s.propose("ls state")["autoRule"], "ls");
+    s.service.stop();
+}
+
+#[test]
+fn a_restart_is_floored_by_default_and_approved_by_the_window_without_the_restart_entry() {
+    let restart = Arc::new(StubRestart::new());
+    let s = setup_with(|_| {}, Some(restart.clone() as Arc<dyn RestartCoordinator>));
+    open_window(&s, 30);
+    let propose_restart = |s: &Setup| {
+        s.service
+            .propose(
+                s.world.developer(),
+                ProposeInput {
+                    kind: ProposalKind::Restart,
+                    command: String::new(),
+                    reason: "restart".into(),
+                    force_restart: false,
+                },
+            )
+            .unwrap()
+    };
+    assert_eq!(propose_restart(&s)["state"], "proposed");
     s.service.stop();
 
-    // On revoke.
-    let s = setup(|_| {});
-    let grant = with_timed_grant(&s, 30);
-    s.service.revoke_grant(s.world.pm(), &grant).unwrap();
-    assert_eq!(s.propose("git status")["state"], "proposed");
+    let restart = Arc::new(StubRestart::new());
+    let s = setup_with(
+        |c| {
+            c.approval_floor
+                .retain(|entry| entry != "@controller-restart")
+        },
+        Some(restart.clone() as Arc<dyn RestartCoordinator>),
+    );
+    let window_id = open_window(&s, 30);
+    let proposal = s
+        .service
+        .propose(
+            s.world.developer(),
+            ProposeInput {
+                kind: ProposalKind::Restart,
+                command: String::new(),
+                reason: "restart".into(),
+                force_restart: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(proposal["state"], "approved");
+    assert_eq!(proposal["autoRule"], format!("window:{window_id}"));
     s.service.stop();
+}
 
-    // On recover (a restart).
+#[test]
+fn a_released_operator_part_stops_the_approvals_while_the_window_stays_listed() {
     let s = setup(|_| {});
-    with_timed_grant(&s, 30);
-    s.service.recover(None);
-    assert!(s.service.grants().is_empty());
-    assert_eq!(s.propose("git status")["state"], "proposed");
-    s.service.stop();
-
-    // When the Operator is released.
-    let s = setup(|_| {});
-    with_timed_grant(&s, 30);
+    let window_id = open_window(&s, 30);
+    assert_eq!(s.propose("echo one")["state"], "approved");
     s.world
         .ledger
         .run(Box::new(|core| {
@@ -467,139 +525,61 @@ fn a_timed_grant_ends_at_its_cap_on_revoke_on_recover_and_on_release() {
             core.end_agent(&context, "dev-1", None)
         }))
         .unwrap();
-    assert!(s.service.grants().is_empty());
+    let shown = s.service.window().expect("still open");
+    assert_eq!(shown["windowId"], window_id.as_str());
+    assert_eq!(shown["operatorActive"], false);
     s.service.stop();
 }
 
 #[test]
-fn a_prefix_grant_wins_over_a_live_timed_grant_and_a_restart_never_matches() {
-    let restart = Arc::new(capstan_operator::api::StubRestart::new());
-    restart.set_preflight(Ok(Default::default()));
-    let s = setup_with(|_| {}, Some(restart));
-    let timed_grant = with_timed_grant(&s, 30);
-    let seed = s.propose("git log --follow");
-    let approved = s.approve(
-        &seed,
-        Some(SessionGrantInput {
-            kind: GrantKind::Prefix,
-            text: Some("git log".into()),
-            minutes: None,
-        }),
-    );
-    let prefix = approved["sessionGrant"]["grantId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    s.wait_ended(&seed);
-    let matched = s.propose("git log -5");
-    assert_eq!(matched["autoRule"], format!("session:{prefix}"));
-    s.wait_ended(&matched);
-    // Without a matching prefix the timed grant is the rule.
-    let other = s.propose("git diff");
-    assert_eq!(other["autoRule"], format!("session:{timed_grant}"));
-    s.wait_ended(&other);
-    let restart = s
+fn a_revoked_window_approves_nothing_and_a_second_revoke_gives_the_kernel_error() {
+    let s = setup(|_| {});
+    let window_id = open_window(&s, 30);
+    assert!(s.service.window().is_some());
+    let ended = s.service.revoke_window(s.world.pm(), &window_id).unwrap();
+    assert_eq!(ended["endedReason"], "revoked");
+    assert!(s.service.window().is_none());
+    assert_eq!(s.propose("echo two")["state"], "proposed");
+    let again = s
         .service
-        .propose(
-            s.world.developer(),
-            ProposeInput {
-                kind: ProposalKind::Restart,
-                command: "restart".into(),
-                reason: "new build".into(),
-                force_restart: false,
-            },
-        )
-        .expect("proposed");
-    assert_eq!(restart["state"], "proposed");
-    assert_eq!(restart["autoRule"], Value::Null);
-    s.service.stop();
-}
-
-#[test]
-fn exact_and_prefix_grants_keep_the_session_cap_and_timed_grants_use_their_own_minutes() {
-    let s = setup(|c| {
-        c.session_grant_max_minutes = 60;
-        c.timed_grant_max_minutes = 240;
-    });
-    let exact = s.propose("echo exact");
-    let exact_grant = s.approve(
-        &exact,
-        Some(SessionGrantInput {
-            kind: GrantKind::Exact,
-            text: None,
-            minutes: None,
-        }),
-    );
-    s.wait(&exact, "finished");
-    let timed_grant = with_timed_grant(&s, 120);
-    let remaining = |id: &str| {
-        s.service
-            .grants()
-            .iter()
-            .find(|g| g["grantId"] == id)
-            .map(|g| g["remainingSeconds"].as_i64().unwrap())
-            .unwrap()
-    };
-    let exact_id = exact_grant["sessionGrant"]["grantId"].as_str().unwrap();
-    assert!(
-        (3590..=3600).contains(&remaining(exact_id)),
-        "{}",
-        remaining(exact_id)
-    );
-    assert!(
-        (7190..=7200).contains(&remaining(&timed_grant)),
-        "{}",
-        remaining(&timed_grant)
-    );
-    let ledger = s.service.list_grants();
-    let ledger_expiry = |id: &str| {
-        ledger.iter().find(|g| g["grantId"] == id).unwrap()["expiresAt"]
-            .as_str()
-            .unwrap()
-            .to_string()
-    };
-    let (exact_at, timed_at) = (ledger_expiry(exact_id), ledger_expiry(&timed_grant));
-    assert!(timed_at > exact_at, "{timed_at} vs {exact_at}");
-    s.service.stop();
-}
-
-#[test]
-fn a_timed_grant_is_refused_when_disabled_or_out_of_range() {
-    let s = setup(|c| c.timed_safe_commands.clear());
-    let proposal = s.propose("echo x");
-    let refused = s
-        .service
-        .decide(
-            s.world.pm(),
-            DecideInput {
-                proposal_id: proposal["proposalId"].as_str().unwrap().into(),
-                decision: Decision::Approve,
-                hash: Some(proposal["commandSha"].as_str().unwrap()[..12].into()),
-                note: None,
-                session: timed(Some(10)),
-            },
-        )
+        .revoke_window(s.world.pm(), &window_id)
         .unwrap_err();
-    assert_eq!(refused.code(), Some("timed_grants_disabled"));
+    assert!(
+        again.to_string().contains("window_already_ended"),
+        "{again}"
+    );
+    let unknown = s.service.revoke_window(s.world.pm(), "win-99").unwrap_err();
+    assert!(unknown.to_string().contains("does not exist"), "{unknown}");
+    let history = s.service.list_windows(None);
+    assert_eq!(history[0]["endedReason"], "revoked");
     s.service.stop();
+}
 
-    let s = setup(|c| c.timed_grant_max_minutes = 60);
-    let proposal = s.propose("echo x");
-    for minutes in [0, 61] {
-        let refused = s
-            .service
-            .decide(
-                s.world.pm(),
-                DecideInput {
-                    proposal_id: proposal["proposalId"].as_str().unwrap().into(),
-                    decision: Decision::Approve,
-                    hash: Some(proposal["commandSha"].as_str().unwrap()[..12].into()),
-                    note: None,
-                    session: timed(Some(minutes)),
-                },
-            )
-            .unwrap_err();
-        assert_eq!(refused.code(), Some("timed_minutes"), "{minutes}");
-    }
+#[test]
+fn a_restart_of_the_controller_ends_the_window() {
+    let s = setup(|_| {});
+    open_window(&s, 30);
+    s.service.recover(None);
+    assert!(s.service.window().is_none());
+    assert_eq!(s.service.list_windows(None)[0]["endedReason"], "restart");
     s.service.stop();
+}
+
+#[test]
+fn nothing_names_the_timed_classifier_any_more() {
+    let sources = [
+        include_str!("../src/policy.rs"),
+        include_str!("../src/service.rs"),
+        include_str!("../src/api.rs"),
+    ];
+    for needle in [
+        concat!("classify_", "safe_command"),
+        concat!("Safe", "CommandSet"),
+        concat!("Safe", "Verdict"),
+        concat!("GrantKind::", "Timed"),
+    ] {
+        for source in sources {
+            assert!(!source.contains(needle), "{needle} is still there");
+        }
+    }
 }

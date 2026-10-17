@@ -6,6 +6,7 @@
 //! progress, as Node's `stop()` awaits its running tick.
 
 pub mod activity;
+pub mod auto_answer;
 pub mod cache;
 pub mod driver;
 pub mod notifier;
@@ -15,6 +16,7 @@ pub mod relay;
 pub mod supervision;
 
 use crate::deps::{Deps, DriverSnapshot, DriverView, Loops};
+use auto_answer::{AutoAnswer, AutoAnswerOptions};
 use capstan_config::RoleConfig;
 use capstan_herdr::api::{
     AdapterResult, ClearInput, ClearOutcome, DriverAdapter, GuardedSendInput, HerdrAdapter,
@@ -268,6 +270,7 @@ impl Loops for RustLoops {
                 stall_child_max_seconds: config.liveness.stall_child_max_seconds,
                 snapshot: Some(Arc::clone(&self.snapshot)),
             });
+            driver.hold_blocked_notice_while(crate::relay_answer::attempts_of(deps));
             let (flag, tick_ms, tick_log) = (stop.clone(), driver.tick_ms(), Arc::clone(&log));
             handles.extend(spawn("driver", move || {
                 // The first tick comes at once, the next ones a tick interval after the end of the one before.
@@ -300,6 +303,20 @@ impl Loops for RustLoops {
                 handles.extend(spawn("supervision", move || {
                     while !flag.sleep(Duration::from_millis(interval)) {
                         guarded(&tick_log, "supervision_failed", || supervision.tick());
+                    }
+                }));
+                let mut auto_answer = AutoAnswer::new(AutoAnswerOptions {
+                    deps: deps.clone(),
+                    log: Arc::clone(&log),
+                });
+                let (flag, tick_log) = (stop.clone(), Arc::clone(&log));
+                let interval = deps.options.tick_ms.unwrap_or(DEFAULT_TICK_MS);
+                handles.extend(spawn("auto-answer", move || {
+                    while !flag.stopped() {
+                        guarded(&tick_log, "auto_answer_tick_failed", || auto_answer.tick());
+                        if flag.sleep(Duration::from_millis(interval)) {
+                            break;
+                        }
                     }
                 }));
                 if config.review.warm_reviewer {

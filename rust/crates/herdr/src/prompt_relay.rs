@@ -4,7 +4,7 @@
 //! JSON values and is private to it.)
 
 use crate::adapter::validate::{command_start, has_unsafe, js_trim};
-use crate::api::{CapturedPrompt, PromptAnswer, RelayOption, RelayRefusal};
+use crate::api::{CapturedPrompt, PromptAction, PromptAnswer, RelayOption, RelayRefusal};
 use crate::api::{RELAY_PROMPT_MAX_BYTES, RELAY_TEXT_MAX_BYTES};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -92,4 +92,31 @@ pub fn check_answer(prompt: &CapturedPrompt, answer: &PromptAnswer) -> Option<Re
 /// A prompt text is within the size the relay accepts.
 pub fn prompt_text_fits(text: &str) -> bool {
     text.len() <= RELAY_PROMPT_MAX_BYTES
+}
+
+/// What a captured prompt asks to allow, or None for a dialog and for a prompt whose action cannot be read whole.
+pub fn prompt_action(prompt: &CapturedPrompt) -> Option<PromptAction> {
+    if prompt.dialog || prompt.options.is_empty() {
+        return None;
+    }
+    crate::screen::parse_prompt_action(&prompt.text)
+}
+
+/// The number of the one option that allows this action once: the single `Yes` that neither widens permissions nor takes
+/// text. None when there is no such option or more than one.
+pub fn allow_once_option(prompt: &CapturedPrompt) -> Option<i64> {
+    if prompt.dialog {
+        return None;
+    }
+    allow_once_of(&prompt.options)
+}
+
+/// `allow_once_option` over a list of options (the stored options of a relay).
+pub fn allow_once_of(options: &[RelayOption]) -> Option<i64> {
+    let mut yes = options.iter().filter(|option| option.text == "Yes");
+    let option = yes.next()?;
+    if yes.next().is_some() || option.widens_permissions || option.accepts_text {
+        return None;
+    }
+    Some(option.number)
 }

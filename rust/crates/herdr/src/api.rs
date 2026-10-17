@@ -479,6 +479,17 @@ pub struct CapturedPrompt {
     pub dialog: bool,
 }
 
+/// What a recognised permission prompt asks the worker's user to allow (`screen::parse_prompt_action`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PromptAction {
+    /// A Bash prompt whose command is one fully shown line.
+    Command { text: String },
+    /// Any file prompt (create, edit, multi-edit, notebook edit) with the path it shows.
+    Write { path: String },
+    /// A prompt of a tool that is neither a command nor a file: web fetch, MCP and the like.
+    Other { header: String },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PromptAnswer {
     Option { number: i64 },

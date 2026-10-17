@@ -1,6 +1,7 @@
 //! The prompt relay (src/controller/prompt-relay.ts): what the PM was shown, the answer typed back, and the captures
 //! that expire. Private here: `relayTextProblem` and the relay constants of src/herdr/prompt-relay.ts.
 
+use crate::auth::{require_capability, AuthenticatedActor};
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
@@ -236,7 +237,7 @@ fn active_pm_of(kernel: &Kernel, actor_id: &str) -> KernelResult<AgentRow> {
 }
 
 /// The actor of a window request is the controller itself, never a PM or a worker.
-fn controller_of(actor: &crate::auth::AuthenticatedActor) -> KernelResult<()> {
+fn controller_of(actor: &AuthenticatedActor) -> KernelResult<()> {
     if actor.role == "controller" {
         Ok(())
     } else {
@@ -459,6 +460,39 @@ fn payload(members: &[(&str, Option<&Value>)]) -> Value {
     Value::Object(map)
 }
 
+/// A mutation the controller makes inside an approval window. The daemon asks with the operator-role project credential
+/// and `apply` runs as the internal controller principal; a caller that already is the controller (the internal
+/// principal's own credential) is used as it is. Any other role is refused.
+fn mutate_as_window_controller<F>(
+    kernel: &Kernel,
+    context: &MutationContext,
+    action: &str,
+    payload: &Value,
+    apply: F,
+) -> KernelResult<Value>
+where
+    F: FnOnce(&AuthenticatedActor) -> KernelResult<MutationOutput>,
+{
+    kernel.assert_open()?;
+    let caller =
+        crate::auth::authenticate_actor(&kernel.database, &kernel.project_id, &context.credential)?;
+    if caller.role == "controller" {
+        kernel.mutate(context, action, "prompt:relay", payload, apply)
+    } else if caller.role != "operator" {
+        Err(KernelError::controller(
+            "forbidden: only the controller answers inside an approval window",
+        ))
+    } else {
+        kernel.mutate_as_controller(
+            context,
+            action,
+            "controller:reconcile",
+            payload,
+            |controller, _caller| apply(controller),
+        )
+    }
+}
+
 /// `recordPromptCapture`: records what the PM was shown. An older captured row of the same agent becomes expired
 /// (superseded) in the same transaction; a row that is being typed refuses a new capture.
 pub fn record_prompt_capture(
@@ -494,91 +528,87 @@ pub fn record_prompt_capture(
     if let Some(id) = &auto_window_id {
         call_payload["autoWindowId"] = json!(id);
     }
-    kernel.mutate(
-        context,
-        "prompt_relay.capture",
-        "prompt:relay",
-        &call_payload,
-        |actor| {
-            match &auto_window_id {
-                None => {
-                    active_pm_of(kernel, &actor.actor_id)?;
-                }
-                Some(window_id) => {
-                    controller_of(actor)?;
-                    approval_windows::usable_window(kernel, window_id, false)?;
-                    window_agent_ok(kernel, &agent_id)?;
-                }
+    let apply = |actor: &AuthenticatedActor| -> KernelResult<MutationOutput> {
+        match &auto_window_id {
+            None => {
+                active_pm_of(kernel, &actor.actor_id)?;
             }
-            let config = config_of(kernel);
-            if !config.enabled {
+            Some(window_id) => {
+                controller_of(actor)?;
+                require_capability(actor, "prompt:relay")?;
+                approval_windows::usable_window(kernel, window_id, false)?;
+                window_agent_ok(kernel, &agent_id)?;
+            }
+        }
+        let config = config_of(kernel);
+        if !config.enabled {
+            return Err(KernelError::controller(
+                "not_configured: the prompt relay is not enabled",
+            ));
+        }
+        match kernel.agent_row(&agent_id)? {
+            Some(agent) if agent.state == "active" => {}
+            _ => {
                 return Err(KernelError::controller(
-                    "not_configured: the prompt relay is not enabled",
-                ));
+                    "agent_not_active: the agent is not active",
+                ))
             }
-            match kernel.agent_row(&agent_id)? {
-                Some(agent) if agent.state == "active" => {}
-                _ => {
-                    return Err(KernelError::controller(
-                        "agent_not_active: the agent is not active",
-                    ))
-                }
-            }
-            let now = kernel.now();
-            let mut events = Vec::new();
-            let open = query_all(
+        }
+        let now = kernel.now();
+        let mut events = Vec::new();
+        let open = query_all(
                 &kernel.database,
                 "SELECT * FROM prompt_relays WHERE project_id = ? AND agent_id = ? AND state IN ('captured', 'typing')",
                 [&kernel.project_id, &agent_id],
                 RelayRow::from_row,
             )?;
-            if let Some(typing) = open.iter().find(|row| row.state == "typing") {
-                return Err(KernelError::controller(format!(
-                    "relay_in_progress: relay {} is being typed",
-                    typing.relay_id
-                )));
-            }
-            for row in &open {
-                execute(
+        if let Some(typing) = open.iter().find(|row| row.state == "typing") {
+            return Err(KernelError::controller(format!(
+                "relay_in_progress: relay {} is being typed",
+                typing.relay_id
+            )));
+        }
+        for row in &open {
+            execute(
                     &kernel.database,
                     "UPDATE prompt_relays SET state = 'expired', outcome_reason = 'superseded' WHERE project_id = ? AND relay_id = ?",
                     [&kernel.project_id, &row.relay_id],
                 )?;
-                events.push(relay_event(
-                    &row.relay_id,
-                    Some("captured"),
-                    "expired",
-                    json!({"reason": "superseded"}),
-                ));
-            }
-            let sequence = query_opt(
-                &kernel.database,
-                "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM prompt_relays WHERE project_id = ?",
-                [&kernel.project_id],
-                |row| row.get::<_, i64>(0),
-            )?
-            .unwrap_or(1);
-            let relay_id = format!("relay-{sequence}");
-            let expires_at = iso_from_millis(
-                (parse_iso_ms(&now) as f64 + config.capture_ttl_seconds * 1000.0) as i64,
-            );
-            let options: Vec<Value> = prompt["options"]
-                .as_array()
-                .map(|options| {
-                    options
-                        .iter()
-                        .map(|option| {
-                            payload(&[
-                                ("number", option.get("number")),
-                                ("text", option.get("text")),
-                                ("acceptsText", option.get("acceptsText")),
-                                ("widensPermissions", option.get("widensPermissions")),
-                            ])
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            execute(
+            events.push(relay_event(
+                &row.relay_id,
+                Some("captured"),
+                "expired",
+                json!({"reason": "superseded"}),
+            ));
+        }
+        let sequence = query_opt(
+            &kernel.database,
+            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM prompt_relays WHERE project_id = ?",
+            [&kernel.project_id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .unwrap_or(1);
+        let relay_id = format!("relay-{sequence}");
+        let expires_at = iso_from_millis(
+            (parse_iso_ms(&now) as f64 + config.capture_ttl_seconds * 1000.0) as i64,
+        );
+        let options: Vec<Value> = prompt["options"]
+            .as_array()
+            .map(|options| {
+                options
+                    .iter()
+                    .map(|option| {
+                        payload(&[
+                            ("number", option.get("number")),
+                            ("text", option.get("text")),
+                            ("acceptsText", option.get("acceptsText")),
+                            ("widensPermissions", option.get("widensPermissions")),
+                        ])
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        execute(
                 &kernel.database,
                 "INSERT INTO prompt_relays(project_id, relay_id, sequence, agent_id, pane_id, host_kind, prompt_text, options_json,
                    prompt_sha, captured_by_actor_id, captured_at, expires_at, state, auto_window_id)
@@ -599,20 +629,36 @@ pub fn record_prompt_capture(
                     auto_window_id
                 ],
             )?;
-            let record = record_of(kernel, &relay_id)?;
-            let mut output = MutationOutput::new(
-                record.clone(),
-                relay_event(
-                    &relay_id,
-                    None,
-                    "captured",
-                    json!({"agentId": agent_id, "hash12": record["hash12"]}),
-                ),
-            );
-            output.extra_events = events;
-            Ok(output)
-        },
-    )
+        let record = record_of(kernel, &relay_id)?;
+        let mut output = MutationOutput::new(
+            record.clone(),
+            relay_event(
+                &relay_id,
+                None,
+                "captured",
+                json!({"agentId": agent_id, "hash12": record["hash12"]}),
+            ),
+        );
+        output.extra_events = events;
+        Ok(output)
+    };
+    if auto_window_id.is_some() {
+        mutate_as_window_controller(
+            kernel,
+            context,
+            "prompt_relay.capture",
+            &call_payload,
+            apply,
+        )
+    } else {
+        kernel.mutate(
+            context,
+            "prompt_relay.capture",
+            "prompt:relay",
+            &call_payload,
+            apply,
+        )
+    }
 }
 
 /// `beginPromptAnswer`: the target of the launcher's beforeType: captured -> typing, with the answer, in one
@@ -636,114 +682,114 @@ pub fn begin_prompt_answer(
             base[name] = input[name].clone();
         }
     }
-    kernel.mutate(
-        context,
-        "prompt_relay.begin",
-        "prompt:relay",
-        &base,
-        |actor| {
-            if present("autoWindowId") && present("openWindow") {
+    let apply = |actor: &AuthenticatedActor| -> KernelResult<MutationOutput> {
+        if present("autoWindowId") && present("openWindow") {
+            return Err(KernelError::controller(
+                "window_args_conflict: an answer inside a window cannot also open one",
+            ));
+        }
+        if present("uncheckedReason") && !present("autoWindowId") {
+            return Err(KernelError::controller(
+                "window_args_conflict: uncheckedReason comes only with autoWindowId",
+            ));
+        }
+        let answer = &input["answer"];
+        if present("autoWindowId") {
+            controller_of(actor)?;
+            require_capability(actor, "prompt:relay")?;
+        } else {
+            active_pm_of(kernel, &actor.actor_id)?;
+        }
+        let row = answerable_relay(kernel, &input["relayId"], &input["hash"], answer)?;
+        let mut events = Vec::new();
+        let mut auto: Option<(String, String)> = None;
+        if present("autoWindowId") {
+            let window_id = safe_id(&input["autoWindowId"], "window id")?.to_string();
+            approval_windows::usable_window(kernel, &window_id, false)?;
+            if row
+                .auto_window_id
+                .as_deref()
+                .is_some_and(|id| id != window_id)
+            {
                 return Err(KernelError::controller(
-                    "window_args_conflict: an answer inside a window cannot also open one",
+                    "window_args_conflict: the capture was made under another window",
                 ));
             }
-            if present("uncheckedReason") && !present("autoWindowId") {
-                return Err(KernelError::controller(
-                    "window_args_conflict: uncheckedReason comes only with autoWindowId",
-                ));
-            }
-            let answer = &input["answer"];
-            if present("autoWindowId") {
-                controller_of(actor)?;
-            } else {
-                active_pm_of(kernel, &actor.actor_id)?;
-            }
-            let row = answerable_relay(kernel, &input["relayId"], &input["hash"], answer)?;
-            let mut events = Vec::new();
-            let mut auto: Option<(String, String)> = None;
-            if present("autoWindowId") {
-                let window_id = safe_id(&input["autoWindowId"], "window id")?.to_string();
-                approval_windows::usable_window(kernel, &window_id, false)?;
-                if row
-                    .auto_window_id
-                    .as_deref()
-                    .is_some_and(|id| id != window_id)
-                {
-                    return Err(KernelError::controller(
-                        "window_args_conflict: the capture was made under another window",
-                    ));
-                }
-                window_agent_ok(kernel, &row.agent_id)?;
-                require_asks_once(&row, answer, "window_option_refused")?;
-                auto = Some((window_id, kernel.now()));
-            } else if present("openWindow") {
-                require_asks_once(&row, answer, "window_needs_allow_once")?;
-            }
-            record_answer(
+            window_agent_ok(kernel, &row.agent_id)?;
+            require_asks_once(&row, answer, "window_option_refused")?;
+            auto = Some((window_id, kernel.now()));
+        } else if present("openWindow") {
+            require_asks_once(&row, answer, "window_needs_allow_once")?;
+        }
+        record_answer(
+            kernel,
+            &row,
+            answer,
+            &actor.actor_id,
+            "typing",
+            None,
+            None,
+            auto.as_ref(),
+        )?;
+        if let Some((window_id, now)) = &auto {
+            let unchecked = match input.get("uncheckedReason") {
+                Some(Value::Null) | None => None,
+                Some(reason) => Some(safe_text(reason, "unchecked reason", 1024, false)?),
+            };
+            message_notices::notice_to_pm(
                 kernel,
-                &row,
-                answer,
-                &actor.actor_id,
-                "typing",
-                None,
-                None,
-                auto.as_ref(),
-            )?;
-            if let Some((window_id, now)) = &auto {
-                let unchecked = match input.get("uncheckedReason") {
-                    Some(Value::Null) | None => None,
-                    Some(reason) => Some(safe_text(reason, "unchecked reason", 1024, false)?),
-                };
-                message_notices::notice_to_pm(
-                    kernel,
-                    "auto_answered",
-                    &window_answered_notice(
-                        &row.relay_id,
-                        &row.agent_id,
-                        answer["number"].as_i64().unwrap_or(0),
-                        window_id,
-                        unchecked.as_deref(),
-                    ),
-                    now,
-                    false,
-                )?;
-                events.push(MutationEvent {
-                    to_state: Some("used".into()),
-                    details: Some(json!({
-                        "event": "operator.window_answered",
-                        "relayId": row.relay_id,
-                        "option": answer["number"],
-                        "unchecked": unchecked,
-                    })),
-                    ..MutationEvent::new("approval_window", window_id, 0)
-                });
-            }
-            let mut record = record_of(kernel, &row.relay_id)?;
-            if present("openWindow") {
-                let spec = WindowSpec::parse(&input["openWindow"])?;
-                let (window, window_events) = approval_windows::open_window(
-                    kernel,
-                    actor,
-                    &spec,
-                    WindowSource::Relay(&row.relay_id),
-                    &OpenNoticeInput::of(input),
-                )?;
-                record["window"] = window;
-                events.extend(window_events);
-            }
-            let mut output = MutationOutput::new(
-                record,
-                relay_event(
+                "auto_answered",
+                &window_answered_notice(
                     &row.relay_id,
-                    Some("captured"),
-                    "typing",
-                    json!({"answerKind": answer["kind"]}),
+                    &row.agent_id,
+                    answer["number"].as_i64().unwrap_or(0),
+                    window_id,
+                    unchecked.as_deref(),
                 ),
-            );
-            output.extra_events = events;
-            Ok(output)
-        },
-    )
+                now,
+                false,
+            )?;
+            events.push(MutationEvent {
+                to_state: Some("used".into()),
+                details: Some(json!({
+                    "event": "operator.window_answered",
+                    "relayId": row.relay_id,
+                    "option": answer["number"],
+                    "unchecked": unchecked,
+                })),
+                ..MutationEvent::new("approval_window", window_id, 0)
+            });
+        }
+        let mut record = record_of(kernel, &row.relay_id)?;
+        if present("openWindow") {
+            let spec = WindowSpec::parse(&input["openWindow"])?;
+            let (window, window_events) = approval_windows::open_window(
+                kernel,
+                actor,
+                &spec,
+                WindowSource::Relay(&row.relay_id),
+                &OpenNoticeInput::of(input),
+            )?;
+            record["window"] = window;
+            events.extend(window_events);
+        }
+        let mut output = MutationOutput::new(
+            record,
+            relay_event(
+                &row.relay_id,
+                Some("captured"),
+                "typing",
+                json!({"answerKind": answer["kind"]}),
+            ),
+        );
+        output.extra_events = events;
+        Ok(output)
+    };
+    if present("autoWindowId") {
+        mutate_as_window_controller(kernel, context, "prompt_relay.begin", &base, apply)
+    } else {
+        kernel.mutate(context, "prompt_relay.begin", "prompt:relay", &base, apply)
+    }
 }
 
 /// An answer a window may give: an option that neither widens permissions nor takes text.

@@ -247,6 +247,9 @@ pub struct Driver {
     stale_episodes: Vec<(String, StaleEpisode)>,
     /// Open unreadable-input episodes by agent: the deferred head message that opened each.
     unreadable: HashMap<String, String>,
+    /// The controller's auto-answer attempts: no input-blocked notice is opened for an agent whose prompt is being
+    /// answered, because the answer is about to unblock it.
+    answering: Option<Arc<crate::relay_answer::Attempts>>,
 }
 
 impl Driver {
@@ -293,7 +296,13 @@ impl Driver {
             wakes: Vec::new(),
             stale_episodes: Vec::new(),
             unreadable: HashMap::new(),
+            answering: None,
         }
+    }
+
+    /// Holds the input-blocked notice of an agent while `attempts` shows an answer to its prompt running.
+    pub fn hold_blocked_notice_while(&mut self, attempts: Arc<crate::relay_answer::Attempts>) {
+        self.answering = Some(attempts);
     }
 
     pub fn tick_ms(&self) -> u64 {
@@ -757,6 +766,13 @@ impl Driver {
 
     fn open_unreadable(&mut self, agent_id: &str, message_id: &str, blocker: &str) {
         if self.unreadable.contains_key(agent_id) {
+            return;
+        }
+        if self
+            .answering
+            .as_ref()
+            .is_some_and(|attempts| attempts.running(agent_id, (self.now)()))
+        {
             return;
         }
         self.unreadable

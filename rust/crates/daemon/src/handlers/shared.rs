@@ -26,6 +26,8 @@ pub const MAX_CHECKED_COMMITS: usize = 200;
 pub const MAX_STATUS_MESSAGES: usize = 200;
 pub const MAX_STATUS_CLEARS: usize = 50;
 pub const MAX_STATUS_PROPOSALS: usize = 20;
+/// The approval windows `op grants --history` lists.
+pub const MAX_STATUS_WINDOWS: i64 = 20;
 pub const MAX_STATUS_TASK_PLANS: usize = 10;
 pub const MAX_STATUS_TASK_PACKAGES: usize = 30;
 pub const MAX_STATUS_TASK_REQUIREMENTS: usize = 20;
@@ -618,6 +620,28 @@ pub fn describe_grant_record(grant: &Value) -> Value {
     // Only a grant still in force has a remaining time (the service adds it from its in-memory deadline).
     if let Some(remaining) = grant.get("remainingSeconds") {
         described["remainingSeconds"] = remaining.clone();
+    }
+    described
+}
+
+/// What `op` and `status` answer for an approval window; `endedReason` is there once it ended.
+pub fn describe_window(window: &Value) -> Value {
+    let mut described = json!({
+        "windowId": member(window, "windowId"),
+        "kind": member(window, "kind"),
+        "minutes": member(window, "minutes"),
+        "operatorActive": member(window, "operatorActive"),
+        "source": member(window, "source"),
+        "createdAt": member(window, "createdAt"),
+        "expiresAt": member(window, "expiresAt"),
+        "remainingSeconds": member(window, "remainingSeconds"),
+    });
+    if window
+        .get("endedReason")
+        .is_some_and(|reason| !reason.is_null())
+    {
+        described["endedAt"] = member(window, "endedAt");
+        described["endedReason"] = member(window, "endedReason");
     }
     described
 }

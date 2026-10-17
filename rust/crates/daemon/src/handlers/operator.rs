@@ -2,11 +2,12 @@
 //! through the `OperatorService` trait of the operator crate (`deps.operator`).
 
 use super::shared::{
-    describe_full_auto, describe_grant_record, describe_proposal, fail, is_safe_agent_id,
-    map_kernel_error, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode,
-    MAX_STATUS_PROPOSALS,
+    describe_full_auto, describe_grant_record, describe_proposal, describe_window, fail,
+    is_safe_agent_id, map_kernel_error, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode,
+    MAX_STATUS_PROPOSALS, MAX_STATUS_WINDOWS,
 };
 use super::HandlerMap;
+use capstan_config::parse_auto_window;
 use capstan_kernel::helpers::js_trim;
 use capstan_kernel::records::RESTART_COMMAND_TEXT;
 use capstan_kernel::KernelError;
@@ -173,36 +174,17 @@ fn propose(
     ))
 }
 
-/// The minutes of a `--session timed[=<minutes>|=session]` grant: the default, the cap, or a whole number in 1..=cap.
-fn timed_minutes(
-    operator: &capstan_config::Operator,
-    value: Option<&str>,
-) -> Result<i64, CommandResponse> {
-    let refuse_with =
-        |code: &str, message: String| fail(ErrorCode::Rejected, format!("{code}: {message}"));
-    if operator.timed_safe_commands.is_empty() {
-        return Err(refuse_with(
-            "timed_grants_disabled",
-            "timed grants are off; operator.timed_safe_commands is empty".into(),
-        ));
-    }
-    let cap = operator.timed_grant_max_minutes;
-    let minutes = match value {
-        None => operator.timed_grant_default_minutes,
-        Some("session") => cap,
-        Some(text) => text
-            .parse::<i64>()
-            .ok()
-            .filter(|_| text.bytes().all(|b| b.is_ascii_digit()))
-            .unwrap_or(0),
-    };
-    if !(1..=cap).contains(&minutes) {
-        return Err(refuse_with(
-            "timed_minutes",
-            format!("a timed grant lasts a whole number of minutes from 1 to {cap} (operator.timed_grant_max_minutes)"),
-        ));
-    }
-    Ok(minutes)
+/// What `--session timed...` says now that timed grants are gone.
+fn timed_removed() -> CommandResponse {
+    fail(
+        ErrorCode::Rejected,
+        format!(
+            "timed_grant_removed: timed grants {}; use --session auto=<minutes>|session",
+            capstan_config::TIMED_GRANT_REMOVED
+                .strip_prefix("is ignored: ")
+                .unwrap_or(capstan_config::TIMED_GRANT_REMOVED)
+        ),
+    )
 }
 
 fn decide(
@@ -235,7 +217,7 @@ fn decide(
         }
         let usage = fail(
             ErrorCode::InvalidRequest,
-            "op decide approve needs --hash <hash12> and may add --session exact, --session prefix=\"<words>\", --session timed, --session timed=<minutes> or --session timed=session; it takes no --force, the force value is part of the proposal",
+            "op decide approve needs --hash <hash12> and may add --session exact, --session prefix=\"<words>\" or --session auto=<minutes>|session; it takes no --force, the force value is part of the proposal",
         );
         if tail.first().map(String::as_str) != Some("--hash") || tail.get(1).is_none() {
             return usage;
@@ -250,27 +232,28 @@ fn decide(
                 return usage;
             };
             if wanted == "exact" {
-                session = Some(SessionGrantInput {
+                session = Some(SessionGrantInput::Grant {
                     kind: GrantKind::Exact,
                     text: None,
-                    minutes: None,
                 });
             } else if let Some(text) = wanted.strip_prefix("prefix=") {
-                session = Some(SessionGrantInput {
+                session = Some(SessionGrantInput::Grant {
                     kind: GrantKind::Prefix,
                     text: Some(text.to_string()),
-                    minutes: None,
                 });
             } else if wanted == "timed" || wanted.starts_with("timed=") {
-                match timed_minutes(operator, wanted.strip_prefix("timed=")) {
-                    Ok(minutes) => {
-                        session = Some(SessionGrantInput {
-                            kind: GrantKind::Timed,
-                            text: None,
-                            minutes: Some(minutes),
-                        });
+                return timed_removed();
+            } else if let Some(value) = wanted.strip_prefix("auto=") {
+                match parse_auto_window(value, operator.auto_window_max_minutes) {
+                    Ok((kind, minutes)) => {
+                        session = Some(SessionGrantInput::Window { kind, minutes });
                     }
-                    Err(refusal) => return refusal,
+                    Err(problem) => {
+                        return fail(
+                            ErrorCode::Rejected,
+                            format!("auto_window_invalid: {problem}"),
+                        )
+                    }
                 }
             } else {
                 return usage;
@@ -315,11 +298,32 @@ fn grants(service: &dyn OperatorService, who: &Who, rest: &[String]) -> CommandR
             "only the PM or the operator lists grants",
         );
     }
-    if !rest.is_empty() {
-        return fail(ErrorCode::InvalidRequest, "op grants takes no argument");
-    }
+    let history = match rest {
+        [] => false,
+        [flag] if flag == "--history" => true,
+        _ => {
+            return fail(
+                ErrorCode::InvalidRequest,
+                "op grants takes no argument except --history",
+            )
+        }
+    };
     let described: Vec<Value> = service.grants().iter().map(describe_grant_record).collect();
-    ok(json!({ "grants": described }))
+    let mut answer = json!({ "grants": described });
+    // No `window` member while none is open, as in `status`: the line of an empty answer stays `grants:`.
+    if let Some(window) = service.window() {
+        answer["window"] = describe_window(&window);
+    }
+    if history {
+        answer["windows"] = Value::Array(
+            service
+                .list_windows(Some(MAX_STATUS_WINDOWS))
+                .iter()
+                .map(describe_window)
+                .collect(),
+        );
+    }
+    ok(answer)
 }
 
 fn revoke(
@@ -332,7 +336,16 @@ fn revoke(
         return fail(ErrorCode::Forbidden, "only the PM or the operator revokes");
     }
     if rest.len() != 1 || !is_safe_agent_id(&rest[0]) {
-        return fail(ErrorCode::InvalidRequest, "op revoke needs one grant id");
+        return fail(
+            ErrorCode::InvalidRequest,
+            "op revoke needs one grant id or window id",
+        );
+    }
+    if rest[0].starts_with("win-") {
+        return match service.revoke_window(credential, &rest[0]) {
+            Ok(window) => ok(describe_window(&window)),
+            Err(error) => refuse(&error),
+        };
     }
     match service.revoke_grant(credential, &rest[0]) {
         Ok(grant) => ok(describe_grant_record(&grant)),

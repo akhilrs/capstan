@@ -9,7 +9,8 @@
 //! drain (1 s), the kernel (the lock is free), the socket and the pid file.
 
 use crate::deps::{
-    render_log_line, startup_sequence, DaemonOptions, Deps, KernelHandle, LogEntry, Logger,
+    new_context, render_log_line, startup_sequence, DaemonOptions, Deps, KernelHandle, LogEntry,
+    Logger,
 };
 use crate::server::{DaemonServer, ServerOptions};
 use capstan_config::RoleConfig;
@@ -610,6 +611,7 @@ fn run_with(
 /// launcher and operator, the server, the adoption of recorded panes and the loops that wait for it.
 fn serve(deps: &mut Deps, wiring: Wiring, running: &mut Running) -> Result<(), RunError> {
     startup_sequence(deps);
+    end_approval_windows_at_start(deps);
     let sync = wiring.sync_roles.or_else(|| {
         deps.options
             .capstan
@@ -674,6 +676,88 @@ fn serve(deps: &mut Deps, wiring: Wiring, running: &mut Running) -> Result<(), R
     announce(&deps.options, "ready");
     deps.shutdown.wait();
     Ok(())
+}
+
+/// A window never outlives the daemon that opened it: whatever is open at start ends 'restart', before any loop can
+/// answer. The controller also answers prompts only when its own principal may relay them; when it may not, this logs an
+/// error, tells the PM and turns auto-answering off for this run.
+pub fn end_approval_windows_at_start(deps: &Deps) {
+    let credential = deps.credential().to_string();
+    // Nothing open: nothing is written, so a restart of an idle project leaves the ledger as it was.
+    let open = deps
+        .kernel
+        .run(|core| core.list_approval_windows(Some(1)))
+        .ok()
+        .and_then(|list| list.get(0).cloned())
+        .is_some_and(|window| window["endedAt"].is_null());
+    let ended = if open {
+        deps.kernel.run({
+            let credential = credential.clone();
+            move |core| {
+                let context = new_context(core, &credential)?;
+                core.end_approval_windows_for_restart(&context)
+            }
+        })
+    } else {
+        Ok(json!([]))
+    };
+    match ended {
+        Ok(Value::Array(windows)) if !windows.is_empty() => {
+            deps.detail_log(
+                "approval_windows_ended",
+                json!({"windows": windows, "reason": "restart"}),
+            );
+        }
+        Ok(_) => {}
+        Err(error) => deps.detail_log(
+            "approval_windows_end_failed",
+            json!({"error": error.to_string()}),
+        ),
+    }
+    let holds = deps.kernel.run(move |core| {
+        let principal = core.kernel().internal_principal()?;
+        Ok(principal.capabilities.iter().any(|c| c == "prompt:relay"))
+    });
+    let problem = match holds {
+        Ok(true) => return,
+        Ok(false) => "the internal controller principal does not hold prompt:relay".to_string(),
+        Err(error) => format!("the controller cannot be checked for prompt:relay: {error}"),
+    };
+    crate::relay_answer::attempts_of(deps).disable();
+    deps.detail_log("auto_answer_disabled", json!({"error": problem}));
+    let body = format!(
+        "The controller will not answer worker prompts inside approval windows: {problem}. Prompts still wait for you (cstan prompt show <agent>)."
+    );
+    let credential = deps.credential().to_string();
+    let notified = deps.kernel.run(move |core| {
+        let agents = core.active_agents()?;
+        let pm = agents
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|agent| agent["kind"] == "PM")
+            .and_then(|agent| agent["agentId"].as_str().map(str::to_string));
+        let Some(pm) = pm else {
+            return Ok(false);
+        };
+        let context = new_context(core, &credential)?;
+        core.enqueue_message(
+            &context,
+            &json!({"recipientAgentId": pm, "body": body, "actionNeeded": true}),
+        )?;
+        Ok(true)
+    });
+    match notified {
+        Ok(true) => {}
+        Ok(false) => deps.detail_log(
+            "auto_answer_disabled_notice_skipped",
+            json!({"reason": "no active PM"}),
+        ),
+        Err(error) => deps.detail_log(
+            "auto_answer_disabled_notice_failed",
+            json!({"error": error.to_string()}),
+        ),
+    }
 }
 
 /// The announcement the process prints for `ready`, `lock_released` and `socket_removed`: `{"ts", "event", "pid"}`.
