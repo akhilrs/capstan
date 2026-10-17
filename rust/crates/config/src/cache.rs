@@ -191,7 +191,13 @@ fn sccache_size(bytes: u64) -> String {
 }
 
 /// The built-in entry for `name`. `size` is the cap the entry runs under (its own, or the total).
-fn preset_entry(name: &str, mode: Option<&str>, size: u64, own_size: Option<u64>) -> CacheEntry {
+fn preset_entry(
+    name: &str,
+    mode: Option<&str>,
+    incremental: bool,
+    size: u64,
+    own_size: Option<u64>,
+) -> CacheEntry {
     let mut entry = CacheEntry {
         name: name.to_string(),
         origin: CacheOrigin::Preset,
@@ -214,6 +220,10 @@ fn preset_entry(name: &str, mode: Option<&str>, size: u64, own_size: Option<u64>
                         pair("RUSTC_WRAPPER", "sccache"),
                         pair("SCCACHE_CACHE_SIZE", &sccache_size(size)),
                     ];
+                    // sccache cannot cache incremental crates, so incremental compilation only costs disk.
+                    if !incremental {
+                        entry.set.push(pair("CARGO_INCREMENTAL", "0"));
+                    }
                     entry.requires = Some("sccache".into());
                     entry.stop = vec!["sccache --stop-server".into()];
                 }
@@ -626,7 +636,7 @@ fn resolve_preset(
     let at = format!("cache.{name}");
     let fields = optional_table(table.get(name), &at)?;
     let allowed: &[&str] = if name == "rust" {
-        &["mode", "max_size_gb"]
+        &["mode", "incremental", "max_size_gb"]
     } else {
         &["max_size_gb"]
     };
@@ -640,11 +650,12 @@ fn resolve_preset(
     } else {
         None
     };
+    let incremental = optional_boolean(fields.get("incremental"), "cache.rust.incremental", false)?;
     let own = size_bytes(fields.get("max_size_gb"), &format!("{at}.max_size_gb"))?;
     if let Some(bytes) = own {
         sized.push((at, bytes));
     }
-    let entry = preset_entry(name, mode, own.unwrap_or(total), own);
+    let entry = preset_entry(name, mode, incremental, own.unwrap_or(total), own);
     for (env, _) in entry.dirs.iter().chain(entry.set.iter()) {
         seen_env.push((env.clone(), entry.name.clone()));
     }

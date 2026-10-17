@@ -33,7 +33,7 @@ The root is `root` (an absolute path or `~/...`), else `$XDG_CACHE_HOME/capstan`
 
 | Preset | Variables (each points into the entry's directory) | Needs on PATH |
 | --- | --- | --- |
-| `rust`, mode `sccache` (default mode) | `SCCACHE_DIR`, `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE` | `sccache` |
+| `rust`, mode `sccache` (default mode) | `SCCACHE_DIR`, `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE`, `CARGO_INCREMENTAL=0` | `sccache` |
 | `rust`, mode `shared-build-dir` | `CARGO_BUILD_BUILD_DIR` | `cargo` |
 | `rust`, mode `off` | none | |
 | `python` | `PIP_CACHE_DIR`, `UV_CACHE_DIR`, `POETRY_CACHE_DIR` | |
@@ -57,7 +57,7 @@ Trade-off: cargo still locks the build directory while it builds. Measured with 
 
 ### `rust` mode `sccache` (default)
 
-Sets `RUSTC_WRAPPER=sccache`; every `rustc` call goes through sccache, whose cache is keyed by the compiler command and inputs, so concurrent builds do not lock each other and different worktrees share hits. Limits: sccache cannot cache a crate cargo builds incrementally (the default for workspace members in the dev profile: 190 of 242 non-cacheable calls in the measurement), nor crate types it does not support (38 calls, binaries and proc-macros among them). The workspace crates and link steps still run each time, so on this repository the warm build was 49-50 s against 57-60 s cold. Setting `CARGO_INCREMENTAL=0` in the agent's environment lets sccache cache the workspace crates too (hit rate 78%, warm 39 s against 52 s cold). It needs `sccache` installed (`cargo install sccache --locked`); Capstan does not install it. The server is stopped (`sccache --stop-server`) before the cache is cleared.
+Sets `RUSTC_WRAPPER=sccache`; every `rustc` call goes through sccache, whose cache is keyed by the compiler command and inputs, so concurrent builds do not lock each other and different worktrees share hits. Limits: sccache cannot cache a crate cargo builds incrementally (the default for workspace members in the dev profile: 190 of 242 non-cacheable calls in the measurement), nor crate types it does not support (38 calls, binaries and proc-macros among them). The workspace crates and link steps still run each time, so on this repository the warm build was 49-50 s against 57-60 s cold. The preset therefore sets `CARGO_INCREMENTAL=0` in the agent's environment, which lets sccache cache the workspace crates too (hit rate 78%, warm 39 s against 52 s cold) and keeps the incremental cache (about 3 GB per worktree) from filling the disk. A project that wants incremental builds back sets `[cache.rust] incremental = true`; `scripts/check.sh` uses `CARGO_INCREMENTAL=0` for its cargo stages unless the variable is already set. It needs `sccache` installed (`cargo install sccache --locked`); Capstan does not install it. The server is stopped (`sccache --stop-server`) before the cache is cleared.
 
 ### `rust` mode `off`
 

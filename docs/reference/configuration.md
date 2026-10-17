@@ -261,7 +261,7 @@ paths = ["target"]
 | `scope` | `"project"` (default) or `"user"`: whether the caches belong to this project or are shared by every project that uses the same `root`. |
 | `max_size_gb` | The total size cap, a number from 0.1 to 10000. Default 20 when `[cache]` is present. |
 | `max_age_days` | Entries unused for longer are pruned, an integer from 1 to 3650. Default 30. |
-| `[cache.<preset>]` | Settings of a preset: `max_size_gb` for any, and `mode` for `rust`. The table is allowed only for a listed preset (or when `detect` is true). |
+| `[cache.<preset>]` | Settings of a preset: `max_size_gb` for any, and `mode` and `incremental` for `rust`. The table is allowed only for a listed preset (or when `detect` is true). |
 | `[cache.entries.<name>]` | Your own entry; see below. |
 | `[cache.setup_reuse]` | `key_files` and `paths`, both non-empty lists of relative paths without `..`: the files that identify a worktree's setup result and the directories to reuse when they are unchanged. |
 
@@ -273,7 +273,7 @@ Each `dirs` pair is `ENV = subdirectory` of the entry's cache directory; `set` p
 
 | Preset | Variables | Needs | Also |
 | --- | --- | --- | --- |
-| `rust`, mode `sccache` (default) | `SCCACHE_DIR=sccache`; `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE` from the cap (the preset's `max_size_gb`, or the total) | `sccache` on PATH | stops the server with `sccache --stop-server` before the cache is cleared |
+| `rust`, mode `sccache` (default) | `SCCACHE_DIR=sccache`; `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE` from the cap (the preset's `max_size_gb`, or the total); `CARGO_INCREMENTAL=0` unless `incremental = true` | `sccache` on PATH | stops the server with `sccache --stop-server` before the cache is cleared |
 | `rust`, mode `shared-build-dir` | `CARGO_BUILD_BUILD_DIR=cargo-build` | `cargo` | |
 | `rust`, mode `off` | none | | |
 | `python` | `PIP_CACHE_DIR=pip`, `UV_CACHE_DIR=uv`, `POETRY_CACHE_DIR=poetry` | | prune: `uv cache prune` |
@@ -281,6 +281,8 @@ Each `dirs` pair is `ENV = subdirectory` of the entry's cache directory; `set` p
 | `go` | `GOCACHE=go-build`, `GOMODCACHE=go-mod` | | |
 
 `[cache.rust] mode` accepts `sccache`, `shared-build-dir` and `off`; anything else is refused.
+
+`[cache.rust] incremental` (default `false`) applies to mode `sccache`: sccache cannot cache incremental crates, so the preset sets `CARGO_INCREMENTAL=0` and the incremental cache (about 3 GB per worktree) is not written. `incremental = true` leaves cargo's own default. `scripts/check.sh` sets the same `CARGO_INCREMENTAL=0` for its cargo stages unless the caller already sets the variable.
 
 Detection markers: `Cargo.toml` (rust); `pyproject.toml`, `requirements*.txt`, `setup.py`, `uv.lock`, `poetry.lock` (python); `package.json` (node); `go.mod` (go).
 

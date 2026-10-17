@@ -67,7 +67,8 @@ fn the_four_presets_resolve_to_the_documented_pairs() {
         rust.set,
         [
             ("RUSTC_WRAPPER".into(), "sccache".into()),
-            ("SCCACHE_CACHE_SIZE".into(), "20G".into())
+            ("SCCACHE_CACHE_SIZE".into(), "20G".into()),
+            ("CARGO_INCREMENTAL".into(), "0".into())
         ]
     );
     assert_eq!(rust.requires.as_deref(), Some("sccache"));
@@ -336,4 +337,27 @@ fn every_env_name_of_every_preset_is_an_acceptable_agent_variable_name() {
             assert!(valid, "{} sets {name}", entry.name);
         }
     }
+}
+
+#[test]
+fn the_rust_preset_turns_incremental_compilation_off_unless_the_project_asks() {
+    let set = |extra: &str| {
+        cache(&format!("[cache]\npresets = [\"rust\"]\n{extra}")).entries[0]
+            .set
+            .clone()
+    };
+    let off = ("CARGO_INCREMENTAL".to_string(), "0".to_string());
+    assert!(set("").contains(&off));
+    assert!(set("[cache.rust]\nincremental = false\n").contains(&off));
+    assert!(!set("[cache.rust]\nincremental = true\n")
+        .iter()
+        .any(|(name, _)| name == "CARGO_INCREMENTAL"));
+    let other_modes =
+        cache("[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"shared-build-dir\"\n");
+    assert!(other_modes.entries[0].set.is_empty());
+    let message = refusal("[cache]\npresets = [\"rust\"]\n[cache.rust]\nincremental = \"no\"\n");
+    assert!(
+        message.contains("cache.rust.incremental must be true or false"),
+        "{message}"
+    );
 }

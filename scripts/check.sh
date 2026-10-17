@@ -39,6 +39,10 @@ step() { printf '\n== %s\n' "$1"; }
 # expect no cstan-dash there) would then fail depending on which stage ran first.
 cargo_gate() (
   dir="$1"
+  # Incremental compilation only grows the target directory of a one-shot gate (about 3 GB per tree); the cache preset
+  # sets the same default for agents' builds. An explicit CARGO_INCREMENTAL wins.
+  CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+  export CARGO_INCREMENTAL
   if [ -n "${CARGO_TARGET_DIR:-}" ]; then
     CARGO_TARGET_DIR="${CARGO_TARGET_DIR%/}/gate-$(basename "$dir")"
     export CARGO_TARGET_DIR
@@ -204,6 +208,8 @@ if want scripts; then
   fi
   step "test-no-node-path.sh"
   sh "$ROOT/scripts/test-no-node-path.sh"
+  step "test-gate-env.sh"
+  sh "$ROOT/scripts/test-gate-env.sh"
   node_guard
   step "test-node-guard.sh"
   sh "$ROOT/scripts/test-node-guard.sh"
