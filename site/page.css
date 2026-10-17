@@ -92,6 +92,17 @@ img { display: block; max-width: 100%; height: auto; }
 .band__aside { grid-column: 10 / span 3; margin: 0; font-size: var(--text-code); color: var(--fg-muted); }
 .band__aside p { margin: 0 0 var(--space-4); }
 
+.band__video { margin: 0; }
+.band__video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
 /* Footer */
 .site-foot {
   display: flex;
