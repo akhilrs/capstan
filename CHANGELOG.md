@@ -2,6 +2,25 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.6.0 (2026-10-18)
+
+### Features
+
+- Timed auto-approve-all window for Operator proposals and worker (f06f904)
+
+### Bug fixes
+
+- **cache:** turn incremental compilation off in the rust sccache preset (b4d47e1)
+- **config:** fall back to the built-in prompt when prompt_file is (9af9ed8)
+
+### Documentation
+
+- **design:** match legacySupervisionReason wording to the status (722d324)
+
+### Tests
+
+- **cache:** keep a forked child from inheriting a held store lock (7695624)
+- **cache:** signal kill tests over a pipe instead of a polled deadline (43d6408)
 ## 0.5.0 (2026-10-13)
 
 ### Features
