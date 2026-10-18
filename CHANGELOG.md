@@ -6,21 +6,19 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 ### Features
 
-- Timed auto-approve-all window for Operator proposals and worker (f06f904)
+- Timed auto-approve-all window for Operator proposals and worker permission prompts (f06f904)
 
 ### Bug fixes
 
 - **cache:** turn incremental compilation off in the rust sccache preset (b4d47e1)
-- **config:** fall back to the built-in prompt when prompt_file is (9af9ed8)
-
-### Documentation
-
-- **design:** match legacySupervisionReason wording to the status (722d324)
+- **config:** fall back to the built-in prompt when prompt_file is missing (9af9ed8)
+- **status:** report health: disabled instead of a false degraded for the legacy supervision row, and always give a reason when degraded (722d324)
 
 ### Tests
 
 - **cache:** keep a forked child from inheriting a held store lock (7695624)
 - **cache:** signal kill tests over a pipe instead of a polled deadline (43d6408)
+
 ## 0.5.0 (2026-10-13)
 
 ### Features
