@@ -448,7 +448,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
                     .collect()
             })
             .unwrap_or_default(),
-        hosts: vec![host("claude"), host("codex"), host("omp")],
+        hosts: vec![host("claude"), host("codex"), host("omp"), host("pi")],
         roles,
         warnings: Vec::new(),
     }

@@ -773,7 +773,7 @@
   "name": "captured-0108",
   "outcome": {
    "kind": "error",
-   "message": "hosts.claude.kind must be one of claude, codex, omp"
+   "message": "hosts.claude.kind must be one of claude, codex, omp, pi"
   }
  },
  {
@@ -4669,6 +4669,64 @@
    "kind": "ok",
    "sha256": "f36f7a0754c32c054b54665eeaa98b82a6bcb82e47b7c8e23cd8e6df57eb81b2",
    "bytes": 3801
+  }
+ },
+ {
+  "name": "rust-pi-developer",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "c73e23ae855c0e89dda6fd0fdbb3e3ced4902f13d429baf6e2a72048b54943a3",
+   "bytes": 3903
+  }
+ },
+ {
+  "name": "rust-pi-verifier-auto",
+  "outcome": {
+   "kind": "ok",
+   "sha256": "e90de89c4fe9dd68767f68577b1d169edb41723e654797cae7bda8a086132619",
+   "bytes": 4288
+  }
+ },
+ {
+  "name": "rust-pi-allow",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev: allow and deny are Claude Code tool rules and host p (pi) cannot enforce them"
+  }
+ },
+ {
+  "name": "rust-pi-deny",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev: allow and deny are Claude Code tool rules and host p (pi) cannot enforce them"
+  }
+ },
+ {
+  "name": "rust-pi-default-mode",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.dev.permission_mode must be acceptEdits or auto on host p (pi), which runs unattended with full access (set it on the role or in [defaults])"
+  }
+ },
+ {
+  "name": "rust-pi-pm",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.pm: a PM role is read-only by design and only a claude host can enforce that; host p is pi"
+  }
+ },
+ {
+  "name": "rust-pi-supervisor",
+  "outcome": {
+   "kind": "error",
+   "message": "roles.watch: a Supervisor role is read-only by design and only a claude host can enforce that; host p is pi"
+  }
+ },
+ {
+  "name": "rust-pi-bad-host-kind",
+  "outcome": {
+   "kind": "error",
+   "message": "hosts.p.kind must be one of claude, codex, omp, pi"
   }
  }
 ]

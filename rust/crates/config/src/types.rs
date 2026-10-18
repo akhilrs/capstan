@@ -6,7 +6,7 @@ pub const MAX_WAIT_TIMEOUT_SECONDS: i64 = 3600;
 pub const DEFAULT_HERDR_SESSION: &str = "default";
 
 pub const ROLE_KINDS: [&str; 4] = ["PM", "Developer", "Verifier", "Supervisor"];
-pub const HOST_KINDS: [&str; 3] = ["claude", "codex", "omp"];
+pub const HOST_KINDS: [&str; 4] = ["claude", "codex", "omp", "pi"];
 pub const PERMISSION_MODES: [&str; 4] = ["default", "acceptEdits", "plan", "auto"];
 
 pub const PLAN_REVIEW_MODES: [&str; 3] = ["high_risk", "always", "never"];

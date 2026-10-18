@@ -450,7 +450,7 @@ pub enum StartStatus {
 }
 
 /// `HOST_KINDS` of src/config: the agent hosts the adapter starts.
-pub const HOST_KINDS: [&str; 3] = ["claude", "codex", "omp"];
+pub const HOST_KINDS: [&str; 4] = ["claude", "codex", "omp", "pi"];
 
 // The prompt-relay types of src/herdr/prompt-relay.ts.
 

@@ -161,13 +161,15 @@ model = "claude-sonnet-5-5"
 [hosts.claude]
 kind = "claude"
 
-# Optional Codex and OMP hosts for Developer and Verifier roles. Both run unattended with full access
+# Optional Codex, OMP and pi hosts for Developer and Verifier roles. All run unattended with full access
 # and without a sandbox: nothing stops a push or an edit outside the worktree, and `cstan config check`
 # warns about every such role. PM, Supervisor, architect, operator and researcher roles stay on a claude host.
 # [hosts.codex]
 # kind = "codex"
 # [hosts.omp]
 # kind = "omp"
+# [hosts.pi]
+# kind = "pi"
 
 [roles.pm]
 kind = "PM"
@@ -212,7 +214,7 @@ host = "claude"
 deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
 prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
 
-# A worker role on Codex or OMP (remove the leading # here and from the host above). It must set its
+# A worker role on Codex, OMP or pi (remove the leading # here and from the host above). It must set its
 # own model, because the [defaults.Developer] model is a Claude model; it must set permission_mode
 # to acceptEdits or auto; and it must have no allow or deny. Use any model your CLI accepts.
 # [roles.codex-developer]

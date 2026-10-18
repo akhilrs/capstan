@@ -7,6 +7,8 @@ and the shared inputs in [`rust/testdata/`](../rust/testdata/README.md) (which s
 changes only by hand, in the same commit as the Rust change, with the reason in the commit body; nothing regenerates it. The one exception is the `init-*` and `usage-init-*` local transcripts, whose recorded result (the `node` field, `files`, `commits`) is rewritten from the Rust binary after `cstan init` changed (the managed `.gitignore` block, no `roles/` folder): `CSTAN_REGEN_LOCAL=init-,usage-init- cargo test -p cstan-front --test local`, then review the diff. The `config-expected.json` files of the two parity cases `captured-0014` and `captured-0312`, which load the starter, were likewise regenerated from the Rust output: the starter no longer sets `prompt_file` for the designer, and `cstan init` now writes the managed `.gitignore` block.
 The Node exporters are in the git history at the commit below if one is ever needed.
 
+The pi host (`pi-130-*.ansi` in [`rust/testdata/fixtures`](../rust/testdata/fixtures)) is the one addition made after the freeze: the six screens (idle empty, typed, after Ctrl-U, multi-line, busy, trust dialog) were captured by hand from pi 1.3.0 in a Herdr pane, as [docs/research/pi-dev-integration.md](research/pi-dev-integration.md) describes, not exported from Node. Their cases in `screen.json`, the `pi` columns of the other screen cases, the `pi` results in `validate.json`, the `pi-*` synthetic screens, the `rust-pi-*` config cases and the `start-pi-agent-and-trust-dialog` adapter scenario were written by hand from the Rust output and reviewed; Node never knew the `pi` kind.
+
 ## The freeze point
 
 **`be41e824207a002996822e991aa8b61b90219b47`** (`feat(daemon): Rust daemon port phase 2b: opt-in Rust daemon with Node`)

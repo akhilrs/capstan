@@ -641,3 +641,35 @@ fn teardown_time_is_not_charged_to_the_cleanup_budget() {
         "{commands:?}"
     );
 }
+
+/// A developer on a pi host starts pi with the pinned flags and no approval flag, and the agent kind is pi.
+#[test]
+fn a_developer_on_a_pi_host_starts_pi_with_the_pinned_arguments() {
+    let sc = scenario(
+        "pi-host",
+        json!({"maxWorkers": 3, "hostOf": {"developer": "pi"}}),
+    );
+    launched(&sc);
+    spawn_ok(&sc, "developer");
+    let calls = sc.take_calls();
+    let start = calls
+        .iter()
+        .rev()
+        .find(|c| c["m"] == "startAgent")
+        .expect("the developer was started");
+    let input = &start["a"][0];
+    assert_eq!(input["kind"], "pi", "{start}");
+    let args = input["args"].as_array().expect("an argument vector");
+    assert_eq!(
+        args[..4],
+        [
+            json!("--approve"),
+            json!("--tui-mode"),
+            json!("regular"),
+            json!("--offline")
+        ],
+        "{start}"
+    );
+    assert_eq!(args[4], json!("--append-system-prompt"), "{start}");
+    assert_eq!(args.len(), 6, "no model, no approval flag: {start}");
+}

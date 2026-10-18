@@ -91,6 +91,26 @@ pub fn codex_arguments(
     Ok(args)
 }
 
+/// Pi has no approval prompts to answer. `--approve` trusts the project's `.pi` files for the run so no trust dialog
+/// opens, `--tui-mode regular` pins the layout (1.3.0 defaults to fullscreen) and `--offline` keeps the update notice
+/// off the screen.
+pub fn pi_arguments(role: &HostRoleSettings, prompt_file: &str) -> AdapterResult<Vec<String>> {
+    require_no_dash(&role.model)?;
+    let mut args: Vec<String> = vec![
+        "--approve".into(),
+        "--tui-mode".into(),
+        "regular".into(),
+        "--offline".into(),
+    ];
+    if let Some(model) = &role.model {
+        args.push("--model".into());
+        args.push(model.clone());
+    }
+    args.push("--append-system-prompt".into());
+    args.push(prompt_file.to_string());
+    Ok(args)
+}
+
 /// OMP runs with every tool call approved: an approval prompt would leave the agent blocked and delivery deferred.
 pub fn omp_arguments(role: &HostRoleSettings, prompt_file: &str) -> AdapterResult<Vec<String>> {
     require_no_dash(&role.model)?;

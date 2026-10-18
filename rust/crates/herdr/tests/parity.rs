@@ -11,7 +11,9 @@ use capstan_herdr::api::{
 use capstan_herdr::claude_args::{
     build_agent_environment, claude_arguments, ClaudeRoleSettings, McpServer,
 };
-use capstan_herdr::hosts::{codex_arguments, omp_arguments, toml_string, HostRoleSettings};
+use capstan_herdr::hosts::{
+    codex_arguments, omp_arguments, pi_arguments, toml_string, HostRoleSettings,
+};
 use capstan_herdr::naming;
 use capstan_herdr::process_activity::{
     parse_proc_stat, parse_ps_table, parse_ps_time, tool_processes, HerdrProcessProbe, ProcEntry,
@@ -74,7 +76,7 @@ fn trust_json(parsed: Option<TrustDialog>) -> Value {
 /// The view `screenView` of the exporter builds.
 fn screen_view(content: &str) -> Value {
     let plain = strip_ansi(content);
-    let kinds = ["claude", "codex", "omp", "shell", "other"];
+    let kinds = ["claude", "codex", "omp", "pi", "shell", "other"];
     let mut input = Map::new();
     let mut blocker = Map::new();
     for kind in kinds {
@@ -85,7 +87,7 @@ fn screen_view(content: &str) -> Value {
         );
     }
     let mut trust = Map::new();
-    for kind in ["claude", "codex", "omp"] {
+    for kind in ["claude", "codex", "omp", "pi"] {
         trust.insert(
             kind.into(),
             trust_json(parse_trust_dialog_of(kind, content)),
@@ -193,6 +195,7 @@ fn trust_texts_name_the_two_hosts() {
         Some((CODEX_TRUST_YES, CODEX_TRUST_NO))
     );
     assert_eq!(trust_texts("omp"), None);
+    assert_eq!(trust_texts("pi"), None);
 }
 
 #[test]
@@ -439,6 +442,8 @@ fn validation_and_argument_builders_match_node() {
         expect_eq(&format!("codex {case}"), &codex, &case["codex"]);
         let omp = adapter_message(omp_arguments(&role, "/tmp/p.md").map(|a| json!(a)));
         expect_eq(&format!("omp {case}"), &omp, &case["omp"]);
+        let pi = adapter_message(pi_arguments(&role, "/tmp/p.md").map(|a| json!(a)));
+        expect_eq(&format!("pi {case}"), &pi, &case["pi"]);
     }
     let missing = codex_arguments(
         &HostRoleSettings { model: None },

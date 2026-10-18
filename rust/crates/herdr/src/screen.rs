@@ -299,6 +299,7 @@ pub fn extract_input_line(kind: &str, ansi_screen: &str) -> Option<String> {
         }
         "codex" => codex_input_line(&raw, &plain),
         "omp" => omp_input_line(&plain),
+        "pi" => pi_input_line(&plain),
         "claude" => claude_input_line(&raw, &plain),
         _ => None,
     }
@@ -428,6 +429,68 @@ fn omp_input_line(plain: &[String]) -> Option<String> {
     }
     Some(js_trim_end(text).to_string())
 }
+
+/// Pi draws its editor between two horizontal rules with no prompt glyph: an empty editor is one blank line, typed
+/// text fills the lines between the rules, and a wrapped line has no continuation marker. While Pi works the top rule
+/// reads `── ⠙ Working ───`, so it is not a plain rule and the screen is refused. A wrapped line is joined with a
+/// space, because Pi wraps at spaces. Footer lines (cwd, stats, extension status) follow the bottom rule.
+fn pi_input_line(plain: &[String]) -> Option<String> {
+    let rules: Vec<usize> = plain
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| js_trim(line).starts_with("──"))
+        .map(|(index, _)| index)
+        .collect();
+    if rules.len() < 2 {
+        return None;
+    }
+    let bottom = rules[rules.len() - 1];
+    let top = rules[rules.len() - 2];
+    let footer: Vec<&String> = plain[bottom + 1..]
+        .iter()
+        .filter(|line| !js_trim(line).is_empty())
+        .collect();
+    if bottom - top < 2 || footer.len() > PI_MAX_FOOTER_LINES {
+        return None;
+    }
+    if !footer.iter().any(|line| has_pi_context_usage(line)) {
+        return None;
+    }
+    let (top_rule, bottom_rule) = (js_trim(&plain[top]), js_trim(&plain[bottom]));
+    if !is_rule_line(top_rule) || !is_rule_line(bottom_rule) {
+        return None;
+    }
+    if utf16_len(top_rule) != utf16_len(bottom_rule) {
+        return None;
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for line in &plain[top + 1..bottom] {
+        if leftover_control(line) || line.chars().any(is_line_terminator) {
+            return None;
+        }
+        parts.push(js_trim_end(line));
+    }
+    while parts.last().is_some_and(|part| part.is_empty()) {
+        parts.pop();
+    }
+    if parts.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    Some(parts.join(" "))
+}
+
+/// Pi's stats line shows the context usage as `<percent>%/<window>k`; no other host draws it, which tells a Pi editor
+/// from another host's rule-framed input.
+fn has_pi_context_usage(line: &str) -> bool {
+    let parts: Vec<&str> = line.split("%/").collect();
+    parts.windows(2).any(|pair| {
+        pair[0].ends_with(|c: char| c.is_ascii_digit())
+            && pair[1].starts_with(|c: char| c.is_ascii_digit())
+    })
+}
+
+/// The most lines Pi draws under the editor: the cwd, the stats line and a few extension status lines.
+const PI_MAX_FOOTER_LINES: usize = 6;
 
 /// A pane the adapter has just created shows the operator's own prompt: only a last line that is exactly one prompt
 /// symbol proves that nothing is typed.

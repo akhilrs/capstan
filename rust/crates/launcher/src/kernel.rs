@@ -19,7 +19,7 @@ use capstan_config::{Role, RoleConfig, DEFAULT_WAIT_TIMEOUT_SECONDS};
 use capstan_herdr::api::{AdapterError, LauncherAdapter, MetadataTarget};
 use capstan_herdr::claude_args::McpServer as HerdrMcpServer;
 use capstan_herdr::claude_args::{build_agent_environment, claude_arguments, ClaudeRoleSettings};
-use capstan_herdr::hosts::{codex_arguments, omp_arguments, HostRoleSettings};
+use capstan_herdr::hosts::{codex_arguments, omp_arguments, pi_arguments, HostRoleSettings};
 use capstan_herdr::naming::project_display_name;
 use capstan_kernel::types::MutationContext;
 use capstan_kernel::{Core, KernelError, KernelResult};
@@ -1053,6 +1053,7 @@ impl LauncherKernel {
         Ok(match kind.as_str() {
             "codex" => codex_arguments(&host, prompt_text, worktree_path.map(Path::new))?,
             "omp" => omp_arguments(&host, prompt_file)?,
+            "pi" => pi_arguments(&host, prompt_file)?,
             _ => {
                 let mut allow = role.allow.clone();
                 if !allow.iter().any(|rule| rule == CSTAN_ALLOW_RULE) {

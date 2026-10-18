@@ -1,0 +1,40 @@
+[0m[38;2;126;136;142msleek-design-mobile-apps, stitch-design-taste, tailwind, three, typegpu, waapi, web-design-guidelines,                  [0m
+[0m[38;2;126;136;142mwebsite-to-hyperframes[0m                                                                                                  
+
+[0m[38;2;205;154;34m[Extensions][0m                                                                                                            
+[0m[38;2;126;136;142m  @tintinweb/pi-subagents:src, cbmem.ts, herdr-agent-state.ts, pi-mcp-adapter[0m                                           
+
+[0m[38;2;205;154;34m[Extension issues][0m                                                                                                      
+[0m[38;2;205;154;34m  builtin:mcp[0m                                                                                                           
+[0m[38;2;205;154;34m    Extension /home/user/.pi/agent/npm/node_modules/pi-mcp-adapter/index.ts registers command `/mcp`, so built-in      [0m
+[0m[38;2;205;154;34mextension `mcp` was not loaded. To use `mcp`, run `pi config` and make sure it is enabled under Built-in extensions,    [0m
+[0m[38;2;205;154;34mthen disable or remove the existing extension. We recommend only having one or the other loaded at a time.[0m              
+[0m[38;2;205;154;34m  ~/.pi/agent/npm/node_modules/@tintinweb/pi-subagents/package.json[0m                                                     
+[0m[38;2;205;154;34m    Host-provided extension packages must be declared in peerDependencies with a "*" range, not dependencies:           [0m
+[0m[38;2;205;154;34m@sinclair/typebox, typebox. Installed copies can bypass the extension loader and create duplicate runtime modules.[0m      
+
+
+ [0m[38;2;205;154;34mWarning: Extension package "builtin:mcp": Extension /home/user/.pi/agent/npm/node_modules/pi-mcp-adapter/index.ts     [0m
+ [0m[38;2;205;154;34mregisters command `/mcp`, so built-in extension `mcp` was not loaded. To use `mcp`, run `pi config` and make sure it   [0m
+ [0m[38;2;205;154;34mis enabled under Built-in extensions, then disable or remove the existing extension. We recommend only having one or   [0m
+ [0m[38;2;205;154;34mthe other loaded at a time.[0m                                                                                            
+
+ [0m[38;2;205;154;34mWarning: Extension package "/home/user/.pi/agent/npm/node_modules/@tintinweb/pi-subagents/package.json":              [0m
+ [0m[38;2;205;154;34mHost-provided extension packages must be declared in peerDependencies with a "*" range, not dependencies:              [0m
+ [0m[38;2;205;154;34m@sinclair/typebox, typebox. Installed copies can bypass the extension loader and create duplicate runtime modules.[0m     
+
+[0m[38;2;205;154;34m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+ [0m[1m[38;2;205;154;34mPackage Updates Available[0m                                                                                              
+ [0m[38;2;157;165;169mPackage updates are available. Run [0m[38;2;167;152;215mpi update --extensions[0m                                                              
+ [0m[38;2;157;165;169mPackages:[0m                                                                                                              
+ - pi-mcp-adapter                                                                                                       
+ - @tintinweb/pi-subagents                                                                                              
+[0m[38;2;205;154;34m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+
+[0m[38;2;97;133;204m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra   
+tango uniform victor whiskey xray yankee zulu[0m[7m [0m                                                                          
+[0m[38;2;97;133;204m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;2;126;136;142m/tmp/scratch/repo[0m
+[0m[38;2;126;136;142m0.0%/200k (auto)                                                                   (anthropic) claude-haiku-4-5 • medium[0m
+[0m[38;2;167;152;215m🔌 MCP: 2 servers enabled[0m
