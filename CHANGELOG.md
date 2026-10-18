@@ -2,6 +2,11 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.7.0 (2026-10-18)
+
+### Features
+
+- Support pi (pi.dev) as a Capstan host kind (d126c91)
 ## 0.6.0 (2026-10-18)
 
 ### Features
