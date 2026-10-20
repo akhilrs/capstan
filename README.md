@@ -25,7 +25,7 @@
 
 Capstan turns a handful of interactive coding agents into a delivery team. You describe what you want to one agent, the **PM**. The PM spawns workers (developers, designers, reviewers, testers), hands them tasks, collects verified reports, requests independent reviews and tells you which branch to merge.
 
-Every agent is a real interactive session (Claude Code first; Codex and OMP for workers) running in its own Herdr pane and its own git worktree. A separate **controller daemon** carries every message between agents and records every workflow fact in a SQLite ledger. Completion is never guessed from terminal text, and nothing reaches your main branch unless you merge it.
+Every agent is a real interactive session (Claude Code first; Codex, OMP and pi for workers) running in its own Herdr pane and its own git worktree. A separate **controller daemon** carries every message between agents and records every workflow fact in a SQLite ledger. Completion is never guessed from terminal text, and nothing reaches your main branch unless you merge it.
 
 Everything is driven through one command: `cstan`.
 
@@ -213,7 +213,7 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 | `[supervision]`                        | `enabled`, `check_seconds`                                                                                           |
 | `[defaults]`, `[defaults.<Kind>]`      | `model`, `permission_mode` (`default`, `acceptEdits`, `plan`, `auto`)                                                |
 | `[env]`                                | `pass`                                                                                                               |
-| `[hosts.<name>]`                       | `kind` (`claude`, `codex`, `omp`), `command`, timeouts                                                               |
+| `[hosts.<name>]`                       | `kind` (`claude`, `codex`, `omp`, `pi`), `command`, timeouts                                                         |
 | `[roles.<name>]`                       | `kind`, `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks`, `mcp`, `prompt` or `prompt_file`               |
 | `[architect]`                          | `enabled`, `role`, `plan_review`, `reviewer_role`, `max_packages`, `count_toward_worker_limit`, `high_risk_triggers` |
 | `[operator]`                           | `enabled`, `role`, `auto_approve`, `auto_approve_prefix`, timeouts, grant and full-auto limits                       |
@@ -222,7 +222,7 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 | `[nexora]`                             | `track`, `default_action`                                                                                            |
 | `[notifications]`, `[timers]`          | notification channels; delivery, stall and wake timers                                                               |
 
-The full reference, with defaults, ranges, Codex and OMP workers and the teardown example, is in [Configuration reference](docs/reference/configuration.md).
+The full reference, with defaults, ranges, Codex, OMP and pi workers and the teardown example, is in [Configuration reference](docs/reference/configuration.md).
 
 </details>
 
@@ -242,7 +242,7 @@ A role has a free name and one of four kinds; the kind decides what the agent ma
 | `operator`   | Developer  | Proposes shell commands and restarts through `cstan op`; has no shell of its own.                          |
 | `researcher` | Developer  | Researches on the web and commits one Markdown report under `output_dir`.                                  |
 
-Codex and OMP hosts can run Developer and Verifier roles; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. See [Running a worker on Codex or OMP](docs/reference/configuration.md#running-a-worker-on-codex-or-omp).
+Codex, OMP and pi hosts can run Developer and Verifier roles; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. A pi host needs Herdr's pi integration (`herdr integration install pi`). See [Running a worker on Codex, OMP or pi](docs/reference/configuration.md#running-a-worker-on-codex-omp-or-pi).
 
 ## Command reference
 
@@ -336,7 +336,7 @@ Who may run each command, the controller's message prefixes and the exit codes a
 | **Operator**                 | The Operator only proposes. A command runs once, after a PM approval bound to a hash of its exact text, unless it is on a short read-only allowlist or covered by a session grant. A denylist (`push`, `rm`, `sudo`, `curl`, ...) always forces approval, except in full auto, which you switch on for a limited time and which removes every guard. |
 | **Prompt relay**             | Nobody answers another agent's permission prompt on their own. The PM types only the option you chose, against a hash of the prompt it showed you; a dialog it does not recognise gets Esc only, and only on a conservative screen match.                                                                                                            |
 | **Researcher**               | a strict allow list and curl deny lists: GET only, no uploads, no output files, writes only under `output_dir`. `permission_mode` defaults to `"default"`; other modes are allowed, but `auto` or `acceptEdits` loosen the prompts for an agent that reads untrusted pages. Guards, not a sandbox.                                                                                                                                                      |
-| **Codex and OMP workers**    | Run unsandboxed (`danger-full-access`, `yolo`); `cstan config check` warns about every such role.                                                                                                                                                                                                                                                    |
+| **Codex, OMP, pi workers**   | Run unsandboxed (`danger-full-access`, `yolo`; pi has no permission prompts at all); `cstan config check` warns about every such role.                                                                                                                                                                                                               |
 
 Details: [Operator reference](docs/reference/operator.md), [Researcher reference](docs/reference/researcher.md).
 
