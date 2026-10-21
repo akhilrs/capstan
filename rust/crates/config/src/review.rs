@@ -4,6 +4,7 @@ use capstan_wire::js::Value;
 
 use crate::error::Result;
 use crate::json::{number, object};
+use crate::keys::REVIEW_KEYS;
 use crate::primitives::*;
 use crate::value::Item;
 
@@ -51,16 +52,7 @@ pub fn resolve_review(value: Option<&Item>) -> Result<Review> {
         return Ok(Review::default());
     }
     let table = required_table(value, "review")?;
-    reject_unknown_keys(
-        table,
-        &[
-            "warm_reviewer",
-            "idle_minutes",
-            "max_reviews",
-            "integration",
-        ],
-        "review",
-    )?;
+    reject_unknown_keys(table, REVIEW_KEYS, "review")?;
     let defaults = Review::default();
     Ok(Review {
         configured: true,

@@ -5,6 +5,7 @@ use capstan_wire::js::Value;
 
 use crate::error::{invalid, Result};
 use crate::json::{number, object, optional, sha256, strings, text};
+use crate::keys::VERIFY_KEYS;
 use crate::primitives::*;
 use crate::types::{RESERVED_ENV_NAMES, RESERVED_ENV_PREFIXES};
 use crate::value::Item;
@@ -133,24 +134,7 @@ pub fn resolve_verify(value: Option<&Item>) -> Result<Option<Verify>> {
         return Ok(None);
     }
     let table = required_table(value, "verify")?;
-    reject_unknown_keys(
-        table,
-        &[
-            "commands",
-            "env",
-            "timeout_seconds",
-            "max_parallel",
-            "auto",
-            "require",
-            "output_tail_bytes",
-            "max_log_bytes",
-            "keep_logs",
-            "worktree_hooks",
-            "reap",
-            "scratch_dir",
-        ],
-        "verify",
-    )?;
+    reject_unknown_keys(table, VERIFY_KEYS, "verify")?;
     let Some(Item::Array(entries)) = table.get("commands") else {
         return invalid("verify.commands must be an array of 1 to 16 command strings");
     };

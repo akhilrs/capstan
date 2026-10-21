@@ -1,0 +1,10 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0204",
+  "reason": "a codex role that writes no permission_mode now resolves to auto; Node refused it",
+  "expected": {
+    "kind": "ok",
+    "sha256": "019493864e9d3544f9f9f724e59fb9bd999bbdbf05a8af01834395a456707dba",
+    "bytes": 4449
+  }
+}

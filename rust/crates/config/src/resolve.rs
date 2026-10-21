@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::error::{invalid, ConfigError, Result};
 use crate::json::{role_hash, sha256};
+use crate::keys::*;
 use crate::operator_policy::{
     approval_floor_entry_problem, auto_approve_rule_problem, timed_safe_command_problem,
 };
@@ -30,20 +31,6 @@ pub const DAEMON_RUST_ENV_WARNING: &str =
 
 const MAX_ROLE_NAME_CHARS: usize = 32 - 10 - 1 - 1 - 4;
 const MAX_MCP_SERVERS: usize = 16;
-
-/// `[timers]`: key, default, minimum, maximum.
-const TIMER_DEFAULTS: [(&str, i64, i64, i64); 10] = [
-    ("max_deferral_seconds", 120, 1, 3600),
-    ("max_busy_deferral_seconds", 3600, 60, 86_400),
-    ("pm_ack_timeout_seconds", 600, 1, 86_400),
-    ("pm_notify_after_seconds", 300, 1, 86_400),
-    ("notify_interval_seconds", 600, 1, 86_400),
-    ("stall_after_seconds", 900, 1, 86_400),
-    ("worker_ack_timeout_seconds", 600, 1, 86_400),
-    ("finding_check_seconds", 1800, 60, 86_400),
-    ("pm_wake_after_seconds", 20, 0, 3600),
-    ("pm_wake_interval_seconds", 120, 10, 3600),
-];
 
 pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
@@ -71,51 +58,17 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     // `cleanup`, `cache`, `verify`, `review` and `design` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
     let known = Table::from_members(
         root.entries()
-            .filter(|(key, _)| {
-                *key != "cleanup"
-                    && *key != "cache"
-                    && *key != "verify"
-                    && *key != "review"
-                    && *key != "design"
-            })
+            .filter(|(key, _)| !UNPRINTED_TOP_LEVEL_KEYS.contains(key))
             .map(|(key, item)| (key.to_string(), item.clone()))
             .collect(),
     );
-    reject_unknown_keys(
-        &known,
-        &[
-            "schema_version",
-            "project",
-            "herdr_session",
-            "notifications",
-            "timers",
-            "supervision",
-            "liveness",
-            "messages",
-            "architect",
-            "operator",
-            "researcher",
-            "mcp_servers",
-            "prompt_relay",
-            "nexora",
-            "defaults",
-            "limits",
-            "ledger",
-            "layout",
-            "worktree",
-            "daemon",
-            "env",
-            "hosts",
-            "roles",
-        ],
-        "top level",
-    )?;
+    reject_unknown_keys(&known, TOP_LEVEL_KEYS, "top level")?;
     if root.get("schema_version") != Some(&Item::Int(1)) {
         return invalid("schema_version must be the integer 1");
     }
 
     let project = optional_table(root.get("project"), "project")?;
-    reject_unknown_keys(project, &["name"], "project")?;
+    reject_unknown_keys(project, PROJECT_KEYS, "project")?;
     let project_name = optional_string(project.get("name"), "project.name", 256)?;
     if let Some(name) = project_name {
         guard_credential_shape(name, "project.name")?;
@@ -128,11 +81,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     }
 
     let notification_table = optional_table(root.get("notifications"), "notifications")?;
-    reject_unknown_keys(
-        notification_table,
-        &["herdr", "fallback", "pm_stale_minutes"],
-        "notifications",
-    )?;
+    reject_unknown_keys(notification_table, NOTIFICATION_KEYS, "notifications")?;
     let notifications = Notifications {
         herdr: optional_boolean(notification_table.get("herdr"), "notifications.herdr", true)?,
         fallback: optional_boolean(
@@ -179,11 +128,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     };
 
     let supervision_table = optional_table(root.get("supervision"), "supervision")?;
-    reject_unknown_keys(
-        supervision_table,
-        &["enabled", "check_seconds"],
-        "supervision",
-    )?;
+    reject_unknown_keys(supervision_table, SUPERVISION_KEYS, "supervision")?;
     let supervision = Supervision {
         enabled: optional_boolean(
             supervision_table.get("enabled"),
@@ -200,17 +145,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     };
 
     let liveness_table = optional_table(root.get("liveness"), "liveness")?;
-    reject_unknown_keys(
-        liveness_table,
-        &[
-            "enabled",
-            "check_seconds",
-            "confirm_checks",
-            "start_grace_seconds",
-            "stall_child_max_seconds",
-        ],
-        "liveness",
-    )?;
+    reject_unknown_keys(liveness_table, LIVENESS_KEYS, "liveness")?;
     let liveness = Liveness {
         enabled: optional_boolean(liveness_table.get("enabled"), "liveness.enabled", true)?,
         check_seconds: optional_integer(
@@ -246,7 +181,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     let messages = resolve_messages(optional_table(root.get("messages"), "messages")?)?;
 
     let limit_table = optional_table(root.get("limits"), "limits")?;
-    reject_unknown_keys(limit_table, &["max_workers"], "limits")?;
+    reject_unknown_keys(limit_table, LIMITS_KEYS, "limits")?;
     let limits = Limits {
         max_workers: optional_integer(
             limit_table.get("max_workers"),
@@ -258,7 +193,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     };
 
     let ledger_table = optional_table(root.get("ledger"), "ledger")?;
-    reject_unknown_keys(ledger_table, &["keep_migration_backups"], "ledger")?;
+    reject_unknown_keys(ledger_table, LEDGER_KEYS, "ledger")?;
     let ledger = Ledger {
         keep_migration_backups: optional_integer(
             ledger_table.get("keep_migration_backups"),
@@ -270,17 +205,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     };
 
     let layout_table = optional_table(root.get("layout"), "layout")?;
-    reject_unknown_keys(
-        layout_table,
-        &[
-            "spawn",
-            "split",
-            "pm_width_percent",
-            "min_pane_columns",
-            "min_pane_rows",
-        ],
-        "layout",
-    )?;
+    reject_unknown_keys(layout_table, LAYOUT_KEYS, "layout")?;
     let mut warnings: Vec<String> = Vec::new();
     if let Some(split) = layout_table.get("split") {
         enum_value(Some(split), "layout.split", &["auto", "right", "down"])?;
@@ -320,7 +245,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     let worktree = resolve_worktree(optional_table(root.get("worktree"), "worktree")?)?;
 
     let daemon_table = optional_table(root.get("daemon"), "daemon")?;
-    reject_unknown_keys(daemon_table, &["implementation"], "daemon")?;
+    reject_unknown_keys(daemon_table, DAEMON_KEYS, "daemon")?;
     // Rust is the only daemon: `[daemon]` selects nothing. "rust" is a no-op that warns, "node" is an error.
     if root.get("daemon").is_some() {
         match enum_value(
@@ -338,7 +263,7 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     let cleanup = resolve_cleanup(optional_table(root.get("cleanup"), "cleanup")?)?;
 
     let env_table = optional_table(root.get("env"), "env")?;
-    reject_unknown_keys(env_table, &["pass"], "env")?;
+    reject_unknown_keys(env_table, ENV_KEYS, "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
     let cache = crate::cache::resolve_cache(root.get("cache"), project_root, &env_pass)?;
 
@@ -440,11 +365,7 @@ fn cleanup_choice<'a>(table: &'a Table, key: &str, allowed: &[&str]) -> Result<O
 }
 
 fn resolve_cleanup(table: &Table) -> Result<Cleanup> {
-    reject_unknown_keys(
-        table,
-        &["branches", "worktrees", "include_unlanded"],
-        "cleanup",
-    )?;
+    reject_unknown_keys(table, CLEANUP_KEYS, "cleanup")?;
     let branches = match cleanup_choice(table, "branches", &["auto", "ask", "off"])? {
         Some("auto") => CleanupBranches::Auto,
         Some("off") => CleanupBranches::Off,
@@ -467,16 +388,7 @@ fn resolve_cleanup(table: &Table) -> Result<Cleanup> {
 }
 
 fn resolve_worktree(table: &Table) -> Result<Option<Worktree>> {
-    reject_unknown_keys(
-        table,
-        &[
-            "setup",
-            "setup_timeout_seconds",
-            "teardown",
-            "teardown_timeout_seconds",
-        ],
-        "worktree",
-    )?;
+    reject_unknown_keys(table, WORKTREE_KEYS, "worktree")?;
     if table.get("setup").is_none() && table.get("setup_timeout_seconds").is_some() {
         return invalid("worktree.setup_timeout_seconds is set without worktree.setup");
     }
@@ -548,7 +460,7 @@ fn resolve_mcp_servers(table: &Table, warnings: &mut Vec<String>) -> Result<Vec<
         }
         let at = format!("mcp_servers.{name}");
         let server = required_table(Some(item), &at)?;
-        reject_unknown_keys(server, &["command", "args"], &at)?;
+        reject_unknown_keys(server, MCP_SERVER_KEYS, &at)?;
         let command = required_string(server.get("command"), &format!("{at}.command"), 200, false)?;
         if command.starts_with('-') {
             return invalid(format!("{at}.command must not start with a dash"));
@@ -651,16 +563,7 @@ fn resolve_hosts(table: &Table) -> Result<Vec<Host>> {
     for name in names {
         let at = format!("hosts.{name}");
         let host = required_table(table.get(name), &at)?;
-        reject_unknown_keys(
-            host,
-            &[
-                "kind",
-                "command",
-                "shell_command_timeout_seconds",
-                "wait_timeout_seconds",
-            ],
-            &at,
-        )?;
+        reject_unknown_keys(host, HOST_KEYS, &at)?;
         let kind = enum_value(host.get("kind"), &format!("{at}.kind"), &HOST_KINDS)?;
         let command =
             optional_string(host.get("command"), &format!("{at}.command"), 200)?.unwrap_or(kind);
@@ -687,42 +590,36 @@ fn resolve_hosts(table: &Table) -> Result<Vec<Host>> {
                 "{at}.wait_timeout_seconds ({wait_timeout_seconds}) must be below {at}.shell_command_timeout_seconds ({shell_command_timeout_seconds})"
             ));
         }
+        let model = parse_model(host.get("model"), &format!("{at}.model"))?;
+        let permission_mode = parse_permission_mode(
+            host.get("permission_mode"),
+            &format!("{at}.permission_mode"),
+        )?;
+        if let Some(mode) = permission_mode {
+            if kind != "claude" && mode != "acceptEdits" && mode != "auto" {
+                return invalid(format!(
+                    "{at}.permission_mode must be acceptEdits or auto on a {kind} host, which runs unattended with full access"
+                ));
+            }
+        }
         hosts.push(Host {
             name: name.to_string(),
             kind: kind.to_string(),
             command: command.to_string(),
             shell_command_timeout_seconds,
             wait_timeout_seconds,
+            model,
+            permission_mode: permission_mode.map(str::to_string),
         });
     }
     Ok(hosts)
 }
 
-/// Codex and OMP run unattended with full access, so a rule this controller cannot enforce there is refused, not ignored.
-fn reject_unenforceable(
-    at: &str,
-    host: &Host,
-    kind: &str,
-    permission_mode: &str,
-    allow: &[String],
-    deny: &[String],
-    mcp: &[McpServer],
-) -> Result<()> {
+/// Codex, OMP and pi run unattended with full access, so a role that needs a read-only PM or a mode this controller cannot enforce there is refused.
+fn reject_unenforceable(at: &str, host: &Host, kind: &str, permission_mode: &str) -> Result<()> {
     if kind == "PM" || kind == "Supervisor" {
         return invalid(format!(
             "{at}: a {kind} role is read-only by design and only a claude host can enforce that; host {} is {}",
-            host.name, host.kind
-        ));
-    }
-    if !mcp.is_empty() {
-        return invalid(format!(
-            "{at}.mcp is a Claude Code option and host {} ({}) cannot enforce it",
-            host.name, host.kind
-        ));
-    }
-    if !allow.is_empty() || !deny.is_empty() {
-        return invalid(format!(
-            "{at}: allow and deny are Claude Code tool rules and host {} ({}) cannot enforce them",
             host.name, host.kind
         ));
     }
@@ -766,11 +663,11 @@ fn parse_permission_mode(value: Option<&Item>, at: &str) -> Result<Option<&'stat
 
 /// `[defaults]` and `[defaults.<kind>]`: the model and permission mode a role takes when it sets none of its own.
 fn resolve_defaults(table: &Table) -> Result<Defaults> {
-    let mut allowed = vec!["model", "permission_mode"];
+    let mut allowed = DEFAULTS_ROLE_KEYS.to_vec();
     allowed.extend(ROLE_KINDS);
     reject_unknown_keys(table, &allowed, "defaults")?;
     let read = |source: &Table, at: &str| -> Result<RoleDefaults> {
-        reject_unknown_keys(source, &["model", "permission_mode"], at)?;
+        reject_unknown_keys(source, DEFAULTS_ROLE_KEYS, at)?;
         Ok(RoleDefaults {
             model: parse_model(source.get("model"), &format!("{at}.model"))?,
             permission_mode: parse_permission_mode(
@@ -811,23 +708,7 @@ fn resolve_roles(
     for name in names {
         let at = format!("roles.{name}");
         let role = required_table(table.get(name), &at)?;
-        reject_unknown_keys(
-            role,
-            &[
-                "kind",
-                "host",
-                "model",
-                "permission_mode",
-                "allow",
-                "deny",
-                "hooks",
-                "mcp",
-                "prompt",
-                "prompt_file",
-                "max_active",
-            ],
-            &at,
-        )?;
+        reject_unknown_keys(role, ROLE_KEYS, &at)?;
         let kind = enum_value(role.get("kind"), &format!("{at}.kind"), &ROLE_KINDS)?;
         if len16(name) > MAX_ROLE_NAME_CHARS {
             return invalid(format!(
@@ -844,18 +725,27 @@ fn resolve_roles(
             .find(|(candidate, _)| *candidate == kind)
             .expect("every kind has defaults")
             .1;
-        let model = match role.get("model") {
-            None => kind_defaults
-                .model
-                .clone()
-                .or_else(|| defaults.all.model.clone()),
-            some => parse_model(some, &format!("{at}.model"))?,
+        let (model, model_source) = match role.get("model") {
+            None => match (&host.model, &kind_defaults.model, &defaults.all.model) {
+                (Some(model), _, _) => (Some(model.clone()), "host"),
+                (None, Some(model), _) | (None, None, Some(model)) => {
+                    (Some(model.clone()), "defaults")
+                }
+                (None, None, None) => (None, "none"),
+            },
+            some => (parse_model(some, &format!("{at}.model"))?, "role"),
         };
         let permission_mode: &str = match role.get("permission_mode") {
-            None => kind_defaults
+            None => host
                 .permission_mode
+                .as_deref()
+                .or(kind_defaults.permission_mode)
                 .or(defaults.all.permission_mode)
-                .unwrap_or("default"),
+                .unwrap_or(if host.kind == "claude" {
+                    "default"
+                } else {
+                    "auto"
+                }),
             some => parse_permission_mode(some, &format!("{at}.permission_mode"))?
                 .expect("a present value resolves to a mode"),
         };
@@ -893,14 +783,35 @@ fn resolve_roles(
             )?),
         };
         let (prompt, prompt_text) = resolve_prompt(role, &at, name, kind, project_root, warnings)?;
+        let (mut allow, mut deny, mut mcp) = (allow, deny, mcp);
         if host.kind != "claude" {
-            reject_unenforceable(&at, host, kind, permission_mode, &allow, &deny, &mcp)?;
+            reject_unenforceable(&at, host, kind, permission_mode)?;
+            let label = format!("host {} ({})", host.name, host.kind);
+            if !allow.is_empty() || !deny.is_empty() {
+                warnings.push(format!(
+                    "{at}: allow and deny are Claude Code tool rules that {label} cannot enforce; they are ignored"
+                ));
+            }
+            if !mcp.is_empty() {
+                warnings.push(format!(
+                    "{at}.mcp is a Claude Code option that {label} cannot use; it is ignored"
+                ));
+            }
+            if hooks == "inherit" {
+                warnings.push(format!(
+                    "{at}.hooks = \"inherit\" is a Claude Code option that {label} cannot use; it is ignored"
+                ));
+            }
+            allow = Vec::new();
+            deny = Vec::new();
+            mcp = Vec::new();
         }
         let mut resolved = Role {
             name: name.to_string(),
             kind: kind.to_string(),
             host: host.name.clone(),
             model,
+            model_source,
             permission_mode: permission_mode.to_string(),
             allow,
             deny,
@@ -1072,7 +983,7 @@ fn resolve_path(base: &Path, relative: &str) -> PathBuf {
 }
 
 fn resolve_nexora(table: &Table) -> Result<Nexora> {
-    reject_unknown_keys(table, &["track", "default_action"], "nexora")?;
+    reject_unknown_keys(table, NEXORA_KEYS, "nexora")?;
     let track = match table.get("track") {
         None => "ask",
         some => enum_value(some, "nexora.track", &NEXORA_TRACK_MODES)?,
@@ -1093,21 +1004,7 @@ fn resolve_nexora(table: &Table) -> Result<Nexora> {
 }
 
 fn resolve_architect(table: &Table, roles: &[Role], hosts: &[Host]) -> Result<Architect> {
-    reject_unknown_keys(
-        table,
-        &[
-            "enabled",
-            "role",
-            "plan_review",
-            "reviewer_role",
-            "max_packages",
-            "max_review_rounds",
-            "plan_amend",
-            "count_toward_worker_limit",
-            "high_risk_triggers",
-        ],
-        "architect",
-    )?;
+    reject_unknown_keys(table, ARCHITECT_KEYS, "architect")?;
     let role = optional_string(table.get("role"), "architect.role", 32)?
         .unwrap_or(DEFAULT_ARCHITECT_ROLE)
         .to_string();
@@ -1220,11 +1117,7 @@ fn resolve_researcher(
     architect: &Architect,
     operator: &Operator,
 ) -> Result<Researcher> {
-    reject_unknown_keys(
-        table,
-        &["enabled", "role", "output_dir", "user_agent"],
-        "researcher",
-    )?;
+    reject_unknown_keys(table, RESEARCHER_KEYS, "researcher")?;
     let role = optional_string(table.get("role"), "researcher.role", 32)?
         .unwrap_or(DEFAULT_RESEARCHER_ROLE)
         .to_string();
@@ -1340,7 +1233,7 @@ fn approval_floor(value: Option<&Item>, warnings: &mut Vec<String>) -> Result<Ve
 }
 
 fn resolve_prompt_relay(table: &Table, present: bool) -> Result<PromptRelay> {
-    reject_unknown_keys(table, &["enabled", "capture_ttl_seconds"], "prompt_relay")?;
+    reject_unknown_keys(table, PROMPT_RELAY_KEYS, "prompt_relay")?;
     Ok(PromptRelay {
         present,
         enabled: optional_boolean(table.get("enabled"), "prompt_relay.enabled", false)?,
@@ -1380,34 +1273,7 @@ fn resolve_operator(
     architect: &Architect,
     warnings: &mut Vec<String>,
 ) -> Result<Operator> {
-    reject_unknown_keys(
-        table,
-        &[
-            "enabled",
-            "role",
-            "auto_approve",
-            "auto_approve_prefix",
-            "timeout_seconds",
-            "max_timeout_seconds",
-            "output_tail_bytes",
-            "proposal_ttl_minutes",
-            "approval_ttl_minutes",
-            "max_pending_proposals",
-            "count_toward_worker_limit",
-            "restart_health_timeout_seconds",
-            "restart_idle_wait_seconds",
-            "session_grant_max_minutes",
-            "full_auto_default_minutes",
-            "full_auto_max_minutes",
-            "timed_grant_default_minutes",
-            "timed_grant_max_minutes",
-            "timed_safe_commands",
-            "approval_floor",
-            "auto_window_max_minutes",
-            "auto_window_tool_prompts",
-        ],
-        "operator",
-    )?;
+    reject_unknown_keys(table, OPERATOR_KEYS, "operator")?;
     let role = optional_string(table.get("role"), "operator.role", 32)?
         .unwrap_or(DEFAULT_OPERATOR_ROLE)
         .to_string();
@@ -1583,17 +1449,7 @@ fn resolve_operator(
 
 /// The `[messages]` table.
 fn resolve_messages(table: &Table) -> Result<Messages> {
-    reject_unknown_keys(
-        table,
-        &[
-            "wake",
-            "send_default",
-            "info_wake_after_seconds",
-            "auto_ack_info",
-            "notice_class",
-        ],
-        "messages",
-    )?;
+    reject_unknown_keys(table, MESSAGES_KEYS, "messages")?;
     let wake = match table.get("wake") {
         None => WakePolicy::Action,
         some => match enum_value(some, "messages.wake", &["action", "all"])? {

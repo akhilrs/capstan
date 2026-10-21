@@ -7,6 +7,9 @@ use capstan_wire::js::Value;
 
 use crate::error::{invalid, Result};
 use crate::json::{number, object, optional, strings, text};
+use crate::keys::{
+    CACHE_ENTRY_KEYS, CACHE_KEYS, CACHE_PRESET_KEYS, CACHE_RUST_KEYS, CACHE_SETUP_REUSE_KEYS,
+};
 use crate::primitives::*;
 use crate::types::{RESERVED_ENV_NAMES, RESERVED_ENV_PREFIXES};
 use crate::value::{Item, Table};
@@ -415,7 +418,7 @@ fn resolve_setup_reuse(value: Option<&Item>) -> Result<Option<SetupReuse>> {
         return Ok(None);
     }
     let table = optional_table(value, "cache.setup_reuse")?;
-    reject_unknown_keys(table, &["key_files", "paths"], "cache.setup_reuse")?;
+    reject_unknown_keys(table, CACHE_SETUP_REUSE_KEYS, "cache.setup_reuse")?;
     let mut lists = Vec::new();
     for key in ["key_files", "paths"] {
         let at = format!("cache.setup_reuse.{key}");
@@ -445,24 +448,7 @@ pub fn resolve_cache(
         return Ok(None);
     }
     let table = required_table(value, "cache")?;
-    reject_unknown_keys(
-        table,
-        &[
-            "presets",
-            "detect",
-            "root",
-            "scope",
-            "max_size_gb",
-            "max_age_days",
-            "rust",
-            "python",
-            "node",
-            "go",
-            "entries",
-            "setup_reuse",
-        ],
-        "cache",
-    )?;
+    reject_unknown_keys(table, CACHE_KEYS, "cache")?;
     let preset_names = string_list(table.get("presets"), "cache.presets", CACHE_PRESETS.len())?;
     for (index, name) in preset_names.iter().enumerate() {
         if !CACHE_PRESETS.contains(&name.as_str()) {
@@ -548,11 +534,7 @@ pub fn resolve_cache(
             ));
         }
         let fields = required_table(Some(item), &at)?;
-        reject_unknown_keys(
-            fields,
-            &["dirs", "set", "requires", "prune", "stop", "max_size_gb"],
-            &at,
-        )?;
+        reject_unknown_keys(fields, CACHE_ENTRY_KEYS, &at)?;
         let dirs = env_pairs(
             fields.get("dirs"),
             &format!("{at}.dirs"),
@@ -636,9 +618,9 @@ fn resolve_preset(
     let at = format!("cache.{name}");
     let fields = optional_table(table.get(name), &at)?;
     let allowed: &[&str] = if name == "rust" {
-        &["mode", "incremental", "max_size_gb"]
+        CACHE_RUST_KEYS
     } else {
-        &["max_size_gb"]
+        CACHE_PRESET_KEYS
     };
     reject_unknown_keys(fields, allowed, &at)?;
     let mode = if name == "rust" && fields.get("mode").is_some() {

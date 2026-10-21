@@ -45,6 +45,21 @@ impl Cli<'_> {
                         "warning: role {} runs on {} with full access and no approval prompts; nothing blocks it from editing outside its worktree or from pushing",
                         role.name, host.kind
                     ));
+                    match role.model_source {
+                        "none" => self.io.err_line(&format!(
+                            "warning: role {} on host {} ({}) has no model, so the {} CLI's own default model is used; set model on [hosts.{}] or on the role",
+                            role.name, host.name, host.kind, host.kind, host.name
+                        )),
+                        "defaults" => self.io.err_line(&format!(
+                            "warning: role {} on host {} ({}) takes model {} from [defaults], which is meant for Claude roles; set model on [hosts.{}] or on the role",
+                            role.name,
+                            host.name,
+                            host.kind,
+                            role.model.as_deref().unwrap_or_default(),
+                            host.name
+                        )),
+                        _ => {}
+                    }
                 }
             }
             for path in crate::gitignore::unignored(&self.ctx.env, &self.ctx.cwd) {

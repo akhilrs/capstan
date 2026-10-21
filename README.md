@@ -213,7 +213,7 @@ prompt = "You implement code changes. Work only in your own worktree ..."
 | `[supervision]`                        | `enabled`, `check_seconds`                                                                                           |
 | `[defaults]`, `[defaults.<Kind>]`      | `model`, `permission_mode` (`default`, `acceptEdits`, `plan`, `auto`)                                                |
 | `[env]`                                | `pass`                                                                                                               |
-| `[hosts.<name>]`                       | `kind` (`claude`, `codex`, `omp`, `pi`), `command`, timeouts                                                         |
+| `[hosts.<name>]`                       | `kind` (`claude`, `codex`, `omp`, `pi`), `command`, `model`, `permission_mode`, timeouts                             |
 | `[roles.<name>]`                       | `kind`, `host`, `model`, `permission_mode`, `allow`, `deny`, `hooks`, `mcp`, `prompt` or `prompt_file`               |
 | `[architect]`                          | `enabled`, `role`, `plan_review`, `reviewer_role`, `max_packages`, `count_toward_worker_limit`, `high_risk_triggers` |
 | `[operator]`                           | `enabled`, `role`, `auto_approve`, `auto_approve_prefix`, timeouts, grant and full-auto limits                       |
@@ -247,7 +247,7 @@ A role has a free name and one of four kinds; the kind decides what the agent ma
 | `host-compat`     | Verifier   | Checks a new host CLI version: recaptures fixtures, runs parser tests. Cannot install software.            |
 | `integrator`      | Developer  | Resolves integration conflicts as a new candidate on its own branch (pi host).                             |
 
-Codex, OMP and pi hosts can run Developer and Verifier roles; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. A pi host needs Herdr's pi integration (`herdr integration install pi`). See [Running a worker on Codex, OMP or pi](docs/reference/configuration.md#running-a-worker-on-codex-omp-or-pi).
+Codex, OMP and pi hosts can run Developer and Verifier roles, and switching a role to one is a single edit of its `host` line; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. A pi host needs Herdr's pi integration (`herdr integration install pi`). See [Running a worker on Codex, OMP or pi](docs/reference/configuration.md#running-a-worker-on-codex-omp-or-pi).
 
 ## Command reference
 

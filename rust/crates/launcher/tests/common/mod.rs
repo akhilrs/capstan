@@ -217,6 +217,7 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
         kind: kind.into(),
         host: host.into(),
         model: None,
+        model_source: "none",
         permission_mode: "default".into(),
         allow: Vec::new(),
         deny: Vec::new(),
@@ -236,6 +237,17 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
 /// The `RoleConfig` of a sequence's `config` (`configOf` of test/launcher-parity-export.ts over
 /// `config()` of test/launcher-harness.ts).
 pub fn test_config(spec: &Value) -> RoleConfig {
+    // A sequence may carry a whole `capstan.toml` instead: the roles are then the resolved ones, as the controller loads them.
+    if let Some(toml) = spec.get("toml").and_then(Value::as_str) {
+        // The ledger is synced with `hash_of(name)`, so the loaded roles carry the same hash.
+        let mut config =
+            capstan_config::parse_config(toml.as_bytes(), std::path::Path::new("/nonexistent"))
+                .expect("the sequence's capstan.toml loads");
+        for role in &mut config.roles {
+            role.config_hash = hash_of(&role.name);
+        }
+        return config;
+    }
     let host_of = |name: &str| -> String {
         spec["hostOf"]
             .get(name)
@@ -302,6 +314,8 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         command: name.into(),
         shell_command_timeout_seconds: 120,
         wait_timeout_seconds: 45,
+        model: None,
+        permission_mode: None,
     };
     RoleConfig {
         project_name: None,

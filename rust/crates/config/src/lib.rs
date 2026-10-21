@@ -11,6 +11,7 @@ pub mod cache;
 pub mod design;
 mod error;
 mod json;
+pub mod keys;
 mod operator_policy;
 pub mod primitives;
 pub mod prompts;
@@ -32,6 +33,7 @@ pub use cache::{
 pub use design::Design;
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
+pub use keys::{accepted_keys, KeyPath};
 pub use operator_policy::{
     approval_floor_entry_problem, auto_approve_rule_problem, parse_auto_window,
     timed_safe_command_problem, AutoWindowKind,

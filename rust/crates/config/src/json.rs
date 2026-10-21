@@ -116,7 +116,7 @@ fn mcp_server(server: &McpServer) -> Value {
 }
 
 fn host(host: &Host) -> Value {
-    object(vec![
+    let mut members = vec![
         ("name", text(&host.name)),
         ("kind", text(&host.kind)),
         ("command", text(&host.command)),
@@ -125,7 +125,14 @@ fn host(host: &Host) -> Value {
             number(host.shell_command_timeout_seconds),
         ),
         ("waitTimeoutSeconds", number(host.wait_timeout_seconds)),
-    ])
+    ];
+    if let Some(model) = &host.model {
+        members.push(("model", text(model)));
+    }
+    if let Some(mode) = &host.permission_mode {
+        members.push(("permissionMode", text(mode)));
+    }
+    object(members)
 }
 
 fn prompt(prompt: &PromptSource) -> Value {

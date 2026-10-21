@@ -30,3 +30,17 @@ hashes.
 
 The launcher's frozen sequences (`crates/launcher/tests/parity`) are handled by `normal` in
 `crates/launcher/tests/common/mod.rs`; see `crates/launcher/tests/divergences/README.md`.
+
+## Host-switchable roles
+
+A role can move between hosts by changing only `host`: on a codex, omp or pi host `allow`, `deny` and `mcp` are ignored with a
+warning (they resolve to `[]`) instead of refusing the config, and a role that writes no `permission_mode` takes `auto` there.
+Seven corpus cases (fixture `config-corpus.json`) that Node refused now load:
+
+- `captured-0202` (`codex-dev-allow-ignored`), `rust-pi-allow` (`pi-allow-ignored`): `allow` on a non-claude role.
+- `captured-0203` (`omp-dev-deny-ignored`), `rust-pi-deny` (`pi-deny-ignored`): `deny` on a non-claude role.
+- `captured-0533` (`omp-mcp-ignored`): `mcp` on an omp role.
+- `captured-0204` (`codex-dev-default-mode-auto`), `captured-0230` (`codex-dev-defaults-model`): a codex role with no
+  `permission_mode` resolves to `auto`.
+
+`hooks = "inherit"` on a non-claude role only warns; its resolved value and the role hash are unchanged, so no overlay covers it.

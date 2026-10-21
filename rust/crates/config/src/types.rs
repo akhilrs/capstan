@@ -375,6 +375,10 @@ pub struct Host {
     pub command: String,
     pub shell_command_timeout_seconds: i64,
     pub wait_timeout_seconds: i64,
+    /// The model a role on this host takes when it writes none; `None` when not written.
+    pub model: Option<String>,
+    /// The permission mode a role on this host takes when it writes none; `None` when not written.
+    pub permission_mode: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -390,6 +394,8 @@ pub struct Role {
     pub kind: String,
     pub host: String,
     pub model: Option<String>,
+    /// Where `model` came from ("role", "host", "defaults" or "none"); read by `config check` only, never printed in JSON or hashed.
+    pub model_source: &'static str,
     pub permission_mode: String,
     pub allow: Vec<String>,
     pub deny: Vec<String>,

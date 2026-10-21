@@ -3,6 +3,7 @@ use capstan_wire::js::Value;
 
 use crate::error::Result;
 use crate::json::object;
+use crate::keys::DESIGN_KEYS;
 use crate::primitives::*;
 use crate::value::Item;
 
@@ -37,7 +38,7 @@ pub fn resolve_design(value: Option<&Item>) -> Result<Design> {
         return Ok(Design::default());
     }
     let table = required_table(value, "design")?;
-    reject_unknown_keys(table, &["require_approval"], "design")?;
+    reject_unknown_keys(table, DESIGN_KEYS, "design")?;
     Ok(Design {
         configured: true,
         require_approval: optional_boolean(

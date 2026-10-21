@@ -1,0 +1,10 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0533",
+  "reason": "an omp role with mcp now loads: mcp is ignored with a warning and resolves to []",
+  "expected": {
+    "kind": "ok",
+    "sha256": "6cee50278fb268421a52f684f0cf4f2b956d91a1474e07e8e406c0f4240b1100",
+    "bytes": 4585
+  }
+}
