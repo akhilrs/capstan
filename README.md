@@ -228,19 +228,24 @@ The full reference, with defaults, ranges, Codex, OMP and pi workers and the tea
 
 ## Roles
 
-A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the last three are optional and come commented out.
+A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the next three are optional and come commented out. The last five are optional roles you add to your own `capstan.toml` (see [Optional roles](docs/reference/configuration.md#optional-roles)).
 
-| Role         | Kind       | Does                                                                                                       |
-| ------------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| `pm`         | PM         | Talks to you, plans, spawns and releases workers, requests reviews, integrates. Never edits project files. |
-| `developer`  | Developer  | Implements changes in its own worktree and branch, then reports a commit.                                  |
-| `designer`   | Developer  | Designs and builds UI: Claude Design, a brief, directions, build, Playwright checks (built-in prompt). |
-| `reviewer`   | Verifier   | Reviews one commit or integration, answers pass or findings once, is ended. Cannot write files.            |
-| `tester`     | Verifier   | Runs the real checks and reports what passed and failed.                                                   |
-| `supervisor` | Supervisor | Watches active workers and raises findings. Read and report only.                                          |
-| `architect`  | Developer  | Writes plans, runs reviews and integration for plan work, signs off. Never edits or merges.                |
-| `operator`   | Developer  | Proposes shell commands and restarts through `cstan op`; has no shell of its own.                          |
-| `researcher` | Developer  | Researches on the web and commits one Markdown report under `output_dir`.                                  |
+| Role              | Kind       | Does                                                                                                       |
+| ----------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `pm`              | PM         | Talks to you, plans, spawns and releases workers, requests reviews, integrates. Never edits project files. |
+| `developer`       | Developer  | Implements changes in its own worktree and branch, then reports a commit.                                  |
+| `designer`        | Developer  | Designs and builds UI: Claude Design, a brief, directions, build, Playwright checks (built-in prompt).     |
+| `reviewer`        | Verifier   | Reviews one commit or integration, answers pass or findings once, is ended. Cannot write files.            |
+| `tester`          | Verifier   | Runs the real checks and reports what passed and failed.                                                   |
+| `supervisor`      | Supervisor | Watches active workers and raises findings. Read and report only.                                          |
+| `architect`       | Developer  | Writes plans, runs reviews and integration for plan work, signs off. Never edits or merges.                |
+| `operator`        | Developer  | Proposes shell commands and restarts through `cstan op`; has no shell of its own.                          |
+| `researcher`      | Developer  | Researches on the web and commits one Markdown report under `output_dir`.                                  |
+| `docs-keeper`     | Developer  | Compares a diff with the README and docs and commits the missing or stale Markdown (pi host).              |
+| `security-review` | Verifier   | Read-only security review of one commit; ask with `cstan request-review <id> security-review`.             |
+| `release-manager` | Developer  | Prepares a release on its branch: version bump, CHANGELOG, commit-subject check. Cannot push or tag.       |
+| `host-compat`     | Verifier   | Checks a new host CLI version: recaptures fixtures, runs parser tests. Cannot install software.            |
+| `integrator`      | Developer  | Resolves integration conflicts as a new candidate on its own branch (pi host).                             |
 
 Codex, OMP and pi hosts can run Developer and Verifier roles; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. A pi host needs Herdr's pi integration (`herdr integration install pi`). See [Running a worker on Codex, OMP or pi](docs/reference/configuration.md#running-a-worker-on-codex-omp-or-pi).
 

@@ -212,6 +212,20 @@ A Developer or Verifier role can run on a Codex, OMP or pi host instead of Claud
 
 **pi.** Capstan starts pi (pi.dev, command `pi`) with `--approve --tui-mode regular --offline [--model <model>] --append-system-prompt <prompt file>`. `--approve` trusts the worktree's `.pi` files for that run, so no trust dialog opens and pi's own trust list is not changed; `--tui-mode regular` pins the layout (pi 1.3.0 defaults to fullscreen); `--offline` keeps pi's update notice off the screen. pi has no permission prompts and no sandbox, so there is no approval flag and nothing for the [prompt relay](workflow.md#prompt-relay) to answer. The role must set its own `model` as `provider/id`, because pi's default provider is `google`. Herdr was seen to report a pi pane's status only with its pi integration installed, so run `herdr integration install pi` first; without it Capstan cannot rely on that status.
 
+### Optional roles
+
+These roles are not in the starter file; add the ones you want to your own `capstan.toml`. Each prompt tells the worker to commit on its own branch and never push or merge.
+
+| Role              | Kind      | Host     | Does                                                                                                                                                                                                                                 |
+| ----------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs-keeper`     | Developer | `pi`     | After an integration or feature, compares the diff with the README and `docs/` and commits the missing or stale Markdown. Never edits code.                                                                                          |
+| `security-review` | Verifier  | `claude` | Read-only review of one commit against a security checklist: permission widening, guard or approval bypasses, injection through untrusted text, secret handling, unsafe shell. Ask with `cstan request-review <id> security-review`. |
+| `release-manager` | Developer | `claude` | Prepares a release on its branch: version bump, CHANGELOG section, commit-subject check. Denied `git push` and `git tag`; the Operator pushes and tags.                                                                              |
+| `host-compat`     | Verifier  | `claude` | Checks a new version of a host CLI (`claude`, `codex`, `omp`, `pi`): recaptures screen fixtures, runs the host parser tests, reports what changed. Denied package-manager and installer commands; the Operator installs.             |
+| `integrator`      | Developer | `pi`     | Resolves integration conflicts as a new candidate on its own branch.                                                                                                                                                                 |
+
+`docs-keeper` and `integrator` run on a [pi host](#running-a-worker-on-codex-omp-or-pi) (`[hosts.pi]` with `kind = "pi"`), so they are unchecked: pi cannot enforce `allow` or `deny`, and `cstan config check` warns about each. Their limits (Markdown only; never push, never merge into main, never rewrite another branch) live in the prompt. Run `herdr integration install pi` before a pi role spawns. The other three need Claude's `deny` lists to block pushes, tags and installs, so they stay on `claude`. The role name is limited to 16 characters, which is why the review role is `security-review`.
+
 ### Worktree teardown
 
 `teardown` is an optional shell command that runs with `sh -c` just before Capstan removes an agent's worktree: on release, when a spawn fails after its worktree was made, and when an agent is replaced. It does not need `setup`. `teardown_timeout_seconds` is 1 to 3600, default 60, and is refused without `teardown`.
