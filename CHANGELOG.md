@@ -2,6 +2,17 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.8.0 (2026-10-21)
+
+### Features
+
+- Host-switchable roles and a complete init sample config (ece6f19)
+
+### Documentation
+
+- **config:** clarify role name length limit (e567ec2)
+- **config:** document the optional docs, security, release, host-compat (38ef26b)
+- **readme:** align the hosts row in the config table (df953c8)
 ## 0.7.0 (2026-10-18)
 
 ### Features
