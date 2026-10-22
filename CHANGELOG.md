@@ -2,6 +2,11 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.8.1 (2026-10-22)
+
+### Documentation
+
+- **config:** name the claude-only optional roles and rewrap the starter (8dece8c)
 ## 0.8.0 (2026-10-21)
 
 ### Features
