@@ -20,6 +20,7 @@ const WITH: &[(&str, &[&str])] = &[
     ("[roles.architect]", &["[architect]"]),
     ("[roles.operator]", &["[operator]"]),
     ("[roles.researcher]", &["[researcher]"]),
+    ("[roles.external-review]", &["[hosts.codex]"]),
     ("[cache.rust]", &["[cache]"]),
     ("[cache.python]", &["[cache]"]),
     ("[cache.node]", &["[cache]"]),

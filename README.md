@@ -228,7 +228,7 @@ The full reference, with defaults, ranges, Codex, OMP and pi workers and the tea
 
 ## Roles
 
-A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the next three are optional and come commented out. The last five are optional roles you add to your own `capstan.toml` (see [Optional roles](docs/reference/configuration.md#optional-roles)).
+A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the next three are optional and come commented out. The last six are optional roles you add to your own `capstan.toml` (see [Optional roles](docs/reference/configuration.md#optional-roles)).
 
 | Role              | Kind       | Does                                                                                                       |
 | ----------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
@@ -245,6 +245,7 @@ A role has a free name and one of four kinds; the kind decides what the agent ma
 | `security-review` | Verifier   | Read-only security review of one commit; ask with `cstan request-review <id> security-review`.             |
 | `release-manager` | Developer  | Prepares a release on its branch: version bump, CHANGELOG, commit-subject check. Cannot push or tag.       |
 | `host-compat`     | Verifier   | Checks a new host CLI version: recaptures fixtures, runs parser tests. Cannot install software.            |
+| `external-review` | Verifier   | On-request second-opinion review from codex; read-only by prompt only. Needs `[hosts.codex]` with a model. |
 | `integrator`      | Developer  | Resolves integration conflicts as a new candidate on its own branch (pi host).                             |
 
 Codex, OMP and pi hosts can run Developer and Verifier roles, and switching a role to one is a single edit of its `host` line; PM, Supervisor, Architect, Operator and Researcher stay on Claude Code. A pi host needs Herdr's pi integration (`herdr integration install pi`). See [Running a worker on Codex, OMP or pi](docs/reference/configuration.md#running-a-worker-on-codex-omp-or-pi).

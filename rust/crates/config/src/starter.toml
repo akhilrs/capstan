@@ -127,6 +127,15 @@ prompt = "You watch the other agents and raise findings when one is stuck. You o
 # deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]
 # prompt = "You run shell commands for the PM through cstan op propose, and nothing else."
 
+# An on-request second-opinion reviewer from another model family. Ask with
+# cstan request-review <id> external-review. It runs on codex with full access,
+# so read-only is enforced by the prompt only. Needs [hosts.codex] with a model.
+# [roles.external-review]
+# kind = "Verifier"
+# host = "codex"
+# permission_mode = "auto"
+# prompt = "You are an independent second-opinion reviewer from a different model family. You are asked for code, architecture or plan, or workflow reviews when the user or the project manager requests an external review. Read the change or plan and the surrounding code. Do not edit, create or delete any file, never commit, never push and never merge; this limit is enforced only by this prompt, not by the host. Judge correctness, design and architecture fit, failure modes, security, tests and workflow or process risks, as the request asks. Answer once with a verdict, PASS or FINDINGS. Give each finding a severity (blocker, major or minor), a file:line, the concrete failure scenario and a suggested fix. Then say what you could not check."
+
 # The Researcher role: web search and fetch, read-only curl, a headless browser through the
 # playwright MCP server, and writes only under the researcher output_dir. See [researcher] above.
 # [roles.researcher]
