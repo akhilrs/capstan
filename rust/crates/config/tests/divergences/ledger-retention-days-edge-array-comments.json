@@ -1,0 +1,10 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-array-comments",
+  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "expected": {
+    "kind": "ok",
+    "sha256": "5d7a0c54fd98c5e6286c4001a1eb06a3dcab70239201ffc60b6a5de9707722ba",
+    "bytes": 3788
+  }
+}

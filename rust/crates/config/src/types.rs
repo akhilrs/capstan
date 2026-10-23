@@ -104,6 +104,8 @@ pub const DEFAULT_RESEARCHER_USER_AGENT: &str =
 
 pub const DEFAULT_KEEP_MIGRATION_BACKUPS: i64 = 3;
 pub const MAX_KEEP_MIGRATION_BACKUPS: i64 = 50;
+pub const DEFAULT_LEDGER_RETENTION_DAYS: i64 = 30;
+pub const MAX_LEDGER_RETENTION_DAYS: i64 = 3650;
 pub const DEFAULT_MAX_WORKERS: i64 = 3;
 pub const MAX_MAX_WORKERS: i64 = 16;
 
@@ -417,6 +419,7 @@ pub struct Limits {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ledger {
     pub keep_migration_backups: i64,
+    pub retention_days: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

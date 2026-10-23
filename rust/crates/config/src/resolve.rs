@@ -202,6 +202,13 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
             MAX_KEEP_MIGRATION_BACKUPS,
             DEFAULT_KEEP_MIGRATION_BACKUPS,
         )?,
+        retention_days: optional_integer(
+            ledger_table.get("retention_days"),
+            "ledger.retention_days",
+            0,
+            MAX_LEDGER_RETENTION_DAYS,
+            DEFAULT_LEDGER_RETENTION_DAYS,
+        )?,
     };
 
     let layout_table = optional_table(root.get("layout"), "layout")?;

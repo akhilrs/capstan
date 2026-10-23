@@ -4,7 +4,7 @@
   "reason": "a codex or omp role with allow now loads: the rule is ignored with a warning",
   "expected": {
     "kind": "ok",
-    "sha256": "6a5d5cd33a8469b80553913c646b5f1afc84a580cd0a0ee30d4973e84476a837",
-    "bytes": 4570
+    "sha256": "d7f47d88f07daae485d651512771ae1422141d8414aa7ba9a4266342f7423465",
+    "bytes": 4595
   }
 }

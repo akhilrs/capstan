@@ -79,7 +79,18 @@ fn an_agent_shell_runs_config_check_through_the_wrapper() {
         .output()
         .unwrap();
 
-    let expected = &transcript["node"];
+    // The frozen Node output, unless a divergence overlay of the cstan harness replaces it (the Rust-only `[ledger]
+    // retention_days` is one).
+    let overlay: Option<Value> =
+        std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../cstan/tests/divergences"))
+            .unwrap()
+            .filter_map(|entry| {
+                serde_json::from_str::<Value>(&std::fs::read_to_string(entry.ok()?.path()).ok()?)
+                    .ok()
+            })
+            .find(|o| o["fixture"] == "transcripts/config-check-starter.json")
+            .map(|o| o["expected"].clone());
+    let expected = overlay.as_ref().unwrap_or(&transcript["node"]);
     let fill = |text: &str| text.replace("$ROOT", &root.to_string_lossy());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),

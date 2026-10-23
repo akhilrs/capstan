@@ -95,6 +95,44 @@ It starts a PM, spawns, replaces and releases a developer, delivers mail, checks
 only the project's panes, stops the daemon and removes the session; and restarts the daemon through the Operator
 (`op propose --restart`, `op decide`), then runs `cstan` and one frame of `cstan-dash` against the new daemon.
 
+## Ledger retention
+
+The daemon deletes the stored results of old mutation requests. `[ledger] retention_days` (integer 0 to 3650, default 30; 0
+turns it off and no loop starts) sets how many days a `mutation_requests` row is kept. About five minutes after the daemon
+starts and then every hour, a pass deletes the rows whose `created_at` is older than that, in batches of at most 1000 rows,
+each batch one short job on the kernel thread with a 50 ms pause after it. The deletion is not a mutation: it writes no
+`controller_events` row and no `mutation_requests` row and leaves `state_version` alone. It logs `daemon:ledger_retention_start`
+at start and `daemon:ledger_pruned` with the total for each pass that deleted something.
+
+**The default is on.** The first daemon start after the upgrade deletes the rows older than 30 days, which cannot be undone. To
+keep them, set `[ledger] retention_days = 0` before upgrading. A ledger with a long history can have most of the table to
+delete, and the first pass takes several minutes of short batches.
+
+### What a replay does after the window
+
+1. Exact replay of a stored result works only while its row exists, so it ends at retention expiry.
+2. A request that reaches `Kernel::mutate` with a pruned idempotency key misses the lookup and then fails the
+   `expected_version` check with `StateVersionConflict`, because the original commit moved `state_version` past it. It writes
+   nothing.
+3. The `request_id` uniqueness check also holds only within the window: after a prune, a different mutation that reuses an old
+   `request_id` with the current `expected_version` succeeds. This is safe in practice because every non-test caller builds a
+   fresh uuid per call for both ids (`req-{uuid}` and `idem-{uuid}`). Only the kernel dispatch API of the blackbox parity
+   harness takes caller-given ids.
+4. Actor registration results are stored encrypted and replayed by decrypting them with the caller's credential. After the
+   window a client can no longer recover a credential by replaying its registration and must ask for a new one.
+5. The read-only fast paths that consult `has_stored_request` before `mutate` (`end_wait`, `end_wait_as_controller`,
+   `advance_messaging`, `record_agent_observation`, and the pane, actor and message paths that do the same) take their no-op
+   branch for a pruned key: they may return the current result instead of the stored one, and they write nothing.
+
+No source other than `kernel/src/kernel.rs` reads `mutation_requests`, so the `cstan` CLI, the Operator and the launcher do not
+depend on old rows.
+
+### Size
+
+`controller_events` are immutable and are never pruned. There is no migration, so retention needs no free space for a backup.
+Freed pages are reused, but the file does not shrink; a manual `VACUUM` is the operator's choice. The size of the WAL is held
+only by SQLite's automatic checkpoints, which are best effort and not a size guarantee.
+
 ## Known limits
 
 - `bind()` of the control socket narrows the process-wide umask for a moment; the Operator's timer thread starts before the

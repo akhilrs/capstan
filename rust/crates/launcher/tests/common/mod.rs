@@ -424,6 +424,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         },
         ledger: Ledger {
             keep_migration_backups: 3,
+            retention_days: 30,
         },
         layout: Layout {
             spawn: if text(layout, "spawn").as_deref() == Some("pane") {

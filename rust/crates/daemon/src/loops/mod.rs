@@ -13,6 +13,7 @@ pub mod notifier;
 pub mod pm_mail;
 pub mod recover;
 pub mod relay;
+pub mod retention;
 pub mod supervision;
 
 use crate::deps::{Deps, DriverSnapshot, DriverView, Loops};
@@ -235,6 +236,7 @@ impl Loops for RustLoops {
         let log = detail_log(deps);
         let credential = deps.credential().to_string();
         handles.extend(cache::start(deps, &stop, &log));
+        handles.extend(retention::start(deps, &stop));
         if let (Some(config), Some(adapter)) = (deps.options.capstan.clone(), deps.adapter.clone())
         {
             let notifier_log = {

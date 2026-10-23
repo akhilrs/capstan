@@ -335,10 +335,13 @@ impl RoleConfig {
             ),
             (
                 "ledger",
-                object(vec![(
-                    "keepMigrationBackups",
-                    number(self.ledger.keep_migration_backups),
-                )]),
+                object(vec![
+                    (
+                        "keepMigrationBackups",
+                        number(self.ledger.keep_migration_backups),
+                    ),
+                    ("retentionDays", number(self.ledger.retention_days)),
+                ]),
             ),
             (
                 "layout",

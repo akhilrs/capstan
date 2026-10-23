@@ -44,3 +44,12 @@ Seven corpus cases (fixture `config-corpus.json`) that Node refused now load:
   `permission_mode` resolves to `auto`.
 
 `hooks = "inherit"` on a non-claude role only warns; its resolved value and the role hash are unchanged, so no overlay covers it.
+
+## `[ledger] retention_days`
+
+`retention_days` is a Rust-only key (default 30). The resolved RoleConfig JSON of every loading case therefore gains
+`retentionDays`, and the one case that lists the allowed `[ledger]` keys in its error names it (`captured-0034`). Each
+changed case has an overlay named `ledger-retention-days-<case>.json` in this directory (the frozen hashes of Node stay in
+`config-expected.json`); the cases that already had an overlay for another reason carry the new hash in that overlay. The
+`cstan` `config-check-*` transcripts that print the resolved `[ledger]` block are overlaid the same way in
+`rust/crates/cstan/tests/divergences`.
