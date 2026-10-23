@@ -102,6 +102,8 @@ fn is_pm_prompt(text: &str) -> bool {
             .any(|opening| text.contains(opening))
 }
 
+const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use the restart form: a command that runs `cstan stop` or `cstan restart` is refused, because the controller that runs the command would stop itself and the rest of the command would never run. ";
+
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
 /// a long string is its SHA-256 and byte length (`normal` of test/launcher-parity-export.ts).
 pub fn normal(value: &Value, scratch: &str) -> Value {
@@ -110,6 +112,9 @@ pub fn normal(value: &Value, scratch: &str) -> Value {
             let text = text.replace(scratch, "<tmp>");
             // The frozen registrations predate `maxActive`; the Supervisor role now registers with its limit.
             let text = text.replace("\"maxActive\":1,", "");
+            // The Operator reference carries one Rust-only sentence (restart through the restart kind) that the
+            // frozen Node text lacks.
+            let text = text.replace(RUST_ONLY_OPERATOR_SENTENCE, "");
             if text.encode_utf16().count() > LONG_STRING && is_pm_prompt(&text) {
                 return json!({ PM_PROMPT_MARKER: true });
             }

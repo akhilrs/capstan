@@ -182,6 +182,9 @@ fn every_prompt_variant_equals_nodes_text() {
                 }
             }
             (Ok(prompt), None) => {
+                // The Operator reference carries one Rust-only sentence (restart through the restart kind); Node's
+                // frozen text, hash and golden file lack it, so compare without it.
+                let prompt = prompt.replace(RUST_ONLY_OPERATOR_SENTENCE, "");
                 if let Some(fixture) = text(want, "fixture") {
                     let golden = std::fs::read_to_string(format!(
                         "{}/../../testdata/fixtures/prompts-off/{fixture}.txt",
@@ -219,6 +222,8 @@ fn every_prompt_variant_equals_nodes_text() {
         failures.join("\n")
     );
 }
+
+const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use the restart form: a command that runs `cstan stop` or `cstan restart` is refused, because the controller that runs the command would stop itself and the rest of the command would never run. ";
 
 #[test]
 fn the_constants_are_node_s() {

@@ -327,6 +327,66 @@ fn kernel_refusals_keep_their_class() {
 }
 
 #[test]
+fn a_command_that_would_stop_the_controller_is_refused_at_propose_time() {
+    let s = setup(|_| {});
+    for command in [
+        "cstan stop",
+        "cd /work && cstan stop && cstan start && cstan status",
+        "/usr/local/bin/cstan stop",
+        "cstan --json stop; echo done",
+        "(sleep 1 | cstan restart)",
+        "echo $(cstan stop)",
+        "FOO=1 nohup cstan stop",
+        "cstan stop>/dev/null && cstan start",
+        "cstan stop 2>&1 && cstan start",
+        ">/dev/null cstan stop",
+        "echo 'a;b' && cstan stop",
+        "cstan stop\\\n&& cstan start",
+        "echo >$(cstan stop)",
+        "cat <<'EOF' > /dev/null\nhi\nEOF\ncstan stop",
+    ] {
+        let error = s
+            .service
+            .propose(
+                s.world.developer(),
+                ProposeInput {
+                    kind: ProposalKind::Command,
+                    command: command.into(),
+                    reason: "restart".into(),
+                    force_restart: false,
+                },
+            )
+            .expect_err(command);
+        let text = format!("{error:?}");
+        assert!(
+            text.contains("controller_stop_refused"),
+            "{command}: {text}"
+        );
+        assert!(text.contains("--restart"), "{command}: {text}");
+    }
+}
+
+#[test]
+fn unrelated_commands_with_stop_in_them_are_not_refused() {
+    for command in [
+        "systemctl --user stop foo",
+        "git stash",
+        "cstan status",
+        "echo cstan stop",
+        "cstan op show stop",
+        "rg 'cstan stop|cstan restart' docs",
+        "grep \"cstan stop; cstan start\" notes.md",
+        "echo '$(cstan stop)'",
+        "echo cstan\\ stop",
+        "cstan status > stop.txt",
+        "cat <<'EOF'\ncstan stop\nEOF",
+        "cat <<-\"EOF\"\n\tcstan restart\n\tEOF",
+    ] {
+        setup(|_| {}).propose(command);
+    }
+}
+
+#[test]
 fn a_restart_proposal_is_refused_without_a_coordinator() {
     let s = setup(|_| {});
     let refused = s

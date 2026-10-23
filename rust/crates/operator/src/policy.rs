@@ -591,6 +591,214 @@ pub fn session_rule_grant_id(rule: Option<&str>) -> Option<&str> {
     rule?.strip_prefix(SESSION_RULE_LEAD)
 }
 
+/// Words that may stand before the program in a shell segment without changing which program runs.
+const COMMAND_WRAPPERS: [&str; 8] = [
+    "sudo", "env", "nohup", "exec", "time", "command", "nice", "setsid",
+];
+
+/// After `<<`: the here-document delimiter with whether leading tabs are stripped (`<<-`), only when it is quoted,
+/// because the body of a quoted delimiter is literal text. An unquoted delimiter returns `None`: its body is
+/// scanned like any other command text, as the shell expands `$(...)` in it.
+fn read_heredoc_delimiter(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Option<(String, bool)> {
+    let strip_tabs = chars.peek() == Some(&'-');
+    if strip_tabs {
+        chars.next();
+    }
+    while matches!(chars.peek(), Some(' ' | '\t')) {
+        chars.next();
+    }
+    let mut delimiter = String::new();
+    let mut quoted = false;
+    let mut quote: Option<char> = None;
+    while let Some(&c) = chars.peek() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => delimiter.push(c),
+            None if c == '\'' || c == '"' => {
+                quote = Some(c);
+                quoted = true;
+            }
+            None if c == '\\' => {
+                chars.next();
+                quoted = true;
+                if let Some(&next) = chars.peek() {
+                    delimiter.push(next);
+                }
+            }
+            None if is_js_space(c) || ";&|()<>".contains(c) => break,
+            None => delimiter.push(c),
+        }
+        chars.next();
+    }
+    (quoted && !delimiter.is_empty()).then_some((delimiter, strip_tabs))
+}
+
+/// Drops the lines of a here-document body, up to and including the line that is the delimiter.
+fn skip_heredoc_body(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    delimiter: &str,
+    strip_tabs: bool,
+) {
+    let mut line = String::new();
+    for c in chars.by_ref() {
+        if c != '\n' {
+            line.push(c);
+            continue;
+        }
+        let text = if strip_tabs {
+            line.trim_start_matches('\t')
+        } else {
+            line.as_str()
+        };
+        if text == delimiter {
+            return;
+        }
+        line.clear();
+    }
+}
+
+/// The command split into shell segments of words, quote- and escape-aware: an unquoted `; & | ( ) { } `` ` newline or
+/// `$(` ends a segment, an unquoted `<` or `>` (with the digit before it and a following `>`, `&`) is a redirection
+/// that is dropped together with its target word, and text inside single or double quotes (or after a backslash) is
+/// part of a word, never a separator.
+fn shell_segments(command: &str) -> Vec<Vec<String>> {
+    let mut segments: Vec<Vec<String>> = Vec::new();
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut in_word = false;
+    let mut skip_target = false;
+    let mut heredocs: Vec<(String, bool)> = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut chars = command.chars().peekable();
+    fn end_word(words: &mut Vec<String>, word: &mut String, in_word: &mut bool, skip: &mut bool) {
+        if *in_word {
+            let text = std::mem::take(word);
+            if *skip {
+                *skip = false;
+            } else {
+                words.push(text);
+            }
+            *in_word = false;
+        }
+    }
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                } else if c == '\\' && q == '"' {
+                    match chars.next() {
+                        Some('\n') | None => {}
+                        Some(next) => word.push(next),
+                    }
+                } else {
+                    word.push(c);
+                }
+            }
+            None => match c {
+                '\'' | '"' => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                '\\' => match chars.next() {
+                    // A backslash before a newline is a line continuation: it joins the lines and starts no word.
+                    Some('\n') | None => {}
+                    Some(next) => {
+                        word.push(next);
+                        in_word = true;
+                    }
+                },
+                '$' if chars.peek() == Some(&'(') => {
+                    chars.next();
+                    end_word(&mut words, &mut word, &mut in_word, &mut skip_target);
+                    skip_target = false;
+                    segments.push(std::mem::take(&mut words));
+                }
+                ';' | '&' | '|' | '\n' | '(' | ')' | '{' | '}' | '`' => {
+                    end_word(&mut words, &mut word, &mut in_word, &mut skip_target);
+                    // A redirection target never reaches across a separator or into a substitution.
+                    skip_target = false;
+                    segments.push(std::mem::take(&mut words));
+                    if c == '\n' {
+                        for (delimiter, strip_tabs) in std::mem::take(&mut heredocs) {
+                            skip_heredoc_body(&mut chars, &delimiter, strip_tabs);
+                        }
+                    }
+                }
+                '<' | '>' => {
+                    // `2>file`: the file descriptor digit belongs to the redirection, not to a word.
+                    if in_word && word.chars().all(|d| d.is_ascii_digit()) {
+                        word.clear();
+                        in_word = false;
+                    }
+                    end_word(&mut words, &mut word, &mut in_word, &mut skip_target);
+                    if c == '<' && chars.peek() == Some(&'<') {
+                        chars.next();
+                        if chars.peek() == Some(&'<') {
+                            // `<<<` is a here-string: its word is data.
+                            chars.next();
+                            skip_target = true;
+                        } else if let Some(heredoc) = read_heredoc_delimiter(&mut chars) {
+                            heredocs.push(heredoc);
+                        }
+                        continue;
+                    }
+                    while matches!(chars.peek(), Some('<' | '>' | '&')) {
+                        chars.next();
+                    }
+                    skip_target = true;
+                }
+                c if is_js_space(c) => {
+                    end_word(&mut words, &mut word, &mut in_word, &mut skip_target)
+                }
+                c => {
+                    word.push(c);
+                    in_word = true;
+                }
+            },
+        }
+    }
+    end_word(&mut words, &mut word, &mut in_word, &mut skip_target);
+    segments.push(words);
+    segments
+}
+
+/// Why a command proposal would stop or restart this project's controller, or `None`. The controller runs the
+/// command as its own child, so `cstan stop` ends the daemon and the run with it: whatever follows in the chain
+/// never runs. The check reads the text as shell segments (`shell_segments`: separators `&&`, `||`, `;`, `|`, `&`,
+/// newlines, parentheses, braces, backticks and `$(`, with quotes and backslashes respected and redirections
+/// removed) and refuses a segment whose program is `cstan` (any path, after wrappers and `NAME=value`) and whose
+/// first non-flag argument is `stop` or `restart`. It is a guard against the obvious forms, not a shell parser: a
+/// command built through a variable, `eval`, `sh -c "..."`, a `$(...)` inside double quotes, the body of an unquoted here-document (scanned as commands), shell comments (an apostrophe in a `#` comment can hide a later stop, and a stop in a trailing comment is refused), the rest of a command after a `$(...)` or backtick substitution (it starts a fresh segment, so `echo $(pwd) cstan stop` is refused), a flag that takes a
+/// separate value before the subcommand, an alias or a script that stops the controller is not seen. The safe way
+/// to restart is the restart proposal kind.
+pub fn controller_stop_problem(command: &str) -> Option<String> {
+    for segment in shell_segments(command) {
+        let mut tokens = segment.iter().map(String::as_str);
+        let mut program = tokens.next();
+        while let Some(token) = program {
+            let wrapper =
+                COMMAND_WRAPPERS.contains(&token) || token.contains('=') || token.starts_with('-');
+            if !wrapper {
+                break;
+            }
+            program = tokens.next();
+        }
+        if program.map(basename) != Some("cstan") {
+            continue;
+        }
+        let subcommand = tokens.find(|token| !token.starts_with('-'));
+        if let Some(name @ ("stop" | "restart")) = subcommand {
+            return Some(format!(
+                "this command would stop or restart the controller that runs it (`cstan {name}`), which ends the run before the rest of the command; propose a restart with `cstan op propose --restart \"<reason>\"` instead (the controller hands it to a detached helper that starts the new controller)"
+            ));
+        }
+    }
+    None
+}
+
 /// A prefix of only these words names a family of commands too wide to grant; a subcommand must follow.
 const PREFIX_NEEDS_SUBCOMMAND: [&str; 2] = ["git", "cstan"];
 

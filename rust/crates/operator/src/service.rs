@@ -18,7 +18,8 @@ use crate::api::{
 };
 use crate::floor::{check_floor, FloorAction, FloorContext, FloorVerdict};
 use crate::policy::{
-    auto_decision, match_session_grant, session_rule, GrantRef, GrantVerdict, FULL_AUTO_RULE,
+    auto_decision, controller_stop_problem, match_session_grant, session_rule, GrantRef,
+    GrantVerdict, FULL_AUTO_RULE,
 };
 use capstan_config::AutoWindowKind;
 use capstan_kernel::helpers::strip_terminal_sequences;
@@ -965,6 +966,11 @@ impl OperatorService for ProcessOperatorService {
                 "restarting the controller from an Operator proposal is not available yet",
             )
             .into());
+        }
+        if input.kind == ProposalKind::Command {
+            if let Some(problem) = controller_stop_problem(&input.command) {
+                return Err(OperatorError::new("controller_stop_refused", &problem).into());
+            }
         }
         let restart_warning = match (&input.kind, &inner.options.restart) {
             (ProposalKind::Restart, Some(restart)) => restart.preflight()?.warning,
