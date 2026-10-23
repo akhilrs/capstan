@@ -379,6 +379,16 @@ fn many_events(ended: Vec<String>, mut events: Vec<MutationEvent>, none: &str) -
     output
 }
 
+/// `approvalWindowDue`: whether the open window is past its cap. A periodic caller reads this first and only then
+/// calls `expireApprovalWindows`, so an idle project writes nothing; the mutation itself keeps its replay checks.
+pub fn approval_window_due(kernel: &Kernel) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let now = parse_iso_ms(&kernel.now());
+    Ok(json!(
+        matches!(open_row(kernel)?, Some(row) if row.due(now))
+    ))
+}
+
 /// `expireApprovalWindows`: ends the open window when it is past its cap; the operator tick calls it.
 pub fn expire_approval_windows(kernel: &Kernel, context: &MutationContext) -> KernelResult<Value> {
     kernel.mutate(

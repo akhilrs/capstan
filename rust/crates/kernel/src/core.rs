@@ -1237,6 +1237,11 @@ impl Core {
         approval_windows::list_approval_windows(&self.kernel, limit)
     }
 
+    /// Whether the open approval window is past its cap; read it before `expire_approval_windows`.
+    pub fn approval_window_due(&self) -> KernelResult<Value> {
+        approval_windows::approval_window_due(&self.kernel)
+    }
+
     /// Ends the open approval window when it is past its cap.
     pub fn expire_approval_windows(&self, context: &MutationContext) -> KernelResult<Value> {
         approval_windows::expire_approval_windows(&self.kernel, context)

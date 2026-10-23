@@ -583,3 +583,87 @@ fn nothing_names_the_timed_classifier_any_more() {
         }
     }
 }
+
+fn ledger_rows(s: &Setup) -> (i64, i64) {
+    let db = rusqlite::Connection::open(s.world.state.join("controller.sqlite")).unwrap();
+    let count = |table: &str| {
+        db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    };
+    (count("controller_events"), count("mutation_requests"))
+}
+
+fn expiry_events(s: &Setup) -> i64 {
+    let db = rusqlite::Connection::open(s.world.state.join("controller.sqlite")).unwrap();
+    db.query_row(
+        "SELECT COUNT(*) FROM controller_events WHERE entity_type = 'approval_window'",
+        [],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn an_idle_tick_writes_no_event_and_no_request_row() {
+    let s = setup(|_| {});
+    s.service.tick();
+    let before = ledger_rows(&s);
+    for _ in 0..3 {
+        s.service.tick();
+    }
+    assert_eq!(ledger_rows(&s), before);
+}
+
+#[test]
+fn a_tick_with_an_open_window_inside_its_cap_writes_nothing() {
+    let s = setup(|_| {});
+    open_window(&s, 30);
+    s.service.tick();
+    let before = ledger_rows(&s);
+    for _ in 0..3 {
+        s.service.tick();
+    }
+    assert_eq!(ledger_rows(&s), before);
+}
+
+#[test]
+fn a_tick_still_expires_a_window_that_is_past_its_cap() {
+    let s = setup(|_| {});
+    let id = open_window(&s, 30);
+    s.service.tick();
+    let before = expiry_events(&s);
+    let db = rusqlite::Connection::open(s.world.state.join("controller.sqlite")).unwrap();
+    // The scratch ledger's guard against moving a window's expiry is dropped: this stands in for the clock moving on.
+    let triggers: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'approval_windows'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    for name in triggers {
+        db.execute(&format!("DROP TRIGGER \"{name}\""), []).unwrap();
+    }
+    db.execute(
+        "UPDATE approval_windows SET expires_at = '2000-01-01T00:00:00.000Z' WHERE window_id = ?",
+        [&id],
+    )
+    .unwrap();
+    drop(db);
+    s.service.tick();
+    assert!(expiry_events(&s) > before);
+    let reason = |s: &Setup| -> Option<String> {
+        let db = rusqlite::Connection::open(s.world.state.join("controller.sqlite")).unwrap();
+        db.query_row("SELECT ended_reason FROM approval_windows", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    };
+    assert_eq!(reason(&s).as_deref(), Some("expired"));
+    // Once expired, further ticks add nothing.
+    let after = ledger_rows(&s);
+    s.service.tick();
+    assert_eq!(ledger_rows(&s), after);
+}

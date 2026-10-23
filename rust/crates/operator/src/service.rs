@@ -914,7 +914,10 @@ impl Inner {
         }
         let outcome = (|| -> KernelResult<()> {
             self.check_full_auto();
-            self.as_controller(|core, context| core.expire_approval_windows(context))?;
+            // Only a window past its cap writes anything: an idle tick leaves the ledger as it is.
+            if self.read(|core| core.approval_window_due())? == json!(true) {
+                self.as_controller(|core, context| core.expire_approval_windows(context))?;
+            }
             let now = self.now();
             let active = array(self.read(|core| core.active_operator_grants())?);
             let late: Vec<String> = {

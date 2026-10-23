@@ -890,3 +890,30 @@ fn a_restart_is_approved_by_a_window_rule_and_by_no_other_rule_but_full_auto() {
     let message = error(w.propose(json!({"kind": "restart", "autoRule": "window:win-1"})));
     assert!(message.contains("window_not_active"), "{message}");
 }
+
+#[test]
+fn the_due_read_matches_the_expiry_and_the_expiry_keeps_its_replay_and_refusals() {
+    let w = World::new();
+    assert_eq!(w.core.approval_window_due().unwrap(), json!(false));
+    w.open("minutes", 5);
+    w.advance_minutes(4);
+    assert_eq!(w.core.approval_window_due().unwrap(), json!(false));
+    w.advance_minutes(1);
+    assert_eq!(w.core.approval_window_due().unwrap(), json!(true));
+
+    let context = w.ctx(OWNER);
+    assert_eq!(
+        w.core.expire_approval_windows(&context).unwrap(),
+        json!(["win-1"])
+    );
+    assert_eq!(w.core.approval_window_due().unwrap(), json!(false));
+    // The identical request again replays the original result, though nothing is due any more.
+    assert_eq!(
+        w.core.expire_approval_windows(&context).unwrap(),
+        json!(["win-1"])
+    );
+    // The same key on another operation is a conflict, and a stranger's credential is refused.
+    assert!(w.core.end_approval_windows_for_restart(&context).is_err());
+    let stranger = w.ctx("not-a-known-credential-0123456789-0123456789");
+    assert!(w.core.expire_approval_windows(&stranger).is_err());
+}

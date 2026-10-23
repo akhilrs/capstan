@@ -73,10 +73,8 @@ impl AutoAnswer {
         let due = self
             .deps
             .kernel
-            .run(|core| core.list_approval_windows(Some(1)))
-            .ok()
-            .and_then(|list| list.get(0).cloned())
-            .is_some_and(|window| window["endedAt"].is_null() && window["remainingSeconds"] == 0);
+            .run(|core| core.approval_window_due())
+            .is_ok_and(|due| due == json!(true));
         if due {
             match self.mutate(|core, context| core.expire_approval_windows(context)) {
                 Ok(Value::Array(ended)) if !ended.is_empty() => {
