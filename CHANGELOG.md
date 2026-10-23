@@ -2,6 +2,11 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.8.2 (2026-10-23)
+
+### Performance
+
+- **operator:** skip the approval-window expiry write when no window is (0845392)
 ## 0.8.1 (2026-10-22)
 
 ### Documentation
