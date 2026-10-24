@@ -60,7 +60,7 @@ The built-in designer prompt is the designer text followed by the design guidanc
 designer with no `prompt_file` has a different prompt hash and `configHash`. Two corpus cases load the starter and resolve
 that designer (fixture `config-corpus.json`):
 
-- `captured-0014` (`designer-builtin-guidance-0014`): the starter with an unused `roles/designer.md`.
-- `captured-0312` (`designer-builtin-guidance-0312`): the starter alone.
+- `captured-0014` (overlay `ledger-retention-days-captured-0014`): the starter with an unused `roles/designer.md`.
+- `captured-0312` (overlay `ledger-retention-days-captured-0312`): the starter alone.
 
-A designer with its own `prompt_file` is unchanged; `tests/builtin_prompt.rs` pins its hashes.
+Both cases also gain `retentionDays` (above), so one overlay each carries the combined hash. A designer with its own `prompt_file` is unchanged; `tests/builtin_prompt.rs` pins its hashes.
