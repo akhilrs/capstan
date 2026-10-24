@@ -162,6 +162,11 @@ fn every_prompt_variant_equals_nodes_text() {
         }
     }
     let expected = read_json("prompts-expected.json");
+    let overlays = prompt_overlays();
+    assert!(
+        !overlays.is_empty(),
+        "the architect reference overlays were not read"
+    );
     let mut failures = Vec::new();
     let mut compared = 0;
     for want in items(&expected) {
@@ -179,6 +184,17 @@ fn every_prompt_variant_equals_nodes_text() {
                     failures.push(format!(
                         "{name}: the PM prompt lacks the agent id or is over the cap"
                     ));
+                }
+            }
+            (Ok(prompt), None) if overlays.get(PROMPTS_FIXTURE, &name).is_some() => {
+                // Rust deliberately differs from Node's text here (see tests/divergences/README.md): the overlay holds the
+                // whole built prompt, compared with no stripping.
+                let overlay = overlays.expected(PROMPTS_FIXTURE, &name).unwrap();
+                if overlay["text"].as_str() != Some(prompt.as_str())
+                    || overlay["bytes"].as_u64() != Some(prompt.len() as u64)
+                    || overlay["sha256"].as_str() != Some(sha256_hex(prompt.as_bytes()).as_str())
+                {
+                    failures.push(format!("{name}: differs from its overlay"));
                 }
             }
             (Ok(prompt), None) => {
@@ -221,6 +237,26 @@ fn every_prompt_variant_equals_nodes_text() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+const PROMPTS_FIXTURE: &str = "prompts-expected.json";
+
+fn prompt_overlays() -> capstan_parity_overlay::Overlays {
+    capstan_parity_overlay::load(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/divergences"),
+        &parity_file(""),
+        &|fixture| {
+            let value = capstan_wire::js::parse(
+                &std::fs::read_to_string(fixture).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| format!("{e:?}"))?;
+            Ok(items(&value)
+                .iter()
+                .filter_map(|case| text(case, "name"))
+                .collect())
+        },
+    )
+    .unwrap()
 }
 
 const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use the restart form: a command that runs `cstan stop` or `cstan restart` is refused, because the controller that runs the command would stop itself and the rest of the command would never run. ";

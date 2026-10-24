@@ -64,3 +64,13 @@ that designer (fixture `config-corpus.json`):
 - `captured-0312` (overlay `ledger-retention-days-captured-0312`): the starter alone.
 
 Both cases also gain `retentionDays` (above), so one overlay each carries the combined hash. A designer with its own `prompt_file` is unchanged; `tests/builtin_prompt.rs` pins its hashes.
+
+## The architect reference
+
+The architect reference (`src/prompts/architect_reference.txt`) is Rust-owned text: after the design sentence it states who
+owns the design record path (plan-55). Node's frozen text, hash and golden file `prompts-off/architect.txt` lack that
+sentence, so each architect prompt case it changes has an overlay named `prompt-<case>.json` (fixture
+`prompts-expected.json`) whose `expected` is `{bytes, sha256, text}` of the whole built prompt:
+`golden-architect`, `captured-prompt-0021`, `captured-prompt-0022`, `captured-prompt-0042` and `captured-prompt-0048`.
+`every_prompt_variant_equals_nodes_text` compares an overlaid case with the overlay text, length and hash, with no
+stripping. The PM section (`pm_plan_section.txt`) is not byte-compared, as above.
