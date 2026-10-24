@@ -2,6 +2,22 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.9.0 (2026-10-24)
+
+### Upgrade notes
+
+- The first daemon start after upgrading permanently deletes mutation_requests rows older than 30 days (new [ledger] retention_days, default 30). Set retention_days = 0 before upgrading to keep them. controller_events are never deleted.
+
+### Features
+
+- **daemon:** prune mutation_requests older than [ledger] retention_days (default 30, 0 disables) in small batches; controller_events stay immutable (plan-50)
+- **designer:** built-in design guidance (rules against generic output, 16 design directions, pre-design checklist, redesign checks, proposal and design-record templates), appended to the built-in designer prompt; new read-only `cstan design guide [<topic>]` command (plan-53)
+
+### Bug fixes
+
+- **operator:** refuse a plain command proposal that stops or restarts the controller and point to the restart kind (4073591)
+- **config:** carry the combined plan-50 and plan-53 hashes in one overlay per case (5318650)
+
 ## 0.8.2 (2026-10-23)
 
 ### Performance
