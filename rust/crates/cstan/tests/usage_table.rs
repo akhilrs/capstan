@@ -314,3 +314,17 @@ fn verify_is_in_the_help_and_refuses_unknown_forms() {
         assert!(err.contains("usage:"), "{err}");
     }
 }
+
+#[test]
+fn design_guide_is_in_the_help_the_command_help_and_the_man_page() {
+    let (help, _, _) = run(&["help"]);
+    assert!(collapse(&help).contains("design guide [<topic>]"));
+    let (design, err, exit) = run(&["help", "design"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert!(
+        design.contains("usage: cstan design guide [<topic>]"),
+        "{design}"
+    );
+    let (man, _, _) = run(&["help", "--man"]);
+    assert!(man.contains("design guide"), "{man}");
+}

@@ -109,6 +109,7 @@ pub const ENTRIES: &[Entry] = &[
     e(REVIEW, "verify", "verify cancel <run-id>", "Cancel a queued or running gate run."),
     e(REVIEW, "design", "design approve <plan-id>/<package-id> --link <url-or-path> --asked-user <text>", "Record the user's approval of a design package's latest report, so packages that depend on it can be assigned (PM and operator)."),
     e(REVIEW, "design", "design changes <plan-id>/<package-id> --asked-user <text> [--link <url>]", "Record that the user asked for changes; the designer is told what to revise and report again (PM and operator)."),
+    e(REVIEW, "design", "design guide [<topic>]", "Print a built-in designer guidance topic, or list the topics (any agent; local, no daemon)."),
     e(REVIEW, "design", "design show <plan-id>[/<package-id>]", "Show the design packages of a plan with their decisions and whether the gate is open."),
     e(CACHE, "cache", "cache status [--json]", "List the tool caches of [cache] with state, size, files, last use, root and scope. Measured now; works without the daemon."),
     e(CACHE, "cache", "cache prune [<entry>...] [--dry-run]", "Run the tools' prune commands and the age and size limits; entries are removed only while no agent worktree exists. --dry-run lists what would happen and changes nothing (PM and operator)."),
@@ -218,10 +219,16 @@ pub fn command_help(command: &str) -> Option<String> {
         if at > 0 {
             out.push('\n');
         }
-        out.push_str(&syntax_lines("usage: cstan ", entry.syntax));
-        out.push_str(&indented(&wrap(entry.about, WIDTH - INDENT), INDENT));
+        out.push_str(&entry_help(entry));
     }
     Some(out)
+}
+
+/// The syntax and the description of one entry, as `cstan help <command>` prints it.
+pub fn entry_help(entry: &Entry) -> String {
+    let mut out = syntax_lines("usage: cstan ", entry.syntax);
+    out.push_str(&indented(&wrap(entry.about, WIDTH - INDENT), INDENT));
+    out
 }
 
 /// `prefix` and `syntax` as lines of at most [`WIDTH`] columns; a continuation line lines up with the first word after the

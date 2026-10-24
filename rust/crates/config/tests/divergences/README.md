@@ -44,3 +44,14 @@ Seven corpus cases (fixture `config-corpus.json`) that Node refused now load:
   `permission_mode` resolves to `auto`.
 
 `hooks = "inherit"` on a non-claude role only warns; its resolved value and the role hash are unchanged, so no overlay covers it.
+
+## The built-in designer prompt
+
+The built-in designer prompt is the designer text followed by the design guidance (`DESIGNER_BUILTIN_PROMPT`), so a starter
+designer with no `prompt_file` has a different prompt hash and `configHash`. Two corpus cases load the starter and resolve
+that designer (fixture `config-corpus.json`):
+
+- `captured-0014` (`designer-builtin-guidance-0014`): the starter with an unused `roles/designer.md`.
+- `captured-0312` (`designer-builtin-guidance-0312`): the starter alone.
+
+A designer with its own `prompt_file` is unchanged; `tests/builtin_prompt.rs` pins its hashes.
