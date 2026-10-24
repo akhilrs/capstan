@@ -7,6 +7,7 @@ pub mod cache_cmd;
 pub mod compact;
 pub mod config_cmd;
 pub mod dash;
+pub mod design_guide;
 pub mod git;
 pub mod gitignore;
 pub mod init;
@@ -333,6 +334,9 @@ impl Cli<'_> {
                     .extend_from_slice(usage::command_help(command).unwrap_or_default().as_bytes());
                 return Ok(Flow::Code(0));
             }
+            "design" if rest.first().map(String::as_str) == Some("guide") => {
+                return Ok(self.design_guide(&rest[1..]));
+            }
             "__restart-helper" => return self.restart_helper(&rest),
             "init" => return self.init(&rest),
             "config" => return self.config(&rest),
@@ -410,6 +414,36 @@ impl Cli<'_> {
             return self.inspect(&rest);
         }
         Err(Fail::Usage)
+    }
+
+    /// `cstan design guide [<topic>]`: handled here, before routing, so it needs no daemon. `--help` prints the entry;
+    /// an unknown topic, another flag or an extra argument prints the topic list on stderr and exits 2.
+    fn design_guide(&mut self, args: &[String]) -> Flow {
+        match args {
+            [] => self
+                .io
+                .out
+                .extend_from_slice(design_guide::topic_list().as_bytes()),
+            [flag] if flag == "--help" || flag == "-h" => {
+                let text = usage::entries_of("design")
+                    .into_iter()
+                    .find(|entry| entry.syntax.starts_with("design guide"))
+                    .map(usage::entry_help)
+                    .unwrap_or_default();
+                self.io.out.extend_from_slice(text.as_bytes());
+            }
+            [topic] if design_guide::topic_text(topic).is_some() => {
+                let text = design_guide::topic_text(topic).unwrap_or_default();
+                self.io.out.extend_from_slice(text.as_bytes());
+            }
+            _ => {
+                self.io
+                    .err
+                    .extend_from_slice(design_guide::topic_list().as_bytes());
+                return Flow::Code(EXIT_USAGE);
+            }
+        }
+        Flow::Code(0)
     }
 
     fn restart_helper(&mut self, rest: &[String]) -> Result<Flow, Fail> {

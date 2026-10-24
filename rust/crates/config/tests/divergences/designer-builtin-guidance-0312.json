@@ -1,0 +1,10 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0312",
+  "reason": "built-in designer prompt now ends with the design guidance (plan-53)",
+  "expected": {
+    "kind": "ok",
+    "sha256": "7e0c60e21897f862c7fe5f031a260d5c1cba055c60e2c4b9b6dcff026800c7ef",
+    "bytes": 7186
+  }
+}

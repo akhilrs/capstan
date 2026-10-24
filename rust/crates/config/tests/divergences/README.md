@@ -53,3 +53,14 @@ changed case has an overlay named `ledger-retention-days-<case>.json` in this di
 `config-expected.json`); the cases that already had an overlay for another reason carry the new hash in that overlay. The
 `cstan` `config-check-*` transcripts that print the resolved `[ledger]` block are overlaid the same way in
 `rust/crates/cstan/tests/divergences`.
+
+## The built-in designer prompt
+
+The built-in designer prompt is the designer text followed by the design guidance (`DESIGNER_BUILTIN_PROMPT`), so a starter
+designer with no `prompt_file` has a different prompt hash and `configHash`. Two corpus cases load the starter and resolve
+that designer (fixture `config-corpus.json`):
+
+- `captured-0014` (`designer-builtin-guidance-0014`): the starter with an unused `roles/designer.md`.
+- `captured-0312` (`designer-builtin-guidance-0312`): the starter alone.
+
+A designer with its own `prompt_file` is unchanged; `tests/builtin_prompt.rs` pins its hashes.
