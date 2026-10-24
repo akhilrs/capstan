@@ -234,6 +234,7 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
             hash: None,
         },
         prompt_text: prompt_text.map(str::to_string),
+        guidance: None,
         max_active: (kind == "Supervisor").then_some(1),
         config_hash: hash_of(name),
     }

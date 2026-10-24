@@ -285,6 +285,15 @@ check_seconds = 300
 # [design]
 # require_approval = true          # a package that depends on a design package ("design": true in the plan) is assigned only after
 #                                  # the PM records the user's approval with cstan design approve <plan>/<package>
+# design_record = "DESIGN.md"      # the design record: one repo-relative file, or a list of 1 to 8, one per surface
+# design_record_mode = "maintain"  # maintain: the designer keeps the record current; read: only reads it; off: no record
+# guidance = "builtin"             # builtin: design guidance only with the built-in designer prompt; on: also with your own
+#                                  # designer prompt; off: never
+# guidance_rules = "extend"        # extend: the guidance adds to the designer's own rules; override: it replaces them
+# guidance_extra = ["docs/design/directions.md", "docs/design/rules.md"]  # up to 8 repo-relative files the designer reads when present
+# directions_min = 2               # 2 to 5: the fewest directions the designer proposes
+# directions_max = 3               # 2 to 6, not below directions_min: the most directions the designer proposes
+# reference_collection = ""        # an absolute or ~/ path outside the project with reference material; "" for none
 
 # An MCP server a role may use (roles.<name>.mcp lists server names). The name becomes the
 # mcp__<name>__ tool prefix. Pin the package version; an unpinned package (@latest or no @version) is warned about.

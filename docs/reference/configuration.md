@@ -168,7 +168,7 @@ A role may set `prompt_file` instead of `prompt` (never both). The rules:
 
 ### The designer role
 
-The designer's workflow is built into Capstan (`rust/crates/config/src/prompts/designer.md`). A role named `designer` of kind `Developer` that sets neither `prompt` nor `prompt_file` gets that text followed by the design guidance, and `cstan config check` shows its prompt source as `builtin` with the SHA-256 hash of the whole text. The workflow covers the commit-subject and no-attribution rule, Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. The default is keyed on the name and the kind: a `designer` role of another kind, or a Developer role with another name, gets none. The design guidance (`## Design guidance`, ending the built-in prompt) points to topics an agent reads with `cstan design guide <topic>`. A role with its own `prompt` or `prompt_file` does not get the guidance; to adopt it, remove that line. To replace the whole prompt, set `prompt` or `prompt_file` on the role.
+The designer's workflow is built into Capstan (`rust/crates/config/src/prompts/designer.md`). A role named `designer` of kind `Developer` that sets neither `prompt` nor `prompt_file` gets that text followed by the design guidance, and `cstan config check` shows its prompt source as `builtin` with the SHA-256 hash of the whole text. The workflow covers the commit-subject and no-attribution rule, Claude Design, a brief, 2 or 3 directions, the build, Playwright verification and an anti-slop standard. The default is keyed on the name and the kind: a `designer` role of another kind, or a Developer role with another name, gets none. The design guidance (`## Design guidance`, ending the built-in prompt) points to topics an agent reads with `cstan design guide <topic>`. A role with its own `prompt` or `prompt_file` does not get the guidance unless `design.guidance = "on"` (see [Design](#design)); to adopt it otherwise, remove that line. To replace the whole prompt, set `prompt` or `prompt_file` on the role.
 
 An older project keeps working unchanged: its `[roles.designer]` still has `prompt_file = "roles/designer.md"`, which resolves to that file with the same text, path and hash as before. To adopt the built-in prompt and its guidance, delete the `prompt_file` line (and the file if you no longer want it); to keep your edits, leave both.
 
@@ -414,15 +414,50 @@ commands = ["go vet ./...", "go test ./..."]
 
 ## Design
 
-The `[design]` section controls the user's approval of a design before the packages that build on it are assigned. An absent section behaves as `require_approval = true`; `cstan config` prints a `design` object `{ configured, requireApproval }` only when the section is written. A non-boolean value or an unknown key is refused by `cstan config check`, with a message naming the key (`design.require_approval`).
+The `[design]` section controls the user's approval of a design before the packages that build on it are assigned, and tells the Developer role named `designer` where its design record lives and how it takes guidance. An absent section, and an empty `[design]`, behave as every default below. `cstan config` prints a `design` object only when the section is written: `{ configured, requireApproval }`, and, only when a key after `require_approval` has a value other than its default, also `designRecord`, `designRecordMode`, `guidance`, `guidanceRules`, `guidanceExtra`, `directionsMin`, `directionsMax` and `referenceCollection` (`null` when there is none, else as written). A key written with its default value changes nothing. A value of the wrong type or out of range, and an unknown key, is refused by `cstan config check` with a message naming the key.
 
-| Key                | Default | Meaning |
-| ------------------ | ------- | ------- |
-| `require_approval` | `true`  | When true, `cstan plan assign` refuses a package that depends on a design package (`"design": true` in the plan) until the PM has recorded the user's approval of that design package's latest report with `cstan design approve`. When false, assignment ignores design approvals. Plans without design packages are not affected either way. |
+| Key                    | Default                                                        | Meaning |
+| ---------------------- | -------------------------------------------------------------- | ------- |
+| `require_approval`     | `true`                                                         | When true, `cstan plan assign` refuses a package that depends on a design package (`"design": true` in the plan) until the PM has recorded the user's approval of that design package's latest report with `cstan design approve`. When false, assignment ignores design approvals. Plans without design packages are not affected either way. |
+| `design_record`        | `"DESIGN.md"`                                                  | The design record: one repo-relative file, or a list of 1 to 8, one per surface. |
+| `design_record_mode`   | `"maintain"`                                                   | `maintain`: the designer keeps the record current. `read`: it only reads the record. `off`: there is no record. |
+| `guidance`             | `"builtin"`                                                    | `builtin`: the design guidance reaches only the built-in designer prompt, as before. `on`: it also reaches a designer with its own `prompt` or `prompt_file`. `off`: never. |
+| `guidance_rules`       | `"extend"`                                                     | `extend`: the guidance rules add to the designer's own rules. `override`: they replace them. |
+| `guidance_extra`       | `["docs/design/directions.md", "docs/design/rules.md"]`        | Up to 8 repo-relative files the designer reads when they exist. Capstan never reads them. |
+| `directions_min`       | `2`                                                            | 2 to 5: the fewest directions the designer proposes. |
+| `directions_max`       | `3`                                                            | 2 to 6, not below `directions_min`: the most directions the designer proposes. |
+| `reference_collection` | `""` (none)                                                    | An absolute path or a `~/` path outside the project with reference material for the designer. Capstan never reads it. |
+
+Paths in `design_record` and `guidance_extra` are normalised (`.` segments and repeated slashes are dropped; the order is kept) and need not exist. An entry is refused when it is empty, is not relative to the project (a leading `/` or `~`, or a drive prefix such as `C:`), has a `..` segment (`a..b` is a valid name), has a backslash, a control, format or line-separator character, leading or trailing whitespace, a glob character (`*`, `?`, `[`, `]`), ends with `/`, is longer than 100 bytes, or repeats an earlier entry of its list; a `guidance_extra` entry equal to a `design_record` entry is refused too. `design_record` takes 1 to 8 entries and `guidance_extra` at most 8. A path on disk must stay inside the project: on every load, a symlink on the way to an entry that leads outside the project is refused (`design.design_record[0] must stay inside the project`), including a symlink that a path not yet created would pass through. The designer checks again before it reads or writes a path, because paths can change after a load.
+
+`reference_collection` is checked as text: it must be at most 300 bytes, absolute or starting with `~/`, without a `..` segment, and outside the project and not containing it. A `~/` path is expanded with the `HOME` environment variable, which is read on every load, and is refused on a machine without `HOME` (or with an empty one). Symlinks in the collection path are not resolved, so a symlink into the project is accepted; Capstan never reads the collection, the designer reads it as files. A collection that does not exist is only warned about (`design.reference_collection <path> does not exist`). A designer on a `claude` host needs a read rule such as `Read(<path>/**)` in `[roles.designer].allow` to read a reference collection.
+
+`directions_min` is checked first, then `directions_max`, then the two together after defaults are applied: `directions_min = 4` alone is refused (`design.directions_min (4) is greater than design.directions_max (3); set both`), so a minimum of 4 needs `directions_max` of 4 or more.
+
+When any of these keys is not at its default and no Developer role is named `designer`, `cstan config check` warns `design: no Developer role named designer, so the guidance and record keys change no prompt`.
+
+### What the keys put into the designer's prompt
+
+For a Developer role named `designer`, the keys above add text after the role's own prompt (`prompt_text`). A key at its default adds nothing, so a project without them keeps its prompt, `prompt.hash` and `configHash`.
+
+- Built-in prompt (no `prompt`, no `prompt_file`, or a `prompt_file` that does not exist): the designer text and the guidance, then a `### This project` block when a key other than `guidance` is not at its default. The block lists the values that replace the defaults in the guidance: the number of directions, whether the guidance rules extend or override the designer's own, the project files, the design record paths and mode, the reference collection, and a line that tells the designer to check that a path resolves inside the repository before it reads or writes it. With `guidance = "off"` the prompt is the designer text alone, followed only by the design record lines when a record key is changed.
+- Own prompt with `guidance = "on"`: the own text, the guidance, then the block.
+- Own prompt with `guidance = "builtin"` or `"off"`: the own text, then only the design record lines when `design_record` or `design_record_mode` is changed; with `design_record_mode = "off"` they tell the designer to ignore the record. The other keys shape the guidance, which this prompt does not get, so with `guidance = "builtin"` and a changed `directions_min`, `directions_max`, `guidance_rules`, `guidance_extra` or `reference_collection`, `cstan config check` warns `design: guidance = "builtin" and roles.designer has its own prompt, so <keys> have no effect; set guidance = "on"`.
+
+The block is at most 3072 bytes. A designer on a Codex host with a large `prompt_file` and `guidance = "on"` gains at most 10 KiB; a prompt over the host's argument limit is refused at spawn with the usual message, and there is no extra cap.
+
+`prompt.source`, `prompt.path` and `prompt.hash` keep describing the role's own text; the built-in prompt's own copy of the guidance stays inside source `builtin` and `prompt.hash`. Text appended after the role's own prompt is described by a `guidance` member of the printed `prompt` object, `{ "parts": [...], "hash": "..." }`, present only when something was appended: `parts` lists, in order, `guidance` (the guidance, for an own prompt with `guidance = "on"`), `project` (the block) and `record` (the design record lines), and `hash` is the SHA-256 of exactly the appended bytes, separators included. The hash is part of the role's `configHash`, so a changed block re-syncs the designer.
+
+The Architect's prompt gets a note when `design_record` or `design_record_mode` is changed: it names the record paths and the mode, and says who owns them (`maintain`: exactly one design package of the plan owns each path it changes; `read`: no package owns a record path; `off`: designers ignore the record). The note is built when the Architect is started and is not part of any `configHash`: a reload does not send it to a running Architect, which sees a change on its next start. Ownership stays a prompt-level rule that the controller does not enforce.
 
 ```toml
 [design]
 require_approval = false
+design_record = ["DESIGN.md", "docs/design/mobile.md"]
+design_record_mode = "maintain"
+directions_min = 4
+directions_max = 4
+reference_collection = "~/design-references"
 ```
 
 ## Review

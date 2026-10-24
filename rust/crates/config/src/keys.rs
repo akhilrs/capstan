@@ -168,7 +168,17 @@ pub const REVIEW_KEYS: &[&str] = &[
     "max_reviews",
     "integration",
 ];
-pub const DESIGN_KEYS: &[&str] = &["require_approval"];
+pub const DESIGN_KEYS: &[&str] = &[
+    "require_approval",
+    "design_record",
+    "design_record_mode",
+    "guidance",
+    "guidance_rules",
+    "guidance_extra",
+    "directions_min",
+    "directions_max",
+    "reference_collection",
+];
 
 /// `[timers]`: key, default, minimum, maximum.
 pub const TIMER_DEFAULTS: [(&str, i64, i64, i64); 10] = [

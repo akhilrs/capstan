@@ -17,6 +17,9 @@ pub const PROCESS_SAFETY_RULE: &str = include_str!("prompts/process_safety_rule.
 /// The designer role's own prompt text, exactly the bytes of `prompts/designer.md`.
 pub const DESIGNER_PROMPT: &str = include_str!("prompts/designer.md");
 
+/// The design guidance text alone, appended to a designer's own prompt when `design.guidance` is `"on"`.
+pub const DESIGN_GUIDANCE: &str = include_str!("prompts/design_guidance/main.md");
+
 /// The designer role's built-in prompt: the designer text followed by the design guidance. Used when a Developer role
 /// named `designer` sets neither `prompt` nor `prompt_file`; a role with its own prompt does not get the guidance.
 pub const DESIGNER_BUILTIN_PROMPT: &str = concat!(
@@ -101,6 +104,8 @@ pub struct WorkerRole {
 pub struct ArchitectInput {
     pub role: String,
     pub high_risk_triggers: Vec<String>,
+    /// Added to the architect's reference when the project changes the design record; the PM section ignores it.
+    pub design_note: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -557,6 +562,15 @@ pub fn build_role_prompt(input: &PromptInput) -> Result<String, PromptTooLarge> 
         } else {
             DEVELOPER_ARCHITECT_NOTE.to_string()
         });
+        if input.is_architect {
+            if let Some(note) = input
+                .architect
+                .as_ref()
+                .and_then(|a| a.design_note.as_ref())
+            {
+                parts.push(note.clone());
+            }
+        }
     }
     if nexora.is_some() && (developer || input.kind == Kind::Verifier) {
         parts.push(NEXORA_TOOLS_DENIED_NOTE.to_string());
@@ -649,6 +663,7 @@ mod tests {
         let section = super::pm_plan_section(&super::ArchitectInput {
             role: "architect".into(),
             high_risk_triggers: vec![],
+            design_note: None,
         });
         assert!(
             section.contains("AskUserQuestion picker with the options Approve and Changes needed")

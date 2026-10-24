@@ -5,6 +5,7 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 
+use crate::design::GuidanceMode;
 use crate::error::{invalid, ConfigError, Result};
 use crate::json::{role_hash, sha256};
 use crate::keys::*;
@@ -33,6 +34,17 @@ const MAX_ROLE_NAME_CHARS: usize = 32 - 10 - 1 - 1 - 4;
 const MAX_MCP_SERVERS: usize = 16;
 
 pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
+    let home = std::env::var("HOME").ok();
+    parse_config_with_home(bytes, project_root, home.as_deref())
+}
+
+/// `parse_config` with the home directory given, so a test can name one without touching the process environment.
+/// An empty home counts as none.
+pub fn parse_config_with_home(
+    bytes: &[u8],
+    project_root: &Path,
+    home: Option<&str>,
+) -> Result<RoleConfig> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return invalid(format!("{CONFIG_FILE_NAME} exceeds {MAX_FILE_BYTES} bytes"));
     }
@@ -51,10 +63,10 @@ pub fn parse_config(bytes: &[u8], project_root: &Path) -> Result<RoleConfig> {
             ))
         }
     };
-    resolve_document(&root, project_root)
+    resolve_document(&root, project_root, home)
 }
 
-fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
+fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Result<RoleConfig> {
     // `cleanup`, `cache`, `verify`, `review` and `design` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
     let known = Table::from_members(
         root.entries()
@@ -280,6 +292,9 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         &mut warnings,
     )?;
     let role_table = required_table(root.get("roles"), "roles")?;
+    let home = home.filter(|home| !home.is_empty());
+    let design =
+        crate::design::resolve_design(root.get("design"), project_root, home, &mut warnings)?;
     let defaults = resolve_defaults(optional_table(root.get("defaults"), "defaults")?)?;
     let roles = resolve_roles(
         role_table,
@@ -287,8 +302,19 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
         project_root,
         &defaults,
         &mcp_servers,
+        &design,
         &mut warnings,
     )?;
+    if design.customised
+        && !roles
+            .iter()
+            .any(|role| role.kind == "Developer" && role.name == "designer")
+    {
+        warnings.push(
+            "design: no Developer role named designer, so the guidance and record keys change no prompt"
+                .to_string(),
+        );
+    }
     if roles.iter().filter(|role| role.kind == "PM").count() != 1 {
         return invalid("exactly one role must have kind PM");
     }
@@ -326,7 +352,6 @@ fn resolve_document(root: &Table, project_root: &Path) -> Result<RoleConfig> {
     }
 
     let verify = crate::verify::resolve_verify(root.get("verify"))?;
-    let design = crate::design::resolve_design(root.get("design"))?;
     let review = crate::review::resolve_review(root.get("review"))?;
 
     Ok(RoleConfig {
@@ -705,6 +730,7 @@ fn resolve_roles(
     project_root: &Path,
     defaults: &Defaults,
     mcp_servers: &[McpServer],
+    design: &crate::design::Design,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<Role>> {
     let names = validated_names(table, "roles", "role")?;
@@ -789,7 +815,8 @@ fn resolve_roles(
                 1,
             )?),
         };
-        let (prompt, prompt_text) = resolve_prompt(role, &at, name, kind, project_root, warnings)?;
+        let (prompt, prompt_text, guidance) =
+            resolve_prompt(role, &at, name, kind, project_root, design, warnings)?;
         let (mut allow, mut deny, mut mcp) = (allow, deny, mcp);
         if host.kind != "claude" {
             reject_unenforceable(&at, host, kind, permission_mode)?;
@@ -826,6 +853,7 @@ fn resolve_roles(
             mcp,
             prompt,
             prompt_text,
+            guidance,
             max_active,
             config_hash: String::new(),
         };
@@ -841,8 +869,10 @@ fn resolve_prompt(
     name: &str,
     kind: &str,
     project_root: &Path,
+    design: &crate::design::Design,
     warnings: &mut Vec<String>,
-) -> Result<(PromptSource, Option<String>)> {
+) -> Result<(PromptSource, Option<String>, Option<AppendedGuidance>)> {
+    let designer = name == "designer" && kind == "Developer";
     if role.get("prompt").is_some() && role.get("prompt_file").is_some() {
         return invalid(format!("{at} sets both prompt and prompt_file"));
     }
@@ -854,25 +884,22 @@ fn resolve_prompt(
             true,
         )?;
         guard_credential_shape(text, &format!("{at}.prompt"))?;
-        return Ok((
-            PromptSource {
-                source: "inline",
-                path: None,
-                hash: Some(sha256(text)),
-            },
-            Some(text.to_string()),
+        let source = PromptSource {
+            source: "inline",
+            path: None,
+            hash: Some(sha256(text)),
+        };
+        return Ok(own_prompt(
+            designer,
+            design,
+            source,
+            text.to_string(),
+            warnings,
         ));
     }
     if role.get("prompt_file").is_none() {
-        if let Some(text) = crate::prompts::builtin_role_prompt(name, kind) {
-            return Ok((
-                PromptSource {
-                    source: "builtin",
-                    path: None,
-                    hash: Some(sha256(text)),
-                },
-                Some(text.to_string()),
-            ));
+        if designer {
+            return Ok(builtin_designer_prompt(design));
         }
         return Ok((
             PromptSource {
@@ -880,6 +907,7 @@ fn resolve_prompt(
                 path: None,
                 hash: None,
             },
+            None,
             None,
         ));
     }
@@ -896,18 +924,11 @@ fn resolve_prompt(
         .and_then(|root| fs::canonicalize(resolve_path(&root, relative)).map(|file| (root, file)));
     let Ok((real_root, real_file)) = resolved else {
         // A stale prompt_file must not stop the controller when the role has a built-in prompt to fall back on.
-        if let Some(text) = crate::prompts::builtin_role_prompt(name, kind) {
+        if designer {
             warnings.push(format!(
                 "{at}.prompt_file {relative} does not exist; using the built-in {name} prompt (remove the prompt_file line)"
             ));
-            return Ok((
-                PromptSource {
-                    source: "builtin",
-                    path: None,
-                    hash: Some(sha256(text)),
-                },
-                Some(text.to_string()),
-            ));
+            return Ok(builtin_designer_prompt(design));
         }
         return invalid(format!("{at}.prompt_file does not exist"));
     };
@@ -956,14 +977,118 @@ fn resolve_prompt(
     }
     assert_safe_text(&text, &format!("{at}.prompt_file"), true)?;
     guard_credential_shape(&text, &format!("{at}.prompt_file"))?;
-    Ok((
-        PromptSource {
-            source: "file",
-            path: Some(file_text.to_string()),
-            hash: Some(sha256(&text)),
-        },
-        Some(text),
-    ))
+    let source = PromptSource {
+        source: "file",
+        path: Some(file_text.to_string()),
+        hash: Some(sha256(&text)),
+    };
+    Ok(own_prompt(designer, design, source, text, warnings))
+}
+
+type ResolvedPrompt = (PromptSource, Option<String>, Option<AppendedGuidance>);
+
+/// What follows a designer's prompt text: the pieces in order, joined by "\n", and the names of the pieces.
+fn appended(pieces: Vec<(&'static str, &str)>) -> (String, Option<AppendedGuidance>) {
+    if pieces.is_empty() {
+        return (String::new(), None);
+    }
+    let mut text = String::new();
+    let mut parts = Vec::new();
+    for (part, piece) in pieces {
+        text.push('\n');
+        text.push_str(piece);
+        parts.push(part);
+    }
+    let hash = sha256(&text);
+    (text, Some(AppendedGuidance { parts, hash }))
+}
+
+/// The built-in designer prompt: designer.md and the guidance, or designer.md alone with `guidance = "off"`, then
+/// the block the keys ask for. `prompt.hash` covers the built-in text without the block.
+fn builtin_designer_prompt(design: &crate::design::Design) -> ResolvedPrompt {
+    let (base, part) = if design.guidance == GuidanceMode::Off {
+        (crate::prompts::DESIGNER_PROMPT, "record")
+    } else {
+        (crate::prompts::DESIGNER_BUILTIN_PROMPT, "project")
+    };
+    let block = crate::design_guidance::project_block(design);
+    let (tail, guidance) = appended(block.iter().map(|block| (part, block.as_str())).collect());
+    let source = PromptSource {
+        source: "builtin",
+        path: None,
+        hash: Some(sha256(base)),
+    };
+    (source, Some(format!("{base}{tail}")), guidance)
+}
+
+/// A prompt the role wrote itself. A designer gets the guidance with `guidance = "on"`, and the block its keys ask
+/// for; `prompt.hash` stays the hash of its own text. Other roles are untouched.
+fn own_prompt(
+    designer: bool,
+    design: &crate::design::Design,
+    source: PromptSource,
+    text: String,
+    warnings: &mut Vec<String>,
+) -> ResolvedPrompt {
+    if !designer {
+        return (source, Some(text), None);
+    }
+    let mut pieces: Vec<(&'static str, &str)> = Vec::new();
+    let block;
+    if design.guidance == GuidanceMode::On {
+        pieces.push(("guidance", crate::prompts::DESIGN_GUIDANCE));
+        block = crate::design_guidance::project_block(design);
+        if let Some(block) = &block {
+            pieces.push(("project", block));
+        }
+    } else {
+        if design.guidance == GuidanceMode::Builtin {
+            warn_ignored_keys(design, warnings);
+        }
+        block = crate::design_guidance::record_block(design);
+        if let Some(block) = &block {
+            pieces.push(("record", block));
+        }
+    }
+    let (tail, guidance) = appended(pieces);
+    (source, Some(format!("{text}{tail}")), guidance)
+}
+
+/// `guidance = "builtin"` leaves a designer with its own prompt without the guidance, so the keys that shape the
+/// guidance change nothing.
+fn warn_ignored_keys(design: &crate::design::Design, warnings: &mut Vec<String>) {
+    let base = crate::design::Design::default();
+    let keys: Vec<&str> = [
+        (
+            "directions_min",
+            design.directions_min != base.directions_min,
+        ),
+        (
+            "directions_max",
+            design.directions_max != base.directions_max,
+        ),
+        (
+            "guidance_rules",
+            design.guidance_rules != base.guidance_rules,
+        ),
+        (
+            "guidance_extra",
+            design.guidance_extra != base.guidance_extra,
+        ),
+        (
+            "reference_collection",
+            design.reference_collection != base.reference_collection,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(key, set)| set.then_some(key))
+    .collect();
+    if !keys.is_empty() {
+        warnings.push(format!(
+            "design: guidance = \"builtin\" and roles.designer has its own prompt, so {} have no effect; set guidance = \"on\"",
+            keys.join(", ")
+        ));
+    }
 }
 
 /// `path.resolve(base, relative)` for an absolute `base`: `.` and `..` are folded without touching the file system.

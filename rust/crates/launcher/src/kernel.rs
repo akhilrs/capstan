@@ -658,6 +658,7 @@ impl LauncherKernel {
         architect.enabled.then(|| ArchitectInput {
             role: architect.role.clone(),
             high_risk_triggers: architect.high_risk_triggers.clone(),
+            design_note: capstan_config::design_guidance::architect_note(&self.config.design),
         })
     }
 

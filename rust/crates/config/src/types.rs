@@ -390,6 +390,14 @@ pub struct PromptSource {
     pub hash: Option<String>,
 }
 
+/// The text a `[design]` key appended after a role's own prompt: which parts ("guidance", "project", "record", in that
+/// order) and the SHA-256 of exactly the appended bytes, separators included.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppendedGuidance {
+    pub parts: Vec<&'static str>,
+    pub hash: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Role {
     pub name: String,
@@ -406,6 +414,8 @@ pub struct Role {
     pub prompt: PromptSource,
     /// The prompt's text, kept for the launcher; it is not part of the printed JSON.
     pub prompt_text: Option<String>,
+    /// What was appended after the role's own prompt text in `prompt_text`; None when nothing was.
+    pub guidance: Option<AppendedGuidance>,
     /// The most agents of this role that may be active at once; `None` is unlimited.
     pub max_active: Option<i64>,
     pub config_hash: String,

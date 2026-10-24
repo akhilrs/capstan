@@ -54,6 +54,8 @@ This section applies only when a plan has a design package whose design needs th
 - Any other design package that needs record changes lists them under `## Design record changes` in its own design note and never edits the record. The owning package depends on those packages and applies their changes before it reports.
 - No implementation package owns a record path. When an implementation developer reports a problem in the record, the PM does not record Changes needed on its own: it asks the user whether the design should change. If the user wants a change, the PM records their words with `cstan design changes <plan-id>/<package-id> --asked-user` on the design package that owns the record; otherwise it sends the problem to the architect to investigate or to plan a new design package.
 
+A project can keep the record in other places: `design_record` takes one path per surface (up to 8), and `design_record_mode` is `maintain` (the owning design package keeps each path current), `read` (designers read the record and no package owns a path) or `off` (designers ignore it). The architect is told the paths and the mode when it starts, and the designer's prompt carries them; see [configuration](configuration.md#design).
+
 Ownership is a prompt-level rule: the architect states it in the plan and the plan review reads the `owns` lists; the controller does not enforce it.
 
 ## Fallback

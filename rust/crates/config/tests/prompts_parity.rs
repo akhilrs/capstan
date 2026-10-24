@@ -128,6 +128,7 @@ fn input(value: &Value) -> PromptInput {
         architect: value.get("architect").map(|a| ArchitectInput {
             role: text(a, "role").unwrap(),
             high_risk_triggers: strings(a.get("highRiskTriggers")),
+            design_note: None,
         }),
         is_operator: flag("isOperator"),
         operator: value.get("operator").map(|o| OperatorInput {

@@ -25,6 +25,7 @@ fn architect_input() -> ArchitectInput {
     ArchitectInput {
         role: "architect".into(),
         high_risk_triggers: vec!["schema or migrations".into()],
+        design_note: None,
     }
 }
 
@@ -164,5 +165,54 @@ fn the_design_approval_page_describes_the_flow() {
     ] {
         assert!(page.contains(phrase), "{phrase}");
     }
-    assert!(!page.contains("design_record"));
+    // The page names the keys once, in the ownership section, and links the reference.
+    assert_eq!(page.matches("`design_record_mode`").count(), 1);
+    assert!(page.contains("(configuration.md#design)"));
+}
+
+const NOTE: &str = "In this project the design record is docs/web/DESIGN.md, docs/app/DESIGN.md (mode read). Design packages read the record and never change it, so no package owns a record path.";
+
+fn with_note(mut input: PromptInput) -> String {
+    input.architect.as_mut().unwrap().design_note = Some(NOTE.into());
+    build_role_prompt(&input).unwrap()
+}
+
+#[test]
+fn a_design_note_follows_the_architect_reference_once() {
+    let mut input = base(Kind::Developer, "architect-1");
+    input.is_architect = true;
+    input.architect = Some(architect_input());
+    let without = build_role_prompt(&input).unwrap();
+    let prompt = with_note(input);
+    assert_eq!(prompt.matches(NOTE).count(), 1);
+    // Taking the note out gives the prompt without it, byte for byte.
+    assert_eq!(prompt.replacen(&format!("{NOTE}\n\n"), "", 1), without);
+    let at = prompt.find(NOTE).unwrap();
+    assert!(prompt[..at].contains("cstan plan amend <plan-id>"));
+    assert!(
+        at < prompt.find("Be brief.").unwrap(),
+        "before the role prompt"
+    );
+}
+
+#[test]
+fn the_design_note_reaches_no_other_prompt() {
+    let mut note = architect_input();
+    note.design_note = Some(NOTE.into());
+    let mut pm = base(Kind::Pm, "pm-1");
+    pm.architect = Some(note.clone());
+    let mut developer = base(Kind::Developer, "developer-1");
+    developer.architect = Some(note.clone());
+    let mut reviewer = base(Kind::Verifier, "reviewer-1");
+    reviewer.architect = Some(note);
+    for input in [pm, developer, reviewer] {
+        let prompt = build_role_prompt(&input).unwrap();
+        assert!(!prompt.contains(NOTE), "{}", input.agent_id);
+    }
+}
+
+#[test]
+fn without_a_design_note_the_architect_prompt_is_unchanged() {
+    let prompt = architect_prompt();
+    assert!(!prompt.contains("In this project the design record is"));
 }

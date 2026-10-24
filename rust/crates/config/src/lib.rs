@@ -9,6 +9,7 @@ use std::path::Path;
 
 pub mod cache;
 pub mod design;
+pub mod design_guidance;
 mod error;
 mod json;
 pub mod keys;
@@ -30,7 +31,7 @@ pub use cache::{
     CacheConfig, CacheEntry, CacheOrigin, CacheScope, SetupReuse, DETECT_MARKERS, DETECT_MAX_DEPTH,
     DETECT_SKIP_DIRS,
 };
-pub use design::Design;
+pub use design::{Design, GuidanceMode, GuidanceRules, RecordMode};
 pub use error::{ConfigError, ParseError, Result};
 pub use json::{digest_json, sha256};
 pub use keys::{accepted_keys, KeyPath};
@@ -39,8 +40,8 @@ pub use operator_policy::{
     timed_safe_command_problem, AutoWindowKind,
 };
 pub use resolve::{
-    parse_config, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV, DAEMON_RUST_ENV_WARNING,
-    DAEMON_RUST_WARNING,
+    parse_config, parse_config_with_home, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV,
+    DAEMON_RUST_ENV_WARNING, DAEMON_RUST_WARNING,
 };
 pub use review::Review;
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};

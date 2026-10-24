@@ -3,7 +3,7 @@
 use capstan_wire::js::{self, JsStr, Value};
 use sha2::{Digest, Sha256};
 
-use crate::types::{Cleanup, Host, McpServer, Operator, PromptSource, Role, RoleConfig};
+use crate::types::{Cleanup, Host, McpServer, Operator, Role, RoleConfig};
 
 pub(crate) fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
@@ -135,12 +135,26 @@ fn host(host: &Host) -> Value {
     object(members)
 }
 
-fn prompt(prompt: &PromptSource) -> Value {
-    object(vec![
+fn prompt(role: &Role) -> Value {
+    let prompt = &role.prompt;
+    let mut members = vec![
         ("source", text(prompt.source)),
         ("path", optional(&prompt.path)),
         ("hash", optional(&prompt.hash)),
-    ])
+    ];
+    if let Some(guidance) = &role.guidance {
+        members.push((
+            "guidance",
+            object(vec![
+                (
+                    "parts",
+                    Value::Array(guidance.parts.iter().map(|part| text(part)).collect()),
+                ),
+                ("hash", text(&guidance.hash)),
+            ]),
+        ));
+    }
+    object(members)
 }
 
 /// The members of `resolved` in `resolveRoles` (no `configHash`; `mcp` only when the role has servers).
@@ -177,10 +191,14 @@ fn default_max_active(kind: &str) -> Option<i64> {
 
 /// What `configHash` covers: the role with only the prompt's source and hash, and its host.
 pub fn role_hash(role: &Role, role_host: &Host) -> String {
-    let covered = object(vec![
+    let mut members = vec![
         ("source", text(role.prompt.source)),
         ("hash", optional(&role.prompt.hash)),
-    ]);
+    ];
+    if let Some(guidance) = &role.guidance {
+        members.push(("guidanceHash", text(&guidance.hash)));
+    }
+    let covered = object(members);
     digest_json(&object(vec![
         ("role", object(resolved_role(role, covered, true))),
         ("host", host(role_host)),
@@ -188,7 +206,7 @@ pub fn role_hash(role: &Role, role_host: &Host) -> String {
 }
 
 fn role(role: &Role) -> Value {
-    let mut members = resolved_role(role, prompt(&role.prompt), false);
+    let mut members = resolved_role(role, prompt(role), false);
     if role.mcp.is_empty() {
         members.push(("mcp", Value::Array(Vec::new())));
     }

@@ -13,6 +13,11 @@ transcripts record the starter in their expected `files`; an overlay replaces on
 (`STARTER_RESEARCHER_COMMENT_NODE` to `STARTER_RESEARCHER_COMMENT_RUST`) before comparing. The fixtures are not edited.
 The `layout` contents of the transcripts hold the old starter as input only; it is never compared.
 
+The commented `# [design]` block of the starter gained the design record and guidance keys. The same ten transcripts
+hold it, so `tests/local.rs` also rewrites the old block to the new one in the expected file text
+(`STARTER_DESIGN_COMMENT_NODE` to `STARTER_DESIGN_COMMENT_RUST`), and fails the case when an expected file text holds
+`# [design]` without the old block exactly once. The fixtures are not edited.
+
 ## The usage text
 
 `cstan help` is grouped and a usage error prints a short hint (the syntax of the command, and a pointer to `cstan help`)

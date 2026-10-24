@@ -33,7 +33,8 @@ fn an_absent_table_requires_approval() {
         design,
         Design {
             configured: false,
-            require_approval: true
+            require_approval: true,
+            ..Default::default()
         }
     );
     assert!(!load("").unwrap().to_json().contains("design"));
@@ -45,14 +46,16 @@ fn require_approval_resolves_and_defaults_to_true() {
         load("[design]\n").unwrap().design,
         Design {
             configured: true,
-            require_approval: true
+            require_approval: true,
+            ..Default::default()
         }
     );
     assert_eq!(
         load("[design]\nrequire_approval = false\n").unwrap().design,
         Design {
             configured: true,
-            require_approval: false
+            require_approval: false,
+            ..Default::default()
         }
     );
     assert!(load("[design]\nrequire_approval = false\n")
