@@ -1,0 +1,10 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0187",
+  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "expected": {
+    "kind": "ok",
+    "sha256": "b0b6c25e5d27374acac138fc9d81c0b5c417bb43947187cb3027b16d3799275f",
+    "bytes": 4388
+  }
+}

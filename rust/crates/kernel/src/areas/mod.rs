@@ -22,6 +22,7 @@ pub mod plans;
 pub mod prompt_relay;
 pub mod reconcile;
 pub mod reports;
+pub mod retention;
 pub mod reviews;
 pub mod status;
 pub mod verify_runs;

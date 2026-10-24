@@ -1,0 +1,10 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-escape-hex",
+  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "expected": {
+    "kind": "ok",
+    "sha256": "9e40878183f0bc9fe4b184f4d81c214678d0f436cb192575a85eab3bd603a535",
+    "bytes": 3826
+  }
+}

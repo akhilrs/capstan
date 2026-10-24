@@ -50,7 +50,7 @@ pub const MESSAGES_KEYS: &[&str] = &[
     "notice_class",
 ];
 pub const LIMITS_KEYS: &[&str] = &["max_workers"];
-pub const LEDGER_KEYS: &[&str] = &["keep_migration_backups"];
+pub const LEDGER_KEYS: &[&str] = &["keep_migration_backups", "retention_days"];
 pub const LAYOUT_KEYS: &[&str] = &[
     "spawn",
     "split",

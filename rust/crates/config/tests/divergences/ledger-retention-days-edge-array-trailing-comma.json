@@ -1,0 +1,10 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-array-trailing-comma",
+  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "expected": {
+    "kind": "ok",
+    "sha256": "19b0015a51bcefb17d0590be27590956f812c7831c92f79c1e3c81242781d00d",
+    "bytes": 3777
+  }
+}

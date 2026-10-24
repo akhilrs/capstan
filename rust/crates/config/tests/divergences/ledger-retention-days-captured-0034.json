@@ -1,0 +1,9 @@
+{
+  "fixture": "config-corpus.json",
+  "case": "captured-0034",
+  "reason": "[ledger] retention_days is a Rust-only key: the list of allowed [ledger] keys in the error names it",
+  "expected": {
+    "kind": "error",
+    "message": "ledger has 1 unknown key(s); allowed: keep_migration_backups, retention_days"
+  }
+}

@@ -4,7 +4,7 @@
   "reason": "the researcher role may run in any permission mode now; Node refused everything but \"default\"",
   "expected": {
     "kind": "ok",
-    "sha256": "c0f2b4c838d3e2f98879919b6bca21a72f9790dba50aa85d29f3fbf21bc7ae4f",
-    "bytes": 7341
+    "sha256": "a300672ec766d50e9b17de1813adcc5ab51c6fae5b7955b52fe2a36df9d1eae1",
+    "bytes": 7366
   }
 }

@@ -151,9 +151,10 @@ prompt = "You watch the other agents and raise findings when one is stuck. You o
 [limits]
 max_workers = 3                          # 1 to 16
 
-# Ledger state backups.
+# Ledger state backups and the replay window of mutation requests.
 # [ledger]
 # keep_migration_backups = 3             # state backups kept after an upgrade; 1 to 50
+# retention_days = 30                    # days a mutation request is kept for replay; 0 keeps all; 0 to 3650
 
 [layout]
 spawn = "pane"                           # "tab" (the default) or "pane"

@@ -4,7 +4,7 @@
   "reason": "an omp role with deny now loads: the rule is ignored with a warning",
   "expected": {
     "kind": "ok",
-    "sha256": "273fc88f6da0828944b3c86823a0c319a603411fed5c35b6db7919d8491024f6",
-    "bytes": 4569
+    "sha256": "c8068b365d9700e5419c77b107acf7c13df3132d276fa7e11a1a2fd24100a0de",
+    "bytes": 4594
   }
 }
