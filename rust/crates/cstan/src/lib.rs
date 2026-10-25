@@ -6,6 +6,7 @@ pub mod agent;
 pub mod cache_cmd;
 pub mod compact;
 pub mod config_cmd;
+pub mod controllers;
 pub mod dash;
 pub mod design_guide;
 pub mod git;
@@ -356,6 +357,7 @@ impl Cli<'_> {
                 }
                 return Ok(Flow::Serve(Serve::Daemon));
             }
+            "controllers" => return self.controllers(&rest),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
             "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),

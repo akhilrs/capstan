@@ -6,6 +6,7 @@ rust-version = "1.85"
 description = "The capstan controller daemon: handlers, server and loops over the kernel"
 license = "MIT"
 publish = false
+build = "build.rs"
 
 [lib]
 name = "capstan_daemon"

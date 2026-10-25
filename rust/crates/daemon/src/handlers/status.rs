@@ -22,6 +22,7 @@ use serde_json::{json, Map, Value};
 pub fn register(map: &mut HandlerMap) {
     map.insert("status", status);
     map.insert("ping", ping);
+    map.insert("about", about);
 }
 
 /// `{projectRoot, ledgerPath}` of the project this daemon serves (`options.location` of src/daemon.ts).
@@ -57,6 +58,29 @@ fn ping(env: &CommandEnv<'_>, _call: &CommandCall<'_>) -> Option<CommandResponse
     result.insert("pong".into(), json!(true));
     result.extend(pid_and_location(env.deps));
     Some(ok(Value::Object(result)))
+}
+
+/// `about`: what `cstan controllers` shows of a controller (Rust-only): the process, build, project and how many agents are
+/// active. It only reads.
+fn about(env: &CommandEnv<'_>, _call: &CommandCall<'_>) -> Option<CommandResponse> {
+    let mut result = pid_and_location(env.deps);
+    result.insert("version".into(), json!(crate::VERSION));
+    let counted = env.deps.kernel.run(|core| {
+        let agents = core.list_agents()?;
+        Ok(agents
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|agent| agent["state"] == "active")
+            .count())
+    });
+    Some(match counted {
+        Ok(count) => {
+            result.insert("activeAgents".into(), json!(count));
+            ok(Value::Object(result))
+        }
+        Err(error) => map_kernel_error(&error),
+    })
 }
 
 /// The old control row is created disabled and `degraded`, and nothing enables it, so its health is not applicable

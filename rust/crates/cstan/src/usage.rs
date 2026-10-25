@@ -55,6 +55,7 @@ pub const ENTRIES: &[Entry] = &[
     e(RUN, "resume", "resume [<agent-id>] --reason <text>", "Release a pause."),
     e(STATUS, "status", "status [--json] [--all]", "Show the project state: the active agents only, and no empty sections; --all adds the agents that ended."),
     e(STATUS, "status", "status --watch [--interval <seconds>]", "Redraw the state every 1 to 60 seconds (default 2)."),
+    e(STATUS, "controllers", "controllers [--json]", "List every controller running on this machine: pid, state (serving, not answering, orphaned), version, uptime, CPU, memory, active agents and project. Read-only; works from any folder."),
     e(STATUS, "dash", "dash [--interval <seconds>] [--no-color] [--reduced-motion]", "Open the read-only terminal dashboard (cstan-dash)."),
     e(STATUS, "inspect", "inspect <id> [--json]", "Show one ledger record."),
     e(STATUS, "cancel", "cancel <id> [--json]", "Cancel a queued message."),

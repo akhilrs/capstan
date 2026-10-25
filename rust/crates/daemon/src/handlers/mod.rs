@@ -97,7 +97,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 33] = [
+pub const ROUTES: [Route; 34] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -131,10 +131,11 @@ pub const ROUTES: [Route; 33] = [
     route("cache", Access::Any, "cache"),
     route("verify", Access::Any, "verify"),
     route("design", Access::Any, "design"),
+    route("about", Access::Read, "status"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 4] = ["cleanup", "cache", "verify", "design"];
+pub const RUST_ONLY_ROUTES: [&str; 5] = ["cleanup", "cache", "verify", "design", "about"];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
 pub fn route_of(command: &str) -> Option<&'static Route> {
@@ -706,7 +707,10 @@ mod tests {
             );
             assert!(route_of(name).is_some(), "{name} is not in ROUTES");
         }
-        assert_eq!(RUST_ONLY_ROUTES, ["cleanup", "cache", "verify", "design"]);
+        assert_eq!(
+            RUST_ONLY_ROUTES,
+            ["cleanup", "cache", "verify", "design", "about"]
+        );
     }
 
     #[test]

@@ -14,3 +14,6 @@ pub mod run;
 pub mod server;
 pub mod verify;
 pub mod warm;
+
+/// The build's version, as `cstan --version` prints it; the controller reports it to `cstan controllers`.
+pub const VERSION: &str = env!("CSTAN_DAEMON_VERSION");
