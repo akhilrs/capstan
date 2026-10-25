@@ -2,6 +2,11 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.11.0 (2026-10-25)
+
+### Features
+
+- **cstan:** add cstan controllers to list the controllers running (7ac3121)
 ## 0.10.0 (2026-10-24)
 
 ### Features
