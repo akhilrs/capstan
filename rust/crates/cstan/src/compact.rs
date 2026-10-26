@@ -106,6 +106,19 @@ fn counts(value: Option<&Value>) -> String {
     }
 }
 
+/// ` reassigned <from> -> <to> <at>` for a plan that has been handed to another architect.
+fn reassigned(plan: &Value) -> String {
+    match plan.get("lastReassignment") {
+        Some(last @ Value::Object(_)) => format!(
+            " reassigned {} -> {} {}",
+            text(last.get("fromAgentId")),
+            text(last.get("toAgentId")),
+            text(last.get("createdAt")),
+        ),
+        _ => String::new(),
+    }
+}
+
 fn nexora(entry: &Value) -> String {
     match entry.get("externalId") {
         Some(Value::String(id)) => format!(
@@ -129,12 +142,13 @@ pub fn plan_brief(result: &Value) -> Option<Vec<String>> {
                 .iter()
                 .map(|p| {
                     format!(
-                        "{} {} {} {} [{}]{}",
+                        "{} {} {} {} [{}]{}{}",
                         text(p.get("planId")),
                         text(p.get("tier")),
                         text(p.get("state")),
                         text(p.get("title")),
                         counts(p.get("packages")),
+                        reassigned(p),
                         nexora(p),
                     )
                 })
@@ -145,11 +159,12 @@ pub fn plan_brief(result: &Value) -> Option<Vec<String>> {
         return None;
     };
     let mut lines = vec![format!(
-        "{} {} {} {}{}",
+        "{} {} {} {}{}{}",
         text(plan.get("planId")),
         text(plan.get("tier")),
         text(plan.get("state")),
         text(plan.get("title")),
+        reassigned(plan),
         nexora(plan),
     )];
     for p in packages {

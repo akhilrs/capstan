@@ -62,11 +62,11 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let rest: &[String] = call.args.get(1..).unwrap_or(&[]);
     if !matches!(
         sub,
-        Some("open" | "submit" | "amend" | "show" | "assign" | "signoff" | "cancel")
+        Some("open" | "submit" | "amend" | "show" | "assign" | "reassign" | "signoff" | "cancel")
     ) {
         return Some(fail(
             ErrorCode::InvalidRequest,
-            "plan needs open, submit, show, assign, signoff or cancel",
+            "plan needs open, submit, show, assign, reassign, signoff or cancel",
         ));
     }
     let Some(config) = env.config().filter(|config| config.architect.enabled) else {
@@ -79,6 +79,7 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         Some("open") => open(env, call, rest),
         Some("cancel") => cancel(env, call, rest),
         Some("assign") => assign(env, call, rest),
+        Some("reassign") => reassign(env, call, rest, &config.architect.role),
         Some("signoff") => signoff(env, call, rest, &config.architect.role),
         Some("submit") => submit(env, call, rest),
         Some("amend") => amend(env, call, rest),
@@ -292,6 +293,67 @@ fn assign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
     result.insert("early".into(), json!(!unmet.is_empty()));
     result.insert("unmet".into(), Value::Array(unmet));
     result.extend(named);
+    Ok(ok(Value::Object(result)))
+}
+
+fn reassign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String], role: &str) -> Outcome {
+    let Some(requested_by) = env.worker_manager(call.identity) else {
+        return Ok(fail(
+            ErrorCode::Forbidden,
+            "not_manager: only the PM or the operator may reassign a plan",
+        ));
+    };
+    let usage = || {
+        fail(
+            ErrorCode::InvalidRequest,
+            "plan reassign needs a plan id and an architect agent id, and takes --reason only with a text: plan reassign <plan-id> <architect-agent-id> [--reason \"<text>\"]",
+        )
+    };
+    let (Some(plan_id), Some(agent_id)) = (rest.first(), rest.get(1)) else {
+        return Ok(usage());
+    };
+    let tail: &[String] = &rest[2..];
+    let reason = match tail {
+        [] => None,
+        [flag, text] if flag == "--reason" => Some(text),
+        _ => return Ok(usage()),
+    };
+    if ![plan_id, agent_id].iter().all(|id| is_safe_agent_id(id)) {
+        return Ok(usage());
+    }
+    env.log(
+        "plan_reassign_requested",
+        json!({
+            "requestedBy": requested_by,
+            "planId": plan_id,
+            "agentId": agent_id,
+        }),
+    );
+    let mut input = Map::new();
+    input.insert("planId".into(), json!(plan_id));
+    input.insert("agentId".into(), json!(agent_id));
+    input.insert("architectRole".into(), json!(role));
+    if let Some(reason) = reason {
+        input.insert("reason".into(), json!(reason));
+    }
+    let credential = call.credential.to_string();
+    let done = env.deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        core.reassign_plan(&context, &Value::Object(input))
+    })?;
+    let mut result = Map::new();
+    for key in [
+        "planId",
+        "fromAgentId",
+        "toAgentId",
+        "state",
+        "currentRevision",
+        "reassignedAt",
+        "handoverMessageId",
+        "notifiedDevelopers",
+    ] {
+        result.insert(key.into(), field(&done, key));
+    }
     Ok(ok(Value::Object(result)))
 }
 
@@ -780,10 +842,18 @@ fn brief_plans(
             counts.insert(progress, json!(seen + 1));
         }
         map.insert("packages".into(), Value::Object(counts));
+        if let Some(last) = last_reassignment(&detail["plan"]) {
+            map.insert("lastReassignment".into(), last);
+        }
         map.extend(link_fields(links, "plan", plan_id));
         out.push(Value::Object(map));
     }
     Ok(out)
+}
+
+/// The newest reassignment a plan record carries.
+fn last_reassignment(plan: &Value) -> Option<Value> {
+    plan["reassignments"].as_array()?.last().cloned()
 }
 
 fn package_progress_label(package: &Value) -> String {
@@ -847,6 +917,9 @@ fn brief_plan(
     let mut head = Map::new();
     for key in ["planId", "tier", "state", "title"] {
         head.insert(key.into(), field(plan, key));
+    }
+    if let Some(last) = last_reassignment(plan) {
+        head.insert("lastReassignment".into(), last);
     }
     head.extend(link_fields(links, "plan", plan_id));
     json!({"plan": head, "packages": rows})

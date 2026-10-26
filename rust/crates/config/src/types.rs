@@ -261,6 +261,8 @@ pub const MESSAGE_NOTICE_KINDS: &[(&str, bool)] = &[
     ("review_request", false),
     ("review_verdict", false),
     ("plan_notice", false),
+    ("plan_handover", false),
+    ("architect_changed", true),
     ("plan_review_failed", false),
     ("work_package", false),
     ("work_package_cancelled", false),

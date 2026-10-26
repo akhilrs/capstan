@@ -61,6 +61,7 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         "restart_result",
         "auto_approved",
         "auto_answered",
+        "architect_changed",
     ] {
         assert_eq!(notice_kind(kind).unwrap().1, MessageClass::Info, "{kind}");
     }
@@ -70,6 +71,7 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         "report_verified",
         "review_verdict",
         "plan_notice",
+        "plan_handover",
         "delivery_problem",
         "agent_stalled",
         "agent_blocked",
@@ -94,6 +96,17 @@ fn the_notice_table_names_every_kind_once_and_a_non_overridable_kind_is_never_in
         Some(MessageClass::Info)
     );
     assert_eq!(policy.class_of("no_such_kind"), None);
+    // The handover is always an action; the architect-changed notice may be reclassed.
+    let reclassed = MessagePolicy::from_value(&json!({"noticeClass": {
+        "plan_handover": "info", "architect_changed": "action"}}));
+    assert_eq!(
+        reclassed.class_of("plan_handover"),
+        Some(MessageClass::Action)
+    );
+    assert_eq!(
+        reclassed.class_of("architect_changed"),
+        Some(MessageClass::Action)
+    );
     assert_eq!(MessageClass::parse("info").unwrap().as_str(), "info");
     assert_eq!(MessageClass::parse("urgent"), None);
 }

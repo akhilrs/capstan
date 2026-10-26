@@ -10,7 +10,7 @@ use rusqlite::types::ValueRef;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{id_prefix, pauses, plan_packages};
+use super::{id_prefix, pauses, plan_packages, plans};
 
 struct ReadyItem {
     state: String,
@@ -311,7 +311,7 @@ fn plan_status_entries(kernel: &Kernel) -> KernelResult<Vec<Value>> {
                 }))
             },
         )?;
-        out.push(json!({
+        let mut entry = json!({
             "planId": row.plan_id,
             "title": row.title,
             "tier": row.tier,
@@ -322,7 +322,11 @@ fn plan_status_entries(kernel: &Kernel) -> KernelResult<Vec<Value>> {
             "updatedAt": row.updated_at,
             "packages": packages,
             "signoffs": signoffs,
-        }));
+        });
+        if let Some(last) = plans::last_reassignment(kernel, &row.plan_id)? {
+            entry["lastReassignment"] = last;
+        }
+        out.push(entry);
     }
     Ok(out)
 }
@@ -847,7 +851,7 @@ pub fn active_tasks(kernel: &Kernel, credential: &str, caps: &Value) -> KernelRe
             .count();
         let total = counted.len();
         entries.truncate(package_cap.max(0) as usize);
-        plans.push(json!({
+        let mut entry = json!({
             "planId": row.plan_id,
             "title": row.title,
             "state": row.state,
@@ -856,7 +860,11 @@ pub fn active_tasks(kernel: &Kernel, credential: &str, caps: &Value) -> KernelRe
             "total": total,
             "done": done,
             "packages": entries,
-        }));
+        });
+        if let Some(last) = plans::last_reassignment(kernel, &row.plan_id)? {
+            entry["lastReassignment"] = last;
+        }
+        plans.push(entry);
     }
     let mut by_ref: BTreeMap<String, (BTreeSet<String>, Option<String>)> = BTreeMap::new();
     let mut add = |ref_id: String, agent_id: String, title: Option<String>| {

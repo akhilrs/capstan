@@ -58,6 +58,8 @@ pub const NOTICE_KINDS: &[(&str, MessageClass, bool)] = &[
     ("review_request", MessageClass::Action, false),
     ("review_verdict", MessageClass::Action, false),
     ("plan_notice", MessageClass::Action, false),
+    ("plan_handover", MessageClass::Action, false),
+    ("architect_changed", MessageClass::Info, true),
     ("plan_review_failed", MessageClass::Action, false),
     ("work_package", MessageClass::Action, false),
     ("work_package_cancelled", MessageClass::Action, false),

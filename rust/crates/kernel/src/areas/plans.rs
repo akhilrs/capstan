@@ -17,6 +17,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::sync::LazyLock;
 
+use super::plan_handover::{architect_changed_body, handover_body, HandoverFacts, HandoverPackage};
 use super::{message_notices, messages, plan_packages};
 
 static SHA1: LazyLock<Regex> =
@@ -726,6 +727,324 @@ pub fn abandon_plan_review(
     )
 }
 
+/// The reassignments of a plan, oldest first, each `{fromAgentId, toAgentId, actorId, reason, createdAt}`.
+pub(crate) fn reassignments_of(kernel: &Kernel, plan_id: &str) -> KernelResult<Vec<Value>> {
+    query_all(
+        &kernel.database,
+        "SELECT from_agent_id, to_agent_id, actor_id, reason, created_at FROM plan_reassignments
+         WHERE project_id = ? AND plan_id = ? ORDER BY sequence",
+        [&kernel.project_id, plan_id],
+        |row| {
+            Ok(json!({
+                "fromAgentId": row.get::<_, String>(0)?,
+                "toAgentId": row.get::<_, String>(1)?,
+                "actorId": row.get::<_, String>(2)?,
+                "reason": row.get::<_, Option<String>>(3)?,
+                "createdAt": row.get::<_, String>(4)?,
+            }))
+        },
+    )
+}
+
+/// The newest reassignment of a plan, or `None`.
+pub(crate) fn last_reassignment(kernel: &Kernel, plan_id: &str) -> KernelResult<Option<Value>> {
+    Ok(reassignments_of(kernel, plan_id)?.pop())
+}
+
+fn ids_of(kernel: &Kernel, sql: &str, plan_id: &str) -> KernelResult<Vec<String>> {
+    query_all(
+        &kernel.database,
+        sql,
+        [&kernel.project_id, plan_id],
+        |row| row.get::<_, String>(0),
+    )
+}
+
+/// A live package with an assignee: `(assignee, package, progress)`.
+type HeldPackage = (String, String, String);
+
+/// What the new owner of a plan inherits: its live packages and the reports, reviews and integrations still pending.
+fn handover_facts(
+    kernel: &Kernel,
+    plan: &PlanRow,
+    from_agent_id: &str,
+    reason: Option<&str>,
+) -> KernelResult<(HandoverFacts, Vec<HeldPackage>)> {
+    let mut packages = Vec::new();
+    let mut report_ids = Vec::new();
+    let mut pending_reports = Vec::new();
+    // (assignee, package, progress) of the live packages, in package order.
+    let mut held = Vec::new();
+    for row in plan_packages::plan_package_rows(kernel, &plan.plan_id)? {
+        if row.cancelled_at.is_some() {
+            continue;
+        }
+        let facts = plan_packages::package_facts(kernel, &plan.plan_id, &row, false)?;
+        let report = plan_packages::package_report(
+            kernel,
+            &plan.plan_id,
+            &row.package_id,
+            row.assignee_agent_id.as_deref(),
+            row.assigned_at.as_deref(),
+        )?;
+        if let Some(report_id) = report {
+            if facts.progress == "reported" || facts.progress == "findings" {
+                pending_reports.push(report_id.clone());
+            }
+            report_ids.push(report_id);
+        }
+        if let Some(assignee) = &row.assignee_agent_id {
+            held.push((
+                assignee.clone(),
+                row.package_id.clone(),
+                facts.progress.to_string(),
+            ));
+        }
+        packages.push(HandoverPackage {
+            package_id: row.package_id,
+            assignee_agent_id: row.assignee_agent_id,
+            progress: facts.progress.to_string(),
+        });
+    }
+    let mut integration_ids: Vec<String> = Vec::new();
+    for report_id in &report_ids {
+        for id in query_all(
+            &kernel.database,
+            "SELECT ir.integration_id FROM integration_reports ir
+             JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+             WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('running', 'merged', 'conflicted', 'confirmed')
+             ORDER BY i.sequence",
+            [&kernel.project_id, report_id],
+            |row| row.get::<_, String>(0),
+        )? {
+            if !integration_ids.contains(&id) {
+                integration_ids.push(id);
+            }
+        }
+    }
+    let mut pending_integrations = Vec::new();
+    for id in &integration_ids {
+        let signed = query_opt(
+            &kernel.database,
+            "SELECT 1 AS present FROM plan_signoffs WHERE project_id = ? AND plan_id = ? AND integration_id = ?",
+            [&kernel.project_id, &plan.plan_id, id],
+            |_| Ok(()),
+        )?;
+        if signed.is_none() {
+            pending_integrations.push(id.clone());
+        }
+    }
+    let mut pending_reviews = ids_of(
+        kernel,
+        "SELECT review_id FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started' ORDER BY sequence",
+        &plan.plan_id,
+    )?;
+    for (column, ids) in [
+        ("subject_report_id", &report_ids),
+        ("subject_integration_id", &integration_ids),
+    ] {
+        for id in ids {
+            let found = query_all(
+                &kernel.database,
+                &format!(
+                    "SELECT review_id FROM reviews WHERE project_id = ? AND {column} = ? AND state = 'started' ORDER BY sequence"
+                ),
+                [&kernel.project_id, id],
+                |row| row.get::<_, String>(0),
+            )?;
+            for review in found {
+                if !pending_reviews.contains(&review) {
+                    pending_reviews.push(review);
+                }
+            }
+        }
+    }
+    let facts = HandoverFacts {
+        plan_id: plan.plan_id.clone(),
+        state: plan.state.clone(),
+        current_revision: plan.current_revision,
+        approved_revision: plan.approved_revision,
+        from_agent_id: from_agent_id.to_string(),
+        reason: reason.map(str::to_string),
+        packages,
+        pending_reports,
+        pending_reviews,
+        pending_integrations,
+    };
+    Ok((facts, held))
+}
+
+/// `reassignPlan`: the PM or the operator hands a plan whose architect is lost to another active architect. The owner must
+/// have stopped (a live owner is released first); the ledger accepts the change only against the reassignment recorded here.
+pub fn reassign_plan(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
+    let plan_id = safe_id(field(input, "planId"), "plan id")?;
+    let agent_id = safe_id(field(input, "agentId"), "agent id")?;
+    let role = safe_id(field(input, "architectRole"), "architect role")?;
+    let reason: Option<String> = match input.get("reason") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(safe_text(value, "the reason", 500, false)?),
+    };
+    let mut payload = json!({"planId": plan_id, "agentId": agent_id, "architectRole": role});
+    if let Some(reason) = &reason {
+        payload["reason"] = json!(reason);
+    }
+    kernel.mutate(context, "plan.reassign", "plan:write", &payload, |actor| {
+        let refuse = |code: &str, text: String| Err(KernelError::controller(format!("{code}: {text}")));
+        if actor.role != "PM" && actor.role != "operator" {
+            return refuse("not_manager", "only the PM or the operator reassigns a plan".into());
+        }
+        let Some(plan) = plan_row(kernel, plan_id)? else {
+            return refuse("plan_not_found", format!("plan {plan_id} does not exist"));
+        };
+        if plan.cancelled_at.is_some() {
+            return refuse("plan_cancelled", format!("plan {plan_id} was cancelled"));
+        }
+        if plan.state == "superseded" {
+            return refuse("plan_superseded", format!("plan {plan_id} was superseded"));
+        }
+        let signed_off = query_opt(
+            &kernel.database,
+            "SELECT 1 AS present FROM plan_signoffs WHERE project_id = ? AND plan_id = ?",
+            [&kernel.project_id, plan_id],
+            |_| Ok(()),
+        )?;
+        if signed_off.is_some() {
+            return refuse("plan_signed_off", format!("plan {plan_id} is signed off"));
+        }
+        let Some(owner_id) = plan.architect_agent_id.clone() else {
+            return refuse(
+                "no_owner",
+                format!("plan {plan_id} has no architect yet; the first developer to submit it becomes its architect"),
+            );
+        };
+        if owner_id == agent_id {
+            return refuse("already_owner", format!("{agent_id} already owns plan {plan_id}"));
+        }
+        if let Some(owner) = kernel.agent_row(&owner_id)?.filter(|o| o.state == "active") {
+            return refuse(
+                "owner_active",
+                format!(
+                    "{} still owns plan {plan_id} and is active; release it first",
+                    owner.agent_id
+                ),
+            );
+        }
+        let target = kernel
+            .agent_row(agent_id)?
+            .filter(|t| t.state == "active" && t.kind == "Developer" && t.role_name == role);
+        let Some(target) = target else {
+            return refuse(
+                "not_architect",
+                format!("{agent_id} is not an active developer-kind agent of role {role}"),
+            );
+        };
+        let rows = plan_packages::plan_package_rows(kernel, plan_id)?;
+        if rows
+            .iter()
+            .any(|row| row.cancelled_at.is_none() && row.assignee_agent_id.as_deref() == Some(agent_id))
+        {
+            return refuse(
+                "not_architect",
+                format!("{agent_id} holds a package of plan {plan_id} and cannot also own the plan"),
+            );
+        }
+        let now = kernel.now();
+        let sequence = query_opt(
+            &kernel.database,
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM plan_reassignments WHERE project_id = ? AND plan_id = ?",
+            [&kernel.project_id, plan_id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .unwrap_or(1);
+        execute(
+            &kernel.database,
+            "INSERT INTO plan_reassignments(project_id, plan_id, sequence, from_agent_id, to_agent_id, actor_id, reason, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                kernel.project_id,
+                plan_id,
+                sequence,
+                owner_id,
+                agent_id,
+                actor.actor_id,
+                reason,
+                now
+            ],
+        )?;
+        execute(
+            &kernel.database,
+            "UPDATE plans SET architect_agent_id = ?, updated_at = ? WHERE project_id = ? AND plan_id = ?",
+            [agent_id, now.as_str(), kernel.project_id.as_str(), plan_id],
+        )?;
+        let (facts, held) = handover_facts(kernel, &plan, &owner_id, reason.as_deref())?;
+        let sender = kernel.controller_actor_id()?;
+        let body = handover_body(&facts);
+        let handover_message_id = messages::insert_queued_message(
+            kernel,
+            &sender,
+            &target,
+            &body,
+            &sha256(&body),
+            &now,
+            true,
+            messages::class_for_kind(kernel, "plan_handover"),
+        )?;
+        let mut notified: Vec<String> = Vec::new();
+        for (assignee, _, progress) in &held {
+            if notified.contains(assignee)
+                || !matches!(progress.as_str(), "assigned" | "reported" | "findings" | "reviewed")
+            {
+                continue;
+            }
+            let Some(developer) = kernel.agent_row(assignee)?.filter(|d| d.state == "active") else {
+                continue;
+            };
+            let packages: Vec<String> = held
+                .iter()
+                .filter(|(a, _, p)| {
+                    a == assignee && matches!(p.as_str(), "assigned" | "reported" | "findings" | "reviewed")
+                })
+                .map(|(_, package, _)| package.clone())
+                .collect();
+            let body = architect_changed_body(plan_id, &packages, agent_id);
+            messages::insert_queued_message(
+                kernel,
+                &sender,
+                &developer,
+                &body,
+                &sha256(&body),
+                &now,
+                false,
+                messages::class_for_kind(kernel, "architect_changed"),
+            )?;
+            notified.push(assignee.clone());
+        }
+        let value = json!({
+            "planId": plan_id,
+            "fromAgentId": owner_id,
+            "toAgentId": agent_id,
+            "state": plan.state,
+            "currentRevision": plan.current_revision,
+            "reason": reason,
+            "reassignedAt": now,
+            "handoverMessageId": handover_message_id,
+            "notifiedDevelopers": notified,
+        });
+        Ok(MutationOutput::new(
+            value,
+            MutationEvent::new("plan", plan_id, 0).with_details(json!({
+                "fromAgentId": owner_id,
+                "toAgentId": agent_id,
+                "reason": reason,
+            })),
+        ))
+    })
+}
+
 /// `planRecord`: the plan with its approved revision (the current one while it is not approved), packages with derived
 /// progress, and sign-offs; null for an unknown plan.
 pub fn plan_record(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelResult<Value> {
@@ -777,8 +1096,13 @@ pub fn plan_record(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelRe
             "extraReports": plan_packages::signoff_extra_reports(kernel, plan_id, &integration_id)?,
         }));
     }
+    let mut plan_value = serde_json::to_value(plan_record_of(&plan))?;
+    let reassignments = reassignments_of(kernel, plan_id)?;
+    if !reassignments.is_empty() {
+        plan_value["reassignments"] = Value::Array(reassignments);
+    }
     Ok(json!({
-        "plan": serde_json::to_value(plan_record_of(&plan))?,
+        "plan": plan_value,
         "revision": revision,
         "packages": plan_packages::plan_packages(kernel, plan_id)?,
         "signoffs": signoffs,
@@ -957,6 +1281,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let context = arg!(a.ctx(0));
             let input = a.value(1);
             Some(call(abandon_plan_review(kernel, &context, input)))
+        }
+        "reassignPlan" => {
+            let context = arg!(a.ctx(0));
+            let input = a.value(1);
+            Some(call(reassign_plan(kernel, &context, input)))
         }
         "planRecord" => {
             let credential = arg!(a.str(0, "credential"));

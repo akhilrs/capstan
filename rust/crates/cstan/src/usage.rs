@@ -85,6 +85,7 @@ pub const ENTRIES: &[Entry] = &[
     e(REVIEW, "cleanup", "cleanup decline <cleanup-id>", "Decline an offer; nothing is deleted."),
     e(PLANS, "plan", "plan show [<plan-id>] [--brief]", "Show a plan, or the plans of the project; --brief prints one line per plan, or per package of one plan."),
     e(PLANS, "plan", "plan assign <plan-id> <package-id> <agent-id>", "Assign a package to a worker."),
+    e(PLANS, "plan", "plan reassign <plan-id> <architect-agent-id> [--reason <text>]", "Hand a plan whose architect ended to another active architect (PM and operator); its developers are told."),
     e(PLANS, "plan", "plan signoff <plan-id> <integration-id> <summary>", "Sign the plan off on a reviewed integration."),
     e(PLANS, "plan", "plan cancel <plan-id> [<package-id>]", "Cancel a plan, or one of its packages."),
     e(LINKS, "link", "link requirement|plan|package <ref-id> <nexora-id> [<state>]", "Link a requirement, plan or package to a Nexora item."),

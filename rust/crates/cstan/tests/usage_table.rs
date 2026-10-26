@@ -328,3 +328,13 @@ fn design_guide_is_in_the_help_the_command_help_and_the_man_page() {
     let (man, _, _) = run(&["help", "--man"]);
     assert!(man.contains("design guide"), "{man}");
 }
+
+#[test]
+fn the_plan_group_lists_reassign_with_its_optional_reason() {
+    let (out, _, exit) = run(&["help", "plan"]);
+    assert_eq!(exit, 0);
+    assert!(
+        out.contains("plan reassign <plan-id> <architect-agent-id> [--reason <text>]"),
+        "{out}"
+    );
+}

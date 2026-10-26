@@ -660,6 +660,11 @@ impl Core {
         plan_packages::cancel_plan(&self.kernel, context, input)
     }
 
+    /// `ControllerCore.reassignPlan`.
+    pub fn reassign_plan(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        plans::reassign_plan(&self.kernel, context, input)
+    }
+
     /// `ControllerCore.integration`.
     pub fn integration(&self, integration_id: &str) -> KernelResult<Value> {
         integrations::integration(&self.kernel, integration_id)

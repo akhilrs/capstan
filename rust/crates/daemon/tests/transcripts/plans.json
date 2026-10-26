@@ -210,7 +210,7 @@
 "Ku9_cV0o5dUEVcHcZ7Krd6MkZjyL6ZvZb2UYDKv1TRM",
 "QqGfzJbaRuWQwxzyz3XoldiOgf7eG5SspW4WfUJ6pI4",
 "lJbYqjAgzIun_GL1nZ5_IX2idNPJqFzegPDReDwE2sA",
-"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"plan needs open, submit, show, assign, signoff or cancel\"}",
+"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"plan needs open, submit, show, assign, reassign, signoff or cancel\"}",
 "{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"plan open needs normal|high-risk, a title and optionally a superseded plan id\"}",
 "{\"ok\":true,\"result\":{\"plans\":[{\"planId\":\"plan-1\",\"tier\":\"normal\",\"state\":\"draft\",\"title\":\"First plan\"}]}}",
 "{\"ok\":false,\"code\":\"rejected\",\"message\":\"unknown_plan: no plan plan-404\"}",

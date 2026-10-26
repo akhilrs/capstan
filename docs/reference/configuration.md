@@ -104,6 +104,8 @@ The notice kinds, their built-in class and whether `notice_class` may change the
 | `review_verdict` | action | no |
 | `plan_notice` | action | no |
 | `plan_review_failed` | action | no |
+| `plan_handover` | action | no |
+| `architect_changed` | info | yes |
 | `work_package` | action | no |
 | `work_package_cancelled` | action | no |
 | `delivery_problem` | action | no |

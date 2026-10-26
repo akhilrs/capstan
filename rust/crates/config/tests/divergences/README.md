@@ -68,7 +68,7 @@ Both cases also gain `retentionDays` (above), so one overlay each carries the co
 ## The architect reference
 
 The architect reference (`src/prompts/architect_reference.txt`) is Rust-owned text: after the design sentence it states who
-owns the design record path (plan-55). Node's frozen text, hash and golden file `prompts-off/architect.txt` lack that
+owns the design record path (plan-55) and, after the amend sentence, says a `plan_handover` message means the reader now owns the plan (plan-57). Node's frozen text, hash and golden file `prompts-off/architect.txt` lack that
 sentence, so each architect prompt case it changes has an overlay named `prompt-<case>.json` (fixture
 `prompts-expected.json`) whose `expected` is `{bytes, sha256, text}` of the whole built prompt:
 `golden-architect`, `captured-prompt-0021`, `captured-prompt-0022`, `captured-prompt-0042` and `captured-prompt-0048`.

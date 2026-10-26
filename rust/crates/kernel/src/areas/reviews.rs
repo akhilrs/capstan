@@ -774,6 +774,63 @@ fn review_author_ids(kernel: &Kernel, row: &ReviewRow) -> KernelResult<Vec<Strin
     }
 }
 
+/// The active architect that now owns the plan a review belongs to, when exactly one plan (not superseded, not cancelled)
+/// is found and its architect is active and is not the requester. A plan review finds its plan directly; a package report
+/// or an integration finds it through the reports' authors and their package assignments.
+fn current_architect_of(
+    kernel: &Kernel,
+    row: &ReviewRow,
+    requester_id: &str,
+) -> KernelResult<Option<AgentRow>> {
+    let mut architects: Vec<String> = Vec::new();
+    let mut collect = |found: Vec<String>| {
+        for id in found {
+            if !architects.contains(&id) {
+                architects.push(id);
+            }
+        }
+    };
+    if let Some(plan_id) = &row.subject_plan_id {
+        collect(query_all(
+            &kernel.database,
+            "SELECT architect_agent_id FROM plans
+             WHERE project_id = ? AND plan_id = ? AND state <> 'superseded' AND cancelled_at IS NULL AND architect_agent_id IS NOT NULL",
+            [&kernel.project_id, plan_id],
+            |r| r.get::<_, String>(0),
+        )?);
+    } else {
+        let report_ids: Vec<String> = match &row.subject_integration_id {
+            Some(integration_id) => integration_authors(kernel, integration_id)?
+                .into_iter()
+                .map(|r| r.report_id)
+                .collect(),
+            None => row.subject_report_id.iter().cloned().collect(),
+        };
+        for report_id in &report_ids {
+            collect(query_all(
+                &kernel.database,
+                "SELECT DISTINCT pl.architect_agent_id FROM agent_reports r
+                 JOIN agents a ON a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation
+                 JOIN plan_packages pp ON pp.project_id = a.project_id AND pp.assignee_agent_id = a.agent_id
+                 JOIN plans pl ON pl.project_id = pp.project_id AND pl.plan_id = pp.plan_id
+                 WHERE r.project_id = ? AND r.report_id = ? AND pl.state <> 'superseded' AND pl.cancelled_at IS NULL
+                   AND pl.architect_agent_id IS NOT NULL",
+                [&kernel.project_id, report_id],
+                |r| r.get::<_, String>(0),
+            )?);
+        }
+    }
+    let [architect_id] = architects.as_slice() else {
+        return Ok(None);
+    };
+    if architect_id == requester_id {
+        return Ok(None);
+    }
+    Ok(kernel
+        .agent_row(architect_id)?
+        .filter(|a| a.state == "active"))
+}
+
 /// Queues the notice for a finished review that has none, to the agent that requested it (the architect) and to the PM when
 /// the requester is the PM, the operator or no longer active; false when no PM is the sole active one. The caller owns the
 /// transaction.
@@ -787,11 +844,29 @@ fn announce(kernel: &Kernel, review_id: &str, now: &str) -> KernelResult<bool> {
     let Some(row) = row else {
         return Ok(false);
     };
-    let requester = kernel.agent_by_actor(&row.requested_by_actor_id)?;
+    // The active agent of the actor, else its ended row: an ended architect is told apart from the PM and the operator,
+    // which are no Developer-kind agent.
+    let requester = match kernel.agent_by_actor(&row.requested_by_actor_id)? {
+        Some(agent) => Some(agent),
+        None => query_opt(
+            &kernel.database,
+            "SELECT * FROM agents WHERE project_id = ? AND actor_id = ? ORDER BY generation DESC, agent_id LIMIT 1",
+            [&kernel.project_id, &row.requested_by_actor_id],
+            AgentRow::from_row,
+        )?,
+    };
     let parties = message_notices::notice_parties(kernel)?;
     let recipient: Option<AgentRow> = match requester {
         Some(requester) if requester.state == "active" && requester.kind == "Developer" => {
             Some(requester)
+        }
+        // An architect that ended (and was replaced or reassigned) no longer receives its verdicts: the plan's current
+        // architect does.
+        Some(requester) if requester.kind == "Developer" && requester.state != "active" => {
+            match current_architect_of(kernel, &row, &requester.agent_id)? {
+                Some(architect) => Some(architect),
+                None => parties.as_ref().map(|p| p.pm.clone()),
+            }
         }
         _ => parties.as_ref().map(|p| p.pm.clone()),
     };
