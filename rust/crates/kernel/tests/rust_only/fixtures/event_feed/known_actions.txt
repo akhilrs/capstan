@@ -1,0 +1,112 @@
+# Every action name the kernel ledger code writes or once wrote, one `<source> <action>` per line, sorted.
+# A test (tests/rust_only/event_feed.rs) re-derives the `code` part from rust/crates/kernel/src and fails when the code has
+# an action that is missing here; every line must be mapped by areas/event_feed.rs, skipped there by name, or legacy.
+#
+# Regenerate from the repository root (the same four patterns the test uses: the action literal passed to mutate,
+# mutate_as_controller, mutate_as_window_controller, message_mutation, reject, the 7th argument of append_event, and the
+# `if .. { "a" } else { "b" }` form):
+#   code:    cat $(git ls-files 'rust/crates/kernel/src/*.rs') | perl -e '<SCAN>'
+#   history: git log -p --format= -- rust/crates/kernel/src | grep '^-' | sed 's/^-//' | perl -e '<SCAN>'
+#   node:    perl -e '<SCAN>' < rust/testdata/node/daemon.ts
+# where <SCAN> is the program in tests/rust_only/fixtures/event_feed/known_actions.pl.
+code actor.create
+code actor.revoke
+code agent.end
+code agent.lost
+code agent.observe
+code agent.pause
+code agent.register
+code agent.replace
+code agent.replaced
+code agent.restart
+code agent.resume
+code agent_pane.clear
+code agent_pane.record
+code agent_pane.rename_branch
+code cleanup.branch
+code cleanup.complete
+code cleanup.offer
+code design.decide
+code fallback_pane.clear
+code fallback_pane.record
+code finding.announce
+code finding.check
+code finding.deadline
+code finding.raise
+code integration.begin
+code integration.finish
+code integration.settle
+code link.bind
+code link.external
+code message.ack
+code message.advance
+code message.defer
+code message.enqueue
+code message.fail
+code message.input_clear
+code message.notified
+code message.pull
+code message.resolve
+code message.sent
+code message.transition
+code operator.abandon
+code operator.cancel
+code operator.claim
+code operator.decide
+code operator.expire
+code operator.finish
+code operator.full_auto_refuse
+code operator.grant_expire
+code operator.grant_restart
+code operator.grant_revoke
+code operator.orphan_clear
+code operator.process
+code operator.propose
+code operator.window_expire
+code operator.window_restart
+code operator.window_revoke
+code orphan_pane.clear
+code orphan_pane.record
+code plan.amend
+code plan.announce
+code plan.assign
+code plan.cancel
+code plan.open
+code plan.reassign
+code plan.review_abandon
+code plan.signoff
+code plan.submit
+code pm.attention
+code pm.delivery_notices
+code pm.floor_hit
+code pm.input_blocked
+code pm.wake
+code pm_restart.consume
+code prompt_relay.begin
+code prompt_relay.capture
+code prompt_relay.expire
+code prompt_relay.finish
+code prompt_relay.interrupted
+code prompt_relay.refuse
+code report.announce
+code report.record
+code review.announce
+code review.begin
+code review.complete
+code review.warm_release
+code role.sync
+code run.transition
+code seat.create
+code supervision.check
+code verify.cancel
+code verify.claim
+code verify.finish
+code verify.interrupt
+code verify.orphan
+code verify.process
+code verify.queue
+code wait.begin
+code wait.end
+code wait.end_controller
+history prompt_relay.begin
+history prompt_relay.capture

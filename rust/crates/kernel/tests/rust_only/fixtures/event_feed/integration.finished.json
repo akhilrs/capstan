@@ -1,0 +1,26 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "integration:1",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "integrationId": "int-1",
+    "state": "merged"
+  },
+  "entity": {
+    "id": "int-1",
+    "type": "integration"
+  },
+  "from": "running",
+  "id": "prustonly:daeca3b2245f3519:26",
+  "k": 0,
+  "seq": 26,
+  "to": "merged",
+  "ts": "<ts>",
+  "type": "integration.finished"
+}

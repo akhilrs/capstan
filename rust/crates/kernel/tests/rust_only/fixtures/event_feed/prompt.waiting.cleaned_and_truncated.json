@@ -1,0 +1,49 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "dev-1",
+    "effects": [
+      {
+        "fields": {},
+        "key": "prompt:1",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "options": [
+      {
+        "acceptsText": false,
+        "number": 1,
+        "text": "Yes",
+        "widensPermissions": false
+      },
+      {
+        "acceptsText": true,
+        "number": 2,
+        "text": "No, tell me what to do instead",
+        "widensPermissions": false
+      }
+    ],
+    "reason": null,
+    "relayId": "relay-1",
+    "state": "captured",
+    "text": "ab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [31m    xab [",
+    "textVerified": true,
+    "truncated": true,
+    "untrusted": [
+      "body.text",
+      "body.options"
+    ]
+  },
+  "entity": {
+    "id": "relay-1",
+    "type": "prompt_relay"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "captured",
+  "ts": "<ts>",
+  "type": "prompt.waiting"
+}

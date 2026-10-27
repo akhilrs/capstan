@@ -1,0 +1,33 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "dev-1",
+    "effects": [
+      {
+        "fields": {},
+        "key": "prompt:1",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "options": null,
+    "reason": null,
+    "relayId": "relay-1",
+    "state": "captured",
+    "text": null,
+    "textVerified": false,
+    "truncated": false,
+    "untrusted": []
+  },
+  "entity": {
+    "id": "relay-1",
+    "type": "prompt_relay"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "captured",
+  "ts": "<ts>",
+  "type": "prompt.waiting"
+}

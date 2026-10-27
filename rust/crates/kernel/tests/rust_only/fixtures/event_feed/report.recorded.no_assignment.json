@@ -1,0 +1,38 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "dev-1",
+    "commitSha": "1111111111111111111111111111111111111111",
+    "current": {
+      "package": null,
+      "readAt": 19
+    },
+    "effects": [
+      {
+        "fields": {},
+        "key": "design",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "reportId": "<id:2>",
+    "state": "accepted",
+    "summary": "loose work",
+    "textVerified": true,
+    "truncated": false,
+    "untrusted": [
+      "body.summary"
+    ]
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "agent_report"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:19",
+  "k": 0,
+  "seq": 19,
+  "to": "accepted",
+  "ts": "<ts>",
+  "type": "report.recorded"
+}

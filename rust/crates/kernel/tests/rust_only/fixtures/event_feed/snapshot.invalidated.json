@@ -1,0 +1,26 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "dev-1",
+        "op": "invalidate",
+        "section": "agents"
+      }
+    ],
+    "key": "dev-1",
+    "section": "agents"
+  },
+  "entity": {
+    "id": "dev-1",
+    "type": "agent_pane"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:19",
+  "k": 0,
+  "seq": 19,
+  "to": null,
+  "ts": "<ts>",
+  "type": "snapshot.invalidated"
+}

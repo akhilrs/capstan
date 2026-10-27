@@ -1,0 +1,19 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [],
+    "result": "passed",
+    "runId": "<id:2>"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "verify_run"
+  },
+  "from": "running",
+  "id": "prustonly:daeca3b2245f3519:22",
+  "k": 0,
+  "seq": 22,
+  "to": "passed",
+  "ts": "<ts>",
+  "type": "verify.result"
+}

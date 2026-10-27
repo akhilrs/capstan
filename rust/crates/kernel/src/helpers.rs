@@ -1577,3 +1577,57 @@ pub fn window_floor_hit_notice(
 ) -> String {
     format!("Prompt relay {relay_id} of {agent_id} needs the user even inside approval window {window_id}: \"{action}\" matches the floor entry \"{entry}\" ({detail}).")
 }
+
+// ------------------------------------------------------------------------------------------------- event feed text
+
+/// The characters an event feed never passes on: control, format, and line and paragraph separators. This is the
+/// pattern of `clean` in `cstan/src/watch.rs`; a kernel test fails when the two differ.
+pub const UNSAFE_TEXT_PATTERN: &str = r"[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]";
+
+/// The most bytes one public feed event serializes to. `clean_text` removes control characters, so escaping at most
+/// doubles a text field (a 4096-byte field serializes to at most 8194 bytes); the largest event, `prompt.waiting`, carries
+/// text 8194 + 32 options x 514 = 24642 bytes plus at most 4 KiB of fixed fields.
+pub const MAX_EVENT_BYTES: usize = 49152;
+
+static CLEAN_PATTERN: LazyLock<Regex> = LazyLock::new(|| regex(UNSAFE_TEXT_PATTERN));
+
+/// `text` with each control, format, line and paragraph separator character replaced by a space.
+pub fn clean_text(text: &str) -> String {
+    CLEAN_PATTERN.replace_all(text, " ").into_owned()
+}
+
+/// (input, expected) pairs of `clean_text`; the CLI's parity test runs the same pairs through `watch::clean`.
+#[doc(hidden)]
+pub const CLEAN_CASES: &[(&str, &str)] = &[
+    ("plain text", "plain text"),
+    ("tab\there", "tab here"),
+    ("new\nline\r\nbreak", "new line  break"),
+    ("esc\u{1b}[31mred", "esc [31mred"),
+    ("nul\u{0}del\u{7f}c1\u{85}end", "nul del c1 end"),
+    (
+        "bidi\u{202e}override\u{2066}isolate\u{2069}",
+        "bidi override isolate ",
+    ),
+    (
+        "zero\u{200b}width\u{feff}joiner\u{200d}",
+        "zero width joiner ",
+    ),
+    ("line\u{2028}and\u{2029}paragraph", "line and paragraph"),
+    (
+        "keeps \u{a0}nbsp, \u{e9}, \u{4e2d}, \u{1f600}",
+        "keeps \u{a0}nbsp, \u{e9}, \u{4e2d}, \u{1f600}",
+    ),
+    ("", ""),
+];
+
+/// The longest prefix of `text` that fits in `max` bytes, cut at a character boundary, and whether anything was cut.
+pub fn cap_text(text: &str, max: usize) -> (&str, bool) {
+    if text.len() <= max {
+        return (text, false);
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}

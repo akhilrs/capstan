@@ -1,0 +1,26 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "1",
+        "op": "invalidate",
+        "section": "plans"
+      }
+    ],
+    "planId": "plan-1",
+    "state": "draft"
+  },
+  "entity": {
+    "id": "plan-1",
+    "type": "plan"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "draft",
+  "ts": "<ts>",
+  "type": "plan.changed"
+}

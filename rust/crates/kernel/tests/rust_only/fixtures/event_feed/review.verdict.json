@@ -1,0 +1,19 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [],
+    "reviewId": "<id:2>",
+    "verdict": "findings"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "review"
+  },
+  "from": "started",
+  "id": "prustonly:daeca3b2245f3519:21",
+  "k": 0,
+  "seq": 21,
+  "to": "findings",
+  "ts": "<ts>",
+  "type": "review.verdict"
+}

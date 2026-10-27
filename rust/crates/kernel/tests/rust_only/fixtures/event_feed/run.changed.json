@@ -1,0 +1,32 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
+      }
+    ],
+    "paused": true,
+    "reason": "maintenance",
+    "state": "paused",
+    "textVerified": true,
+    "truncated": false,
+    "untrusted": [
+      "body.reason"
+    ]
+  },
+  "entity": {
+    "id": "prustonly",
+    "type": "run_control"
+  },
+  "from": "active",
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "paused",
+  "ts": "<ts>",
+  "type": "run.changed"
+}
