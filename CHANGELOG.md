@@ -2,6 +2,21 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.13.0 (2026-10-27)
+
+### Features
+
+- **config:** rewrite the starter capstan.toml as a short, ordered file (6236b7c)
+
+### Bug fixes
+
+- **integrate:** use the user's git identity (b01deed)
+- **prompts:** keep the plan reassign text out of the PM reference (206f7f3)
+
+### Documentation
+
+- **research:** add research on macOS desktop app for remote Capstan (935712e)
+
 ## 0.12.0 (2026-10-27)
 
 ### Features
