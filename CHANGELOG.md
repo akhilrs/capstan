@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.12.0 (2026-10-27)
+
+### Features
+
+- cstan plan reassign: move a plan to another architect (edc6325)
+
 ## 0.11.0 (2026-10-25)
 
 ### Features
