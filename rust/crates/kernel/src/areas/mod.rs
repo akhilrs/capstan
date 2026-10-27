@@ -5,6 +5,7 @@ pub mod agents;
 pub mod approval_windows;
 pub mod cleanups;
 pub mod design_approvals;
+pub mod feed_cursor;
 pub mod findings;
 pub mod id_prefix;
 pub mod integrations;
