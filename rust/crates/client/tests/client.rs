@@ -124,6 +124,28 @@ fn foreign_socket(path: &Path, reply: &'static [u8]) {
     });
 }
 
+/// A socket file nothing listens on, as a dead daemon leaves it. It is bound and never put into the listening state:
+/// a listener that is merely dropped can outlive its `close` in a child that another test thread forked at that
+/// moment, and a connect in that window is accepted and then reset (`ECONNRESET`) instead of refused.
+fn stale_socket(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    let bytes = path.as_os_str().as_bytes();
+    assert!(bytes.len() < address.sun_path.len());
+    for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+        *slot = *byte as libc::c_char;
+    }
+    unsafe {
+        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        assert!(fd >= 0, "{}", std::io::Error::last_os_error());
+        let size = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
+        let bound = libc::bind(fd, (&raw const address).cast(), size);
+        assert_eq!(bound, 0, "{}", std::io::Error::last_os_error());
+        libc::close(fd);
+    }
+}
+
 #[test]
 fn a_foreign_socket_is_not_started_over() {
     let project = Project::new();
@@ -223,7 +245,7 @@ fn calls_return_the_response_or_the_error_code() {
     let project = Project::new();
     let missing = call_daemon(&project.socket(), CREDENTIAL, "ping", &[], 1000).unwrap_err();
     assert_eq!(missing.code, "ENOENT");
-    drop(UnixListener::bind(project.socket()).unwrap());
+    stale_socket(&project.socket());
     let refused = call_daemon(&project.socket(), CREDENTIAL, "ping", &[], 1000).unwrap_err();
     assert_eq!(refused.code, "ECONNREFUSED");
 

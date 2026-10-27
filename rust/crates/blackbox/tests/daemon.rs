@@ -415,12 +415,31 @@ fn an_idle_daemon_writes_nothing_to_its_log_and_status_inbox_and_inspect_agree_o
         )
         .ok();
     }
-    let before = w.command_log().len();
+    // The daemon answers a command and logs it afterwards, so the last sends may not be in the log yet: take the
+    // baseline once all thirty are, then see that nothing is added while the daemon is idle.
+    let sends = || {
+        w.command_log()
+            .iter()
+            .filter(|e| e["command"] == "send")
+            .count()
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while sends() < 30 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the thirty sends are not all in the log: {}",
+            w.daemon_log()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let before = w.command_log();
     std::thread::sleep(Duration::from_secs(3));
+    let after = w.command_log();
     assert_eq!(
-        w.command_log().len(),
-        before,
-        "an idle daemon logs no command"
+        after.len(),
+        before.len(),
+        "an idle daemon logs no command: {:?}",
+        &after[before.len().min(after.len())..]
     );
     let status = w.op(&["status", "--json"]).ok().json();
     let again = w.op(&["status", "--json"]).ok().json();
