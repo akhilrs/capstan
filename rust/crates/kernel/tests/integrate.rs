@@ -218,7 +218,21 @@ fn replay_scenario(scenario: &Value, baseline: &Value) -> Status {
         })
         .unwrap_or_default();
     let scratch = Scratch::new(scratch_dir.path(), pinned.clone());
-    let git = GitRepo::new(scratch.root.clone()).with_env(pinned);
+    // The pipeline reads the user's git identity: give it the scratch HOME and an empty global config.
+    let mut git_env = pinned;
+    git_env.extend(
+        scratch
+            .env
+            .iter()
+            .filter(|(k, _)| {
+                matches!(
+                    k.as_str(),
+                    "HOME" | "GIT_CONFIG_NOSYSTEM" | "GIT_CONFIG_GLOBAL"
+                )
+            })
+            .cloned(),
+    );
+    let git = GitRepo::new(scratch.root.clone()).with_env(git_env);
     let project: InitialProject = serde_json::from_value(scenario["project"].clone()).unwrap();
     let credential = project.owner_credential.clone();
     let env = Rc::new(SeededEnv::new(seed));
@@ -697,4 +711,94 @@ fn git_that_cannot_run_is_an_error_not_a_panic() {
     assert!(git.head_commit().is_err());
     assert!(git.commit_exists("not a sha").is_err());
     assert!(git.is_in_head("abc").is_err());
+}
+
+/// The author and committer of the squash commit `merge_into_branch` writes, as "name <email>" pairs.
+fn squash_identity(dir: &Path, local: &[(&str, &str)], global: &str) -> (String, String) {
+    let (scratch, base, a, _) = small_repo(dir);
+    for (key, value) in local {
+        scratch.must(&["config", key, value]);
+    }
+    let global_file = dir.join("global-gitconfig");
+    std::fs::write(&global_file, global).unwrap();
+    let git = GitRepo::new(scratch.root.clone()).with_env(vec![
+        (
+            "HOME".into(),
+            dir.join("home").to_string_lossy().into_owned(),
+        ),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        (
+            "GIT_CONFIG_GLOBAL".into(),
+            global_file.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let result = git
+        .merge_into_branch(
+            &base,
+            "capstan/integration/identity",
+            "chore: identity",
+            "body",
+            &[("r-a".to_string(), a)],
+        )
+        .unwrap();
+    assert!(
+        matches!(
+            result,
+            capstan_kernel::integrate::MergeResult::Merged { .. }
+        ),
+        "{result:?}"
+    );
+    let show = |format: &str| {
+        scratch
+            .must(&[
+                "log",
+                "-1",
+                &format!("--format={format}"),
+                "capstan/integration/identity",
+            ])
+            .trim()
+            .to_string()
+    };
+    (
+        format!("{} <{}>", show("%an"), show("%ae")),
+        format!("{} <{}>", show("%cn"), show("%ce")),
+    )
+}
+
+#[test]
+fn the_squash_commit_uses_the_project_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let (author, committer) = squash_identity(
+        dir.path(),
+        &[("user.name", "Proj"), ("user.email", "proj@example.com")],
+        "[user]\n\tname = Glob\n\temail = glob@example.com\n",
+    );
+    assert_eq!(author, "Proj <proj@example.com>");
+    assert_eq!(committer, author);
+}
+
+#[test]
+fn the_squash_commit_falls_back_to_the_global_identity_then_to_capstan() {
+    let dir = tempfile::tempdir().unwrap();
+    let (author, committer) = squash_identity(
+        dir.path(),
+        &[],
+        "[user]\n\tname = Glob\n\temail = glob@example.com\n",
+    );
+    assert_eq!(author, "Glob <glob@example.com>");
+    assert_eq!(committer, author);
+
+    // An empty project value falls through to the global one; each field resolves on its own.
+    let dir = tempfile::tempdir().unwrap();
+    let (author, _) = squash_identity(
+        dir.path(),
+        &[("user.name", ""), ("user.email", "proj@example.com")],
+        "[user]\n\tname = Glob\n",
+    );
+    assert_eq!(author, "Glob <proj@example.com>");
+
+    let dir = tempfile::tempdir().unwrap();
+    let (author, committer) = squash_identity(dir.path(), &[], "");
+    assert_eq!(author, "capstan <capstan@localhost>");
+    assert_eq!(committer, author);
 }

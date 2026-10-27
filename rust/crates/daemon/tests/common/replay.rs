@@ -414,7 +414,12 @@ impl ReplayGit {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
-            repo: GitRepo::new(root),
+            // The pipeline reads the user's git identity: no global or system config, so it falls back to capstan.
+            repo: GitRepo::new(root).with_env(vec![
+                ("HOME".into(), "/nonexistent".into()),
+                ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+                ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+            ]),
         }
     }
 

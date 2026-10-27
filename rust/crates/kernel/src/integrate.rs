@@ -537,12 +537,8 @@ const INTEGRATION_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_BUFFER: usize = 64 * 1024;
 const INTEGRATION_BUFFER: usize = 8 * 1024 * 1024;
 const NO_COMMIT: &str = "0000000000000000000000000000000000000000";
-const IDENTITY: [(&str, &str); 4] = [
-    ("GIT_AUTHOR_NAME", "capstan"),
-    ("GIT_AUTHOR_EMAIL", "capstan@localhost"),
-    ("GIT_COMMITTER_NAME", "capstan"),
-    ("GIT_COMMITTER_EMAIL", "capstan@localhost"),
-];
+const DEFAULT_NAME: &str = "capstan";
+const DEFAULT_EMAIL: &str = "capstan@localhost";
 
 fn is_full_sha(text: &str) -> bool {
     text.len() == 40 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -711,6 +707,71 @@ impl GitRepo {
         &self.root
     }
 
+    /// The author and committer of the commits the pipeline writes: the project's `user.name` and `user.email`, else
+    /// the global ones, else `capstan` / `capstan@localhost`. The two resolve on their own, as git does for a commit.
+    /// An empty value counts as unset, so it falls through to the next level.
+    fn identity(&self) -> (String, String) {
+        (
+            self.config_value("user.name")
+                .unwrap_or_else(|| DEFAULT_NAME.into()),
+            self.config_value("user.email")
+                .unwrap_or_else(|| DEFAULT_EMAIL.into()),
+        )
+    }
+
+    /// One setting from the repository's config, then the global config (no system config). A failed lookup is an
+    /// unset value, never an error or a prompt.
+    fn config_value(&self, key: &str) -> Option<String> {
+        let mut command = Command::new("git");
+        command
+            .arg("-C")
+            .arg(&self.root)
+            .args(["config", "--get-all", key])
+            .env_clear()
+            .env("LC_ALL", "C")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        for name in ["PATH", "HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"] {
+            if let Ok(value) = std::env::var(name) {
+                command.env(name, value);
+            }
+        }
+        for (name, value) in &self.extra_env {
+            command.env(name, value);
+        }
+        let mut child = command.spawn().ok()?;
+        let mut pipe = child.stdout.take()?;
+        let reader = std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let _ = pipe.by_ref().take(4096).read_to_end(&mut out);
+            out
+        });
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if started.elapsed() < GIT_TIMEOUT => {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break;
+                }
+            }
+        }
+        let out = reader.join().ok()?;
+        // The last value wins in git; skipping the empty ones lets an empty project value fall through.
+        utf8(&out)
+            .lines()
+            .map(js_trim)
+            .rfind(|line| !line.is_empty())
+            .map(str::to_string)
+    }
+
     /// `runGit`: `Err` when git itself could not run (spawn failure, timeout, output too large, killed by a signal).
     fn run(&self, args: &[&str], options: RunOptions) -> IntegrateResult<Outcome> {
         let mut command = Command::new("git");
@@ -732,9 +793,12 @@ impl GitRepo {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         if options.identity {
-            for (key, value) in IDENTITY {
-                command.env(key, value);
-            }
+            let (name, email) = self.identity();
+            command
+                .env("GIT_AUTHOR_NAME", &name)
+                .env("GIT_AUTHOR_EMAIL", &email)
+                .env("GIT_COMMITTER_NAME", &name)
+                .env("GIT_COMMITTER_EMAIL", &email);
         }
         for (key, value) in &self.extra_env {
             command.env(key, value);
