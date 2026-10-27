@@ -1,0 +1,32 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "body": null,
+    "effects": [
+      {
+        "fields": {},
+        "key": "message:1",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "messageId": "<id:2>",
+    "reason": null,
+    "recipientAgentId": "dev-1",
+    "state": "queued",
+    "textVerified": false,
+    "truncated": false,
+    "untrusted": []
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "message"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "queued",
+  "ts": "<ts>",
+  "type": "message.action_needed"
+}

@@ -6,6 +6,7 @@
 mod approval_windows;
 mod controller_relay;
 mod design_approvals;
+mod event_feed;
 mod feed_cursor;
 mod fixture;
 mod id_prefix;

@@ -1,0 +1,20 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [],
+    "findingId": "<id:2>",
+    "result": "resolved",
+    "state": "resolved"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "agent_finding"
+  },
+  "from": "open",
+  "id": "prustonly:daeca3b2245f3519:25",
+  "k": 0,
+  "seq": 25,
+  "to": "resolved",
+  "ts": "<ts>",
+  "type": "finding.resolved"
+}

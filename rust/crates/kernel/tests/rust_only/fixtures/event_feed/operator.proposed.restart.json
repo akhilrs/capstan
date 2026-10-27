@@ -1,0 +1,36 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "command": "restart",
+    "decision": null,
+    "effects": [
+      {
+        "fields": {},
+        "key": "op:2",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "kind": "restart",
+    "proposalId": "op-2",
+    "reason": "stuck",
+    "state": "proposed",
+    "textVerified": true,
+    "truncated": false,
+    "untrusted": [
+      "body.command",
+      "body.reason"
+    ]
+  },
+  "entity": {
+    "id": "op-2",
+    "type": "operator_proposal"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:19",
+  "k": 0,
+  "seq": 19,
+  "to": "proposed",
+  "ts": "<ts>",
+  "type": "operator.proposed"
+}

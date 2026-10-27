@@ -1,0 +1,36 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "command": "ls -la",
+    "decision": "approved",
+    "effects": [
+      {
+        "fields": {},
+        "key": "op:1",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "kind": "command",
+    "proposalId": "op-1",
+    "reason": "look",
+    "state": "approved",
+    "textVerified": true,
+    "truncated": false,
+    "untrusted": [
+      "body.command",
+      "body.reason"
+    ]
+  },
+  "entity": {
+    "id": "op-1",
+    "type": "operator_proposal"
+  },
+  "from": "proposed",
+  "id": "prustonly:daeca3b2245f3519:19",
+  "k": 0,
+  "seq": 19,
+  "to": "approved",
+  "ts": "<ts>",
+  "type": "operator.decided"
+}

@@ -1,0 +1,22 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [],
+    "findingId": "<id:2>",
+    "raisedByAgentId": "sup-1",
+    "severity": "high",
+    "state": "open",
+    "targetAgentId": "dev-1"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "agent_finding"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:22",
+  "k": 0,
+  "seq": 22,
+  "to": "open",
+  "ts": "<ts>",
+  "type": "finding.raised"
+}

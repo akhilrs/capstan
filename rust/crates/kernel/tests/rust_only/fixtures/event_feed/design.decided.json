@@ -1,0 +1,35 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "decision": "approved",
+    "effects": [
+      {
+        "fields": {},
+        "key": "design:1/ui",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "1",
+        "op": "invalidate",
+        "section": "plans"
+      }
+    ],
+    "link": "https://example.test/ui",
+    "packageId": "ui",
+    "planId": "plan-1",
+    "reportId": "<id:2>"
+  },
+  "entity": {
+    "id": "plan-1",
+    "type": "plan"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:23",
+  "k": 0,
+  "seq": 23,
+  "to": null,
+  "ts": "<ts>",
+  "type": "design.decided"
+}

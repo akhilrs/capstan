@@ -1,0 +1,28 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "arch-1",
+    "effects": [
+      {
+        "fields": {},
+        "key": "1",
+        "op": "invalidate",
+        "section": "plans"
+      }
+    ],
+    "planId": "plan-1",
+    "revision": 1,
+    "state": "approved"
+  },
+  "entity": {
+    "id": "plan-1",
+    "type": "plan"
+  },
+  "from": "draft",
+  "id": "prustonly:daeca3b2245f3519:19",
+  "k": 0,
+  "seq": 19,
+  "to": "approved",
+  "ts": "<ts>",
+  "type": "plan.approved"
+}

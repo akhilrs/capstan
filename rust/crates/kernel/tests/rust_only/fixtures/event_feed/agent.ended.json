@@ -1,0 +1,39 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "dev-1",
+    "current": {
+      "readAt": 18
+    },
+    "effects": [
+      {
+        "fields": {},
+        "key": "dev-1",
+        "op": "invalidate",
+        "section": "agents"
+      },
+      {
+        "fields": {},
+        "key": "op",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "generation": 1,
+    "kind": "Developer",
+    "paused": false,
+    "role": "developer",
+    "state": "ended"
+  },
+  "entity": {
+    "id": "dev-1",
+    "type": "agent"
+  },
+  "from": "active",
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "ended",
+  "ts": "<ts>",
+  "type": "agent.ended"
+}

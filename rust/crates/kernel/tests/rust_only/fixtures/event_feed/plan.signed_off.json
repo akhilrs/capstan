@@ -1,0 +1,27 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "1",
+        "op": "invalidate",
+        "section": "plans"
+      }
+    ],
+    "integrationId": "int-1",
+    "planId": "plan-1",
+    "state": null
+  },
+  "entity": {
+    "id": "plan-1",
+    "type": "plan"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:29",
+  "k": 0,
+  "seq": 29,
+  "to": null,
+  "ts": "<ts>",
+  "type": "plan.signed_off"
+}
