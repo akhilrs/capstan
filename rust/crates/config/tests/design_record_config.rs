@@ -559,7 +559,7 @@ fn a_customised_table_without_a_designer_warns() {
 
 #[test]
 fn the_starter_prompts_and_hashes_are_those_before_the_keys_existed() {
-    // Measured on the commit before these keys were added.
+    // Prompt hashes measured on the commit before these keys were added; the reviewer configHash changed when the starter gave it its own model.
     let expected = [
         (
             "pm",
@@ -579,7 +579,7 @@ fn the_starter_prompts_and_hashes_are_those_before_the_keys_existed() {
         (
             "reviewer",
             Some("1bff45f53bb84eb3f3abaad3237161212ebe9e219e4f6810a514d7386c219703"),
-            "38f0ddac02bbd6c8607447f540bb9cf0619fbc3baeb7995faec7554bece8281b",
+            "befe882b172f5eac353f5967a2bba5c0f39b6059e9dc9ec841177c7c0c68831b",
         ),
         (
             "tester",
@@ -593,9 +593,12 @@ fn the_starter_prompts_and_hashes_are_those_before_the_keys_existed() {
         ),
     ];
     let config = parse_config(STARTER_CONFIG.as_bytes(), Path::new("/nonexistent")).unwrap();
-    assert_eq!(config.roles.len(), expected.len());
-    for (role, (name, prompt_hash, config_hash)) in config.roles.iter().zip(expected) {
-        assert_eq!(role.name, name);
+    for (name, prompt_hash, config_hash) in expected {
+        let role = config
+            .roles
+            .iter()
+            .find(|role| role.name == name)
+            .unwrap_or_else(|| panic!("the starter defines no role {name}"));
         assert_eq!(
             role.prompt.hash.as_deref(),
             prompt_hash,

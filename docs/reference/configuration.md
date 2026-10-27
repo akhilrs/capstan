@@ -22,7 +22,7 @@ cstan dash            # watch the team (optional)
 
 ## Configuration: `capstan.toml`
 
-`cstan init` writes this file. Keys are checked strictly: an unknown key is an error (`cstan config check` shows errors and warnings). The authoritative schema is `rust/crates/config/src/types.rs`.
+`cstan init` writes a short starter of this file ([The starter file](#the-starter-file)); every key, default and range is here. Keys are checked strictly: an unknown key is an error (`cstan config check` shows errors and warnings). The authoritative schema is `rust/crates/config/src/types.rs`.
 
 | Table                                                                   | Keys                                                                                                                                                                                                                                                                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -52,7 +52,54 @@ cstan dash            # watch the team (optional)
 
 There is no `[daemon]` table any more: Rust is the only daemon. An old `implementation = "rust"` still loads, with a warning; `"node"` is an error (see [docs/daemon.md](../daemon.md)).
 
-The starter file defines these roles: `pm` (PM), `developer` and `designer` (Developer), `reviewer` and `tester` (Verifier), and `supervisor` (Supervisor), all on a `claude` host. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`rust/crates/config/src/prompts.rs`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` role has a built-in prompt when it sets none; see [The designer role](#the-designer-role).
+The starter file defines these roles, in this order: `pm` (PM), `supervisor` (Supervisor), `architect`, `developer`, `designer`, `operator` and `researcher` (Developer), and `reviewer` and `tester` (Verifier), all on a `claude` host. The reviewer takes `claude-opus-5-5`; the tester takes the `[defaults.Verifier]` model. The starter enables `[architect]`, `[operator]`, `[researcher]` and `[prompt_relay]`. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`rust/crates/config/src/prompts.rs`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` role has a built-in prompt when it sets none; see [The designer role](#the-designer-role).
+
+### The starter file
+
+`cstan init` writes the sections in this order, with only a few comments:
+
+1. `schema_version`, then `[project]` (commented), `[limits]`, `[layout]`, `[notifications]`.
+2. The agents' switches: `[supervision]`, `[architect]`, `[operator]`, `[researcher]`, `[prompt_relay]`, then `[nexora]` (commented: it needs a `.nexora.toml`).
+3. `[worktree]` and `[env]` (commented examples), `[hosts.*]`, `[defaults.*]`, `[mcp_servers.*]`.
+4. All `[roles.*]`: `pm`, `supervisor`, `architect`, `developer`, `designer`, `reviewer`, `tester`, `operator`, `researcher`, then the commented `external-review` example.
+5. `[cache]` and `[verify]` (commented examples; both are project-specific).
+
+The sections whose switch is on (`architect`, `operator`, `researcher`, `prompt_relay`) have the roles they need defined. A missing section keeps its code default, so an existing project keeps what its own file says. Add any other table from the lists below. To make `permission_mode = "auto"` the default, set it in a `[defaults.<Kind>]` table.
+
+Defaults and ranges of keys the starter does not show:
+
+| Key | Default | Range / values |
+| --- | ------- | -------------- |
+| `herdr_session` | `"default"` | The Herdr session Capstan runs its panes in. |
+| `[project] name` | the directory name | Must match the name `cstan init` recorded. |
+| `[ledger] keep_migration_backups` | 3 | 1 to 50: state backups kept after an upgrade. |
+| `[ledger] retention_days` | 30 | 0 to 3650: days a mutation request is kept for replay; 0 keeps all. |
+| `[layout] min_pane_columns`, `min_pane_rows` | 60, 12 | 1 to 500, 1 to 200. |
+| `[notifications] herdr`, `fallback` | true, true | Send to Herdr; also write `.capstan/state/notifications.jsonl`. They must not both be false. `pm_stale_minutes` (default 10, 1 to 1440): a message for the PM unanswered this long (pulled but not acknowledged counts) raises one "stale" notification. |
+| `[hosts.<name>] command` | the kind | Executable name or path. |
+| `[hosts.<name>] shell_command_timeout_seconds`, `wait_timeout_seconds` | 120, 90 | 1 to 3600 each; `wait_timeout_seconds` stays below the shell timeout. |
+| `[hosts.<name>] permission_mode` | none | `default`, `acceptEdits`, `plan`, `auto` on a claude host; `acceptEdits` or `auto` on codex, omp and pi. |
+| `[worktree] setup`, `setup_timeout_seconds` | none, 600 | A shell command (at most 1000 characters) and 1 to 3600; the timeout needs `setup`. Both `setup` and `teardown` run in the project root with `sh -c` and the filtered environment; keep them idempotent. |
+| `[env] pass` | none | Names copied from where `cstan start` runs (one-line values only); a name not set there is reported when agents launch. |
+| `[timers] max_deferral_seconds` | 120 | 1 to 3600. |
+| `[timers] max_busy_deferral_seconds` | 3600 | 60 to 86400. |
+| `[timers] pm_ack_timeout_seconds` | 600 | 1 to 86400. |
+| `[timers] pm_notify_after_seconds` | 300 | 1 to 86400. |
+| `[timers] notify_interval_seconds` | 600 | 1 to 86400. |
+| `[timers] stall_after_seconds` | 900 | 1 to 86400. |
+| `[timers] worker_ack_timeout_seconds` | 600 | 1 to 86400. |
+| `[timers] finding_check_seconds` | 1800 | 60 to 86400. |
+| `[timers] pm_wake_after_seconds` | 20 | 0 to 3600. |
+| `[timers] pm_wake_interval_seconds` | 120 | 10 to 3600. |
+| `[supervision] enabled`, `check_seconds` | true, 300 | The controller keeps one Supervisor running while workers are active; a Supervisor is a Claude session and uses usage. |
+| `[roles.<name>] hooks` | none | `off` or `inherit`: whether the role runs your own Claude Code hooks (claude hosts only). |
+| `[roles.<name>] max_active` | unlimited | See [`max_active`](#max_active). |
+| `[mcp_servers.<name>]` | none | The name becomes the `mcp__<name>__` tool prefix. Pin the package version: an unpinned package (`@latest` or no `@version`) is warned about. |
+| `[architect] high_risk_triggers` | `["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]` | Plans that match one are reviewed when `plan_review = "high_risk"`. |
+| `[nexora] track`, `default_action` | `"ask"`, `"create"` | Policy only; connection details stay in `.nexora.toml`, which Capstan never reads. `"ask"` shows the PM's intake picker, `"always"` applies `default_action` without asking, `"never"` removes every Nexora instruction from the PM prompt. |
+| `[prompt_relay] enabled`, `capture_ttl_seconds` | false, 600 | While false, nothing about the relay reaches an agent and both `cstan prompt` subcommands are unavailable. 60 to 3600. |
+
+The optional Codex, OMP and pi hosts run unattended with full access and without a sandbox: nothing stops a push or an edit outside the worktree, and `cstan config check` warns about every such role. PM, Supervisor, architect, operator and researcher roles stay on a claude host. `codex`, `omp` and `pi` ignore `allow`, `deny`, `mcp` and `hooks` with a warning. See [Running a worker on Codex, OMP or pi](#running-a-worker-on-codex-omp-or-pi).
 
 ### `max_active`
 

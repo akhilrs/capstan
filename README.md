@@ -154,7 +154,7 @@ Switch to the PM's Herdr pane and tell it what you want built. `cstan stop` shut
 
 ## Configuration
 
-`cstan init` writes a commented starter `capstan.toml`. The designer role's prompt is built in; set `prompt_file` on `[roles.designer]` to replace it. Keys are checked strictly: an unknown key is an error. A trimmed example:
+`cstan init` writes a short starter `capstan.toml` (the full key list is in the reference). The designer role's prompt is built in; set `prompt_file` on `[roles.designer]` to replace it. Keys are checked strictly: an unknown key is an error. A trimmed example:
 
 ```toml
 schema_version = 1
@@ -196,8 +196,8 @@ allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
 prompt = "You implement code changes. Work only in your own worktree ..."
 
-# Optional tables, off until enabled: [architect], [operator], [prompt_relay],
-# [researcher] with [mcp_servers.<name>], and [nexora].
+# The starter also enables [architect], [operator], [researcher] and [prompt_relay],
+# each with its role; [nexora] stays off until you add it.
 ```
 
 <details>
@@ -228,7 +228,7 @@ The full reference, with defaults, ranges, Codex, OMP and pi workers and the tea
 
 ## Roles
 
-A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first six rows; the next three are optional and come commented out. The last six are optional roles you add to your own `capstan.toml` (see [Optional roles](docs/reference/configuration.md#optional-roles)).
+A role has a free name and one of four kinds; the kind decides what the agent may do. The starter config defines the first nine rows and enables the architect, operator, researcher and prompt relay. The last six are optional roles you add to your own `capstan.toml` (see [Optional roles](docs/reference/configuration.md#optional-roles)).
 
 | Role              | Kind       | Does                                                                                                       |
 | ----------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |

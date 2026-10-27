@@ -76,9 +76,7 @@ fn a_non_boolean_or_unknown_key_is_refused() {
 }
 
 #[test]
-fn the_starter_documents_the_section_commented() {
+fn the_starter_has_no_active_design_table() {
     let starter = capstan_config::starter::STARTER_CONFIG;
-    assert!(starter.contains("# [design]"));
-    assert!(starter.contains("# require_approval = true"));
     assert!(!starter.lines().any(|l| l.starts_with("[design]")));
 }

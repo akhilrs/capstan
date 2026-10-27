@@ -122,23 +122,12 @@ fn the_notice_table_has_unique_names() {
 }
 
 #[test]
-fn the_starter_documents_messages_and_uncommenting_it_loads() {
-    assert!(STARTER_CONFIG.contains("# [messages]"));
-    let mut lines = Vec::new();
-    let mut inside = false;
-    for line in STARTER_CONFIG.lines() {
-        if line == "# [messages]" {
-            inside = true;
-        }
-        if inside {
-            if let Some(rest) = line.strip_prefix("# ") {
-                lines.push(rest.to_string());
-                continue;
-            }
-            break;
-        }
-    }
-    let section = lines.join("\n");
-    let config = load(&format!("{section}\n")).expect("the commented section loads");
+fn the_starter_sets_no_messages_table_and_gets_the_defaults() {
+    assert!(!STARTER_CONFIG.lines().any(|l| l.starts_with("[messages]")));
+    let config = parse_config(
+        STARTER_CONFIG.as_bytes(),
+        std::path::Path::new("/nonexistent"),
+    )
+    .expect("the starter loads");
     assert_eq!(config.messages, load("").unwrap().messages);
 }

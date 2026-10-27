@@ -1,73 +1,96 @@
-# Capstan project configuration. Active lines are what Capstan runs with; every other setting is shown commented
-# with its default, so remove the leading "# " to change it. schema_version, hosts and roles are required.
+# Capstan project configuration. Every key, default and range is in docs/reference/configuration.md.
 # `cstan config check` validates this file.
-# Order: schema_version, herdr_session, project; hosts; defaults; roles; limits, layout, notifications, messages,
-# timers, supervision, liveness; worktree, cleanup, env, cache, verify, review, design; mcp_servers, prompt_relay,
-# nexora; architect, operator, researcher.
 schema_version = 1
 
-# herdr_session = "default"              # the Herdr session Capstan runs its panes in
-
 # [project]
-# name = "my-project"                    # must match the name `cstan init` recorded (the directory name)
+# name = "my-project"                    # the directory name `cstan init` recorded
 
-# Hosts: the CLIs that run agents. A claude host is required; add a codex, omp or pi host to run workers there.
-# A host may set the model and permission_mode its roles take when they set none of their own.
+[limits]
+max_workers = 3
+
+[layout]
+spawn = "pane"                           # "pane" or "tab"
+pm_width_percent = 60
+
+[notifications]
+pm_stale_minutes = 10
+
+[supervision]
+enabled = true                           # a Supervisor session uses usage; false turns it off
+check_seconds = 300
+
+[architect]
+enabled = true
+role = "architect"
+reviewer_role = "reviewer"
+
+[operator]
+enabled = true
+role = "operator"
+
+[researcher]
+enabled = true
+role = "researcher"
+
+[prompt_relay]
+enabled = true
+
+# Opt-in: mirror work into Nexora. Needs a .nexora.toml with the connection details.
+# [nexora]
+# track = "ask"                          # "ask" | "always" | "never"
+
+# Opt-in: a command that prepares each agent's worktree, one that runs before it is removed.
+# [worktree]
+# setup = "npm ci"
+# teardown = "rm -rf node_modules"
+
+# Opt-in: environment variables agents need beyond the basic ones.
+# [env]
+# pass = ["MY_API_KEY"]
+
 [hosts.claude]
 kind = "claude"
-# command = "claude"                     # executable name or path; defaults to the kind
-# shell_command_timeout_seconds = 120    # 1 to 3600
-# wait_timeout_seconds = 90              # 1 to 3600; must stay below shell_command_timeout_seconds
-# model = "claude-opus-5-5"              # the model roles on this host take when they set none
-# permission_mode = "auto"               # "default" | "acceptEdits" | "plan" | "auto"
 
-# Optional Codex, OMP and pi hosts for Developer and Verifier roles. All run unattended with full access
-# and without a sandbox: nothing stops a push or an edit outside the worktree, and `cstan config check`
-# warns about every such role. PM, Supervisor, architect, operator and researcher roles stay on a claude host.
+# Opt-in: a Codex, OMP or pi host. Point a Developer or Verifier role's `host` at it.
 # [hosts.codex]
 # kind = "codex"
 # model = "<a model your codex CLI accepts>"
-# permission_mode = "auto"               # "acceptEdits" or "auto"
-# [hosts.omp]
-# kind = "omp"
-# model = "<a model your omp CLI accepts>"
-# permission_mode = "auto"               # "acceptEdits" or "auto"
-# [hosts.pi]
-# kind = "pi"
-# model = "<a model your pi CLI accepts>"
-# permission_mode = "auto"               # "acceptEdits" or "auto"
 
-# The model and permission mode a role gets when it sets none of its own, by role kind
-# (PM, Supervisor, Developer, Verifier). [defaults] itself applies to every kind. A role's own
-# model or permission_mode always wins. permission_mode = "auto" lets Claude Code's auto mode
-# approve routine actions, so agents stall at permission prompts less often.
-# [defaults]
-# model = "claude-sonnet-5-5"            # applies to every kind without its own [defaults.<Kind>]
-# permission_mode = "auto"
+# Add permission_mode "auto" here to let Claude Code's auto mode approve routine actions.
+# A role's own model or permission_mode wins over these.
 [defaults.PM]
 model = "claude-opus-5-5"
-# permission_mode = "auto"
 
 [defaults.Supervisor]
 model = "claude-opus-5-5"
-# permission_mode = "auto"
 
 [defaults.Developer]
 model = "claude-sonnet-5-5"
-# permission_mode = "auto"
 
 [defaults.Verifier]
 model = "claude-sonnet-5-5"
-# permission_mode = "auto"
 
-# Roles. To run a worker role on another host, change its `host` line to a host defined above (the host's model
-# and permission_mode then apply); that is the only edit. codex, omp and pi ignore allow, deny, mcp and hooks with
-# a warning, so the Claude tool rules below do not carry over.
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
+
 [roles.pm]
 kind = "PM"
 host = "claude"
-# model = "claude-opus-5-5"              # the role's own model; beats the host and [defaults.<Kind>]
-# permission_mode = "default"            # the role's own permission mode
+
+[roles.supervisor]
+kind = "Supervisor"
+host = "claude"
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
+prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
+
+[roles.architect]
+kind = "Developer"
+host = "claude"
+permission_mode = "acceptEdits"
+allow = ["Bash(git *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
+prompt = "You plan and integrate; you never edit or commit project files. Follow the project rules the PM gives you."
 
 [roles.developer]
 kind = "Developer"
@@ -75,8 +98,6 @@ host = "claude"
 permission_mode = "acceptEdits"
 allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
-# hooks = "off"                          # "off" | "inherit": whether the role runs your own Claude Code hooks (claude hosts only)
-# max_active = 3                         # the most agents of this role active at once; absent means unlimited
 prompt = "You implement code changes. Work only in your own worktree and commit your work on your own branch in small commits. Never push and never merge. When you finish, tell the project manager the branch name, what you changed and what you could not verify."
 
 [roles.designer]
@@ -86,12 +107,11 @@ permission_mode = "acceptEdits"
 mcp = ["playwright"]
 allow = ["Bash(git *)", "Skill", "Artifact", "DesignSync", "mcp__playwright", "Bash(python3 -m http.server *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
-# The designer prompt is built in. To replace it, set prompt_file = "<repo-relative path>" to your own file.
-# prompt_file = "roles/designer.md"      # a repo-relative file used instead of `prompt`
 
 [roles.reviewer]
 kind = "Verifier"
 host = "claude"
+model = "claude-opus-5-5"
 permission_mode = "acceptEdits"
 allow = ["Bash(git *)"]
 deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)"]
@@ -105,270 +125,35 @@ allow = ["Bash(git *)"]
 deny = ["Bash(git push)", "Bash(git push *)"]
 prompt = "You test and verify behavior. Run the real checks, report exactly what passed and what failed, and add tests only when asked. Work only in your own worktree and commit any test changes on your own branch. Never push and never merge. When you finish, tell the project manager the branch name and the result."
 
-[roles.supervisor]
-kind = "Supervisor"
+[roles.operator]
+kind = "Developer"
 host = "claude"
-deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(herdr *)", "Bash(tmux *)"]
-prompt = "You watch the other agents and raise findings when one is stuck. You only read and report through cstan; you never edit files and never run project commands."
+permission_mode = "default"
+allow = ["Bash(cstan *)"]
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]
+prompt = "You run shell commands for the PM through cstan op propose, and nothing else."
 
-# [roles.architect]
-# kind = "Developer"
-# host = "claude"
-# permission_mode = "acceptEdits"
-# allow = ["Bash(git *)"]
-# deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
-# prompt = "You plan and integrate; you never edit or commit project files. Follow the project rules the PM gives you."
+[roles.researcher]
+kind = "Developer"
+host = "claude"
+permission_mode = "default"
+mcp = ["playwright"]
+allow = ["WebSearch", "WebFetch", "Bash(curl *)", "Bash(jq *)", "Bash(date*)", "Write(docs/research/**)", "Edit(docs/research/**)", "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show *)", "Bash(git rev-parse *)", "Bash(git add *)", "Bash(git commit *)", "mcp__playwright__browser_navigate", "mcp__playwright__browser_navigate_back", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_click", "mcp__playwright__browser_type", "mcp__playwright__browser_press_key", "mcp__playwright__browser_wait_for", "mcp__playwright__browser_tabs", "mcp__playwright__browser_close"]
+deny = ["Agent", "Task", "NotebookEdit", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)", "Bash(git rebase *)", "Bash(git reset *)", "Bash(git remote *)", "Bash(git config *)", "Bash(git checkout *)", "Bash(git switch *)", "Bash(curl * -d*)", "Bash(curl * --data*)", "Bash(curl * -F*)", "Bash(curl * --form*)", "Bash(curl * -T*)", "Bash(curl * --upload-file*)", "Bash(curl * -X*)", "Bash(curl * --request*)", "Bash(curl * --json*)", "Bash(curl * -o*)", "Bash(curl * --output*)", "Bash(curl * -O*)", "Bash(curl * --remote-name*)", "Bash(curl * -K*)", "Bash(curl * --config*)", "Bash(curl * -u*)", "Bash(curl * --user*)", "Bash(curl * -c*)", "Bash(curl * --cookie-jar*)", "Bash(curl * -D*)", "Bash(curl * --dump-header*)", "Bash(curl * --trace*)", "Bash(curl * --stderr*)", "Bash(curl * --create-dirs*)", "Bash(curl * --libcurl*)", "Bash(curl * --hsts*)", "Bash(curl * --alt-svc*)", "Bash(curl * --etag-save*)", "Bash(curl * file:*)", "Bash(curl * @*)", "Bash(curl -d*)", "Bash(curl --data*)", "Bash(curl -F*)", "Bash(curl --form*)", "Bash(curl -T*)", "Bash(curl --upload-file*)", "Bash(curl -X*)", "Bash(curl --request*)", "Bash(curl --json*)", "Bash(curl -o*)", "Bash(curl --output*)", "Bash(curl -O*)", "Bash(curl --remote-name*)", "Bash(curl -K*)", "Bash(curl --config*)", "Bash(curl -u*)", "Bash(curl --user*)", "Bash(curl -c*)", "Bash(curl --cookie-jar*)", "Bash(curl -D*)", "Bash(curl --dump-header*)", "Bash(curl --trace*)", "Bash(curl --stderr*)", "Bash(curl --create-dirs*)", "Bash(curl --libcurl*)", "Bash(curl --hsts*)", "Bash(curl --alt-svc*)", "Bash(curl --etag-save*)", "Bash(curl *%output{*)", "Bash(curl file:*)", "Bash(curl @*)", "Bash(git * --output*)"]
+prompt = "You research questions on the web and write sourced findings as files under docs/research, then commit them on your own branch. Never push and never merge."
 
-# [roles.operator]
-# kind = "Developer"
-# host = "claude"
-# permission_mode = "default"
-# allow = ["Bash(cstan *)"]
-# deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"]
-# prompt = "You run shell commands for the PM through cstan op propose, and nothing else."
-
-# An on-request second-opinion reviewer from another model family. Ask with
-# cstan request-review <id> external-review. It runs on codex with full access,
-# so read-only is enforced by the prompt only. Needs [hosts.codex] with a model.
+# Opt-in: an on-request second opinion from another model family
+# (cstan request-review <id> external-review). Needs [hosts.codex] with a model.
 # [roles.external-review]
 # kind = "Verifier"
 # host = "codex"
 # permission_mode = "auto"
 # prompt = "You are an independent second-opinion reviewer from a different model family. You are asked for code, architecture or plan, or workflow reviews when the user or the project manager requests an external review. Read the change or plan and the surrounding code. Do not edit, create or delete any file, never commit, never push and never merge; this limit is enforced only by this prompt, not by the host. Judge correctness, design and architecture fit, failure modes, security, tests and workflow or process risks, as the request asks. Answer once with a verdict, PASS or FINDINGS. Give each finding a severity (blocker, major or minor), a file:line, the concrete failure scenario and a suggested fix. Then say what you could not check."
 
-# The Researcher role: web search and fetch, read-only curl, a headless browser through the
-# playwright MCP server, and writes only under the researcher output_dir. See [researcher] above.
-# [roles.researcher]
-# kind = "Developer"
-# host = "claude"
-# permission_mode = "default"
-# mcp = ["playwright"]
-# allow = ["WebSearch", "WebFetch", "Bash(curl *)", "Bash(jq *)", "Bash(date*)", "Write(docs/research/**)", "Edit(docs/research/**)", "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show *)", "Bash(git rev-parse *)", "Bash(git add *)", "Bash(git commit *)", "mcp__playwright__browser_navigate", "mcp__playwright__browser_navigate_back", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_click", "mcp__playwright__browser_type", "mcp__playwright__browser_press_key", "mcp__playwright__browser_wait_for", "mcp__playwright__browser_tabs", "mcp__playwright__browser_close"]
-# deny = ["Agent", "Task", "NotebookEdit", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)", "Bash(git rebase *)", "Bash(git reset *)", "Bash(git remote *)", "Bash(git config *)", "Bash(git checkout *)", "Bash(git switch *)", "Bash(curl * -d*)", "Bash(curl * --data*)", "Bash(curl * -F*)", "Bash(curl * --form*)", "Bash(curl * -T*)", "Bash(curl * --upload-file*)", "Bash(curl * -X*)", "Bash(curl * --request*)", "Bash(curl * --json*)", "Bash(curl * -o*)", "Bash(curl * --output*)", "Bash(curl * -O*)", "Bash(curl * --remote-name*)", "Bash(curl * -K*)", "Bash(curl * --config*)", "Bash(curl * -u*)", "Bash(curl * --user*)", "Bash(curl * -c*)", "Bash(curl * --cookie-jar*)", "Bash(curl * -D*)", "Bash(curl * --dump-header*)", "Bash(curl * --trace*)", "Bash(curl * --stderr*)", "Bash(curl * --create-dirs*)", "Bash(curl * --libcurl*)", "Bash(curl * --hsts*)", "Bash(curl * --alt-svc*)", "Bash(curl * --etag-save*)", "Bash(curl * file:*)", "Bash(curl * @*)", "Bash(curl -d*)", "Bash(curl --data*)", "Bash(curl -F*)", "Bash(curl --form*)", "Bash(curl -T*)", "Bash(curl --upload-file*)", "Bash(curl -X*)", "Bash(curl --request*)", "Bash(curl --json*)", "Bash(curl -o*)", "Bash(curl --output*)", "Bash(curl -O*)", "Bash(curl --remote-name*)", "Bash(curl -K*)", "Bash(curl --config*)", "Bash(curl -u*)", "Bash(curl --user*)", "Bash(curl -c*)", "Bash(curl --cookie-jar*)", "Bash(curl -D*)", "Bash(curl --dump-header*)", "Bash(curl --trace*)", "Bash(curl --stderr*)", "Bash(curl --create-dirs*)", "Bash(curl --libcurl*)", "Bash(curl --hsts*)", "Bash(curl --alt-svc*)", "Bash(curl --etag-save*)", "Bash(curl *%output{*)", "Bash(curl file:*)", "Bash(curl @*)", "Bash(git * --output*)"]
-# prompt = "You research questions on the web and write sourced findings as files under docs/research, then commit them on your own branch. Never push and never merge."
-
-# How many workers may run at once.
-[limits]
-max_workers = 3                          # 1 to 16
-
-# Ledger state backups and the replay window of mutation requests.
-# [ledger]
-# keep_migration_backups = 3             # state backups kept after an upgrade; 1 to 50
-# retention_days = 30                    # days a mutation request is kept for replay; 0 keeps all; 0 to 3650
-
-[layout]
-spawn = "pane"                           # "tab" (the default) or "pane"
-pm_width_percent = 60                    # 30 to 80
-# min_pane_columns = 60                  # 1 to 500
-# min_pane_rows = 12                     # 1 to 200
-
-# A message for the PM that stays unanswered this many minutes (pulled but not acknowledged counts)
-# raises one "stale" notification, shown in the status pane and sent to Herdr. Range 1 to 1440.
-[notifications]
-pm_stale_minutes = 10
-# herdr = true                           # send notifications to Herdr; herdr and fallback must not both be false
-# fallback = true                        # also write them to .capstan/state/notifications.jsonl
-
-# Messages between agents are action (the default: the PM is woken) or info (progress notes, FYI; the PM
-# sees them in a digest). The defaults are shown; remove the leading # to change them.
-# [messages]
-# wake = "action"                  # "action": only action messages wake the PM; "all": every message does
-# send_default = "action"          # class of a cstan send without --info
-# info_wake_after_seconds = 600    # wake the PM for unread info after this long (0 = at once)
-# auto_ack_info = true             # the PM digest acknowledges the info it shows
-# [messages.notice_class]          # e.g. finding_resolved = "action"; kinds are listed in docs/reference/configuration.md
-
-# Timers (seconds). The defaults are shown with their ranges; remove the leading # to change one.
-# [timers]
-# max_deferral_seconds = 120             # 1 to 3600
-# max_busy_deferral_seconds = 3600       # 60 to 86400
-# pm_ack_timeout_seconds = 600           # 1 to 86400
-# pm_notify_after_seconds = 300          # 1 to 86400
-# notify_interval_seconds = 600          # 1 to 86400
-# stall_after_seconds = 900              # 1 to 86400
-# worker_ack_timeout_seconds = 600       # 1 to 86400
-# finding_check_seconds = 1800           # 60 to 86400
-# pm_wake_after_seconds = 20             # 0 to 3600
-# pm_wake_interval_seconds = 120         # 10 to 3600
-
-# While workers are active the controller keeps one Supervisor running and sends it a routine
-# check. A Supervisor is a Claude session, so it uses usage; set enabled = false to turn it off.
-[supervision]
-enabled = true
-check_seconds = 300
-
-# The controller checks that each agent's session is still alive and restarts one that has died.
-# The defaults are shown; remove the leading # to change them.
-# [liveness]
-# enabled = true
-# check_seconds = 30                     # 10 to 3600
-# confirm_checks = 3                     # 2 to 100: failed checks in a row before an agent counts as dead
-# start_grace_seconds = 120              # 30 to 3600: an agent is not checked this long after it starts
-# stall_child_max_seconds = 3600         # 60 to 86400: how long a running build keeps a silent agent from being called stalled
-
-# A shell command that prepares each agent's worktree after it is made, and one that runs before it is removed.
-# Both run in the project root with sh -c and the filtered environment; keep them idempotent.
-# [worktree]
-# setup = "npm ci"                       # at most 1000 characters
-# setup_timeout_seconds = 600            # 1 to 3600; needs setup
-# teardown = "rm -rf node_modules"       # runs before the worktree is removed; its failure never blocks removal
-# teardown_timeout_seconds = 60          # 1 to 3600; needs teardown
-
-# What Capstan removes after an agent ends.
-# [cleanup]
-# branches = "ask"                       # "auto" | "ask" | "off": remove finished agent branches automatically, after asking, or never
-# worktrees = "release"                  # "release" removes an ended agent's worktree; "keep" leaves it
-# include_unlanded = false               # whether branches that are not merged are cleanup candidates
-
-# Variables an agent needs beyond the basic ones (PATH, HOME, USER, LANG, TERM...) are copied
-# from the environment where `cstan start` runs, never from your interactive shell file alone.
-# Name them here (one-line values only); a name that is not set where the daemon starts is reported
-# when agents launch.
-# [env]
-# pass = ["NEXORA_API_KEY"]
-
-# Shared tool caches: agents in different worktrees reuse compiler and package-manager caches instead
-# of starting cold. Presets: rust (sccache), python, node, go. Listed presets are always on; `detect`
-# only adds the ones the project's marker files (Cargo.toml, pyproject.toml, package.json, go.mod...) show.
+# Opt-in: shared tool caches (rust, python, node, go) so worktrees reuse build caches.
 # [cache]
-# presets = ["rust", "python", "node", "go"]
-# detect = false
-# root = "~/.cache/capstan"       # absolute or ~/, outside the project
-# scope = "project"               # "project" or "user"
-# max_size_gb = 20                # 0.1 to 10000
-# max_age_days = 30               # 1 to 3650
-# [cache.rust]
-# mode = "sccache"                # "sccache", "shared-build-dir" or "off"
-# incremental = false             # true keeps incremental compilation on (it defeats sccache)
-# max_size_gb = 20                # this preset's own cap
-# [cache.python]
-# max_size_gb = 20                # python, node and go take only a cap
-# [cache.node]
-# max_size_gb = 20
-# [cache.go]
-# max_size_gb = 20
-# [cache.entries.bundler]         # your own entry, for a tool without a preset
-# dirs = { BUNDLE_PATH = "bundle" }
-# set = { BUNDLE_JOBS = "4" }     # fixed, non-secret values only
-# requires = "bundle"            # a program that must be on PATH
-# prune = ["bundle clean"]       # commands that trim the entry
-# stop = ["bundle exec spring stop"]  # commands that stop a daemon the tool left running
-# max_size_gb = 5                 # this entry's own cap
-# [cache.setup_reuse]
-# key_files = ["Cargo.lock"]    # files that identify a worktree's setup result
-# paths = ["target"]            # directories reused while those files are unchanged
+# presets = ["rust"]
 
-# A verification gate: the commands every candidate commit must pass in a scratch worktree before review or
-# integration. Absent means no gate.
+# Opt-in: commands every candidate commit must pass in a scratch worktree before review or integration.
 # [verify]
-# commands = ["cargo test"]              # required; 1 to 16 commands run with sh -c, stopping at the first failure
-# env = { RUST_LOG = "warn" }            # extra variables for the commands; one-line values
-# timeout_seconds = 3600                 # 60 to 14400 for the whole run
-# max_parallel = 1                       # 1 to 8 runs at once
-# auto = ["report", "integration"]       # verify automatically on a worker report and/or an integration; default []
-# require = ["review", "integrate"]      # refuse request-review and/or integrate without a passed run; default []
-# output_tail_bytes = 8192               # 1024 to 12288: how much of the output end is kept
-# max_log_bytes = 4194304                # 65536 to 67108864: cap on one run's full log
-# keep_logs = 20                         # 1 to 500 run logs kept
-# worktree_hooks = true                  # run [worktree] setup before the commands and teardown after
-# reap = true                            # stop processes a run leaves behind when it ends
-# scratch_dir = "~/.cache/capstan/verify"  # where scratch worktrees are made; absolute or ~/, without ..
-
-# Reviewer reuse for planned work: a plan's reviewer can stay warm between review requests.
-# [review]
-# warm_reviewer = true                   # keep a plan's reviewer after its verdict for the next request
-# idle_minutes = 30                      # 5 to 240: how long a kept reviewer may wait
-# max_reviews = 6                        # 1 to 20 requests before it is replaced by a fresh one
-# integration = false                    # whether integration reviews may reuse the plan's reviewer
-
-# The user approves a design before packages that build on it are assigned (see docs/reference/configuration.md).
-# [design]
-# require_approval = true          # a package that depends on a design package ("design": true in the plan) is assigned only after
-#                                  # the PM records the user's approval with cstan design approve <plan>/<package>
-# design_record = "DESIGN.md"      # the design record: one repo-relative file, or a list of 1 to 8, one per surface
-# design_record_mode = "maintain"  # maintain: the designer keeps the record current; read: only reads it; off: no record
-# guidance = "builtin"             # builtin: design guidance only with the built-in designer prompt; on: also with your own
-#                                  # designer prompt; off: never
-# guidance_rules = "extend"        # extend: the guidance adds to the designer's own rules; override: it replaces them
-# guidance_extra = ["docs/design/directions.md", "docs/design/rules.md"]  # up to 8 repo-relative files the designer reads when present
-# directions_min = 2               # 2 to 5: the fewest directions the designer proposes
-# directions_max = 3               # 2 to 6, not below directions_min: the most directions the designer proposes
-# reference_collection = ""        # an absolute or ~/ path outside the project with reference material; "" for none
-
-# An MCP server a role may use (roles.<name>.mcp lists server names). The name becomes the
-# mcp__<name>__ tool prefix. Pin the package version; an unpinned package (@latest or no @version) is warned about.
-# The designer and the optional researcher share the playwright server below. To switch it off for the
-# designer, remove its mcp line (its prompt then reports the Playwright checks as unverified).
-[mcp_servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--output-dir", "/tmp/capstan-playwright"]
-
-# An optional prompt relay lets the PM show you a blocked worker's permission prompt and type the answer
-# you pick. While enabled = false (the default), nothing about it reaches an agent and both
-# cstan prompt subcommands are unavailable. To use it, remove the leading # from this table.
-# [prompt_relay]
-# enabled = true
-# capture_ttl_seconds = 600     # how long a shown prompt can be answered; 60 to 3600
-
-# Whether the PM mirrors work into Nexora. Policy only: connection details stay in .nexora.toml,
-# which Capstan never reads. "ask" shows the PM's intake picker, "always" applies default_action
-# without asking, "never" removes every Nexora instruction from the PM prompt.
-# [nexora]
-# track = "ask"                 # "ask" | "always" | "never"
-# default_action = "create"     # what "always" does: "create" | "link" | "none"
-
-# An optional Architect plans normal and high-risk work, runs integration and signs it off. The
-# user still merges to the main branch. While enabled = false, nothing about plans reaches an agent.
-# To use it, remove the leading # from this table and from [roles.architect] below. The role must
-# be a Developer role on a claude host; reviewer_role, if set, must be a Verifier role.
-# [architect]
-# enabled = true
-# role = "architect"
-# plan_review = "high_risk"     # "high_risk" | "always" | "never"
-# reviewer_role = "reviewer"
-# max_packages = 8              # 1 to 20
-# max_review_rounds = 5         # 1 to 20: design rounds of a plan review
-# plan_amend = true             # allow cstan plan amend
-# count_toward_worker_limit = false
-# high_risk_triggers = ["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]
-
-# An optional Operator runs shell commands for the PM, but only one proposal at a time and only after
-# you approve it in the PM's picker; auto_approve lists exact read-only commands that skip the picker
-# (the allowlist is in src/operator-policy.ts). While enabled = false, nothing about an Operator
-# reaches an agent. To use it, remove the leading # from this table and from [roles.operator] below.
-# The role must be a Developer role on a claude host, different from the architect role.
-# [operator]
-# enabled = true
-# role = "operator"
-# auto_approve = ["ls -l", "git rev-parse --short HEAD"]   # exact commands only
-# auto_approve_prefix = []      # opt-in prefixes; only safe path arguments may follow
-# timeout_seconds = 300
-# max_timeout_seconds = 1800    # at most 3600
-# output_tail_bytes = 8192      # at most 12288
-# proposal_ttl_minutes = 60
-# approval_ttl_minutes = 10
-# max_pending_proposals = 5
-# count_toward_worker_limit = false
-# restart_health_timeout_seconds = 60
-# restart_idle_wait_seconds = 120
-# session_grant_max_minutes = 60    # how long "approve and allow again" grants last; at most 480
-# full_auto_default_minutes = 30    # full auto: the PM may switch off every guard for this long, only after asking you
-# full_auto_max_minutes = 120       # the longest full auto period; at most 480
-# auto_window_max_minutes = 240     # the longest auto-approve window; 1 to 480
-# auto_window_tool_prompts = true   # a window also answers web fetch, MCP and other non-file tool prompts
-# approval_floor = ["git push --force", "git push -f", "git push --force-with-lease", "git push --force-if-includes", "git push --delete", "git push -d", "git push --mirror", "git push --prune", "@push-rewrite-refspec", "@delete-outside-project", "@write-outside-project", "@controller-restart"]   # what an auto-approve window never answers
-
-# An optional Researcher reads the web and writes findings under output_dir. It is a Developer role
-# on a claude host with a strict allow list and the deny list in src/researcher-policy.ts; its MCP
-# servers come from [mcp_servers.<name>] and the role's mcp key. permission_mode "default" is the
-# starter value; acceptEdits, plan and auto are allowed, but acceptEdits and auto approve calls with
-# fewer prompts, which loosens the guards for an agent that reads untrusted pages.
-# The curl denies are guards, not a sandbox: the strict allow list, and permission_mode "default"
-# where used, are the real control. While enabled = false, nothing about a Researcher reaches an agent. To use it,
-# remove the leading # from this table and from [roles.researcher] below; [mcp_servers.playwright] is
-# already defined for the designer. The role must differ from the architect and operator roles.
-# [researcher]
-# enabled = true
-# role = "researcher"
-# output_dir = "docs/research"  # repo-relative; the only place the role may write
-# user_agent = "capstan-researcher/1.0 (research bot; contact: project owner)"
+# commands = ["make test"]

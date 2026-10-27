@@ -14,17 +14,6 @@ use std::thread;
 use serde_json::{json, Value};
 use support::*;
 
-/// The researcher comment of the starter `capstan.toml` as Node wrote it, and as Rust writes it now (the researcher role
-/// may run in any permission mode). The recorded `files` of the `init` transcripts carry the old text; see
-/// `tests/divergences/README.md`.
-const STARTER_RESEARCHER_COMMENT_NODE: &str = "# on a claude host that must use permission_mode \"default\", a strict allow list and the deny list in\n# src/researcher-policy.ts; its MCP servers come from [mcp_servers.<name>] and the role's mcp key.\n# The curl denies are guards, not a sandbox: permission_mode \"default\" plus the strict allow list is\n# the real control.";
-const STARTER_RESEARCHER_COMMENT_RUST: &str = "# on a claude host with a strict allow list and the deny list in src/researcher-policy.ts; its MCP\n# servers come from [mcp_servers.<name>] and the role's mcp key. permission_mode \"default\" is the\n# starter value; acceptEdits, plan and auto are allowed, but acceptEdits and auto approve calls with\n# fewer prompts, which loosens the guards for an agent that reads untrusted pages.\n# The curl denies are guards, not a sandbox: the strict allow list, and permission_mode \"default\"\n# where used, are the real control.";
-/// The `# [design]` comment of the starter as it was before the design record and guidance keys, and as it is now. A
-/// replayed expected file text that holds the old block gets the new one; text that holds `# [design]` without the old
-/// block exactly once fails the case, so a one-byte difference cannot be skipped.
-const STARTER_DESIGN_COMMENT_NODE: &str = "# [design]\n# require_approval = true          # a package that depends on a design package (\"design\": true in the plan) is assigned only after\n#                                  # the PM records the user's approval with cstan design approve <plan>/<package>";
-const STARTER_DESIGN_COMMENT_RUST: &str = "# [design]\n# require_approval = true          # a package that depends on a design package (\"design\": true in the plan) is assigned only after\n#                                  # the PM records the user's approval with cstan design approve <plan>/<package>\n# design_record = \"DESIGN.md\"      # the design record: one repo-relative file, or a list of 1 to 8, one per surface\n# design_record_mode = \"maintain\"  # maintain: the designer keeps the record current; read: only reads it; off: no record\n# guidance = \"builtin\"             # builtin: design guidance only with the built-in designer prompt; on: also with your own\n#                                  # designer prompt; off: never\n# guidance_rules = \"extend\"        # extend: the guidance adds to the designer's own rules; override: it replaces them\n# guidance_extra = [\"docs/design/directions.md\", \"docs/design/rules.md\"]  # up to 8 repo-relative files the designer reads when present\n# directions_min = 2               # 2 to 5: the fewest directions the designer proposes\n# directions_max = 3               # 2 to 6, not below directions_min: the most directions the designer proposes\n# reference_collection = \"\"        # an absolute or ~/ path outside the project with reference material; \"\" for none";
-
 struct Entry {
     kind: &'static str,
     mode: String,
@@ -339,20 +328,7 @@ fn replay_in(
     if let (Some(files), Some(want_files)) =
         (&files, transcript.get("files").and_then(Value::as_array))
     {
-        let want_files: Vec<Value> = want_files
-            .iter()
-            .map(|file| {
-                let mut file = file.clone();
-                if let Some(text) = file.get("text").and_then(Value::as_str) {
-                    let text = text.replace(
-                        STARTER_RESEARCHER_COMMENT_NODE,
-                        STARTER_RESEARCHER_COMMENT_RUST,
-                    );
-                    file["text"] = Value::String(rewrite_design_comment(&text)?);
-                }
-                Ok(file)
-            })
-            .collect::<Result<_, String>>()?;
+        let want_files: Vec<Value> = want_files.to_vec();
         let want_files = &want_files;
         if files != want_files {
             problems.push(format!(
@@ -377,20 +353,6 @@ fn replay_in(
         Ok(())
     } else {
         Err(problems.join("; "))
-    }
-}
-
-/// Replaces the old `# [design]` starter block with the new one; a text that holds `# [design]` must hold the old block
-/// exactly once.
-fn rewrite_design_comment(text: &str) -> Result<String, String> {
-    if !text.contains("# [design]") {
-        return Ok(text.to_string());
-    }
-    match text.matches(STARTER_DESIGN_COMMENT_NODE).count() {
-        1 => Ok(text.replace(STARTER_DESIGN_COMMENT_NODE, STARTER_DESIGN_COMMENT_RUST)),
-        found => Err(format!(
-            "the expected file text holds `# [design]` but the old starter block {found} times, not once"
-        )),
     }
 }
 

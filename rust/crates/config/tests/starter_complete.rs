@@ -1,6 +1,7 @@
-//! The starter capstan.toml documents every key the parser accepts. The key registry (`keys.rs`) is the parser's own
-//! list, so these tests tie three things together: the registry equals what the parser prints, the starter mentions
-//! every registry path (and no other), and every commented block of the starter loads once it is un-commented.
+//! The starter capstan.toml is short and generic; docs/reference documents every key the parser accepts. The key
+//! registry (`keys.rs`) is the parser's own list, so these tests tie four things together: the registry equals what the
+//! parser prints, the docs mention every registry key, the starter mentions no key the parser refuses, and every
+//! commented block of the starter loads once it is un-commented.
 use capstan_config::cache::CACHE_PRESETS;
 use capstan_config::keys::*;
 use capstan_config::starter::STARTER_CONFIG;
@@ -13,21 +14,7 @@ use std::path::Path;
 const ILLUSTRATIVE: &[(&str, &str)] = &[];
 
 /// Blocks that only load together with others: the block, then the blocks that must be un-commented with it.
-const WITH: &[(&str, &[&str])] = &[
-    ("[architect]", &["[roles.architect]"]),
-    ("[operator]", &["[roles.operator]"]),
-    ("[researcher]", &["[roles.researcher]"]),
-    ("[roles.architect]", &["[architect]"]),
-    ("[roles.operator]", &["[operator]"]),
-    ("[roles.researcher]", &["[researcher]"]),
-    ("[roles.external-review]", &["[hosts.codex]"]),
-    ("[cache.rust]", &["[cache]"]),
-    ("[cache.python]", &["[cache]"]),
-    ("[cache.node]", &["[cache]"]),
-    ("[cache.go]", &["[cache]"]),
-    ("[cache.setup_reuse]", &["[cache]"]),
-    ("[cache.entries.bundler]", &["[cache]"]),
-];
+const WITH: &[(&str, &[&str])] = &[("[roles.external-review]", &["[hosts.codex]"])];
 
 #[derive(Debug, PartialEq)]
 enum Line {
@@ -163,28 +150,45 @@ fn is_dynamic(path: &str) -> Option<&str> {
         .or_else(|| path.strip_suffix(".<ENV>"))
 }
 
-/// The non-deprecated registry paths the text does not mention.
-fn missing(text: &str) -> Vec<String> {
-    let (paths, tables) = starter_paths(text);
-    accepted_keys()
-        .into_iter()
-        .filter(|key| !key.deprecated)
-        .filter(|key| match is_dynamic(&key.path) {
-            Some(parent) => !paths.contains(parent) && !tables.contains(parent),
-            None => !paths.contains(&key.path),
-        })
-        .map(|key| key.path)
-        .collect()
+/// The text of every Markdown file under docs/reference.
+fn reference_docs() -> String {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/reference");
+    let mut text = String::new();
+    for entry in std::fs::read_dir(&dir).expect("docs/reference") {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "md") {
+            text.push_str(&std::fs::read_to_string(path).unwrap());
+        }
+    }
+    text
 }
 
 #[test]
-fn the_starter_mentions_every_accepted_key() {
-    let missing = missing(STARTER_CONFIG);
+fn the_docs_mention_every_accepted_key() {
+    let docs = reference_docs();
+    let missing: Vec<String> = accepted_keys()
+        .into_iter()
+        .filter(|key| !key.deprecated && is_dynamic(&key.path).is_none())
+        .filter(|key| {
+            let name = key.path.rsplit('.').next().unwrap();
+            !docs.contains(&format!("`{name}`")) && !docs.contains(&format!("{name} ="))
+        })
+        .map(|key| key.path)
+        .collect();
     assert!(
         missing.is_empty(),
-        "the starter does not mention these accepted keys:\n  {}",
+        "docs/reference does not mention these accepted keys:\n  {}",
         missing.join("\n  ")
     );
+}
+
+#[test]
+fn the_starter_is_short() {
+    let comments = STARTER_CONFIG
+        .lines()
+        .filter(|line| line.starts_with('#'))
+        .count();
+    assert!(comments < 40, "{comments} comment lines");
 }
 
 #[test]
@@ -206,31 +210,10 @@ fn the_starter_mentions_no_key_the_parser_refuses() {
 }
 
 #[test]
-fn the_checker_reports_exactly_the_lines_removed_from_a_copy() {
-    let mut table = String::new();
-    let trimmed: Vec<&str> = STARTER_CONFIG
-        .lines()
-        .filter(|raw| {
-            let text = raw.strip_prefix("# ").unwrap_or(raw);
-            match classify(text) {
-                Line::Header(name) => table = name,
-                Line::Key(key, _) => {
-                    if key == "herdr_session" {
-                        return false;
-                    }
-                    if key == "model" && raw.starts_with("# ") && table.starts_with("hosts.") {
-                        return false;
-                    }
-                }
-                Line::Other => {}
-            }
-            true
-        })
-        .collect();
-    assert!(trimmed.len() < STARTER_CONFIG.lines().count());
-    let mut found = missing(&trimmed.join("\n"));
-    found.sort();
-    assert_eq!(found, vec!["herdr_session", "hosts.<name>.model"]);
+fn the_path_scan_sees_active_and_commented_keys() {
+    let (paths, tables) = starter_paths("a = 1\n[hosts.x]\n# model = \"m\"\nkind = \"claude\"\n");
+    assert!(paths.contains("a") && paths.contains("hosts.<name>.model"));
+    assert!(paths.contains("hosts.<name>.kind") && tables.contains("hosts.<name>"));
 }
 
 // --- the registry is the parser's list -------------------------------------------------------------------------------
@@ -574,7 +557,7 @@ fn uncommented(text: &str, picked: &[&Block]) -> String {
 #[test]
 fn every_commented_block_loads_when_uncommented() {
     let all = blocks(STARTER_CONFIG);
-    assert!(all.len() > 20, "found only {} blocks", all.len());
+    assert!(all.len() >= 6, "found only {} blocks", all.len());
     for (name, _) in ILLUSTRATIVE.iter().map(|(name, reason)| (name, reason)) {
         assert!(all.iter().any(|block| block.name == *name), "{name}");
     }
@@ -639,15 +622,4 @@ fn the_starter_loads_with_no_warning_but_the_missing_nexora_file() {
         .filter(|warning| !warning.contains(".nexora.toml"))
         .collect();
     assert!(rest.is_empty(), "warnings: {rest:?}");
-}
-
-#[test]
-fn herdr_session_is_documented_with_its_default() {
-    let (paths, _) = starter_paths(STARTER_CONFIG);
-    assert!(paths.contains("herdr_session"));
-    let line = STARTER_CONFIG
-        .lines()
-        .find(|line| line.starts_with("# herdr_session = \"default\""))
-        .expect("herdr_session line");
-    assert!(line.contains("Herdr"), "{line}");
 }

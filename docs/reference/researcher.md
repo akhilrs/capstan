@@ -8,7 +8,7 @@ An optional **Researcher** agent looks things up on the web for the PM and write
 
 **Enable it.**
 
-1. In `capstan.toml`, uncomment the two blocks the starter file carries, `[researcher]` and `[roles.researcher]` (the wording of the comments may differ; the keys are fixed). The starter file already defines `[mcp_servers.playwright]`, shared with the designer role, so do not add it a second time (a duplicate table fails the config load):
+1. The starter `capstan.toml` that `cstan init` writes already enables the Researcher: it carries `[researcher]` and `[roles.researcher]`. A project created earlier adds the two blocks below. The starter file also defines `[mcp_servers.playwright]`, shared with the designer role, so do not add it a second time (a duplicate table fails the config load):
 
 ```toml
 [researcher]
