@@ -4,7 +4,7 @@
 //! Nothing is written and no daemon is started, stopped or signalled. A project whose daemon never ran, and that the
 //! caller does not name, is not listed; a registry would be a separate decision. The environment (`CAPSTAN_SOCKET`,
 //! `CAPSTAN_TOKEN`) is never read, and only the current user's processes are looked at.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -73,8 +73,9 @@ pub struct Endpoint {
     pub state: EndpointState,
 }
 
-/// What discovery needs from outside the process list, so a test can supply it.
-pub trait ProjectProbe {
+/// What discovery needs from outside the process list, so a test can supply it. Discovery asks every root from its
+/// own thread, so a probe is `Sync`.
+pub trait ProjectProbe: Sync {
     fn key(&self, root: &Path) -> Option<Credential>;
     fn ask(&self, root: &Path, credential: &Credential) -> EndpointState;
 }
@@ -88,18 +89,94 @@ impl ProjectProbe for Live {
     }
 
     fn ask(&self, root: &Path, credential: &Credential) -> EndpointState {
-        let socket = socket_of(root);
-        let args = ["head".to_string()];
-        match call_daemon(&socket, credential.expose(), "feed", &args, ASK_TIMEOUT_MS) {
-            Ok(Response::Ok { .. }) => EndpointState::Ready,
-            Ok(Response::Refused { code, .. }) => match code.to_utf8_lossy().as_str() {
-                "unauthorized" | "forbidden" => EndpointState::Refused,
-                "unknown_command" => EndpointState::Unsupported,
-                _ => EndpointState::Silent,
-            },
+        match call_within(root, credential, &["head".to_string()], ASK_TIMEOUT_MS) {
+            Some(Ok(Response::Ok { .. })) => EndpointState::Ready,
+            Some(Ok(Response::Refused { code, .. })) => classify(&code.to_utf8_lossy()),
             _ => EndpointState::Silent,
         }
     }
+}
+
+/// The state a refusal `code` of a `feed` call means: the key was not accepted, the daemon does not know `feed`, or
+/// (any other code) no usable answer.
+pub fn classify(code: &str) -> EndpointState {
+    match code {
+        "unauthorized" | "forbidden" => EndpointState::Refused,
+        "unknown_command" => EndpointState::Unsupported,
+        _ => EndpointState::Silent,
+    }
+}
+
+/// Roots with a helper thread still running, so a root has at most one call in flight.
+static IN_FLIGHT: std::sync::Mutex<BTreeSet<PathBuf>> = std::sync::Mutex::new(BTreeSet::new());
+/// Helper threads running now by root, for tests.
+static HELPERS: std::sync::Mutex<BTreeMap<PathBuf, usize>> = std::sync::Mutex::new(BTreeMap::new());
+
+/// Removes the root from `IN_FLIGHT` when the helper thread ends, even by a panic.
+struct Flight(PathBuf);
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        if let Ok(mut set) = IN_FLIGHT.lock() {
+            set.remove(&self.0);
+        }
+        if let Ok(mut map) = HELPERS.lock() {
+            if let Some(count) = map.get_mut(&self.0) {
+                *count = count.saturating_sub(1);
+            }
+        }
+    }
+}
+
+/// The helper threads of `call_within` for `root` that are running now.
+pub fn helper_threads(root: &Path) -> usize {
+    HELPERS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(root).copied())
+        .unwrap_or(0)
+}
+
+/// One `feed` call to the controller of `root` that gives up after `total_ms` in all. The client library's timeout is
+/// idle-based, so a peer that sends a byte now and then could hold a call for ever; the call runs on a helper thread
+/// and a call past the deadline is abandoned (its thread ends on the idle timeout). A root keeps at most one call in
+/// flight: while an abandoned call still runs, a new one for the root is not made and gets no answer, so abandoned
+/// threads are bounded by the number of roots. `None` is no answer. A slow but live peer can therefore show as
+/// silent for one poll: the call that passed its deadline is still running when the next one is asked for.
+pub fn call_within(
+    root: &Path,
+    credential: &Credential,
+    args: &[String],
+    total_ms: u64,
+) -> Option<Result<Response, capstan_client::CallError>> {
+    let socket = socket_of(root);
+    let key = credential.expose().to_string();
+    let args = args.to_vec();
+    if !IN_FLIGHT.lock().ok()?.insert(root.to_path_buf()) {
+        return None;
+    }
+    if let Ok(mut map) = HELPERS.lock() {
+        *map.entry(root.to_path_buf()).or_insert(0) += 1;
+    }
+    let flight = Flight(root.to_path_buf());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().spawn(move || {
+        let answer = call_daemon(&socket, &key, "feed", &args, total_ms);
+        // The root is free again before the caller can see the answer, so a call right after never meets a stale entry.
+        drop(flight);
+        let _ = tx.send(answer);
+    });
+    spawned.ok()?;
+    rx.recv_timeout(std::time::Duration::from_millis(total_ms))
+        .ok()
+}
+
+/// The project id of `.capstan/project.json`, when the file holds one.
+pub fn project_id(root: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(root.join(".capstan/project.json")).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let id = config.get("projectId")?.as_str()?;
+    (!id.is_empty()).then(|| id.to_string())
 }
 
 fn socket_of(root: &Path) -> PathBuf {
@@ -129,24 +206,43 @@ pub fn discover(
     for root in extra_roots {
         note(root.clone(), None);
     }
-    roots
-        .into_iter()
-        .map(|(root, pid)| {
-            let socket = socket_of(&root);
-            let state = if !root.join(".capstan").is_dir() {
-                EndpointState::Gone
-            } else {
-                match probe.key(&root) {
-                    None => EndpointState::NoKey,
-                    Some(key) => probe.ask(&root, &key),
-                }
-            };
-            Endpoint {
-                root,
-                socket,
-                pid,
-                state,
-            }
-        })
-        .collect()
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = roots
+            .into_iter()
+            .map(|(root, pid)| {
+                let again = root.clone();
+                (again, pid, scope.spawn(move || endpoint(root, pid, probe)))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|(root, pid, handle)| {
+                // A probe that panicked is a controller that did not answer.
+                handle.join().unwrap_or_else(|_| Endpoint {
+                    socket: socket_of(&root),
+                    root,
+                    pid,
+                    state: EndpointState::Silent,
+                })
+            })
+            .collect()
+    })
+}
+
+fn endpoint(root: PathBuf, pid: Option<u32>, probe: &dyn ProjectProbe) -> Endpoint {
+    let socket = socket_of(&root);
+    let state = if !root.join(".capstan").is_dir() {
+        EndpointState::Gone
+    } else {
+        match probe.key(&root) {
+            None => EndpointState::NoKey,
+            Some(key) => probe.ask(&root, &key),
+        }
+    };
+    Endpoint {
+        root,
+        socket,
+        pid,
+        state,
+    }
 }
