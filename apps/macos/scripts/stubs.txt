@@ -1,0 +1,40 @@
+apps/macos/Capstan/Navigation/SidebarView.swift	struct SidebarView: View {
+apps/macos/Capstan/Navigation/SidebarView.swift	    let model: AppModel
+apps/macos/Capstan/Hosts/HostsScreen.swift	struct HostsScreen: View {
+apps/macos/Capstan/Hosts/HostsScreen.swift	    let model: AppModel
+apps/macos/Capstan/Hosts/HostsListView.swift	struct HostsListView: View {
+apps/macos/Capstan/Hosts/HostsListView.swift	    let model: AppModel
+apps/macos/Capstan/Hosts/HostsInspector.swift	struct HostsInspector: View {
+apps/macos/Capstan/Hosts/HostsInspector.swift	    let model: AppModel
+apps/macos/Capstan/Hosts/AddHostSheet.swift	struct AddHostSheet: View {
+apps/macos/Capstan/Hosts/AddHostSheet.swift	    let model: AppModel
+apps/macos/Capstan/Hosts/AddHostSheet.swift	    let editing: HostConfig?
+apps/macos/Capstan/Hosts/AddHostSheet.swift	    let onDone: (HostConfig?) -> Void
+apps/macos/Capstan/Connection/StatusCapsule.swift	struct StatusCapsule: View {
+apps/macos/Capstan/Connection/StatusCapsule.swift	    let model: AppModel
+apps/macos/Capstan/Connection/StatusCapsule.swift	    let hostId: UUID?
+apps/macos/Capstan/Connection/ConnectionBanners.swift	struct ConnectionBanners: View {
+apps/macos/Capstan/Connection/ConnectionBanners.swift	    let model: AppModel
+apps/macos/Capstan/Connection/ConnectionBanners.swift	    let hostId: UUID
+apps/macos/Capstan/Inbox/InboxScreen.swift	struct InboxScreen: View {
+apps/macos/Capstan/Inbox/InboxScreen.swift	    let model: AppModel
+apps/macos/Capstan/Inbox/InspectorScreen.swift	struct InspectorScreen: View {
+apps/macos/Capstan/Inbox/InspectorScreen.swift	    let model: AppModel
+apps/macos/Capstan/Inbox/InspectorScreen.swift	    let row: InboxRowID?
+apps/macos/Capstan/Workspaces/AgentsScreen.swift	struct AgentsScreen: View {
+apps/macos/Capstan/Workspaces/AgentsScreen.swift	    let model: AppModel
+apps/macos/Capstan/Workspaces/AgentsScreen.swift	    let hostId: UUID
+apps/macos/Capstan/Workspaces/AgentsScreen.swift	    let projectId: String
+apps/macos/Capstan/Workspaces/PlansScreen.swift	struct PlansScreen: View {
+apps/macos/Capstan/Workspaces/PlansScreen.swift	    let model: AppModel
+apps/macos/Capstan/Workspaces/PlansScreen.swift	    let hostId: UUID
+apps/macos/Capstan/Workspaces/PlansScreen.swift	    let projectId: String
+apps/macos/Capstan/System/SettingsScreen.swift	struct SettingsScreen: View {
+apps/macos/Capstan/System/SettingsScreen.swift	    let model: AppModel
+apps/macos/Capstan/System/MenuBar.swift	struct MenuBarContent: View {
+apps/macos/Capstan/System/MenuBar.swift	    let model: AppModel
+apps/macos/Capstan/System/MenuBar.swift	struct MenuBarLabel: View {
+apps/macos/Capstan/System/MenuBar.swift	    let model: AppModel
+apps/macos/Capstan/System/MenuBar.swift	    let count: Int
+apps/macos/Capstan/System/NotificationCoordinator.swift	@MainActor final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
+apps/macos/Capstan/System/NotificationCoordinator.swift	    weak var model: AppModel?

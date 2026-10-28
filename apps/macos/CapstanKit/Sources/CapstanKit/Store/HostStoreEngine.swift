@@ -1,0 +1,202 @@
+import Foundation
+
+/// Holds the model of one host: reads what a `HostSession` delivers, keeps the model and saves it for the next run.
+public actor HostStoreEngine: StreamConsumer {
+    /// The shortest time between two saves caused by cursor lines.
+    static let saveIntervalSeconds: TimeInterval = 2
+    static let maxForwardsPerProject = 256
+
+    private let hostId: UUID
+    private let persistence: any PersistenceStore
+    private let clock: any SessionClock
+    private let onChange: @Sendable (HostModel) -> Void
+    private let onNotify: @Sendable ([NotifyCandidate]) -> Void
+    private let onRefresh: @Sendable (Set<String>) -> Void
+    private let onConnection: (@Sendable (ConnectionState) -> Void)?
+
+    private var model: HostModel
+    private var staging = Staging()
+    private var connectionState: ConnectionState = .connecting
+    private var lastSaveAt: Date?
+    private var pendingSave: PersistedHost?
+    private var saveTask: Task<Void, Never>?
+    public private(set) var lastSaveError: String?
+
+    /// Loads what an earlier run saved before any session starts, so the models, the notify baseline and the resume
+    /// cursor are in place when the first line arrives.
+    public init(
+        hostId: UUID, persistence: any PersistenceStore, clock: any SessionClock,
+        onChange: @escaping @Sendable (HostModel) -> Void,
+        onNotify: @escaping @Sendable ([NotifyCandidate]) -> Void,
+        onRefresh: @escaping @Sendable (Set<String>) -> Void,
+        onConnection: (@Sendable (ConnectionState) -> Void)? = nil
+    ) {
+        self.hostId = hostId
+        self.persistence = persistence
+        self.clock = clock
+        self.onChange = onChange
+        self.onNotify = onNotify
+        self.onRefresh = onRefresh
+        self.onConnection = onConnection
+        var model = HostModel(hostId: hostId)
+        var staging = Staging()
+        if let saved = persistence.load(hostId: hostId) {
+            model.projects = saved.projects
+            model.cursor = saved.cursor
+            model.forwards = saved.forwards
+            for (id, project) in saved.projects where project.snapshotComplete {
+                staging.seed(projectId: id, waitingKeys: Set(project.waiting.keys))
+            }
+        }
+        self.model = model
+        self.staging = staging
+    }
+
+    // MARK: Reading
+
+    public func current() -> HostModel {
+        model
+    }
+
+    public func currentConnection() -> ConnectionState {
+        connectionState
+    }
+
+    /// Every recorded forward of the host.
+    public func forwards() -> [ForwardRecord] {
+        model.forwards.keys.sorted().flatMap { model.forwards[$0] ?? [] }
+    }
+
+    public func forwardsByProject() -> [String: [ForwardRecord]] {
+        model.forwards
+    }
+
+    public func forwards(projectId: String) -> [ForwardRecord] {
+        model.forwards[projectId] ?? []
+    }
+
+    // MARK: StreamConsumer
+
+    public func apply(host: UUID, lines: [StreamLine]) async {
+        guard host == hostId, !lines.isEmpty else { return }
+        let now = clock.now()
+        var refresh = Set<String>()
+        var notify: [NotifyCandidate] = []
+        var cursorSeen = false
+        for line in lines {
+            let output = StoreReducer.apply(line, to: &model, staging: &staging, now: now)
+            refresh.formUnion(output.refresh)
+            notify.append(contentsOf: output.notify)
+            if case .cursor = line { cursorSeen = true }
+        }
+        onChange(model)
+        if !notify.isEmpty { onNotify(notify) }
+        if !refresh.isEmpty { onRefresh(refresh) }
+        if cursorSeen { scheduleSave(persistedNow()) }
+    }
+
+    public func connection(host: UUID, _ state: ConnectionState) async {
+        guard host == hostId else { return }
+        connectionState = state
+        onConnection?(state)
+    }
+
+    /// The cursor of the projects that hold a complete snapshot; the others are read again from their start.
+    public func resumeCursor(host: UUID) async -> Cursor? {
+        guard host == hostId else { return nil }
+        return PersistedHost.trimmed(model.cursor, keeping: completeProjectIds())
+    }
+
+    /// The host does not accept the cursor: forget it and the saved file. The notify baseline stays.
+    public func dropCursor(host: UUID) async {
+        guard host == hostId else { return }
+        model.cursor = nil
+        cancelDeferredSave()
+        lastSaveAt = nil
+        do {
+            try persistence.delete(hostId: hostId)
+        } catch {
+            lastSaveError = "\(error)"
+        }
+        onChange(model)
+    }
+
+    // MARK: App calls
+
+    /// Records a decision that the host forwarded; the app calls it with the `requestId` and `contentHash` of the answer.
+    public func recordForward(projectId: String, _ record: ForwardRecord) {
+        var records = model.forwards[projectId] ?? []
+        records.removeAll { $0.requestId == record.requestId }
+        records.append(record)
+        if records.count > HostStoreEngine.maxForwardsPerProject {
+            records.removeFirst(records.count - HostStoreEngine.maxForwardsPerProject)
+        }
+        model.forwards[projectId] = records
+        onChange(model)
+        scheduleSave(persistedNow())
+    }
+
+    /// Saves now what is held.
+    public func flush() {
+        cancelDeferredSave()
+        write(persistedNow())
+    }
+
+    // MARK: Saving
+
+    private func completeProjectIds() -> Set<String> {
+        Set(model.projects.filter { $0.value.snapshotComplete && staging.pending[$0.key] == nil }.keys)
+    }
+
+    private func persistedNow() -> PersistedHost {
+        PersistedHost(host: model, staging: staging, savedAt: clock.now())
+    }
+
+    /// The first save, and any after a quiet interval, happens at once; the ones in between become one save at the end of
+    /// the interval, with the newest pair of cursor and models.
+    private func scheduleSave(_ pair: PersistedHost) {
+        let now = clock.now()
+        guard let last = lastSaveAt, now.timeIntervalSince(last) < HostStoreEngine.saveIntervalSeconds else {
+            cancelDeferredSave()
+            write(pair)
+            return
+        }
+        pendingSave = pair
+        guard saveTask == nil else { return }
+        let delay = HostStoreEngine.saveIntervalSeconds - now.timeIntervalSince(last)
+        saveTask = Task { await self.saveAfter(delay) }
+    }
+
+    private func saveAfter(_ delay: TimeInterval) async {
+        do {
+            try await clock.sleep(seconds: delay)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        saveTask = nil
+        guard var pair = pendingSave else { return }
+        // Forwards recorded since the pair was taken belong to it.
+        pair.forwards = persistedNow().forwards
+        write(pair)
+    }
+
+    private func cancelDeferredSave() {
+        saveTask?.cancel()
+        saveTask = nil
+        pendingSave = nil
+    }
+
+    private func write(_ pair: PersistedHost) {
+        pendingSave = nil
+        var saved = pair
+        saved.savedAt = clock.now()
+        lastSaveAt = saved.savedAt
+        do {
+            try persistence.save(saved)
+            lastSaveError = nil
+        } catch {
+            lastSaveError = "\(error)"
+        }
+    }
+}
