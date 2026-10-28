@@ -14,6 +14,7 @@ pub mod gitignore;
 pub mod init;
 pub mod jsops;
 pub mod operator;
+pub mod projects;
 pub mod render;
 pub mod routed;
 pub mod status;

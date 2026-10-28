@@ -293,7 +293,7 @@ pub fn rows_json(rows: &[Row]) -> Json {
 
 /// The operator key of `project`, with the checks the daemon makes of its own files: a private `.capstan` and a
 /// regular key file of mode 0600, both owned by the current user.
-fn operator_key(project: &Path) -> Option<String> {
+pub(crate) fn operator_key(project: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -370,6 +370,11 @@ impl Probe for Live {
 struct Seen {
     proc: Proc,
     cpu_seconds: Option<f64>,
+}
+
+/// The controllers of the current user as the process table shows them now, without the CPU sample.
+pub fn processes() -> Vec<Proc> {
+    scan_once().into_iter().map(|seen| seen.proc).collect()
 }
 
 /// The controllers of the current user, with CPU use measured over `SAMPLE`.
