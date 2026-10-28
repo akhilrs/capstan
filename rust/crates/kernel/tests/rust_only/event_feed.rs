@@ -944,7 +944,11 @@ fn feed_report_recorded() {
     assert_eq!(body["current"]["readAt"], rig.head());
     assert_eq!(
         body["effects"],
-        json!([{"section": "waiting", "op": "invalidate", "key": "design", "fields": {}}])
+        json!([
+            {"section": "waiting", "op": "invalidate", "key": "design", "fields": {}},
+            {"section": "plans", "op": "invalidate", "key": "plan", "fields": {}},
+            {"section": "waiting", "op": "invalidate", "key": "message", "fields": {}},
+        ])
     );
     // A non-design report: the package is not a design.
     let other_rig = Rig::new();
@@ -1090,7 +1094,10 @@ fn feed_plan_submitted() {
     assert_eq!(event["body"]["planId"], json!(plan_id));
     assert_eq!(
         event["body"]["effects"],
-        json!([{"section": "plans", "op": "invalidate", "key": "1", "fields": {}}])
+        json!([
+            {"section": "plans", "op": "invalidate", "key": "1", "fields": {}},
+            {"section": "waiting", "op": "invalidate", "key": "message", "fields": {}},
+        ])
     );
 }
 
@@ -1166,7 +1173,10 @@ fn feed_review_verdict() {
     let event = expect_type(&rig, &events, "review.verdict");
     assert_eq!(event["body"]["verdict"], "findings");
     assert_eq!(event["from"], "started");
-    assert_eq!(event["body"]["effects"], json!([]));
+    assert_eq!(
+        event["body"]["effects"],
+        json!([{"section": "waiting", "op": "invalidate", "key": "message", "fields": {}}])
+    );
     let (_, again) = rig.review(&report_id, "pass", "fine now");
     let verdicts = events_of(&again, "review.verdict");
     assert_eq!(verdicts[0]["body"]["verdict"], "pass");
@@ -1205,7 +1215,10 @@ fn feed_integration_finished() {
     let event = expect_type(&rig, &finished, "integration.finished");
     assert_eq!(event["body"]["integrationId"], "int-1");
     assert_eq!(event["body"]["state"], "merged");
-    assert_eq!(event["body"]["effects"][0]["key"], "integration:1");
+    // The plans are asked again (a merged package counts as integrated), then the notices, then the integration.
+    assert_eq!(event["body"]["effects"][0]["key"], "plan");
+    assert_eq!(event["body"]["effects"][1]["key"], "message");
+    assert_eq!(event["body"]["effects"][2]["key"], "integration:1");
     let (_, settled) = rig.run(|r| {
         r.core
             .settle_integration(
@@ -1512,7 +1525,10 @@ fn feed_plan_needs_attention() {
     assert_eq!(event["body"]["planId"], Value::Null);
     assert_eq!(event["body"]["state"], "stalled");
     assert_eq!(event["body"]["agentId"], "dev-1");
-    assert_eq!(event["body"]["effects"], json!([]));
+    assert_eq!(
+        event["body"]["effects"],
+        json!([{"section": "waiting", "op": "invalidate", "key": "message", "fields": {}}])
+    );
     assert_eq!(events[1]["k"], 1);
     assert!(events[1]["id"].as_str().unwrap().ends_with(":1"));
     assert_eq!(events[1]["body"]["state"], "blocked");

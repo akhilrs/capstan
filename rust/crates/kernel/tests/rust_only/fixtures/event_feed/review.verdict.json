@@ -1,7 +1,14 @@
 {
   "actorId": "<id:1>",
   "body": {
-    "effects": [],
+    "effects": [
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
     "reviewId": "<id:2>",
     "verdict": "findings"
   },

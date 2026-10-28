@@ -1,7 +1,14 @@
 {
   "actorId": "<id:1>",
   "body": {
-    "effects": [],
+    "effects": [
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
     "findingId": "<id:2>",
     "raisedByAgentId": "sup-1",
     "severity": "high",
