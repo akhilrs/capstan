@@ -208,6 +208,13 @@ fn live_probe_reads_the_answer() {
         ),
         EndpointState::Unsupported
     );
+    assert_eq!(
+        live_state(
+            "forbidden",
+            Some(r#"{"ok":false,"code":"forbidden","message":"no"}"#)
+        ),
+        EndpointState::Refused
+    );
     assert_eq!(live_state("silent", None), EndpointState::Silent);
 }
 
