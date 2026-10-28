@@ -189,7 +189,11 @@ fn a_usage_error_prints_the_syntax_of_that_command_only() {
 fn man_commands(page: &str) -> Vec<String> {
     page.lines()
         .filter_map(|l| l.strip_prefix(".B cstan "))
-        .map(|l| l.replace("\\-", "-").replace("\\e", "\\"))
+        .map(|l| {
+            l.replace("\\-", "-")
+                .replace("\\[u2026]", "…")
+                .replace("\\e", "\\")
+        })
         .collect()
 }
 
@@ -337,4 +341,19 @@ fn the_plan_group_lists_reassign_with_its_optional_reason() {
         out.contains("plan reassign <plan-id> <architect-agent-id> [--reason <text>]"),
         "{out}"
     );
+}
+
+const EVENTS_SYNOPSIS: &str = "events [--cursor <c1.…>] [--root <path>]... [--poll-ms <n>]";
+
+#[test]
+fn events_is_in_help_its_own_help_and_the_man_page() {
+    assert!(ENTRIES.iter().any(|e| e.syntax == EVENTS_SYNOPSIS));
+    let (help, _, exit) = run(&["help"]);
+    assert_eq!(exit, 0);
+    assert!(collapse(&help).contains(&collapse(EVENTS_SYNOPSIS)));
+    let (one, err, exit) = run(&["help", "events"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert!(collapse(&one).contains(&collapse(EVENTS_SYNOPSIS)));
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page).iter().any(|l| l == EVENTS_SYNOPSIS));
 }

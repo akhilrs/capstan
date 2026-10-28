@@ -5,8 +5,10 @@ use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cstan_front::events::{run_stream, Deps, EventsPlan, LineSink};
 use cstan_front::watch::{fetch_status, watch_status};
 use cstan_front::{run, Context, ExecPlan, Outcome, Serve, WatchPlan};
 
@@ -51,6 +53,10 @@ fn main() {
             watch(&plan);
             std::process::exit(0);
         }
+        Outcome::Events { plan, stderr } => {
+            let _ = std::io::stderr().write_all(&stderr);
+            std::process::exit(events(&plan, cwd));
+        }
         Outcome::Serve(Serve::Daemon) => {
             let vars = std::env::vars().collect();
             std::process::exit(capstan_daemon::cli::serve_cli(&cwd, &vars));
@@ -91,4 +97,44 @@ fn watch(plan: &WatchPlan) {
         Duration::from_secs(plan.interval_seconds),
         None,
     );
+}
+
+/// Set by the stop signals of `cstan events`.
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_stop(_signal: libc::c_int) {
+    STOP.store(true, Ordering::SeqCst);
+}
+
+/// Makes SIGINT, SIGTERM and SIGHUP end the event stream. Only `cstan events` calls it, never the daemon or the restart
+/// helper, which have their own signal handling.
+fn install_stop_handlers() {
+    let handler = on_stop as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+        // SAFETY: the handler only stores into an atomic, which is async-signal-safe.
+        unsafe {
+            libc::signal(signal, handler);
+        }
+    }
+}
+
+/// Writes batches of lines to standard output.
+struct StdoutSink;
+
+impl LineSink for StdoutSink {
+    fn write_batch(&mut self, lines: &[String]) -> std::io::Result<()> {
+        let mut out = std::io::stdout().lock();
+        for line in lines {
+            out.write_all(line.as_bytes())?;
+            out.write_all(b"\n")?;
+        }
+        out.flush()
+    }
+}
+
+/// Runs the event stream until a stop signal or a closed reader; the exit code.
+fn events(plan: &EventsPlan, cwd: PathBuf) -> i32 {
+    install_stop_handlers();
+    let mut deps = Deps::live(cwd, Box::new(std::io::stderr()));
+    run_stream(plan, &mut deps, &mut StdoutSink, &STOP)
 }
