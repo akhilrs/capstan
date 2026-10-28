@@ -93,7 +93,7 @@ impl ProjectProbe for Live {
         match call_daemon(&socket, credential.expose(), "feed", &args, ASK_TIMEOUT_MS) {
             Ok(Response::Ok { .. }) => EndpointState::Ready,
             Ok(Response::Refused { code, .. }) => match code.to_utf8_lossy().as_str() {
-                "unauthorized" => EndpointState::Refused,
+                "unauthorized" | "forbidden" => EndpointState::Refused,
                 "unknown_command" => EndpointState::Unsupported,
                 _ => EndpointState::Silent,
             },
