@@ -13,6 +13,7 @@ pub mod cache;
 pub mod cleanup;
 pub mod design;
 pub mod env;
+pub mod feed;
 pub mod findings;
 pub mod id_prefix;
 pub mod links;
@@ -97,7 +98,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 34] = [
+pub const ROUTES: [Route; 35] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -132,10 +133,11 @@ pub const ROUTES: [Route; 34] = [
     route("verify", Access::Any, "verify"),
     route("design", Access::Any, "design"),
     route("about", Access::Read, "status"),
+    route("feed", Access::Operator, "feed"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 5] = ["cleanup", "cache", "verify", "design", "about"];
+pub const RUST_ONLY_ROUTES: [&str; 6] = ["cleanup", "cache", "verify", "design", "about", "feed"];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
 pub fn route_of(command: &str) -> Option<&'static Route> {
@@ -148,9 +150,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 14] = [
+pub const MODULES: [&str; 15] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator", "cleanup", "cache", "verify", "design",
+    "operator", "cleanup", "cache", "verify", "design", "feed",
 ];
 
 /// The table of handlers by command name.
@@ -186,6 +188,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     cache::register(&mut map);
     verify::register(&mut map);
     design::register(&mut map);
+    feed::register(&mut map);
     map
 });
 
@@ -709,7 +712,7 @@ mod tests {
         }
         assert_eq!(
             RUST_ONLY_ROUTES,
-            ["cleanup", "cache", "verify", "design", "about"]
+            ["cleanup", "cache", "verify", "design", "about", "feed"]
         );
     }
 
@@ -743,7 +746,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 14);
+        assert_eq!(MODULES.len(), 15);
     }
 
     #[test]

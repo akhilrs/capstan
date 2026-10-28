@@ -3,10 +3,12 @@
 //! detached, with its output appended to `daemon.log`, and waits for the daemon to answer a ping on the socket.
 
 mod ensure;
+mod feed;
 mod log;
 
 pub use capstan_wire::Response;
 pub use ensure::{ensure_daemon, stop_daemon, EnsureOptions, Started};
+pub use feed::{call_feed, FeedCall};
 pub use log::{log_tail, open_daemon_log};
 
 use capstan_wire::{AfterSend, Timeout, WireError};
