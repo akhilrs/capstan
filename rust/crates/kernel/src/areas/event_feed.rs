@@ -87,6 +87,8 @@ pub struct FeedHead {
     pub project_id: String,
     pub epoch: String,
     pub head: u64,
+    /// The `feed_cursor::anchor` of `head` (null for an empty ledger).
+    pub anchor: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -99,6 +101,8 @@ pub struct FeedPage {
     pub ahead: bool,
     pub events: Vec<Value>,
     pub scanned: Position,
+    /// The `feed_cursor::anchor` of `scanned.seq` (null at 0, beyond the head or when the ledger lacks it).
+    pub anchor: Option<String>,
     pub has_more: bool,
     /// The row reads this call made (diagnostic).
     #[serde(rename = "rowsRead")]
@@ -1676,10 +1680,12 @@ fn head_of(core: &Core) -> KernelResult<u64> {
 
 /// The project, the ledger epoch and the head sequence.
 pub fn feed_head(core: &Core) -> KernelResult<FeedHead> {
+    let head = head_of(core)?;
     Ok(FeedHead {
         project_id: core.project_id().to_string(),
         epoch: feed_cursor::epoch(core)?,
-        head: head_of(core)?,
+        head,
+        anchor: feed_cursor::anchor(core, head as i64)?,
     })
 }
 
@@ -1775,6 +1781,7 @@ pub fn feed_page_with(
         ahead: false,
         events: Vec::new(),
         scanned: after,
+        anchor: None,
         has_more: false,
         rows_read: 0,
     };
@@ -1786,6 +1793,7 @@ pub fn feed_page_with(
     if let (true, Some(expected)) = (after.seq > 0, anchor) {
         if feed_cursor::anchor(core, after.seq as i64)?.as_deref() != Some(expected) {
             page.anchor_ok = false;
+            page.anchor = feed_cursor::anchor(core, after.seq as i64)?;
             return Ok(page);
         }
     }
@@ -1794,6 +1802,8 @@ pub fn feed_page_with(
         Err(Flow::Error(error)) => return Err(error),
     }
     page.rows_read = ctx.reads;
+    // Read on the same `&Core` as the page, so no write falls between them.
+    page.anchor = feed_cursor::anchor(core, page.scanned.seq as i64)?;
     Ok(page)
 }
 

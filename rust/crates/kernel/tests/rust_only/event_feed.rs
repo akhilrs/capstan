@@ -2041,6 +2041,215 @@ fn feed_page_anchor_rules() {
     assert!(!wrong.anchor_ok && !wrong.ahead && wrong.events.is_empty());
 }
 
+fn anchor_at(rig: &Rig, seq: u64) -> Option<String> {
+    anchor(&rig.core, seq as i64).unwrap()
+}
+
+#[test]
+fn the_head_answer_carries_the_anchor_of_head() {
+    let rig = Rig::new();
+    rig.enqueue("dev-1", "one", true);
+    let answer = feed_head(&rig.core).unwrap();
+    assert_eq!(answer.anchor, anchor_at(&rig, answer.head));
+    assert!(answer.anchor.is_some());
+    assert_eq!(
+        serde_json::to_value(&answer).unwrap()["anchor"],
+        json!(answer.anchor)
+    );
+}
+
+#[test]
+fn a_page_carries_the_anchor_of_where_it_ends() {
+    let mut rig = Rig::new();
+    let start = rig.head();
+    // Ends on an event.
+    rig.enqueue("dev-1", "one", true);
+    rig.enqueue("dev-1", "two", true);
+    let page = feed_page(&rig.core, Position { seq: start, k: 0 }, 1, None).unwrap();
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.anchor, anchor_at(&rig, page.scanned.seq));
+    assert!(page.anchor.is_some());
+    // Ends on a skipped row: rows of an action that is not public.
+    let top = rig.head();
+    rig.insert_rows(2, "agent", "dev-1", "agent.not_public_action", None, None);
+    let page = feed_page(&rig.core, Position { seq: top, k: 0 }, 5, None).unwrap();
+    assert!(page.events.is_empty());
+    assert_eq!(page.scanned.seq, top + 2);
+    assert_eq!(page.anchor, anchor_at(&rig, top + 2));
+    assert!(page.anchor.is_some());
+    // Ends in the middle of a row (k > 0).
+    rig.add_agent("dev-3", "developer", "Developer");
+    rig.core
+        .configure_prompt_relay(&json!({"enabled": true, "captureTtlSeconds": 0.001}))
+        .unwrap();
+    for agent in ["dev-1", "dev-2", "dev-3"] {
+        rig.capture(agent, "Allow?");
+    }
+    let row_start = rig.head();
+    rig.core.expire_prompt_captures(&rig.ctx("owner")).unwrap();
+    let page = feed_page(
+        &rig.core,
+        Position {
+            seq: row_start,
+            k: 0,
+        },
+        1,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        page.scanned,
+        Position {
+            seq: row_start + 1,
+            k: 0
+        }
+    );
+    let page = feed_page(&rig.core, page.scanned, 1, None).unwrap();
+    assert_eq!(page.scanned.k, 1);
+    assert_eq!(page.anchor, anchor_at(&rig, page.scanned.seq));
+    // An ahead page and a page whose anchor does not match.
+    let head = rig.head();
+    let ahead = feed_page(
+        &rig.core,
+        Position {
+            seq: head + 5,
+            k: 0,
+        },
+        5,
+        None,
+    )
+    .unwrap();
+    assert!(ahead.ahead && ahead.anchor.is_none());
+    let wrong = feed_page(
+        &rig.core,
+        Position {
+            seq: head - 1,
+            k: 0,
+        },
+        5,
+        Some("ffffffffffffffff"),
+    )
+    .unwrap();
+    assert!(!wrong.anchor_ok && !wrong.ahead);
+    assert_eq!(wrong.anchor, anchor_at(&rig, head - 1));
+    assert_eq!(
+        serde_json::to_value(&wrong).unwrap()["anchor"],
+        json!(wrong.anchor)
+    );
+    // At the head nothing is read and the anchor is the head's.
+    let at_head = feed_page(&rig.core, Position { seq: head, k: 9 }, 5, None).unwrap();
+    assert_eq!(at_head.anchor, anchor_at(&rig, head));
+}
+
+#[test]
+fn from_the_start_the_first_page_has_no_anchor_to_check_and_gives_one() {
+    let rig = Rig::new();
+    rig.enqueue("dev-1", "one", true);
+    let page = feed_page(&rig.core, Position { seq: 0, k: 0 }, 500, None).unwrap();
+    assert!(page.anchor_ok && !page.ahead && !page.events.is_empty());
+    assert_eq!(page.anchor, anchor_at(&rig, page.scanned.seq));
+    assert!(feed_page(
+        &rig.core,
+        Position { seq: 0, k: 0 },
+        1,
+        Some("0000000000000000")
+    )
+    .is_err());
+}
+
+#[test]
+fn six_hundred_events_resumed_with_the_anchor_of_the_previous_answer_pass_every_check() {
+    let rig = Rig::new();
+    let start = rig.head();
+    for n in 0..600 {
+        rig.enqueue("dev-1", &format!("message {n}"), true);
+    }
+    let mut after = Position { seq: 0, k: 0 };
+    let mut carried: Option<String> = None;
+    let mut seqs = Vec::new();
+    let mut pages = 0;
+    loop {
+        let page = feed_page(&rig.core, after, 100, carried.as_deref()).unwrap();
+        assert!(page.anchor_ok && !page.ahead, "page {pages}");
+        seqs.extend(page.events.iter().map(|e| e["seq"].as_u64().unwrap()));
+        pages += 1;
+        after = page.scanned;
+        carried = page.anchor.clone();
+        if !page.has_more {
+            break;
+        }
+    }
+    assert!(pages > 1);
+    let public: Vec<u64> = seqs.iter().copied().filter(|seq| *seq > start).collect();
+    assert_eq!(public, (start + 1..=start + 600).collect::<Vec<u64>>());
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "in order, no repeats");
+}
+
+#[test]
+fn a_ledger_restored_below_the_cursor_is_ahead_and_a_regrown_one_has_another_anchor() {
+    let mut rig = Rig::new();
+    for n in 0..5 {
+        rig.enqueue("dev-1", &format!("before {n}"), true);
+    }
+    rig.core.close();
+    rig.db()
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        .unwrap();
+    let copy_dir = tempfile::tempdir().unwrap();
+    private(copy_dir.path());
+    let copy = copy_dir.path().join("state");
+    std::fs::create_dir(&copy).unwrap();
+    private(&copy);
+    std::fs::copy(
+        rig.state.join("controller.sqlite"),
+        copy.join("controller.sqlite"),
+    )
+    .unwrap();
+    let taken = {
+        rig.reopen("run-a2");
+        rig.head()
+    };
+    for n in 0..5 {
+        rig.enqueue("dev-1", &format!("after {n}"), true);
+    }
+    let top = rig.head();
+    let cursor_anchor = anchor_at(&rig, top).unwrap();
+    rig.core.close();
+
+    let restored = open_seeded(&copy, "restored-a");
+    assert_eq!(feed_head(&restored).unwrap().head, taken);
+    let ahead = feed_page(
+        &restored,
+        Position { seq: top, k: 0 },
+        5,
+        Some(&cursor_anchor),
+    )
+    .unwrap();
+    assert!(ahead.ahead && !ahead.anchor_ok && ahead.anchor.is_none());
+    restored.close();
+    let restored = open_seeded(&copy, "restored-b");
+    for n in 0..8 {
+        restored
+            .enqueue_message(
+                &context(&restored, &rig.cred("owner")),
+                &json!({"recipientAgentId": "dev-1", "body": format!("other {n}"), "actionNeeded": true}),
+            )
+            .unwrap();
+    }
+    assert!(feed_head(&restored).unwrap().head >= top);
+    let regrown = feed_page(
+        &restored,
+        Position { seq: top, k: 0 },
+        5,
+        Some(&cursor_anchor),
+    )
+    .unwrap();
+    assert!(!regrown.anchor_ok && !regrown.ahead);
+    let new_anchor = regrown.anchor.expect("the regrown ledger has the sequence");
+    assert_ne!(new_anchor, cursor_anchor);
+    restored.close();
+}
+
 #[test]
 fn the_first_event_of_a_page_is_returned_even_when_it_alone_exceeds_the_byte_budget() {
     let rig = Rig::new();
@@ -2131,8 +2340,12 @@ fn clean_text_strips_control_bidi_zero_width_and_separator_characters() {
 fn the_unsafe_text_pattern_is_the_one_cstan_watch_uses() {
     let watch = include_str!("../../../cstan/src/watch.rs");
     assert!(
-        watch.contains(&format!("r\"{UNSAFE_TEXT_PATTERN}\"")),
-        "cstan watch.rs does not hold the pattern literal {UNSAFE_TEXT_PATTERN}"
+        watch.contains("Regex::new(UNSAFE_TEXT_PATTERN)"),
+        "cstan watch.rs does not build its regex from UNSAFE_TEXT_PATTERN"
+    );
+    assert!(
+        !watch.contains(UNSAFE_TEXT_PATTERN),
+        "cstan watch.rs holds a literal of the pattern"
     );
 }
 

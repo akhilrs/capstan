@@ -1,9 +1,11 @@
 //! The feed cursor (`areas::feed_cursor`): the ledger epoch, head and history anchor on real ledgers, and the cursor codec.
 
 use crate::fixture::{initial, step, Fixture};
+use capstan_kernel::areas::event_feed::feed_head;
 use capstan_kernel::areas::feed_cursor::{
     anchor, decode_cursor, encode_cursor, epoch, head, CursorEntry, CursorError,
 };
+use capstan_kernel::areas::snapshot_feed::snapshot_head;
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::{Core, SeededEnv};
 use serde_json::json;
@@ -135,6 +137,18 @@ fn an_empty_ledger_has_head_zero() {
     assert_eq!(anchor(f.core(), 0).unwrap(), None);
     assert_eq!(anchor(f.core(), 1).unwrap(), None);
     assert_eq!(epoch(f.core()).unwrap().len(), 16);
+    assert_eq!(feed_head(f.core()).unwrap().anchor, None);
+    assert_eq!(snapshot_head(f.core()).unwrap().anchor, None);
+}
+
+#[test]
+fn head_and_snapshot_head_carry_the_anchor_of_head() {
+    let f = Fixture::new();
+    let top = head(f.core()).unwrap();
+    let want = anchor(f.core(), top).unwrap();
+    assert!(want.is_some());
+    assert_eq!(feed_head(f.core()).unwrap().anchor, want);
+    assert_eq!(snapshot_head(f.core()).unwrap().anchor, want);
 }
 
 #[test]
@@ -263,4 +277,78 @@ fn bad_cursors_are_refused() {
             "{bad}"
         );
     }
+}
+
+fn entry_with(k: u32, s: u64, d: Option<i64>, r: &str) -> CursorEntry {
+    CursorEntry {
+        e: "0123456789abcdef".into(),
+        s,
+        k,
+        h: "fedcba9876543210".into(),
+        r: r.into(),
+        d,
+    }
+}
+
+#[test]
+fn only_the_text_encode_cursor_writes_decodes() {
+    let h = "fedcba9876543210";
+    for bad in [
+        // k 0
+        format!(r#"{{"p":{{"pa":{{"e":"0123456789abcdef","h":"{h}","k":0,"r":"/w","s":1}}}}}}"#),
+        // s above i64::MAX
+        format!(
+            r#"{{"p":{{"pa":{{"e":"0123456789abcdef","h":"{h}","r":"/w","s":9223372036854775808}}}}}}"#
+        ),
+        // whitespace
+        format!(r#"{{"p": {{"pa":{{"e":"0123456789abcdef","h":"{h}","r":"/w","s":1}}}}}}"#),
+        // keys out of order
+        format!(r#"{{"p":{{"pa":{{"e":"0123456789abcdef","r":"/w","h":"{h}","s":1}}}}}}"#),
+        // a duplicate key
+        format!(r#"{{"p":{{"pa":{{"e":"0123456789abcdef","h":"{h}","r":"/w","s":1,"s":1}}}}}}"#),
+        // an escaped character that is written plainly
+        format!(r#"{{"p":{{"pa":{{"e":"0123456789abcdef","h":"{h}","r":"/\u0077","s":1}}}}}}"#),
+    ] {
+        assert!(
+            matches!(decode_cursor(&pack(&bad)), Err(CursorError::Field(_))),
+            "{bad}"
+        );
+    }
+    // s i64::MAX is the largest accepted; an altered but well-formed h decodes (the anchor check judges it).
+    let mut map = BTreeMap::new();
+    map.insert("pa".to_string(), entry_with(0, i64::MAX as u64, None, "/w"));
+    assert_eq!(decode_cursor(&encode_cursor(&map)).unwrap(), map);
+    let mut altered = entry_with(1, 5, None, "/w");
+    altered.h = "0000000000000000".into();
+    map.insert("pb".to_string(), altered);
+    assert_eq!(decode_cursor(&encode_cursor(&map)).unwrap(), map);
+}
+
+#[test]
+fn what_encode_cursor_writes_decodes_back() {
+    let mut map = BTreeMap::new();
+    let roots = [
+        "/plain",
+        r#"/with "quotes""#,
+        r"/back\slash",
+        "/a/b/c",
+        "/caf\u{e9}/\u{4e2d}\u{6587}/\u{1f600}",
+        "/ctl\u{1}\n\t",
+    ];
+    let mut n = 0;
+    for k in [0, 1, u32::MAX] {
+        for s in [0, i64::MAX as u64] {
+            for d in [None, Some(-5), Some(1_790_000_000)] {
+                let root = roots[n % roots.len()];
+                map.insert(format!("p{n}"), entry_with(k, s, d, root));
+                n += 1;
+            }
+        }
+    }
+    for (index, root) in roots.iter().enumerate() {
+        map.insert(format!("r{index}"), entry_with(0, 3, None, root));
+    }
+    let text = encode_cursor(&map);
+    assert_eq!(decode_cursor(&text).unwrap(), map);
+    assert_eq!(encode_cursor(&decode_cursor(&text).unwrap()), text);
 }

@@ -306,6 +306,26 @@ fn the_subcommands_answer_what_the_kernel_answers() {
 }
 
 #[test]
+fn head_snapshot_and_page_answers_carry_the_anchor_the_kernel_computes() {
+    let w = World::new();
+    for n in 0..3 {
+        w.send(&format!("message {n}"));
+    }
+    let head = w.direct(event_feed::feed_head);
+    let want = w.direct(move |c| {
+        capstan_kernel::areas::feed_cursor::anchor(c, head["head"].as_i64().unwrap())
+    });
+    assert!(want.is_string());
+    assert_eq!(result(&w.operator(&["head"]))["anchor"], want);
+    assert_eq!(result(&w.operator(&["snapshot"]))["anchor"], want);
+    let page = result(&w.operator(&["page", "--after", "1:0", "--limit", "2"])).clone();
+    let seq = page["scanned"]["seq"].as_i64().unwrap();
+    let scanned = w.direct(move |c| capstan_kernel::areas::feed_cursor::anchor(c, seq));
+    assert!(scanned.is_string());
+    assert_eq!(page["anchor"], scanned);
+}
+
+#[test]
 fn agents_and_strangers_are_refused() {
     let w = World::new();
     let subcommands: [&[&str]; 8] = [

@@ -6,9 +6,9 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use capstan_kernel::areas::event_feed::{self, KEY_KINDS, V1_TYPES};
+use capstan_kernel::areas::event_feed::{self, FeedHead, FeedPage, Position, KEY_KINDS, V1_TYPES};
 use capstan_kernel::areas::feed_cursor::{decode_cursor, encode_cursor};
-use capstan_kernel::areas::snapshot_feed;
+use capstan_kernel::areas::snapshot_feed::{self, RunItem, SnapshotHead};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -365,4 +365,88 @@ fn it_names_no_product_or_vendor() {
     for word in ["herdr", "claude", "anthropic", "capstan", "openai"] {
         assert!(!lower.contains(word), "the document names {word}");
     }
+}
+
+/// The top-level field names of the `{...}` span that follows `marker` in the document.
+fn listed_fields(marker: &str) -> BTreeSet<String> {
+    let start = DOC
+        .find(marker)
+        .unwrap_or_else(|| panic!("the document lacks {marker}"))
+        + marker.len();
+    let span = &DOC[start..];
+    let span = &span[..span.find('`').expect("the field list is closed")];
+    let span = span
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or_else(|| panic!("not a braced list: {span}"));
+    let mut fields = BTreeSet::new();
+    let (mut depth, mut current) = (0, String::new());
+    for c in span.chars().chain([',']) {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            ',' if depth == 0 => {
+                let name = current.split_whitespace().next().unwrap_or("");
+                assert!(!name.is_empty(), "an empty field in {span}");
+                fields.insert(name.to_string());
+                current.clear();
+                continue;
+            }
+            _ => {}
+        }
+        if depth == 0 || c != '{' {
+            current.push(c);
+        }
+    }
+    fields
+}
+
+fn keys_of<T: serde::Serialize>(value: &T) -> BTreeSet<String> {
+    serde_json::to_value(value)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn the_head_snapshot_and_page_answers_list_the_fields_the_code_serializes() {
+    let head = FeedHead {
+        project_id: "p".into(),
+        epoch: "e".into(),
+        head: 1,
+        anchor: None,
+    };
+    assert_eq!(listed_fields("A `feed head` answer is `"), keys_of(&head));
+    let snapshot = SnapshotHead {
+        epoch: "e".into(),
+        head: 1,
+        anchor: None,
+        run: RunItem {
+            request_id: "run".into(),
+            state: "active".into(),
+            paused: false,
+            content_hash: "h".into(),
+        },
+    };
+    assert_eq!(
+        listed_fields("`feed snapshot` answers `"),
+        keys_of(&snapshot)
+    );
+    let page = FeedPage {
+        project_id: "p".into(),
+        epoch: "e".into(),
+        head: 1,
+        anchor_ok: true,
+        ahead: false,
+        events: Vec::new(),
+        scanned: Position { seq: 0, k: 0 },
+        anchor: None,
+        has_more: false,
+        rows_read: 0,
+    };
+    assert_eq!(listed_fields("A `feed page` answer is `"), keys_of(&page));
+    assert!(DOC.contains("`anchor`"));
 }

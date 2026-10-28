@@ -131,6 +131,8 @@ pub struct RunItem {
 pub struct SnapshotHead {
     pub epoch: String,
     pub head: u64,
+    /// The `feed_cursor::anchor` of `head` (null for an empty ledger).
+    pub anchor: Option<String>,
     pub run: RunItem,
 }
 
@@ -367,9 +369,13 @@ pub fn snapshot_head(core: &Core) -> KernelResult<SnapshotHead> {
     let head = head_of(core)?;
     // The epoch is a statement and, in a ledger that has an event, its row.
     tick(2);
+    let epoch = feed_cursor::epoch(core)?;
+    // The anchor is a statement and, in a ledger that has an event, its row.
+    tick(2);
     Ok(SnapshotHead {
-        epoch: feed_cursor::epoch(core)?,
+        epoch,
         head,
+        anchor: feed_cursor::anchor(core, head as i64)?,
         run: run_item(core)?,
     })
 }
