@@ -17,6 +17,7 @@ mod plan_reassign;
 mod prompt_relay_backfill;
 mod restart_summary;
 mod role_limit;
+mod snapshot_feed;
 mod timed_grants;
 mod verify_runs;
 mod warm_reviewers;

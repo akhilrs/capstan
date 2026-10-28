@@ -2,7 +2,14 @@
   "actorId": "<id:1>",
   "body": {
     "agentId": "dev-1",
-    "effects": [],
+    "effects": [
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
     "episodeMs": 1000,
     "kind": "stalled",
     "planId": null,

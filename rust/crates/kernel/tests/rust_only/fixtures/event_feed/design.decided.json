@@ -14,6 +14,12 @@
         "key": "1",
         "op": "invalidate",
         "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "link": "https://example.test/ui",

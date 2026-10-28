@@ -8,6 +8,24 @@
         "key": "1",
         "op": "invalidate",
         "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "plan",
+        "op": "invalidate",
+        "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "design",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "planId": "plan-1",

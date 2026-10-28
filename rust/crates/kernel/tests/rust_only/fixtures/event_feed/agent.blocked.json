@@ -13,6 +13,12 @@
         "key": "dev-1",
         "op": "invalidate",
         "section": "agents"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "generation": null,

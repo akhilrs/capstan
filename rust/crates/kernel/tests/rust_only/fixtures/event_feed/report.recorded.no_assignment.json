@@ -13,6 +13,18 @@
         "key": "design",
         "op": "invalidate",
         "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "plan",
+        "op": "invalidate",
+        "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "reportId": "<id:2>",

@@ -4,6 +4,18 @@
     "effects": [
       {
         "fields": {},
+        "key": "plan",
+        "op": "invalidate",
+        "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
         "key": "integration:1",
         "op": "invalidate",
         "section": "waiting"

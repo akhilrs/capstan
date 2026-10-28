@@ -9,6 +9,12 @@
         "key": "op:2",
         "op": "invalidate",
         "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "kind": "restart",

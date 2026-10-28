@@ -27,6 +27,7 @@ pub mod reconcile;
 pub mod reports;
 pub mod retention;
 pub mod reviews;
+pub mod snapshot_feed;
 pub mod status;
 pub mod verify_runs;
 pub mod warm_reviewers;

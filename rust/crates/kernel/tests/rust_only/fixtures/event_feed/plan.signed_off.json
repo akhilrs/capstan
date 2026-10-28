@@ -7,6 +7,12 @@
         "key": "1",
         "op": "invalidate",
         "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
       }
     ],
     "integrationId": "int-1",

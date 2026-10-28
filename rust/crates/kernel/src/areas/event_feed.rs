@@ -115,6 +115,8 @@ pub struct KeyKind {
     pub source: &'static str,
 }
 
+const MESSAGE_KIND: &str = "message";
+
 /// Every kind of item key, in sort order: the waiting section sorts by kind in this order, then by number.
 pub const KEY_KINDS: &[KeyKind] = &[
     KeyKind {
@@ -206,6 +208,9 @@ pub enum Kind {
     },
     /// A `snapshot.invalidated` event for the item of the entity, in the section.
     Invalidate(&'static str),
+    /// A `snapshot.invalidated` event that asks for every item of a kind of the waiting section: the writer queues
+    /// messages (notices) without a row of its own for them.
+    Refresh(&'static str),
 }
 
 /// One line of the mapping. `entity` is the ledger entity type, `actions` the payload actions it applies to (`a|b`), `from`
@@ -420,6 +425,14 @@ pub const MAPPING: &[Rule] = &[
         "resolved|escalated|cancelled",
         ev("finding.resolved"),
     ),
+    // An unresolved check queues another intervention for the target: no state moves, the message waits.
+    rule(
+        "agent_finding",
+        "finding.check|finding.deadline",
+        "open",
+        "open",
+        Kind::Refresh("message"),
+    ),
     rule(
         "agent",
         "agent.register",
@@ -486,50 +499,38 @@ pub const MAPPING: &[Rule] = &[
         "*",
         Kind::Invalidate("waiting"),
     ),
+    // Writers that queue notices for the PM or an agent (a cleanup offer, a delivery problem, a stall or a lost agent,
+    // a finding, plan, report or review announcement, a wake): the message has no row of its own, so the row that
+    // belongs to the writer asks for the waiting messages again.
+    rule("*", NOTICE_ACTIONS, "*", "*", Kind::Refresh("message")),
 ];
+
+/// Actions whose writer queues messages in the same mutation.
+const NOTICE_ACTIONS: &str = "cleanup.branch|cleanup.complete|cleanup.offer|finding.announce|plan.announce|report.announce|review.announce|pm.delivery_notices|pm.floor_hit|pm.wake|supervision.check|agent.observe|verify.cancel|verify.interrupt|verify.orphan|verify.process|operator.process|operator.orphan_clear|pm_restart.consume";
 
 /// Actions the code writes that mean nothing to a client, by name: nothing in a snapshot or a type of the feed changes with
 /// them.
 pub const SKIPPED_ACTIONS: &[&str] = &[
     "actor.create",
     "actor.revoke",
-    "agent.observe",
-    "cleanup.branch",
-    "cleanup.complete",
-    "cleanup.offer",
     "fallback_pane.clear",
     "fallback_pane.record",
-    "finding.announce",
     "link.bind",
     "link.external",
     "operator.full_auto_refuse",
     "operator.grant_expire",
     "operator.grant_restart",
     "operator.grant_revoke",
-    "operator.orphan_clear",
-    "operator.process",
     "operator.window_expire",
     "operator.window_restart",
     "operator.window_revoke",
     "orphan_pane.clear",
     "orphan_pane.record",
-    "plan.announce",
-    "pm.delivery_notices",
-    "pm.floor_hit",
-    "pm.wake",
-    "pm_restart.consume",
-    "report.announce",
-    "review.announce",
     "review.begin",
     "review.warm_release",
     "role.sync",
     "seat.create",
-    "supervision.check",
-    "verify.cancel",
     "verify.claim",
-    "verify.interrupt",
-    "verify.orphan",
-    "verify.process",
     "verify.queue",
     "wait.begin",
     "wait.end",
@@ -587,7 +588,7 @@ fn pattern_matches(pattern: &str, value: Option<&str>) -> bool {
 
 impl Rule {
     fn matches(&self, entity: &str, action: &str, from: Option<&str>, to: Option<&str>) -> bool {
-        self.entity == entity
+        (self.entity == "*" || self.entity == entity)
             && pattern_matches(self.actions, Some(action))
             && pattern_matches(self.from, from)
             && pattern_matches(self.to, to)
@@ -902,6 +903,12 @@ fn effect(section: &str, op: &str, key: String, fields: Value) -> Value {
     json!({"section": section, "op": op, "key": key, "fields": fields})
 }
 
+/// The effect of a writer that may queue a notice for an agent or the PM: a notice is inserted with the mutation that
+/// causes it and has no ledger row of its own, so every message that waits is asked for again.
+fn notices_effect() -> Value {
+    effect("waiting", "invalidate", kind_key(MESSAGE_KIND), json!({}))
+}
+
 fn text_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
@@ -926,7 +933,7 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
         return Ok(Vec::new());
     };
     match kind {
-        Kind::Invalidate(_) => Ok(vec![Draft {
+        Kind::Invalidate(_) | Kind::Refresh(_) => Ok(vec![Draft {
             ty: "snapshot.invalidated",
             item: None,
             listed: false,
@@ -938,7 +945,19 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
                     return Ok(Vec::new());
                 };
                 if message["actionNeeded"].as_i64() != Some(1) {
-                    return Ok(Vec::new());
+                    // An ordinary message that fails, expires or goes unacknowledged makes the controller queue a
+                    // delivery notice, which waits for the PM.
+                    let problem =
+                        matches!(row.to.as_deref(), Some("failed" | "expired" | "unacked"));
+                    return Ok(if problem {
+                        vec![Draft {
+                            ty: "snapshot.invalidated",
+                            item: None,
+                            listed: false,
+                        }]
+                    } else {
+                        Vec::new()
+                    });
                 }
             }
             if ty == "agent.blocked" && !queued(row) {
@@ -1029,12 +1048,17 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             if let Some(decision) = text_of(&row.details, "decision") {
                 body.insert("decision".into(), json!(decision));
             }
-            effects = vec![effect(
+            let mut list = vec![effect(
                 "waiting",
                 "invalidate",
                 item_key("waiting", "message", &num_text(&message, "sequence")),
                 json!({}),
             )];
+            if draft.ty == "message.state" {
+                // An expired, failed or unacknowledged message makes the controller queue notices.
+                list.push(notices_effect());
+            }
+            effects = list;
         }
         "prompt.waiting" | "prompt.answered" | "prompt.expired" => {
             let id = draft
@@ -1160,12 +1184,16 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 text.fail();
                 body.insert("reason".into(), Value::Null);
             }
-            effects = vec![effect(
+            let mut list = vec![effect(
                 "waiting",
                 "invalidate",
                 item_key("waiting", "op", &num_text(&proposal, "sequence")),
                 json!({}),
             )];
+            if draft.ty == "operator.proposed" {
+                list.push(notices_effect());
+            }
+            effects = list;
         }
         "report.recorded" => {
             let Some(report) = load_report(ctx, &row.entity_id)? else {
@@ -1187,12 +1215,12 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 "current".into(),
                 json!({"readAt": ctx.head, "package": package}),
             );
-            effects = vec![effect(
-                "waiting",
-                "invalidate",
-                kind_key("design"),
-                json!({}),
-            )];
+            // A report moves the reported count of its plan; which plan is not read (it would move on replay).
+            effects = vec![
+                effect("waiting", "invalidate", kind_key("design"), json!({})),
+                effect("plans", "invalidate", kind_key("plan"), json!({})),
+                notices_effect(),
+            ];
         }
         "design.decided" => {
             let Some(plan) = load_plan(ctx, &row.entity_id)? else {
@@ -1218,6 +1246,7 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     item_key("plans", "plan", &sequence),
                     json!({}),
                 ),
+                notices_effect(),
             ];
         }
         "plan.submitted" | "plan.approved" | "plan.signed_off" | "plan.changed" => {
@@ -1238,12 +1267,38 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     body.insert(key.to_string(), value.clone());
                 }
             }
-            effects = vec![effect(
+            let mut list = vec![effect(
                 "plans",
                 "invalidate",
                 item_key("plans", "plan", &num_text(&plan, "sequence")),
                 json!({}),
             )];
+            if draft.ty == "plan.approved" {
+                // The approval retires the plan this one supersedes, without a row of its own: the plans and the
+                // designs that waited on the old one are asked for again.
+                list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("design"),
+                    json!({}),
+                ));
+            }
+            if matches!(
+                row.action.as_str(),
+                "plan.assign" | "plan.reassign" | "plan.cancel"
+            ) {
+                // A package that changes hands or is cancelled no longer waits on the report it had (an ended agent's package is
+                // handed over by a new assign).
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("design"),
+                    json!({}),
+                ));
+            }
+            list.push(notices_effect());
+            effects = list;
         }
         "plan.needs_attention" => {
             let episode = draft.item.clone().unwrap_or(Value::Null);
@@ -1255,7 +1310,7 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             body.insert("episodeMs".into(), episode["episodeMs"].clone());
             base.entity_type = "agent".into();
             base.entity_id = agent_id.clone();
-            effects = Vec::new();
+            effects = vec![notices_effect()];
         }
         "review.verdict" => {
             body.insert("reviewId".into(), json!(row.entity_id));
@@ -1269,7 +1324,7 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             );
             let plan_id = load_review(ctx, &row.entity_id)?
                 .and_then(|review| text_of(&review, "planId").map(str::to_string));
-            effects = match plan_id {
+            let mut list = match plan_id {
                 Some(plan_id) => match load_plan(ctx, &plan_id)? {
                     Some(plan) => vec![effect(
                         "plans",
@@ -1281,11 +1336,23 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 },
                 None => Vec::new(),
             };
+            if row.to.as_deref() == Some("passed") {
+                // A passed plan review approves the plan, which retires the plan it supersedes (no row of its own).
+                list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("design"),
+                    json!({}),
+                ));
+            }
+            list.push(notices_effect());
+            effects = list;
         }
         "verify.result" => {
             body.insert("runId".into(), json!(row.entity_id));
             body.insert("result".into(), json!(row.to));
-            effects = Vec::new();
+            effects = vec![notices_effect()];
         }
         "finding.raised" | "finding.resolved" => {
             body.insert("findingId".into(), json!(row.entity_id));
@@ -1301,7 +1368,7 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     body.insert(key.to_string(), value.clone());
                 }
             }
-            effects = Vec::new();
+            effects = vec![notices_effect()];
         }
         "agent.registered" | "agent.lost" | "agent.paused" | "agent.resumed" | "agent.ended"
         | "agent.blocked" => {
@@ -1372,6 +1439,9 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     item_key("agents", "agent", &agent_id),
                     json!({}),
                 )];
+                if matches!(draft.ty, "agent.lost" | "agent.blocked") {
+                    effects.push(notices_effect());
+                }
                 if draft.ty == "agent.ended" {
                     // Ending an agent cancels its unstarted operator proposals without a ledger row of their own.
                     effects.push(effect("waiting", "invalidate", kind_key("op"), json!({})));
@@ -1396,23 +1466,45 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             body.insert("integrationId".into(), json!(row.entity_id));
             body.insert("state".into(), json!(row.to));
             let sequence = load_integration(ctx, &row.entity_id)?.map(|i| num_text(&i, "sequence"));
-            effects = match sequence {
-                Some(sequence) => vec![effect(
+            // A merged integration counts its packages as integrated in their plans.
+            let mut list = vec![
+                effect("plans", "invalidate", kind_key("plan"), json!({})),
+                notices_effect(),
+            ];
+            if let Some(sequence) = sequence {
+                list.push(effect(
                     "waiting",
                     "invalidate",
                     item_key("waiting", "integration", &sequence),
                     json!({}),
-                )],
-                None => Vec::new(),
-            };
+                ));
+            }
+            effects = list;
         }
         "snapshot.invalidated" => {
-            let Some(Kind::Invalidate(section)) = map_row(
-                &row.entity_type,
-                &row.action,
-                row.from.as_deref(),
-                row.to.as_deref(),
-            ) else {
+            let kind = if row.entity_type == "message" {
+                Some(Kind::Refresh(MESSAGE_KIND))
+            } else {
+                map_row(
+                    &row.entity_type,
+                    &row.action,
+                    row.from.as_deref(),
+                    row.to.as_deref(),
+                )
+            };
+            let Some(kind) = kind else {
+                return Ok(None);
+            };
+            if let Kind::Refresh(name) = kind {
+                body.insert("section".into(), json!("waiting"));
+                body.insert("key".into(), json!(kind_key(name)));
+                base.body = Map::new();
+                effects = vec![effect("waiting", "invalidate", kind_key(name), json!({}))];
+                body.insert("effects".into(), Value::Array(effects));
+                base.body = body;
+                return Ok(Some(base));
+            }
+            let Kind::Invalidate(section) = kind else {
                 return Ok(None);
             };
             let key = match section {
@@ -1432,9 +1524,31 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             body.insert("section".into(), json!(section));
             body.insert("key".into(), json!(key));
             let mut list = vec![effect(section, "invalidate", key, json!({}))];
-            if matches!(row.action.as_str(), "agent.replace" | "agent.restart") {
+            if matches!(
+                row.action.as_str(),
+                "agent.replace" | "agent.restart" | "agent.replaced"
+            ) {
                 // A replaced or restarted agent's unstarted operator proposals are cancelled without a row of their own.
                 list.push(effect("waiting", "invalidate", kind_key("op"), json!({})));
+                // The reports of the earlier generation no longer count for a design package.
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("design"),
+                    json!({}),
+                ));
+            }
+            if matches!(
+                row.action.as_str(),
+                "agent.replace" | "agent.restart" | "agent.replaced"
+            ) {
+                // The packages count only the reports of the current generation (or of the successor they were
+                // rebound to), so the reported counts of the plans move.
+                list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
+            }
+            if row.action == "integration.settle" {
+                // A discarded integration stops counting its packages as integrated.
+                list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
             }
             effects = list;
         }
