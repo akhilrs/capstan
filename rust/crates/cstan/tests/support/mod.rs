@@ -379,6 +379,12 @@ pub fn run_once(argv: &[String], settings: &Settings) -> Observed {
             exit: Some(0),
             signal: None,
         },
+        Outcome::Events { plan, stderr } => Observed {
+            stdout: format!("events {plan:?}\n"),
+            stderr: text(stderr),
+            exit: Some(0),
+            signal: None,
+        },
         Outcome::Serve(serve) => Observed {
             stdout: format!("{serve:?}\n"),
             stderr: String::new(),

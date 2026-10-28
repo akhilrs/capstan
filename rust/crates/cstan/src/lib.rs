@@ -9,6 +9,7 @@ pub mod config_cmd;
 pub mod controllers;
 pub mod dash;
 pub mod design_guide;
+pub mod events;
 pub mod git;
 pub mod gitignore;
 pub mod init;
@@ -90,7 +91,20 @@ pub enum Outcome {
         stderr: Vec<u8>,
     },
     Serve(Serve),
+    /// Stream the events of this host (`cstan events`); `stderr` holds what was already said.
+    Events {
+        plan: events::EventsPlan,
+        stderr: Vec<u8>,
+    },
 }
+
+impl PartialEq for events::EventsPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.cursor == other.cursor && self.roots == other.roots && self.poll_ms == other.poll_ms
+    }
+}
+
+impl Eq for events::EventsPlan {}
 
 /// Standard output and error of a run, in the order the Node CLI writes each.
 #[derive(Default)]
@@ -158,6 +172,7 @@ pub enum Flow {
     Exec(ExecPlan),
     Watch(WatchPlan),
     Serve(Serve),
+    Events(events::EventsPlan),
 }
 
 /// One run: the context, the output so far and the once-only foreign-socket warning.
@@ -188,6 +203,7 @@ pub fn run(context: &Context) -> Outcome {
         Ok(Flow::Exec(plan)) => Outcome::Exec { plan, stderr: err },
         Ok(Flow::Watch(plan)) => Outcome::Watch { plan, stderr: err },
         Ok(Flow::Serve(serve)) => Outcome::Serve(serve),
+        Ok(Flow::Events(plan)) => Outcome::Events { plan, stderr: err },
         Err(Fail::Usage) => {
             let words: Vec<String> = context
                 .args
@@ -359,6 +375,7 @@ impl Cli<'_> {
                 return Ok(Flow::Serve(Serve::Daemon));
             }
             "controllers" => return self.controllers(&rest),
+            "events" => return events_plan(&rest).map(Flow::Events),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
             "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),
@@ -468,4 +485,41 @@ fn pm_restart(rest: &[String]) -> bool {
     rest.iter()
         .find(|a| *a != "--json")
         .is_some_and(|a| a == "restart")
+}
+
+/// The default `cstan events --poll-ms`.
+const EVENTS_POLL_MS: u64 = 2000;
+/// The largest `cstan events --poll-ms`: one hour.
+const EVENTS_POLL_MAX_MS: u64 = 3_600_000;
+
+/// Parses `cstan events [--cursor <c1.…>] [--root <path>]... [--poll-ms <n>]`; anything else is a usage error. A cursor
+/// that does not decode is the stream's business, not the command line's.
+fn events_plan(args: &[String]) -> Result<events::EventsPlan, Fail> {
+    let mut cursor: Option<String> = None;
+    let mut roots = Vec::new();
+    let mut poll_ms: Option<u64> = None;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let value = match word.as_str() {
+            "--cursor" | "--root" | "--poll-ms" => match words.next() {
+                Some(value) if !value.starts_with("--") => value,
+                _ => return Err(Fail::Usage),
+            },
+            _ => return Err(Fail::Usage),
+        };
+        match word.as_str() {
+            "--cursor" if cursor.is_none() => cursor = Some(value.clone()),
+            "--root" => roots.push(PathBuf::from(value)),
+            "--poll-ms" if poll_ms.is_none() => match value.parse::<u64>() {
+                Ok(n) if n <= EVENTS_POLL_MAX_MS => poll_ms = Some(n),
+                _ => return Err(Fail::Usage),
+            },
+            _ => return Err(Fail::Usage),
+        }
+    }
+    Ok(events::EventsPlan {
+        cursor,
+        roots,
+        poll_ms: poll_ms.unwrap_or(EVENTS_POLL_MS),
+    })
 }
