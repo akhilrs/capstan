@@ -11,12 +11,26 @@
 //! | type | fields |
 //! |---|---|
 //! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal` |
-//! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`, `contentHash` |
-//! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}` |
+//! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
+//! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash` |
 //! | `Page<T>` | `head`, `items`, `next` |
 //!
-//! An agent item has no `stalled` field. Text (`summary`, `task`, `title`) is cleaned and cut to [`TEXT_CAP`] bytes.
+//! An agent item has no `stalled` field. Text (`summary`, `task`, `branch`, `title`) is cleaned and cut to [`TEXT_CAP`]
+//! bytes. `branch` is the branch of the agent's pane (null without a pane). The `contentHash` of an agent is a decision
+//! binding, not a change detector: a branch rename changes no hash and arrives as an invalidate, and a client re-reads
+//! an item by key on every invalidate (and plans, which have no hash, are always re-read).
+//!
+//! `packageDetails` lists at most [`MAX_PACKAGE_DETAILS`] packages of a plan (`packageDetailsOmitted` counts the rest):
+//! live packages first (in the order of the approved revision, then rows the body does not name), cancelled ones after.
+//! Each is `id`, `title`, `role`, `assigneeAgentId`, `state` (`unassigned`, `assigned`, `reported`, `integrated`,
+//! `confirmed` or `cancelled`), `dependsOn`, `review` (`passed`, `findings` or null), `integrationId` and
+//! `integrationState` (null serializes as null). A plan without a readable approved revision lists its rows by package id
+//! with empty title and role. `packages.integrated` equals the details in state `integrated` plus `confirmed`. The new
+//! fields (`branch`, `packageDetails`, `packageDetailsOmitted`) are not yet in the protocol doc.
+//! A review verdict raises the bare plans invalidate but no invalidate of the plan's item key, and an integration start
+//! raises no plans invalidate yet, so a client holding the item can keep a stale `review` or a running
+//! `integrationState` until it re-reads plans.
 //!
 //! # Waiting items
 //! The key of an item numbers the row (`event_feed::item_key`, kinds from `KEY_KINDS`); the request id names the row by its
@@ -66,6 +80,12 @@ pub const MAX_LIMIT: u32 = 100;
 pub const MAX_PAGE_BYTES: usize = 512 * 1024;
 /// The most bytes of a text field of an item.
 pub const TEXT_CAP: usize = 1024;
+/// The most package details of a plan item.
+pub const MAX_PACKAGE_DETAILS: usize = 64;
+/// The most bytes of the title of a package detail.
+const DETAIL_TITLE_CAP: usize = 256;
+/// The most bytes of the role of a package detail.
+const DETAIL_ROLE_CAP: usize = 64;
 /// Rows fetched with one query.
 const CHUNK: usize = 256;
 
@@ -94,6 +114,7 @@ pub struct AgentItem {
     pub state: String,
     pub paused: bool,
     pub task: Option<String>,
+    pub branch: Option<String>,
     pub request_id: String,
     pub content_hash: String,
 }
@@ -108,6 +129,20 @@ pub struct PackageCounts {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PackageDetail {
+    pub id: String,
+    pub title: String,
+    pub role: String,
+    pub assignee_agent_id: Option<String>,
+    pub state: String,
+    pub depends_on: Vec<String>,
+    pub review: Option<String>,
+    pub integration_id: Option<String>,
+    pub integration_state: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlanItem {
     pub key: String,
     pub plan_id: String,
@@ -115,6 +150,8 @@ pub struct PlanItem {
     pub title: String,
     pub state: String,
     pub packages: PackageCounts,
+    pub package_details: Vec<PackageDetail>,
+    pub package_details_omitted: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -185,6 +222,12 @@ pub fn message_hash_input(id: &str, body: &str) -> String {
 fn shown(text: &str) -> String {
     let cleaned = clean_text(text);
     cap_text(&cleaned, TEXT_CAP).0.to_string()
+}
+
+/// Cleaned text cut to `cap` bytes on a char boundary.
+fn shown_to(text: &str, cap: usize) -> String {
+    let cleaned = clean_text(text);
+    cap_text(&cleaned, cap).0.to_string()
 }
 
 fn invalid(message: impl Into<String>) -> KernelError {
@@ -417,7 +460,7 @@ pub fn agent_content_hash(
 
 fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<AgentItem>> {
     let base = "SELECT a.agent_id, a.kind, a.role_name, a.generation, a.state,
-                       COALESCE(pn.task_title, pn.task_ref),
+                       COALESCE(pn.task_title, pn.task_ref), pn.branch,
                        (SELECT pause_id FROM pauses WHERE project_id = a.project_id AND scope = 'agent'
                           AND COALESCE(agent_id, '') = a.agent_id AND resumed_at IS NULL)
                   FROM agents a
@@ -448,6 +491,7 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
             "generation",
             "state",
             "task",
+            "branch",
             "pauseId",
         ],
     )?;
@@ -469,6 +513,7 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
                 kind: text(&row, "kind"),
                 role: text(&row, "role"),
                 task: row.get("task").and_then(Value::as_str).map(shown),
+                branch: row.get("branch").and_then(Value::as_str).map(shown),
                 agent_id,
                 generation,
                 state,
@@ -516,7 +561,7 @@ fn plan_rows(
     one: Option<i64>,
     limit: usize,
 ) -> KernelResult<Vec<Map<String, Value>>> {
-    let base = "SELECT plan_id, sequence, title, state FROM plans
+    let base = "SELECT plan_id, sequence, title, state, approved_revision FROM plans
                  WHERE project_id = ? AND state IN ('draft', 'in_review', 'approved') AND cancelled_at IS NULL
                    AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)";
     let (sql, params) = match one {
@@ -533,22 +578,126 @@ fn plan_rows(
         core,
         &sql,
         params,
-        &["planId", "sequence", "title", "state"],
+        &["planId", "sequence", "title", "state", "approvedRevision"],
     )
 }
 
-/// The plan item of a row. Its package counts take the list of packages (a statement and a row each) and, for each
-/// package that is assigned, a lookup of its report and, when it has one, a lookup of the integration that holds it
-/// (each a statement and, when it finds one, a row).
+/// One row of `plan_packages` as the details read it.
+struct PackageRow {
+    id: String,
+    assignee: Option<String>,
+    assigned_at: Option<String>,
+    cancelled: bool,
+}
+
+/// What the approved revision says about a package.
+struct BodyPackage {
+    id: String,
+    title: String,
+    role: String,
+    depends_on: Vec<String>,
+}
+
+/// The packages of the approved revision of a plan, or `None` when there is none or it cannot be read (the plan then
+/// lists its rows alone).
+fn approved_packages(
+    core: &Core,
+    plan_id: &str,
+    revision: Option<i64>,
+) -> KernelResult<Option<Vec<BodyPackage>>> {
+    let Some(revision) = revision else {
+        return Ok(None);
+    };
+    let kernel = core.kernel();
+    let Some(body) = query_opt(
+        &kernel.database,
+        "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        rusqlite::params![kernel.project_id.as_str(), plan_id, revision],
+        |row| row.get::<_, String>(0),
+    )?
+    else {
+        eprintln!("snapshot_feed: plan {plan_id} has no revision {revision}; listing its package rows only");
+        return Ok(None);
+    };
+    // The stored body is the camelCase `PlanBody` JSON, which `parse_plan_body` (snake_case input) does not read.
+    match stored_packages(&body) {
+        Some(packages) => Ok(Some(packages)),
+        None => {
+            eprintln!("snapshot_feed: the approved body of plan {plan_id} cannot be read; listing its package rows only");
+            Ok(None)
+        }
+    }
+}
+
+/// The `id`, `title`, `role` and `dependsOn` of each package of a stored plan body, or `None` when it has no such list.
+fn stored_packages(body: &str) -> Option<Vec<BodyPackage>> {
+    let body: Value = serde_json::from_str(body).ok()?;
+    let list = body.get("packages")?.as_array()?;
+    let text_of = |package: &Value, key: &str| {
+        package
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    list.iter()
+        .map(|package| {
+            Some(BodyPackage {
+                id: package.get("id")?.as_str()?.to_string(),
+                title: text_of(package, "title"),
+                role: text_of(package, "role"),
+                depends_on: package
+                    .get("dependsOn")
+                    .and_then(Value::as_array)
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// `?, ?, ...` for `n` parameters.
+fn placeholders(n: usize) -> String {
+    vec!["?"; n].join(", ")
+}
+
+/// The plan item of a row. Its package counts take the list of packages (a statement and a row each, cancelled ones
+/// included) and, for each live package that is assigned, a lookup of its report and, when it has one, a lookup of the
+/// integration that holds it (each a statement and, when it finds one, a row). The details of the packages shown take
+/// the approved revision and two batched lookups (the reviews and the integrations of the reports shown).
 fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
     let kernel = core.kernel();
     let plan_id = text(row, "planId");
-    let packages = rows(
+    let package_rows = rows(
         core,
-        "SELECT assignee_agent_id, assigned_at, package_id FROM plan_packages
-          WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL",
+        "SELECT assignee_agent_id, assigned_at, package_id, cancelled_at FROM plan_packages
+          WHERE project_id = ? AND plan_id = ? ORDER BY package_id",
         vec![project(core), sql_text(&plan_id)],
-        &["assignee", "assignedAt", "packageId"],
+        &["assignee", "assignedAt", "packageId", "cancelledAt"],
+    )?
+    .iter()
+    .map(|package| PackageRow {
+        id: text(package, "packageId"),
+        assignee: package
+            .get("assignee")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        assigned_at: package
+            .get("assignedAt")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        cancelled: !package.get("cancelledAt").is_none_or(Value::is_null),
+    })
+    .collect::<Vec<_>>();
+    let body = approved_packages(
+        core,
+        &plan_id,
+        row.get("approvedRevision").and_then(Value::as_i64),
     )?;
     let mut counts = PackageCounts {
         total: 0,
@@ -556,38 +705,194 @@ fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
         reported: 0,
         integrated: 0,
     };
-    for package in &packages {
+    // The report of each live assigned package (None when it has none).
+    let mut reports: HashMap<&str, Option<String>> = HashMap::new();
+    for package in package_rows.iter().filter(|package| !package.cancelled) {
         counts.total += 1;
-        let (Some(assignee), Some(assigned_at)) = (
-            package.get("assignee").and_then(Value::as_str),
-            package.get("assignedAt").and_then(Value::as_str),
-        ) else {
-            continue;
-        };
-        counts.assigned += 1;
-        let Some(report) = counted(plan_packages::package_report(
-            kernel,
-            &plan_id,
-            &text(package, "packageId"),
-            Some(assignee),
-            Some(assigned_at),
-        ))?
+        let (Some(assignee), Some(assigned_at)) =
+            (package.assignee.as_deref(), package.assigned_at.as_deref())
         else {
             continue;
         };
-        counts.reported += 1;
-        let integrated = query_opt(
-            &kernel.database,
-            "SELECT 1 FROM integration_reports ir
-               JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
-              WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('merged', 'confirmed')",
-            [kernel.project_id.as_str(), report.as_str()],
-            |_| Ok(()),
-        )?;
-        if integrated.is_some() {
-            counts.integrated += 1;
+        counts.assigned += 1;
+        let report = counted(plan_packages::package_report(
+            kernel,
+            &plan_id,
+            &package.id,
+            Some(assignee),
+            Some(assigned_at),
+        ))?;
+        if let Some(report) = &report {
+            counts.reported += 1;
+            let integrated = query_opt(
+                &kernel.database,
+                "SELECT 1 FROM integration_reports ir
+                   JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+                  WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('merged', 'confirmed')",
+                [kernel.project_id.as_str(), report.as_str()],
+                |_| Ok(()),
+            )?;
+            if integrated.is_some() {
+                counts.integrated += 1;
+            }
+        }
+        reports.insert(package.id.as_str(), report);
+    }
+
+    // The packages in the order they are listed: live first (body order, then rows the body does not name), cancelled after.
+    let by_id: HashMap<&str, &PackageRow> = package_rows
+        .iter()
+        .map(|package| (package.id.as_str(), package))
+        .collect();
+    struct Slot<'a> {
+        id: &'a str,
+        title: String,
+        role: String,
+        depends_on: Vec<String>,
+        row: Option<&'a PackageRow>,
+    }
+    let mut slots: Vec<Slot<'_>> = Vec::new();
+    match &body {
+        Some(body) => {
+            for package in body {
+                slots.push(Slot {
+                    id: &package.id,
+                    title: package.title.clone(),
+                    role: package.role.clone(),
+                    depends_on: package.depends_on.clone(),
+                    row: by_id.get(package.id.as_str()).copied(),
+                });
+            }
+            let named: std::collections::HashSet<&str> =
+                body.iter().map(|package| package.id.as_str()).collect();
+            for package in package_rows
+                .iter()
+                .filter(|package| !named.contains(package.id.as_str()))
+            {
+                slots.push(Slot {
+                    id: &package.id,
+                    title: String::new(),
+                    role: String::new(),
+                    depends_on: Vec::new(),
+                    row: Some(package),
+                });
+            }
+        }
+        None => {
+            for package in &package_rows {
+                slots.push(Slot {
+                    id: &package.id,
+                    title: String::new(),
+                    role: String::new(),
+                    depends_on: Vec::new(),
+                    row: Some(package),
+                });
+            }
         }
     }
+    let is_cancelled = |slot: &Slot<'_>| slot.row.is_some_and(|package| package.cancelled);
+    let (cancelled, live): (Vec<Slot<'_>>, Vec<Slot<'_>>) =
+        slots.into_iter().partition(|slot| is_cancelled(slot));
+    let listed: Vec<Slot<'_>> = live.into_iter().chain(cancelled).collect();
+    let omitted = listed.len().saturating_sub(MAX_PACKAGE_DETAILS);
+    let shown_slots = &listed[..listed.len() - omitted];
+
+    // The reports of the shown live assigned packages, and their reviews and integrations (one statement each).
+    let report_ids: Vec<String> = shown_slots
+        .iter()
+        .filter(|slot| !is_cancelled(slot))
+        .filter_map(|slot| reports.get(slot.id).cloned().flatten())
+        .collect();
+    let mut reviews: HashMap<String, String> = HashMap::new();
+    let mut integrations: HashMap<String, (String, String)> = HashMap::new();
+    if !report_ids.is_empty() {
+        let marks = placeholders(report_ids.len());
+        let with_ids = |extra: Vec<rusqlite::types::Value>| {
+            let mut params = extra;
+            params.extend(report_ids.iter().map(|id| sql_text(id)));
+            params
+        };
+        for found in rows(
+            core,
+            &format!(
+                "SELECT r.subject_report_id, r.state FROM reviews r
+                  WHERE r.project_id = ? AND r.subject_report_id IN ({marks}) AND r.state IN ('passed', 'findings')
+                    AND r.sequence = (SELECT MAX(r2.sequence) FROM reviews r2
+                                       WHERE r2.project_id = r.project_id AND r2.subject_report_id = r.subject_report_id
+                                         AND r2.state IN ('passed', 'findings'))"
+            ),
+            with_ids(vec![project(core)]),
+            &["reportId", "state"],
+        )? {
+            reviews.insert(text(&found, "reportId"), text(&found, "state"));
+        }
+        for found in rows(
+            core,
+            &format!(
+                "SELECT ir.report_id, i.integration_id, i.state FROM integration_reports ir
+                   JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
+                  WHERE ir.project_id = ? AND ir.report_id IN ({marks})
+                    AND i.integration_id = (SELECT i2.integration_id FROM integration_reports ir2
+                          JOIN integrations i2 ON i2.project_id = ir2.project_id AND i2.integration_id = ir2.integration_id
+                         WHERE ir2.project_id = ir.project_id AND ir2.report_id = ir.report_id
+                         ORDER BY CASE i2.state WHEN 'confirmed' THEN 0 WHEN 'merged' THEN 1 ELSE 2 END, i2.sequence DESC
+                         LIMIT 1)"
+            ),
+            with_ids(vec![project(core)]),
+            &["reportId", "integrationId", "state"],
+        )? {
+            integrations.insert(
+                text(&found, "reportId"),
+                (text(&found, "integrationId"), text(&found, "state")),
+            );
+        }
+    }
+
+    let package_details: Vec<PackageDetail> = shown_slots
+        .iter()
+        .map(|slot| {
+            let mut detail = PackageDetail {
+                id: slot.id.to_string(),
+                title: shown_to(&slot.title, DETAIL_TITLE_CAP),
+                role: shown_to(&slot.role, DETAIL_ROLE_CAP),
+                assignee_agent_id: None,
+                state: "unassigned".to_string(),
+                depends_on: slot.depends_on.clone(),
+                review: None,
+                integration_id: None,
+                integration_state: None,
+            };
+            let Some(package) = slot.row else {
+                return detail;
+            };
+            if package.cancelled {
+                detail.state = "cancelled".to_string();
+                return detail;
+            }
+            let (Some(assignee), Some(_)) = (&package.assignee, &package.assigned_at) else {
+                return detail;
+            };
+            detail.assignee_agent_id = Some(assignee.clone());
+            detail.state = "assigned".to_string();
+            let Some(report) = reports.get(slot.id).cloned().flatten() else {
+                return detail;
+            };
+            detail.state = "reported".to_string();
+            detail.review = reviews.get(&report).cloned();
+            if let Some((id, state)) = integrations.get(&report) {
+                detail.state = match state.as_str() {
+                    "merged" => "integrated",
+                    "confirmed" => "confirmed",
+                    _ => "reported",
+                }
+                .to_string();
+                detail.integration_id = Some(id.clone());
+                detail.integration_state = Some(state.clone());
+            }
+            detail
+        })
+        .collect();
+
     let sequence = int(row, "sequence");
     Ok(PlanItem {
         key: item_key("plans", "plan", &sequence.to_string()),
@@ -596,6 +901,8 @@ fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
         plan_id,
         sequence,
         packages: counts,
+        package_details,
+        package_details_omitted: omitted as u32,
     })
 }
 
@@ -612,6 +919,18 @@ pub fn plans_page_counted(
     limit: u32,
     max_reads: usize,
 ) -> KernelResult<(Page<PlanItem>, usize)> {
+    plans_page_sized(core, after, limit, max_reads, MAX_PAGE_BYTES)
+}
+
+/// `plans_page_counted` with another byte cap (tests).
+#[doc(hidden)]
+pub fn plans_page_sized(
+    core: &Core,
+    after: Option<&str>,
+    limit: u32,
+    max_reads: usize,
+    max_bytes: usize,
+) -> KernelResult<(Page<PlanItem>, usize)> {
     let limit = check_limit(limit)?;
     let after = match after {
         None => 0,
@@ -626,13 +945,13 @@ pub fn plans_page_counted(
         used: 2,
         max: max_reads,
     };
-    // A plan takes at least four (its row, the count's statement and row, the list's statement), so no more rows than the
-    // budget pays for at that rate (and one to see whether more follow) are asked for.
+    // A plan takes at least six (its row, the count's statement and row, the list's statement and the two lookups of the
+    // reports), so no more rows than the budget pays for at that rate (and one to see whether more follow) are asked for.
     let found = plan_rows(
         core,
         after,
         None,
-        (limit + 1).min(max_reads.saturating_sub(3) / 4 + 1),
+        (limit + 1).min(max_reads.saturating_sub(3) / 6 + 1),
     )?;
     reads.used += 1 + found.len();
     let kernel = core.kernel();
@@ -644,22 +963,36 @@ pub fn plans_page_counted(
             more = true;
             break;
         }
-        // The packages are counted first (a statement and a row, checked before they run), then read with the plan: the
-        // list takes a statement and a row for each, and each assigned one takes at most two lookups of two.
+        // The packages are counted first (a statement and a row, checked before they run), then read with the plan.
         if !items.is_empty() && reads.used + 2 > reads.max {
             more = true;
             break;
         }
         reads.used += 2;
-        let (packages, assigned) = query_opt(
+        let (rows_all, live, assigned) = query_opt(
             &kernel.database,
-            "SELECT COUNT(*), COUNT(CASE WHEN assignee_agent_id IS NOT NULL AND assigned_at IS NOT NULL THEN 1 END)
-               FROM plan_packages WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL",
+            "SELECT COUNT(*), COUNT(CASE WHEN cancelled_at IS NULL THEN 1 END),
+                    COUNT(CASE WHEN cancelled_at IS NULL AND assignee_agent_id IS NOT NULL AND assigned_at IS NOT NULL THEN 1 END)
+               FROM plan_packages WHERE project_id = ? AND plan_id = ?",
             [kernel.project_id.as_str(), text(row, "planId").as_str()],
-            |r| Ok((r.get::<_, i64>(0)? as usize, r.get::<_, i64>(1)? as usize)),
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as usize,
+                    r.get::<_, i64>(1)? as usize,
+                    r.get::<_, i64>(2)? as usize,
+                ))
+            },
         )?
-        .unwrap_or((0, 0));
-        let cost = 1 + packages + 4 * assigned;
+        .unwrap_or((0, 0, 0));
+        // The list (a statement and every row), the report lookups and integration counts of the live assigned packages
+        // (four each), the approved revision (two) and the two batched lookups (a statement each and at most a row for
+        // each package shown).
+        let revision = if row.get("approvedRevision").is_some_and(|v| !v.is_null()) {
+            2
+        } else {
+            0
+        };
+        let cost = 1 + rows_all + 4 * assigned + revision + 2 + 2 * live.min(MAX_PACKAGE_DETAILS);
         if !items.is_empty() && reads.used + cost > reads.max {
             more = true;
             break;
@@ -667,7 +1000,7 @@ pub fn plans_page_counted(
         reads.used += cost;
         let item = plan_item(core, row)?;
         let size = serde_json::to_string(&item)?.len() + 1;
-        if !items.is_empty() && bytes + size > MAX_PAGE_BYTES {
+        if !items.is_empty() && bytes + size > max_bytes {
             more = true;
             break;
         }

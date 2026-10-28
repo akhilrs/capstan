@@ -6,8 +6,9 @@ use crate::event_feed::{prompt_sha, Rig, BASE, COMMIT};
 use capstan_kernel::areas::event_feed::{item_key, parse_item_key, KEY_KINDS};
 use capstan_kernel::areas::snapshot_feed::{
     agent_content_hash, agents_page, agents_page_counted, content_hash, content_hash_counted,
-    design_hash_input, message_hash_input, plans_page, snapshot_head, snapshot_item, waiting_page,
-    waiting_page_counted, AgentItem, Page, PlanItem, WaitingItem, MAX_PAGE_BYTES,
+    design_hash_input, message_hash_input, plans_page, plans_page_counted, plans_page_sized,
+    snapshot_head, snapshot_item, waiting_page, waiting_page_counted, AgentItem, Page, PlanItem,
+    WaitingItem, MAX_PAGE_BYTES,
 };
 use capstan_kernel::canonical::sha256;
 use capstan_kernel::errors::KernelError;
@@ -74,6 +75,20 @@ fn keyed<T: serde::Serialize>(items: &[T]) -> BTreeMap<String, Value> {
         .collect()
 }
 
+/// The model without the integration of a package while it is `running`: an integration begin raises no plans invalidate
+/// yet (a known gap), so a client may hold the older item until the next plans invalidate.
+fn masked(mut model: Model) -> Model {
+    for plan in model.plans.values_mut() {
+        for detail in plan["packageDetails"].as_array_mut().into_iter().flatten() {
+            if detail["integrationState"] == "running" {
+                detail["integrationId"] = Value::Null;
+                detail["integrationState"] = Value::Null;
+            }
+        }
+    }
+    model
+}
+
 /// A fresh snapshot: the run and every page of every list.
 fn fresh(core: &Core) -> Model {
     Model {
@@ -134,7 +149,7 @@ fn apply_effects(
                         json!({
                             "key": key, "agentId": id, "kind": fields["kind"], "role": fields["role"],
                             "generation": fields["generation"], "state": fields["state"],
-                            "paused": fields["paused"], "task": null,
+                            "paused": fields["paused"], "task": null, "branch": null,
                             "requestId": format!("agent:{id}"), "contentHash": hash,
                         }),
                     );
@@ -213,9 +228,14 @@ fn settle(
         &|section, key| snapshot_item(core, section, key).unwrap(),
         &|section, kind| kind_items(core, section, kind),
     ));
+    {
+        let (held, read) = (masked(model.clone()), masked(fresh(core)));
+        assert_eq!(held.plans, read.plans, "plans after {label}");
+        assert_eq!(held.agents, read.agents, "agents after {label}");
+    }
     assert_eq!(
-        *model,
-        fresh(core),
+        masked(model.clone()),
+        masked(fresh(core)),
         "the model differs from a snapshot after {label}"
     );
 }
@@ -372,7 +392,7 @@ fn a_model_that_applies_the_effects_equals_a_fresh_snapshot_after_every_step_of_
         .values()
         .any(|w| w["requestId"] == format!("message:{late}")));
     // A design package: plan, assign, report, decision.
-    rig.pane("dev-2", "feat/ui");
+    step(&rig, m, i, "pane", |r| r.pane("dev-2", "feat/ui"));
     let (plan, _) = step(&rig, m, i, "plan open and submit", |r| r.approved_plan());
     assert!(m.plans.contains_key("1"));
     step(&rig, m, i, "plan assign", |r| {
@@ -989,12 +1009,12 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(
         fields(&agents["items"][0]),
-        "agentId,contentHash,generation,key,kind,paused,requestId,role,state,task"
+        "agentId,branch,contentHash,generation,key,kind,paused,requestId,role,state,task"
     );
     let plans = value_of(&plans_page(&rig.core, None, 10).unwrap());
     assert_eq!(
         fields(&plans["items"][0]),
-        "key,packages,planId,sequence,state,title"
+        "key,packageDetails,packageDetailsOmitted,packages,planId,sequence,state,title"
     );
     assert_eq!(
         fields(&plans["items"][0]["packages"]),
@@ -1120,8 +1140,8 @@ fn replay_equals_fresh(rig: &Rig, start: Model, label: &str) {
         &|s, k| kind_items(core, s, k),
     );
     assert_eq!(
-        model,
-        fresh(core),
+        masked(model),
+        masked(fresh(core)),
         "the replay of {label} differs from a snapshot"
     );
 }
@@ -1172,8 +1192,10 @@ fn a_design_report_reassigned_to_another_agent_converges_step_by_step_and_on_rep
     let mut model = start.clone();
     let mut invalidated = Vec::new();
     let (m, i) = (&mut model, &mut invalidated);
-    rig.pane("dev-1", "feat/ui");
-    rig.pane("dev-2", "feat/ui2");
+    step(&rig, m, i, "panes", |r| {
+        r.pane("dev-1", "feat/ui");
+        r.pane("dev-2", "feat/ui2");
+    });
     let (plan, events) = step(&rig, m, i, "plan", |r| r.approved_plan());
     // The notice of the approval is a message that no event of its own announces.
     assert!(events.iter().all(|e| e["type"] != "message.action_needed"));
@@ -1559,7 +1581,7 @@ fn approving_a_superseding_plan_retires_the_old_plan_and_its_waiting_design_in_t
         let mut model = start.clone();
         let mut invalidated = Vec::new();
         let (m, i) = (&mut model, &mut invalidated);
-        rig.pane("dev-1", "feat/ui");
+        step(&rig, m, i, "pane", |r| r.pane("dev-1", "feat/ui"));
         let (plan, _) = step(&rig, m, i, "plan A", |r| r.approved_plan());
         step(&rig, m, i, "assign", |r| r.assign(&plan, "ui", "dev-1"));
         step(&rig, m, i, "report", |r| {
@@ -1684,4 +1706,773 @@ fn over_2500_plain_messages_are_paged_within_2000_counted_reads_and_each_waiting
     let seen: Vec<String> = items.iter().map(|i| i.request_id.clone()).collect();
     let want: Vec<String> = wanted.iter().map(|id| format!("message:{id}")).collect();
     assert_eq!(seen, want);
+}
+
+// ------------------------------------------------------------------------------------------- branch and package details
+
+/// The agent item of `agent`.
+fn agent_item(core: &Core, agent: &str) -> AgentItem {
+    all_agents(core)
+        .into_iter()
+        .find(|item| item.agent_id == agent)
+        .unwrap_or_else(|| panic!("{agent} is not listed"))
+}
+
+/// Whether `events` hold an invalidate of `section` (of `key` when given).
+fn invalidates(events: &[Value], section: &str, key: Option<&str>) -> bool {
+    events.iter().any(|event| {
+        event["body"]["effects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|effect| {
+                effect["op"] == "invalidate"
+                    && effect["section"] == section
+                    && key.is_none_or(|key| effect["key"] == key)
+            })
+    })
+}
+
+/// The plan item of `plan`, as JSON.
+fn plan_json(core: &Core, plan: &str) -> Value {
+    all_plans(core)
+        .iter()
+        .find(|item| item.plan_id == plan)
+        .map(value_of)
+        .unwrap_or_else(|| panic!("{plan} is not listed"))
+}
+
+/// Opens, submits and approves a plan of the packages `(id, title, dependsOn)`; the owns of each are its own.
+fn plan_of(rig: &Rig, title: &str, packages: &[(String, String, Vec<String>)]) -> String {
+    let list: Vec<Value> = packages
+        .iter()
+        .map(|(id, package_title, depends)| {
+            json!({"id": id, "title": package_title, "owns": [format!("src/{id}")],
+                "acceptance": ["works"], "estimate_hours": 1, "depends_on": depends})
+        })
+        .collect();
+    let order: Vec<&String> = packages.iter().map(|(id, _, _)| id).collect();
+    let body = json!({"summary": "s", "packages": list, "risks": [], "integration_order": order})
+        .to_string();
+    let plan = rig
+        .core
+        .open_plan(&rig.ctx("pm-1"), &json!({"tier": "normal", "title": title}))
+        .unwrap();
+    let parsed =
+        serde_json::to_string(&capstan_kernel::plan_body::parse_plan_body(&body, 200).unwrap())
+            .unwrap();
+    rig.core
+        .submit_plan(
+            &rig.ctx("arch-1"),
+            &json!({"planId": plan["planId"], "baseSha": BASE, "bodyJson": parsed, "review": false}),
+        )
+        .unwrap();
+    plan["planId"].as_str().unwrap().to_string()
+}
+
+/// A plan of `n` packages (more than a submit takes): the rows and the stored body are written to the ledger directly.
+fn big_plan(rig: &mut Rig, title: &str, n: usize, package_title: &str) -> String {
+    let plan = plan_of(rig, title, &plain(n.min(20), package_title));
+    let packages: Vec<Value> = (0..n)
+        .map(|i| json!({"id": format!("p{i:02}"), "title": package_title, "role": "developer", "dependsOn": []}))
+        .collect();
+    let body = json!({"summary": "s", "packages": packages, "risks": [], "integrationOrder": []})
+        .to_string();
+    rig.core.close();
+    let db = rig.db();
+    db.execute_batch("DROP TRIGGER IF EXISTS immutable_plan_revisions_update")
+        .unwrap();
+    db.execute(
+        "UPDATE plan_revisions SET body_json = ? WHERE plan_id = ?",
+        [body.as_str(), plan.as_str()],
+    )
+    .unwrap();
+    for i in 20..n {
+        db.execute(
+            "INSERT INTO plan_packages(project_id, plan_id, package_id) SELECT project_id, plan_id, ? FROM plans WHERE plan_id = ?",
+            [format!("p{i:02}").as_str(), plan.as_str()],
+        )
+        .unwrap();
+    }
+    drop(db);
+    rig.core = crate::event_feed::open_seeded(&rig.state, &format!("event-feed-{plan}-{n}"));
+    plan
+}
+
+fn plain(n: usize, title: &str) -> Vec<(String, String, Vec<String>)> {
+    (0..n)
+        .map(|i| (format!("p{i:02}"), title.to_string(), Vec::new()))
+        .collect()
+}
+
+#[test]
+fn an_agent_shows_the_branch_of_its_pane_and_a_rename_keeps_its_hash_and_raises_an_invalidate() {
+    let rig = Rig::new();
+    assert_eq!(agent_item(&rig.core, "dev-1").branch, None);
+    rig.pane("dev-1", "feat/old");
+    let before = agent_item(&rig.core, "dev-1");
+    assert_eq!(before.branch.as_deref(), Some("feat/old"));
+    // Computed at base bd1bfae by `agent_content_hash`: the branch never enters the hash.
+    assert_eq!(
+        before.content_hash,
+        "b4f045b6e6f57de6c9bcf11373ce42ab0959a698e99d40293413fd13403ce3f0"
+    );
+    assert_eq!(
+        before.content_hash,
+        agent_content_hash("dev-1", 1, "active", false, None)
+    );
+    assert_eq!(agent_item(&rig.core, "dev-2").branch, None);
+    let head = rig.head();
+    rig.core
+        .rename_agent_branch(
+            &rig.ctx("owner"),
+            &json!({"agentId": "dev-1", "from": "feat/old", "to": "feat/new"}),
+        )
+        .unwrap();
+    let after = agent_item(&rig.core, "dev-1");
+    assert_eq!(after.branch.as_deref(), Some("feat/new"));
+    assert_eq!(after.content_hash, before.content_hash);
+    assert!(invalidates(&rig.since(head), "agents", Some("dev-1")));
+    let item = snapshot_item(&rig.core, "agents", "dev-1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(item["branch"], "feat/new");
+}
+
+#[test]
+fn package_details_list_state_review_and_integration_in_revision_order() {
+    let mut rig = Rig::new();
+    rig.add_agent("dev-3", "developer", "Developer");
+    rig.add_agent("dev-4", "developer", "Developer");
+    for agent in ["dev-1", "dev-2", "dev-3", "dev-4"] {
+        rig.pane(agent, &format!("feat/{agent}"));
+    }
+    let packages = vec![
+        ("ui".to_string(), "UI".to_string(), vec![]),
+        ("api".to_string(), "API".to_string(), vec![]),
+        ("docs".to_string(), "Docs".to_string(), vec![]),
+        ("conf".to_string(), "Conflicting".to_string(), vec![]),
+        ("gone".to_string(), "Gone".to_string(), vec![]),
+        (
+            "late".to_string(),
+            "Late".to_string(),
+            vec!["api".to_string()],
+        ),
+    ];
+    let plan = plan_of(&rig, "Details", &packages);
+    // api: reported with a passed review; docs: reported, merged, and a later findings verdict; conf: conflicted.
+    rig.assign(&plan, "api", "dev-1");
+    rig.assign(&plan, "docs", "dev-2");
+    rig.assign(&plan, "conf", "dev-3");
+    rig.assign(&plan, "gone", "dev-4");
+    let report = |agent: &str, commit: char| {
+        rig.report_as(
+            agent,
+            &format!("feat/{agent}"),
+            &commit.to_string().repeat(40),
+            "done",
+        )["record"]["reportId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let api = report("dev-1", '1');
+    let docs = report("dev-2", '2');
+    let conf = report("dev-3", '3');
+    let gone = report("dev-4", '4');
+    for id in [&api, &docs, &conf, &gone] {
+        rig.review(id, "pass", "fine");
+    }
+    rig.begin_integration("int-1", &[&docs]);
+    rig.finish_integration(
+        "int-1",
+        json!({"kind": "merged", "headSha": "5".repeat(40)}),
+    );
+    rig.begin_integration("int-2", &[&conf]);
+    rig.finish_integration(
+        "int-2",
+        json!({"kind": "conflicted", "reportId": conf, "files": ["a.rs"], "omitted": 0}),
+    );
+    rig.core
+        .cancel_plan(
+            &rig.ctx("owner"),
+            &json!({"planId": plan, "packageId": "gone"}),
+        )
+        .unwrap();
+    let item = plan_json(&rig.core, &plan);
+    let details = item["packageDetails"].as_array().unwrap();
+    let ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["ui", "api", "docs", "conf", "late", "gone"]);
+    let by = |id: &str| details.iter().find(|d| d["id"] == id).unwrap();
+    assert_eq!(
+        *by("ui"),
+        json!({"id": "ui", "title": "UI", "role": "developer", "assigneeAgentId": null, "state": "unassigned",
+            "dependsOn": [], "review": null, "integrationId": null, "integrationState": null})
+    );
+    assert_eq!(by("api")["state"], "reported");
+    assert_eq!(by("api")["review"], "passed");
+    assert_eq!(by("api")["assigneeAgentId"], "dev-1");
+    assert_eq!(by("late")["dependsOn"], json!(["api"]));
+    assert_eq!(by("docs")["state"], "integrated");
+    assert_eq!(by("docs")["review"], "passed");
+    assert_eq!(by("docs")["integrationId"], "int-1");
+    assert_eq!(by("docs")["integrationState"], "merged");
+    assert_eq!(by("conf")["state"], "reported");
+    assert_eq!(by("conf")["integrationState"], "conflicted");
+    assert_eq!(by("late")["state"], "unassigned");
+    assert_eq!(
+        *by("gone"),
+        json!({"id": "gone", "title": "Gone", "role": "developer", "assigneeAgentId": null, "state": "cancelled",
+            "dependsOn": [], "review": null, "integrationId": null, "integrationState": null})
+    );
+    assert_eq!(item["packageDetailsOmitted"], 0);
+    // Under the cap the counts follow the details.
+    let live = details.iter().filter(|d| d["state"] != "cancelled").count();
+    assert_eq!(item["packages"]["total"], live);
+    let integrated = details
+        .iter()
+        .filter(|d| d["state"] == "integrated" || d["state"] == "confirmed")
+        .count();
+    assert_eq!(item["packages"]["integrated"], integrated);
+    // A report in a discarded integration after the merged one shows the merged one.
+    rig.core
+        .settle_integration(
+            &rig.ctx("owner"),
+            &json!({"integrationId": "int-1", "outcome": "discarded"}),
+        )
+        .unwrap();
+    rig.begin_integration("int-3", &[&docs]);
+    rig.finish_integration(
+        "int-3",
+        json!({"kind": "merged", "headSha": "6".repeat(40)}),
+    );
+    let item = plan_json(&rig.core, &plan);
+    let docs_detail = item["packageDetails"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == "docs")
+        .unwrap();
+    assert_eq!(docs_detail["state"], "integrated");
+    assert_eq!(docs_detail["integrationId"], "int-3");
+    // A later findings verdict is the one shown.
+    rig.review(&docs, "findings", "again");
+    let item = plan_json(&rig.core, &plan);
+    let docs_detail = item["packageDetails"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == "docs")
+        .unwrap();
+    assert_eq!(docs_detail["review"], "findings");
+    assert_eq!(docs_detail["state"], "integrated");
+}
+
+#[test]
+fn a_newer_started_review_hides_nothing_and_a_newer_report_without_a_review_shows_null() {
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/x");
+    let plan = plan_of(&rig, "Reviews", &plain(1, "One"));
+    rig.assign(&plan, "p00", "dev-1");
+    let first = rig.report_as("dev-1", "feat/x", &"1".repeat(40), "one")["record"]["reportId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    rig.review(&first, "findings", "no");
+    rig.core
+        .begin_review(
+            &rig.ctx("pm-1"),
+            &json!({"subjectId": first, "reviewerRole": "reviewer", "reviewerAgentId": "rev-1"}),
+        )
+        .unwrap();
+    let item = plan_json(&rig.core, &plan);
+    assert_eq!(item["packageDetails"][0]["review"], "findings");
+    rig.core
+        .complete_review(&rig.ctx("rev-1"), &json!({"verdict": "pass", "text": "ok"}))
+        .unwrap();
+    assert_eq!(
+        plan_json(&rig.core, &plan)["packageDetails"][0]["review"],
+        "passed"
+    );
+    let second = rig.report_as("dev-1", "feat/x", &"2".repeat(40), "two")["record"]["reportId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(first, second);
+    let detail = plan_json(&rig.core, &plan)["packageDetails"][0].clone();
+    assert_eq!(detail["review"], Value::Null);
+    assert_eq!(detail["state"], "reported");
+}
+
+#[test]
+fn a_plan_without_a_readable_approved_revision_lists_its_rows_with_empty_titles() {
+    let mut rig = Rig::new();
+    let draft = plan_of(&rig, "Draft", &plain(2, "Named"));
+    let corrupt = plan_of(&rig, "Corrupt", &plain(2, "Named"));
+    let missing = plan_of(&rig, "Missing", &plain(2, "Named"));
+    let unmatched = plan_of(&rig, "Unmatched", &plain(2, "Named"));
+    rig.tamper(
+        &[
+            "plans_move_forward",
+            "plans_approved_revision_is_final",
+            "immutable_plan_revisions_update",
+            "immutable_plan_revisions_delete",
+            "immutable_plan_packages_delete",
+        ],
+        &format!(
+            "UPDATE plans SET state = 'draft', approved_revision = NULL WHERE plan_id = '{draft}'"
+        ),
+        "event-feed",
+    );
+    rig.tamper(
+        &[],
+        &format!("UPDATE plan_revisions SET body_json = '{{\"packages\": 3}}' WHERE plan_id = '{corrupt}'"),
+        "event-feed",
+    );
+    rig.tamper(
+        &[],
+        &format!("DELETE FROM plan_revisions WHERE plan_id = '{missing}'"),
+        "event-feed",
+    );
+    // A body package whose id matches no row: remove the row of p01.
+    rig.tamper(
+        &[],
+        &format!("DELETE FROM plan_packages WHERE plan_id = '{unmatched}' AND package_id = 'p01'"),
+        "event-feed",
+    );
+    for plan in [&draft, &corrupt, &missing] {
+        let item = plan_json(&rig.core, plan);
+        let details = item["packageDetails"].as_array().unwrap();
+        assert_eq!(details.len(), 2, "{plan}");
+        for detail in details {
+            assert_eq!(detail["title"], "");
+            assert_eq!(detail["role"], "");
+            assert_eq!(detail["dependsOn"], json!([]));
+            assert_eq!(detail["state"], "unassigned");
+        }
+    }
+    let item = plan_json(&rig.core, &unmatched);
+    let details = item["packageDetails"].as_array().unwrap();
+    assert_eq!(details.len(), 2);
+    assert_eq!(details[1]["id"], "p01");
+    assert_eq!(details[1]["title"], "Named");
+    assert_eq!(details[1]["state"], "unassigned");
+    assert_eq!(item["packages"]["total"], 1);
+}
+
+#[test]
+fn a_package_cancelled_after_its_report_shows_cancelled_with_nothing_else() {
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/x");
+    let plan = plan_of(&rig, "Cancel", &plain(2, "Named"));
+    rig.assign(&plan, "p00", "dev-1");
+    let report = rig.report_as("dev-1", "feat/x", &"1".repeat(40), "one")["record"]["reportId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    rig.review(&report, "pass", "fine");
+    rig.core
+        .cancel_plan(
+            &rig.ctx("owner"),
+            &json!({"planId": plan, "packageId": "p00"}),
+        )
+        .unwrap();
+    let item = plan_json(&rig.core, &plan);
+    let details = item["packageDetails"].as_array().unwrap();
+    assert_eq!(details[0]["id"], "p01");
+    let cancelled = &details[1];
+    assert_eq!(cancelled["id"], "p00");
+    assert_eq!(cancelled["state"], "cancelled");
+    for field in [
+        "assigneeAgentId",
+        "review",
+        "integrationId",
+        "integrationState",
+    ] {
+        assert_eq!(cancelled[field], Value::Null, "{field}");
+    }
+    assert_eq!(item["packages"]["total"], 1);
+}
+
+#[test]
+fn a_title_is_cut_before_the_multibyte_character_that_holds_byte_256() {
+    let rig = Rig::new();
+    let title = format!("a{}", "é".repeat(150));
+    let plan = plan_of(&rig, "Cut", &[("only".to_string(), title, vec![])]);
+    let detail = plan_json(&rig.core, &plan)["packageDetails"][0].clone();
+    let shown = detail["title"].as_str().unwrap();
+    assert_eq!(shown.len(), 255);
+    assert!(shown.starts_with('a') && shown.ends_with('é'));
+}
+
+#[test]
+fn seventy_packages_give_64_details_and_6_omitted_and_cancelled_ones_never_push_live_ones_out() {
+    let mut rig = Rig::new();
+    let plan = big_plan(&mut rig, "Seventy", 70, "P");
+    let item = plan_json(&rig.core, &plan);
+    assert_eq!(item["packageDetails"].as_array().unwrap().len(), 64);
+    assert_eq!(item["packageDetailsOmitted"], 6);
+    assert_eq!(item["packages"]["total"], 70);
+
+    let ten = big_plan(&mut rig, "Ten cancelled", 70, "P");
+    for n in 0..10 {
+        rig.core
+            .cancel_plan(
+                &rig.ctx("owner"),
+                &json!({"planId": ten, "packageId": format!("p{n:02}")}),
+            )
+            .unwrap();
+    }
+    let item = plan_json(&rig.core, &ten);
+    let details = item["packageDetails"].as_array().unwrap();
+    assert_eq!(details.len(), 64);
+    assert_eq!(item["packageDetailsOmitted"], 6);
+    assert_eq!(
+        details.iter().filter(|d| d["state"] == "cancelled").count(),
+        4
+    );
+    assert!(details[..60].iter().all(|d| d["state"] == "unassigned"));
+    assert!(details[60..].iter().all(|d| d["state"] == "cancelled"));
+}
+
+fn one_plan_cost(rig: &Rig) -> usize {
+    plans_page_counted(&rig.core, None, 100, 2000).unwrap().1
+}
+
+#[test]
+fn the_cost_of_a_plan_page_follows_the_formula() {
+    // The base of a plan with an approved revision and no package rows: 3 + 1 + 2 + 1 + 0 + 0 + 2 + 2 = 11.
+    let mut rig = Rig::new();
+    let empty = plan_of(&rig, "Empty", &plain(1, "P"));
+    rig.tamper(
+        &["immutable_plan_packages_delete"],
+        &format!("DELETE FROM plan_packages WHERE plan_id = '{empty}'"),
+        "event-feed",
+    );
+    assert_eq!(one_plan_cost(&rig), 11);
+    // Unassigned: n + 2 x 64.
+    let mut rig = Rig::new();
+    big_plan(&mut rig, "Unassigned", 70, "P");
+    assert_eq!(one_plan_cost(&rig), 11 + 198);
+    // 64 live, all assigned: n + 4a + 2 x 64; ten cancelled rows more cost ten more.
+    for cancelled in [0usize, 10] {
+        let mut rig = Rig::new();
+        let plan = big_plan(&mut rig, "Assigned", 64 + cancelled, "P");
+        for n in 0..64 {
+            let agent = format!("w{n:02}");
+            rig.add_agent(&agent, "developer", "Developer");
+            rig.pane(&agent, &format!("feat/{agent}"));
+            rig.assign(&plan, &format!("p{n:02}"), &agent);
+        }
+        for n in 64..64 + cancelled {
+            rig.core
+                .cancel_plan(
+                    &rig.ctx("owner"),
+                    &json!({"planId": plan, "packageId": format!("p{n:02}")}),
+                )
+                .unwrap();
+        }
+        assert_eq!(one_plan_cost(&rig), 11 + 448 + cancelled);
+    }
+}
+
+/// The charge of building the item of a plan of `n` rows, `a` of them live and assigned, `live` live.
+fn build_charge(n: usize, a: usize, revision: bool, live: usize) -> usize {
+    1 + n + 4 * a + if revision { 2 } else { 0 } + 2 + 2 * live.min(64)
+}
+
+#[test]
+fn a_second_plan_is_admitted_exactly_when_its_row_count_and_build_fit_the_budget() {
+    let rig = Rig::new();
+    plan_of(&rig, "First", &plain(5, "P"));
+    plan_of(&rig, "Second", &plain(7, "P"));
+    let first = build_charge(5, 0, true, 5);
+    let second = build_charge(7, 0, true, 7);
+    for max_reads in 3..=600usize {
+        let (page, used) = plans_page_counted(&rig.core, None, 100, max_reads).unwrap();
+        assert!(
+            !page.items.is_empty(),
+            "{max_reads}: the first plan is returned"
+        );
+        let after_first = 3 + 1 + 2 + first;
+        let fetched_both = max_reads.saturating_sub(3) / 6 + 1 >= 2;
+        let admitted = fetched_both && after_first + 1 + 2 + second <= max_reads;
+        if page.items.len() == 2 {
+            assert!(admitted, "{max_reads}");
+        } else if fetched_both {
+            assert!(!admitted, "{max_reads}");
+            assert_eq!(page.next.as_deref(), Some("1"), "{max_reads}");
+        }
+        if page.items.len() > 1 || max_reads > after_first {
+            assert!(used <= max_reads, "{max_reads}: {used}");
+        }
+    }
+}
+
+fn multibyte_plans(rig: &mut Rig, count: usize) {
+    for n in 0..count {
+        let title = "é".repeat(150);
+        big_plan(rig, &format!("Big {n}"), 64, &title);
+    }
+}
+
+#[test]
+fn pages_cut_at_the_byte_cap_continue_and_list_every_plan_once() {
+    let mut rig = Rig::new();
+    multibyte_plans(&mut rig, 4);
+    let whole = plans_page_sized(&rig.core, None, 100, 2000, usize::MAX)
+        .unwrap()
+        .0;
+    for item in &whole.items {
+        let size = serde_json::to_string(item).unwrap().len();
+        assert!(size < 64 * 1024, "{size}");
+    }
+    let cap = 64 * 1024;
+    let mut after: Option<String> = None;
+    let mut keys = Vec::new();
+    let mut cut = false;
+    loop {
+        let (page, _) = plans_page_sized(&rig.core, after.as_deref(), 100, 2000, cap).unwrap();
+        let size: usize = page
+            .items
+            .iter()
+            .map(|item| serde_json::to_string(item).unwrap().len() + 1)
+            .sum();
+        assert!(size < cap, "{size}");
+        keys.extend(page.items.iter().map(|item| item.key.clone()));
+        match page.next {
+            Some(next) => {
+                cut = true;
+                after = Some(next);
+            }
+            None => break,
+        }
+    }
+    assert!(cut, "the byte cap cut a page");
+    assert_eq!(keys, ["1", "2", "3", "4"]);
+    // A low read budget still returns next.
+    let (page, _) = plans_page_counted(&rig.core, None, 100, 20).unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.next.as_deref(), Some("1"));
+}
+
+#[test]
+fn a_report_with_a_confirmed_integration_wins_over_a_merged_one_and_the_counts_follow_the_details()
+{
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/x");
+    let plan = plan_of(&rig, "Confirm", &plain(1, "One"));
+    rig.assign(&plan, "p00", "dev-1");
+    let report = rig.report_as("dev-1", "feat/x", &"1".repeat(40), "one")["record"]["reportId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    rig.review(&report, "pass", "fine");
+    rig.begin_integration("int-1", &[&report]);
+    rig.finish_integration(
+        "int-1",
+        json!({"kind": "merged", "headSha": "5".repeat(40)}),
+    );
+    let item = plan_json(&rig.core, &plan);
+    assert_eq!(item["packageDetails"][0]["state"], "integrated");
+    assert_eq!(item["packages"]["integrated"], 1);
+}
+
+#[test]
+fn plan_actions_raise_a_plans_invalidate_and_two_gaps_are_pinned() {
+    let mut rig = Rig::new();
+    rig.add_agent("dev-3", "developer", "Developer");
+    rig.pane("dev-1", "feat/dev-1");
+    rig.pane("dev-2", "feat/dev-2");
+    let plan = plan_of(&rig, "Actions", &plain(3, "P"));
+    let plans = |events: &[Value]| invalidates(events, "plans", None);
+
+    let (_, events) = rig.run(|r| r.assign(&plan, "p00", "dev-1"));
+    assert!(plans(&events), "assign");
+    rig.assign(&plan, "p01", "dev-2");
+    let (report, events) = rig.run(|r| r.report_as("dev-1", "feat/dev-1", &"1".repeat(40), "one"));
+    assert!(plans(&events), "report");
+    let report = report["record"]["reportId"].as_str().unwrap().to_string();
+    let other = rig.report_as("dev-2", "feat/dev-2", &"2".repeat(40), "two")["record"]["reportId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Gap: a review verdict raises the bare plans invalidate but not the one of the item key.
+    let (_, events) = rig.review(&report, "pass", "fine");
+    assert!(
+        plans(&events),
+        "a review verdict raises the bare plans invalidate"
+    );
+    assert!(
+        !invalidates(&events, "plans", Some("1")),
+        "report_review_verdict_raises_no_plans_invalidate_yet: no invalidate of the item key"
+    );
+    rig.review(&other, "pass", "fine");
+
+    // Gap: integration begin raises no plans invalidate yet (a later plan).
+    let (_, events) = rig.run(|r| r.begin_integration("int-1", &[&report]));
+    assert!(
+        !plans(&events),
+        "integration_begin_raises_no_plans_invalidate_yet"
+    );
+    let (_, events) = rig.run(|r| {
+        r.finish_integration(
+            "int-1",
+            json!({"kind": "merged", "headSha": "5".repeat(40)}),
+        )
+    });
+    assert!(plans(&events), "integration finish merged");
+    let (_, events) = rig.run(|r| {
+        r.core
+            .settle_integration(
+                &r.ctx("owner"),
+                &json!({"integrationId": "int-1", "outcome": "discarded"}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "integration discard");
+    rig.begin_integration("int-2", &[&other]);
+    let (_, events) = rig.run(|r| {
+        r.finish_integration(
+            "int-2",
+            json!({"kind": "conflicted", "reportId": other, "files": ["a.rs"], "omitted": 0}),
+        )
+    });
+    assert!(plans(&events), "integration finish conflicted");
+    rig.begin_integration("int-3", &[&report]);
+    rig.finish_integration(
+        "int-3",
+        json!({"kind": "merged", "headSha": "6".repeat(40)}),
+    );
+    rig.review("int-3", "pass", "fine");
+    let (_, events) = rig.run(|r| {
+        r.core
+            .settle_integration(
+                &r.ctx("owner"),
+                &json!({"integrationId": "int-3", "outcome": "confirmed"}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "integration confirm");
+
+    let (_, events) = rig.run(|r| {
+        r.core
+            .replace_agent_generation(&r.ctx("owner"), "dev-2")
+            .unwrap();
+    });
+    assert!(plans(&events), "agent replace");
+    let (_, events) = rig.run(|r| {
+        r.core
+            .cancel_plan(
+                &r.ctx("owner"),
+                &json!({"planId": plan, "packageId": "p02"}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "package cancel");
+    let (_, events) = rig.run(|r| {
+        r.core
+            .cancel_plan(&r.ctx("owner"), &json!({"planId": plan}))
+            .unwrap()
+    });
+    assert!(plans(&events), "plan cancel");
+    // Approval is mapped at the base: a submitted plan that is approved raises one.
+    let other_plan = rig
+        .core
+        .open_plan(
+            &rig.ctx("pm-1"),
+            &json!({"tier": "normal", "title": "Later"}),
+        )
+        .unwrap();
+    let body = serde_json::to_string(
+        &capstan_kernel::plan_body::parse_plan_body(
+            r#"{"summary":"s","packages":[{"id":"x","title":"X","owns":["src/x"],"acceptance":["ok"],"estimate_hours":1}],"risks":[],"integration_order":["x"]}"#,
+            8,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let (_, events) = rig.run(|r| {
+        r.core
+            .submit_plan(
+                &r.ctx("arch-1"),
+                &json!({"planId": other_plan["planId"], "baseSha": BASE, "bodyJson": body, "review": false}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "plan approval");
+    let (_, events) = rig.run(|r| {
+        r.core
+            .restart_agent_generation(&r.ctx("owner"), "pm-1")
+            .unwrap();
+    });
+    assert!(plans(&events), "agent restart");
+}
+
+#[test]
+fn plan_reassign_and_plan_amend_raise_a_plans_invalidate() {
+    let mut rig = Rig::new();
+    let plans = |events: &[Value]| invalidates(events, "plans", None);
+
+    // Reassign: the owner has to be gone and the new owner of the architect role free of packages.
+    let plan = plan_of(&rig, "Reassigned", &plain(1, "P"));
+    rig.add_agent("arch-2", "architect", "Developer");
+    rig.core
+        .end_agent(&rig.ctx("owner"), "arch-1", None)
+        .unwrap();
+    let (_, events) = rig.run(|r| {
+        r.core
+            .reassign_plan(
+                &r.ctx("pm-1"),
+                &json!({"planId": plan, "agentId": "arch-2", "architectRole": "architect", "reason": "lost"}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "plan reassign");
+
+    // Amend: a draft plan whose review ended in mechanical findings is amended to approved by its architect.
+    rig.add_agent("arch-3", "architect", "Developer");
+    let body = serde_json::to_string(
+        &capstan_kernel::plan_body::parse_plan_body(
+            r#"{"summary":"s","packages":[
+                {"id":"api","title":"Api","owns":["src/api"],"acceptance":["x"],"estimate_hours":2},
+                {"id":"ui","title":"Ui","owns":["src/ui"],"acceptance":["y"],"estimate_hours":3,"depends_on":["api"]}],
+                "risks":[],"integration_order":["api","ui"]}"#,
+            8,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let amendment =
+        r#"{"reason":"ui also writes docs","packages":[{"id":"ui","add_owns":["docs/ui"]}]}"#;
+    let draft = rig
+        .core
+        .open_plan(
+            &rig.ctx("pm-1"),
+            &json!({"tier": "normal", "title": "Amended"}),
+        )
+        .unwrap();
+    rig.core
+        .submit_plan(
+            &rig.ctx("arch-3"),
+            &json!({"planId": draft["planId"], "baseSha": BASE, "bodyJson": body, "review": true}),
+        )
+        .unwrap();
+    let draft = draft["planId"].as_str().unwrap().to_string();
+    rig.review(
+        &draft,
+        "findings",
+        "## ui\n- [ui] major owns: ui also writes docs/ui\n- [ui] minor depends_on: ui needs api",
+    );
+    let amended = capstan_kernel::helpers::amended_plan_body_json(&body, amendment).unwrap();
+    let (_, events) = rig.run(|r| {
+        r.core
+            .amend_plan(
+                &r.ctx("arch-3"),
+                &json!({"planId": draft, "amendmentJson": amendment, "bodyJson": amended, "baseSha": BASE}),
+            )
+            .unwrap()
+    });
+    assert!(plans(&events), "plan amend");
 }
