@@ -70,7 +70,7 @@ pub struct CursorEntry {
     pub e: String,
     /// The last sequence read.
     pub s: u64,
-    /// The next sub-event of sequence `s` (omitted from the encoding when 0).
+    /// The sub-event of sequence `s` last read (omitted from the encoding when 0).
     pub k: u32,
     /// The anchor of `s`, 16 hex.
     pub h: String,
@@ -163,12 +163,14 @@ fn entry_of(value: &Value) -> Result<CursorEntry, CursorError> {
     let s = object
         .get("s")
         .and_then(Value::as_u64)
+        .filter(|s| *s <= i64::MAX as u64)
         .ok_or_else(|| CursorError::Field("s".into()))?;
     let k = match object.get("k") {
         None => 0,
         Some(value) => value
             .as_u64()
             .and_then(|k| u32::try_from(k).ok())
+            .filter(|k| *k != 0)
             .ok_or_else(|| CursorError::Field("k".into()))?,
     };
     let d = match object.get("d") {
@@ -189,7 +191,8 @@ fn entry_of(value: &Value) -> Result<CursorEntry, CursorError> {
     })
 }
 
-/// The entries of a cursor text; refuses another prefix, bad base64, bad JSON or a bad field.
+/// The entries of a cursor text; refuses another prefix, bad base64, bad JSON, a bad field or any text that is not exactly
+/// what `encode_cursor` writes for the entries.
 pub fn decode_cursor(text: &str) -> Result<BTreeMap<String, CursorEntry>, CursorError> {
     let body = text
         .strip_prefix(CURSOR_PREFIX)
@@ -208,8 +211,13 @@ pub fn decode_cursor(text: &str) -> Result<BTreeMap<String, CursorEntry>, Cursor
         .get("p")
         .and_then(Value::as_object)
         .ok_or_else(|| CursorError::Field("p".into()))?;
-    projects
+    let entries: BTreeMap<String, CursorEntry> = projects
         .iter()
         .map(|(project_id, value)| Ok((project_id.clone(), entry_of(value)?)))
-        .collect()
+        .collect::<Result<_, CursorError>>()?;
+    // Only the text `encode_cursor` writes is accepted: no whitespace, other key order, duplicate keys or other escaping.
+    if encode_cursor(&entries) != text {
+        return Err(CursorError::Field("p".into()));
+    }
+    Ok(entries)
 }

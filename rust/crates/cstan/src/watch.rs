@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use capstan_kernel::helpers::UNSAFE_TEXT_PATTERN;
 use capstan_wire::js::{self, Value};
 use regex::Regex;
 
@@ -14,7 +15,7 @@ use crate::{take_flag, take_interval_seconds, Cli, Fail, Flow, WatchPlan};
 const BELL: &str = "\u{7}";
 
 static UNSAFE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]").expect("the pattern is valid"));
+    LazyLock::new(|| Regex::new(UNSAFE_TEXT_PATTERN).expect("the pattern is valid"));
 
 /// `clean`: everything from the daemon is shown without control or format characters.
 pub fn clean(value: Option<&Value>) -> String {

@@ -1001,7 +1001,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
         "assigned,integrated,reported,total"
     );
     let head = value_of(&snapshot_head(&rig.core).unwrap());
-    assert_eq!(fields(&head), "epoch,head,run");
+    assert_eq!(fields(&head), "anchor,epoch,head,run");
     assert_eq!(fields(&head["run"]), "contentHash,paused,requestId,state");
     assert_eq!(head["run"]["requestId"], "run");
     // The agent request id and the keys.

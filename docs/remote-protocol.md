@@ -25,7 +25,8 @@ The command name and flags are the later CLI plan's contract: `--cursor` resumes
 interval. The stream is read only (section 9).
 
 - Standard output is UTF-8 JSON lines: one JSON object per line, ended by `\n`, no blank lines. A line is at most
-  65536 bytes including the newline. The server never writes a longer one (an event is at most 49152 bytes, section 10).
+  65536 bytes including the newline. The server never writes a longer one (an event is at most 49152 bytes, section 10): a line that would pass
+  65536 bytes is not written, and the stream ends with an `error` line of code `internal` (exit code 1) instead.
 - Standard error is diagnostics for a human only. A client must not parse it and must not fail on its content.
 - Exit codes: `0` the client closed the stream or the command was told to stop; `1` a fatal stream `error` line was
   written first; `2` the command line was invalid (no stream is written); `255` is SSH's own failure (no connection, no
@@ -63,7 +64,8 @@ Project states (the wire names of the discovery endpoint states):
 
 Discovery probes a controller with `feed head`. It reports a controller that answers `unauthorized` or `forbidden` as
 `refused` (the key was not accepted for the operator route) and one that answers `unknown_command` as `unsupported`.
-Every other refusal, and no answer, is reported as `silent`.
+Every other refusal, and no answer, is reported as `silent`. A project whose id is not known (it has no cursor entry
+and no `project.json` file) is not listed.
 
 Order of a stream start: `hello`, then every `project` line, then for each `ready` project its `snapshot` lines and
 `snapshotEnd` (when there is no cursor entry for it, or a `resync` was sent), then `event` lines, then a `cursor` line
@@ -85,12 +87,14 @@ One cursor carries the position of every project, so a client keeps one text.
 - An entry has the fields `e`, `s`, `k`, `h`, `r` and `d`, and no others:
   - `e`: the ledger epoch of the project, 16 lowercase hex characters;
   - `s`: the last sequence read (a non-negative integer);
-  - `k`: the next sub-event of sequence `s`; omitted when 0;
-  - `h`: the history anchor of `s`, 16 lowercase hex characters;
+  - `k`: the sub-event of sequence `s` last read, so `(s, k)` is the position the next read starts after; omitted when 0;
+  - `h`: the history anchor of `s`, 16 lowercase hex characters; it is `0000000000000000` at `s` 0 and is not checked there;
   - `r`: the project root;
   - `d`: Unix seconds since the project was found unavailable; omitted when the project is available.
 - A cursor that does not start with `c1.`, is not base64url, is not JSON, has another top-level key than `p`, an
-  entry with another field, a missing `e`, `s`, `h` or `r`, or a value of the wrong type, does not decode.
+  entry with another field, a missing `e`, `s`, `h` or `r`, or a value of the wrong type, does not decode. Neither does
+  a cursor with an entry whose `k` is 0, an entry whose `s` is above 9223372036854775807, or a text that is not exactly
+  what the codec writes for its entries (whitespace, another key order, a duplicate key or other escaping).
 
 The server emits a `cursor` line after every batch of `event` lines and after every `snapshotEnd`; its entry for a
 project stands at the last position the stream sent for it. The client stores the last `cursor` line it received in
@@ -119,7 +123,8 @@ is 16 hex of the SHA-256 of the event id at `s`; none exists for sequence 0.
 
 A client that has no state for a project builds it like this:
 
-1. Take the snapshot head: `feed snapshot` answers `{epoch, head, run}`. `head` is `H`.
+1. Take the snapshot head: `feed snapshot` answers `{epoch, head, anchor, run}`. `head` is `H`; `anchor` is the history
+   anchor of `H` (section 3), `null` when `H` is 0.
 2. Read every page of `waiting`, `agents` and `plans` (`feed waiting|agents|plans`, following `next` until it is
    `null`). Each page is read at its own head, which may be newer than `H`. The run item comes with the snapshot head.
 3. Read the events after `H`: `feed page --after H:0` and on, until `hasMore` is false.
@@ -129,9 +134,13 @@ A client that has no state for a project builds it like this:
 On the stream the server does the same and sends the result: `snapshot` lines (each with `projectId`, `section`,
 `key` and the item), `snapshotEnd` with `head` = `H`, then `event` lines for the sequences after `H`.
 
-A `feed page` answer is `{projectId, epoch, head, anchorOk, ahead, events, scanned {seq, k}, hasMore, rowsRead}`:
+A `feed head` answer is `{projectId, epoch, head, anchor}`, where `anchor` is the history anchor of `head`, `null` when
+`head` is 0.
+
+A `feed page` answer is `{projectId, epoch, head, anchorOk, ahead, events, scanned {seq, k}, anchor, hasMore, rowsRead}`:
 `scanned` is the last position examined (an event returned or a row skipped) and is where the next `--after` stands;
-`rowsRead` is diagnostic.
+`anchor` is the history anchor of `scanned.seq`, read in the same call as the page, `null` when that sequence is 0 or
+the ledger lacks it (it is the `--anchor` of the next page); `rowsRead` is diagnostic.
 
 Item keys come from `KEY_KINDS`, in sort order:
 
@@ -340,6 +349,8 @@ client keeps reading. The first event of a page is always returned. A poll inter
 The daemon route `feed` takes these subcommands: `head`, `page --after <seq>:<k> --limit <n> [--anchor <hex16>]`,
 `snapshot`, `waiting --limit <n> [--after <key>] [--kind <kind>]`, `agents --limit <n> [--after <key>]`,
 `plans --limit <n> [--after <key>]`, `item <section> <key>` and `hash <requestId>`.
+
+The `head`, `snapshot` and `page` answers carry `anchor` (section 4).
 
 `hash` always answers the object `{requestId, contentHash}`: the content hash of a request id (`op:<id>`,
 `prompt:<id>`, `design:<plan>/<package>`, `message:<id>`, `integration:<id>`, `agent:<id>` or `run`), with
