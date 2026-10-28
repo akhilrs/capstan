@@ -34,6 +34,7 @@ cstan dash            # watch the team (optional)
 | `[layout]`                                                              | `spawn` (`tab` or `pane`), `split` (`auto`, `right`, `down`), `pm_width_percent`, `min_pane_columns`, `min_pane_rows`                                                                                                                                                                                                                  | Starter file sets `spawn = "pane"`, `pm_width_percent = 60`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `[worktree]`                                                            | `setup`, `setup_timeout_seconds`, `teardown`, `teardown_timeout_seconds`                                                                                                                                                                                                                                                               | Optional. `setup` is a shell command run once per new worktree with `sh -c`, the worktree as the working directory, e.g. `setup = "make deps"`, whatever your project needs to be ready in a fresh checkout. It applies to workers, replacements and the architect, not the PM. `setup_timeout_seconds` is 1 to 3600, default 600, and is refused without `setup`. A failing or timed-out setup aborts the spawn. The setup command runs with the same filtered environment as agents (the default allowlist plus `[env] pass`), not the daemon's full environment. `setup` is trusted project config, like the other commands in `capstan.toml`: anyone who can edit the file can run commands. See [Worktree teardown](#worktree-teardown) for `teardown`.                                                    |
 | `[cleanup]`                                                             | `branches`, `worktrees`, `include_unlanded`                                                                                                                                                                                                                                                                                            | Optional. `branches` is `"auto"`, `"ask"` or `"off"` (default `"ask"`). `worktrees` is `"release"` or `"keep"` (default `"release"`). `include_unlanded` is true or false (default false). See [Cleanup](#cleanup).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `[remote]` | `merge`, `merge_branch`, `push`, `push_url`, `messages_per_hour` | Optional. Off by default. See [Remote](#remote). |
 | `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `[liveness]`                                                            | `enabled`, `check_seconds`, `confirm_checks`, `start_grace_seconds`                                                                                                                                                                                                                                                                    | Optional. See [Liveness](#liveness).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `[messages]`                                                            | `wake`, `send_default`, `info_wake_after_seconds`, `auto_ack_info`, `notice_class`                                                                                                                                                                                                                                                     | Optional. How messages are classed and when info wakes the PM. See [Messages](#messages).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -313,6 +314,150 @@ include_unlanded = false
 - `include_unlanded` (true or false, default false): whether branches that are not merged are candidates for cleanup. Unlanded branches are never removed automatically, whatever this is set to.
 
 To restore a branch that was removed, recreate it from the commit it pointed at: `git branch <name> <sha>`.
+
+## Remote
+
+The `[remote]` section says whether integrated work may be merged into a remote branch and pushed from it. An absent section means the defaults below: nothing is merged or pushed. Unknown keys, values of the wrong type and a `remote` that is not a table are refused by `cstan config check`, with a message naming `remote.<key>`; a refusal never repeats the rejected value.
+
+```toml
+[remote]
+merge = false
+merge_branch = "main"
+push = false
+push_url = "git@example.com:org/repo.git"
+messages_per_hour = 30
+```
+
+- `merge` (true or false, default false): whether a merge into the remote branch may be made.
+- `merge_branch` (string, default unset): the branch to merge into. Unset means the remote's default branch (origin `HEAD`) at merge time, and the merge is refused when there is none. It is checked whenever it is set and ignored while `merge` is false. A name must follow git's branch rules, or stricter: not empty; no leading `-` or `/`; no `..`, `//` or `@{`; no control character, space, `~`, `^`, `:`, `?`, `*`, `[` or `\`; no trailing `/` or `.`; no component that starts with `.` or ends with `.lock`; not `@` alone and not `HEAD`.
+- `push` (true or false, default false): whether the merged branch is pushed. It needs `merge = true` and a `push_url`.
+- `push_url` (string, default unset, at most 1024 bytes): where a push goes. It is checked whenever it is set. Accepted: `ssh://`, `https://` or `file://` URLs (the scheme in any case; only `file://` may have an empty host; `ssh://` may carry a port from 1 to 65535 or a bracketed IPv6 host), and the scp-like form `[user@]host:path`. Refused: `http://`, `git://` and any other scheme, a remote helper such as `ext::x`, a password in a URL (`ssh://user:pw@host/r`), a value that starts with `-` or whose host does, whitespace, control characters, `?`, `#` and `%`.
+- `messages_per_hour` (1 to 600, default 30): a hard cap on messages per project and per direction over the trailing 60 minutes.
+
+capstan.toml (read from the project root, and re-read at every merge call) is often committed, so a cloned repository can arrive with `[remote]` merge or push enabled and its own `push_url`. Review `[remote]` before running `cstan` in a repository you did not write.
+
+Limits: percent-encoded file paths are not supported. A 2-letter scp host such as `cd:path` is taken as a host, never as a Windows drive; `c:path` is refused as a local path. A bracketed IPv6 host works only in `ssh://` form, not scp-like.
+
+### Remote merge and push safety
+
+Root git calls trust the user's global and system git config, which any program running as the same user can change.
+
+A `push_url` matched by any `url.*.insteadOf` or `url.*.pushInsteadOf` rule in the user's git config is not pushed (`push_url_rewritten`), so the push goes exactly to the validated URL and its later check reads the same one.
+
+Root calls forward no desktop session variables (a credential helper that needs `DBUS_SESSION_BUS_ADDRESS` or `XDG_RUNTIME_DIR` fails) but do forward `http_proxy` and the like.
+
+The tables below list the fixed values; each is one column, one row per value.
+
+### Refused local config keys
+
+A root git call refuses to run when the repository's local config sets any of these keys (`*` stands for any name).
+
+| Value |
+| --- |
+| `merge.*.driver` |
+| `filter.*.clean` |
+| `filter.*.smudge` |
+| `filter.*.process` |
+| `diff.external` |
+| `diff.*.textconv` |
+| `diff.*.command` |
+| `core.sshCommand` |
+| `core.askPass` |
+| `core.gitProxy` |
+| `core.pager` |
+| `core.editor` |
+| `core.attributesFile` |
+| `core.worktree` |
+| `core.bare` |
+| `core.alternateRefsCommand` |
+| `sequence.editor` |
+| `submodule.*.update` |
+| `mergetool.*.cmd` |
+| `push.recurseSubmodules` |
+| `http.proxy` |
+| `http.proxyAuthMethod` |
+| `http.sslVerify` |
+| `http.sslCert` |
+| `http.sslKey` |
+| `http.sslCAInfo` |
+| `http.sslCAPath` |
+| `http.sslBackend` |
+| `http.pinnedPubkey` |
+| `http.followRedirects` |
+| `http.extraHeader` |
+| `http.cookieFile` |
+| `http.curloptResolve` |
+| `http.*.proxy` |
+| `http.*.proxyAuthMethod` |
+| `http.*.sslVerify` |
+| `http.*.sslCert` |
+| `http.*.sslKey` |
+| `http.*.sslCAInfo` |
+| `http.*.sslCAPath` |
+| `http.*.sslBackend` |
+| `http.*.pinnedPubkey` |
+| `http.*.followRedirects` |
+| `http.*.extraHeader` |
+| `http.*.cookieFile` |
+| `http.*.curloptResolve` |
+| `ssh.variant` |
+| `remote.*.proxy` |
+| `remote.*.proxyAuthMethod` |
+| `credential.*` |
+| `gpg.program` |
+| `gpg.*.program` |
+| `remote.*.receivepack` |
+| `remote.*.uploadpack` |
+| `remote.*.vcs` |
+| `url.*.insteadOf` |
+| `url.*.pushInsteadOf` |
+| `protocol.*.allow` |
+| `include.path` |
+| `includeIf.*` |
+
+### Refusal codes
+
+A merge request is refused before it starts with one of these.
+
+| Value |
+| --- |
+| `unsafe_config` |
+| `invalid_branch` |
+| `invalid_commit` |
+| `wrong_branch` |
+| `no_identity` |
+| `dirty_tree` |
+| `merge_conflict` |
+| `git_too_old` |
+
+### Failure reasons
+
+A merge that started and failed reports one of these.
+
+| Value |
+| --- |
+| `merge_failed` |
+| `index_lock_left` |
+| `timeout` |
+| `tree_mismatch` |
+| `no_merge_head` |
+
+### Push reasons
+
+A push that is not made or fails reports one of these.
+
+| Value |
+| --- |
+| `invalid_branch` |
+| `unsafe_config` |
+| `no_upstream` |
+| `mirror` |
+| `url_mismatch` |
+| `push_url_rewritten` |
+| `not_fast_forward` |
+| `rejected` |
+| `timeout` |
+| `unreachable` |
 
 ## Cache
 

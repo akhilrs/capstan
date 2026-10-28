@@ -3,6 +3,7 @@
 use capstan_wire::js::{self, JsStr, Value};
 use sha2::{Digest, Sha256};
 
+use crate::remote::Remote;
 use crate::types::{Cleanup, Host, McpServer, Operator, Role, RoleConfig};
 
 pub(crate) fn text(value: &str) -> Value {
@@ -401,6 +402,9 @@ impl RoleConfig {
                     ),
                 ]),
             ));
+        }
+        if self.remote != Remote::default() {
+            members.push(("remote", self.remote.to_value()));
         }
         if let Some(cache) = &self.cache {
             members.push(("cache", cache.to_value()));

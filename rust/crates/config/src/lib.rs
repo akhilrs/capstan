@@ -16,6 +16,7 @@ pub mod keys;
 mod operator_policy;
 pub mod primitives;
 pub mod prompts;
+pub mod remote;
 mod researcher_policy;
 mod resolve;
 pub mod review;
@@ -39,6 +40,7 @@ pub use operator_policy::{
     approval_floor_entry_problem, auto_approve_rule_problem, parse_auto_window,
     timed_safe_command_problem, AutoWindowKind,
 };
+pub use remote::Remote;
 pub use resolve::{
     parse_config, parse_config_with_home, DAEMON_NODE_REMOVED, DAEMON_NODE_REMOVED_ENV,
     DAEMON_RUST_ENV_WARNING, DAEMON_RUST_WARNING,

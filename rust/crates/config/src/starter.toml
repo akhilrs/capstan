@@ -157,3 +157,10 @@ prompt = "You research questions on the web and write sourced findings as files 
 # Opt-in: commands every candidate commit must pass in a scratch worktree before review or integration.
 # [verify]
 # commands = ["make test"]
+
+# [remote]                               # opt-in: merge into a remote branch and push; off until set
+# merge = false
+# merge_branch = "main"                  # unset: the remote's default branch
+# push = false                           # needs merge = true and push_url
+# push_url = "git@example.com:org/repo.git"
+# messages_per_hour = 30                 # 1 to 600
