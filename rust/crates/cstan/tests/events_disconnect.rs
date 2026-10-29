@@ -1,4 +1,4 @@
-//! `cstan events` ends when its client goes away without a signal: stdin closed, stdout reader closed, SIGHUP.
+//! `cstan events` ends when its client goes away without a signal: stdout reader closed, SIGHUP; stdin is not watched.
 mod support;
 
 use std::path::PathBuf;
@@ -64,20 +64,6 @@ fn drain(child: &mut Child) -> std::thread::JoinHandle<()> {
 }
 
 #[test]
-fn closing_stdin_ends_the_stream() {
-    let dir = fixture("stdin");
-    let mut child = spawn(&dir, Stdio::piped(), Stdio::piped());
-    let _drain = drain(&mut child);
-    std::thread::sleep(Duration::from_millis(300));
-    drop(child.stdin.take());
-    assert!(
-        exits_within(&mut child, Duration::from_secs(2)),
-        "no exit after stdin closed"
-    );
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
 fn closing_the_stdout_reader_ends_the_stream() {
     let dir = fixture("stdout");
     let mut child = spawn(&dir, Stdio::piped(), Stdio::piped());
@@ -106,20 +92,24 @@ fn sighup_ends_the_stream() {
 }
 
 #[test]
-fn stdin_from_dev_null_is_not_watched() {
-    let dir = fixture("null");
-    let mut child = spawn(&dir, Stdio::null(), Stdio::piped());
-    let _drain = drain(&mut child);
-    if exits_within_keep(&mut child, Duration::from_secs(3)) {
-        panic!("exited with stdin on /dev/null");
+fn closed_or_eof_stdin_does_not_end_the_stream() {
+    for (name, stdin) in [("null", Stdio::null()), ("eof", Stdio::piped())] {
+        let dir = fixture(name);
+        let mut child = spawn(&dir, stdin, Stdio::piped());
+        let _drain = drain(&mut child);
+        // A piped stdin dropped at once is the end of input an ssh client without input produces.
+        drop(child.stdin.take());
+        if exits_within_keep(&mut child, Duration::from_secs(3)) {
+            panic!("exited with {name} stdin");
+        }
+        // SAFETY: signals the child this test started.
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+        assert!(
+            exits_within(&mut child, Duration::from_secs(2)),
+            "no exit on SIGTERM"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
-    // SAFETY: signals the child this test started.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    assert!(
-        exits_within(&mut child, Duration::from_secs(2)),
-        "no exit on SIGTERM"
-    );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[cfg(target_os = "linux")]
