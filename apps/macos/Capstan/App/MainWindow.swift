@@ -56,9 +56,12 @@ struct MainWindow: View {
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Self.foldWidth
         } action: { isNarrow in
-            narrow = isNarrow
-            columnVisibility = isNarrow ? .detailOnly : .all
-            if !isNarrow { inspectorSheet = false }
+            // Written after the layout pass: a state change inside it makes SwiftUI relayout the view mid-layout.
+            Task { @MainActor in
+                narrow = isNarrow
+                columnVisibility = isNarrow ? .detailOnly : .all
+                if !isNarrow { inspectorSheet = false }
+            }
         }
         .onChange(of: model.selectedRow) { _, row in
             if narrow && hasInspector && row != nil { inspectorSheet = true }

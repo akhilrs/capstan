@@ -306,7 +306,10 @@ final class AppModel {
             }
         }
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("main") == true }) {
+        // Only a window that can be key: glass popovers and panels refuse it and log an error.
+        if let window = NSApp.windows.first(where: {
+            $0.identifier?.rawValue.contains("main") == true && $0.canBecomeKey && !($0 is NSPanel)
+        }) {
             window.makeKeyAndOrderFront(nil)
         } else {
             openMainWindow?()
