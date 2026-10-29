@@ -7,6 +7,10 @@ final class HostSessionTests: XCTestCase {
     private var consumer = RecordingConsumer()
 
     override func setUp() {
+        resetFixtures()
+    }
+
+    private func resetFixtures() {
         runner = FakeRunner()
         clock = TestClock()
         consumer = RecordingConsumer()
@@ -191,7 +195,7 @@ final class HostSessionTests: XCTestCase {
 
     func testRejectingErrorLinesStopWithoutRetry() async throws {
         for code in ["unauthorized", "forbidden", "unknown_command", "invalid_request"] {
-            setUp()
+            resetFixtures()
             runner.enqueue(FakeScript(chunks: [Wire.error(code)], exit: 1, stderr: "denied"))
             await startAndWait(makeSession())
             await waitForState("stopped \(code)") { $0 == .stopped(.hostRejected(code: code, tail: hostText("denied"))) }
@@ -319,7 +323,7 @@ final class HostSessionTests: XCTestCase {
 
     func testHeartbeatAndUnknownKindResetTheWatchdog() async throws {
         for line in [Wire.heartbeat, Wire.future] {
-            setUp()
+            resetFixtures()
             await startAndWait(makeSession())
             clock.advance(by: 40)
             runner.child(at: 0).send(line)

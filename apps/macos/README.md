@@ -12,6 +12,7 @@ A SwiftUI client for Capstan hosts. It needs macOS 26 and Xcode 26.
 
 ## Build and run
 
+0. Run `xcode-select -p`. If it prints a Command Line Tools path (`/Library/Developer/CommandLineTools`), switch to Xcode with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, or prefix the commands below with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. The Command Line Tools have no XCTest, so `swift test` fails without this.
 1. Open `apps/macos/Capstan.xcodeproj` in Xcode 26.
 2. Select the Capstan target, then Signing & Capabilities: set your Team and a bundle identifier of your own. Notifications may not authorize until the app is signed.
 3. Choose Run.

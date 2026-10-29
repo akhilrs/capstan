@@ -22,20 +22,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting must wait for the engines to flush, so the reply is deferred until `stopAndWait` returns. A 3 s timer
     /// replies anyway, so a stuck engine cannot keep the app from quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        var replied = false
-        let reply = {
-            guard !replied else { return }
-            replied = true
-            NSApp.reply(toApplicationShouldTerminate: true)
-        }
+        let reply = TerminateReply()
         Task { @MainActor in
             await model.stopAndWait()
-            reply()
+            reply.send()
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            reply()
+            reply.send()
         }
         return .terminateLater
+    }
+}
+
+/// Answers `applicationShouldTerminate` once, whichever of the flush and the timer finishes first.
+@MainActor
+private final class TerminateReply {
+    private var replied = false
+
+    func send() {
+        guard !replied else { return }
+        replied = true
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }
