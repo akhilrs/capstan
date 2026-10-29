@@ -1068,6 +1068,20 @@ fn feed_plan_changed() {
             .unwrap()
     });
     assert_eq!(cancelled[0]["type"], "plan.changed");
+    assert!(
+        has_kind_invalidate(&cancelled[0], "integration"),
+        "a cancelled plan supersedes integrations"
+    );
+    assert!(!has_kind_invalidate(&assigned[0], "integration"));
+}
+
+/// Whether the event asks for the waiting items of `kind` again (the kind-level key).
+fn has_kind_invalidate(event: &Value, kind: &str) -> bool {
+    event["body"]["effects"].as_array().is_some_and(|effects| {
+        effects
+            .iter()
+            .any(|e| e["section"] == "waiting" && e["op"] == "invalidate" && e["key"] == kind)
+    })
 }
 
 #[test]
@@ -1219,6 +1233,10 @@ fn feed_integration_finished() {
     assert_eq!(event["body"]["effects"][0]["key"], "plan");
     assert_eq!(event["body"]["effects"][1]["key"], "message");
     assert_eq!(event["body"]["effects"][2]["key"], "integration:1");
+    assert!(
+        has_kind_invalidate(event, "integration"),
+        "a merge supersedes the earlier integrations of its plans"
+    );
     let (_, settled) = rig.run(|r| {
         r.core
             .settle_integration(
@@ -1229,6 +1247,7 @@ fn feed_integration_finished() {
     });
     assert_eq!(settled[0]["type"], "snapshot.invalidated");
     assert_eq!(settled[0]["body"]["key"], "integration:1");
+    assert!(has_kind_invalidate(&settled[0], "integration"));
 }
 
 #[test]
@@ -1247,6 +1266,7 @@ fn feed_plan_signed_off() {
     let event = expect_type(&rig, &signed, "plan.signed_off");
     assert_eq!(event["body"]["planId"], json!(plan));
     assert_eq!(event["body"]["integrationId"], "int-1");
+    assert!(has_kind_invalidate(event, "integration"));
 }
 
 #[test]

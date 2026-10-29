@@ -10,6 +10,12 @@
       },
       {
         "fields": {},
+        "key": "integration",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
         "key": "message",
         "op": "invalidate",
         "section": "waiting"

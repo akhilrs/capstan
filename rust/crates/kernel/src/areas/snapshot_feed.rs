@@ -10,7 +10,7 @@
 //! # Items (serde, camelCase)
 //! | type | fields |
 //! |---|---|
-//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal` |
+//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha` |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash` |
@@ -33,6 +33,9 @@
 //! `integrationState` until it re-reads plans.
 //!
 //! # Waiting items
+//! `integrationState` (`merged` or `conflicted`), `branch` and `headSha` are filled for kind `integration` and serialize as
+//! null for every other kind. They are not yet in the protocol doc, nor is the rule that follows (plan-74 documents both).
+//!
 //! The key of an item numbers the row (`event_feed::item_key`, kinds from `KEY_KINDS`); the request id names the row by its
 //! id. Both come from the one row. Items sort by kind in `KEY_KINDS` order, then by number (a design by plan sequence, then
 //! package id).
@@ -42,8 +45,18 @@
 //! | `op` | `op:<sequence>` | `op:<proposalId>` | the proposal is `proposed` | `command_sha` |
 //! | `prompt` | `prompt:<sequence>` | `prompt:<relayId>` | the relay is `captured` | `prompt_sha` |
 //! | `design` | `design:<plan sequence>/<packageId>` | `design:<planId>/<packageId>` | an approved plan's assigned design package has a report and no decision on that report | sha256 of the canonical JSON of `{reportId, commit, link}` |
-//! | `message` | `message:<sequence>` | `message:<messageId>` (display only) | the message needs action and is in `OPEN_MESSAGE_STATES_SQL` | sha256 of the canonical JSON of `{id, body}` |
-//! | `integration` | `integration:<sequence>` | `integration:<integrationId>` | the integration is `merged` or `conflicted` | sha256 of the canonical JSON of `{id, state, branch, headSha}` |
+//! | `message` | `message:<sequence>` | `message:<messageId>` (display only) | an open, action-needed message is addressed to the user (none is today: see below) | sha256 of the canonical JSON of `{id, body}` |
+//! | `integration` | `integration:<sequence>` | `integration:<integrationId>` | the integration is `merged` or `conflicted` and is not superseded | sha256 of the canonical JSON of `{id, state, branch, headSha}` |
+//!
+//! Messages wait only when addressed to the user. A message's recipient is an agent (a foreign key to `agents`), so no
+//! message waits today: the kind stays in protocol v1 for a later user recipient, its fetch returns no candidate and
+//! reads nothing. The backlog of messages to an agent stays visible on that agent.
+//!
+//! A `merged` or `conflicted` integration `I` is superseded, and does not wait, when a later integration `J` (higher
+//! sequence) shares a plan with `I` and is `merged` or `confirmed`, or when every plan of `I` has a sign-off on another
+//! integration or is cancelled. The plans of an integration are those of the plan packages of its reports; an
+//! integration with no plan package (a follow-up report only) is never superseded. One aggregated statement per built
+//! integration decides this, charged as a statement and its row (two reads).
 //!
 //! The canonical JSON has its keys sorted, no whitespace and `serde_json`'s string escaping. `link` is the link of the
 //! current decision of the package, or null. `needsTerminal` is true for a prompt whose options all widen permissions or take
@@ -62,7 +75,7 @@
 //! have a `next`.
 
 use super::event_feed::{item_key, parse_item_key, KEY_KINDS};
-use super::{design_approvals, feed_cursor, messages::OPEN_MESSAGE_STATES_SQL, plan_packages};
+use super::{design_approvals, feed_cursor, plan_packages};
 use crate::canonical::sha256;
 use crate::core::Core;
 use crate::errors::{KernelError, KernelResult};
@@ -101,6 +114,9 @@ pub struct WaitingItem {
     pub summary: String,
     pub content_hash: String,
     pub needs_terminal: bool,
+    pub integration_state: Option<String>,
+    pub branch: Option<String>,
+    pub head_sha: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1087,6 +1103,10 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
     if kind == "design" {
         return fetch_design(core, sel, limit);
     }
+    if kind == MESSAGE_KIND {
+        // Only a message addressed to the user waits, and none is (a recipient is an agent): no candidate, no read.
+        return Ok(Vec::new());
+    }
     let (columns, id_column, from, state): (&[&str], &str, &str, String) = match kind {
         "op" => (
             &[
@@ -1114,24 +1134,6 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
             "prompt_relays",
             "state = 'captured'".to_string(),
         ),
-        MESSAGE_KIND => (
-            &[
-                "sequence",
-                "message_id",
-                "open",
-                "action_needed",
-                "queued_at",
-                "body",
-            ],
-            "message_id",
-            "messages",
-            // A window of messages in sequence order, whatever their state, is read through the unique index of
-            // the sequence: a scan bounded by its limit and ordered by the index, never a sort of the open ones.
-            match sel {
-                Sel::After(_) => "1 = 1".to_string(),
-                _ => format!("state IN ({OPEN_MESSAGE_STATES_SQL})"),
-            },
-        ),
         "integration" => (
             &[
                 "sequence",
@@ -1147,11 +1149,7 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
         ),
         other => return Err(invalid(format!("unknown kind {other}"))),
     };
-    let select = if kind == MESSAGE_KIND {
-        message_select()
-    } else {
-        columns.join(", ")
-    };
+    let select = columns.join(", ");
     let base = format!("SELECT {select} FROM {from} WHERE project_id = ? AND {state}");
     let (sql, params) = match sel {
         Sel::After(after) => (
@@ -1180,39 +1178,6 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
             cols,
         })
         .collect())
-}
-
-/// The select list of a message row: the sequence, id, whether the state is open, whether it needs action, when it was
-/// queued and (only for a message that waits) its body.
-fn message_select() -> String {
-    format!(
-        "sequence, message_id, state IN ({OPEN_MESSAGE_STATES_SQL}), action_needed, queued_at,
-         CASE WHEN state IN ({OPEN_MESSAGE_STATES_SQL}) AND action_needed = 1 THEN body END"
-    )
-}
-
-/// The query of a window of messages after a sequence (tests read its plan).
-#[doc(hidden)]
-pub fn message_window_sql() -> String {
-    format!(
-        "SELECT {} FROM messages WHERE project_id = ? AND 1 = 1 AND sequence > ? ORDER BY sequence LIMIT ?",
-        message_select()
-    )
-}
-
-/// Whether an open message comes after the sequence: a probe of the state index, no sort.
-fn open_message_after(core: &Core, sequence: i64) -> KernelResult<bool> {
-    let kernel = core.kernel();
-    Ok(query_opt(
-        &kernel.database,
-        &format!(
-            "SELECT 1 FROM messages INDEXED BY messages_by_state
-              WHERE project_id = ? AND state IN ({OPEN_MESSAGE_STATES_SQL}) AND sequence > ? LIMIT 1"
-        ),
-        rusqlite::params![kernel.project_id, sequence],
-        |_| Ok(()),
-    )?
-    .is_some())
 }
 
 fn fetch_design(core: &Core, sel: &Sel, limit: usize) -> KernelResult<Vec<Candidate>> {
@@ -1325,57 +1290,108 @@ fn build(
         summary,
         content_hash: hash,
         needs_terminal: terminal,
+        integration_state: None,
+        branch: None,
+        head_sha: None,
     };
-    Ok(Built::Done(match kind {
-        "op" => Some(item(
-            text(cols, "created_at"),
-            shown(&text(cols, "command")),
-            text(cols, "command_sha"),
-            false,
-        )),
-        "prompt" => Some(item(
-            text(cols, "captured_at"),
-            shown(&text(cols, "prompt_text")),
-            text(cols, "prompt_sha"),
-            needs_terminal(&text(cols, "options_json")),
-        )),
-        MESSAGE_KIND => (int(cols, "open") == 1 && int(cols, "action_needed") == 1).then(|| {
-            let body = text(cols, "body");
-            item(
-                text(cols, "queued_at"),
-                shown(&body),
-                sha256(&message_hash_input(&candidate.id, &body)),
-                false,
-            )
-        }),
-        "integration" => {
-            let (state, branch) = (text(cols, "state"), text(cols, "branch"));
-            let head_sha = cols.get("head_sha").and_then(Value::as_str);
-            Some(item(
+    Ok(Built::Done(
+        match kind {
+            "op" => Some(item(
                 text(cols, "created_at"),
-                shown(&format!("{state} {branch}")),
-                sha256(&canonical(&json!({
-                    "id": candidate.id,
-                    "state": state,
-                    "branch": branch,
-                    "headSha": head_sha,
-                }))),
+                shown(&text(cols, "command")),
+                text(cols, "command_sha"),
                 false,
-            ))
+            )),
+            "prompt" => Some(item(
+                text(cols, "captured_at"),
+                shown(&text(cols, "prompt_text")),
+                text(cols, "prompt_sha"),
+                needs_terminal(&text(cols, "options_json")),
+            )),
+            "integration" => {
+                let (state, branch) = (text(cols, "state"), text(cols, "branch"));
+                let head_sha = cols.get("head_sha").and_then(Value::as_str);
+                // The statement and its row, reserved before it runs (a call always examines one candidate).
+                if !force && reads.used + 2 > reads.max {
+                    return Ok(Built::Defer);
+                }
+                let superseded =
+                    integration_superseded(core, &candidate.id, int(cols, "sequence"))?;
+                reads.used += 2;
+                (!superseded).then(|| {
+                    let mut found = item(
+                        text(cols, "created_at"),
+                        shown(&format!("{state} {branch}")),
+                        sha256(&canonical(&json!({
+                            "id": candidate.id,
+                            "state": state,
+                            "branch": branch,
+                            "headSha": head_sha,
+                        }))),
+                        false,
+                    );
+                    found.integration_state = Some(state.clone());
+                    found.branch = Some(branch.clone());
+                    found.head_sha = head_sha.map(str::to_string);
+                    found
+                })
+            }
+            "design" => match build_design(core, candidate, scan, reads, force)? {
+                Designed::Defer => return Ok(Built::Defer),
+                Designed::Skip => None,
+                Designed::Item(since, summary, hash) => Some(item(since, summary, hash, false)),
+            },
+            _ => None,
         }
-        "design" => match build_design(core, candidate, scan, reads, force)? {
-            Designed::Defer => return Ok(Built::Defer),
-            Designed::Skip => None,
-            Designed::Item(since, summary, hash) => Some(item(since, summary, hash, false)),
-        },
-        _ => None,
-    }))
+        .map(Box::new),
+    ))
+}
+
+/// The packages of `pp` whose accepted report `r` is in an integration, as in `plan_packages` (`PACKAGE_REPORT_PREDICATE`).
+const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
+  AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
+  AND NOT EXISTS (
+    SELECT 1 FROM plan_packages other
+    WHERE other.project_id = r.project_id AND other.assignee_agent_id = r.agent_id AND other.assigned_at <= r.created_at
+      AND (other.assigned_at, other.plan_id, other.package_id) > (pp.assigned_at, pp.plan_id, pp.package_id))";
+
+/// Whether a `merged` or `conflicted` integration is superseded (see the module doc): one statement, one row.
+fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> KernelResult<bool> {
+    let kernel = core.kernel();
+    let sql = format!(
+        "WITH mine(plan_id) AS (
+           SELECT DISTINCT pp.plan_id FROM integration_reports ir
+             JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+             JOIN plan_packages pp ON pp.project_id = ir.project_id AND {PACKAGE_REPORT}
+            WHERE ir.project_id = ?1 AND ir.integration_id = ?2)
+         SELECT
+           EXISTS (SELECT 1 FROM integrations j
+                    WHERE j.project_id = ?1 AND j.sequence > ?3 AND j.state IN ('merged', 'confirmed')
+                      AND EXISTS (SELECT 1 FROM integration_reports jr
+                                    JOIN agent_reports r ON r.project_id = jr.project_id AND r.report_id = jr.report_id
+                                    JOIN plan_packages pp ON pp.project_id = jr.project_id AND {PACKAGE_REPORT}
+                                   WHERE jr.project_id = j.project_id AND jr.integration_id = j.integration_id
+                                     AND pp.plan_id IN (SELECT plan_id FROM mine))),
+           EXISTS (SELECT 1 FROM mine)
+             AND NOT EXISTS (SELECT 1 FROM mine m
+                               JOIN plans pl ON pl.project_id = ?1 AND pl.plan_id = m.plan_id
+                              WHERE pl.cancelled_at IS NULL
+                                AND NOT EXISTS (SELECT 1 FROM plan_signoffs s
+                                                 WHERE s.project_id = ?1 AND s.plan_id = m.plan_id AND s.integration_id <> ?2))"
+    );
+    let found = query_opt(
+        &kernel.database,
+        &sql,
+        rusqlite::params![kernel.project_id, integration_id, sequence],
+        |row| Ok(row.get::<_, i64>(0)? == 1 || row.get::<_, i64>(1)? == 1),
+    )?;
+    Ok(found.unwrap_or(false))
 }
 
 /// What building a candidate gave.
 enum Built {
     /// The item, or `None` for a candidate that does not wait.
-    Done(Option<WaitingItem>),
+    Done(Option<Box<WaitingItem>>),
     /// The lookups it needs do not fit in the reads left: the candidate is not examined and a later call starts at it.
     Defer,
 }
@@ -1470,11 +1486,7 @@ fn more_after(
 ) -> KernelResult<bool> {
     // A probe is a statement and, when something follows, its row.
     let mut probe = |kind: &str, sort: Option<Sort>| -> KernelResult<bool> {
-        let found = if kind == MESSAGE_KIND {
-            open_message_after(core, sort.map_or(0, |sort| sort.0))?
-        } else {
-            !fetch(core, kind, &Sel::After(sort), 1)?.is_empty()
-        };
+        let found = !fetch(core, kind, &Sel::After(sort), 1)?.is_empty();
         reads.used += 1 + usize::from(found);
         Ok(found)
     };
@@ -1585,7 +1597,7 @@ pub fn waiting_page_counted(
                         stopped = true;
                         break 'kinds;
                     }
-                    Built::Done(built) => built,
+                    Built::Done(built) => built.map(|item| *item),
                 };
                 if let Some(item) = &built {
                     let size = serde_json::to_string(item)?.len() + 1;
@@ -1638,7 +1650,7 @@ fn waiting_one(core: &Core, kind: &str, sel: Sel) -> KernelResult<Option<Waiting
     };
     match fetch(core, kind, &sel, 1)?.into_iter().next() {
         Some(candidate) => match build(core, kind, &candidate, &mut scan, &mut reads, true)? {
-            Built::Done(item) => Ok(item),
+            Built::Done(item) => Ok(item.map(|item| *item)),
             Built::Defer => Ok(None),
         },
         None => Ok(None),

@@ -278,7 +278,7 @@ fn a_model_that_applies_the_effects_equals_a_fresh_snapshot_after_every_step_of_
     let (id, _) = step(&rig, m, i, "message enqueue", |r| {
         r.enqueue("dev-1", "please look", true)
     });
-    assert_eq!(m.waiting.len(), 1);
+    assert!(m.waiting.is_empty(), "a message to an agent does not wait");
     step(&rig, m, i, "message sent", |r| {
         r.core.record_sent(&r.ctx("owner"), &id).unwrap()
     });
@@ -387,10 +387,7 @@ fn a_model_that_applies_the_effects_equals_a_fresh_snapshot_after_every_step_of_
             .advance_messaging(&r.ctx("owner"), &TIMERS())
             .unwrap();
     });
-    assert!(m
-        .waiting
-        .values()
-        .any(|w| w["requestId"] == format!("message:{late}")));
+    assert_eq!(count(m, "message"), 0);
     // A design package: plan, assign, report, decision.
     step(&rig, m, i, "pane", |r| r.pane("dev-2", "feat/ui"));
     let (plan, _) = step(&rig, m, i, "plan open and submit", |r| r.approved_plan());
@@ -570,52 +567,60 @@ fn an_agent_with_2500_pauses_is_paged_and_hashed_within_the_row_budget() {
     );
 }
 
+/// `n` pending operator proposals, each with the command `command(k)`.
+fn proposals(rig: &Rig, n: usize, command: impl Fn(usize) -> String) -> Vec<Value> {
+    (0..n)
+        .map(|k| {
+            rig.core
+                .propose_operator_action(
+                    &rig.ctx("dev-1"),
+                    &json!({"kind": "command", "command": command(k), "reason": "r", "maxPending": 100_000}),
+                )
+                .unwrap()
+        })
+        .collect()
+}
+
 #[test]
 fn a_waiting_page_stops_at_the_row_budget_and_at_the_item_limit_and_resumes_after_the_last_row_examined(
 ) {
     let rig = Rig::new();
+    // 2500 messages to agents add nothing to the reads of a page.
     for n in 0..2500 {
-        rig.enqueue("dev-1", &format!("plain {n}"), false);
+        rig.enqueue("dev-1", &format!("plain {n}"), n % 2 == 0);
     }
-    let wanted: Vec<String> = (0..150)
-        .map(|n| rig.enqueue("dev-2", &format!("act {n}"), true))
-        .collect();
+    let made = proposals(&rig, 250, |k| format!("cmd {k}"));
     let (first, reads) = waiting_page_counted(&rig.core, None, 100, None, 2000).unwrap();
-    // The probes for the end of the list are inside the budget: 2000 reads in all, the rest examined rows.
-    assert!((1960..=2000).contains(&reads), "{reads}");
-    assert_eq!(first.items.len(), 0);
-    let examined: i64 = first
-        .next
-        .as_deref()
-        .unwrap()
-        .strip_prefix("message:")
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert!((1960..=2000).contains(&examined), "{examined}");
-    // A mutation between two calls is served by the next one, which continues from `next`.
-    let late = rig.enqueue("dev-2", "late", true);
-    let second = waiting_page(&rig.core, first.next.as_deref(), 100, None).unwrap();
-    assert_eq!(second.items.len(), 100);
-    assert!(second.next.is_some());
-    let third = waiting_page(&rig.core, second.next.as_deref(), 100, None).unwrap();
-    assert_eq!(third.items.len(), 51, "50 and the late message");
-    assert_eq!(third.next, None);
-    let mut seen: Vec<String> = second
-        .items
+    assert_eq!(first.items.len(), 100);
+    assert!(reads <= 2000, "{reads}");
+    assert!(first.next.is_some());
+    // A small budget ends the page early; the next call continues after the last row examined.
+    let (small, reads) = waiting_page_counted(&rig.core, None, 100, None, 60).unwrap();
+    assert!(
+        (1..100).contains(&small.items.len()),
+        "{}",
+        small.items.len()
+    );
+    assert!(reads <= 60, "{reads}");
+    let core = &rig.core;
+    let (calls, items) = pages_within_budget(60, |after| {
+        waiting_page_counted(core, after, 100, None, 60).unwrap()
+    });
+    assert!(calls >= 5, "{calls}");
+    let seen: Vec<String> = items.iter().map(|i| i.request_id.clone()).collect();
+    let want: Vec<String> = made
         .iter()
-        .chain(&third.items)
-        .map(|i| i.request_id.clone())
+        .map(|p| format!("op:{}", p["proposalId"].as_str().unwrap()))
         .collect();
-    assert_eq!(seen.len(), 151);
-    assert_eq!(seen.last().unwrap(), &format!("message:{late}"));
-    seen.pop();
-    let want: Vec<String> = wanted.iter().map(|id| format!("message:{id}")).collect();
-    assert_eq!(seen, want);
-    // A page that ends in a skipped candidate resumes exactly after it: each item once overall.
+    assert_eq!(seen, want, "each item once, in order");
+    // A mutation between two calls is served by the next one.
+    let late = proposals(&rig, 1, |_| "late".to_string());
     let (calls, items, _) = read_all(|after| waiting_page(&rig.core, after, 100, None).unwrap());
-    assert_eq!(items.len(), 151);
-    assert_eq!(calls, 3);
+    assert_eq!((calls, items.len()), (3, 251));
+    assert_eq!(
+        items.last().unwrap().request_id,
+        format!("op:{}", late[0]["proposalId"].as_str().unwrap())
+    );
 }
 
 #[test]
@@ -624,13 +629,14 @@ fn three_hundred_waiting_agents_and_eighty_plans_of_maximum_text_page_in_order_w
     let mut rig = Rig::new();
     let quotes = "\"".repeat(1500);
     let slashes = "\\".repeat(1500);
-    let mut ids = Vec::new();
     let proposal = rig.propose(&quotes, &slashes[..1000]);
-    for n in 0..299 {
-        let text = if n % 2 == 0 { &quotes } else { &slashes };
-        let to = ["dev-1", "dev-2", "arch-1"][n / 100];
-        ids.push(rig.enqueue(to, text, true));
-    }
+    let ids = proposals(&rig, 299, |n| {
+        if n % 2 == 0 {
+            quotes.clone()
+        } else {
+            slashes.clone()
+        }
+    });
     for n in 0..295 {
         rig.add_agent(&format!("w{n:03}"), "developer", "Developer");
     }
@@ -671,11 +677,9 @@ fn three_hundred_waiting_agents_and_eighty_plans_of_maximum_text_page_in_order_w
         assert!(bytes(&value_of(&page)) <= MAX_PAGE_BYTES);
         calls += 1;
         keys.extend(page.items.iter().map(|i| i.key.clone()));
-        // An item decided between the pages hides or repeats no other: the first message of arch-1 is still ahead.
+        // An item decided between the pages hides or repeats no other: the proposal 200 is still ahead.
         if calls == 1 {
-            rig.core
-                .resolve_message(&rig.ctx("owner"), &ids[200], &json!("cancel"), Some("gone"))
-                .unwrap();
+            rig.decide(&ids[200], "approve");
         }
         match page.next {
             Some(next) => after = Some(next),
@@ -683,10 +687,10 @@ fn three_hundred_waiting_agents_and_eighty_plans_of_maximum_text_page_in_order_w
         }
     }
     assert_eq!(calls, 3);
-    // 299 messages, the proposal and the notice it queued for the PM; the one cancelled between pages is gone.
+    // 300 proposals; the one decided between pages is gone.
     assert_eq!(
         keys.len(),
-        300,
+        299,
         "the one decided between pages is gone, no other"
     );
     let _ = proposal;
@@ -728,7 +732,7 @@ fn one(core: &Core, kind: &str) -> Vec<WaitingItem> {
 }
 
 #[test]
-fn proposals_prompts_designs_and_messages_wait_with_their_hashes_and_leave_when_decided() {
+fn proposals_prompts_and_designs_wait_with_their_hashes_and_leave_when_decided() {
     let rig = Rig::new();
     rig.relay_on();
     // A pending proposal: its hash is command_sha.
@@ -786,17 +790,14 @@ fn proposals_prompts_designs_and_messages_wait_with_their_hashes_and_leave_when_
         designs[0].content_hash,
         sha256(&design_hash_input(&report_id, COMMIT, None))
     );
-    // A message that needs action.
+    // A message that needs action, to an agent, does not wait; the other kinds are still listed.
     let message = rig.enqueue("dev-1", "look at this", true);
-    let messages: Vec<WaitingItem> = one(&rig.core, "message")
-        .into_iter()
-        .filter(|m| m.request_id == format!("message:{message}"))
-        .collect();
-    assert_eq!(messages.len(), 1);
+    assert!(one(&rig.core, "message").is_empty());
     assert_eq!(
-        messages[0].content_hash,
-        sha256(&message_hash_input(&message, "look at this"))
+        content_hash(&rig.core, &format!("message:{message}")).unwrap(),
+        None
     );
+    assert!(!all_waiting(&rig.core, None).is_empty());
     // The paged hash is content_hash while nothing changes.
     for item in all_waiting(&rig.core, None) {
         assert_eq!(
@@ -829,28 +830,16 @@ fn proposals_prompts_designs_and_messages_wait_with_their_hashes_and_leave_when_
             &json!({"planId": plan, "packageId": "ui", "decision": "changes", "askedUser": "ok?"}),
         )
         .ok();
-    rig.core
-        .resolve_message(&rig.ctx("owner"), &message, &json!("cancel"), Some("no"))
-        .unwrap();
-    assert!(one(&rig.core, "message")
-        .iter()
-        .all(|m| m.request_id != messages[0].request_id));
-    assert_eq!(
-        content_hash(&rig.core, &messages[0].request_id).unwrap(),
-        None
-    );
 }
 
 #[test]
-fn expired_and_failed_messages_wait_and_acked_or_cancelled_ones_do_not() {
+fn no_message_waits_whatever_its_state_or_recipient_and_the_other_kinds_are_listed() {
     let rig = Rig::new();
-    let failed = rig.enqueue("dev-1", "will fail", true);
+    let proposal = rig.propose("ls", "look");
+    let to_pm = rig.enqueue("pm-1", "for the pm", true);
+    let to_dev = rig.enqueue("dev-1", "for a developer", true);
     rig.core
-        .record_failure(&rig.ctx("owner"), &failed, "pane gone")
-        .unwrap();
-    let cancelled = rig.enqueue("arch-1", "will be cancelled", true);
-    rig.core
-        .resolve_message(&rig.ctx("owner"), &cancelled, &json!("cancel"), Some("no"))
+        .record_failure(&rig.ctx("owner"), &to_dev, "pane gone")
         .unwrap();
     let expired = rig.enqueue("dev-2", "will expire", true);
     rig.core
@@ -859,20 +848,26 @@ fn expired_and_failed_messages_wait_and_acked_or_cancelled_ones_do_not() {
     rig.core
         .advance_messaging(&rig.ctx("owner"), &TIMERS())
         .unwrap();
-    let acked = rig.enqueue("rev-1", "will be acked", true);
-    rig.core.record_sent(&rig.ctx("owner"), &acked).unwrap();
-    rig.core.ack_message(&rig.ctx("rev-1"), &acked).unwrap();
-    let waiting: Vec<String> = one(&rig.core, "message")
-        .into_iter()
-        .map(|i| i.request_id)
-        .collect();
-    assert!(waiting.contains(&format!("message:{failed}")));
-    assert!(
-        waiting.contains(&format!("message:{expired}")),
-        "{waiting:?}"
+    assert!(one(&rig.core, "message").is_empty());
+    let items = all_waiting(&rig.core, None);
+    assert!(items.iter().all(|i| i.kind != "message"), "{items:?}");
+    assert_eq!(
+        items.iter().filter(|i| i.kind == "op").count(),
+        1,
+        "the page still returns the other kinds"
     );
-    assert!(!waiting.contains(&format!("message:{cancelled}")));
-    assert!(!waiting.contains(&format!("message:{acked}")));
+    let _ = proposal;
+    for id in [&to_pm, &to_dev, &expired] {
+        let request = format!("message:{id}");
+        assert_eq!(content_hash(&rig.core, &request).unwrap(), None);
+    }
+    assert_eq!(
+        snapshot_item(&rig.core, "waiting", "message:1").unwrap(),
+        None
+    );
+    let (page, reads) = waiting_page_counted(&rig.core, None, 100, Some("message"), 2000).unwrap();
+    assert!(page.items.is_empty() && page.next.is_none());
+    assert!(reads <= 4, "the message kind reads nothing: {reads}");
 }
 
 #[test]
@@ -1004,7 +999,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     assert_eq!(fields(&waiting), "head,items,next");
     assert_eq!(
         fields(&waiting["items"][0]),
-        "contentHash,key,kind,needsTerminal,requestId,since,summary"
+        "branch,contentHash,headSha,integrationState,key,kind,needsTerminal,requestId,since,summary"
     );
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(
@@ -1199,7 +1194,7 @@ fn a_design_report_reassigned_to_another_agent_converges_step_by_step_and_on_rep
     let (plan, events) = step(&rig, m, i, "plan", |r| r.approved_plan());
     // The notice of the approval is a message that no event of its own announces.
     assert!(events.iter().all(|e| e["type"] != "message.action_needed"));
-    assert!(count(m, "message") >= 1, "the notice waits");
+    assert_eq!(count(m, "message"), 0, "the notice is for an agent");
     step(&rig, m, i, "assign to A", |r| {
         r.assign(&plan, "ui", "dev-1")
     });
@@ -1229,28 +1224,6 @@ fn a_design_report_reassigned_to_another_agent_converges_step_by_step_and_on_rep
     replay_equals_fresh(&rig, start, "the design report");
 }
 
-#[test]
-fn the_message_page_reads_by_the_sequence_index_with_no_sort() {
-    let rig = Rig::new();
-    let db = rig.db();
-    let mut statement = db
-        .prepare(&format!(
-            "EXPLAIN QUERY PLAN {}",
-            capstan_kernel::areas::snapshot_feed::message_window_sql()
-        ))
-        .unwrap();
-    let plan: Vec<String> = statement
-        .query_map(rusqlite::params!["p", 0, 100], |row| {
-            row.get::<_, String>(3)
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    let plan = plan.join(" | ");
-    assert!(!plan.contains("TEMP B-TREE"), "{plan}");
-    assert!(plan.contains("sqlite_autoindex_messages"), "{plan}");
-}
-
 // ---------------------------------------------------------------------------------------------- controller notices
 
 #[test]
@@ -1276,10 +1249,7 @@ fn a_cleanup_offer_and_a_delivery_problem_notice_converge_without_a_row_of_their
     assert!(events
         .iter()
         .any(|e| e["type"] == "snapshot.invalidated" && e["body"]["key"] == "message"));
-    assert!(m
-        .waiting
-        .values()
-        .any(|w| w["summary"].as_str().unwrap().contains("ACTION NEEDED")));
+    assert_eq!(count(m, "message"), 0, "a notice is for an agent");
     // A delivery problem: a failed message the PM has not been told about.
     let failed = rig.enqueue("dev-1", "will fail", false);
     step(&rig, m, i, "failure", |r| {
@@ -1343,7 +1313,11 @@ fn an_unresolved_finding_check_queues_a_message_the_model_learns_of() {
         events.iter().any(|e| e["body"]["key"] == "message"),
         "{events:#?}"
     );
-    assert!(count(m, "message") > before, "the intervention waits");
+    assert_eq!(
+        count(m, "message"),
+        before,
+        "the intervention is not the user's"
+    );
     replay_equals_fresh(&rig, start, "the finding");
 }
 
@@ -1689,23 +1663,16 @@ fn plans_of_assigned_and_reviewed_reports_are_paged_within_2000_counted_reads() 
 }
 
 #[test]
-fn over_2500_plain_messages_are_paged_within_2000_counted_reads_and_each_waiting_one_appears_once()
-{
+fn over_2500_messages_add_no_waiting_item_and_no_read_to_a_page() {
     let rig = Rig::new();
     for n in 0..2500 {
-        rig.enqueue("dev-1", &format!("plain {n}"), false);
+        rig.enqueue("dev-1", &format!("plain {n}"), n % 2 == 0);
     }
-    let wanted: Vec<String> = (0..150)
-        .map(|n| rig.enqueue("dev-2", &format!("act {n}"), true))
-        .collect();
     let core = &rig.core;
     let (calls, items) = pages_within_budget(2000, |after| {
         waiting_page_counted(core, after, 100, Some("message"), 2000).unwrap()
     });
-    assert!(calls >= 3, "{calls}");
-    let seen: Vec<String> = items.iter().map(|i| i.request_id.clone()).collect();
-    let want: Vec<String> = wanted.iter().map(|id| format!("message:{id}")).collect();
-    assert_eq!(seen, want);
+    assert_eq!((calls, items.len()), (1, 0));
 }
 
 // ------------------------------------------------------------------------------------------- branch and package details
@@ -2475,4 +2442,269 @@ fn plan_reassign_and_plan_amend_raise_a_plans_invalidate() {
             .unwrap()
     });
     assert!(plans(&events), "plan amend");
+}
+
+// ---------------------------------------------------------------------------------- integrations: state and supersession
+
+const PACKAGE_A: &str = r#"{"summary":"s","packages":[
+    {"id":"a","title":"A","owns":["src/a"],"acceptance":["works"],"estimate_hours":1}],
+    "risks":[],"integration_order":["a"]}"#;
+
+/// A report of `agent` (on a pane of its own) that passed review.
+fn passed_report(rig: &Rig, agent: &str, commit: &str) -> String {
+    let report = rig.report_as(agent, &format!("feat/{agent}"), commit, "work written");
+    let id = report["record"]["reportId"].as_str().unwrap().to_string();
+    rig.review(&id, "pass", "fine");
+    id
+}
+
+fn merge(rig: &Rig, id: &str, reports: &[&str]) {
+    rig.begin_integration(id, reports);
+    rig.finish_integration(id, json!({"kind": "merged", "headSha": "3".repeat(40)}));
+}
+
+fn conflict(rig: &Rig, id: &str, reports: &[&str]) {
+    let report = reports[0];
+    rig.begin_integration(id, reports);
+    rig.finish_integration(
+        id,
+        json!({"kind": "conflicted", "files": ["src/a.rs"], "omitted": 0, "reportId": report}),
+    );
+}
+
+/// The request ids of the integrations that wait.
+fn waiting_integrations(rig: &Rig) -> Vec<String> {
+    one(&rig.core, "integration")
+        .into_iter()
+        .map(|item| item.request_id)
+        .collect()
+}
+
+/// A plan of package `a` assigned to `agent`, whose pane exists.
+fn plan_of_a(rig: &Rig, agent: &str) -> String {
+    rig.pane(agent, &format!("feat/{agent}"));
+    let plan = rig.approved_plan_of(PACKAGE_A);
+    rig.assign(&plan, "a", agent);
+    plan
+}
+
+#[test]
+fn an_integration_item_carries_its_state_branch_and_head_and_other_kinds_carry_null() {
+    let rig = Rig::new();
+    rig.propose("ls", "look");
+    plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    conflict(&rig, "int-1", &[&report]);
+    let conflicted = value_of(&one(&rig.core, "integration")[0]);
+    assert_eq!(conflicted["integrationState"], "conflicted");
+    assert_eq!(conflicted["branch"], "capstan/integration/int-1");
+    assert_eq!(conflicted["headSha"], Value::Null);
+    assert_eq!(
+        conflicted["summary"],
+        "conflicted capstan/integration/int-1"
+    );
+    merge(&rig, "int-2", &[&report]);
+    let items = one(&rig.core, "integration");
+    assert_eq!(items.len(), 1, "the conflicted one is superseded");
+    let merged = value_of(&items[0]);
+    assert_eq!(merged["integrationState"], "merged");
+    assert_eq!(merged["branch"], "capstan/integration/int-2");
+    assert_eq!(merged["headSha"], "3".repeat(40));
+    // The hash is the one the item had before the fields were added.
+    let rig = Rig::new();
+    plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    assert_eq!(
+        one(&rig.core, "integration")[0].content_hash,
+        "0a5c7e54eee3f01a65084cb06ed675b923ccd139009674e2d2c95c91fc99b6e5"
+    );
+    // Every other kind serializes the three fields as null, never omitted.
+    rig.propose("ls", "look");
+    for item in all_waiting(&rig.core, Some("op")) {
+        let value = value_of(&item);
+        for field in ["integrationState", "branch", "headSha"] {
+            assert_eq!(value.get(field), Some(&Value::Null), "{field}");
+        }
+    }
+}
+
+#[test]
+fn a_later_merged_integration_of_the_same_plan_supersedes_a_conflicted_and_a_merged_one() {
+    let rig = Rig::new();
+    plan_of_a(&rig, "dev-1");
+    let first = passed_report(&rig, "dev-1", COMMIT);
+    let mut model = fresh(&rig.core);
+    let mut invalidated = Vec::new();
+    let (m, i) = (&mut model, &mut invalidated);
+    rig.begin_integration("int-1", &[&first]); // a begin raises no plans invalidate yet
+    step(&rig, m, i, "conflict", |r| {
+        r.finish_integration(
+            "int-1",
+            json!({"kind": "conflicted", "files": ["src/a.rs"], "omitted": 0, "reportId": first}),
+        )
+    });
+    assert!(m.waiting.contains_key("integration:1"));
+    rig.begin_integration("int-2", &[&first]); // a begin raises no plans invalidate yet
+    let (_, events) = step(&rig, m, i, "merge", |r| {
+        r.finish_integration(
+            "int-2",
+            json!({"kind": "merged", "headSha": "3".repeat(40)}),
+        )
+    });
+    assert!(invalidates(&events, "waiting", Some("integration")));
+    assert!(!m.waiting.contains_key("integration:1"), "superseded");
+    assert!(m.waiting.contains_key("integration:2"));
+    // A follow-up report of the same agent (the same package) in a later merged integration supersedes the merged one.
+    let (second, _) = step(&rig, m, i, "follow-up report", |r| {
+        passed_report(r, "dev-1", &"2".repeat(40))
+    });
+    rig.begin_integration("int-3", &[&second]); // a begin raises no plans invalidate yet
+    let (_, events) = step(&rig, m, i, "merge third", |r| {
+        r.finish_integration(
+            "int-3",
+            json!({"kind": "merged", "headSha": "4".repeat(40)}),
+        )
+    });
+    assert!(invalidates(&events, "waiting", Some("integration")));
+    assert_eq!(
+        m.waiting
+            .keys()
+            .filter(|k| k.starts_with("integration:"))
+            .collect::<Vec<_>>(),
+        vec!["integration:3"]
+    );
+    // A confirmed later integration also supersedes, and a confirmed one does not wait itself.
+    step(&rig, m, i, "review", |r| r.review("int-3", "pass", "fine"));
+    let (_, events) = step(&rig, m, i, "confirm", |r| {
+        r.core
+            .settle_integration(
+                &r.ctx("owner"),
+                &json!({"integrationId": "int-3", "outcome": "confirmed"}),
+            )
+            .unwrap()
+    });
+    assert!(invalidates(&events, "waiting", Some("integration")));
+    assert!(waiting_integrations(&rig).is_empty());
+}
+
+#[test]
+fn an_integration_of_another_plan_or_with_no_plan_package_is_not_superseded() {
+    let mut rig = Rig::new();
+    plan_of_a(&rig, "dev-1");
+    plan_of_a(&rig, "dev-2");
+    rig.add_agent("dev-3", "developer", "Developer");
+    rig.pane("dev-3", "feat/dev-3");
+    let of_first = passed_report(&rig, "dev-1", COMMIT);
+    let of_second = passed_report(&rig, "dev-2", &"2".repeat(40));
+    let follow_up = passed_report(&rig, "dev-3", &"4".repeat(40));
+    merge(&rig, "int-1", &[&of_first]);
+    merge(&rig, "int-2", &[&of_second]);
+    assert_eq!(
+        waiting_integrations(&rig),
+        vec!["integration:int-1", "integration:int-2"],
+        "another plan is unaffected"
+    );
+    // A follow-up report only: no plan package, so a later merged integration of a plan does not hide it.
+    let again = passed_report(&rig, "dev-2", &"5".repeat(40));
+    conflict(&rig, "int-3", &[&follow_up]);
+    merge(&rig, "int-4", &[&again]);
+    let waiting = waiting_integrations(&rig);
+    assert!(
+        waiting.contains(&"integration:int-3".to_string()),
+        "{waiting:?}"
+    );
+    assert!(waiting.contains(&"integration:int-4".to_string()));
+    assert!(!waiting.contains(&"integration:int-2".to_string()));
+}
+
+#[test]
+fn an_integration_whose_plans_are_signed_off_elsewhere_or_cancelled_stops_waiting() {
+    let rig = Rig::new();
+    let signed = plan_of_a(&rig, "dev-1");
+    let first = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&first]);
+    rig.review("int-1", "pass", "fine");
+    // A report of the plan that no integration holds yet, and the plan signed off on the first integration.
+    let second = passed_report(&rig, "dev-1", &"2".repeat(40));
+    rig.core
+        .settle_integration(
+            &rig.ctx("owner"),
+            &json!({"integrationId": "int-1", "outcome": "confirmed"}),
+        )
+        .unwrap();
+    let mut model = fresh(&rig.core);
+    let mut invalidated = Vec::new();
+    let (m, i) = (&mut model, &mut invalidated);
+    let (_, events) = step(&rig, m, i, "sign off", |r| {
+        r.core
+            .record_signoff(
+                &r.ctx("arch-1"),
+                &json!({"planId": signed, "integrationId": "int-1", "summary": "all merged"}),
+            )
+            .unwrap()
+    });
+    assert!(invalidates(&events, "waiting", Some("integration")));
+    // The next integration of that plan is already signed off elsewhere: it does not wait.
+    rig.begin_integration("int-2", &[&second]); // a begin raises no plans invalidate yet
+    step(&rig, m, i, "conflict", |r| {
+        r.finish_integration(
+            "int-2",
+            json!({"kind": "conflicted", "files": ["src/a.rs"], "omitted": 0, "reportId": second}),
+        )
+    });
+    assert!(waiting_integrations(&rig).is_empty());
+    // A cancelled plan: its integration stops waiting, and the cancel raises the invalidate.
+    let (cancelled, _) = step(&rig, m, i, "second plan", |r| plan_of_a(r, "dev-2"));
+    let (report, _) = step(&rig, m, i, "second report", |r| {
+        passed_report(r, "dev-2", &"3".repeat(40))
+    });
+    rig.begin_integration("int-3", &[&report]); // a begin raises no plans invalidate yet
+    step(&rig, m, i, "merge other", |r| {
+        r.finish_integration(
+            "int-3",
+            json!({"kind": "merged", "headSha": "3".repeat(40)}),
+        )
+    });
+    assert!(m.waiting.contains_key("integration:3"));
+    let (_, events) = step(&rig, m, i, "cancel", |r| {
+        r.core
+            .cancel_plan(&r.ctx("owner"), &json!({"planId": cancelled}))
+            .unwrap()
+    });
+    assert!(invalidates(&events, "waiting", Some("integration")));
+    assert!(!m.waiting.contains_key("integration:3"));
+}
+
+#[test]
+fn each_integration_item_costs_one_row_and_two_reads_for_the_supersession_lookup() {
+    let mut rig = Rig::new();
+    rig.add_agent("dev-3", "developer", "Developer");
+    rig.pane("dev-3", "feat/dev-3");
+    let make = |n: usize| {
+        let report = passed_report(&rig, "dev-3", &format!("{n:040}"));
+        conflict(&rig, &format!("int-{n}"), &[&report]);
+    };
+    make(1);
+    let reads_of = |kind| {
+        waiting_page_counted(&rig.core, None, 100, Some(kind), 2000)
+            .unwrap()
+            .1
+    };
+    let with_one = reads_of("integration");
+    make(2);
+    make(3);
+    let with_three = reads_of("integration");
+    assert_eq!(
+        with_three - with_one,
+        2 * (1 + 2),
+        "a row and a statement with its row for each item"
+    );
+    // A tight budget pages the items and never passes it, each item once.
+    let core = &rig.core;
+    let (calls, items) = pages_within_budget(20, |after| {
+        waiting_page_counted(core, after, 100, Some("integration"), 20).unwrap()
+    });
+    assert!(calls >= 2, "{calls}");
+    assert_eq!(items.len(), 3);
 }
