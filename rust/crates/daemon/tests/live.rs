@@ -84,6 +84,28 @@ fn the_rust_daemon_runs_a_project_in_a_real_herdr_session_and_leaves_nothing_beh
         let screen = live.screen(&worker_pane);
         (screen.contains("build slice one") && screen.contains(&message_id)).then_some(())
     });
+    // The worker acknowledges the message, commits on its branch and reports the commit; the controller accepts it.
+    let worker_token = until("the worker's token", 20, || live.token_in(&worktree));
+    let acked = live.cstan_as(&worker_token, &["ack", &message_id]);
+    assert!(acked.status.success(), "{}", text(&acked));
+    std::fs::write(worktree.join("slice-one.txt"), "one\n").unwrap();
+    let in_worktree = worktree.to_string_lossy().into_owned();
+    live.git_ok(&["-C", &in_worktree, "add", "slice-one.txt"]);
+    live.git_ok(&[
+        "-C",
+        &in_worktree,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "feat(slice): add slice one",
+    ]);
+    let commit = live.git_ok(&["-C", &in_worktree, "rev-parse", "HEAD"]);
+    let reported = live.cstan_as_ok(&worker_token, &["report", &commit, "slice one"]);
+    assert_eq!(reported["state"], "accepted", "{reported}");
     live.cstan_ok(&["send", "pm-1", "report to the PM"]);
     until("the PM wake line", 30, || {
         live.screen(&pm_pane)

@@ -874,9 +874,9 @@ deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"
         self.cstan_as(&self.credential.clone(), args)
     }
 
-    /// The token of the agent whose process works in `directory`: it lives in the environment of the agent.
-    /// The agent token of a process running in `directory`. On macOS only the stand-in can be read (the system hides the
-    /// environment of Apple's own binaries, such as the pane's bash), so `python3` on PATH must not be /usr/bin/python3.
+    /// The token of the agent whose process works in `directory`: it lives in the environment of the agent. On macOS only
+    /// the stand-in can be read (the system hides the environment of Apple's own binaries, such as the pane's bash), so
+    /// `python3` on PATH must not be /usr/bin/python3.
     pub fn token_in(&self, directory: &Path) -> Option<String> {
         capstan_process::pids().into_iter().find_map(|pid| {
             if capstan_process::cwd(pid).as_deref() != Some(directory) {
