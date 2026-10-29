@@ -1,0 +1,37 @@
+# <class> TAB <name>; in a name \\ is a backslash, \t a tab, \xNN an ASCII byte
+accept	main
+accept	feature/x
+accept	a-b
+accept	a.b
+accept	v1.0
+accept	a@b
+accept	a.locked
+accept	x/-y
+accept	café
+accept	a_b/c-d/e.f
+git-refuses	a..b
+git-refuses	a//b
+git-refuses	a@{b
+git-refuses	a b
+git-refuses	a\tb
+git-refuses	a~b
+git-refuses	a^b
+git-refuses	a:b
+git-refuses	a?b
+git-refuses	a*b
+git-refuses	a[b
+git-refuses	a\\b
+git-refuses	a/
+git-refuses	a.
+git-refuses	/a
+git-refuses	.a
+git-refuses	a/.b
+git-refuses	a.lock
+git-refuses	a.lock/b
+git-refuses	a\x01b
+git-refuses	a\x7fb
+git-refuses	@
+config-refuses	
+config-refuses	-a
+config-refuses	HEAD
+config-refuses	-

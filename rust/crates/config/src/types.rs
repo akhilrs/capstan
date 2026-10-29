@@ -526,6 +526,8 @@ pub struct RoleConfig {
     pub layout: Layout,
     pub worktree: Option<Worktree>,
     pub cleanup: Cleanup,
+    /// The `[remote]` section; the default (merge and push off) when it is absent.
+    pub remote: crate::remote::Remote,
     /// The `[cache]` section; `None` when it is absent.
     pub cache: Option<crate::cache::CacheConfig>,
     /// The `[verify]` section; `None` when it is absent.
