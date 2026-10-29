@@ -60,7 +60,21 @@ final class LiveProcessRunnerTests: XCTestCase {
         var iterator = process.lines.makeAsyncIterator()
         _ = try await iterator.next()
         process.terminate(grace: 5)
-        let code = await process.exitCode()
+        let code = await exitCode(of: process, within: 20)
         XCTAssertEqual(code, 128 + SIGTERM)
+    }
+
+    /// The exit code, or nil after `seconds`, so a child that never reports an exit fails the test instead of hanging it.
+    private func exitCode(of process: any RunningProcess, within seconds: Double) async -> Int32? {
+        await withTaskGroup(of: Int32?.self) { group in
+            group.addTask { await process.exitCode() }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+            let first: Int32?? = await group.next()
+            group.cancelAll()
+            return first ?? nil
+        }
     }
 }

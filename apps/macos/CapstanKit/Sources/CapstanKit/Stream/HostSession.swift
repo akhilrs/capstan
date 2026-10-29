@@ -73,6 +73,7 @@ public actor HostSession {
     private var currentProcess: (any RunningProcess)?
     private var watchdogTask: Task<Void, Never>?
     private var watchdogFired = false
+    private var terminatedConnection = 0
     private var refreshRestartRequested = false
     private var lastLineAt: Date
     private var liveSince: Date?
@@ -148,8 +149,15 @@ public actor HostSession {
         watchdogTask = nil
         refreshTask?.cancel()
         refreshTask = nil
-        currentProcess?.terminate()
+        if let process = currentProcess { terminate(process, connection: connectionId) }
         currentProcess = nil
+    }
+
+    /// Ends a child once: the stop, refresh and watchdog paths and the read loop's own cleanup may all reach for it.
+    private func terminate(_ process: any RunningProcess, connection id: Int) {
+        guard terminatedConnection != id else { return }
+        terminatedConnection = id
+        process.terminate()
     }
 
     private func publish(_ new: ConnectionState) async {
@@ -274,16 +282,16 @@ public actor HostSession {
         watchdog.cancel()
         if connectionId == id { watchdogTask = nil }
         guard gen == generation else {
-            process.terminate()
+            terminate(process, connection: id)
             return .superseded
         }
         if connectionId == id { currentProcess = nil }
         if refreshRestartRequested {
             // The partial batch is read again with the snapshots after the restart.
-            process.terminate()
+            terminate(process, connection: id)
             return .restartNow
         }
-        if decision != nil || watchdogFired { process.terminate() }
+        if decision != nil || watchdogFired { terminate(process, connection: id) }
         if !batch.isEmpty {
             await consumer.apply(host: config.id, lines: batch)
             batch = []
@@ -359,7 +367,7 @@ public actor HostSession {
                 await publish(.noHeartbeat(since: clock.now()))
                 guard id == connectionId else { return }
                 watchdogFired = true
-                currentProcess?.terminate()
+                if let process = currentProcess { terminate(process, connection: id) }
                 return
             }
             do {
@@ -402,7 +410,7 @@ public actor HostSession {
         lastRefreshRestart = clock.now()
         if let process = currentProcess {
             refreshRestartRequested = true
-            process.terminate()
+            terminate(process, connection: connectionId)
         }
     }
 }

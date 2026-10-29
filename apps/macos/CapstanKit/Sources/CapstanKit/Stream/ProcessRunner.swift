@@ -98,6 +98,7 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
     private let lock = NSLock()
     private var kept = Data()
     private var errorTail = Data()
+    private var finished = false
     private let outputDone = Latch<Void>()
     private let exit = Latch<Int32>()
     private let errorDone = DispatchSemaphore(value: 0)
@@ -114,14 +115,7 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         process.standardError = errPipe
 
         let outputDone = self.outputDone
-        let exit = self.exit
-        let errorDone = self.errorDone
-        process.terminationHandler = { finished in
-            // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open.
-            _ = errorDone.wait(timeout: .now() + 0.25)
-            let status = finished.terminationStatus
-            exit.set(finished.terminationReason == .uncaughtSignal ? 128 + status : status)
-        }
+        process.terminationHandler = { [self] _ in finish() }
         try process.run()
 
         let outHandle = outPipe.fileHandleForReading
@@ -134,6 +128,26 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
             readError(errHandle)
             errorDone.signal()
         }
+        // The termination handler is the first way to learn of the exit; this poll is the second, so a handler that
+        // does not run cannot leave `exitCode` waiting for good.
+        Thread.detachNewThread { [self] in
+            while process.isRunning { usleep(20_000) }
+            finish()
+        }
+    }
+
+    /// Records the exit once, from whichever of the termination handler and the poll sees it first.
+    private func finish() {
+        let first: Bool = lock.withLock {
+            guard !finished else { return false }
+            finished = true
+            return true
+        }
+        guard first else { return }
+        // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open.
+        _ = errorDone.wait(timeout: .now() + 0.25)
+        let status = process.terminationStatus
+        exit.set(process.terminationReason == .uncaughtSignal ? 128 + status : status)
     }
 
     private func readOutput(_ handle: FileHandle, _ continuation: AsyncThrowingStream<Data, Error>.Continuation) {

@@ -16,6 +16,11 @@ enum HostText {
     static func name(_ s: String) -> String { clean(s, maxBytes: nameCap) }
     static func code(_ s: String) -> String { clean(s, maxBytes: codeCap) }
 
+    /// True when a host's stderr says its `cstan` has no `events` command, which is what an old cstan prints.
+    static func mentionsUnknownEventsCommand(_ stderr: String) -> Bool {
+        stderr.contains("unknown command: events")
+    }
+
     /// A host text for a detail block: nil when it is not verified or empty after cleaning.
     static func detail(_ t: UntrustedText) -> UntrustedText? {
         guard t.verified else { return nil }
