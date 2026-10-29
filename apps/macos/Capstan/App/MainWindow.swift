@@ -128,12 +128,15 @@ struct MainWindow: View {
 
     private var title: String {
         switch model.selection {
-        case .inbox: return model.inboxKind == .message ? "Messages to PM" : "Waiting for you"
+        case .inbox:
+            let name = model.inboxKind == .message ? "Messages to PM" : "Waiting for you"
+            // The compact window has no filter capsule to carry the count.
+            return compactToolbar || narrow ? name + " · " + String(model.inboxTotal()) : name
         case .project(let hostId, let projectId):
             // The count is of the rows below, so the title says which project filters them.
             return (projectName(hostId, projectId) ?? "Waiting for you") + " · " + String(model.inboxTotal())
         case .agents(let hostId, let projectId): return "Agents" + projectSuffix(hostId, projectId)
-        case .plans(let hostId, let projectId): return "Plans" + projectSuffix(hostId, projectId)
+        case .plans: return "Plans"
         case .hosts: return "Hosts"
         }
     }

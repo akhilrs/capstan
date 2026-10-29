@@ -43,6 +43,7 @@ struct InboxRowView: View {
             RoundedRectangle(cornerRadius: Tokens.radius.row)
                 .strokeBorder(Tokens.color(.accent), lineWidth: selected ? 1 : 0)
         )
+        .opacity(row.stale ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { inside in
             withAnimation(Motion.animation(Motion.hover, reduce: reduceMotion)) { hovering = inside }

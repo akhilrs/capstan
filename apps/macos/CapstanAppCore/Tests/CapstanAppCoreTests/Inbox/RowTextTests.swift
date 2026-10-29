@@ -101,7 +101,9 @@ final class RowTextTests: XCTestCase {
         let mixed = FooterStatus.make(
             [.init(name: "a", state: live, loading: false), .init(name: "studio-mini", state: retry, loading: false)],
             now: now)
-        XCTAssertEqual(mixed.text, "studio-mini reconnecting")
+        XCTAssertEqual(mixed.text, "studio-mini reconnecting · try 1 in 0 s")
+        XCTAssertEqual(mixed.name, "studio-mini")
+        XCTAssertTrue(mixed.ring)
         XCTAssertEqual(mixed.tone, .yellow)
         XCTAssertEqual(FooterStatus.make([], now: now).text, "No hosts")
     }

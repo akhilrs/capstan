@@ -17,16 +17,21 @@ struct StatusCapsule: View {
                 reduceMotion: reduceMotion
             ).pulse
             HStack(spacing: Tokens.space[1]) {
-                Circle()
-                    .fill(status.tone.color)
-                    .frame(width: 7, height: 7)
-                    .scaleEffect(flash ? 1.5 : 1)
-                Text(verbatim: status.text)
+                if case .connecting? = status.state {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Circle()
+                        .fill(status.ring ? Color.clear : status.tone.color)
+                        .overlay(Circle().strokeBorder(status.tone.color, lineWidth: status.ring ? 1.5 : 0))
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(flash ? 1.5 : 1)
+                }
+                if let name = status.name {
+                    Text(verbatim: name).font(.system(size: 12, weight: .semibold))
+                }
+                Text(verbatim: status.detail)
                     .font(.system(size: 12))
                     .foregroundStyle(Tokens.color(.label2))
-                if case .reconnecting(_, let retryAt, _)? = status.state {
-                    Countdown(until: retryAt).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
-                }
             }
             .padding(.horizontal, Tokens.space[2])
             .padding(.vertical, Tokens.space[0] + 2)

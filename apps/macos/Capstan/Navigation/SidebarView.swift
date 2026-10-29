@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The rows of the sidebar. Agents and Plans stand for every project; the project in view is chosen in the toolbar.
 private enum NavItem: Hashable {
-    case waiting, agents, plans, messages
+    case waiting, agents, plans, messages, hosts
     case host(UUID)
     case project(hostId: UUID, projectId: String)
 }
@@ -20,6 +20,7 @@ struct SidebarView: View {
             nav("Agents", symbol: "person.2", count: counts.agents, item: .agents)
             nav("Plans", symbol: "doc.text", count: counts.plans, item: .plans)
             nav("Messages to PM", symbol: "bubble.left", count: counts.messages, item: .messages)
+            nav("Hosts", symbol: "server.rack", count: model.hosts.count, item: .hosts)
             Section {
                 ForEach(model.hosts) { host in
                     hostRow(host)
@@ -91,7 +92,7 @@ struct SidebarView: View {
         case .agents: return .agents
         case .plans: return .plans
         case .hosts:
-            return NavItem.host(model.hostsFocus?.hostId ?? model.hosts.first?.id ?? UUID())
+            return model.hostsFocus.map { NavItem.host($0.hostId) } ?? NavItem.hosts
         }
     }
 
@@ -107,6 +108,9 @@ struct SidebarView: View {
             if let key = workProject() { model.selection = .agents(hostId: key.hostId, projectId: key.projectId) }
         case .plans:
             if let key = workProject() { model.selection = .plans(hostId: key.hostId, projectId: key.projectId) }
+        case .hosts:
+            model.hostsFocus = nil
+            model.selection = .hosts
         case .host(let hostId):
             model.hostsFocus = HostsFocus(hostId: hostId)
             model.selection = .hosts

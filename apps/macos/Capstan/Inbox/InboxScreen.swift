@@ -49,26 +49,44 @@ struct InboxScreen: View {
     @ViewBuilder
     private var placeholder: some View {
         if loading {
-            VStack(spacing: Tokens.space[1]) {
-                ForEach(0..<4, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: Tokens.radius.row)
-                        .fill(Tokens.color(.fill2))
-                        .frame(height: 44)
-                }
+            VStack(spacing: Tokens.space[2]) {
+                ForEach(0..<3, id: \.self) { _ in skeletonRow }
             }
             .padding(Tokens.space[3])
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Loading")
             Spacer()
         } else {
-            VStack(spacing: Tokens.space[1]) {
-                Image(systemName: "checkmark.circle").font(.system(size: 28)).foregroundStyle(Tokens.color(.label2))
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                Image(systemName: "tray").font(.system(size: 26)).foregroundStyle(Tokens.color(.label2))
                 Text("Nothing is waiting for you").font(.system(size: 15, weight: .semibold))
-                Text("New items appear here as soon as a project asks.")
+                Text(verbatim: emptyDetail)
                     .font(.system(size: 13))
                     .foregroundStyle(Tokens.color(.label2))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(Tokens.space[5])
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
+    }
+
+    /// A row-shaped placeholder: a square for the glyph, two bars for the lines and a short one for the age.
+    private var skeletonRow: some View {
+        HStack(alignment: .top, spacing: Tokens.space[1]) {
+            RoundedRectangle(cornerRadius: 4).fill(Tokens.color(.fill2)).frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                Capsule().fill(Tokens.color(.fill2)).frame(width: 150, height: 8)
+                Capsule().fill(Tokens.color(.fill2)).frame(maxWidth: 360, minHeight: 8, maxHeight: 8)
+            }
+            Spacer(minLength: Tokens.space[0])
+            Capsule().fill(Tokens.color(.fill2)).frame(width: 36, height: 8)
+        }
+    }
+
+    private var emptyDetail: String {
+        let projects = model.hostModels.values.reduce(0) { $0 + $1.projects.count }
+        let live = model.hosts.filter { isLive($0.id) }.count
+        let scope = "\(projects) project\(projects == 1 ? "" : "s") on \(live) host\(live == 1 ? " is" : "s are") live."
+        return scope + " You get a notification when an agent asks for something."
     }
 
     private func list(_ groups: [DisplayGroup]) -> some View {

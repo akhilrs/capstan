@@ -245,13 +245,25 @@ public enum SidebarText {
     }
 }
 
-/// The footer status capsule: one line for every host.
+/// The footer status capsule: one line for every host. The host name is set bold, the rest in secondary text.
 public struct FooterStatus: Sendable, Equatable {
-    public let text: String
+    /// The host the line is about; nil when it stands for several hosts that are all live.
+    public let name: String?
+    public let detail: String
     public let tone: Tone
     /// The state the capsule stands for, for the heartbeat pulse; nil without hosts.
     public let state: ConnectionState?
     public let loading: Bool
+
+    public var text: String { name.map { $0 + " " + detail } ?? detail }
+
+    /// The dot is filled when the host is live or stopped and a ring while it is connecting, late or reconnecting.
+    public var ring: Bool {
+        switch state {
+        case .noHeartbeat?, .reconnecting?: return true
+        default: return false
+        }
+    }
 
     public struct Host: Sendable {
         public let name: String
@@ -267,21 +279,23 @@ public struct FooterStatus: Sendable, Equatable {
 
     /// One host: `name live · heartbeat 3 s ago`. Several: the worst state, or `N hosts live` when all are live.
     public static func make(_ hosts: [Host], now: Date) -> FooterStatus {
-        guard !hosts.isEmpty else { return FooterStatus(text: "No hosts", tone: .grey, state: nil, loading: false) }
+        guard !hosts.isEmpty else {
+            return FooterStatus(name: nil, detail: "No hosts", tone: .grey, state: nil, loading: false)
+        }
         let live = hosts.filter { if case .live? = $0.state { return true } else { return false } }
         if hosts.count > 1, live.count == hosts.count {
             let loading = hosts.contains { $0.loading }
             return FooterStatus(
-                text: loading ? "\(hosts.count) hosts live · loading" : "\(hosts.count) hosts live",
+                name: nil, detail: loading ? "\(hosts.count) hosts live · loading" : "\(hosts.count) hosts live",
                 tone: loading ? .blue : .green, state: live[0].state, loading: loading)
         }
         let worst = hosts.max { severity($0.state) < severity($1.state) } ?? hosts[0]
         var tone = CapsuleChoice.make(state: worst.state, anyLoading: worst.loading, heartbeatPulse: false, reduceMotion: true).tone
         // The dot is grey for a stopped host; the banner above the list says why.
         if case .stopped? = worst.state { tone = .grey }
-        let name = HostText.name(worst.name)
         return FooterStatus(
-            text: name + " " + phrase(worst, now: now), tone: tone, state: worst.state, loading: worst.loading)
+            name: HostText.name(worst.name), detail: phrase(worst, now: now), tone: tone, state: worst.state,
+            loading: worst.loading)
     }
 
     private static func severity(_ state: ConnectionState?) -> Int {
@@ -303,8 +317,9 @@ public struct FooterStatus: Sendable, Equatable {
         case .live(_, let last)?:
             if host.loading { return "live · loading" }
             return "live · heartbeat \(max(0, Int(now.timeIntervalSince(last)))) s ago"
-        case .noHeartbeat(let since)?: return "no heartbeat · \(max(0, Int(now.timeIntervalSince(since)))) s"
-        case .reconnecting?: return "reconnecting"
+        case .noHeartbeat(let since)?: return "no heartbeat for \(max(0, Int(now.timeIntervalSince(since)))) s"
+        case .reconnecting(let attempt, let retryAt, _)?:
+            return "reconnecting · try \(attempt) in \(max(0, Int(retryAt.timeIntervalSince(now).rounded(.up)))) s"
         case .stopped?: return "stopped"
         }
     }
