@@ -48,6 +48,24 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(harness.staging.stagedProjectIds, ["proj-a"])
     }
 
+    func testAProjectLineMidStreamAsksForNoRefresh() throws {
+        var harness = try seeded()
+        let output = harness.apply(try StoreWire.project("proj-a"), try StoreWire.project("proj-b", state: "silent"))
+        XCTAssertTrue(output.refresh.isEmpty)
+        XCTAssertEqual(harness.host.projects["proj-a"]?.snapshotComplete, true)
+    }
+
+    func testAgentBranchIsReadAndKeptWhenAnEffectDoesNotStateIt() throws {
+        var harness = ReducerHarness()
+        harness.apply(
+            try StoreWire.hello(), try StoreWire.project("proj-a"),
+            try StoreWire.snapshot(
+                "proj-a", "agents", key: "dev-1",
+                item: StoreWire.agentItem("dev-1").replacingOccurrences(of: "\"requestId\"", with: "\"branch\":\"feat/x\",\"requestId\"")),
+            try StoreWire.end("proj-a"))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.branch?.raw, "feat/x")
+    }
+
     func testResyncDropsOneProjectAndNullDropsAll() throws {
         var harness = try seeded()
         harness.apply(

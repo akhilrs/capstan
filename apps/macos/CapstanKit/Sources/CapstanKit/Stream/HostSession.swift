@@ -276,6 +276,7 @@ public actor HostSession {
                         decision = .stop(.hostRejected(code: code, tail: hostText(process.stderrTail())))
                     } else {
                         errorLine = (code, message)
+                        await noteLive()
                     }
                 case .cursor(let next):
                     batch.append(line)

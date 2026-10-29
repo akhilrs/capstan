@@ -311,6 +311,39 @@ final class HostSessionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(runner.child(at: 0).terminateCount, 1)
     }
 
+    /// The host sends a heartbeat only when idle; every other kind of line also shows it alive.
+    func testAnyLineKindKeepsTheWatchdogQuietAndTheLiveClockFresh() async throws {
+        let cursor = makeCursor(["p1"])
+        let session = makeSession()
+        await startAndWait(session)
+        let lines = [Wire.hello, Wire.project("p1", state: "ready"), Wire.snapshot("p1", key: "op:1"), Wire.snapshotEnd,
+            Wire.future, Wire.cursor(cursor), Wire.error("internal")]
+        for line in lines {
+            clock.advance(by: 20)
+            runner.child(at: 0).send(line)
+            await settle()
+        }
+        XCTAssertEqual(runner.startCount, 1)
+        let states = await consumer.states
+        XCTAssertFalse(states.contains { if case .noHeartbeat = $0 { return true } else { return false } })
+        guard case .live(_, let at)? = states.last else { return XCTFail("not live: \(String(describing: states.last))") }
+        XCTAssertEqual(at, clock.now())
+    }
+
+    func testAThreeHundredLineSnapshotIsOneBatch() async throws {
+        let cursor = makeCursor(["p1"])
+        var text = Wire.hello + Wire.project("p1", state: "ready")
+        for n in 0..<300 { text += Wire.snapshot("p1", key: "op:\(n)") }
+        text += Wire.snapshotEnd + Wire.cursor(cursor)
+        runner.enqueue(FakeScript(chunks: [text]))
+        await startAndWait(makeSession())
+        await eventually("one batch") { await self.consumer.batches.count == 1 }
+        await settle()
+        let batches = await consumer.batches
+        XCTAssertEqual(batches.count, 1)
+        XCTAssertEqual(batches[0].count, 304)
+    }
+
     func testRestartMidReadKeepsTheNewWatchdog() async throws {
         let session = makeSession()
         await startAndWait(session)
