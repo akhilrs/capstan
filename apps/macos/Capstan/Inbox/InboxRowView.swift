@@ -2,46 +2,46 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// One row of the inbox: glyph, project, one line of the summary, the age and the pills.
+/// One row of the inbox: a kind glyph, `project · actor` in bold, a second line and the age at the right.
+/// The row is flat; only the selection is filled, in the accent.
 struct InboxRowView: View {
     let row: InboxRow
     let forwarded: Bool
     let selected: Bool
+    /// A quiet row (a merge conflict) is not an action waiting for the person.
+    var quiet = false
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: Tokens.space[1]) {
+        HStack(alignment: .top, spacing: Tokens.space[1]) {
             Image(systemName: glyph)
                 .frame(width: 20)
-                .foregroundStyle(Tokens.color(.accent))
+                .foregroundStyle(selected ? Tokens.color(.accent) : Tokens.color(.label2))
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: TextBudget.displayPrefix(row.projectName, maxBytes: 64).text)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Tokens.color(.label2))
+                Text(verbatim: RowText.title(row))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(quiet ? Tokens.color(.label2) : Tokens.color(.label))
                     .lineLimit(1)
-                summary
+                secondLine
             }
             Spacer(minLength: Tokens.space[0])
-            VStack(alignment: .trailing, spacing: 2) {
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text(verbatim: AgeText.short(since: row.since, now: context.date))
-                        .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(Tokens.color(.label2))
-                }
-                HStack(spacing: Tokens.space[0]) {
-                    ForEach(pills, id: \.word) { pill in
-                        StatePill(word: pill.word, symbol: symbol(pill), tone: tone(pill))
-                    }
-                }
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(verbatim: AgeText.short(since: row.since, now: context.date))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(Tokens.color(.label2))
             }
         }
-        .padding(.vertical, Tokens.space[0])
+        .padding(.vertical, Tokens.space[0] + 2)
         .padding(.horizontal, Tokens.space[1])
         .background(
             RoundedRectangle(cornerRadius: Tokens.radius.row)
-                .fill(hovering && !selected ? Tokens.color(.fill) : Color.clear)
+                .fill(selected ? Tokens.color(.accent).opacity(0.16) : (hovering ? Tokens.color(.fill) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Tokens.radius.row)
+                .strokeBorder(Tokens.color(.accent), lineWidth: selected ? 1 : 0)
         )
         .contentShape(Rectangle())
         .onHover { inside in
@@ -50,17 +50,19 @@ struct InboxRowView: View {
         .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private var summary: some View {
-        if row.summary.verified {
-            Text(verbatim: TextBudget.displayPrefix(row.summary.displayPlain, maxBytes: 200).text)
-                .font(.system(size: 13))
-                .lineLimit(1)
-        } else {
-            Text("Text could not be verified")
-                .font(.system(size: 13))
-                .foregroundStyle(Tokens.color(.red))
-                .lineLimit(1)
+    private var secondLine: some View {
+        HStack(spacing: Tokens.space[0] + 2) {
+            ForEach(pills, id: \.word) { pill in
+                StatePill(word: pill.word, symbol: symbol(pill), tone: tone(pill))
+            }
+            switch RowText.secondary(row) {
+            case .mono(let text):
+                Text(verbatim: text).font(.system(size: 12, design: .monospaced)).lineLimit(1)
+            case .plain(let text):
+                Text(verbatim: text).font(.system(size: 13)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
+            case .unverified:
+                Text("Text could not be verified").font(.system(size: 13)).foregroundStyle(Tokens.color(.red)).lineLimit(1)
+            }
         }
     }
 

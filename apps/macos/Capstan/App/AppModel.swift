@@ -29,6 +29,7 @@ final class AppModel {
     }
     var selectedRow: InboxRowID?
     var inboxKind: WaitingKind?
+    var inboxSearch = ""
     var hostsFocus: HostsFocus?
     private(set) var busy = BusyTracker()
     private(set) var settings: AppSettings
@@ -350,14 +351,32 @@ final class AppModel {
 
     // MARK: Reading
 
-    /// The groups the inbox shows for the selection and the kind filter.
+    /// The groups the inbox shows for the selection, the kind filter and the search.
     func inbox() -> [InboxGroup] {
-        var scope = InboxScope(kind: inboxKind)
+        scope(kind: inboxKind).apply(CapstanKit.inbox(Array(hostModels.values)))
+    }
+
+    /// The same groups as the screen lists them: merged and conflicted integrations apart.
+    func displayGroups() -> [DisplayGroup] {
+        InboxLayout.groups(inbox())
+    }
+
+    /// The number of rows the selection and the search leave, whatever the kind filter: the "All" count.
+    func inboxTotal() -> Int {
+        scope(kind: nil).apply(CapstanKit.inbox(Array(hostModels.values))).reduce(0) { $0 + $1.count }
+    }
+
+    private func scope(kind: WaitingKind?) -> InboxScope {
+        var scope = InboxScope(kind: kind, search: inboxSearch)
         if case .project(let hostId, let projectId) = selection {
             scope.hostId = hostId
             scope.projectId = projectId
         }
-        return scope.apply(CapstanKit.inbox(Array(hostModels.values)))
+        return scope
+    }
+
+    var sidebarCounts: SidebarCounts {
+        SidebarCounts.make(Array(hostModels.values))
     }
 
     var badgeCount: Int {

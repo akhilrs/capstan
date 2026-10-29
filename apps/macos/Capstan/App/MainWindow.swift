@@ -11,8 +11,6 @@ struct MainWindow: View {
     @State private var inspectorSheet = false
 
     private static let foldWidth: CGFloat = 900
-    private static let kindFilter: [WaitingKind?] = [nil, .op, .prompt, .design, .message, .integration]
-
     init(model: AppModel) {
         self.model = model
     }
@@ -24,6 +22,10 @@ struct MainWindow: View {
         } detail: {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaInset(edge: .bottom, alignment: .leading) {
+                    StatusCapsule(model: model)
+                        .padding(Tokens.space[2])
+                }
                 .inspector(isPresented: inspectorBinding) {
                     inspector
                         .inspectorColumnWidth(min: 360, ideal: 360, max: 360)
@@ -45,13 +47,20 @@ struct MainWindow: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                StatusCapsule(model: model, hostId: currentHostId)
+            ToolbarItem(placement: .navigation) {
+                Text(verbatim: title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .padding(.horizontal, Tokens.space[1])
             }
-            ToolbarItem(placement: .automatic) {
-                kindPicker
+            ToolbarItem(placement: .principal) {
+                if showsKindFilter {
+                    KindFilter(model: model)
+                } else if showsProjectMenu {
+                    ProjectMenu(model: model)
+                }
             }
         }
+        .tint(Tokens.color(.accent))
         .frame(minWidth: 640, minHeight: 480)
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Self.foldWidth
@@ -109,37 +118,105 @@ struct MainWindow: View {
             set: { inspectorShown = $0 })
     }
 
-    private var currentHostId: UUID? {
+    private var title: String {
         switch model.selection {
-        case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _): return hostId
-        case .hosts: return model.hostsFocus?.hostId
-        case .inbox: return nil
+        case .inbox: return model.inboxKind == .message ? "Messages to PM" : "Waiting for you"
+        case .project(let hostId, let projectId): return projectName(hostId, projectId) ?? "Waiting for you"
+        case .agents(let hostId, let projectId): return "Agents" + projectSuffix(hostId, projectId)
+        case .plans(let hostId, let projectId): return "Plans" + projectSuffix(hostId, projectId)
+        case .hosts: return "Hosts"
         }
     }
 
-    private var kindIndex: Binding<Int> {
-        Binding(
-            get: { Self.kindFilter.firstIndex(where: { $0 == model.inboxKind }) ?? 0 },
-            set: { model.inboxKind = Self.kindFilter[$0] })
+    private func projectName(_ hostId: UUID, _ projectId: String) -> String? {
+        model.project(hostId, projectId).map(HostLabel.projectName)
     }
 
-    private var kindPicker: some View {
-        Picker("Kind", selection: kindIndex) {
-            Text("All").tag(0)
-            Text("Ops").tag(1)
-            Text("Prompts").tag(2)
-            Text("Designs").tag(3)
-            Text("Messages").tag(4)
-            Text("Integrations").tag(5)
-        }
-        .pickerStyle(.segmented)
-        .disabled(!showsKindFilter)
+    private func projectSuffix(_ hostId: UUID, _ projectId: String) -> String {
+        projectName(hostId, projectId).map { " · " + $0 } ?? ""
     }
 
     private var showsKindFilter: Bool {
         switch model.selection {
         case .inbox, .project: return true
         default: return false
+        }
+    }
+
+    private var showsProjectMenu: Bool {
+        switch model.selection {
+        case .agents, .plans: return true
+        default: return false
+        }
+    }
+}
+
+/// The one filter of the inbox: All N, Proposals, Prompts, Designs, and Messages and Merges under More.
+private struct KindFilter: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        let current = KindTab(kind: model.inboxKind)
+        HStack(spacing: 2) {
+            ForEach(KindTab.visible, id: \.self) { tab in
+                segment(tab, selected: current == tab)
+            }
+            Menu {
+                ForEach(KindTab.more, id: \.self) { tab in
+                    Button(tab.title) { model.inboxKind = tab.kind }
+                }
+            } label: {
+                chip(KindTab.more.contains(current) ? current.title : "More", selected: KindTab.more.contains(current))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+    }
+
+    private func segment(_ tab: KindTab, selected: Bool) -> some View {
+        Button {
+            model.inboxKind = tab.kind
+        } label: {
+            chip(tab == .all ? "All \(model.inboxTotal())" : tab.title, selected: selected)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func chip(_ text: String, selected: Bool) -> some View {
+        Text(verbatim: text)
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .foregroundStyle(selected ? Tokens.color(.accent) : Tokens.color(.label))
+            .padding(.horizontal, Tokens.space[1] + 2)
+            .padding(.vertical, Tokens.space[0])
+            .background(selected ? Tokens.color(.fill2) : Color.clear, in: Capsule())
+    }
+}
+
+/// Agents and Plans show one project at a time; this menu picks it.
+private struct ProjectMenu: View {
+    let model: AppModel
+
+    var body: some View {
+        Menu {
+            ForEach(model.hosts) { host in
+                Section(model.hosts.count > 1 ? HostLabel.hostName(host) : "Projects") {
+                    ForEach(HostLabel.projects(model.hostModels[host.id]), id: \.projectId) { project in
+                        Button(HostLabel.projectName(project)) { open(host.id, project.projectId) }
+                    }
+                }
+            }
+        } label: {
+            Label("Project", systemImage: "folder")
+        }
+        .menuIndicator(.visible)
+    }
+
+    private func open(_ hostId: UUID, _ projectId: String) {
+        switch model.selection {
+        case .plans: model.selection = .plans(hostId: hostId, projectId: projectId)
+        default: model.selection = .agents(hostId: hostId, projectId: projectId)
         }
     }
 }

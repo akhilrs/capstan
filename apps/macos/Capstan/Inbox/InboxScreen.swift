@@ -2,14 +2,14 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// Waiting for you: the items of every host and project, grouped by kind.
+/// Waiting for you: the items of every host and project, grouped by kind. The title, the filter and the search are
+/// in the window toolbar.
 struct InboxScreen: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
-        let groups = model.inbox()
+        let groups = model.displayGroups()
         VStack(alignment: .leading, spacing: 0) {
-            header(groups)
             ForEach(model.hosts) { config in
                 if !isLive(config.id) {
                     ConnectionBanners(model: model, hostId: config.id)
@@ -23,32 +23,7 @@ struct InboxScreen: View {
                 list(groups)
             }
         }
-    }
-
-    private func header(_ groups: [InboxGroup]) -> some View {
-        HStack {
-            Text("Waiting for you").font(.system(size: 20, weight: .semibold))
-            Text(verbatim: String(groups.reduce(0) { $0 + $1.count }))
-                .font(.system(size: 13).monospacedDigit())
-                .foregroundStyle(Tokens.color(.label2))
-            Spacer()
-            Picker("Show", selection: kindBinding) {
-                Text("All").tag(WaitingKind?.none)
-                Text("Commands").tag(WaitingKind?.some(.op))
-                Text("Prompts").tag(WaitingKind?.some(.prompt))
-                Text("Designs").tag(WaitingKind?.some(.design))
-                Text("Messages").tag(WaitingKind?.some(.message))
-                Text("Merges").tag(WaitingKind?.some(.integration))
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 420)
-        }
-        .padding(Tokens.space[3])
-    }
-
-    private var kindBinding: Binding<WaitingKind?> {
-        Binding(get: { model.inboxKind }, set: { model.inboxKind = $0 })
+        .searchable(text: $model.inboxSearch, placement: .toolbar, prompt: "Search")
     }
 
     private var selectionBinding: Binding<InboxRowID?> {
@@ -96,20 +71,26 @@ struct InboxScreen: View {
         }
     }
 
-    private func list(_ groups: [InboxGroup]) -> some View {
+    private func list(_ groups: [DisplayGroup]) -> some View {
         List(selection: selectionBinding) {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.rows) { row in
-                        InboxRowView(row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id)
+                        InboxRowView(
+                            row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
+                            quiet: group.quiet)
                             .tag(row.id)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 } header: {
-                    KindGroupHeader(kind: group.kind, count: group.count)
+                    KindGroupHeader(title: group.header, quiet: group.quiet)
                 }
             }
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .tint(Tokens.color(.accent))
         .onKeyPress(.return) {
             guard model.selectedRow == nil, let first = groups.first?.rows.first else { return .handled }
             model.selectedRow = first.id
