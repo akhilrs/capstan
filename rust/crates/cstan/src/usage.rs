@@ -56,6 +56,7 @@ pub const ENTRIES: &[Entry] = &[
     e(STATUS, "status", "status [--json] [--all]", "Show the project state: the active agents only, and no empty sections; --all adds the agents that ended."),
     e(STATUS, "status", "status --watch [--interval <seconds>]", "Redraw the state every 1 to 60 seconds (default 2)."),
     e(STATUS, "controllers", "controllers [--json]", "List every controller running on this machine: pid, state (serving, not answering, orphaned), version, uptime, CPU, memory, active agents and project. Read-only; works from any folder."),
+    e(STATUS, "events", "events [--cursor <c1.…>] [--root <path>]... [--poll-ms <n>]", "Stream this host's controller events as JSON lines (remote protocol v1, docs/remote-protocol.md) until told to stop. Read-only; works from any folder. --cursor resumes, --root adds a project root, --poll-ms sets the poll interval (default 2000)."),
     e(STATUS, "dash", "dash [--interval <seconds>] [--no-color] [--reduced-motion]", "Open the read-only terminal dashboard (cstan-dash)."),
     e(STATUS, "inspect", "inspect <id> [--json]", "Show one ledger record."),
     e(STATUS, "cancel", "cancel <id> [--json]", "Cancel a queued message."),
@@ -303,7 +304,15 @@ pub fn help_for(words: &[String], version: &str) -> Result<String, String> {
 
 /// `text` as roff: backslashes and hyphens escaped, and no line starting with a control character.
 fn roff(text: &str) -> String {
-    let escaped = text.replace('\\', "\\e").replace('-', "\\-");
+    let escaped: String = text
+        .replace('\\', "\\e")
+        .replace('-', "\\-")
+        .chars()
+        .map(|c| match c {
+            c if c.is_ascii() => c.to_string(),
+            c => format!("\\[u{:04X}]", c as u32),
+        })
+        .collect();
     match escaped.chars().next() {
         Some('.' | '\'') => format!("\\&{escaped}"),
         _ => escaped,
