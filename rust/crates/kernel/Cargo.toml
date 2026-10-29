@@ -28,3 +28,4 @@ unicode-normalization = { version = "=0.1.25", default-features = false }
 
 [dev-dependencies]
 tempfile = "=3.27.0"
+rusqlite = { version = "=0.40.2", features = ["hooks"] }

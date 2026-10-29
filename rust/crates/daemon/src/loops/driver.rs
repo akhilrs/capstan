@@ -1087,34 +1087,36 @@ impl Driver {
             }
         };
         if let Some((cached, digest)) = self.mail_digest.get(&agent_id) {
-            if *cached == version {
+            // A wake recorded since the digest was made is not in it, so it is read again.
+            if *cached == version
+                && self
+                    .wakes
+                    .iter()
+                    .all(|(id, _)| digest.state_by_id.contains_key(id))
+            {
                 return digest.clone();
             }
         }
         let id = agent_id.clone();
-        let messages = match self.read("messagesFor", move |core| core.messages_for(&id)) {
-            Ok(Value::Array(messages)) => messages,
-            Ok(_) => Vec::new(),
+        let wake_ids: Vec<String> = self.wakes.iter().map(|(id, _)| id.clone()).collect();
+        let mail = match self.read("pmMailDigest", move |core| {
+            core.pm_mail_digest(&id, &wake_ids)
+        }) {
+            Ok(mail) => mail,
             Err(error) => {
                 self.log("pm_mail_failed", json!({"error": kernel_text(&error)}));
                 return empty_digest();
             }
         };
-        let mut state_by_id = HashMap::new();
-        let mut latest = f64::NEG_INFINITY;
-        for message in &messages {
-            state_by_id.insert(
-                str_of(message, "messageId").to_string(),
-                str_of(message, "state").to_string(),
-            );
-            for field in ["sentAt", "ackedAt"] {
-                if let Some(ms) = message[field].as_str().and_then(date_parse) {
-                    if ms as f64 > latest {
-                        latest = ms as f64;
-                    }
-                }
-            }
-        }
+        let state_by_id: HashMap<String, String> = mail["states"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(id, state)| Some((id.clone(), state.as_str()?.to_string())))
+            .collect();
+        let latest = mail["latestPullMs"]
+            .as_i64()
+            .map_or(f64::NEG_INFINITY, |ms| ms as f64);
         let digest = MailDigest {
             state_by_id,
             latest_pull_ms: latest,

@@ -356,7 +356,7 @@ pub fn agent_inbox(
     let Some(target) = target else {
         return Ok(json!([]));
     };
-    let rows = message_rows_for(kernel, &target)?;
+    let rows = open_message_rows_for(kernel, &target)?;
     let head_id = queue_head(&rows).map(|h| h.message_id.clone());
     let shown: Vec<Value> = rows
         .iter()
@@ -374,7 +374,7 @@ pub fn pull_message(kernel: &Kernel, context: &MutationContext) -> KernelResult<
     let agent = kernel.agent_by_actor(&actor.actor_id)?;
     if let Some(agent) = &agent {
         if agent.kind == "PM" && !kernel.has_stored_request(context)? {
-            let rows = message_rows_for(kernel, &agent.agent_id)?;
+            let rows = open_message_rows_for(kernel, &agent.agent_id)?;
             if !matches!(queue_head(&rows), Some(h) if h.state == "queued") {
                 return Ok(json!({"message": null}));
             }
@@ -412,7 +412,7 @@ pub fn pull_message(kernel: &Kernel, context: &MutationContext) -> KernelResult<
                     ),
                 );
             }
-            let rows = message_rows_for(kernel, &recipient.agent_id)?;
+            let rows = open_message_rows_for(kernel, &recipient.agent_id)?;
             let head = match queue_head(&rows) {
                 Some(head)
                     if head.state == "queued"
@@ -465,7 +465,7 @@ pub fn pull_pending(kernel: &Kernel, credential: &str) -> KernelResult<Value> {
         return Ok(json!([]));
     }
     let mut pulled: Vec<Value> = Vec::new();
-    for row in message_rows_for(kernel, &agent.agent_id)? {
+    for row in open_message_rows_for(kernel, &agent.agent_id)? {
         if is_final_state(&row.state) || row.state == "sent" {
             continue;
         }
@@ -547,7 +547,7 @@ pub fn unread_summary(kernel: &Kernel, credential: &str) -> KernelResult<Value> 
     };
     let waiting: Vec<MessageRow> = match &agent {
         None => Vec::new(),
-        Some(agent) => message_rows_for(kernel, &agent.agent_id)?
+        Some(agent) => open_message_rows_for(kernel, &agent.agent_id)?
             .into_iter()
             .filter(|r| matches!(r.state.as_str(), "queued" | "deferred" | "sent" | "unacked"))
             .collect(),
@@ -604,7 +604,7 @@ pub fn wake_pending(kernel: &Kernel, credential: &str) -> KernelResult<Value> {
     };
     let rows = match &agent {
         None => Vec::new(),
-        Some(agent) => message_rows_for(kernel, &agent.agent_id)?,
+        Some(agent) => open_message_rows_for(kernel, &agent.agent_id)?,
     };
     let count = waking_rows(kernel, agent.as_ref(), &rows).len();
     let info_count = rows
@@ -634,7 +634,7 @@ pub fn deliver_inbox(kernel: &Kernel, credential: &str, digest: bool) -> KernelR
     let Some(agent) = kernel.agent_by_actor(&actor.actor_id)? else {
         return Ok(json!({"messages": [], "info": [], "pulled": pulled}));
     };
-    let delivered: Vec<MessageRow> = message_rows_for(kernel, &agent.agent_id)?
+    let delivered: Vec<MessageRow> = open_message_rows_for(kernel, &agent.agent_id)?
         .into_iter()
         .filter(|r| matches!(r.state.as_str(), "sent" | "unacked"))
         .collect();
@@ -701,7 +701,7 @@ pub fn ack_all_read(kernel: &Kernel, context: &MutationContext) -> KernelResult<
         return Ok(json!([]));
     };
     let mut acked = Vec::new();
-    for row in message_rows_for(kernel, &agent.agent_id)? {
+    for row in open_message_rows_for(kernel, &agent.agent_id)? {
         if matches!(row.state.as_str(), "sent" | "unacked") {
             let step = step_context(kernel, &context.credential)?;
             ack_with_details(kernel, &step, &row.message_id, None)?;
@@ -1219,6 +1219,68 @@ pub fn message_rows_for(kernel: &Kernel, agent_id: &str) -> KernelResult<Vec<Mes
     )
 }
 
+/// The agent's newest `limit` messages, oldest first.
+pub fn last_message_rows_for(
+    kernel: &Kernel,
+    agent_id: &str,
+    limit: usize,
+) -> KernelResult<Vec<MessageRow>> {
+    let mut rows = query_all(
+        &kernel.database,
+        "SELECT * FROM messages WHERE project_id = ? AND recipient_agent_id = ? ORDER BY sequence DESC LIMIT ?",
+        rusqlite::params![kernel.project_id, agent_id, limit as i64],
+        MessageRow::from_row,
+    )?;
+    rows.reverse();
+    Ok(rows)
+}
+
+/// How many messages the agent has, ever.
+pub fn message_count_for(kernel: &Kernel, agent_id: &str) -> KernelResult<usize> {
+    let count = query_opt(
+        &kernel.database,
+        "SELECT COUNT(*) FROM messages WHERE project_id = ? AND recipient_agent_id = ?",
+        [&kernel.project_id, agent_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(count.unwrap_or(0) as usize)
+}
+
+/// What the PM's wake bookkeeping needs of its mail: the state of each given message and the latest time one of the
+/// agent's messages was sent or acknowledged. No body is read.
+pub fn pm_mail_digest(
+    kernel: &Kernel,
+    agent_id: &str,
+    message_ids: &[String],
+) -> KernelResult<Value> {
+    let mut states = serde_json::Map::new();
+    for id in message_ids {
+        let state = query_opt(
+            &kernel.database,
+            "SELECT state FROM messages WHERE project_id = ? AND message_id = ? AND recipient_agent_id = ?",
+            [&kernel.project_id, id, agent_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if let Some(state) = state {
+            states.insert(id.clone(), Value::String(state));
+        }
+    }
+    let latest = query_opt(
+        &kernel.database,
+        "SELECT MAX(sent_at), MAX(acked_at) FROM messages INDEXED BY messages_by_recipient WHERE project_id = ? AND recipient_agent_id = ?",
+        [&kernel.project_id, agent_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+    )?;
+    let latest_ms = latest
+        .into_iter()
+        .flat_map(|(sent, acked)| [sent, acked])
+        .flatten()
+        .filter(|text| text.len() >= 20 && text.as_bytes().get(10) == Some(&b'T'))
+        .map(|text| parse_iso_ms(&text))
+        .max();
+    Ok(json!({"states": states, "latestPullMs": latest_ms}))
+}
+
 /// `openMessageRowsFor`.
 pub fn open_message_rows_for(kernel: &Kernel, agent_id: &str) -> KernelResult<Vec<MessageRow>> {
     query_all(
@@ -1411,7 +1473,7 @@ fn refuse_delivery(
         )
         .map(Some);
     }
-    let rows = message_rows_for(kernel, &row.recipient_agent_id)?;
+    let rows = open_message_rows_for(kernel, &row.recipient_agent_id)?;
     if queue_head(&rows).map(|h| h.message_id.as_str()) != Some(row.message_id.as_str()) {
         return reject(
             kernel,
@@ -1466,7 +1528,7 @@ pub fn cancel_messages_of(
     keep_failed: bool,
 ) -> KernelResult<Vec<String>> {
     let mut cancelled = Vec::new();
-    for row in message_rows_for(kernel, agent_id)? {
+    for row in open_message_rows_for(kernel, agent_id)? {
         if is_final_state(&row.state) {
             continue;
         }

@@ -22,7 +22,7 @@ use std::collections::HashMap;
 
 use super::messages::{
     append_message_event, class_for_kind, insert_queued_message, message_mutation, message_row,
-    message_rows_for, reject, update_message, Rejection, OPEN_MESSAGE_STATES_SQL,
+    open_message_rows_for, reject, update_message, Rejection, OPEN_MESSAGE_STATES_SQL,
 };
 use super::messaging::{
     evaluate_messaging, parse_iso_ms, queue_head, AgentFacts, MessageClass, MessageFacts,
@@ -152,7 +152,7 @@ pub fn record_notification(
             let row = message_row(kernel, message_id)?;
             let head_id = match &row {
                 Some(row) => {
-                    let rows = message_rows_for(kernel, &row.recipient_agent_id)?;
+                    let rows = open_message_rows_for(kernel, &row.recipient_agent_id)?;
                     queue_head(&rows).map(|h| h.message_id.clone())
                 }
                 None => None,

@@ -875,6 +875,11 @@ impl Core {
         messages::open_messages_for(&self.kernel, agent_id)
     }
 
+    /// The states of the given messages and the latest send or ack time of the agent's mail, without bodies.
+    pub fn pm_mail_digest(&self, agent_id: &str, message_ids: &[String]) -> KernelResult<Value> {
+        messages::pm_mail_digest(&self.kernel, agent_id, message_ids)
+    }
+
     /// `ControllerCore.unresolvedMessages`.
     pub fn unresolved_messages(&self, credential: &str, limit: i64) -> KernelResult<Value> {
         messages::unresolved_messages(&self.kernel, credential, limit)
