@@ -414,13 +414,11 @@ impl World {
     }
 
     fn make(builder: Builder) -> World {
-        let root = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join(format!(
-                "capstan-suites-core-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            ));
+        let root = capstan_testkit::short_temp_root().join(format!(
+            "capstan-suites-core-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("proj");
         let bin = root.join("bin");

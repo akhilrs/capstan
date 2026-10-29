@@ -33,10 +33,11 @@ fn options(directory: &Path, command: &str) -> RunOptions {
 }
 
 fn running(pid: u32) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists.
+    let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
     // A zombie waiting for its parent is not running.
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map(|stat| !stat.contains(") Z "))
-        .unwrap_or(false)
+    exists && !capstan_process::is_zombie(i64::from(pid))
 }
 
 /// Waits (bounded) for the process to end; the bound is a deadline for a failing run, not a pause in a passing one.
@@ -648,9 +649,7 @@ impl Drop for Stray {
 }
 
 fn start_time(pid: i64) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = &stat[stat.rfind(')')? + 2..];
-    rest.split(' ').nth(19).map(str::to_string)
+    capstan_process::start_time(pid)
 }
 
 #[test]

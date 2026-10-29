@@ -133,6 +133,7 @@ dependencies = [
  "capstan-launcher",
  "capstan-ledger",
  "capstan-operator",
+ "capstan-process",
  "capstan-testkit",
  "capstan-wire",
  "getrandom 0.4.3",
@@ -152,6 +153,8 @@ name = "capstan-herdr"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "capstan-process",
+ "capstan-testkit",
  "getrandom 0.4.3",
  "libc",
  "regex",
@@ -193,6 +196,8 @@ dependencies = [
  "capstan-herdr",
  "capstan-kernel",
  "capstan-parity-overlay",
+ "capstan-process",
+ "capstan-testkit",
  "capstan-wire",
  "getrandom 0.4.3",
  "libc",
@@ -224,6 +229,7 @@ dependencies = [
  "capstan-config",
  "capstan-kernel",
  "capstan-ledger",
+ "capstan-process",
  "getrandom 0.4.3",
  "libc",
  "regex",
@@ -246,15 +252,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "capstan-testkit"
+name = "capstan-process"
 version = "0.1.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
+name = "capstan-testkit"
+version = "0.1.0"
+dependencies = [
+ "capstan-process",
+ "libc",
+]
+
+[[package]]
 name = "capstan-wire"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cc"
@@ -314,6 +331,7 @@ dependencies = [
  "capstan-launcher",
  "capstan-ledger",
  "capstan-parity-overlay",
+ "capstan-process",
  "capstan-testkit",
  "capstan-wire",
  "libc",

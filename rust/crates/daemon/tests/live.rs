@@ -42,7 +42,7 @@ fn the_rust_daemon_runs_a_project_in_a_real_herdr_session_and_leaves_nothing_beh
     // cstan daemon: the Rust daemon, and a PM launched in a pane that waits at the trust dialog.
     let pid = live.start_daemon();
     assert_eq!(
-        real(Path::new(&format!("/proc/{pid}/exe"))),
+        real(&capstan_process::executable(pid as i32).expect("the daemon executable")),
         real(&live.cstan),
         "the daemon is cstan daemon"
     );
@@ -176,7 +176,7 @@ fn an_operator_restart_replaces_the_daemon_and_the_clients_reconnect() {
             .filter(|pid| *pid != first && process_alive(*pid))
     });
     assert_eq!(
-        real(Path::new(&format!("/proc/{second}/exe"))),
+        real(&capstan_process::executable(second as i32).expect("the daemon executable")),
         real(&live.cstan),
         "the new daemon is cstan daemon"
     );

@@ -70,8 +70,8 @@ fn step(core: &Core, op: &str, args: Value) -> Value {
 }
 
 fn project(label: &str, verify: &str) -> Project {
-    let base =
-        std::env::temp_dir().join(format!("capstan-verify-e2e-{label}-{}", std::process::id()));
+    let base = capstan_testkit::short_temp_root()
+        .join(format!("capstan-verify-e2e-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let root = base.join("proj");
     let scratch = base.join("scratch");

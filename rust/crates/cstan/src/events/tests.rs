@@ -258,7 +258,8 @@ fn setup() -> Setup {
 }
 
 fn tmp(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("cstan-events-{name}-{}", std::process::id()));
+    let dir = capstan_testkit::short_temp_root()
+        .join(format!("cstan-events-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::canonicalize(dir).unwrap()

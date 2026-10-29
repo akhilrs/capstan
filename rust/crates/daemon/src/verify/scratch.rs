@@ -90,32 +90,17 @@ pub fn marker(run_id: &str) -> String {
     format!("CAPSTAN_VERIFY_RUN_ID={run_id}")
 }
 
-/// Pids whose environment carries `marker` and that started at or after `min_start` (clock ticks, as
-/// `process_start_time` reads them); never this process. Processes of other users cannot be read and are not found.
+/// Pids whose environment carries `marker` and that started at or after `min_start` (as `process_start_time` reads
+/// them); never this process. Processes of other users cannot be read and are not found, nor, on macOS, Apple's own
+/// binaries, whose environment the system hides (DEC-007).
 pub fn marked_pids(marker: &str, min_start: Option<u64>) -> Vec<i32> {
     let me = std::process::id() as i32;
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
     let mut found = Vec::new();
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<i32>().ok())
-        else {
-            continue;
-        };
+    for pid in capstan_process::pids() {
         if pid == me || pid <= 1 {
             continue;
         }
-        let Ok(environ) = std::fs::read(format!("/proc/{pid}/environ")) else {
-            continue;
-        };
-        if !environ
-            .split(|byte| *byte == 0)
-            .any(|entry| entry == marker.as_bytes())
-        {
+        if !capstan_process::has_environment_entry(pid, marker) {
             continue;
         }
         if let Some(min) = min_start {

@@ -14,7 +14,7 @@
 //!   starts Node.
 //! - Waiting is on state (Herdr's pane list and screens, the daemon's answers, files), polled until a deadline that only a
 //!   failing run reaches; no step sleeps for a fixed time.
-//! - Everything lives under `/tmp/capstan-suites-live-*`, which `close` removes; `close` also checks that the session is
+//! - Everything lives under `/tmp/cstan-live-*`, which `close` removes; `close` also checks that the session is
 //!   gone from Herdr's list and that the directory is gone.
 //!
 //! By hand (one suite at a time; the build slot rules of the machine apply):
@@ -216,9 +216,7 @@ pub fn output_within(command: &mut Command, seconds: u64) -> Output {
 }
 
 pub fn process_alive(pid: u32) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map(|stat| !stat.contains(") Z "))
-        .unwrap_or(false)
+    capstan_testkit::is_running(pid as i32)
 }
 
 /// What a suite asks of the project.
@@ -344,9 +342,9 @@ impl Live {
             }
         }
         let fixtures = repository().join("rust/testdata/fixtures");
-        let root = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join(format!("capstan-suites-live-{}", suffix()));
+        // Herdr's client socket, `<root>/home/.config/herdr/sessions/capstan-test-<suffix>/herdr-client.sock`, must fit the
+        // 103-byte socket path limit of macOS under `/private/tmp`.
+        let root = capstan_testkit::short_temp_root().join(format!("cstan-live-{}", suffix()));
         assert!(
             root.to_string_lossy().len() <= 50,
             "the scratch path is short enough for the project's socket"
@@ -877,22 +875,15 @@ deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"
     }
 
     /// The token of the agent whose process works in `directory`: it lives in the environment of the agent.
+    /// The agent token of a process running in `directory`. On macOS only the stand-in can be read (the system hides the
+    /// environment of Apple's own binaries, such as the pane's bash), so `python3` on PATH must not be /usr/bin/python3.
     pub fn token_in(&self, directory: &Path) -> Option<String> {
-        for entry in std::fs::read_dir("/proc").ok()?.flatten() {
-            let path = entry.path();
-            if std::fs::read_link(path.join("cwd")).ok().as_deref() != Some(directory) {
-                continue;
+        capstan_process::pids().into_iter().find_map(|pid| {
+            if capstan_process::cwd(pid).as_deref() != Some(directory) {
+                return None;
             }
-            let Ok(environment) = std::fs::read(path.join("environ")) else {
-                continue;
-            };
-            for variable in environment.split(|b| *b == 0) {
-                if let Some(token) = variable.strip_prefix(b"CAPSTAN_TOKEN=") {
-                    return Some(String::from_utf8_lossy(token).into_owned());
-                }
-            }
-        }
-        None
+            capstan_process::environment_value(pid, "CAPSTAN_TOKEN")
+        })
     }
 
     // -------------------------------------------------------------------------------------------- the end

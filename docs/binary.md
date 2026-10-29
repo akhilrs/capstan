@@ -41,7 +41,7 @@ checks each with `file` and runs the arm64 pair under `qemu-aarch64` when that i
 - **Search order**, first executable file wins: `CSTAN_DASH_BIN` (absolute path); beside the real path of the running
   `cstan` (`current/bin/`); `${XDG_DATA_HOME:-$HOME/.local/share}/capstan/current/bin/cstan-dash`; the first `cstan-dash`
   on `PATH`.
-- **Probe.** A candidate is used only after `<bin> --version` (2 s limit) prints `cstan-dash <version>`.
+- **Probe.** A candidate is used only after `<bin> --version` (5 s limit) prints `cstan-dash <version>`.
 - **None found.** One line on stderr (`cstan-dash was not found; install it beside cstan ...`) and exit 2.
 - **Hand-over.** The dashboard gets `--socket`, `--interval`, `--worker-limit` (when known), `--no-color` and
   `--reduced-motion`. The environment loses `CAPSTAN_TOKEN` and `CAPSTAN_SOCKET` and gains `CSTAN_DASH_CREDENTIAL`, the

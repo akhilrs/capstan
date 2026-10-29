@@ -97,7 +97,8 @@ fn context(core: &Core, credential: &str) -> MutationContext {
 /// A scratch git project with a controller directory, a ledger holding a PM and a developer, and whatever `seed` writes
 /// before any daemon opens it. No daemon runs yet.
 fn project(label: &str, seed: impl FnOnce(&Core, &Creds)) -> (Project, Creds) {
-    let base = std::env::temp_dir().join(format!("capstan-events-{label}-{}", std::process::id()));
+    let base = capstan_testkit::short_temp_root()
+        .join(format!("capstan-events-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("proj");

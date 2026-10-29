@@ -44,28 +44,34 @@ pub enum WireError {
 fn errno_name(error: &io::Error) -> String {
     let name = match error.raw_os_error() {
         Some(libc_errno) => match libc_errno {
-            1 => "EPERM",
-            2 => "ENOENT",
-            4 => "EINTR",
-            11 => "EAGAIN",
-            12 => "ENOMEM",
-            13 => "EACCES",
-            20 => "ENOTDIR",
-            24 => "EMFILE",
-            32 => "EPIPE",
-            36 => "ENAMETOOLONG",
-            40 => "ELOOP",
-            88 => "ENOTSOCK",
-            90 => "EMSGSIZE",
-            98 => "EADDRINUSE",
-            104 => "ECONNRESET",
-            110 => "ETIMEDOUT",
-            111 => "ECONNREFUSED",
+            libc::EPERM => "EPERM",
+            libc::ENOENT => "ENOENT",
+            libc::EINTR => "EINTR",
+            libc::EAGAIN => "EAGAIN",
+            libc::ENOMEM => "ENOMEM",
+            libc::EACCES => "EACCES",
+            libc::ENOTDIR => "ENOTDIR",
+            libc::EMFILE => "EMFILE",
+            libc::EPIPE => "EPIPE",
+            libc::ENAMETOOLONG => "ENAMETOOLONG",
+            libc::ELOOP => "ELOOP",
+            libc::ENOTSOCK => "ENOTSOCK",
+            libc::EMSGSIZE => "EMSGSIZE",
+            libc::EADDRINUSE => "EADDRINUSE",
+            libc::ECONNRESET => "ECONNRESET",
+            libc::ETIMEDOUT => "ETIMEDOUT",
+            libc::ECONNREFUSED => "ECONNREFUSED",
             _ => "",
         },
         None => "",
     };
     name.to_string()
+}
+
+/// Whether the errno name of a `NotSent` means nothing listens at the socket path: no file there, a socket nobody
+/// accepts on, or a file that is not a socket (Linux refuses that connection, macOS says ENOTSOCK).
+pub fn nothing_listens(code: &str) -> bool {
+    matches!(code, "ENOENT" | "ECONNREFUSED" | "ENOTSOCK")
 }
 
 fn timed_out(error: &io::Error) -> bool {
@@ -84,6 +90,104 @@ fn after_send(error: &io::Error) -> AfterSend {
     })
 }
 
+/// The longest socket path this system can bind or connect to, in bytes (`sun_path` less its terminating NUL).
+pub fn socket_path_limit() -> usize {
+    // SAFETY: sockaddr_un is plain data; an all-zero value is valid and only its field size is read.
+    let address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_path.len() - 1
+}
+
+/// Refuses a socket path the system cannot bind or connect to, with a message that names the path and the limit.
+pub fn check_socket_path(socket: &Path) -> Result<(), String> {
+    use std::os::unix::ffi::OsStrExt;
+    let length = socket.as_os_str().as_bytes().len();
+    let limit = socket_path_limit();
+    if length <= limit {
+        return Ok(());
+    }
+    Err(format!(
+        "control socket path is {length} bytes, longer than the {limit}-byte limit of this system: {}; move the project to a shorter path",
+        socket.display()
+    ))
+}
+
+#[derive(Clone, Copy)]
+enum Direction {
+    Read,
+    Write,
+}
+
+/// Runs one read or write on `stream`, failing with a timeout after `allowed`. macOS refuses a socket timeout with
+/// EINVAL once the peer has closed; the bound is then kept with poll and a non-blocking attempt instead, so the
+/// operation reports the peer's real state (buffered bytes, EOF, EPIPE) without ever waiting longer than `allowed`.
+fn bounded<T>(
+    stream: &mut UnixStream,
+    direction: Direction,
+    allowed: Duration,
+    mut operation: impl FnMut(&mut UnixStream) -> io::Result<T>,
+) -> io::Result<T> {
+    let armed = match direction {
+        Direction::Read => stream.set_read_timeout(Some(allowed)),
+        Direction::Write => stream.set_write_timeout(Some(allowed)),
+    };
+    match armed {
+        Ok(()) => return operation(stream),
+        Err(e) if e.raw_os_error() == Some(libc::EINVAL) => {}
+        Err(e) => return Err(e),
+    }
+    let deadline = Instant::now() + allowed;
+    stream.set_nonblocking(true)?;
+    let result = poll_then(stream, direction, deadline, &mut operation);
+    let restored = stream.set_nonblocking(false);
+    let value = result?;
+    restored?;
+    Ok(value)
+}
+
+fn poll_then<T>(
+    stream: &mut UnixStream,
+    direction: Direction,
+    deadline: Instant,
+    operation: &mut impl FnMut(&mut UnixStream) -> io::Result<T>,
+) -> io::Result<T> {
+    use std::os::fd::AsRawFd;
+    let events = match direction {
+        Direction::Read => libc::POLLIN,
+        Direction::Write => libc::POLLOUT,
+    };
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::from(ErrorKind::TimedOut));
+        }
+        let wait_ms = left
+            .as_micros()
+            .div_ceil(1000)
+            .min(libc::c_int::MAX as u128) as libc::c_int;
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd for an open descriptor this function borrows.
+        let ready = unsafe { libc::poll(&mut descriptor, 1, wait_ms) };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if ready == 0 {
+            continue;
+        }
+        match operation(stream) {
+            Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+            other => return other,
+        }
+    }
+}
+
 /// Sends `frame` (a request line with its newline) and returns the first response line without the newline.
 pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, WireError> {
     let started = Instant::now();
@@ -92,6 +196,12 @@ pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, Wi
             .checked_sub(started.elapsed())
             .filter(|d| !d.is_zero())
     };
+    if check_socket_path(socket).is_err() {
+        return Err(WireError::NotSent {
+            kind: ErrorKind::InvalidInput,
+            code: "ENAMETOOLONG".to_string(),
+        });
+    }
     let mut stream = UnixStream::connect(socket).map_err(|e| WireError::NotSent {
         kind: e.kind(),
         code: errno_name(&e),
@@ -121,10 +231,9 @@ pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, Wi
                 WireError::AfterSend(AfterSend::TimedOut)
             });
         };
-        stream
-            .set_write_timeout(Some(allowed))
-            .map_err(|e| fail(e, written))?;
-        match stream.write(&frame[written..]) {
+        match bounded(&mut stream, Direction::Write, allowed, |s| {
+            s.write(&frame[written..])
+        }) {
             Ok(0) => return Err(WireError::AfterSend(AfterSend::Closed)),
             Ok(n) => written += n,
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
@@ -152,10 +261,9 @@ pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, Wi
             Timeout::Idle(d) => d,
             Timeout::Deadline(d) => left(d).ok_or(WireError::AfterSend(AfterSend::TimedOut))?,
         };
-        stream
-            .set_read_timeout(Some(allowed))
-            .map_err(|e| WireError::AfterSend(after_send(&e)))?;
-        match stream.read(&mut chunk) {
+        match bounded(&mut stream, Direction::Read, allowed, |s| {
+            s.read(&mut chunk)
+        }) {
             Ok(0) => return Err(WireError::AfterSend(AfterSend::Closed)),
             Ok(n) => bytes.extend_from_slice(&chunk[..n]),
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
