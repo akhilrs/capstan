@@ -1,6 +1,6 @@
 # Remote protocol v1
 
-Status: draft (v1, awaiting approval)
+Status: approved (v1)
 
 This document is the wire contract between a host that runs controllers and a client that follows them from elsewhere
 (a phone app, a watcher). It describes the frozen API of the kernel event feed and the paged snapshot (the plan-64
