@@ -330,6 +330,31 @@ final class HostSessionTests: XCTestCase {
         XCTAssertEqual(at, clock.now())
     }
 
+    /// The host's projects flap between ready and silent while two are unsupported; none of it may restart the stream.
+    func testFlappingProjectLinesForTwoMinutesKeepOneChildAndALiveHost() async throws {
+        let cursor = makeCursor(["p1"])
+        let session = makeSession()
+        await startAndWait(session)
+        runner.child(at: 0).send(Wire.hello)
+        for id in ["a", "b"] { runner.child(at: 0).send(Wire.project(id, state: "unsupported")) }
+        runner.child(at: 0).send(Wire.project("p1", state: "ready") + Wire.snapshot("p1", key: "op:1") + Wire.snapshotEnd + Wire.cursor(cursor))
+        await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        let before = await consumer.states.filter { if case .connecting = $0 { return true } else { return false } }.count
+        for step in 0..<24 {
+            clock.advance(by: 5)
+            let state = ["silent", "ready", "ready", "silent"][step % 4]
+            runner.child(at: 0).send(Wire.project("capstan", state: state))
+            if step % 3 == 0 { runner.child(at: 0).send(Wire.heartbeat) }
+            if step % 4 == 0 { runner.child(at: 0).send(Wire.cursor(cursor)) }
+            await settle()
+        }
+        XCTAssertEqual(runner.startCount, 1)
+        XCTAssertEqual(runner.maxConcurrentChildren, 1)
+        let states = await consumer.states
+        XCTAssertEqual(states.filter { if case .connecting = $0 { return true } else { return false } }.count, before)
+        guard case .live? = states.last else { return XCTFail("not live: \(String(describing: states.last))") }
+    }
+
     func testAThreeHundredLineSnapshotIsOneBatch() async throws {
         let cursor = makeCursor(["p1"])
         var text = Wire.hello + Wire.project("p1", state: "ready")

@@ -3,7 +3,7 @@ import Foundation
 /// What is kept of a host between runs. It holds text that came from the host, so the files are readable by the
 /// user alone.
 public struct PersistedHost: Codable, Sendable, Equatable {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     public var version: Int
     public var hostId: UUID

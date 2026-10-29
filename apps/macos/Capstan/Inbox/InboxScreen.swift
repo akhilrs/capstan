@@ -8,8 +8,19 @@ struct InboxScreen: View {
     @Bindable var model: AppModel
 
     var body: some View {
+        if case .project(let hostId, let projectId) = model.selection,
+            let project = model.project(hostId, projectId), project.availability != .ready
+        {
+            // A project that is not ready has no snapshot to wait for: say why and what to do, never skeleton rows.
+            ProjectStateView(model: model, hostId: hostId, project: project)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         let groups = model.displayGroups()
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(model.hosts) { config in
                 if !isLive(config.id) {
                     ConnectionBanners(model: model, hostId: config.id)
@@ -132,6 +143,27 @@ struct InboxScreen: View {
         }
         model.selectedRow = ids[min(max(index + step, 0), ids.count - 1)]
         return .handled
+    }
+}
+
+/// The empty view of a project that is not ready: what the state means and how to fix it (screen 07's wording).
+private struct ProjectStateView: View {
+    let model: AppModel
+    let hostId: UUID
+    let project: ProjectModel
+
+    var body: some View {
+        let text = AvailabilityText(project.availability)
+        VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            StatePill(word: text.word, symbol: text.symbol, tone: HostLabel.tone(project.availability))
+            Text(verbatim: text.meaning).font(.system(size: 15, weight: .semibold))
+            Text(verbatim: text.fix).font(.system(size: 13)).foregroundStyle(Tokens.color(.label2))
+            Button { model.refresh(hostId: hostId, projectIds: [project.projectId]) } label: { Text("Check again") }
+                .buttonStyle(.capstanPrimary)
+                .padding(.top, Tokens.space[0])
+        }
+        .padding(Tokens.space[5])
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

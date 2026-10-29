@@ -65,6 +65,8 @@ public actor HostSession {
     private let consumer: any StreamConsumer
     private let clock: any SessionClock
     private let jitter: @Sendable () -> Double
+    /// One short line for each connect, restart and end of a stream, so a restart can be traced to its cause.
+    private let diagnostic: (@Sendable (String) -> Void)?
     private let decoder = LineDecoder()
 
     public private(set) var state: ConnectionState = .connecting
@@ -97,8 +99,10 @@ public actor HostSession {
     /// `jitter` returns the factor applied to a backoff delay (0.8 to 1.2 in use).
     public init(
         config: HostConfig, runner: any ProcessRunner, consumer: any StreamConsumer, clock: any SessionClock,
-        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0.8...1.2) }
+        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0.8...1.2) },
+        diagnostic: (@Sendable (String) -> Void)? = nil
     ) {
+        self.diagnostic = diagnostic
         self.config = config
         self.runner = runner
         self.consumer = consumer
@@ -182,6 +186,7 @@ public actor HostSession {
         while gen == generation {
             let outcome = await connectOnce(generation: gen)
             guard gen == generation else { return }
+            diagnostic?("connection \(connectionId) ended: \(HostSession.describe(outcome))")
             switch outcome {
             case .superseded:
                 return
@@ -215,9 +220,19 @@ public actor HostSession {
         }
     }
 
+    private static func describe(_ outcome: Outcome) -> String {
+        switch outcome {
+        case .superseded: return "superseded"
+        case .stop(let reason): return "stop \(reason)"
+        case .restartNow: return "restart now"
+        case .retry(let error, let counts): return "retry \(error) failure=\(counts)"
+        }
+    }
+
     private func connectOnce(generation gen: Int) async -> Outcome {
         connectionId += 1
         let id = connectionId
+        diagnostic?("connection \(id) starting")
         watchdogFired = false
         refreshRestartRequested = false
         let quiet = refreshRestartPending
@@ -311,7 +326,9 @@ public actor HostSession {
             return .superseded
         }
         if connectionId == id { currentProcess = nil }
+        if watchdogFired { diagnostic?("connection \(id): no line for \(Int(heartbeatTimeout)) s") }
         if refreshRestartRequested {
+            diagnostic?("connection \(id): refresh restart")
             // The partial batch is read again with the snapshots after the restart.
             terminate(process, connection: id)
             return .restartNow

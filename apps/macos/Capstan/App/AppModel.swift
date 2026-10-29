@@ -87,6 +87,16 @@ final class AppModel {
             try? JSONDecoder().decode(AppSettings.self, from: $0)
         } ?? AppSettings()
         self.notifications = NotificationCoordinator(model: self)
+        AppModel.apply(appearance: settings.appearance)
+    }
+
+    /// Sets the look of every window, the Settings window and the menu bar extra included.
+    static func apply(appearance: AppearanceChoice) {
+        switch appearance {
+        case .system: NSApp?.appearance = nil
+        case .light: NSApp?.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp?.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 
     /// A model for previews and tests: nothing is read or written and nothing runs.
@@ -120,6 +130,7 @@ final class AppModel {
     func start() {
         guard !started, directory != nil else { return }
         started = true
+        AppModel.apply(appearance: settings.appearance)
         enqueue { [self] in
             guard started else { return }
             await launch()
@@ -214,7 +225,8 @@ final class AppModel {
                 }
             })
         let session = HostSession(
-            config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock())
+            config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock(),
+            diagnostic: { AppModel.log.notice("\(config.displayName, privacy: .public): \($0, privacy: .public)") })
         engines[id] = engine
         sessions[id] = session
         connection[id] = .connecting
@@ -439,7 +451,7 @@ final class AppModel {
         }
     }
 
-    private static let log = Logger(subsystem: "capstan", category: "AppModel")
+    private nonisolated static let log = Logger(subsystem: "capstan", category: "AppModel")
 
     private static func wireItem(_ stored: StoredWaiting) -> WaitingItem? {
         do {
@@ -613,6 +625,7 @@ final class AppModel {
         if let defaults, let data = try? JSONEncoder().encode(new) {
             defaults.set(data, forKey: AppModel.settingsKey)
         }
+        AppModel.apply(appearance: new.appearance)
         notifications.settingsChanged(new)
     }
 }

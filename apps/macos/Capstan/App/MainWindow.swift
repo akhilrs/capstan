@@ -57,7 +57,7 @@ struct MainWindow: View {
                     .fixedSize()
                     .padding(.horizontal, Tokens.space[1])
             }
-            ToolbarItem(placement: .principal) {
+            ToolbarItem(placement: .navigation) {
                 switch model.selection {
                 case .inbox, .project:
                     KindFilter(model: model, compact: compactToolbar || narrow)

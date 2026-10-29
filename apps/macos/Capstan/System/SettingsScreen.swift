@@ -44,6 +44,14 @@ private struct GeneralSettings: View {
     var body: some View {
         Form {
             Section {
+                Picker("Appearance", selection: binding(\.appearance)) {
+                    ForEach(AppearanceChoice.allCases, id: \.self) { choice in
+                        Text(verbatim: choice.title).tag(choice)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            Section {
                 TextField("Client label", text: $draft)
                     .focused($focused)
                     .onSubmit(commit)

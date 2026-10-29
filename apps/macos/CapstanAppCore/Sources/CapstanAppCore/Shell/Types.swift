@@ -32,18 +32,45 @@ public struct HostsFocus: Hashable, Sendable {
     }
 }
 
+/// The look of every window: the system's, or light or dark.
+public enum AppearanceChoice: String, Codable, CaseIterable, Sendable {
+    case system, light, dark
+
+    public var title: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
 public struct AppSettings: Codable, Equatable, Sendable {
+    public var appearance: AppearanceChoice
     public var clientLabel: String
     public var notifyKinds: Set<WaitingKind>
     public var allowDuringFocus: Bool
     public var heartbeatPulse: Bool
 
+    /// Settings saved before a key existed decode with that key's default.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let base = AppSettings()
+        appearance = try c.decodeIfPresent(AppearanceChoice.self, forKey: .appearance) ?? base.appearance
+        clientLabel = try c.decodeIfPresent(String.self, forKey: .clientLabel) ?? base.clientLabel
+        notifyKinds = try c.decodeIfPresent(Set<WaitingKind>.self, forKey: .notifyKinds) ?? base.notifyKinds
+        allowDuringFocus = try c.decodeIfPresent(Bool.self, forKey: .allowDuringFocus) ?? base.allowDuringFocus
+        heartbeatPulse = try c.decodeIfPresent(Bool.self, forKey: .heartbeatPulse) ?? base.heartbeatPulse
+    }
+
     public init(
+        appearance: AppearanceChoice = .system,
         clientLabel: String = "Mac",
         notifyKinds: Set<WaitingKind> = [.op, .prompt, .design, .message, .integration],
         allowDuringFocus: Bool = false,
         heartbeatPulse: Bool = true
     ) {
+        self.appearance = appearance
         self.clientLabel = clientLabel
         self.notifyKinds = notifyKinds
         self.allowDuringFocus = allowDuringFocus
