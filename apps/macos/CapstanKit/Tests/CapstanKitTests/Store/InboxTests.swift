@@ -71,4 +71,68 @@ final class InboxTests: XCTestCase {
         harness.apply(try StoreWire.project("proj-a", state: "silent"))
         XCTAssertTrue(inbox([harness.host]).allSatisfy { $0.rows.allSatisfy(\.stale) })
     }
+
+    // MARK: Sort order
+
+    private func sortRow(_ key: String, since: String, host: UUID = UUID(), project: String = "proj-a") -> InboxRow {
+        InboxRow(
+            id: InboxRowID(hostId: host, projectId: project, key: key), kind: .message, projectName: project, since: since,
+            summary: hostText("s"), needsTerminal: false, forwarded: false, stale: false, requestId: "req-\(key)",
+            contentHash: "h")
+    }
+
+    /// The order the inbox had before the dates were read once: formatters made for every comparison.
+    private func referenceOrder(_ rows: [InboxRow]) -> [InboxRowID] {
+        func date(_ text: String) -> Date? {
+            let plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return fractional.date(from: text) ?? plain.date(from: text)
+        }
+        return rows.sorted { left, right in
+            if left.since != right.since {
+                if let a = date(left.since), let b = date(right.since), a != b { return a < b }
+                return left.since < right.since
+            }
+            if left.id.hostId != right.id.hostId { return left.id.hostId.uuidString < right.id.hostId.uuidString }
+            if left.id.projectId != right.id.projectId { return left.id.projectId < right.id.projectId }
+            return left.id.key < right.id.key
+        }.map(\.id)
+    }
+
+    func testSortOrderIsUnchangedOnFractionalPlainAndInvalidDates() throws {
+        let host = UUID()
+        let rows = [
+            sortRow("a", since: "2026-10-01T10:00:00.500Z", host: host),
+            sortRow("b", since: "2026-10-01T10:00:00Z", host: host),
+            sortRow("c", since: "2026-10-01T09:59:59.999Z", host: host),
+            sortRow("d", since: "not a date", host: host),
+            sortRow("e", since: "2026-10-01T10:00:00.000Z", host: host),
+            sortRow("f", since: "2026-10-01T10:00:00Z", host: host, project: "proj-0"),
+            sortRow("g", since: "2026-10-01T10:00:00Z", host: host),
+            sortRow("h", since: "", host: host),
+            sortRow("i", since: "2026-10-01T11:00:00+01:00", host: host),
+        ]
+        XCTAssertEqual(sortedInboxRows(rows).map(\.id), referenceOrder(rows))
+        XCTAssertEqual(sortedInboxRows(rows.reversed()).map(\.id), referenceOrder(rows.reversed()))
+        // Same instant, different spelling: the text decides; the plain and the fractional zero differ.
+        let ids = sortedInboxRows(rows).map(\.id.key)
+        XCTAssertLessThan(try XCTUnwrap(ids.firstIndex(of: "c")), try XCTUnwrap(ids.firstIndex(of: "b")))
+        XCTAssertLessThan(try XCTUnwrap(ids.firstIndex(of: "b")), try XCTUnwrap(ids.firstIndex(of: "a")))
+    }
+
+    func testSortingTwoThousandRowsIsFast() {
+        let host = UUID()
+        let rows = (0..<2_000).map { index -> InboxRow in
+            let second = (index * 7919) % 3_600
+            let text = String(format: "2026-10-01T10:%02d:%02d", second / 60, second % 60)
+            return sortRow("k\(index)", since: index % 2 == 0 ? text + "Z" : text + ".250Z", host: host)
+        }
+        let start = Date()
+        let sorted = sortedInboxRows(rows)
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(sorted.count, 2_000)
+        XCTAssertLessThan(elapsed, 1.0, "sorted in \(elapsed) s")
+    }
 }

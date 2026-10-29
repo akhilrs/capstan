@@ -18,9 +18,12 @@ public actor HostStoreEngine: StreamConsumer {
     private var staging = Staging()
     private var connectionState: ConnectionState = .connecting
     private var lastSaveAt: Date?
-    private var pendingSave: PersistedHost?
+    /// A save was asked for within the interval; the host to write is built when it is written, not before.
+    private var saveDirty = false
     private var saveTask: Task<Void, Never>?
     public private(set) var lastSaveError: String?
+    /// How many times the host to save was built; a deferred save builds it once, when it writes.
+    private(set) var persistedBuildCount = 0
 
     /// Loads what an earlier run saved before any session starts, so the models, the notify baseline and the resume
     /// cursor are in place when the first line arrives.
@@ -98,7 +101,7 @@ public actor HostStoreEngine: StreamConsumer {
                 && staging.pending[$0] == nil
         }
         if !refresh.isEmpty { onRefresh(refresh) }
-        if cursorSeen { scheduleSave(persistedNow()) }
+        if cursorSeen { scheduleSave() }
     }
 
     public func connection(host: UUID, _ state: ConnectionState) async {
@@ -139,7 +142,7 @@ public actor HostStoreEngine: StreamConsumer {
         }
         model.forwards[projectId] = records
         onChange(model)
-        scheduleSave(persistedNow())
+        scheduleSave()
     }
 
     /// Saves now what is held.
@@ -155,19 +158,20 @@ public actor HostStoreEngine: StreamConsumer {
     }
 
     private func persistedNow() -> PersistedHost {
-        PersistedHost(host: model, staging: staging, savedAt: clock.now())
+        persistedBuildCount += 1
+        return PersistedHost(host: model, staging: staging, savedAt: clock.now())
     }
 
     /// The first save, and any after a quiet interval, happens at once; the ones in between become one save at the end of
-    /// the interval, with the newest pair of cursor and models.
-    private func scheduleSave(_ pair: PersistedHost) {
+    /// the interval, with the newest cursor and models. Nothing is built until the write.
+    private func scheduleSave() {
         let now = clock.now()
         guard let last = lastSaveAt, now.timeIntervalSince(last) < HostStoreEngine.saveIntervalSeconds else {
             cancelDeferredSave()
-            write(pair)
+            write(persistedNow())
             return
         }
-        pendingSave = pair
+        saveDirty = true
         guard saveTask == nil else { return }
         let delay = HostStoreEngine.saveIntervalSeconds - now.timeIntervalSince(last)
         saveTask = Task { await self.saveAfter(delay) }
@@ -181,20 +185,18 @@ public actor HostStoreEngine: StreamConsumer {
         }
         guard !Task.isCancelled else { return }
         saveTask = nil
-        guard var pair = pendingSave else { return }
-        // Forwards recorded since the pair was taken belong to it.
-        pair.forwards = persistedNow().forwards
-        write(pair)
+        guard saveDirty else { return }
+        write(persistedNow())
     }
 
     private func cancelDeferredSave() {
         saveTask?.cancel()
         saveTask = nil
-        pendingSave = nil
+        saveDirty = false
     }
 
     private func write(_ pair: PersistedHost) {
-        pendingSave = nil
+        saveDirty = false
         var saved = pair
         saved.savedAt = clock.now()
         lastSaveAt = saved.savedAt

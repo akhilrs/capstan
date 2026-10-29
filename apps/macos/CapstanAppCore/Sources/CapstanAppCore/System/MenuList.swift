@@ -10,23 +10,20 @@ public struct MenuList: Equatable, Sendable {
 
     /// Rows already forwarded to a terminal are left out, as the count in the menu bar leaves them out.
     public init(rows: [InboxRow], limit: Int = MenuList.defaultLimit) {
-        let waiting = rows.filter { !$0.forwarded }.sorted { left, right in
-            let a = MenuList.date(left.since), b = MenuList.date(right.since)
-            if let a, let b, a != b { return a > b }
-            if left.since != right.since { return left.since > right.since }
-            return left.id.key > right.id.key
-        }
+        // Each date is read once, before the sort.
+        let dated = rows.filter { !$0.forwarded }.map { (row: $0, date: MenuList.date($0.since)) }
+        let waiting = dated.sorted { left, right in
+            if let a = left.date, let b = right.date, a != b { return a > b }
+            if left.row.since != right.row.since { return left.row.since > right.row.since }
+            return left.row.id.key > right.row.id.key
+        }.map(\.row)
         shown = Array(waiting.prefix(max(limit, 0)))
         moreCount = max(waiting.count - shown.count, 0)
     }
 
     /// `since` as a date; nil when it is not ISO 8601, with or without fractional seconds.
     static func date(_ text: String) -> Date? {
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: text) ?? plain.date(from: text)
+        DateReader.shared.date(text)
     }
 
     /// A short age: "now", "5m", "3h", "2d". Empty when the time is not readable.
@@ -60,5 +57,25 @@ public struct MenuList: Equatable, Sendable {
     public static func projectLine(_ row: InboxRow) -> String {
         let plain = UntrustedText(raw: row.projectName, verified: true, truncated: false).displayPlain
         return TextBudget.displayPrefix(plain, maxBytes: 64).text
+    }
+}
+
+/// The formatters for `since`, made once; the lock keeps one call at a time.
+private final class DateReader: @unchecked Sendable {
+    static let shared = DateReader()
+
+    private let lock = NSLock()
+    private let plain: ISO8601DateFormatter
+    private let fractional: ISO8601DateFormatter
+
+    private init() {
+        plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    }
+
+    func date(_ text: String) -> Date? {
+        lock.withLock { fractional.date(from: text) ?? plain.date(from: text) }
     }
 }
