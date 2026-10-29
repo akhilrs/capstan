@@ -105,6 +105,22 @@ final class LiveProcessRunnerTests: XCTestCase {
         }
     }
 
+    /// Several writes and an immediate exit: every byte is in the tail when the exit is reported.
+    func testEveryStderrByteIsKeptWhenTheChildExitsAtOnce() async throws {
+        let children = try (0..<10).map { _ in
+            try launch("i=0; while [ $i -lt 40 ]; do echo line-$i >&2; i=$((i+1)); done; echo end >&2; exit 1")
+        }
+        await bounded("immediate exit") {
+            for process in children {
+                let code = await process.exitCode()
+                XCTAssertEqual(code, 1)
+                let tail = process.stderrTail()
+                XCTAssertTrue(tail.hasPrefix("line-0\n"), "tail: \(tail)")
+                XCTAssertTrue(tail.hasSuffix("line-39\nend\n"), "tail: \(tail)")
+            }
+        }
+    }
+
     func testStderrTailKeepsTheLast4096Bytes() async throws {
         let process = try launch("i=0; while [ $i -lt 600 ]; do echo 0123456789; i=$((i+1)); done >&2; echo last >&2")
         await bounded("stderr cap") {
