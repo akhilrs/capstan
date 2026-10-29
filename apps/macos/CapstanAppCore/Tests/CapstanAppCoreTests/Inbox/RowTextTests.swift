@@ -79,15 +79,14 @@ final class RowTextTests: XCTestCase {
             XCTAssertEqual(KindTab(kind: tab.kind), tab)
         }
         XCTAssertEqual(KindTab(kind: .integration), .merges)
-        XCTAssertEqual(KindTab.visible.map(\.title), ["All", "Proposals", "Prompts", "Designs"])
-        XCTAssertEqual(KindTab.more.map(\.title), ["Messages", "Merges"])
+        XCTAssertEqual(KindTab.visible.map(\.title), ["All", "Proposals", "Prompts", "Designs", "Messages", "Merges"])
     }
 
     func test_FooterStatus_oneHostLive() {
         let now = Date(timeIntervalSince1970: 1_000)
         let live = ConnectionState.live(since: now.addingTimeInterval(-60), lastLineAt: now.addingTimeInterval(-3))
         let status = FooterStatus.make([.init(name: "build-host", state: live, loading: false)], now: now)
-        XCTAssertEqual(status.text, "build-host live · last update 3 s ago")
+        XCTAssertEqual(status.text, "build-host live · updated 3 s ago")
         XCTAssertEqual(status.tone, .green)
     }
 

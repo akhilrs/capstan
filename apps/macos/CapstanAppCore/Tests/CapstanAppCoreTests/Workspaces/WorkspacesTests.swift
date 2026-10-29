@@ -142,16 +142,71 @@ final class WorkspacesTests: XCTestCase {
         return PlanRow(stored)
     }
 
-    func testPlanFilterShowsOnlyApprovedPlansAsActiveAndDraftsApart() {
+    func testPlanFilterDoneIsEndedOrAllIntegratedAndActiveIsTheRest() {
         let rows = [
             plan(state: "approved"), plan(state: "draft"), plan(state: "in_review"), plan(state: "signed_off"),
-            plan(state: "approved", 3, 3), plan(state: "draft", 0, 0),
+            plan(state: "approved", 3, 3), plan(state: "superseded", 0, 0), plan(state: "cancelled", 0, 0),
+            plan(state: "rejected", 0, 0), plan(state: "failed", 0, 0),
         ]
-        XCTAssertEqual(PlanFilter.counts(rows).active, 1)
-        XCTAssertEqual(PlanFilter.counts(rows).drafts, 3)
-        XCTAssertEqual(PlanFilter.counts(rows).done, 2)
-        XCTAssertTrue(PlanFilter.drafts.matches(rows[1]))
-        XCTAssertTrue(PlanFilter.drafts.matches(rows[2]))
-        XCTAssertFalse(PlanFilter.active.matches(rows[1]))
+        XCTAssertEqual(rows.map { PlanFilter.filter(of: $0) }, [
+            .active, .active, .active, .done, .done, .done, .done, .done, .done,
+        ])
+        XCTAssertEqual(PlanFilter.counts(rows).active, 3)
+        XCTAssertEqual(PlanFilter.counts(rows).done, 6)
+        XCTAssertTrue(PlanFilter.active.matches(rows[1]))
+        XCTAssertEqual(rows[1].metaLine, "draft · 3 packages")
+        XCTAssertEqual(rows[1].pill(waiting: 0), PlanPill(word: "Draft", tone: .grey))
+    }
+
+    private func integrationItem(_ key: String, since: String) throws -> StoredWaiting {
+        try ShellFixtures.decode(
+            StoredWaiting.self,
+            "{\"key\":\"\(key)\",\"requestId\":\"r\",\"kind\":\"integration\",\"since\":\"\(since)\","
+                + "\"summary\":{\"raw\":\"s\",\"verified\":true,\"truncated\":false},\"contentHash\":\"h\",\"needsTerminal\":false}")
+    }
+
+    private func detailed(_ key: String, integrations: [String?]) -> StoredPlan {
+        var stored = plan(2, 2, 2, 0)
+        stored.key = key
+        stored.planId = key
+        stored.packageDetails = integrations.enumerated().map { index, id in
+            PackageDetail(
+                id: "p\(index)", title: UntrustedText(raw: "t", verified: true, truncated: false), role: "developer",
+                state: .reported, integrationId: id)
+        }
+        return stored
+    }
+
+    func testWaitingItemsAreMatchedToThePlanByIntegrationIdAndOrderedOldestFirst() throws {
+        var project = ProjectModel(projectId: "a", root: "/a", snapshotComplete: true)
+        let mine = detailed("plan-1", integrations: ["7", "3"])
+        let other = detailed("plan-2", integrations: ["9"])
+        for item in [
+            try integrationItem("integration:7", since: "2026-01-02"), try integrationItem("integration:3", since: "2026-01-01"),
+            try integrationItem("integration:9", since: "2026-01-01"),
+        ] { project.waiting[item.key] = item }
+        XCTAssertEqual(IntegrationLink.waiting(for: mine, in: project).map(\.key), ["integration:3", "integration:7"])
+        XCTAssertEqual(IntegrationLink.waiting(for: other, in: project).map(\.key), ["integration:9"])
+        XCTAssertEqual(IntegrationLink.waiting(for: detailed("plan-3", integrations: [nil]), in: project), [])
+        XCTAssertEqual(IntegrationLink.waiting(for: nil, in: project), [])
+        var bare = plan(2, 2, 2, 0)
+        bare.packageDetails = nil
+        XCTAssertEqual(IntegrationLink.waiting(for: bare, in: project), [])
+    }
+
+    func testPlanMetaLineAndPill() {
+        XCTAssertEqual(plan(state: "approved", 5, 0).metaLine, "approved · 5 packages")
+        var stored = plan(5, 4, 3, 2)
+        stored.state = "approved"
+        let mid = PlanRow(stored)
+        XCTAssertEqual(mid.metaLine, "approved · 5 packages · 2 integrated, 1 reported, 1 assigned")
+        XCTAssertEqual(mid.pill(waiting: 1), PlanPill(word: "1 waits for you", tone: .yellow))
+        XCTAssertNil(mid.pill(waiting: 0))
+        XCTAssertEqual(mid.summaryLine, "2 of 5 integrated")
+        let signed = plan(state: "signed_off", 3, 3)
+        XCTAssertEqual(signed.metaLine, "signed off · 3 of 3 integrated")
+        XCTAssertEqual(signed.pill(waiting: 0), PlanPill(word: "Ready to merge", tone: .green))
+        XCTAssertEqual(plan(state: "in_review").pill(waiting: 0), PlanPill(word: "In review", tone: .grey))
+        XCTAssertNil(plan(state: "approved").pill(waiting: 2))
     }
 }

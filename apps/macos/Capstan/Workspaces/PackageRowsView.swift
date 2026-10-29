@@ -2,61 +2,49 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// The packages of one plan in integration order: id and title, state, review, what it depends on, who has it and
-/// its integration state. A plan from a host without details shows nothing here.
+/// The packages of one plan in integration order, as the design draws them: a status icon, the id and a coloured
+/// pill, then the branch in monospace and the review state and order. A plan from a host without details shows nothing.
 struct PackageRowsView: View {
     let plan: PlanRow
     let packages: [PackageRow]
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: Tokens.space[1]) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(packages, id: \.id) { package in
                 packageRow(package)
+                Divider()
             }
             if plan.omittedPackages > 0 {
                 Text(verbatim: "+\(plan.omittedPackages) more packages")
                     .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
-                    .padding(.leading, Tokens.space[2])
+                    .padding(.top, Tokens.space[1])
             }
         }
-        .padding(.leading, Tokens.space[3])
     }
 
     private func packageRow(_ package: PackageRow) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            HStack {
-                Text(verbatim: package.id).font(.system(size: 12, design: .monospaced))
-                Text(verbatim: package.title).font(.system(size: 13)).lineLimit(1)
-                Spacer()
-                StatePill(word: package.stateWord, symbol: package.stateSymbol, tone: tone(package))
+        HStack(alignment: .top, spacing: Tokens.space[1]) {
+            Image(systemName: package.statusIcon)
+                .imageScale(.small)
+                .foregroundStyle(package.pillTone == .grey ? Tokens.color(.label) : package.pillTone.color)
+                .frame(width: 16, height: 16)
+            VStack(alignment: .leading, spacing: Tokens.space[0]) {
+                HStack {
+                    Text(verbatim: package.id).font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    StatePill(word: package.pillWord, symbol: nil, tone: package.pillTone)
+                }
+                if let branch = package.branch {
+                    Text(verbatim: branch).font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Tokens.color(.label2)).lineLimit(1).truncationMode(.middle)
+                }
+                Text(verbatim: package.detailLine)
+                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             }
-            HStack(spacing: Tokens.space[1]) {
-                Text(verbatim: package.reviewWord)
-                if !package.dependsOn.isEmpty {
-                    Text(verbatim: "depends on").foregroundStyle(Tokens.color(.label2))
-                    Text(verbatim: package.dependsOn.joined(separator: ", ")).font(.system(size: 12, design: .monospaced))
-                }
-                if let assignee = package.assignee {
-                    Text(verbatim: assignee).font(.system(size: 12, design: .monospaced))
-                }
-                if let integration = package.integrationWord {
-                    Text(verbatim: integration)
-                }
-            }
-            .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
         }
-        .padding(Tokens.space[1])
+        .padding(.vertical, Tokens.space[1])
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-    }
-
-    private func tone(_ package: PackageRow) -> Tone {
-        switch package.stateWord {
-        case "Integrated", "Confirmed": return .green
-        case "Reported": return .blue
-        case "Assigned": return .yellow
-        default: return .grey
-        }
     }
 }
 
