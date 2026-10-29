@@ -1301,6 +1301,15 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     json!({}),
                 ));
             }
+            if draft.ty == "plan.signed_off" || row.action == "plan.cancel" {
+                // A sign-off or a cancelled plan supersedes the integrations of that plan that wait.
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("integration"),
+                    json!({}),
+                ));
+            }
             list.push(notices_effect());
             effects = list;
         }
@@ -1483,6 +1492,13 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     json!({}),
                 ));
             }
+            // A merged integration supersedes the earlier ones of its plans.
+            list.push(effect(
+                "waiting",
+                "invalidate",
+                kind_key("integration"),
+                json!({}),
+            ));
             effects = list;
         }
         "snapshot.invalidated" => {
@@ -1553,6 +1569,13 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             if row.action == "integration.settle" {
                 // A discarded integration stops counting its packages as integrated.
                 list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
+                // A confirmed integration supersedes the earlier ones of its plans.
+                list.push(effect(
+                    "waiting",
+                    "invalidate",
+                    kind_key("integration"),
+                    json!({}),
+                ));
             }
             effects = list;
         }

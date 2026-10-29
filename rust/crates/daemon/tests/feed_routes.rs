@@ -162,6 +162,20 @@ impl World {
         assert_eq!(answer["ok"], true, "{answer}");
     }
 
+    /// Seeds a pending operator proposal (an item that waits for the user; a message to an agent does not).
+    fn propose(&self, command: &str) {
+        let credential = self.agents["dev-1"].clone();
+        let command = command.to_string();
+        self.direct(move |c| {
+            Ok(setup_step(
+                c,
+                &credential,
+                "proposeOperatorAction",
+                json!([{"kind": "command", "command": command, "reason": "r", "maxPending": 100_000}]),
+            ))
+        });
+    }
+
     fn direct<T: serde::Serialize + Send + 'static>(
         &self,
         f: impl FnOnce(&Core) -> capstan_kernel::KernelResult<T> + Send + 'static,
@@ -202,6 +216,7 @@ fn the_subcommands_answer_what_the_kernel_answers() {
     let w = World::new();
     for n in 0..5 {
         w.send(&format!("message {n}"));
+        w.propose(&format!("ls {n}"));
     }
     assert_eq!(
         *result(&w.operator(&["head"])),
@@ -233,10 +248,12 @@ fn the_subcommands_answer_what_the_kernel_answers() {
         *result(&w.operator(&["waiting", "--limit", "100"])),
         waiting
     );
-    assert_eq!(
-        *result(&w.operator(&["waiting", "--limit", "100", "--kind", "message"])),
-        w.direct(|c| snapshot_feed::waiting_page(c, None, 100, Some("message")))
-    );
+    for kind in ["message", "op"] {
+        assert_eq!(
+            *result(&w.operator(&["waiting", "--limit", "100", "--kind", kind])),
+            w.direct(move |c| snapshot_feed::waiting_page(c, None, 100, Some(kind)))
+        );
+    }
     let agents = w.direct(|c| snapshot_feed::agents_page(c, None, 100));
     assert_eq!(*result(&w.operator(&["agents", "--limit", "100"])), agents);
     let after = agents["items"][0]["key"].as_str().unwrap().to_string();
@@ -457,6 +474,7 @@ fn the_largest_pages_fit_the_response_limit_and_cross_a_socket() {
     let body = "\"".repeat(MAX_SEND_BODY_BYTES);
     for _ in 0..110 {
         w.send(&body);
+        w.propose(&"\"".repeat(4000));
     }
     let page = w.operator(&["page", "--after", "0:0", "--limit", "500"]);
     assert_eq!(page["ok"], true, "{page}");

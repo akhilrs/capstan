@@ -219,10 +219,24 @@ fn seed_plan(project: &Project, creds: &Creds) {
     .unwrap();
 }
 
-/// What most tests start from: one waiting message, one developer, one approved plan, and the run item.
+/// What most tests start from: one waiting captured prompt (and a message to an agent, which does not wait), one developer, one approved plan, and the run item.
 fn basic(label: &str) -> Project {
     let (project, creds) = project(label, |core, creds| {
         message(core, creds, "please look at plan 1");
+        // A message to an agent does not wait for the user; a captured prompt does.
+        core.configure_prompt_relay(&json!({"enabled": true, "captureTtlSeconds": 3600}))
+            .unwrap_or_else(|e| panic!("relay: {e}"));
+        let options =
+            json!([{"number": 1, "text": "Yes", "acceptsText": false, "widensPermissions": false}]);
+        let canonical = json!({"agentId": "dev-1", "paneId": "pane-1", "hostKind": "claude", "text": "Allow?", "options": options});
+        core.record_prompt_capture(
+            &context(core, &creds.pm),
+            &json!({"prompt": {
+                "agentId": "dev-1", "paneId": "pane-1", "hostKind": "claude", "text": "Allow?",
+                "options": options, "promptSha": sha256(&canonical.to_string()),
+            }}),
+        )
+        .unwrap_or_else(|e| panic!("prompt: {e}"));
     });
     seed_plan(&project, &creds);
     project
@@ -639,7 +653,7 @@ fn a_fresh_stream_sends_hello_the_project_its_snapshot_and_then_events() {
     let has = |section: &str, key: &str| keys.iter().any(|(s, k)| s == section && k == key);
     assert!(
         keys.iter()
-            .any(|(s, k)| s == "waiting" && k.starts_with("message:")),
+            .any(|(s, k)| s == "waiting" && k.starts_with("prompt:")),
         "{keys:?}"
     );
     assert!(has("agents", "pm-1"), "{keys:?}");
