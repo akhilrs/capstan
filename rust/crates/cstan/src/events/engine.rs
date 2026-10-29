@@ -10,7 +10,7 @@ use capstan_ledger::iso_from_millis;
 use serde_json::Value;
 
 use super::{lines, roots, Deps, EventsPlan, FeedCall, FeedFailure, LineSink};
-use crate::projects::{classify, discover, project_id, Credential, EndpointState};
+use crate::projects::{classify, discover_asked, project_id, Credential, EndpointState};
 use crate::VERSION;
 
 /// The anchor of sequence 0, and of a position the ledger has no anchor for.
@@ -257,7 +257,14 @@ impl Engine<'_> {
         }
         self.check_stop()?;
         self.beat()?;
-        let endpoints = discover(&[], &found, &*self.deps.probe);
+        let asked: Vec<PathBuf> = self
+            .plan
+            .roots
+            .iter()
+            .map(|root| roots::normalise(&self.deps.cwd, root))
+            .filter(|root| found.contains(root))
+            .collect();
+        let endpoints = discover_asked(&[], &found, &asked, &*self.deps.probe);
         self.check_stop()?;
 
         let mut infos: Vec<Info> = Vec::new();

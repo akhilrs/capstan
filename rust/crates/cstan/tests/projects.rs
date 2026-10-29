@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use cstan_front::controllers::Proc;
 use cstan_front::projects::{
-    call_within, classify, discover, helper_threads, project_id, Credential, EndpointState, Live,
-    ProjectProbe, UNDISCOVERABLE_MARKER,
+    call_within, classify, discover, discover_asked, helper_threads, project_id, Credential,
+    EndpointState, Live, ProjectProbe, UNDISCOVERABLE_MARKER,
 };
 
 const KEY: &str = "k3y-0123456789abcdef0123456789abcdef-secret";
@@ -422,4 +422,32 @@ fn an_undiscoverable_root_is_dropped_before_key_or_ask() {
         assert_eq!(called, want);
         assert!(map.values().all(|n| *n == 1));
     }
+}
+
+#[test]
+fn a_marked_root_that_is_asked_for_is_still_followed() {
+    let dir = tmp("asked");
+    let named = project(&dir, "named");
+    let process = project(&dir, "process");
+    let cursor = project(&dir, "cursor");
+    for root in [&named, &process, &cursor] {
+        mark(root);
+    }
+    let probe = Counting {
+        keys: Mutex::new(HashMap::new()),
+        asks: Mutex::new(HashMap::new()),
+    };
+    // `named` is asked for and also arrives as a cursor root; `process` and `cursor` are not asked for.
+    let found = discover_asked(
+        &[proc(1, &process)],
+        &[named.clone(), cursor.clone()],
+        std::slice::from_ref(&named),
+        &probe,
+    );
+    let roots: Vec<_> = found.iter().map(|e| e.root.clone()).collect();
+    assert_eq!(roots, vec![named.clone()]);
+    assert_eq!(probe.asks.lock().unwrap().get(&named), Some(&1));
+    assert_eq!(probe.asks.lock().unwrap().len(), 1);
+    // Without being asked for, the same root is dropped.
+    assert!(discover(&[], &[named], &probe).is_empty());
 }
